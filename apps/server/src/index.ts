@@ -4,6 +4,7 @@ import { app, closeConnections, warmPool, initEventBridge, closeEventBridge, clo
 import { serverEnv } from '@alfred/env/server';
 import { Elysia } from 'elysia';
 
+// Boot sequence: connect to Postgres pool, then realtime event bridge.
 await warmPool();
 await initEventBridge();
 
