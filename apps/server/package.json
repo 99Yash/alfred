@@ -1,0 +1,26 @@
+{
+  "name": "server",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc -b",
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "start": "node --env-file=.env dist/index.js",
+    "deploy": "pnpm --filter @alfred/db db:migrate"
+  },
+  "dependencies": {
+    "elysia": "catalog:",
+    "@elysiajs/cors": "catalog:",
+    "@elysiajs/node": "catalog:",
+    "@alfred/api": "workspace:*",
+    "@alfred/env": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "tsx": "^4.19.2",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "@alfred/config": "workspace:*"
+  }
+}

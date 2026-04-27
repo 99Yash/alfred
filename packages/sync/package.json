@@ -1,0 +1,33 @@
+{
+  "name": "@alfred/sync",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc -b"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "replicache": "catalog:",
+    "tsdown": "catalog:"
+  },
+  "peerDependencies": {
+    "replicache": "^15",
+    "typescript": "^5"
+  },
+  "peerDependenciesMeta": {
+    "replicache": { "optional": true }
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  }
+}

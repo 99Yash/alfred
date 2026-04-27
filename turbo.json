@@ -1,0 +1,37 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"ui": "tui",
+	"tasks": {
+		"build": {
+			"description": "Build all packages and apps for production",
+			"dependsOn": ["^build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+		},
+		"check-types": {
+			"description": "Type-check with tsc across all packages",
+			"dependsOn": ["^check-types"]
+		},
+		"dev": {
+			"description": "Start dev servers (web + server)",
+			"cache": false,
+			"persistent": true,
+			"interruptible": true
+		},
+		"db:push": {
+			"cache": false
+		},
+		"db:studio": {
+			"description": "Open Drizzle Studio database GUI",
+			"cache": false,
+			"persistent": true,
+			"interruptible": true
+		},
+		"db:migrate": {
+			"cache": false
+		},
+		"db:generate": {
+			"cache": false
+		}
+	}
+}

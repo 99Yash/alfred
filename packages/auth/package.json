@@ -1,0 +1,34 @@
+{
+  "name": "@alfred/auth",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc -b"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "tsdown": "catalog:"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "resend": "catalog:",
+    "zod": "catalog:"
+  }
+}

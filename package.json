@@ -1,0 +1,27 @@
+{
+  "name": "alfred",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:server": "turbo run dev --filter=server",
+    "db:push": "turbo run db:push --filter=@alfred/db",
+    "db:studio": "turbo run db:studio --filter=@alfred/db",
+    "db:generate": "turbo run db:generate --filter=@alfred/db",
+    "db:migrate": "turbo run db:migrate --filter=@alfred/db"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "tsdown": "^0.15.5",
+    "turbo": "^2.8.10"
+  },
+  "packageManager": "pnpm@10.20.0",
+  "pnpm": {
+    "overrides": {
+      "@types/pg": "^8.18.0"
+    }
+  }
+}
