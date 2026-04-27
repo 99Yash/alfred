@@ -14,7 +14,8 @@
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",
     "@alfred/api": "workspace:*",
-    "@alfred/env": "workspace:*"
+    "@alfred/env": "workspace:*",
+    "@sentry/node": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

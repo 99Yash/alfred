@@ -1,5 +1,7 @@
+import './instrument';
 import { cors } from '@elysiajs/cors';
 import { node } from '@elysiajs/node';
+import * as Sentry from '@sentry/node';
 import { app, closeConnections, warmPool, initEventBridge, closeEventBridge, closeRedis } from '@alfred/api';
 import { serverEnv } from '@alfred/env/server';
 import { Elysia } from 'elysia';
@@ -39,6 +41,7 @@ async function shutdown(signal: string) {
   } catch (err) {
     console.error('Error closing DB:', err instanceof Error ? err.message : String(err));
   }
+  await Sentry.flush(2000).catch(() => {});
   process.exit(0);
 }
 
