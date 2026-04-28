@@ -20,7 +20,9 @@ export function useSubscribe<T>(
       setState(undefined);
       return;
     }
-    return rep.subscribe(query, setState);
+    // Wrap in updater form so a function-valued query result isn't treated
+    // as a state-updater by React.
+    return rep.subscribe(query, (value) => setState(() => value));
   }, [rep, query]);
 
   return state;

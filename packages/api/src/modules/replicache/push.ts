@@ -11,7 +11,7 @@ export type PushRequestBody = ReplicacheModel.Push;
 export type PushResponse = Record<string, never> | { error: 'ClientStateNotFound' | 'VersionNotSupported' };
 
 function isKnownMutator(name: string): name is MutatorName {
-  return name in mutatorArgsSchemas;
+  return Object.prototype.hasOwnProperty.call(mutatorArgsSchemas, name);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,10 +66,20 @@ export async function handlePush(
     if (group) {
       if (group.userId !== userId) return { forbidden: true };
     } else {
+      // Race: a concurrent first-push may have already inserted this clientGroup
+      // under a different user. onConflictDoNothing silently succeeds, so re-read
+      // and verify ownership before proceeding.
       await tx
         .insert(replicacheClientGroup)
         .values({ id: clientGroupID, userId, cvrVersion: 0 })
         .onConflictDoNothing();
+
+      const [storedGroup] = await tx
+        .select()
+        .from(replicacheClientGroup)
+        .where(eq(replicacheClientGroup.id, clientGroupID));
+
+      if (!storedGroup || storedGroup.userId !== userId) return { forbidden: true };
     }
 
     let needsPoke = false;
