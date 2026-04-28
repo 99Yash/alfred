@@ -752,12 +752,12 @@ Items intentionally not decided yet. Each is a future ADR when its time comes.
 
 The decisions are now self-contained enough to start building. Proposed milestone order:
 
-1. **Scaffold** — copy milkpod's pnpm + Turborepo + packages (`ai`, `api`, `auth`, `config`, `db`, `env`, `sync`) + `apps/server` + new `apps/web` (Vite + TanStack Router). Adapt `@alfred/*` namespacing.
-2. **Auth + first deploy** — Better Auth with allowlist (ADR-0009), Railway deploy, smoke test.
+1. **Scaffold** ✅ *done 2026-04-27* — copied milkpod's pnpm + Turborepo + packages (`ai`, `api`, `auth`, `config`, `db`, `env`, `sync`) + `apps/server` + new `apps/web` (Vite + TanStack Router). `@alfred/*` namespacing throughout. Acceptance criteria from `scaffolding-plan.md` all green.
+2. **Auth + first Railway deploy** ✅ *done 2026-04-28* — Better Auth with emailOTP + one-email allowlist (ADR-0009; passkey deferred per ADR-0009 implementation note). Railway project provisioned (Postgres + Redis + server + web), initial Drizzle migration generated and applied via preDeploy. `/health` 200 with `db: connected`; web SPA serves; Better Auth endpoints reachable. Sentry (server + web) and PostHog (web) wired and initializing from env vars. M2-only env-var coverage: all 11 required + Anthropic, Google, OpenAI, Resend, Perplexity, Sentry DSNs, PostHog key/host. Lessons captured in `scaffolding-plan.md` so M1 won't repeat the migration-not-generated and PORT-hardcoded bugs.
 3. **Replicache MVP** — port milkpod's `packages/sync`, wire one trivial mutator, verify multi-device sync.
 4. **Realtime stack** — outbox table, Redis Pub/Sub relay, SSE endpoint (ADR-0005).
 5. **Durable agent runtime** — checkpoint table, step function, BullMQ worker, idempotent step pattern (ADR-0006 + ADR-0014).
-6. **Cost metering** — `metered()` helper, `api_call_log`, `model_prices`, seed via `models.dev` (ADR-0015).
+6. **Cost metering** — `metered()` helper, `api_call_log`, `model_prices`, seed via `models.dev` (ADR-0015). Wire Langfuse here alongside metering (ADR-0023).
 7. **First integration end-to-end (Gmail)** — OAuth, ingestion job, live tools, webhook + polling, schema for `documents`/`chunks` with pgvector (ADRs 0010, 0024).
 8. **Memory primitives** — `user_facts`, `memory_chunks`, `style_profiles`, correction loop UX (ADRs 0012, 0013, 0019).
 9. **First built-in workflow: email triage** — proves webhook → BullMQ → classifier → write-back loop (ADR-0025).
@@ -766,4 +766,4 @@ The decisions are now self-contained enough to start building. Proposed mileston
 12. **Skills + user-authored workflows** — UI for skill markdown editing, workflow brief authoring (ADR-0017).
 13. **Boss + sub-agent orchestration** — once skills/workflows exist, add the multi-agent runtime on top (ADR-0016).
 14. **MCP client** — connect external MCP servers, register their tools (ADR-0018).
-15. **Observability layered throughout** — Sentry from step 2, PostHog from step 3, Langfuse from step 5/6 (ADR-0023).
+15. **Observability polish** — review Sentry/PostHog/Langfuse instrumentation; add agent-trace UI surface in alfred itself (ADR-0023).

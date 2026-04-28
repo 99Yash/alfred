@@ -234,3 +234,23 @@ If you find yourself reaching for any of those, stop and revisit `decisions.md` 
 - Commit message format follows milkpod's convention (check `git log` in `../milkpod`). Sign off with the same Co-Authored-By line.
 - Hand back: a list of any deviations from this plan (with reasons), and a confirmation that all acceptance criteria pass.
 - The next session will pick up at milestone 2 (auth + first deploy) or milestone 3 (Replicache MVP) depending on user direction.
+
+---
+
+## Lessons from the M1 → M2 transition (2026-04-28)
+
+These bugs hit when M2 deployed to Railway. Future scaffolds should avoid them:
+
+1. **`db:generate` was never run during M1** — schema files existed but no `packages/db/src/migrations/*.sql` files. preDeploy `drizzle-kit migrate` failed against an empty migrations folder. **Fix**: generate the initial migration as part of M1 acceptance (`pnpm --filter @alfred/db db:generate`) and commit it. Add to the acceptance checklist.
+
+2. **Server hardcoded `port: 3001`** — Railway injects `PORT` at runtime and routes external traffic to whatever the container listens on. Hardcoded port = unreachable healthcheck. **Fix**: server entrypoint should be `port: Number(process.env.PORT) || 3001, hostname: '0.0.0.0'`. Add to acceptance criteria.
+
+3. **`pgvector` extension not in migration** — M1 plan called for `CREATE EXTENSION IF NOT EXISTS vector;` to be ready, but the schema-derived migration didn't include it. **Fix**: prepend it to the first migration file (drizzle-kit doesn't manage extensions natively).
+
+4. **Interactive `railway add --database` prompts created duplicate services** — even when `--database postgres` is specified, the CLI still shows "What do you need?" prompt; piping empty stdin doesn't fully suppress it; multi-flag invocations create extra zombie services. **Fix**: add one database at a time with explicit `--database <type>` and verify only one new service appeared in `railway service status --all --json` before moving on.
+
+5. **`serviceDelete` GraphQL mutation doesn't actually delete** — it renames services with a UUID suffix and leaves deployments running. **Fix**: use `railway environment edit --json` with `{"services":{"<id>":{"isDeleted":true}}}` instead.
+
+6. **Watch-pattern diff blocks `railway up` retries** — when a deploy fails on transient infra issues (e.g., `mise install node@22` network error) and you `railway up` to retry, Railway compares against the previous failed deploy's snapshot and skips with `"No changes to watched files"`. **Fix**: make a real (or trivial-but-real) change to a watched path to force the diff. Empty commits don't trigger.
+
+7. **better-auth@1.6.9 doesn't export `./plugins/passkey`** — passkey was removed from the main package mid-reorganization. **Fix**: ship emailOTP only at v1 (covers the magic-link half of ADR-0009). Revisit when better-auth's plugin layout stabilizes or wire `@simplewebauthn/server` directly.
