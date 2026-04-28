@@ -3,6 +3,7 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initObservability } from './lib/observability';
+import { ReplicacheProvider } from './lib/replicache/context';
 import { routeTree } from './routeTree.gen';
 import './index.css';
 
@@ -27,7 +28,9 @@ if (!rootEl) throw new Error('#root element not found');
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ReplicacheProvider>
+        <RouterProvider router={router} />
+      </ReplicacheProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

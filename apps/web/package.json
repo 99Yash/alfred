@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@alfred/api": "workspace:*",
+    "@alfred/sync": "workspace:*",
+    "replicache": "catalog:",
     "@elysiajs/eden": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",

@@ -2,13 +2,14 @@ import './instrument';
 import { cors } from '@elysiajs/cors';
 import { node } from '@elysiajs/node';
 import * as Sentry from '@sentry/node';
-import { app, closeConnections, warmPool, initEventBridge, closeEventBridge, closeRedis } from '@alfred/api';
+import { app, closeConnections, warmPool, initEventBridge, closeEventBridge, closeRedis, initReplicachePokeBridge, closeReplicachePokeBridge } from '@alfred/api';
 import { serverEnv } from '@alfred/env/server';
 import { Elysia } from 'elysia';
 
-// Boot sequence: connect to Postgres pool, then realtime event bridge.
+// Boot sequence: connect to Postgres pool, realtime event bridge, Replicache poke bus.
 await warmPool();
 await initEventBridge();
+await initReplicachePokeBridge();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -30,6 +31,7 @@ async function shutdown(signal: string) {
   await server.stop();
   try {
     await closeEventBridge();
+    await closeReplicachePokeBridge();
     await closeRedis();
     console.log('Redis closed');
   } catch (err) {

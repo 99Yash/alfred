@@ -26,6 +26,7 @@
     "@alfred/auth": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",

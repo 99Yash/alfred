@@ -1,6 +1,14 @@
 import IORedis from 'ioredis';
 import { serverEnv } from '@alfred/env/server';
 
+export function isQueueEnabled(): boolean {
+  try {
+    return Boolean(serverEnv().REDIS_URL);
+  } catch {
+    return false;
+  }
+}
+
 const connections: IORedis[] = [];
 
 export function createRedisConnection(): IORedis {
