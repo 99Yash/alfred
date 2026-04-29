@@ -1,8 +1,22 @@
-// Outbox + Redis Pub/Sub relay scaffolding — implemented in milestone 4
+/**
+ * Realtime event bridge.
+ *
+ * Boot order:
+ *   1. Init the user-events Redis pub/sub bus (publisher + subscriber).
+ *   2. Start the outbox relay (LISTEN/NOTIFY + backstop poll).
+ *
+ * Shutdown reverses that order: stop the relay first so we don't enqueue
+ * frames into a torn-down bus, then close the bus.
+ */
+import { startOutboxRelay, stopOutboxRelay } from "./outbox-relay.js";
+import { closeUserEventsBus, initUserEventsBus } from "./user-events-bus.js";
+
 export async function initEventBridge(): Promise<void> {
-  // stub
+  await initUserEventsBus();
+  await startOutboxRelay();
 }
 
 export async function closeEventBridge(): Promise<void> {
-  // stub
+  await stopOutboxRelay();
+  await closeUserEventsBus();
 }
