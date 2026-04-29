@@ -1,62 +1,65 @@
-import { auth } from '@alfred/auth';
-import { db } from '@alfred/db';
-import { sql } from 'drizzle-orm';
-import { Elysia } from 'elysia';
-import { errorHandler } from './middleware/error-handler.js';
-import { getSessionCached, invalidateSessionToken } from './middleware/session-cache.js';
-import { createUntrackedRedisConnection } from './queue/connection.js';
+import { auth } from "@alfred/auth";
+import { db } from "@alfred/db";
+import { sql } from "drizzle-orm";
+import { Elysia } from "elysia";
+import { errorHandler } from "./middleware/error-handler.js";
+import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache.js";
+import { createUntrackedRedisConnection } from "./queue/connection.js";
+import { replicache } from "./modules/replicache/index.js";
 
-export { closeConnections, warmPool } from '@alfred/db';
-export { closeRedis } from './queue/connection.js';
-export { initEventBridge, closeEventBridge } from './events/index.js';
+export { closeConnections, warmPool } from "@alfred/db";
+export { closeRedis } from "./queue/connection.js";
+export { initEventBridge, closeEventBridge } from "./events/index.js";
+export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
 
-export const app = new Elysia({ name: 'api' })
+export const app = new Elysia({ name: "api" })
   .use(errorHandler)
-  .get('/health', async ({ set }) => {
+  .use(replicache)
+  .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
-      return { ok: true, db: 'connected' };
+      return { ok: true, db: "connected" };
     } catch {
       set.status = 503;
-      return { ok: false, db: 'disconnected' };
+      return { ok: false, db: "disconnected" };
     }
   })
-  .get('/ready', async ({ set }) => {
-    const checks: Record<string, 'ok' | 'error'> = {};
+  .get("/ready", async ({ set }) => {
+    const checks: Record<string, "ok" | "error"> = {};
 
     try {
       await db().execute(sql`SELECT 1`);
-      checks.db = 'ok';
+      checks.db = "ok";
     } catch {
-      checks.db = 'error';
+      checks.db = "error";
     }
 
     try {
       const conn = createUntrackedRedisConnection();
       await conn.ping();
       await conn.quit();
-      checks.redis = 'ok';
+      checks.redis = "ok";
     } catch {
-      checks.redis = 'error';
+      checks.redis = "error";
     }
 
-    const allOk = Object.values(checks).every((v) => v === 'ok');
+    const allOk = Object.values(checks).every((v) => v === "ok");
     if (!allOk) set.status = 503;
     return { ok: allOk, checks };
   })
-  .get('/api/auth/get-session', async ({ request, set }) => {
+  .get("/api/auth/get-session", async ({ request, set }) => {
     try {
       const session = await getSessionCached(request);
-      set.headers['Cache-Control'] = 'private, no-store';
+      set.headers["Cache-Control"] = "private, no-store";
       return session;
     } catch {
-      set.headers['Cache-Control'] = 'private, no-store';
+      set.headers["Cache-Control"] = "private, no-store";
       return null;
     }
   })
   .onRequest(({ request }) => {
     const url = new URL(request.url);
-    if (request.method === 'POST' && url.pathname === '/api/auth/sign-out') {
+    if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
       invalidateSessionToken(request.headers);
     }
   })

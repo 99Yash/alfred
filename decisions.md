@@ -8,37 +8,37 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 
 ## Snapshot
 
-| Layer | Choice |
-|---|---|
-| Monorepo | pnpm + Turborepo |
-| Runtime | Node |
-| Server | Elysia (Eden typed client) |
-| Web | Vite + TanStack Router (SPA) |
-| DB | Railway-managed Postgres + pgvector |
-| Cache/Queue/Pub-Sub | Railway-managed Redis (BullMQ + Pub/Sub) |
-| Sync | Replicache (single-user, multi-device) |
-| Realtime | Postgres outbox → Redis Pub/Sub → Elysia SSE |
-| Jobs/Cron | BullMQ |
-| Agent runtime | Roll-your-own durable execution (Drizzle checkpoints) |
-| LLM SDK | Vercel AI SDK |
-| Auth | Better Auth (magic link + passkey, one-email allowlist) |
-| Hosting | Railway |
-| Data access | Hybrid (ingest + live) |
-| Memory | Structured tables + pgvector |
-| Style | Dedicated table, channel × audience-bucket keyed |
-| Deploy safety | Durable-resume with idempotent steps |
-| Cost metering | `metered()` helper + flat log + DB-backed price table |
-| Orchestration | Boss + namespaced scratchpad: sub-agents auto-write `scratch.{sub_id}.*`, boss promotes to `shared.*` |
-| Skills | Markdown docs with optional frontmatter; activated via `@skill:slug` |
-| Workflows | Trigger + brief + optional explicit step DAG; mostly brief-only |
-| MCP | Client-side only (consume external MCP servers); server-side deferred |
-| Memory correction | In-app cards + chat-extraction; confidence-tiered auto-confirm; cron + end-of-thread + event-triggered extraction |
-| Notifications | Email only at v1 (Resend); morning briefing is the email itself; push/Slack/SMS deferred |
-| Embedding | Voyage family (voyage-context-3 ingestion, voyage-3.5 query) at 1024 dim, cosine, HNSW; Gemini fallback |
-| Web search | Perplexity Sonar Pro (live agent tool); Perplexity Sonar Deep Research (cold-start onboarding) |
-| Observability | Sentry (errors) + PostHog (product analytics) + Langfuse (agent traces) — all on free tiers |
-| Integration freshness | Webhooks where available + polling fallback (per-integration policy table in ADR-0024) |
-| Built-in features | 7 background workflows shipped with the app (ADR-0025); user-authored workflows alongside |
+| Layer                 | Choice                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Monorepo              | pnpm + Turborepo                                                                                                  |
+| Runtime               | Node                                                                                                              |
+| Server                | Elysia (Eden typed client)                                                                                        |
+| Web                   | Vite + TanStack Router (SPA)                                                                                      |
+| DB                    | Railway-managed Postgres + pgvector                                                                               |
+| Cache/Queue/Pub-Sub   | Railway-managed Redis (BullMQ + Pub/Sub)                                                                          |
+| Sync                  | Replicache (single-user, multi-device)                                                                            |
+| Realtime              | Postgres outbox → Redis Pub/Sub → Elysia SSE                                                                      |
+| Jobs/Cron             | BullMQ                                                                                                            |
+| Agent runtime         | Roll-your-own durable execution (Drizzle checkpoints)                                                             |
+| LLM SDK               | Vercel AI SDK                                                                                                     |
+| Auth                  | Better Auth (magic link + passkey, one-email allowlist)                                                           |
+| Hosting               | Railway                                                                                                           |
+| Data access           | Hybrid (ingest + live)                                                                                            |
+| Memory                | Structured tables + pgvector                                                                                      |
+| Style                 | Dedicated table, channel × audience-bucket keyed                                                                  |
+| Deploy safety         | Durable-resume with idempotent steps                                                                              |
+| Cost metering         | `metered()` helper + flat log + DB-backed price table                                                             |
+| Orchestration         | Boss + namespaced scratchpad: sub-agents auto-write `scratch.{sub_id}.*`, boss promotes to `shared.*`             |
+| Skills                | Markdown docs with optional frontmatter; activated via `@skill:slug`                                              |
+| Workflows             | Trigger + brief + optional explicit step DAG; mostly brief-only                                                   |
+| MCP                   | Client-side only (consume external MCP servers); server-side deferred                                             |
+| Memory correction     | In-app cards + chat-extraction; confidence-tiered auto-confirm; cron + end-of-thread + event-triggered extraction |
+| Notifications         | Email only at v1 (Resend); morning briefing is the email itself; push/Slack/SMS deferred                          |
+| Embedding             | Voyage family (voyage-context-3 ingestion, voyage-3.5 query) at 1024 dim, cosine, HNSW; Gemini fallback           |
+| Web search            | Perplexity Sonar Pro (live agent tool); Perplexity Sonar Deep Research (cold-start onboarding)                    |
+| Observability         | Sentry (errors) + PostHog (product analytics) + Langfuse (agent traces) — all on free tiers                       |
+| Integration freshness | Webhooks where available + polling fallback (per-integration policy table in ADR-0024)                            |
+| Built-in features     | 7 background workflows shipped with the app (ADR-0025); user-authored workflows alongside                         |
 
 ---
 
@@ -87,6 +87,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Mutators write domain rows + an `events_outbox` row in one transaction. A relay worker (woken via Postgres LISTEN/NOTIFY internally) reads new outbox events and publishes to Redis Pub/Sub channels keyed `user:{id}`. Elysia exposes per-user SSE endpoints that subscribe to the relevant channel and push events to the client. Replicache pokes are one event type; agent progress, tool-call updates, and approval requests are others.
 
 **Why.**
+
 - **Outbox** gives transactional consistency: domain writes and event fan-out can't drift.
 - **Redis Pub/Sub** is broadcast (every server instance sees every event → fans to its own SSE clients), which matches multi-instance fan-out semantics. Streams would duplicate the durability layer without buying delivery guarantees that browsers can't enforce anyway.
 - **SSE** is dead-simple, integrates with AI SDK's existing streaming, and works behind any HTTP proxy.
@@ -94,6 +95,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 - **PG LISTEN/NOTIFY** stays in its blessed niche: internal trigger that wakes the relay. Not used for client delivery.
 
 **Alternatives.**
+
 - Ably (rejected — external paid vendor for a fan-out problem we don't have at our scale; mirroring dimension on this layer is cosmetic).
 - Bare LISTEN/NOTIFY → SSE (rejected — breaks at multi-instance, weaker resume narrative).
 - Redis Streams (rejected — duplicates outbox durability, awkward broadcast semantics).
@@ -108,12 +110,14 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Build a small durable agent runtime in TypeScript: state table in Drizzle, step function (`runStep(state) → nextState | interrupt | done`), worker loop driven by BullMQ, `interrupt()` primitive for HIL pauses. AI SDK is called inside steps; tool definitions are AI-SDK-native.
 
 **Why.**
-- LangGraph TS is a port that lags Python; bug-fix and ecosystem latency. Dimension uses Python LangGraph — mirroring it on the TS side gets you the *name* not the substance.
+
+- LangGraph TS is a port that lags Python; bug-fix and ecosystem latency. Dimension uses Python LangGraph — mirroring it on the TS side gets you the _name_ not the substance.
 - Polyglot (TS + Python LangGraph service) is a tax for one developer: two languages, two deploys, RPC boundary.
 - Mastra is fine but opinionated; rolling the runtime ourselves is ~500 LOC for the patterns we actually need (checkpoints, interrupts, idempotent steps), and keeps the entire stack typed end-to-end via AI SDK + Eden + Drizzle.
 - The architectural pattern (durable execution with checkpoint-based HIL interrupts) is the resume signal, not the package name.
 
 **Alternatives.**
+
 - LangGraph TS + AI SDK in nodes (rejected — fights message-format mismatch and TS-port maturity).
 - Mastra (rejected — opinionated, less stack-coherent than rolling our own).
 - Inngest / Trigger.dev / Hatchet (rejected — managed vendor coupling, less control over agent graph).
@@ -126,6 +130,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Railway hosts `apps/server`, `apps/web` (static build), Postgres, and Redis as managed services on private networking.
 
 **Why.**
+
 - Long-lived SSE + BullMQ workers + cron jobs need always-on processes; serverless (Vercel/Cloudflare Workers) doesn't fit.
 - Railway's managed Postgres + Redis with auto-injected `DATABASE_URL` / `REDIS_URL` is one-dashboard ops for a solo dev.
 - Predictable flat-ish pricing (~$10–20/mo total at personal scale).
@@ -133,6 +138,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 - Already familiar from milkpod.
 
 **Alternatives.**
+
 - Single VPS (rejected — burns time on Postgres backups, Redis persistence, TLS, OS updates).
 - Fly.io (rejected — Railway has flatter ergonomics for solo dev).
 - Home server / Tailscale (rejected — home-internet flakiness, missed scheduled briefings if machine sleeps).
@@ -145,12 +151,14 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Single Postgres instance on Railway, pgvector extension enabled, holds domain data + Replicache state + memory + vector embeddings.
 
 **Why.**
+
 - Alfred's load is constant background workers + cron + vector queries — Neon's per-second-compute billing turns expensive fast in this profile (workers keep compute warm 24/7).
 - Co-located with `apps/server` on Railway's private network → sub-ms query latency, zero egress.
 - pgvector handles personal-scale vector search (≪ 10M chunks) trivially, with the bonus of joining to other tables (`chats ↔ chunks ↔ documents`).
 - Single dashboard, single backup story, single migration tool (Drizzle Kit).
 
 **Alternatives.**
+
 - Neon (rejected — compute billing punishes constant background workload).
 - Supabase (rejected — useful if we wanted their auth/storage, but we have Better Auth and we don't need their other primitives yet).
 - TurboPuffer for vectors specifically (rejected — designed for many-tenant, billions-of-vectors economics; alfred is one tenant; transactional joins to Postgres tables are more valuable than TP's serverless cold-namespace cost advantage).
@@ -162,6 +170,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Better Auth with both email-magic-link and passkey enabled. A signup hook enforces a one-email allowlist (env var). Same shape as `@milkpod/auth`.
 
 **Why.**
+
 - Direct copy from milkpod scaffolding — fastest path to a working auth surface.
 - Passkeys give one-tap login on every registered device.
 - Magic-link / OTP is the recovery path if a passkey is lost.
@@ -171,6 +180,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Implementation note (2026-04-27).** Milestone-1 scaffolding shipped with **emailOTP only**, not passkey. better-auth@1.6.9 (latest within milkpod's catalog `^1.3.28` range) does not export `./plugins/passkey` from its package — the plugin appears to have been removed from the main package mid-reorganization, with no clear replacement yet (no `@better-auth/passkey` peer package on the registry as of writing). Passkey is **deferred** until either (a) better-auth's plugin layout stabilizes and exposes passkey again, or (b) we wire `@simplewebauthn/server` directly. emailOTP satisfies the "real auth flow, not bearer token" intent of this ADR for v1.
 
 **Alternatives.**
+
 - Passkey-only (rejected — no recovery path).
 - Env-based bearer token (rejected — weak resume signal, no graduation story, doesn't compose with OAuth integration callbacks).
 - Edge auth via Cloudflare Access / Tailscale Funnel (rejected — doesn't compose with external OAuth callbacks).
@@ -182,6 +192,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 **Decision.** Per-integration policy split between background ingestion (writes into Postgres + pgvector, supports semantic search and morning-briefing reads) and live API calls (current state, low-staleness operations, posting actions).
 
 **Per-integration starting policy:**
+
 - **Gmail** — ingest body + headers + threads; live-poll the last 24hr for freshness; live-call to send.
 - **Calendar** — live-only (small payload, must be fresh).
 - **Docs** — ingest content; live-call to read a specific doc by ID.
@@ -190,6 +201,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 - **iMessage** — ingest only (no live API; sourced from local export).
 
 **Why.**
+
 - Live-only kills morning-briefing UX (each turn becomes 50 API calls; agent context blows up).
 - Ingest-only breaks correctness (calendar must reflect a change made 5 min ago).
 - Per-integration policy is natural and matches dimension's `warmIntegrationNamespaces` + live-RPC split.
@@ -231,6 +243,7 @@ Outputs land in the memory layer: `user_facts` rows with `confidence`, `source`,
 - `memory_chunks` — pgvector for semantic recall over freeform conversation summaries.
 
 **Why.**
+
 - Single-user economics demolish Zep+Neo4j: graph DB ops cost for a graph that fits in 10MB.
 - Most queries alfred needs are 80% structured key-lookup, 15% semantic recall, 5% multi-hop. Tables nail the first two.
 - **Correction loop is trivial**: alfred infers a fact → row with `status='proposed'` → Replicache syncs → user accepts/rejects/edits → status changes. The full UX is just rows.
@@ -239,6 +252,7 @@ Outputs land in the memory layer: `user_facts` rows with `confidence`, `source`,
 - **Graceful upgrade**: if multi-hop ever matters at scale, swap `entities` + `entity_relations` for a real graph DB; interfaces don't change.
 
 **Alternatives.**
+
 - Zep + Neo4j (rejected — single-user economics, fuzzy correction model, weaker provenance).
 - Vector-only with summary docs (rejected — "who is my manager" should be a row lookup, not a fuzzy similarity search).
 
@@ -262,19 +276,20 @@ style_profiles
   confidence           float
   status               enum(draft, active, superseded)
   superseded_by        uuid?
-  
+
   unique(user_id, channel, audience_bucket, recipient_id)
 ```
 
 **At draft-time:** look up most-specific applicable profile (`recipient_id` > `audience_bucket` > `channel-generic`). Multi-channel drafts (e.g., post to Slack and Gmail simultaneously) generate one draft per target with each target's own profile in the prompt — never merge two profiles.
 
-**Why both `profile_doc` and `examples`:** doc tells the LLM *what* the style is in words; few-shot examples in the prompt outperform a written guide for actual style transfer. Use both: doc as instructions, examples as evidence.
+**Why both `profile_doc` and `examples`:** doc tells the LLM _what_ the style is in words; few-shot examples in the prompt outperform a written guide for actual style transfer. Use both: doc as instructions, examples as evidence.
 
 **Audience-bucket assignment** comes from `user_facts` (alfred infers `relationship:alice@… = manager` from signatures, calendar invites, message patterns). User correction updates the fact, which changes the profile lookup.
 
 **Privacy / regen rules.** Profile rows store `source_msg_ids`, not corpus content. When user deletes a source message, profiles citing it get `regenerate_needed`. Profiles must opt out of citing alfred-generated drafts (avoid circularity). Distilled profile + RAG examples replaces both fine-tuning (privacy risk: corpus leaves to OpenAI/Anthropic) and full-corpus per-call RAG (cost + variability).
 
 **Alternatives.**
+
 - One global profile doc (rejected — formal-Gmail vs casual-iMessage contradict each other).
 - Pre-fill all `(channel × audience)` combos (rejected — combinatorial blow-up, mostly empty rows).
 - Fine-tune a model on corpus (rejected — privacy + drift + cost).
@@ -287,17 +302,20 @@ style_profiles
 **Decision.** Background agents and BullMQ workers use a durable-resume model. State persists to Postgres after each step. On graceful shutdown (SIGTERM), workers finish the current step (with timeout), mark inflight runs as `interrupted_at_checkpoint`, and exit. New version starts → polls for interrupted runs → resumes from last checkpoint. Every step is idempotent.
 
 **Mechanisms required.**
+
 - **Idempotency keys** per step: derived from `(run_id, step_id, attempt_id)`; passed to LLM/Gmail/Slack/etc; providers dedupe.
-- **Action staging for outbound effects**: don't `slack.postMessage` inside a step; *plan* a `SlackPost` row and commit the plan in the same tx. A separate worker reads pending plans and executes with idempotency.
+- **Action staging for outbound effects**: don't `slack.postMessage` inside a step; _plan_ a `SlackPost` row and commit the plan in the same tx. A separate worker reads pending plans and executes with idempotency.
 - **Step boundaries chosen for durability**: a long token-streaming step is safe to lose and re-run; a multi-tool-plan step commits each tool plan as it goes.
 - **Graceful shutdown** wired into the Railway service.
 
 **Why.**
+
 - Drain-and-deploy is unworkable when HIL means a run might pause for hours waiting for user approval; you'd never ship while anything's mid-task.
 - Pinned-version workers (multi-version coexistence) require k8s/Nomad-style orchestration and backward-compat schemas — stratospheric overkill for one user.
 - Idempotency is good design hygiene anyway: every external write needs an idempotency key for retries and crashes regardless. Durable-resume just makes it the default model.
 
 **Alternatives.**
+
 - Drain-and-deploy (rejected — blocks deploys behind in-flight HIL runs).
 - Pinned versions (rejected — multi-version k8s overkill at this scale; concretely, a run paused on HIL for 3 days during a v1.4.2→v1.4.5 release cadence would force four parallel worker pools alive simultaneously, with backward-compat schema across all of them, and graveyard cleanup as permanent ops work).
 
@@ -327,6 +345,7 @@ model_prices
 ```
 
 **Implementation invariants ("pristinely").**
+
 - **Single chokepoint** — all priced external calls go through `metered()`. Greppable for `metered(`. No bypass paths.
 - **Async-safe** — logging never blocks the main path. Inline write on a separate connection (or bounded buffer + flush worker if Postgres ever struggles).
 - **Failure-recording** — failed calls write rows too, with `error` populated and `cost_usd = 0` (or the partial cost if a stream consumed tokens before failing).
@@ -336,15 +355,18 @@ model_prices
 - **Idempotency-aware** — replays of the same `(run_id, step_id, attempt_id)` after crash recompute from SDK-cached responses; one row per successful unique attempt.
 
 **Why flat log + rollups, not pre-aggregated counters.**
+
 - Audit any single call without losing detail.
 - Derive new aggregates later (per-skill, per-tool, per-integration) without schema migration.
 - Postgres handles rollups trivially via materialized views or BullMQ-driven refresh.
 
 **Why DB-backed `model_prices` with `valid_from`.**
+
 - Price changes happen between deploys; price-table-as-code forces redeploy ceremony.
 - Snapshotting `cost_usd` at write time means later price corrections never silently rewrite history.
 
 **Alternatives.**
+
 - Provider-wrapping (`meteredAnthropic = wrap(anthropic)`) — rejected; misses non-LLM costs (embeddings, search, transcription).
 - OpenTelemetry spans + usage exporter — rejected for now; overkill, harder for in-app cost UIs. Could be layered on later for traces/latency without changing this design.
 - Static TS price map — rejected; redeploy churn for a number that changes outside our release cadence.
@@ -372,13 +394,14 @@ agent_run_context
   zone            enum(shared, scratch)
   written_by      text     -- 'boss' for shared.*, '{sub_id}' for scratch.{sub_id}.*
   written_at      timestamp
-  
+
   primary key (run_id, key)
 ```
 
 Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next to run checkpoints; no Redis needed for this surface.
 
 **Why namespaced scratchpad vs boss-only-writes vs free-form:**
+
 - **vs boss-only-writes**: avoids paying expensive-model cost just to retype sub-agent outputs (the original critique). Sub-agents already produced summaries; runtime persists them for free.
 - **vs free-form sub-agent writes anywhere**: namespace scoping prevents one sub-agent overwriting another's findings or corrupting canonical state.
 - **Compound-error risk**: a downstream sub-agent reading `scratch.*` knows it's unvalidated and prompts treat it as advisory; `shared.*` is authoritative; boss is the gate that validates before promoting. Same correctness property, different cost shape.
@@ -389,6 +412,7 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 **Why max 1 level deep:** unbounded depth is unbounded cost + latency + debugging hell; tasks decompose to 1 level 95% of the time; if a sub-agent thinks it needs sub-sub-agents, that's a sign for the boss to re-plan.
 
 **Model defaults (subject to prompt-engineering pass).**
+
 - **Boss**: Sonnet 4.6 default; escalate to Opus 4.7 via explicit `escalate_model` tool, or auto-escalate on a complexity heuristic.
 - **Sub-agent reasoning**: Sonnet 4.6.
 - **Sub-agent extract/summarize/classify**: Haiku 4.5 or Gemini 2.5 Flash; dispatcher picks cheapest available based on capability tags + credentials.
@@ -399,6 +423,7 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 **Source for model registry / pricing seed.** `models.dev` provides public model pricing + capabilities; `pnpm db:sync-prices` pulls + upserts into `model_prices` with today's `valid_from`.
 
 **Alternatives.**
+
 - (a) Single agent (rejected — context-window economics; 200K-token bloat from irrelevant tool results).
 - (b1) Strictly isolated sub-agents with no shared context (rejected — forces serialized dependencies or duplicate-brief context).
 - (b2-free-form) Free-form sub-agent-writes scratchpad with no scoping (rejected — race conditions, compound-error risk).
@@ -417,6 +442,7 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 **Skills are markdown documents** with optional frontmatter for structured metadata (tools, default model, examples, activation hints). The body is the skill content; the frontmatter is parsed for runtime use. Skills are activated explicitly via `@skill:slug` references in workflow briefs or chat messages — the runtime resolves the slug, injects `content_md` into the system prompt, and applies frontmatter constraints.
 
 **Workflows are `trigger + brief + optional explicit steps DAG`**:
+
 - If `steps` is null/empty → pure agent run with the brief; boss decomposes at runtime. Most user-authored workflows live here ("mail me job listings every Tuesday in @skill:westerosi-dialect").
 - If `steps` is present → runtime executes deterministically; node types: `run_skill` / `tool_call` / `llm_call` / `agent_run` / `condition` / `parallel` / `loop` / `hil_approve`. For built-ins like morning-briefing where the structure is known and reliability matters.
 - Hybrid permitted: deterministic outer DAG with `agent_run(brief)` nodes for parts that should be LLM-decided.
@@ -447,18 +473,21 @@ workflow_runs
 ```
 
 **Why this shape.**
+
 - **Skills as markdown** matches the Claude-Code/Cursor pattern; trivial authoring (the user can write a skill in a text editor or paste it into a form), trivial inspection, naturally version-controllable if we ever want skills as files in `apps/server/skills/*.md` for built-ins.
-- **Skills don't need to be referenced** — workflow briefs can inline instructions directly. Skills are a *reusability* primitive, not a required indirection.
+- **Skills don't need to be referenced** — workflow briefs can inline instructions directly. Skills are a _reusability_ primitive, not a required indirection.
 - **Brief-only workflows** match the dominant user authoring pattern ("here's what I want, figure it out"). Explicit DAGs are reserved for cases where reliability or structure matters.
 - **Workflows compile down to durable runtime steps** (ADR-0006). HIL gates become runtime interrupts. Skills inside workflows spawn child agent runs linked via `parent_run_id`.
 - **The 8 background agents in dimension's pattern** become 8 workflows, each cron-triggered, each invoking 1-2 skills.
 
 **Authoring UX (later).**
+
 - Skills: form in the app for body + frontmatter; markdown editor.
 - Workflows: brief field, optional step builder; visual graph view is polish, not v1.
 - For built-in workflows/skills owned by alfred itself: code in the repo (`apps/server/builtins/skills/*.md`, `apps/server/builtins/workflows/*.ts`), seeded into the DB at deploy time; user-authored ones live in DB only.
 
 **Alternatives.**
+
 - (β) Skills as templates, workflows as agent runs (rejected — loses determinism for known-structure workflows like morning briefing).
 - (γ) Both agent-shaped (rejected — same; loses user-trust primitive of "I can read my Tuesday workflow as a list of steps").
 - (δ) Both graph-shaped (rejected — graph editor authoring surface is too heavy for a one-person tool; brief-based is simpler with same expressive power).
@@ -486,21 +515,25 @@ mcp_server_tools  -- materialized from capability_cache
 **Tool naming.** External tools are namespaced as `mcp:{server_slug}:{tool_name}`. Skill frontmatter `tools` allowlist accepts both native (`gmail:*`) and MCP-sourced (`mcp:clickup-personal:*`) tools.
 
 **Lifecycle.**
+
 - Connect on server startup (and on add); list tools; cache schemas.
 - Reconnect with backoff on disconnect.
 - Tool calls forward through `metered()` (kind=`tool_api`) for cost attribution.
 
 **Trust + safety.**
+
 - `trust_level`: `trusted` invokes freely; `sandboxed` requires HIL approval per-call; `blocked` disabled.
 - Sensitive actions (anything writing to external systems) go through the same staging/approval pipeline as native tools.
 
 **Why MCP client now:**
+
 - Massive tool extensibility without redeploys; community ecosystem at Smithery/mcp.so/registry.
 - Same shape as native tools at the registry layer; agent can't tell the difference.
 - Per-skill scoping via existing tool allowlist mechanism.
 - Implementation is small: `@modelcontextprotocol/sdk` TS client + a tool registry + a metered router.
 
 **Why MCP server deferred:**
+
 - No clear consumer at v1 (would mainly be alfred-from-Claude-Desktop, niche).
 - Real attack surface (any connecting agent gets alfred's tools).
 - Cleanly addable later as a wrapper over `packages/api` tools.
@@ -516,28 +549,33 @@ mcp_server_tools  -- materialized from capability_cache
 **Lifecycle:** every `user_facts` row has `status ∈ {proposed, confirmed, rejected, edited, superseded}`. Confidence-tiered auto-confirm: facts with `confidence > 0.85` auto-confirm with a soft notification ("alfred learned: X" with undo); facts below stay `proposed` and require explicit accept. Edits create supersession chains via `supersedes_id`; full history retained. Rejections are first-class — a `rejected_inferences` table tracks pattern signatures so the extraction sub-agent doesn't re-propose them.
 
 **Extraction triggers (all three):**
+
 - **End-of-conversation** — after each chat thread closes, run a `memory_extraction` sub-agent over the transcript + current `user_facts` to propose deltas. Cheap-tier model.
 - **Background cron (daily)** — bulk extraction over recent ingested integration data (sent emails, accepted invites, resolved tickets). The workhorse — most facts come from here.
 - **Triggered (event-based)** — high-signal events (new contact added, first email exchange with new sender, new project signal) emit a `propose_facts` job.
 
 **UX shape.**
+
 - **Memory page** in the app: tabs for facts / preferences / style profiles. Cards show key, value, confidence, source link, timestamp, [✓ confirm] [✗ reject] [✎ edit]. Replicache-synced; filterable by status, source, recency.
 - **Inline corrections in chat**: when alfred cites a fact ("I'll loop in Alice (your manager)"), it's a soft hyperlink to inspect/correct without breaking flow.
 - **Auto-confirm notification**: non-modal toast with undo affordance.
 - **No mid-task interrogation** — corrections are always async and batched, never interrupt a task.
 
 **Extraction sub-agent invariants** (prompt-engineering pass — flagged, not designed here):
+
 - Conservative-by-default; high confidence threshold for emitting.
 - Awareness of `rejected_inferences` to avoid re-proposal.
 - Zod-enforced output schema `(key, value, confidence, source_id, valid_from)`.
 - Provenance discipline: every fact cites a specific `message_id` or `tool_call_id`; no hallucinated sources.
 
 **Why confidence-tiered auto-confirm vs always-explicit-accept.**
+
 - Always-explicit floods the user with "is this right?" cards for obvious facts (someone's email signature literally says "Alice, Engineering Manager") — friction without value.
 - Always-auto erodes trust; user wants the gate for ambiguous inferences.
 - Tiered captures both: friction for ambiguous, frictionless for obvious, undo as the safety net.
 
 **Why email-reply parsing deferred.**
+
 - Free-form reply parsing is brittle and ambiguity-prone.
 - The "review" use case is better served by structured emails with a "review in app" deep link → routes back to the in-app card surface.
 
@@ -545,9 +583,9 @@ mcp_server_tools  -- materialized from capability_cache
 
 ## ADR-0020 — Notifications: email only at v1
 
-**Decision.** External notifications go through email only (Resend). Morning briefing *is* an email — the medium, not just an alert about it. Push, Slack DM, SMS, and other channels are deferred to a future ADR; the data shape leaves them open.
+**Decision.** External notifications go through email only (Resend). Morning briefing _is_ an email — the medium, not just an alert about it. Push, Slack DM, SMS, and other channels are deferred to a future ADR; the data shape leaves them open.
 
-**In-app realtime alerts** ("alfred learned X", "approval pending") are handled by the existing realtime stack (SSE + Replicache poke + ephemeral toast events) — these don't need email. External delivery only happens for things the user wants pushed *to* them when not actively using alfred (briefings, urgent approvals, summary digests).
+**In-app realtime alerts** ("alfred learned X", "approval pending") are handled by the existing realtime stack (SSE + Replicache poke + ephemeral toast events) — these don't need email. External delivery only happens for things the user wants pushed _to_ them when not actively using alfred (briefings, urgent approvals, summary digests).
 
 **Schema.**
 
@@ -565,14 +603,16 @@ email_sends
 A central `notify(user_id, kind, payload)` consults preferences and fans out. v1: `channels` is always `['email']`; later additions are matchers, not breaking changes.
 
 **Why email-only:**
+
 - Auth magic-link already requires Resend in the dependency tree (`@milkpod/auth` pulls it); zero new infra.
 - Universally reliable, available on every device, doesn't require PWA install.
-- Email is *itself useful* (archive, search, reply) for things like the morning briefing — it's not just a transport.
+- Email is _itself useful_ (archive, search, reply) for things like the morning briefing — it's not just a transport.
 - Web Push needs service-worker + VAPID + push-subscription lifecycle; real engineering for a feature that's nice-to-have at v1.
 
 **Why future-proof the schema anyway:** the `notification_preferences.channels` jsonb means adding `web_push` or `slack_dm` later is a config change + a new fan-out branch in `notify()`, not a schema migration.
 
 **Alternatives.**
+
 - Web Push primary (deferred — engineering cost not justified at v1).
 - SMS via Twilio (deferred — paid; HIL approval may eventually justify it).
 - Slack/Telegram DM (deferred — depends on Slack integration being live first).
@@ -590,6 +630,7 @@ A central `notify(user_id, kind, payload)` consults preferences and fans out. v1
 - **Reranker**: Voyage rerank-2.5-lite for hybrid search final stage (BM25 + vector + RRF + rerank, mirroring dimension's pattern).
 
 **Why Voyage at 1024 dim:**
+
 - Top-tier English retrieval quality on MTEB (per recent benchmarks); voyage-context-3 specifically wins on long-doc retrieval.
 - Anthropic recommends Voyage as embedding partner — vendor-aligned with our LLM choice.
 - 1024 dim is the model's native output; matches HNSW well; smaller index than 1536 with negligible recall loss at our scale.
@@ -600,10 +641,12 @@ A central `notify(user_id, kind, payload)` consults preferences and fans out. v1
 **Single embedder module.** `packages/ai/embeddings.ts` hides model name + provider behind `embed(text, opts)`. Swapping families later is one-file change.
 
 **Rotation plan** (future-proofing):
+
 - Schema: `embedding_v2` column rather than altering `embedding`; backfill via BullMQ chunked job; flip read path; drop old.
 - Don't write code that hardcodes "voyage" anywhere outside the embedder module.
 
 **Alternatives.**
+
 - OpenAI text-embedding-3-large at 3072 dim (rejected — credentials-gated; 3x index size for marginal recall gain).
 - Cohere embed-v4 (rejected — thinner ecosystem, no clear win over Voyage at our scale).
 - Local BGE / nomic-embed (rejected — Railway compute cost > Voyage spend; only justified if privacy-vs-Voyage matters and we already trust Anthropic with full-text content).
@@ -620,14 +663,16 @@ A central `notify(user_id, kind, payload)` consults preferences and fans out. v1
 Both flow through `metered()` (`kind=web_search`).
 
 **Why Perplexity over Tavily/Exa/Brave/SerpAPI:**
+
 - **Synthesis-shaped output** matches how agents actually consume search — answers + citations, not raw URL lists. Saves the fetch-extract-summarize pipeline.
 - **Disambiguation reasoning** is materially better on hard queries (low-public-footprint name disambiguation, conflicting-context queries). Tavily test query for the user's name returned mostly noise (Bollywood actor confusion, unrelated PDFs); the failure mode is structural, not accidental.
 - **Sonar Deep Research is the natural cold-start tool** — multi-step research-and-synthesize in one call, with citation discipline. Approximates what a human researcher would do over an hour.
 - **Credentials already available**, removing one decision.
 
-**Latency caveat.** Perplexity Sonar models add LLM-pass latency (2-5s for Sonar Pro, 30-90s for Deep Research) versus raw search APIs (sub-second). Agent prompts must reflect this — web search is *deliberate*, not *exploratory*. Cold-start research runs in BullMQ so users never see the latency.
+**Latency caveat.** Perplexity Sonar models add LLM-pass latency (2-5s for Sonar Pro, 30-90s for Deep Research) versus raw search APIs (sub-second). Agent prompts must reflect this — web search is _deliberate_, not _exploratory_. Cold-start research runs in BullMQ so users never see the latency.
 
 **Alternatives.**
+
 - Tavily (rejected after test — disambiguation poor on low-public-footprint names; requires extra synthesis layer for agent consumption).
 - Exa (rejected — strong on "find similar pages" semantic search but weaker for entity research; could layer in later for that specific use case).
 - Brave / SerpAPI (rejected — raw results force us to build extraction/scoring/dedup ourselves; Perplexity already does it).
@@ -645,6 +690,7 @@ Both flow through `metered()` (`kind=web_search`).
 **Wire-up.** `metered()` (ADR-0015) emits a Langfuse span alongside the DB log row. Parent-child relationships via `run_id` / `step_id` / sub-agent ids. One module, two side effects per billable call.
 
 **Why three tools, not one:**
+
 - Sentry is best-in-class at JS errors and perf; weak at structured agent traces.
 - Langfuse is best-in-class at agent run-trees; not for JS errors.
 - PostHog is best-in-class at product analytics; not either of the above.
@@ -662,21 +708,21 @@ Both flow through `metered()` (`kind=web_search`).
 
 **Decision.** Webhooks-where-available as primary; polling-as-fallback. Polling cadence per-integration based on freshness sensitivity. Hybrid policy because webhook delivery is occasionally lossy and some providers don't support push at all.
 
-**Important framing.** OAuth gives alfred the *capability* to read provider data; it doesn't give us a *trigger* to know when something changed. For user-initiated queries, alfred queries live (no infra needed). For *passive indexing* (keep the chunked corpus current) and *proactive features* (email triage on arrival, reply detection, meeting prep on schedule), alfred needs change notifications — that's what this ADR is about.
+**Important framing.** OAuth gives alfred the _capability_ to read provider data; it doesn't give us a _trigger_ to know when something changed. For user-initiated queries, alfred queries live (no infra needed). For _passive indexing_ (keep the chunked corpus current) and _proactive features_ (email triage on arrival, reply detection, meeting prep on schedule), alfred needs change notifications — that's what this ADR is about.
 
 **Per-integration starting policy:**
 
-| Integration | Webhook | Polling | Notes |
-|---|---|---|---|
-| **Gmail** | `users.watch` → Google Pub/Sub → our `/webhooks/gmail` | Every 5min as fallback (uses `historyId`) | **Required** for email-triage UX (ADR-0025). Push channels expire ~7 days; cron renewal. |
-| **Calendar** | `events.watch` → push channel | Every 2min for next-24hr window | Push channels expire 24hr–1mo; cron renewal. Fast polling because freshness dominates here per ADR-0010. |
-| **Google Drive / Docs** | `changes.watch` | Every 15min | Less time-sensitive; longer interval. |
-| **Slack** | Events API (subscribe to message + channel events) | None (Slack discourages polling) | Public URL needed for Events API delivery. |
-| **Linear** | Webhooks per project/team | None | Webhook + signature verify; webhooks reliable. |
-| **GitHub** | App webhooks per repo/org | None | GitHub App architecture for org-wide visibility. |
-| **iMessage** | None (no API) | N/A | Local export ingestion only; deferred to a follow-up ADR (no clean ingestion path). |
-| **Notion** | None (no public webhook API) | Every 10min via `last_edited_time` filter | Polling-only; expensive at high page counts but unavoidable. |
-| **MCP servers** | None (spec doesn't define push) | None | Tools are call-on-demand; stateless from our side. |
+| Integration             | Webhook                                                | Polling                                   | Notes                                                                                                    |
+| ----------------------- | ------------------------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Gmail**               | `users.watch` → Google Pub/Sub → our `/webhooks/gmail` | Every 5min as fallback (uses `historyId`) | **Required** for email-triage UX (ADR-0025). Push channels expire ~7 days; cron renewal.                 |
+| **Calendar**            | `events.watch` → push channel                          | Every 2min for next-24hr window           | Push channels expire 24hr–1mo; cron renewal. Fast polling because freshness dominates here per ADR-0010. |
+| **Google Drive / Docs** | `changes.watch`                                        | Every 15min                               | Less time-sensitive; longer interval.                                                                    |
+| **Slack**               | Events API (subscribe to message + channel events)     | None (Slack discourages polling)          | Public URL needed for Events API delivery.                                                               |
+| **Linear**              | Webhooks per project/team                              | None                                      | Webhook + signature verify; webhooks reliable.                                                           |
+| **GitHub**              | App webhooks per repo/org                              | None                                      | GitHub App architecture for org-wide visibility.                                                         |
+| **iMessage**            | None (no API)                                          | N/A                                       | Local export ingestion only; deferred to a follow-up ADR (no clean ingestion path).                      |
+| **Notion**              | None (no public webhook API)                           | Every 10min via `last_edited_time` filter | Polling-only; expensive at high page counts but unavoidable.                                             |
+| **MCP servers**         | None (spec doesn't define push)                        | None                                      | Tools are call-on-demand; stateless from our side.                                                       |
 
 **Architectural shape:**
 
@@ -690,6 +736,7 @@ Both flow through `metered()` (`kind=web_search`).
 **iMessage caveat.** No API. Three options: (1) periodic local export script + manual upload; (2) read `chat.db` from a synced macOS file (privacy-fraught); (3) defer until clear ingestion path. **Default: defer iMessage** — not blocking morning-briefing or core agent value at v1.
 
 **Why hybrid (not webhook-only or polling-only):**
+
 - **Webhook-only** loses changes during webhook outages or subscription expirations; polling fallback catches drift.
 - **Polling-only** kills proactive UX — auto-tagging email at 5–15min lag is visibly broken vs Gmail's instant-receive feel.
 
@@ -699,23 +746,25 @@ Both flow through `metered()` (`kind=web_search`).
 
 **Decision.** Ship 7 built-in background workflows + 1 always-on system process (memory extraction). Each is a workflow per ADR-0017 (`is_builtin=true`, code-as-workflow in `apps/server/builtins/workflows/<slug>.ts`, seeded into the `workflows` table at deploy time). User toggles via settings page → flips `status` between `active` and `paused`.
 
-| Feature | Description | Default | Trigger | Notes |
-|---|---|---|---|---|
-| **Email triage** | Auto-classify every inbound email into taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`); write Gmail label back | **ON** | Gmail webhook (per ADR-0024) | Cheap-tier classifier (Haiku/Flash). Re-evaluates on reply. |
-| **Morning briefing** | Daily 7am email: schedule + priority inbox (driven by triage tags) + relevant updates | **ON** | Cron `0 7 * * *` | Sent via Resend (ADR-0020). |
-| **Memory extraction** | Per ADR-0019: end-of-thread + daily cron + event-triggered fact extraction | **ON, not toggleable** | Multiple | System process, not a user feature. |
-| **Evening recap** | Daily evening email: what got done, what's still open, tomorrow preview | **ON** | Cron `0 18 * * *` | Closing-loop UX. |
-| **Reply drafting** | When email tagged `awaiting_reply`, draft a response using `style_profiles` (ADR-0013); HIL-gated before send | **OFF** | Triggered by triage tag | High-stakes (send-on-behalf); opt-in once user trusts drafts. |
-| **Meeting prep** | 30min before each meeting, send context email: attendees, recent threads with them, related docs | **OFF** | Calendar event time | Off until enough connected context to be useful. |
-| **Action item extraction** | Pull action items from emails/Slack threads into managed todo list | **OFF** | Cron + event | Off until taxonomy maturation; partly redundant with email-triage `action_needed` tag at v1. |
+| Feature                    | Description                                                                                                                                            | Default                | Trigger                      | Notes                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------- | -------------------------------------------------------------------------------------------- |
+| **Email triage**           | Auto-classify every inbound email into taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`); write Gmail label back | **ON**                 | Gmail webhook (per ADR-0024) | Cheap-tier classifier (Haiku/Flash). Re-evaluates on reply.                                  |
+| **Morning briefing**       | Daily 7am email: schedule + priority inbox (driven by triage tags) + relevant updates                                                                  | **ON**                 | Cron `0 7 * * *`             | Sent via Resend (ADR-0020).                                                                  |
+| **Memory extraction**      | Per ADR-0019: end-of-thread + daily cron + event-triggered fact extraction                                                                             | **ON, not toggleable** | Multiple                     | System process, not a user feature.                                                          |
+| **Evening recap**          | Daily evening email: what got done, what's still open, tomorrow preview                                                                                | **ON**                 | Cron `0 18 * * *`            | Closing-loop UX.                                                                             |
+| **Reply drafting**         | When email tagged `awaiting_reply`, draft a response using `style_profiles` (ADR-0013); HIL-gated before send                                          | **OFF**                | Triggered by triage tag      | High-stakes (send-on-behalf); opt-in once user trusts drafts.                                |
+| **Meeting prep**           | 30min before each meeting, send context email: attendees, recent threads with them, related docs                                                       | **OFF**                | Calendar event time          | Off until enough connected context to be useful.                                             |
+| **Action item extraction** | Pull action items from emails/Slack threads into managed todo list                                                                                     | **OFF**                | Cron + event                 | Off until taxonomy maturation; partly redundant with email-triage `action_needed` tag at v1. |
 
 **Implementation pattern (all features):**
+
 - Built-in workflows live in code: `apps/server/builtins/workflows/<slug>.ts` (TS module, version-controlled, type-checked).
 - Each references built-in skill markdown in `apps/server/builtins/skills/<slug>.md`.
 - Seeded into DB at deploy time via a startup migration; updates on next deploy if changed.
 - User-authored workflows sit alongside built-ins in the same `workflows` table; settings page renders both with the same toggle UX.
 
 **Why these defaults:**
+
 - **Triage + Morning + Evening + Memory ON** = the "alfred is working for you in the background" core value the day you connect Gmail. Without them, alfred is just a chat app.
 - **Reply drafting OFF** = high-stakes outbound; needs trust earned via observation period.
 - **Meeting prep / Action items OFF** = either redundant at v1 or needs more connected data to be useful; can be promoted as defaults once stable.
@@ -729,6 +778,7 @@ Both flow through `metered()` (`kind=web_search`).
 Items intentionally not decided yet. Each is a future ADR when its time comes.
 
 **Deferred features:**
+
 - **iMessage ingestion** — no clean public path. Options when revisited: periodic local-export script + manual upload, or `chat.db` reading from synced files. Not blocking v1.
 - **Voice / phone calling** — `LiveKit Agents` is the natural revisit point if this becomes a goal (ADR-0004).
 - **MCP server** (alfred-as-MCP-server for external agents to consume) — addable later as a wrapper over `packages/api` tools (ADR-0018).
@@ -736,9 +786,11 @@ Items intentionally not decided yet. Each is a future ADR when its time comes.
 - **Email-reply parsing for memory correction** — structured emails with deep-link-to-app cover the use case at v1; revisit if free-form reply parsing becomes worth the brittleness (ADR-0019).
 
 **Pinned at implementation time:**
+
 - **Specific model SKUs** for boss/sub-agent/embedding/web-search — pulled from `models.dev` at implementation; ADRs name families (Voyage, Sonnet, Sonar Pro), not specific revisions (ADRs 0016, 0021, 0022).
 
 **Tactical / not-architectural (decide while building):**
+
 - Testing strategy (vitest baseline from milkpod; integration tests against a real Postgres via testcontainers).
 - CI/CD specifics (Railway GitHub-push deploys; PR previews if needed).
 - Secrets management (Railway env vars; Doppler/Infisical only if multi-env complexity grows).
@@ -752,8 +804,8 @@ Items intentionally not decided yet. Each is a future ADR when its time comes.
 
 The decisions are now self-contained enough to start building. Proposed milestone order:
 
-1. **Scaffold** ✅ *done 2026-04-27* — copied milkpod's pnpm + Turborepo + packages (`ai`, `api`, `auth`, `config`, `db`, `env`, `sync`) + `apps/server` + new `apps/web` (Vite + TanStack Router). `@alfred/*` namespacing throughout. Acceptance criteria from `scaffolding-plan.md` all green.
-2. **Auth + first Railway deploy** ✅ *done 2026-04-28* — Better Auth with emailOTP + one-email allowlist (ADR-0009; passkey deferred per ADR-0009 implementation note). Railway project provisioned (Postgres + Redis + server + web), initial Drizzle migration generated and applied via preDeploy. `/health` 200 with `db: connected`; web SPA serves; Better Auth endpoints reachable. Sentry (server + web) and PostHog (web) wired and initializing from env vars. M2-only env-var coverage: all 11 required + Anthropic, Google, OpenAI, Resend, Perplexity, Sentry DSNs, PostHog key/host. Lessons captured in `scaffolding-plan.md` so M1 won't repeat the migration-not-generated and PORT-hardcoded bugs.
+1. **Scaffold** ✅ _done 2026-04-27_ — copied milkpod's pnpm + Turborepo + packages (`ai`, `api`, `auth`, `config`, `db`, `env`, `sync`) + `apps/server` + new `apps/web` (Vite + TanStack Router). `@alfred/*` namespacing throughout. Acceptance criteria from `scaffolding-plan.md` all green.
+2. **Auth + first Railway deploy** ✅ _done 2026-04-28_ — Better Auth with emailOTP + one-email allowlist (ADR-0009; passkey deferred per ADR-0009 implementation note). Railway project provisioned (Postgres + Redis + server + web), initial Drizzle migration generated and applied via preDeploy. `/health` 200 with `db: connected`; web SPA serves; Better Auth endpoints reachable. Sentry (server + web) and PostHog (web) wired and initializing from env vars. M2-only env-var coverage: all 11 required + Anthropic, Google, OpenAI, Resend, Perplexity, Sentry DSNs, PostHog key/host. Lessons captured in `scaffolding-plan.md` so M1 won't repeat the migration-not-generated and PORT-hardcoded bugs.
 3. **Replicache MVP** — port milkpod's `packages/sync`, wire one trivial mutator, verify multi-device sync.
 4. **Realtime stack** — outbox table, Redis Pub/Sub relay, SSE endpoint (ADR-0005).
 5. **Durable agent runtime** — checkpoint table, step function, BullMQ worker, idempotent step pattern (ADR-0006 + ADR-0014).

@@ -1,7 +1,7 @@
 {
   "name": "server",
-  "main": "src/index.ts",
   "type": "module",
+  "main": "src/index.ts",
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b",
@@ -10,18 +10,18 @@
     "deploy": "pnpm --filter @alfred/db db:migrate"
   },
   "dependencies": {
-    "elysia": "catalog:",
-    "@elysiajs/cors": "catalog:",
-    "@elysiajs/node": "catalog:",
     "@alfred/api": "workspace:*",
     "@alfred/env": "workspace:*",
-    "@sentry/node": "catalog:"
+    "@elysiajs/cors": "catalog:",
+    "@elysiajs/node": "catalog:",
+    "@sentry/node": "catalog:",
+    "elysia": "catalog:"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "tsx": "^4.19.2",
+    "@alfred/config": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
-    "@alfred/config": "workspace:*"
+    "tsx": "^4.19.2",
+    "typescript": "catalog:"
   }
 }

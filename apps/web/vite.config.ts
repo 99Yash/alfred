@@ -1,23 +1,20 @@
-import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
-import react from '@vitejs/plugin-react';
-import path from 'node:path';
-import { defineConfig } from 'vite';
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import path from "node:path";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [
-    TanStackRouterVite({ autoCodeSplitting: true }),
-    react(),
-  ],
+  plugins: [TanStackRouterVite({ autoCodeSplitting: true }), react()],
   resolve: {
     alias: {
-      '~': path.resolve(import.meta.dirname, './src'),
+      "~": path.resolve(import.meta.dirname, "./src"),
     },
   },
   server: {
     port: 3000,
     proxy: {
-      '/api/auth': {
-        target: 'http://localhost:3001',
+      "/api/auth": {
+        target: "http://localhost:3001",
         changeOrigin: true,
       },
     },

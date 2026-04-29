@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RouterProvider, createRouter } from '@tanstack/react-router';
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { initObservability } from './lib/observability';
-import { routeTree } from './routeTree.gen';
-import './index.css';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { initObservability } from "./lib/observability";
+import { ReplicacheProvider } from "./lib/replicache/context";
+import { routeTree } from "./routeTree.gen";
+import "./index.css";
 
 initObservability();
 
@@ -15,19 +16,21 @@ const router = createRouter({
   context: { queryClient },
 });
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
 }
 
-const rootEl = document.getElementById('root');
-if (!rootEl) throw new Error('#root element not found');
+const rootEl = document.getElementById("root");
+if (!rootEl) throw new Error("#root element not found");
 
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ReplicacheProvider>
+        <RouterProvider router={router} />
+      </ReplicacheProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

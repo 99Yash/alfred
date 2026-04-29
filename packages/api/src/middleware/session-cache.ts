@@ -1,6 +1,6 @@
-import { auth } from '@alfred/auth';
+import { auth } from "@alfred/auth";
 
-type Session = Awaited<ReturnType<ReturnType<typeof auth>['api']['getSession']>>;
+type Session = Awaited<ReturnType<ReturnType<typeof auth>["api"]["getSession"]>>;
 
 const perRequest = new WeakMap<Request, Promise<Session>>();
 
@@ -15,20 +15,20 @@ const sweepTimer = setInterval(() => {
     if (entry.expiresAt <= now) tokenCache.delete(key);
   }
 }, 60_000);
-if (typeof sweepTimer === 'object' && 'unref' in sweepTimer) sweepTimer.unref();
+if (typeof sweepTimer === "object" && "unref" in sweepTimer) sweepTimer.unref();
 
 const SESSION_COOKIE_NAMES = new Set([
-  'better-auth.session_token',
-  '__Secure-better-auth.session_token',
-  '__Host-better-auth.session_token',
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+  "__Host-better-auth.session_token",
 ]);
 
 function extractSessionToken(headers: Headers): string | null {
-  const cookieHeader = headers.get('cookie') ?? '';
-  for (const part of cookieHeader.split(';')) {
-    const [name, ...rest] = part.trim().split('=');
+  const cookieHeader = headers.get("cookie") ?? "";
+  for (const part of cookieHeader.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
     if (name && SESSION_COOKIE_NAMES.has(name.trim())) {
-      return rest.join('=').trim();
+      return rest.join("=").trim();
     }
   }
   return null;

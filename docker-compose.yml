@@ -6,14 +6,14 @@ services:
       POSTGRES_PASSWORD: alfred
       POSTGRES_DB: alfred
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - "6379:6379"
     volumes:
       - redis_data:/data
 

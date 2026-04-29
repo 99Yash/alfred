@@ -1,17 +1,17 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
-import { authClient } from '~/lib/auth-client';
-import { cn } from '~/lib/utils';
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { authClient } from "~/lib/auth-client";
+import { cn } from "~/lib/utils";
 
-export const Route = createFileRoute('/login')({
+export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
 function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [step, setStep] = useState<'email' | 'otp'>('email');
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState<"email" | "otp">("email");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,10 +19,10 @@ function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      await authClient.emailOtp.sendVerificationOtp({ email, type: 'sign-in' });
-      setStep('otp');
+      await authClient.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
+      setStep("otp");
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send code');
+      setError(err instanceof Error ? err.message : "Failed to send code");
     } finally {
       setLoading(false);
     }
@@ -34,12 +34,12 @@ function LoginPage() {
     try {
       const result = await authClient.signIn.emailOtp({ email, otp });
       if (result.data) {
-        await navigate({ to: '/' });
+        await navigate({ to: "/" });
       } else {
-        setError('Invalid or expired code');
+        setError("Invalid or expired code");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
       setLoading(false);
     }
@@ -51,11 +51,11 @@ function LoginPage() {
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold">Alfred</h1>
           <p className="text-sm text-muted-foreground">
-            {step === 'email' ? 'Enter your email to sign in' : `Enter the code sent to ${email}`}
+            {step === "email" ? "Enter your email to sign in" : `Enter the code sent to ${email}`}
           </p>
         </div>
 
-        {step === 'email' ? (
+        {step === "email" ? (
           <div className="space-y-4">
             <input
               type="email"
@@ -63,17 +63,17 @@ function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
               className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              onKeyDown={(e) => e.key === 'Enter' && sendOtp()}
+              onKeyDown={(e) => e.key === "Enter" && sendOtp()}
             />
             <button
               onClick={sendOtp}
               disabled={loading || !email}
               className={cn(
-                'w-full rounded-md px-4 py-2 text-sm font-medium transition-colors',
-                'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50',
+                "w-full rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                "bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50",
               )}
             >
-              {loading ? 'Sending…' : 'Send code'}
+              {loading ? "Sending…" : "Send code"}
             </button>
           </div>
         ) : (
@@ -84,20 +84,24 @@ function LoginPage() {
               onChange={(e) => setOtp(e.target.value)}
               placeholder="6-digit code"
               className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              onKeyDown={(e) => e.key === 'Enter' && verify()}
+              onKeyDown={(e) => e.key === "Enter" && verify()}
             />
             <button
               onClick={verify}
               disabled={loading || otp.length < 6}
               className={cn(
-                'w-full rounded-md px-4 py-2 text-sm font-medium transition-colors',
-                'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50',
+                "w-full rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                "bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50",
               )}
             >
-              {loading ? 'Verifying…' : 'Sign in'}
+              {loading ? "Verifying…" : "Sign in"}
             </button>
             <button
-              onClick={() => { setStep('email'); setOtp(''); setError(null); }}
+              onClick={() => {
+                setStep("email");
+                setOtp("");
+                setError(null);
+              }}
               className="w-full text-sm text-muted-foreground underline"
             >
               Back

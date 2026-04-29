@@ -15,14 +15,14 @@
     "build": "tsdown",
     "check-types": "tsc -b"
   },
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "devDependencies": {
-    "tsdown": "catalog:",
-    "@alfred/config": "workspace:*"
+    "@alfred/config": "workspace:*",
+    "tsdown": "catalog:"
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "dependencies": {
-    "zod": "catalog:"
   }
 }

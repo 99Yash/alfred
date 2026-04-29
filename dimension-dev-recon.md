@@ -26,7 +26,7 @@ I did not find publicly exposed production source maps for the key bundles I che
 - `GET /api/version` returns:
 
 ```json
-{"buildVersion":"dpl_2Byyf82BDLCDTTM2kvUqqf4fFDZn"}
+{ "buildVersion": "dpl_2Byyf82BDLCDTTM2kvUqqf4fFDZn" }
 ```
 
 - The site uses a Next.js build with build ID `DLLLlfJzubMv_j4Z8bs2T`.
@@ -153,11 +153,11 @@ Bundle evidence shows an Ably provider initialized with a token fetched from `so
 ```js
 new Ably.Realtime({
   authCallback: (params, cb) => {
-    socket.genToken.mutate().then(({ tokenRequest }) => cb(null, tokenRequest))
+    socket.genToken.mutate().then(({ tokenRequest }) => cb(null, tokenRequest));
   },
   autoConnect: true,
   closeOnUnload: false,
-})
+});
 ```
 
 Bundle evidence also shows Replicache pull/push handlers wired into the app:
@@ -190,15 +190,15 @@ Web session behavior observed:
 Bundle evidence shows native auth flows storing keys in localStorage on mobile/native paths:
 
 ```js
-localStorage.setItem("auth_token", token)
-localStorage.setItem("session_id", session)
+localStorage.setItem("auth_token", token);
+localStorage.setItem("session_id", session);
 ```
 
 There is also native deep-link handling:
 
 ```js
 dimension://auth?token=...&session=...
-dimension://integration-callback?... 
+dimension://integration-callback?...
 ```
 
 The SSO flow is org-aware and supports email-domain disambiguation:
@@ -220,7 +220,7 @@ Observed signals:
 Bundle evidence:
 
 ```js
-registerPlugin("PushNotifications", {})
+registerPlugin("PushNotifications", {});
 ```
 
 So Dimension is at least architected for:

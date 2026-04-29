@@ -1,5 +1,6 @@
 {
   "name": "@alfred/api",
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -10,10 +11,20 @@
       "default": "./src/*.ts"
     }
   },
-  "type": "module",
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@alfred/auth": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "@alfred/sync": "workspace:*",
+    "bullmq": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "catalog:",
+    "ioredis": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
@@ -21,15 +32,5 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "dependencies": {
-    "@alfred/auth": "workspace:*",
-    "@alfred/db": "workspace:*",
-    "@alfred/env": "workspace:*",
-    "bullmq": "catalog:",
-    "drizzle-orm": "^0.45.2",
-    "elysia": "catalog:",
-    "ioredis": "catalog:",
-    "zod": "catalog:"
   }
 }
