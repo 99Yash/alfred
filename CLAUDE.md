@@ -146,7 +146,15 @@ Never create raw `new IORedis()` in app code; always use these factories.
 
 ## Replicache
 
-`packages/sync` is a shell — mutators are empty until milestone 3. Do not add mutators until the Replicache milestone brief is written.
+`packages/sync` ships the client-side mutators (currently `noteCreate`) and shared key helpers. Server-side push/pull/poke endpoints live at `/api/replicache/{push,pull,events}` (see `packages/api/src/modules/replicache/`). Pokes flow over Redis Pub/Sub on `replicache-pokes:u:<userId>` channels and reach the browser via SSE.
+
+When adding a new synced entity:
+
+1. Add a `<entity>Key` helper + prefix in `packages/sync/src/keys.ts`.
+2. Define the read shape in `packages/sync/src/types.ts` (must include `rowVersion: number`).
+3. Add `<entity><Action>Client` mutator + zod arg schema in `packages/sync/src/mutators/<entity>.ts`, register both in `mutators/index.ts`.
+4. Add the matching server-side mutator in `packages/api/src/modules/replicache/server-mutators.ts` (write the row, bump `row_version`, emit poke after commit).
+5. Extend the CVR projection in `packages/api/src/modules/replicache/cvr.ts` so pulls diff the new entity.
 
 ## Environment variables
 
@@ -175,9 +183,9 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 ## Milestone status
 
 - [x] 1 — Scaffold
-- [ ] 2 — Auth + first Railway deploy
-- [ ] 3 — Replicache MVP
-- [ ] 4 — Realtime stack (outbox → Redis → SSE)
+- [x] 2 — Auth + first Railway deploy
+- [x] 3 — Replicache MVP
+- [x] 4 — Realtime stack (outbox → Redis → SSE)
 - [ ] 5 — Durable agent runtime
 - [ ] 6 — Cost metering
 - [ ] 7 — Gmail integration end-to-end
