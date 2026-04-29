@@ -1,2 +1,7 @@
-// Synced entity types — populated in milestone 3
-export {};
+export interface SyncedNote {
+  id: string;
+  userId: string;
+  text: string;
+  createdAt: string;
+  rowVersion: number;
+}

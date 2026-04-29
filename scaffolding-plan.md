@@ -4,7 +4,7 @@ This document is a self-contained brief for the agent that will scaffold the alf
 
 ## Read first (in this order)
 
-1. **`./decisions.md`** — the 25 architectural ADRs that define the stack. The *why* of every choice.
+1. **`./decisions.md`** — the 25 architectural ADRs that define the stack. The _why_ of every choice.
 2. **`./dimension-dev-recon.md`** — research on dimension.dev's architecture, used as a reference point. Do not over-mirror; ADRs explain where we deviate.
 3. **`../milkpod/CLAUDE.md`** — milkpod's repo orientation. Alfred mirrors its monorepo shape.
 4. **`../milkpod/ARCHITECTURE.md`** — milkpod's architecture (different product, same scaffolding patterns). Useful for understanding the package boundaries.
@@ -20,7 +20,7 @@ Implement **milestone 1 of the suggested implementation order in `decisions.md`*
 - `pnpm check-types` passes across all packages.
 - A trivial Eden-typed call (`/health`) goes from web → server and types end-to-end.
 - A trivial Drizzle migration runs against a local Postgres in `docker-compose.yml`.
-- No business logic implemented yet — this is *only* scaffolding.
+- No business logic implemented yet — this is _only_ scaffolding.
 
 **Stop at "hello-world works." Do not start implementing features.** Subsequent milestones (Replicache, durable runtime, integrations, etc.) are separate sessions.
 
@@ -65,16 +65,16 @@ These can be lifted with minimal adaptation:
 
 **`packages/db/`** — port the Drizzle harness + scripts (`drizzle.config.ts`, `package.json` scripts for `db:generate`, `db:migrate`, `db:studio`, `db:push`), but **rewrite schema entirely**.
 
-For this milestone, ship a *minimal* schema — just enough to verify migrations work:
+For this milestone, ship a _minimal_ schema — just enough to verify migrations work:
 
 ```ts
 // packages/db/src/schema/user.ts
-export const user = pgTable('user', {
-  id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  name: text('name'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 // packages/db/src/schema/session.ts (Better Auth-compatible)
@@ -87,18 +87,21 @@ Better Auth requires specific tables; mirror milkpod's auth-related schema files
 Drop `pgvector` extension setup as a migration so it's ready: `CREATE EXTENSION IF NOT EXISTS vector;`.
 
 **`packages/api/`** — port the structure: `index.ts`, `middleware/`, `modules/`, `routers/`, `schemas.ts`, `types.ts`, `utils.ts`, `events/`, `queue/`. **Rewrite the contents** for alfred:
+
 - `routers/` should expose a single trivial `/health` route returning `{ ok: true }` for milestone 1.
 - `middleware/` should keep auth middleware shape but tied to `@alfred/auth`.
 - `queue/` ships the BullMQ setup wired to `@alfred/env`'s `REDIS_URL`. No actual workers yet.
 - `events/` — outbox table + Redis Pub/Sub relay scaffolding (per ADR-0005). Compose the structure but leave the relay as a stub that can be filled in milestone 4.
 
 **`packages/ai/`** — port the structure: `index.ts`, `provider.ts`, `models.ts`, `embeddings.ts`, `tools.ts`, `system-prompt.ts`, `stream.ts`. **Rewrite contents**:
+
 - `provider.ts` should use AI SDK with Anthropic + Google providers (skip OpenAI if no creds — silent skip per ADR-0016).
 - `embeddings.ts` should be a `embed(text, opts)` function with Voyage primary + Gemini fallback (ADR-0021), but **stub the Voyage call** (return a fixed-size zero vector); real wire-up is in milestone 7. The point is the module shape and call signature.
 - `models.ts` exports a model dispatcher per ADR-0016 (capability tags → provider/model). Stub with a minimal map.
 - Skip `retrieval.ts`, `guardrails.ts`, `plans.ts`, `title.ts`, `translation.ts`, `number-words.ts`, `schemas.ts` — those are milkpod-specific.
 
 **`apps/server/`** — port the bootstrap pattern (`src/index.ts`, `tsdown.config.ts`, `package.json` scripts). **Rewrite contents**:
+
 - `src/index.ts` — Elysia app with CORS, attached `@alfred/api`, listens on port 3001.
 - Remove milkpod's S3/AWS deps; alfred doesn't need S3 yet.
 
