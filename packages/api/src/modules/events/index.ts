@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { serverEnv } from "@alfred/env/server";
 import { authMacro } from "../../middleware/auth";
 import { publishEvent } from "../../events/publish";
 import { subscribeUserEvents } from "../../events/user-events-bus";
@@ -21,7 +22,10 @@ import { getEventsSince, getReplayHighWatermark } from "./replay";
  *      was already covered by replay.
  *   5. Switch buffered listener into passthrough mode.
  *
- * Result: every event delivered exactly once per connection, in id order.
+ * Result: replayed events are not duplicated by the live handoff for a given
+ * connection. Strict global id ordering is not guaranteed: if the relay's
+ * publish to Redis fails for one row, later ids may arrive before the failed
+ * row is retried on the next drain pass. Consumers must be id-tolerant.
  */
 export const events = new Elysia({ prefix: "/api/events" })
   .use(authMacro)
@@ -123,9 +127,8 @@ export const events = new Elysia({ prefix: "/api/events" })
         }) as Response;
       })
       .guard({}, (inner) =>
-        process.env.NODE_ENV === "production"
-          ? inner
-          : inner.post(
+        serverEnv().NODE_ENV === "development"
+          ? inner.post(
               "/_demo",
               async ({ user, body }) => {
                 await publishEvent({
@@ -146,7 +149,8 @@ export const events = new Elysia({ prefix: "/api/events" })
                   message: t.Optional(t.String({ maxLength: 2_000 })),
                 }),
               },
-            ),
+            )
+          : inner,
       ),
   );
 

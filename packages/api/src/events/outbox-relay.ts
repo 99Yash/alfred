@@ -16,6 +16,7 @@
  * it's free insurance.
  */
 import pg from "pg";
+import { serverEnv } from "@alfred/env/server";
 import { isKnownEventKind, type EventFrame } from "./types";
 import { publishFrameToUser } from "./user-events-bus";
 
@@ -30,12 +31,6 @@ let backstopTimer: ReturnType<typeof setInterval> | undefined;
 let drainPending = false;
 let drainInFlight = false;
 let stopped = true;
-
-function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("[outbox-relay] DATABASE_URL is not set");
-  return url;
-}
 
 interface OutboxRow {
   id: string; // bigserial returns as string in pg
@@ -141,7 +136,7 @@ async function drainLoop(): Promise<void> {
 }
 
 async function startListener(): Promise<void> {
-  listenClient = new pg.Client({ connectionString: getDatabaseUrl() });
+  listenClient = new pg.Client({ connectionString: serverEnv().DATABASE_URL });
   listenClient.on("error", (err) => {
     console.warn("[outbox-relay] listen client error:", err.message);
   });
@@ -175,7 +170,7 @@ export async function startOutboxRelay(): Promise<void> {
   stopped = false;
 
   pool = new pg.Pool({
-    connectionString: getDatabaseUrl(),
+    connectionString: serverEnv().DATABASE_URL,
     max: 4,
     idleTimeoutMillis: 60_000,
   });
