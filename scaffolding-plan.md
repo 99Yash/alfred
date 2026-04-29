@@ -257,3 +257,23 @@ These bugs hit when M2 deployed to Railway. Future scaffolds should avoid them:
 6. **Watch-pattern diff blocks `railway up` retries** — when a deploy fails on transient infra issues (e.g., `mise install node@22` network error) and you `railway up` to retry, Railway compares against the previous failed deploy's snapshot and skips with `"No changes to watched files"`. **Fix**: make a real (or trivial-but-real) change to a watched path to force the diff. Empty commits don't trigger.
 
 7. **better-auth@1.6.9 doesn't export `./plugins/passkey`** — passkey was removed from the main package mid-reorganization. **Fix**: ship emailOTP only at v1 (covers the magic-link half of ADR-0009). Revisit when better-auth's plugin layout stabilizes or wire `@simplewebauthn/server` directly.
+
+---
+
+## Lessons from the M3 → M4 transition (2026-04-29)
+
+M3 (Replicache) and M4 (outbox → Redis → SSE) shipped back-to-back. Things that bit or almost bit:
+
+1. **drizzle-kit doesn't generate plpgsql triggers.** The events_outbox `AFTER INSERT` trigger that fires `pg_notify('events_outbox_new')` had to be hand-appended to the generated migration SQL. Same pattern as the existing `bump_row_version` trigger in migration `0001`. **Convention**: any plpgsql trigger or function lives appended after the drizzle-generated `CREATE TABLE` block in the same migration file, separated by `--> statement-breakpoint`.
+
+2. **tsdown infers `Response` (undici-types) into the public d.ts** when an Elysia handler returns a raw `new Response(...)` mixed with object returns in the same plugin. Symptom: `TS2742: The inferred type of 'app' cannot be named without a reference to '.pnpm/undici-types@.../...'`. **Fix**: cast `as Response` on every raw-Response return, OR avoid mixing Response and object returns in the same handler — gate the entire route at registration time with a `.guard({}, (inner) => env-condition ? inner : inner.post(...))` pattern, not via a runtime `if` inside the handler that returns either.
+
+3. **`pg` was a transitive dep of `@alfred/api` via `@alfred/db`.** The outbox relay imports `pg` directly to open a dedicated `Client` for `LISTEN` (you don't want a pool-managed client to recycle out from under a long-running listener) and a small `Pool` for drains. tsdown emitted an UNRESOLVED_IMPORT warning. **Fix**: declare `pg` + `@types/pg` directly in `packages/api/package.json` whenever the package imports `pg` itself, even if `@alfred/db` already pulls it in.
+
+4. **bigserial commit-order skew is real but not worth solving in M4.** A long-running tx that inserted into `events_outbox` early but commits late will publish *after* a later-id row. For agent-progress / tool-call semantics each frame stands alone, so out-of-order is fine. **If a future event type needs strict per-stream ordering**, add a `(stream_id, seq)` column on outbox and let consumers sort within stream. Don't reach for `pg_current_xact_id()` until forced.
+
+5. **Replicache pokes intentionally bypass the outbox** (per the M4 decision discussion). ADR-0005 lists pokes as "one event type" but the operational contract — idempotent hints, not durable state — makes the durability + relay-hop overhead a tax with no benefit. The two pipelines coexist: durable user-events through outbox/relay/SSE, and ephemeral pokes through direct in-memory emit + Redis fan-out. If a future maintainer is tempted to unify them, the principle is: route through outbox iff a missed delivery has user-visible consequences a follow-up sync can't fix.
+
+6. **SSE replay needs watermark-and-buffer to avoid duplicates.** Naive flow (subscribe live → SELECT replay rows → emit both) double-fires events that arrive between subscribe and replay query. **Fix**: subscribe live but buffer; snapshot `MAX(id)` watermark; replay rows in `(since, watermark]`; flush buffered live frames where `id > watermark`; switch to passthrough. See `packages/api/src/modules/events/index.ts`.
+
+7. **`pnpm dev` (turbo) couldn't restart cleanly** because drizzle-kit studio's port (4983) and Vite's port (3000) were already bound from a prior session. Turbo treats a single failed task as a full failure even though server+web could keep going. **Workaround**: when iterating on the server, prefer `pnpm --filter server dev` to skip studio entirely. Still nice-to-have: a turbo dev variant that skips studio.
