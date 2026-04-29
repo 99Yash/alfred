@@ -15,6 +15,13 @@
       "when": 1777342010388,
       "tag": "0001_motionless_millenium_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777441297768,
+      "tag": "0002_tiresome_mercury",
+      "breakpoints": true
     }
   ]
 }

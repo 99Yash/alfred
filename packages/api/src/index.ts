@@ -5,16 +5,20 @@ import { Elysia } from "elysia";
 import { errorHandler } from "./middleware/error-handler.js";
 import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache.js";
 import { createUntrackedRedisConnection } from "./queue/connection.js";
+import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
 
 export { closeConnections, warmPool } from "@alfred/db";
 export { closeRedis } from "./queue/connection.js";
 export { initEventBridge, closeEventBridge } from "./events/index.js";
 export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
+export { publishEvent } from "./events/publish.js";
+export type { EventFrame, EventKind, EventPayload } from "./events/types.js";
 
 export const app = new Elysia({ name: "api" })
   .use(errorHandler)
   .use(replicache)
+  .use(events)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
