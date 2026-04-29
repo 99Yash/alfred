@@ -1,9 +1,6 @@
-import {
-  noteCreateArgsSchema,
-  noteCreateClient,
-} from './notes';
+import { noteCreateArgsSchema, noteCreateClient } from "./notes";
 
-export * from './notes';
+export * from "./notes";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch

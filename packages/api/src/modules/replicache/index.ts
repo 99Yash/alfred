@@ -1,40 +1,42 @@
-import { Elysia, status } from 'elysia';
-import { authMacro } from '../../middleware/auth';
-import { subscribeUserPokes } from '../../events/replicache-events';
-import { ReplicacheModel } from './model';
-import { handlePull } from './pull';
-import { handlePush } from './push';
+import { Elysia, status } from "elysia";
+import { authMacro } from "../../middleware/auth";
+import { subscribeUserPokes } from "../../events/replicache-events";
+import { ReplicacheModel } from "./model";
+import { handlePull } from "./pull";
+import { handlePush } from "./push";
 
-export const replicache = new Elysia({ prefix: '/api/replicache' })
+export const replicache = new Elysia({ prefix: "/api/replicache" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
       .post(
-        '/pull',
+        "/pull",
         async ({ body, user }) => {
           const result = await handlePull(user.id, body);
-          if ('forbidden' in result) {
-            return status(403, { message: 'Client group is bound to another user' });
+          if ("forbidden" in result) {
+            return status(403, { message: "Client group is bound to another user" });
           }
           return result;
         },
         { body: ReplicacheModel.pull },
       )
       .post(
-        '/push',
+        "/push",
         async ({ body, user }) => {
           if (body.mutations.length > ReplicacheModel.MAX_MUTATIONS) {
-            return status(413, { message: `Push exceeds ${ReplicacheModel.MAX_MUTATIONS} mutations` });
+            return status(413, {
+              message: `Push exceeds ${ReplicacheModel.MAX_MUTATIONS} mutations`,
+            });
           }
           const result = await handlePush(user.id, body);
-          if ('forbidden' in result) {
-            return status(403, { message: 'Client group is bound to another user' });
+          if ("forbidden" in result) {
+            return status(403, { message: "Client group is bound to another user" });
           }
           return result;
         },
         { body: ReplicacheModel.push },
       )
-      .get('/events', ({ user }) => {
+      .get("/events", ({ user }) => {
         const userId = user.id;
         const encoder = new TextEncoder();
         let cleanup: (() => void) | undefined;
@@ -54,10 +56,10 @@ export const replicache = new Elysia({ prefix: '/api/replicache' })
             });
 
             const heartbeat = setInterval(() => {
-              write(': heartbeat\n\n');
+              write(": heartbeat\n\n");
             }, 30_000);
 
-            write(': connected\n\n');
+            write(": connected\n\n");
 
             cleanup = () => {
               unsubscribe();
@@ -71,9 +73,9 @@ export const replicache = new Elysia({ prefix: '/api/replicache' })
 
         return new Response(stream, {
           headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
           },
         }) as Response;
       }),

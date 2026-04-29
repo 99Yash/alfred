@@ -1,5 +1,6 @@
 {
   "name": "@alfred/api",
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -10,17 +11,9 @@
       "default": "./src/*.ts"
     }
   },
-  "type": "module",
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b"
-  },
-  "devDependencies": {
-    "@alfred/config": "workspace:*",
-    "tsdown": "catalog:"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
   },
   "dependencies": {
     "@alfred/auth": "workspace:*",
@@ -32,5 +25,12 @@
     "elysia": "catalog:",
     "ioredis": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "tsdown": "catalog:"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
 }

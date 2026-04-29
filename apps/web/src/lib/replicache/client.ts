@@ -1,10 +1,9 @@
-import { Replicache } from 'replicache';
-import type { ClientMutators } from '@alfred/sync';
-import { clientMutators } from '@alfred/sync';
+import { Replicache } from "replicache";
+import type { ClientMutators } from "@alfred/sync";
+import { clientMutators } from "@alfred/sync";
 
 const API_URL =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ??
-  'http://localhost:3001';
+  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 export type AlfredReplicache = Replicache<ClientMutators>;
 
@@ -18,12 +17,12 @@ export function createReplicache(userId: string): {
 
     puller: async (req) => {
       const response = await fetch(`${API_URL}/api/replicache/pull`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
-        credentials: 'include',
+        credentials: "include",
       });
-      const httpRequestInfo = { httpStatusCode: response.status, errorMessage: '' };
+      const httpRequestInfo = { httpStatusCode: response.status, errorMessage: "" };
       if (response.status === 200) {
         return { response: await response.json(), httpRequestInfo };
       }
@@ -32,12 +31,12 @@ export function createReplicache(userId: string): {
 
     pusher: async (req) => {
       const response = await fetch(`${API_URL}/api/replicache/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
-        credentials: 'include',
+        credentials: "include",
       });
-      return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: '' } };
+      return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" } };
     },
   });
 
@@ -45,7 +44,7 @@ export function createReplicache(userId: string): {
   const source = new EventSource(`${API_URL}/api/replicache/events`, {
     withCredentials: true,
   });
-  source.addEventListener('poke', () => {
+  source.addEventListener("poke", () => {
     rep.pull();
   });
   source.onerror = () => {

@@ -6,20 +6,20 @@ Architecture decisions are documented exhaustively in [`decisions.md`](./decisio
 
 ## Stack
 
-| Layer | Choice |
-|---|---|
-| Monorepo | pnpm + Turborepo |
-| Server | Elysia (Node) + Eden typed client |
-| Web | Vite + TanStack Router (SPA) |
-| Database | Postgres + pgvector (Railway) |
-| Cache / Queue | Redis — BullMQ + Pub/Sub (Railway) |
-| Sync | Replicache (multi-device) |
-| Realtime | Postgres outbox → Redis Pub/Sub → SSE |
-| Auth | Better Auth — email OTP + passkey, one-email allowlist |
-| AI | Vercel AI SDK — Anthropic primary, Google fallback |
-| Embeddings | Voyage (1024 dim, HNSW) with Gemini fallback |
-| Web search | Perplexity Sonar Pro (live) + Sonar Deep Research (onboarding) |
-| Hosting | Railway |
+| Layer         | Choice                                                         |
+| ------------- | -------------------------------------------------------------- |
+| Monorepo      | pnpm + Turborepo                                               |
+| Server        | Elysia (Node) + Eden typed client                              |
+| Web           | Vite + TanStack Router (SPA)                                   |
+| Database      | Postgres + pgvector (Railway)                                  |
+| Cache / Queue | Redis — BullMQ + Pub/Sub (Railway)                             |
+| Sync          | Replicache (multi-device)                                      |
+| Realtime      | Postgres outbox → Redis Pub/Sub → SSE                          |
+| Auth          | Better Auth — email OTP + passkey, one-email allowlist         |
+| AI            | Vercel AI SDK — Anthropic primary, Google fallback             |
+| Embeddings    | Voyage (1024 dim, HNSW) with Gemini fallback                   |
+| Web search    | Perplexity Sonar Pro (live) + Sonar Deep Research (onboarding) |
+| Hosting       | Railway                                                        |
 
 ## Local setup
 
@@ -50,17 +50,17 @@ pnpm dev
 
 All required vars live in `apps/server/.env`. The blank template is committed to the repo. Required keys:
 
-| Var | Purpose |
-|---|---|
-| `DATABASE_URL` | Postgres connection string |
-| `REDIS_URL` | Redis connection string |
-| `BETTER_AUTH_SECRET` | ≥32-char random string |
-| `BETTER_AUTH_URL` | Server base URL |
-| `ALFRED_ALLOWED_EMAIL` | Only this email can sign up |
-| `RESEND_API_KEY` | Transactional email (OTP codes) |
-| `RESEND_FROM_EMAIL` | Sender address |
-| `ANTHROPIC_API_KEY` | Primary LLM |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Fallback LLM + embeddings |
+| Var                            | Purpose                         |
+| ------------------------------ | ------------------------------- |
+| `DATABASE_URL`                 | Postgres connection string      |
+| `REDIS_URL`                    | Redis connection string         |
+| `BETTER_AUTH_SECRET`           | ≥32-char random string          |
+| `BETTER_AUTH_URL`              | Server base URL                 |
+| `ALFRED_ALLOWED_EMAIL`         | Only this email can sign up     |
+| `RESEND_API_KEY`               | Transactional email (OTP codes) |
+| `RESEND_FROM_EMAIL`            | Sender address                  |
+| `ANTHROPIC_API_KEY`            | Primary LLM                     |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Fallback LLM + embeddings       |
 
 Optional (safe to leave blank locally): `OPENAI_API_KEY`, `VOYAGE_API_KEY`, `PERPLEXITY_API_KEY`, and the observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`).
 

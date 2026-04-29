@@ -1,5 +1,5 @@
-import IORedis from 'ioredis';
-import { serverEnv } from '@alfred/env/server';
+import IORedis from "ioredis";
+import { serverEnv } from "@alfred/env/server";
 
 export function isQueueEnabled(): boolean {
   try {

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { ReadTransaction } from 'replicache';
-import { useReplicache } from './context';
+import { useEffect, useState } from "react";
+import type { ReadTransaction } from "replicache";
+import { useReplicache } from "./context";
 
 /**
  * Subscribe to a Replicache query. Returns `undefined` on the first render
@@ -9,9 +9,7 @@ import { useReplicache } from './context';
  * Pass a stable `query` function (defined outside the component or wrapped in
  * `useCallback`) to avoid resubscribe storms on every render.
  */
-export function useSubscribe<T>(
-  query: (tx: ReadTransaction) => Promise<T>,
-): T | undefined {
+export function useSubscribe<T>(query: (tx: ReadTransaction) => Promise<T>): T | undefined {
   const rep = useReplicache();
   const [state, setState] = useState<T | undefined>(undefined);
 

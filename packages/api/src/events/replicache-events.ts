@@ -13,8 +13,8 @@
  * the syncable write has committed — pokes inside an uncommitted tx cause the
  * client to pull before the write is visible.
  */
-import { EventEmitter } from 'node:events';
-import type IORedis from 'ioredis';
+import { EventEmitter } from "node:events";
+import type IORedis from "ioredis";
 
 export interface ReplicachePoke {
   userId: string;
@@ -25,14 +25,14 @@ export interface ReplicachePoke {
 type PokeListener = (payload: ReplicachePoke) => void;
 
 function isReplicachePoke(value: unknown): value is ReplicachePoke {
-  if (typeof value !== 'object' || value === null) return false;
+  if (typeof value !== "object" || value === null) return false;
   const v = value as { userId?: unknown; assetId?: unknown };
-  return typeof v.userId === 'string' && typeof v.assetId === 'string';
+  return typeof v.userId === "string" && typeof v.assetId === "string";
 }
 
 const eventFor = (userId: string) => `poke:${userId}`;
 
-const CHANNEL_PREFIX = 'replicache-pokes:u:';
+const CHANNEL_PREFIX = "replicache-pokes:u:";
 const channelFor = (userId: string) => `${CHANNEL_PREFIX}${userId}`;
 const userIdFromChannel = (channel: string): string | null =>
   channel.startsWith(CHANNEL_PREFIX) ? channel.slice(CHANNEL_PREFIX.length) : null;
@@ -47,9 +47,7 @@ let subscriber: IORedis | undefined;
 const userRefCounts = new Map<string, number>();
 
 export async function initReplicachePokeBridge(): Promise<void> {
-  const { isQueueEnabled, createRedisConnection } = await import(
-    '../queue/connection'
-  );
+  const { isQueueEnabled, createRedisConnection } = await import("../queue/connection");
 
   if (!isQueueEnabled()) return;
 
@@ -57,7 +55,7 @@ export async function initReplicachePokeBridge(): Promise<void> {
     publisher = createRedisConnection();
     subscriber = createRedisConnection();
 
-    subscriber.on('message', (channel: string, raw: string) => {
+    subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);
       if (userId === null) return;
       try {
@@ -70,10 +68,10 @@ export async function initReplicachePokeBridge(): Promise<void> {
       }
     });
 
-    console.info('[replicache-events] Redis pub/sub bridge initialized');
+    console.info("[replicache-events] Redis pub/sub bridge initialized");
   } catch (err) {
     console.warn(
-      '[replicache-events] Redis pub/sub bridge disabled:',
+      "[replicache-events] Redis pub/sub bridge disabled:",
       err instanceof Error ? err.message : String(err),
     );
     publisher = undefined;
@@ -104,7 +102,7 @@ function publish(event: ReplicachePoke): void {
   emitter.emit(eventFor(event.userId), event);
 }
 
-export function emitReplicachePokes(userIds: string[], assetId = ''): void {
+export function emitReplicachePokes(userIds: string[], assetId = ""): void {
   for (const userId of userIds) {
     publish({ userId, assetId });
   }
@@ -114,10 +112,7 @@ export function emitReplicachePokes(userIds: string[], assetId = ''): void {
  * Register an SSE listener for pokes addressed to `userId`. Returns an
  * unsubscribe function that MUST be called when the SSE connection closes.
  */
-export function subscribeUserPokes(
-  userId: string,
-  listener: PokeListener,
-): () => void {
+export function subscribeUserPokes(userId: string, listener: PokeListener): () => void {
   const eventName = eventFor(userId);
   emitter.on(eventName, listener);
 
@@ -127,7 +122,7 @@ export function subscribeUserPokes(
   if (prev === 0 && subscriber) {
     subscriber.subscribe(channelFor(userId)).catch((err) => {
       console.warn(
-        '[replicache-events] subscribe failed for user',
+        "[replicache-events] subscribe failed for user",
         userId,
         err instanceof Error ? err.message : String(err),
       );

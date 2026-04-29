@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { authClient } from '~/lib/auth-client';
-import { createReplicache, type AlfredReplicache } from './client';
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { authClient } from "~/lib/auth-client";
+import { createReplicache, type AlfredReplicache } from "./client";
 
 interface ReplicacheContextValue {
   rep: AlfredReplicache | null;
@@ -32,11 +32,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     };
   }, [session?.user?.id]);
 
-  return (
-    <ReplicacheContext.Provider value={{ rep }}>
-      {children}
-    </ReplicacheContext.Provider>
-  );
+  return <ReplicacheContext.Provider value={{ rep }}>{children}</ReplicacheContext.Provider>;
 }
 
 export function useReplicache(): AlfredReplicache | null {

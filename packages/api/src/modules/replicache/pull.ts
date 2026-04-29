@@ -1,13 +1,13 @@
-import { db } from '@alfred/db';
-import { notes, replicacheClient, replicacheClientGroup } from '@alfred/db/schemas';
-import { asc, eq, sql } from 'drizzle-orm';
-import { getCVRStore, type CVRRow, type CVRSnapshot } from './cvr';
-import type { ReplicacheModel } from './model';
+import { db } from "@alfred/db";
+import { notes, replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
+import { asc, eq, sql } from "drizzle-orm";
+import { getCVRStore, type CVRRow, type CVRSnapshot } from "./cvr";
+import type { ReplicacheModel } from "./model";
 
 export type PatchOp =
-  | { op: 'put'; key: string; value: Record<string, unknown> }
-  | { op: 'del'; key: string }
-  | { op: 'clear' };
+  | { op: "put"; key: string; value: Record<string, unknown> }
+  | { op: "del"; key: string }
+  | { op: "clear" };
 
 export type PullRequestBody = ReplicacheModel.Pull;
 
@@ -81,13 +81,13 @@ export async function handlePull(
     // Build next CVR and diff patch.
     const nextNotes: Record<string, CVRRow> = {};
     const patch: PatchOp[] = [];
-    if (isColdSync) patch.push({ op: 'clear' });
+    if (isColdSync) patch.push({ op: "clear" });
 
     for (const n of currentNotes) {
       nextNotes[n.id] = { v: n.rowVersion };
       const prevRow = prevSnapshot.notes[n.id];
       if (!prevRow || prevRow.v !== n.rowVersion) {
-        patch.push({ op: 'put', key: `note/${n.id}`, value: serializeNote(n) });
+        patch.push({ op: "put", key: `note/${n.id}`, value: serializeNote(n) });
       }
     }
 
@@ -95,7 +95,7 @@ export async function handlePull(
     if (!isColdSync) {
       for (const id of Object.keys(prevSnapshot.notes)) {
         if (!nextNotes[id]) {
-          patch.push({ op: 'del', key: `note/${id}` });
+          patch.push({ op: "del", key: `note/${id}` });
         }
       }
     }
@@ -119,8 +119,7 @@ export async function handlePull(
 
     // Bump cvr_version only when something changed.
     const prevVersion = existingGroup?.cvrVersion ?? 0;
-    const hasChanges =
-      patch.length > 0 || Object.keys(lastMutationIDChanges).length > 0;
+    const hasChanges = patch.length > 0 || Object.keys(lastMutationIDChanges).length > 0;
     const nextVersion = hasChanges ? prevVersion + 1 : prevVersion;
 
     if (nextVersion !== prevVersion) {

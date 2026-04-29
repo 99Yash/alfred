@@ -1,14 +1,16 @@
-import { db } from '@alfred/db';
-import { replicacheClient, replicacheClientGroup } from '@alfred/db/schemas';
-import { mutatorArgsSchemas, type MutatorName } from '@alfred/sync';
-import { eq, sql } from 'drizzle-orm';
-import { emitReplicachePokes } from '../../events/replicache-events';
-import { MutatorForbiddenError } from './authz';
-import type { ReplicacheModel } from './model';
-import { serverMutators } from './server-mutators';
+import { db } from "@alfred/db";
+import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
+import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
+import { eq, sql } from "drizzle-orm";
+import { emitReplicachePokes } from "../../events/replicache-events";
+import { MutatorForbiddenError } from "./authz";
+import type { ReplicacheModel } from "./model";
+import { serverMutators } from "./server-mutators";
 
 export type PushRequestBody = ReplicacheModel.Push;
-export type PushResponse = Record<string, never> | { error: 'ClientStateNotFound' | 'VersionNotSupported' };
+export type PushResponse =
+  | Record<string, never>
+  | { error: "ClientStateNotFound" | "VersionNotSupported" };
 
 function isKnownMutator(name: string): name is MutatorName {
   return Object.prototype.hasOwnProperty.call(mutatorArgsSchemas, name);
@@ -55,8 +57,7 @@ export async function handlePush(
   // Entire push runs inside one transaction: clientGroup bind + all mutation
   // writes + LMID advances. Per-mutation failures are isolated via savepoints.
   const outcome = await db().transaction<
-    | { forbidden: true }
-    | { forbidden: false; needsPoke: boolean }
+    { forbidden: true } | { forbidden: false; needsPoke: boolean }
   >(async (tx) => {
     const [group] = await tx
       .select()
@@ -87,7 +88,11 @@ export async function handlePush(
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
         await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
-        console.warn('[replicache:push] unknown mutator', mutation.name, '— LMID advanced to drop it');
+        console.warn(
+          "[replicache:push] unknown mutator",
+          mutation.name,
+          "— LMID advanced to drop it",
+        );
         continue;
       }
 
@@ -96,7 +101,7 @@ export async function handlePush(
       const parsed = schema.safeParse(mutation.args);
       if (!parsed.success) {
         await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
-        console.warn('[replicache:push] invalid args for', mutatorName, parsed.error.issues);
+        console.warn("[replicache:push] invalid args for", mutatorName, parsed.error.issues);
         continue;
       }
 
@@ -121,10 +126,10 @@ export async function handlePush(
         applied = true;
       } catch (err) {
         if (err instanceof MutatorForbiddenError) {
-          console.warn('[replicache:push] ACL rejected', mutatorName, err.message);
+          console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
         } else {
           console.error(
-            '[replicache:push] mutator crashed',
+            "[replicache:push] mutator crashed",
             mutatorName,
             err instanceof Error ? err.message : String(err),
           );
@@ -147,7 +152,10 @@ export async function handlePush(
     try {
       emitReplicachePokes([userId]);
     } catch (err) {
-      console.warn('[replicache:push] poke failed:', err instanceof Error ? err.message : String(err));
+      console.warn(
+        "[replicache:push] poke failed:",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

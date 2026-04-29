@@ -1,5 +1,5 @@
-import { notes } from '@alfred/db/schemas';
-import type { NoteCreateArgs } from '@alfred/sync';
+import { notes } from "@alfred/db/schemas";
+import type { NoteCreateArgs } from "@alfred/sync";
 
 export interface ServerMutatorCtx {
   userId: string;

@@ -15,6 +15,6 @@
 export class MutatorForbiddenError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'MutatorForbiddenError';
+    this.name = "MutatorForbiddenError";
   }
 }

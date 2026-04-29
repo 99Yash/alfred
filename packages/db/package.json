@@ -20,6 +20,12 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
+  "dependencies": {
+    "dotenv": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.16.3",
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@alfred/config": "workspace:*",
     "@types/pg": "^8.18.0",
@@ -29,11 +35,5 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "dependencies": {
-    "dotenv": "catalog:",
-    "drizzle-orm": "^0.45.2",
-    "pg": "^8.16.3",
-    "zod": "catalog:"
   }
 }

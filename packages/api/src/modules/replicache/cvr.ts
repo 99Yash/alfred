@@ -1,5 +1,5 @@
-import type IORedis from 'ioredis';
-import { createRedisConnection } from '../../queue/connection';
+import type IORedis from "ioredis";
+import { createRedisConnection } from "../../queue/connection";
 
 /** One entry per note row in the CVR snapshot. */
 export interface CVRRow {
@@ -43,7 +43,7 @@ export class CVRStore {
     await this.redis.set(
       this.key(clientGroupId, version),
       JSON.stringify(snapshot),
-      'EX',
+      "EX",
       TTL_SECONDS,
     );
   }

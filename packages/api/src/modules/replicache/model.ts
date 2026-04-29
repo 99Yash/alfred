@@ -1,4 +1,4 @@
-import { t } from 'elysia';
+import { t } from "elysia";
 
 export namespace ReplicacheModel {
   /** Per-request mutation cap. Batches over this are rejected with 413. */

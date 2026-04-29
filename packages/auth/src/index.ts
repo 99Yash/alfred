@@ -1,10 +1,10 @@
-import { db } from '@alfred/db';
-import * as schema from '@alfred/db/schema/auth';
-import { serverEnv } from '@alfred/env/server';
-import { betterAuth, type BetterAuthOptions } from 'better-auth';
-import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { emailOTP } from 'better-auth/plugins/email-otp';
-import { Resend } from 'resend';
+import { db } from "@alfred/db";
+import * as schema from "@alfred/db/schema/auth";
+import { serverEnv } from "@alfred/env/server";
+import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { emailOTP } from "better-auth/plugins/email-otp";
+import { Resend } from "resend";
 
 let _auth: ReturnType<typeof betterAuth<BetterAuthOptions>> | undefined;
 
@@ -17,21 +17,22 @@ export function auth() {
 
   _auth = betterAuth<BetterAuthOptions>({
     database: drizzleAdapter(db(), {
-      provider: 'pg',
+      provider: "pg",
       schema,
     }),
     trustedOrigins: [env.CORS_ORIGIN],
     plugins: [
       emailOTP({
         sendVerificationOTP: async ({ email, otp, type }) => {
-          const safeOtp = String(otp).replace(/[^0-9]/g, '');
+          const safeOtp = String(otp).replace(/[^0-9]/g, "");
           let timer: ReturnType<typeof setTimeout> | undefined;
           try {
             await Promise.race([
               resend.emails.send({
                 from: env.RESEND_FROM_EMAIL,
                 to: email,
-                subject: type === 'sign-in' ? 'Your Alfred sign-in code' : 'Verify your Alfred account',
+                subject:
+                  type === "sign-in" ? "Your Alfred sign-in code" : "Verify your Alfred account",
                 html: `<p>Your code is: <strong>${safeOtp}</strong></p><p>Expires in 10 minutes.</p>`,
                 text: `Your Alfred code: ${safeOtp}\n\nExpires in 10 minutes.`,
               }),
@@ -43,7 +44,10 @@ export function auth() {
               }),
             ]);
           } catch (error) {
-            console.error('[auth] Failed to send OTP', { type, error: error instanceof Error ? error.message : String(error) });
+            console.error("[auth] Failed to send OTP", {
+              type,
+              error: error instanceof Error ? error.message : String(error),
+            });
             throw error;
           } finally {
             if (timer) clearTimeout(timer);
@@ -57,10 +61,10 @@ export function auth() {
           before: async (user) => {
             const allowedEmail = serverEnv().ALFRED_ALLOWED_EMAIL.toLowerCase();
             if (user.email.toLowerCase() !== allowedEmail) {
-              throw new Error('Signup not permitted for this email address');
+              throw new Error("Signup not permitted for this email address");
             }
             if (!user.name) {
-              const prefix = user.email.split('@')[0] ?? 'Alfred';
+              const prefix = user.email.split("@")[0] ?? "Alfred";
               return { data: { ...user, name: prefix } };
             }
           },
@@ -69,8 +73,8 @@ export function auth() {
     },
     advanced: {
       defaultCookieAttributes: {
-        sameSite: 'lax',
-        secure: env.NODE_ENV === 'production',
+        sameSite: "lax",
+        secure: env.NODE_ENV === "production",
         httpOnly: true,
       },
     },

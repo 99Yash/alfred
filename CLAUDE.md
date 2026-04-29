@@ -57,11 +57,13 @@ All packages are `@alfred/*`. Never import `@milkpod/*`.
 `@alfred/api` and `@alfred/auth` depend on `@alfred/db` and `@alfred/env`, which pull in Node-only modules (`pg`, `drizzle-orm`). **Never import these packages into `apps/web`'s runtime bundle.**
 
 Allowed in `apps/web`:
+
 - `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
 
 Forbidden in `apps/web`:
+
 - Any non-type import of `@alfred/api`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
 - Any import of `@alfred/ai` (contains server-only AI SDK providers).
 
@@ -82,7 +84,7 @@ Key patterns in this repo:
 
 ```ts
 // Auth guard via macro (packages/api/src/middleware/auth.ts)
-app.use(authMacro).get('/protected', ({ user }) => user, { auth: true });
+app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
 
 // Global error handler (packages/api/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.
@@ -152,17 +154,17 @@ Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing va
 
 Key vars for local dev (pre-filled in `apps/server/.env`):
 
-| Var | Notes |
-|---|---|
-| `DATABASE_URL` | Postgres — local docker default already set |
-| `REDIS_URL` | Redis — local docker default already set |
-| `BETTER_AUTH_SECRET` | Min 32 chars — generate with `openssl rand -base64 32` |
-| `BETTER_AUTH_URL` | `http://localhost:3001` for local dev |
-| `ALFRED_ALLOWED_EMAIL` | Your email — only address that can sign up |
-| `RESEND_API_KEY` | Required for OTP email delivery |
-| `RESEND_FROM_EMAIL` | e.g. `Alfred <noreply@yourdomain.com>` |
-| `ANTHROPIC_API_KEY` | Required — primary LLM |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings |
+| Var                            | Notes                                                  |
+| ------------------------------ | ------------------------------------------------------ |
+| `DATABASE_URL`                 | Postgres — local docker default already set            |
+| `REDIS_URL`                    | Redis — local docker default already set               |
+| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32` |
+| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                  |
+| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up             |
+| `RESEND_API_KEY`               | Required for OTP email delivery                        |
+| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                 |
+| `ANTHROPIC_API_KEY`            | Required — primary LLM                                 |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings            |
 
 All other vars are optional and safe to leave blank locally.
 
