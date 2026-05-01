@@ -8,9 +8,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
  * by cosine similarity, joined to their parent document so callers can
  * surface the title + source.
  *
- * pgvector's `<=>` operator computes cosine *distance* (lower = more
- * similar). We sort ascending and convert to similarity in the result
- * shape so consumers don't deal with the inverted scale.
+ * pgvector's `<=>` operator computes cosine *distance* in [0, 2]
+ * (`1 - cos(θ)`, lower = more similar). We sort ascending and convert
+ * to cosine similarity (`cos(θ)` in [-1, 1]) in the result shape so
+ * consumers don't deal with the inverted scale.
  */
 export interface SearchArgs {
   query: string;
@@ -29,7 +30,11 @@ export interface SearchHit {
   position: number;
   /** First ~280 chars of the chunk for surfacing. */
   preview: string;
-  /** Cosine similarity in [0, 1] — 1 means identical direction. */
+  /**
+   * Cosine similarity in [-1, 1] — 1 = identical direction, 0 =
+   * orthogonal, -1 = opposite. In practice with L2-normalized embeddings
+   * scores cluster in [0, 1]; do not assume that as a hard bound.
+   */
   similarity: number;
   authoredAt: Date | null;
 }

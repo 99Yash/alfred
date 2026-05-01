@@ -202,7 +202,10 @@ async function persistMessage(
   }
   // Conflict: look up the existing row's id so callers can still
   // address it (handy for re-embedding a doc that exists but lost its
-  // chunks).
+  // chunks). If the row has vanished between the conflict and this
+  // select (concurrent delete or data corruption), fail loudly — an
+  // empty id silently propagating into downstream embed/search would
+  // be far worse to debug.
   const existing = await db()
     .select({ id: documents.id })
     .from(documents)
@@ -213,10 +216,14 @@ async function persistMessage(
         eq(documents.sourceId, message.id),
       ),
     );
-  return {
-    outcome: "skipped",
-    documentId: existing[0]?.id ?? "",
-  };
+  const existingId = existing[0]?.id;
+  if (!existingId) {
+    throw new Error(
+      `[gmail.ingestor] insert hit conflict but no existing document found for ` +
+        `user=${userId} sourceId=${message.id}`,
+    );
+  }
+  return { outcome: "skipped", documentId: existingId };
 }
 
 function buildContent(extracted: ReturnType<typeof extractMessageContent>): string {

@@ -161,15 +161,17 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
   }
   if (!body) body = message.snippet ?? "";
 
-  const dateHeader = headers["date"] ?? headers["Date"];
+  // `headersToRecord` lowercases all keys so we can do single lookups
+  // here without juggling the (legal) header-name casing variations.
+  const dateHeader = headers["date"];
   const dateValue = dateHeader ? new Date(dateHeader) : null;
 
   return {
-    subject: headers["subject"] ?? headers["Subject"] ?? null,
-    from: headers["from"] ?? headers["From"] ?? null,
-    to: headers["to"] ?? headers["To"] ?? null,
-    cc: headers["cc"] ?? headers["Cc"] ?? null,
-    bcc: headers["bcc"] ?? headers["Bcc"] ?? null,
+    subject: headers["subject"] ?? null,
+    from: headers["from"] ?? null,
+    to: headers["to"] ?? null,
+    cc: headers["cc"] ?? null,
+    bcc: headers["bcc"] ?? null,
     date: dateValue && !isNaN(dateValue.getTime()) ? dateValue : null,
     body,
     headers,
