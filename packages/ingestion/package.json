@@ -11,6 +11,11 @@
     "build": "tsdown",
     "check-types": "tsc -b"
   },
+  "dependencies": {
+    "@alfred/ai": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
   "devDependencies": {
     "@alfred/config": "workspace:*",
     "tsdown": "catalog:"

@@ -5,11 +5,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
+    },
+    "./google": {
+      "types": "./dist/google/index.d.ts",
+      "default": "./src/google/index.ts"
     }
   },
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",

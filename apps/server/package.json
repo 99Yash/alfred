@@ -14,6 +14,8 @@
     "@alfred/api": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "@alfred/integrations": "workspace:*",
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",
     "@sentry/node": "catalog:",

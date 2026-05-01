@@ -36,6 +36,13 @@
       "when": 1777563004205,
       "tag": "0004_premium_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777606719592,
+      "tag": "0005_tense_thundra",
+      "breakpoints": true
     }
   ]
 }
