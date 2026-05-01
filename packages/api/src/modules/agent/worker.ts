@@ -2,23 +2,15 @@ import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { runOnce } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
-import { findResumableRunIds, heartbeatRun } from "./service";
+import { findResumableRunIds, heartbeatRun, STALE_RUN_LEASE_MS } from "./service";
 
 /**
  * Heartbeat cadence. Worker bumps `last_checkpoint_at` on the active run
  * every interval so the resume sweep won't reclaim it during a long step.
- * Pick a value comfortably below `STALE_AFTER_MS` so a single missed
+ * Pick a value comfortably below `STALE_RUN_LEASE_MS` so a single missed
  * heartbeat doesn't cause a false-positive reclaim.
  */
 const HEARTBEAT_INTERVAL_MS = 10_000;
-
-/**
- * After this much silence, the resume sweep considers a `running` row
- * abandoned and re-enqueues it. Picked at 60s — long enough to ride out
- * a GC pause or short network blip, short enough that a SIGKILL'd worker
- * doesn't leave runs stuck for minutes.
- */
-const STALE_AFTER_MS = 60_000;
 
 const RESUME_SWEEP_INTERVAL_MS = 30_000;
 
@@ -87,7 +79,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
 
 async function resumeSweep(): Promise<void> {
   try {
-    const ids = await findResumableRunIds({ staleAfterMs: STALE_AFTER_MS, limit: 50 });
+    const ids = await findResumableRunIds({ staleAfterMs: STALE_RUN_LEASE_MS, limit: 50 });
     for (const id of ids) {
       await enqueueRun(id);
     }

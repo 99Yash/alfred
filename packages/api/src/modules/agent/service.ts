@@ -4,6 +4,16 @@ import { and, eq, sql } from "drizzle-orm";
 import { requireWorkflow } from "./registry";
 import type { WakeCondition, WorkflowInput } from "./types";
 
+/**
+ * After this much silence on `last_checkpoint_at`, a `running` row is
+ * presumed abandoned and may be reclaimed by another worker. Shared
+ * between the resume sweep (which re-enqueues stale rows) and the
+ * executor's `leaseRun` (which lets a stale row be re-leased and bumps
+ * the attempt counter). Pick a value comfortably above the worker
+ * heartbeat interval so a single missed beat doesn't trigger reclaim.
+ */
+export const STALE_RUN_LEASE_MS = 60_000;
+
 export interface CreateRunArgs extends WorkflowInput {
   userId: string;
   workflowSlug: string;
