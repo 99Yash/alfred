@@ -22,6 +22,20 @@
       "when": 1777441297768,
       "tag": "0002_tiresome_mercury",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777517161559,
+      "tag": "0003_hot_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777563004205,
+      "tag": "0004_premium_big_bertha",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 import { createUntrackedRedisConnection } from "./queue/connection.js";
 import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
+import { agent } from "./modules/agent/index.js";
 
 export { closeConnections, warmPool } from "@alfred/db";
 export { closeRedis } from "./queue/connection.js";
@@ -14,11 +15,30 @@ export { initEventBridge, closeEventBridge } from "./events/index.js";
 export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
 export { publishEvent } from "./events/publish.js";
 export type { EventFrame, EventKind, EventPayload } from "./events/types.js";
+export {
+  registerWorkflow,
+  startAgentWorker,
+  stopAgentWorker,
+  closeAgentQueue,
+  createRun,
+  signalRun,
+  enqueueRun,
+} from "./modules/agent/index.js";
+export type {
+  Workflow,
+  WorkflowInput,
+  Step,
+  StepContext,
+  StepResult,
+  WakeCondition,
+  RunStatus,
+} from "./modules/agent/index.js";
 
 export const app = new Elysia({ name: "api" })
   .use(errorHandler)
   .use(replicache)
   .use(events)
+  .use(agent)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
