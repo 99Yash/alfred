@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { documents, ingestionState } from "@alfred/db/schemas";
+import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { embedDocument } from "@alfred/ingestion";
 import { and, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -7,7 +7,10 @@ import { getFreshAccessToken } from "./credentials";
 import {
   extractMessageContent,
   getMessage,
+  isHistoryGoneError,
+  listHistory,
   listMessages,
+  type GmailHistoryEntry,
   type GmailMessage,
 } from "./gmail";
 
@@ -289,6 +292,245 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
         updatedAt: now,
       },
     });
+}
+
+// ---------------------------------------------------------------------------
+// Delta sync via users.history.list
+// ---------------------------------------------------------------------------
+
+export interface PollHistoryArgs {
+  credentialId: string;
+  /**
+   * Cap on history pages walked in one call. Each page can yield up to
+   * 500 entries; the cap is a defense against runaway loops if a watch
+   * channel went silent for days and the history is huge.
+   */
+  maxPages?: number;
+}
+
+export interface PollHistoryResult {
+  /** Number of history pages fetched. */
+  pagesFetched: number;
+  /** New documents written this run. */
+  inserted: number;
+  /** Messages already on file (no-op insert). */
+  skipped: number;
+  errors: number;
+  chunksWritten: number;
+  embedFailures: number;
+  /** Cursor advanced to this historyId. */
+  cursorBefore: string | null;
+  cursorAfter: string | null;
+  /**
+   * True when the cursor was unusable (404 from Gmail) and we ran a
+   * full re-ingest instead. Caller should treat this as "expected
+   * occasionally" not a failure.
+   */
+  fullResync: boolean;
+}
+
+/**
+ * Incremental sync from the stored `historyId` cursor. The contract:
+ *  - Reads cursor → calls users.history.list until no more pages.
+ *  - Fetches + persists each `messagesAdded` message via the same path
+ *    as the bulk ingest (so dedupe + embed behave identically).
+ *  - Advances the cursor to the latest `historyId` we observed (or the
+ *    top-level `historyId` from the response when no entries returned —
+ *    this matters during quiet periods so the cursor doesn't go stale).
+ *  - On `404 history not found`: cursor is older than Gmail's retention
+ *    window; falls back to a full re-ingest so we don't silently miss
+ *    a multi-day backlog.
+ *
+ * The job is idempotent: every persistMessage hits an
+ * `onConflictDoNothing` on `(userId, source, sourceId)`, so a webhook
+ * + cron poll racing on the same notification is fine.
+ */
+export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHistoryResult> {
+  const cred = await loadCredentialOrThrow(args.credentialId);
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const cursorBefore = await loadHistoryCursor(args.credentialId);
+
+  if (!cursorBefore) {
+    // No cursor yet — m7a never ran for this credential, or watch hasn't
+    // installed. Fall back to recent ingest; that path also seeds the
+    // cursor via `upsertIngestionState`.
+    const recent = await ingestRecentGmail({ credentialId: args.credentialId, maxMessages: 200 });
+    return {
+      pagesFetched: 0,
+      inserted: recent.inserted,
+      skipped: recent.skipped,
+      errors: recent.errors,
+      chunksWritten: recent.chunksWritten,
+      embedFailures: recent.embedFailures,
+      cursorBefore: null,
+      cursorAfter: recent.highWaterHistoryId,
+      fullResync: true,
+    };
+  }
+
+  const maxPages = args.maxPages ?? 50;
+  let pagesFetched = 0;
+  let pageToken: string | undefined;
+  const messageIds = new Set<string>();
+  let latestHistoryId: string = cursorBefore;
+
+  try {
+    while (pagesFetched < maxPages) {
+      const page = await listHistory({
+        accessToken,
+        startHistoryId: cursorBefore,
+        pageToken,
+      });
+      pagesFetched++;
+
+      for (const entry of page.entries) {
+        for (const id of collectAddedMessageIds(entry)) messageIds.add(id);
+        if (compareHistoryIds(entry.id, latestHistoryId) > 0) latestHistoryId = entry.id;
+      }
+      // Quiet-period safety: if no entries came back, the response's
+      // top-level `historyId` reflects Gmail's current mailbox revision.
+      // Adopt it so the next call doesn't re-request the same window.
+      if (page.entries.length === 0 && page.historyId) {
+        if (compareHistoryIds(page.historyId, latestHistoryId) > 0) {
+          latestHistoryId = page.historyId;
+        }
+      }
+
+      if (!page.nextPageToken) break;
+      pageToken = page.nextPageToken;
+    }
+  } catch (err) {
+    if (isHistoryGoneError(err)) {
+      console.warn(
+        `[gmail.ingestor] history cursor stale for ${args.credentialId}; full re-ingest`,
+      );
+      const recent = await ingestRecentGmail({
+        credentialId: args.credentialId,
+        maxMessages: 500,
+      });
+      return {
+        pagesFetched,
+        inserted: recent.inserted,
+        skipped: recent.skipped,
+        errors: recent.errors,
+        chunksWritten: recent.chunksWritten,
+        embedFailures: recent.embedFailures,
+        cursorBefore,
+        cursorAfter: recent.highWaterHistoryId,
+        fullResync: true,
+      };
+    }
+    throw err;
+  }
+
+  let inserted = 0;
+  let skipped = 0;
+  let errors = 0;
+  let chunksWritten = 0;
+  let embedFailures = 0;
+
+  for (const id of messageIds) {
+    try {
+      const message = await getMessage({ accessToken, id, format: "full" });
+      const result = await persistMessage(cred.userId, cred.accountId, message);
+      if (result.outcome === "inserted") {
+        inserted++;
+        try {
+          const embed = await embedDocument({ documentId: result.documentId });
+          chunksWritten += embed.chunksWritten;
+        } catch (err) {
+          embedFailures++;
+          console.warn(
+            `[gmail.ingestor] poll embed failed for doc=${result.documentId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      } else {
+        skipped++;
+      }
+    } catch (err) {
+      errors++;
+      console.warn(
+        `[gmail.ingestor] poll fetch failed for message=${id}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  await upsertIngestionState({
+    credentialId: cred.credentialId,
+    userId: cred.userId,
+    historyId: latestHistoryId,
+    fullSync: false,
+  });
+
+  return {
+    pagesFetched,
+    inserted,
+    skipped,
+    errors,
+    chunksWritten,
+    embedFailures,
+    cursorBefore,
+    cursorAfter: latestHistoryId,
+    fullResync: false,
+  };
+}
+
+/** Return added message ids from a history entry. We dedupe upstream via Set. */
+function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
+  const out: string[] = [];
+  for (const m of entry.messagesAdded ?? []) out.push(m.message.id);
+  // `messages` (without -Added/-Deleted) is the union per Gmail docs;
+  // include it as a safety net in case we ever drop the historyTypes
+  // filter in the call. Duplicates collapse in the Set on the caller.
+  for (const m of entry.messages ?? []) out.push(m.id);
+  return out;
+}
+
+async function loadHistoryCursor(credentialId: string): Promise<string | null> {
+  const rows = await db()
+    .select({ state: ingestionState.state })
+    .from(ingestionState)
+    .where(
+      and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
+    );
+  const state = rows[0]?.state as { historyId?: string | null } | undefined;
+  const id = state?.historyId;
+  return id ?? null;
+}
+
+/**
+ * Find Gmail credentials whose `last_sync_at` is older than `before`.
+ * The 5-minute polling fallback drains this list; webhook-driven polls
+ * advance `last_sync_at` so a healthy mailbox never enters the fallback.
+ *
+ * Note: a credential with no `ingestion_state` row at all is *not*
+ * returned — the bulk ingest seeds the row, and a credential without one
+ * has nothing to delta-sync from yet.
+ */
+export async function findCredentialsNeedingPoll(
+  before: Date,
+): Promise<{ credentialId: string; userId: string }[]> {
+  const rows = await db()
+    .select({
+      credentialId: ingestionState.credentialId,
+      userId: ingestionState.userId,
+      lastSyncAt: ingestionState.lastSyncAt,
+      status: integrationCredentials.status,
+    })
+    .from(ingestionState)
+    .innerJoin(
+      integrationCredentials,
+      eq(integrationCredentials.id, ingestionState.credentialId),
+    )
+    .where(
+      and(eq(ingestionState.provider, "google"), eq(ingestionState.stream, "messages")),
+    );
+  return rows
+    .filter((r) => r.status === "active")
+    .filter((r) => !r.lastSyncAt || r.lastSyncAt < before)
+    .map((r) => ({ credentialId: r.credentialId, userId: r.userId }));
 }
 
 /** Re-export so callers can find existing credentials before kicking off an ingest. */

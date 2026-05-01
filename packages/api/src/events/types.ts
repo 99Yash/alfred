@@ -55,11 +55,29 @@ export const agentRunSchema = z.object({
   error: z.string().max(4_000).optional(),
 });
 
+/**
+ * Soft-notification event fired when alfred auto-confirms a fact (ADR-0019).
+ * The UI renders a non-modal toast with the key + a brief value preview;
+ * the user can click `undo` to flip to `rejected` (which signs the value
+ * into `rejected_inferences` so re-extraction won't re-propose).
+ *
+ * Only auto-confirmations emit this — explicit user confirms via the
+ * Memory page already have their own UX.
+ */
+export const memoryFactLearnedSchema = z.object({
+  factId: z.string().min(1).max(120),
+  key: z.string().min(1).max(200),
+  /** Short stringified preview — full value rides Replicache. */
+  preview: z.string().max(280),
+  confidence: z.number().min(0).max(1),
+});
+
 export const eventPayloadSchemas = {
   "agent.progress": agentProgressSchema,
   "agent.run": agentRunSchema,
   "tool.call": toolCallSchema,
   "approval.requested": approvalRequestedSchema,
+  "memory.fact_learned": memoryFactLearnedSchema,
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;

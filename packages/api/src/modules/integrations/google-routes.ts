@@ -4,6 +4,9 @@ import { serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
   exchangeCode,
+  getGmailWatchState,
+  installGmailWatch,
+  uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -89,6 +92,68 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
               ),
             );
           return { credentials: rows };
+        },
+      )
+      .post(
+        "/:id/watch",
+        async ({ params, user }) => {
+          const owner = await db()
+            .select({ id: integrationCredentials.id })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.id, params.id),
+                eq(integrationCredentials.userId, user.id),
+              ),
+            );
+          if (!owner[0]) return status(404, { message: "Credential not found" });
+          const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
+          if (!topic) return status(503, { message: "GOOGLE_PUBSUB_TOPIC not configured" });
+          const state = await installGmailWatch({ credentialId: params.id, topicName: topic });
+          return { credentialId: params.id, watch: state };
+        },
+        {
+          params: t.Object({ id: t.String() }),
+        },
+      )
+      .delete(
+        "/:id/watch",
+        async ({ params, user }) => {
+          const owner = await db()
+            .select({ id: integrationCredentials.id })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.id, params.id),
+                eq(integrationCredentials.userId, user.id),
+              ),
+            );
+          if (!owner[0]) return status(404, { message: "Credential not found" });
+          await uninstallGmailWatch(params.id);
+          return { credentialId: params.id, ok: true };
+        },
+        {
+          params: t.Object({ id: t.String() }),
+        },
+      )
+      .get(
+        "/:id/watch",
+        async ({ params, user }) => {
+          const owner = await db()
+            .select({ id: integrationCredentials.id })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.id, params.id),
+                eq(integrationCredentials.userId, user.id),
+              ),
+            );
+          if (!owner[0]) return status(404, { message: "Credential not found" });
+          const state = await getGmailWatchState(params.id);
+          return { credentialId: params.id, watch: state };
+        },
+        {
+          params: t.Object({ id: t.String() }),
         },
       )
       .post(

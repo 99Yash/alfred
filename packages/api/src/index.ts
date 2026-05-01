@@ -30,8 +30,10 @@ export {
   stopIngestionWorker,
   closeIngestionQueue,
   getIngestionQueue,
+  scheduleRepeatableIngestionJobs,
 } from "./modules/integrations/index.js";
 export type { IngestionJobData } from "./modules/integrations/index.js";
+export * from "./modules/memory/index.js";
 export type {
   Workflow,
   WorkflowInput,

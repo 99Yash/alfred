@@ -4,14 +4,19 @@ import {
   closeConnections,
   closeEventBridge,
   closeIngestionQueue,
+  closeMemoryQueue,
   closeRedis,
   closeReplicachePokeBridge,
   initEventBridge,
   initReplicachePokeBridge,
+  scheduleRepeatableIngestionJobs,
+  scheduleRepeatableMemoryJobs,
   startAgentWorker,
   startIngestionWorker,
+  startMemoryWorker,
   stopAgentWorker,
   stopIngestionWorker,
+  stopMemoryWorker,
   warmPool,
 } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -31,6 +36,12 @@ await initReplicachePokeBridge();
 registerBuiltinWorkflows();
 await startAgentWorker();
 await startIngestionWorker();
+await startMemoryWorker();
+// Register the m7c repeatable jobs (poll-sweep, watch-renew, embed-sweep).
+// Idempotent: rerunning on every boot upserts the same scheduler ids.
+await scheduleRepeatableIngestionJobs();
+// Daily memory-extraction trigger (m8b). Idempotent like the ingestion ones.
+await scheduleRepeatableMemoryJobs();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -58,6 +69,8 @@ async function shutdown(signal: string) {
     await closeAgentQueue();
     await stopIngestionWorker();
     await closeIngestionQueue();
+    await stopMemoryWorker();
+    await closeMemoryQueue();
     console.log("Workers stopped");
   } catch (err) {
     console.error(

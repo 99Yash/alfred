@@ -1,6 +1,11 @@
 import { db } from "@alfred/db";
-import { notes, replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
-import { asc, eq, sql } from "drizzle-orm";
+import {
+  notes,
+  replicacheClient,
+  replicacheClientGroup,
+  userFacts,
+} from "@alfred/db/schemas";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getCVRStore, type CVRRow, type CVRSnapshot } from "./cvr";
 import type { ReplicacheModel } from "./model";
 
@@ -30,6 +35,26 @@ function serializeNote(n: {
     text: n.text,
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     rowVersion: n.rowVersion,
+  };
+}
+
+function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown> {
+  const toIso = (d: Date | null | undefined) =>
+    d instanceof Date ? d.toISOString() : d ?? null;
+  return {
+    id: f.id,
+    userId: f.userId,
+    key: f.key,
+    value: f.value,
+    confidence: f.confidence,
+    status: f.status,
+    source: f.source,
+    validFrom: toIso(f.validFrom),
+    validUntil: toIso(f.validUntil),
+    supersedesId: f.supersedesId,
+    rowVersion: f.rowVersion,
+    createdAt: toIso(f.createdAt),
+    updatedAt: toIso(f.updatedAt),
   };
 }
 
@@ -78,8 +103,23 @@ export async function handlePull(
       .where(eq(notes.userId, userId))
       .orderBy(asc(notes.id));
 
+    // Query the actionable user_facts (proposed + confirmed). The other
+    // statuses stay server-side — they're audit history, not part of
+    // the correction-loop UX surface.
+    const currentFacts = await tx
+      .select()
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.userId, userId),
+          inArray(userFacts.status, ["proposed", "confirmed"]),
+        ),
+      )
+      .orderBy(asc(userFacts.id));
+
     // Build next CVR and diff patch.
     const nextNotes: Record<string, CVRRow> = {};
+    const nextFacts: Record<string, CVRRow> = {};
     const patch: PatchOp[] = [];
     if (isColdSync) patch.push({ op: "clear" });
 
@@ -91,11 +131,29 @@ export async function handlePull(
       }
     }
 
+    const prevFacts = prevSnapshot.facts ?? {};
+    for (const f of currentFacts) {
+      nextFacts[f.id] = { v: f.rowVersion };
+      const prevRow = prevFacts[f.id];
+      if (!prevRow || prevRow.v !== f.rowVersion) {
+        patch.push({ op: "put", key: `fact/${f.id}`, value: serializeFact(f) });
+      }
+    }
+
     // Emit del for rows present in prev snapshot but absent now (deletions).
+    // Includes both real deletes AND status transitions out of the
+    // {proposed, confirmed} window — a fact moving to `rejected` looks
+    // like a deletion to the client, which matches the UX (the card
+    // disappears).
     if (!isColdSync) {
       for (const id of Object.keys(prevSnapshot.notes)) {
         if (!nextNotes[id]) {
           patch.push({ op: "del", key: `note/${id}` });
+        }
+      }
+      for (const id of Object.keys(prevFacts)) {
+        if (!nextFacts[id]) {
+          patch.push({ op: "del", key: `fact/${id}` });
         }
       }
     }
@@ -115,7 +173,11 @@ export async function handlePull(
       if (prevLmids[cid] !== lmid) lastMutationIDChanges[cid] = lmid;
     }
 
-    const nextSnapshot: CVRSnapshot = { notes: nextNotes, clients: currentLmids };
+    const nextSnapshot: CVRSnapshot = {
+      notes: nextNotes,
+      facts: nextFacts,
+      clients: currentLmids,
+    };
 
     // Bump cvr_version only when something changed.
     const prevVersion = existingGroup?.cvrVersion ?? 0;

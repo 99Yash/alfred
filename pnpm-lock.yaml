@@ -308,6 +308,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@alfred/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@alfred/auth':
         specifier: workspace:*
         version: link:../auth
@@ -317,6 +320,9 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
+      '@alfred/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations
@@ -335,6 +341,9 @@ importers:
       ioredis:
         specifier: 'catalog:'
         version: 5.10.1
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       pg:
         specifier: ^8.16.3
         version: 8.20.0
