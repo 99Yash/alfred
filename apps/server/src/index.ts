@@ -3,12 +3,15 @@ import {
   closeAgentQueue,
   closeConnections,
   closeEventBridge,
+  closeIngestionQueue,
   closeRedis,
   closeReplicachePokeBridge,
   initEventBridge,
   initReplicachePokeBridge,
   startAgentWorker,
+  startIngestionWorker,
   stopAgentWorker,
+  stopIngestionWorker,
   warmPool,
 } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -27,6 +30,7 @@ await initReplicachePokeBridge();
 // otherwise a job picked up first might not find its workflow slug.
 registerBuiltinWorkflows();
 await startAgentWorker();
+await startIngestionWorker();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -52,10 +56,12 @@ async function shutdown(signal: string) {
     // shutdown drains the active step.
     await stopAgentWorker();
     await closeAgentQueue();
-    console.log("Agent worker stopped");
+    await stopIngestionWorker();
+    await closeIngestionQueue();
+    console.log("Workers stopped");
   } catch (err) {
     console.error(
-      "Error stopping agent worker:",
+      "Error stopping workers:",
       err instanceof Error ? err.message : String(err),
     );
   }

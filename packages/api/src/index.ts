@@ -8,6 +8,7 @@ import { createUntrackedRedisConnection } from "./queue/connection.js";
 import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
 import { agent } from "./modules/agent/index.js";
+import { integrations } from "./modules/integrations/index.js";
 
 export { closeConnections, warmPool } from "@alfred/db";
 export { closeRedis } from "./queue/connection.js";
@@ -24,6 +25,13 @@ export {
   signalRun,
   enqueueRun,
 } from "./modules/agent/index.js";
+export {
+  startIngestionWorker,
+  stopIngestionWorker,
+  closeIngestionQueue,
+  getIngestionQueue,
+} from "./modules/integrations/index.js";
+export type { IngestionJobData } from "./modules/integrations/index.js";
 export type {
   Workflow,
   WorkflowInput,
@@ -39,6 +47,7 @@ export const app = new Elysia({ name: "api" })
   .use(replicache)
   .use(events)
   .use(agent)
+  .use(integrations)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
