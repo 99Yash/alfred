@@ -31,8 +31,33 @@ export const approvalRequestedSchema = z.object({
   prompt: z.string().min(1).max(4_000),
 });
 
+/**
+ * Lifecycle phases of a durable agent run. `started` fires once per run;
+ * `step_started` / `step_completed` fire per attempt; `interrupted` fires
+ * when a step parks the run on a wake condition; `completed` / `failed`
+ * are terminal.
+ */
+export const agentRunSchema = z.object({
+  runId: z.string().min(1).max(120),
+  phase: z.enum([
+    "started",
+    "step_started",
+    "step_completed",
+    "interrupted",
+    "resumed",
+    "completed",
+    "failed",
+  ]),
+  step: z.string().min(1).max(120).optional(),
+  attempt: z.number().int().nonnegative().optional(),
+  workflowSlug: z.string().min(1).max(120).optional(),
+  wake: z.unknown().optional(),
+  error: z.string().max(4_000).optional(),
+});
+
 export const eventPayloadSchemas = {
   "agent.progress": agentProgressSchema,
+  "agent.run": agentRunSchema,
   "tool.call": toolCallSchema,
   "approval.requested": approvalRequestedSchema,
 } as const satisfies Record<string, z.ZodType>;

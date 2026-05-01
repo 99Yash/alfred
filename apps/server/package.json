@@ -10,12 +10,16 @@
     "deploy": "pnpm --filter @alfred/db db:migrate"
   },
   "dependencies": {
+    "@alfred/ai": "workspace:*",
     "@alfred/api": "workspace:*",
+    "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",
     "@sentry/node": "catalog:",
-    "elysia": "catalog:"
+    "drizzle-orm": "^0.45.2",
+    "elysia": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
