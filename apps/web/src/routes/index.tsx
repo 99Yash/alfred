@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
 
 export const Route = createFileRoute("/")({
@@ -7,10 +8,17 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
+  const navigate = useNavigate();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const { data, isLoading } = useQuery({
     queryKey: ["health"],
     queryFn: () => client.health.get(),
   });
+
+  const signOut = async () => {
+    await authClient.signOut();
+    await navigate({ to: "/login" });
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center">
@@ -24,9 +32,21 @@ function HomePage() {
               ? "✓ connected"
               : "✗ not reachable"}
         </p>
-        <a href="/login" className="underline text-sm">
-          Sign in
-        </a>
+        {sessionPending ? null : session?.user ? (
+          <div className="flex items-center justify-center gap-3 text-sm text-muted-foreground">
+            <span>{session.user.email}</span>
+            <a href="/notes" className="underline">
+              Notes
+            </a>
+            <button onClick={signOut} className="underline">
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <a href="/login" className="underline text-sm">
+            Sign in
+          </a>
+        )}
       </div>
     </div>
   );
