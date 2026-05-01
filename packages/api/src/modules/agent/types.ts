@@ -71,8 +71,9 @@ export interface StepContext<S> {
   state: S;
   /**
    * Stage an outbound effect committed atomically with this step's result.
-   * Returns the staged action id. Re-running the same attempt is a no-op
-   * because the (kind, idempotencyKey) is unique.
+   * Re-running the same attempt is a no-op because the (kind,
+   * idempotencyKey) pair is unique on `pending_actions`. The action id
+   * isn't returned here — callers correlate via `idempotencyKey`.
    */
   stageAction(action: StagedAction): void;
   /** Emit a progress event (durable via the outbox) without finishing the step. */

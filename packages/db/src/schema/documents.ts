@@ -15,9 +15,9 @@ import { user } from "./auth";
 /**
  * pgvector column wrapper. Drizzle has community vector helpers but
  * they don't all support 1024-dim or HNSW out of the box; rolling our
- * own keeps the schema explicit. The string serialization (`'[a,b,c]'`)
- * is what pgvector accepts on insert; reads come back as a string and
- * callers parse with `JSON.parse`.
+ * own keeps the schema explicit. `toDriver` serializes `number[]` as
+ * the `[a,b,c]` literal pgvector accepts on insert; `fromDriver` parses
+ * the same shape back so callers receive a `number[]` directly.
  */
 const vector = (name: string, dimensions: number) =>
   customType<{ data: number[]; driverData: string }>({

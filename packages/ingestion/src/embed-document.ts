@@ -17,7 +17,8 @@ import { chunkText, type Chunk } from "./chunker";
  *
  * Failures here don't roll back the parent `documents` row — the doc is
  * still useful as a SQL-searchable artifact even if embedding failed.
- * Callers can re-run `embedPendingDocuments` to retry.
+ * Callers can use `findUnembeddedDocumentIds` to find docs that need a
+ * (re-)embedding pass and call `embedDocument` for each.
  */
 export interface EmbedDocumentArgs {
   documentId: string;

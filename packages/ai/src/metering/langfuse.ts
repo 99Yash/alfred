@@ -1,4 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
+import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
 import type { CallUsage, MeteredMeta } from "./types";
 
@@ -63,7 +64,10 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   const { meta, startedAt } = input;
-  const traceId = meta.runId ?? `adhoc:${meta.idempotencyKey ?? Date.now()}`;
+  // Prefer runId so calls inside one run group; fall back to idempotency
+  // key (stable across retries) and finally a UUID. Date.now() would
+  // collide for concurrent calls in the same ms and merge unrelated traces.
+  const traceId = meta.runId ?? `adhoc:${meta.idempotencyKey ?? randomUUID()}`;
   // generation() in Langfuse v3 returns an object with .end()/.update().
   // We catch construction errors so a misconfigured SDK can't crash the
   // call site.
