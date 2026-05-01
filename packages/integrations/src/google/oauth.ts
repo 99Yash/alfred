@@ -1,4 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 
 /**
@@ -134,7 +135,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     // hard error so we don't silently accept short-lived credentials.
     throw new Error("[google.oauth] no refresh_token returned; re-run with prompt=consent");
   }
-  const claims = decodeIdTokenClaims(parsed.id_token);
+  const claims = await verifyIdToken(parsed.id_token, cfg.clientId);
   return {
     ...parsed,
     accountId: claims.sub,
@@ -179,23 +180,49 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
 }
 
 /**
- * Decode the `sub` and `email` claims from a Google id_token. We trust
- * the claims because they're delivered over TLS straight from Google's
- * token endpoint — no need to verify the JWT signature here. (If we
- * ever accept id_tokens received via redirect, we'd have to verify.)
+ * Verify a Google id_token's signature, issuer, audience, and expiry
+ * before trusting `sub`/`email` — these values key our credential rows,
+ * so accepting unverified claims would let a forged token bind a
+ * different identity. The TLS channel proves the token came from Google's
+ * token endpoint *this* request, but the inner JWT must still be checked
+ * because nothing else in this codebase reads `iss`/`aud`/`exp`.
+ *
+ * The JWKS is cached internally by `createRemoteJWKSet` and rotated on
+ * unknown-kid lookups, so the cost is one fetch per pod per ~hours.
  */
-function decodeIdTokenClaims(idToken: string | undefined): { sub: string; email: string } {
+const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+const GOOGLE_ID_TOKEN_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+
+interface GoogleIdTokenClaims extends JWTPayload {
+  sub?: string;
+  email?: string;
+  email_verified?: boolean;
+}
+
+async function verifyIdToken(
+  idToken: string | undefined,
+  audience: string,
+): Promise<{ sub: string; email: string }> {
   if (!idToken) {
     throw new Error("[google.oauth] id_token missing — request 'openid email' scopes");
   }
-  const parts = idToken.split(".");
-  if (parts.length !== 3) throw new Error("[google.oauth] malformed id_token");
-  const payload = parts[1];
-  if (!payload) throw new Error("[google.oauth] empty id_token payload");
-  const decoded = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString();
-  const claims = JSON.parse(decoded) as { sub?: string; email?: string };
+  let claims: GoogleIdTokenClaims;
+  try {
+    const { payload } = await jwtVerify<GoogleIdTokenClaims>(idToken, GOOGLE_JWKS, {
+      issuer: GOOGLE_ID_TOKEN_ISSUERS,
+      audience,
+    });
+    claims = payload;
+  } catch (err) {
+    throw new Error(
+      `[google.oauth] id_token verification failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   if (!claims.sub || !claims.email) {
     throw new Error("[google.oauth] id_token missing sub or email claims");
+  }
+  if (claims.email_verified === false) {
+    throw new Error("[google.oauth] id_token email is not verified");
   }
   return { sub: claims.sub, email: claims.email };
 }

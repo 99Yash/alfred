@@ -3,6 +3,7 @@ import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { requireWorkflow } from "./registry";
+import { STALE_RUN_LEASE_MS } from "./service";
 import {
   isTerminalStatus,
   type RunStatus,
@@ -122,21 +123,58 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
-             state, current_step AS "currentStep", attempt, metadata
+             state, current_step AS "currentStep", attempt, metadata,
+             EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs
       WHERE id = ${runId}
       FOR UPDATE SKIP LOCKED
     `);
 
     const rawRows = (result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[]);
-    const row = (Array.isArray(rawRows) ? rawRows[0] : undefined) as RunRow | undefined;
+    const row = (Array.isArray(rawRows) ? rawRows[0] : undefined) as
+      | (RunRow & { staleMs: number | string | null })
+      | undefined;
     if (!row) return null;
 
     if (isTerminalStatus(row.status as RunStatus)) return null;
-    if (row.status === "running") return null; // another worker has it
     if (row.status === "waiting") return null; // signal will flip to runnable first
 
-    const attempt = row.attempt;
+    // A `running` row is normally held by another worker. But if its
+    // heartbeat (`last_checkpoint_at`) is older than the lease window,
+    // the previous worker is presumed dead and we reclaim — bumping the
+    // attempt so the in-flight `agent_steps` row's unique key (run, step,
+    // attempt) doesn't collide on the next insert. The orphan step row
+    // is marked failed for audit visibility.
+    let isStaleRunning = false;
+    if (row.status === "running") {
+      const staleMs = typeof row.staleMs === "string" ? Number(row.staleMs) : row.staleMs;
+      if (staleMs == null || staleMs >= STALE_RUN_LEASE_MS) {
+        isStaleRunning = true;
+      } else {
+        return null; // another worker has it, heartbeat is fresh
+      }
+    }
+
+    const attempt = isStaleRunning ? row.attempt + 1 : row.attempt;
+
+    if (isStaleRunning) {
+      await tx
+        .update(agentSteps)
+        .set({
+          status: "failed",
+          error: { message: "lease reclaimed: previous worker presumed dead" },
+          endedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(agentSteps.runId, row.id),
+            eq(agentSteps.stepId, row.currentStep),
+            eq(agentSteps.attempt, row.attempt),
+            eq(agentSteps.status, "running"),
+          ),
+        );
+    }
+
     await tx
       .update(agentRuns)
       .set({
@@ -157,7 +195,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
       });
     }
 
-    return { run: row, attempt };
+    return { run: { ...row, attempt }, attempt };
   });
 }
 

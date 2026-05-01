@@ -20,6 +20,7 @@
     "@alfred/env": "workspace:*",
     "@alfred/ingestion": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.2",
     "zod": "catalog:"
   },
   "devDependencies": {

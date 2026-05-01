@@ -11,6 +11,7 @@ import { Elysia, status, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { getIngestionQueue } from "./queue";
+import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
 
 /**
  * Google integration routes.
@@ -19,10 +20,11 @@ import { getIngestionQueue } from "./queue";
  *   GET  /api/integrations/google/callback ← Google redirects here with `code`
  *   POST /api/integrations/google/:id/ingest → enqueue an ingestion job
  *
- * The `state` parameter on the authorize URL carries `(userId, nonce)` and is
- * HMAC-signed with `BETTER_AUTH_SECRET` so we can trust it on callback
- * without persisting per-flow rows. (CSRF defense + binding to the user
- * who initiated the connect.)
+ * The `state` parameter on the authorize URL carries `(userId, nonce)`,
+ * HMAC-signed with `BETTER_AUTH_SECRET` to detect tampering. The real
+ * CSRF/replay defense is the nonce: we persist it in Redis with a TTL
+ * and atomically consume it on callback, so a captured state can't be
+ * reused.
  */
 
 interface SignedState {
@@ -56,8 +58,10 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
-      .get("/connect", ({ user, set }) => {
-        const state = signState({ userId: user.id, nonce: randomBytes(16).toString("hex") });
+      .get("/connect", async ({ user, set }) => {
+        const nonce = randomBytes(16).toString("hex");
+        await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
+        const state = signState({ userId: user.id, nonce });
         const url = buildAuthorizeUrl({ state });
         set.status = 302;
         set.headers["Location"] = url;
@@ -135,6 +139,15 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       }
       const decoded = verifyState(query.state);
       if (!decoded) return status(400, { message: "Invalid state" });
+
+      // Atomically consume the nonce. If it's missing/expired/already used,
+      // reject — this is what makes captured `state` values single-use.
+      // We additionally require the persisted userId to match the one in
+      // the signed state as a sanity check.
+      const storedUserId = await consumeOAuthNonce("google", decoded.nonce);
+      if (!storedUserId || storedUserId !== decoded.userId) {
+        return status(400, { message: "Invalid or expired state" });
+      }
 
       const tokens = await exchangeCode(query.code);
       await upsertCredential({
