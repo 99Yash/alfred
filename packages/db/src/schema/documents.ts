@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import {
-  customType,
   index,
   integer,
   jsonb,
@@ -9,28 +8,8 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
-
-/**
- * pgvector column wrapper. Drizzle has community vector helpers but
- * they don't all support 1024-dim or HNSW out of the box; rolling our
- * own keeps the schema explicit. `toDriver` serializes `number[]` as
- * the `[a,b,c]` literal pgvector accepts on insert; `fromDriver` parses
- * the same shape back so callers receive a `number[]` directly.
- */
-const vector = (name: string, dimensions: number) =>
-  customType<{ data: number[]; driverData: string }>({
-    dataType() {
-      return `vector(${dimensions})`;
-    },
-    toDriver(value: number[]): string {
-      return `[${value.join(",")}]`;
-    },
-    fromDriver(value: string): number[] {
-      return JSON.parse(value) as number[];
-    },
-  })(name);
 
 /**
  * One row per ingested object (email, calendar event, doc, slack message).
@@ -103,7 +82,7 @@ export const chunks = pgTable(
     /** Order within the parent document (0-indexed). */
     position: integer("position").notNull(),
     content: text("content").notNull(),
-    embedding: vector("embedding", 1024),
+    embedding: vectorColumn("embedding", 1024),
     tokenCount: integer("token_count"),
     contentHash: text("content_hash").notNull(),
     metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),

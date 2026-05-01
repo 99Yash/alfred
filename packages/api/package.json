@@ -16,15 +16,18 @@
     "check-types": "tsc -b"
   },
   "dependencies": {
+    "@alfred/ai": "workspace:*",
     "@alfred/auth": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
     "ioredis": "catalog:",
+    "jose": "^6.2.2",
     "pg": "^8.16.3",
     "zod": "catalog:"
   },

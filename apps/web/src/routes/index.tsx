@@ -38,6 +38,9 @@ function HomePage() {
             <a href="/notes" className="underline">
               Notes
             </a>
+            <a href="/memory" className="underline">
+              Memory
+            </a>
             <button onClick={signOut} className="underline">
               Sign out
             </button>

@@ -173,6 +173,9 @@ Key vars for local dev (pre-filled in `apps/server/.env`):
 | `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                 |
 | `ANTHROPIC_API_KEY`            | Required — primary LLM                                 |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings            |
+| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect)|
+| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to            |
+| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription           |
 
 All other vars are optional and safe to leave blank locally.
 
@@ -186,9 +189,9 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 - [x] 2 — Auth + first Railway deploy
 - [x] 3 — Replicache MVP
 - [x] 4 — Realtime stack (outbox → Redis → SSE)
-- [ ] 5 — Durable agent runtime
-- [ ] 6 — Cost metering
-- [ ] 7 — Gmail integration end-to-end
+- [x] 5 — Durable agent runtime
+- [x] 6 — Cost metering
+- [x] 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
 - [ ] 8 — Memory primitives
 - [ ] 9 — Email triage workflow
 - [ ] 10 — Morning briefing workflow

@@ -23,6 +23,12 @@ const serverEnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  /** Pub/Sub topic Gmail watch should publish to, e.g. `projects/<id>/topics/gmail-push`. */
+  GOOGLE_PUBSUB_TOPIC: z.string().optional(),
+  /** OIDC audience configured on the push subscription. Skip OIDC verification when blank. */
+  GOOGLE_PUBSUB_AUDIENCE: z.string().optional(),
+  /** Service-account email expected as the `email` claim in the OIDC token. Optional defense-in-depth. */
+  GOOGLE_PUBSUB_SERVICE_ACCOUNT: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

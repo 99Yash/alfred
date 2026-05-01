@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { timestamp } from "drizzle-orm/pg-core";
+import { customType, timestamp } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
 // ---------------------------------------------------------------------------
@@ -25,3 +25,24 @@ export function generateRandomCode(length: number = 8) {
 export function firstOrNull<T>(rows: T[]): T | null {
   return rows[0] ?? null;
 }
+
+/**
+ * pgvector column wrapper. `toDriver` serializes `number[]` as the
+ * `[a,b,c]` literal pgvector accepts on insert; `fromDriver` parses
+ * the same shape back so callers receive `number[]` directly.
+ *
+ * All embeddings in alfred are 1024-dim (ADR-0021); use this helper
+ * for any new vector column.
+ */
+export const vectorColumn = (name: string, dimensions: number) =>
+  customType<{ data: number[]; driverData: string }>({
+    dataType() {
+      return `vector(${dimensions})`;
+    },
+    toDriver(value: number[]): string {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string): number[] {
+      return JSON.parse(value) as number[];
+    },
+  })(name);
