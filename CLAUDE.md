@@ -2,7 +2,7 @@
 
 Alfred is a personal AI assistant (single user, multi-device). It connects to email, calendar, and other integrations to run background workflows and answer questions about the user's day.
 
-Read `[decisions.md](./decisions.md)` before proposing architecture changes — 25 ADRs cover every major choice and rejection.
+Read [`decisions.md`](./decisions.md) before proposing architecture changes — 25 ADRs cover every major choice and rejection.
 
 ## Commands
 
@@ -43,9 +43,9 @@ All packages are `@alfred/*`. Never import `@milkpod/*`.
 
 ## How the pieces coordinate
 
-**Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/`* to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
+**Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client with the `emailOTPClient()` plugin. It talks to the Better Auth endpoints mounted on the Elysia server (`/api/auth/`*).
+**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client with the `emailOTPClient()` plugin. It talks to the Better Auth endpoints mounted on the Elysia server (`/api/auth/*`).
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
 

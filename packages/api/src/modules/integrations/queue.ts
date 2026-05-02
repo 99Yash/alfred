@@ -108,7 +108,11 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // triage the bulk re-ingest path: fullResync pulls in 30+ days of
       // backlog, and labels on month-old emails add noise without value.
       if (!result.fullResync && result.insertedDocumentIds.length) {
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
+        // Webhook polls are real-time triggers; sweep-driven polls are an
+        // ingestion fallback when pubsub is silent — record them distinctly
+        // so the audit log tells the two paths apart.
+        const triageReason = data.reason === "poll-fallback" ? "ingest" : "webhook";
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, triageReason);
       }
       return result;
     }
