@@ -4,8 +4,16 @@ export {
   refreshAccessToken,
   getGoogleOAuthConfig,
   DEFAULT_GOOGLE_SCOPES,
+  GOOGLE_FEATURE_SCOPES,
+  scopesForFeatures,
 } from "./oauth";
-export type { GoogleOAuthConfig, ExchangeCodeResult, RefreshTokenResult } from "./oauth";
+export type {
+  GoogleOAuthConfig,
+  ExchangeCodeResult,
+  RefreshTokenResult,
+  GoogleFeature,
+} from "./oauth";
+export { requireScopes, featuresFromGrantedScopes, MissingScopesError } from "./scopes";
 export {
   upsertCredential,
   listCredentials,

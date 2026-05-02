@@ -5,7 +5,10 @@ import {
   buildAuthorizeUrl,
   exchangeCode,
   getGmailWatchState,
+  GOOGLE_FEATURE_SCOPES,
+  type GoogleFeature,
   installGmailWatch,
+  scopesForFeatures,
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
@@ -61,15 +64,47 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
-      .get("/connect", async ({ user, set }) => {
-        const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
-        const state = signState({ userId: user.id, nonce });
-        const url = buildAuthorizeUrl({ state });
-        set.status = 302;
-        set.headers["Location"] = url;
-        return null;
-      })
+      .get(
+        "/connect",
+        async ({ user, query, set }) => {
+          // Optional `?features=briefing,triage` narrows the consent
+          // screen to a subset of capabilities. Default (no param) keeps
+          // the m7 single-prompt behavior — request every feature's
+          // scope. `include_granted_scopes=true` (in the authorize URL)
+          // means a later partial-feature call merges into the same
+          // grant rather than re-prompting from scratch.
+          let features: GoogleFeature[] | undefined;
+          if (query.features) {
+            const parsed = query.features
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
+            if (known.length !== parsed.length) {
+              return status(400, {
+                message: `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
+              });
+            }
+            features = known;
+          }
+
+          const nonce = randomBytes(16).toString("hex");
+          await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
+          const state = signState({ userId: user.id, nonce });
+          const url = buildAuthorizeUrl({
+            state,
+            scopes: scopesForFeatures(features),
+          });
+          set.status = 302;
+          set.headers["Location"] = url;
+          return null;
+        },
+        {
+          query: t.Object({
+            features: t.Optional(t.String({ maxLength: 200 })),
+          }),
+        },
+      )
       .get(
         "/credentials",
         async ({ user }) => {

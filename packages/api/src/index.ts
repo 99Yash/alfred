@@ -35,6 +35,8 @@ export {
 export type { IngestionJobData } from "./modules/integrations/index.js";
 export * from "./modules/memory/index.js";
 export * from "./modules/triage/index.js";
+export * from "./modules/briefing/index.js";
+export * from "./modules/notifications/index.js";
 export type {
   Workflow,
   WorkflowInput,
