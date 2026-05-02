@@ -7,3 +7,5 @@ export * from "./schema/metering.js";
 export * from "./schema/integrations.js";
 export * from "./schema/documents.js";
 export * from "./schema/memory.js";
+export * from "./schema/triage.js";
+export * from "./schema/notifications.js";

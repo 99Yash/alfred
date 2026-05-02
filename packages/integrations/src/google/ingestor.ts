@@ -44,6 +44,10 @@ export interface IngestRecentResult {
   embedFailures: number;
   /** Highest `historyId` we observed — m7c uses this to seed delta polling. */
   highWaterHistoryId: string | null;
+  /** Document ids that were freshly inserted this run (skipped/conflict rows excluded). */
+  insertedDocumentIds: string[];
+  /** User who owns the credential — handy for downstream fanout (triage, indexing). */
+  userId: string;
 }
 
 const DEFAULT_QUERY = "newer_than:30d";
@@ -76,6 +80,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let chunksWritten = 0;
   let embedFailures = 0;
   let highWaterHistoryId: string | null = null;
+  const insertedDocumentIds: string[] = [];
 
   for (const ref of refs) {
     try {
@@ -83,6 +88,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       const result = await persistMessage(cred.userId, cred.accountId, message);
       if (result.outcome === "inserted") {
         inserted++;
+        insertedDocumentIds.push(result.documentId);
         // Embed inline. Failures don't bubble — the doc row is still
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
@@ -128,6 +134,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     chunksWritten,
     embedFailures,
     highWaterHistoryId,
+    insertedDocumentIds,
+    userId: cred.userId,
   };
 }
 
@@ -327,6 +335,10 @@ export interface PollHistoryResult {
    * occasionally" not a failure.
    */
   fullResync: boolean;
+  /** Document ids that were freshly inserted this run. Caller fans triage runs over these. */
+  insertedDocumentIds: string[];
+  /** User who owns the credential. */
+  userId: string;
 }
 
 /**
@@ -365,6 +377,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       cursorBefore: null,
       cursorAfter: recent.highWaterHistoryId,
       fullResync: true,
+      insertedDocumentIds: recent.insertedDocumentIds,
+      userId: cred.userId,
     };
   }
 
@@ -418,6 +432,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         cursorBefore,
         cursorAfter: recent.highWaterHistoryId,
         fullResync: true,
+        insertedDocumentIds: recent.insertedDocumentIds,
+        userId: cred.userId,
       };
     }
     throw err;
@@ -428,6 +444,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   let errors = 0;
   let chunksWritten = 0;
   let embedFailures = 0;
+  const insertedDocumentIds: string[] = [];
 
   for (const id of messageIds) {
     try {
@@ -435,6 +452,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       const result = await persistMessage(cred.userId, cred.accountId, message);
       if (result.outcome === "inserted") {
         inserted++;
+        insertedDocumentIds.push(result.documentId);
         try {
           const embed = await embedDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
@@ -474,6 +492,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     cursorBefore,
     cursorAfter: latestHistoryId,
     fullResync: false,
+    insertedDocumentIds,
+    userId: cred.userId,
   };
 }
 

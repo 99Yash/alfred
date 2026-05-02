@@ -16,23 +16,61 @@ const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 
 /**
- * Default scopes when initiating a Google connection. Single consent
- * covers the read+send+modify operations m7→m9 will need so we don't
- * re-prompt later.
- *
- *   gmail.readonly  — pull message bodies + headers (m7a)
- *   gmail.send      — outbound mail for reply drafts + briefings (m7c, m9)
- *   gmail.modify    — write Gmail labels for triage (m9)
- *   userinfo.email  — read the user's email (account_id surface)
- *   openid          — id_token issuance, gives us `sub` deterministically
+ * Identity scopes always requested — they key our credential rows
+ * (`sub` from `openid`, `email` from `userinfo.email`) and don't carry
+ * Gmail data access.
  */
-export const DEFAULT_GOOGLE_SCOPES = [
-  "openid",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.modify",
-];
+const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
+
+/**
+ * Per-feature Gmail scopes. A feature's full required set is the
+ * identity scopes plus its entry here.
+ *
+ *   briefing     — gmail.readonly: read user's mail to compose digests
+ *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
+ *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
+ *
+ * Triage's `gmail.modify` already implies read access, but listing
+ * `gmail.readonly` separately keeps each feature's scope row honest:
+ * Google's consent screen will dedupe overlapping scopes for the user.
+ */
+export const GOOGLE_FEATURE_SCOPES = {
+  briefing: ["https://www.googleapis.com/auth/gmail.readonly"],
+  triage: [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
+  ],
+  reply_draft: ["https://www.googleapis.com/auth/gmail.send"],
+} as const satisfies Record<string, readonly string[]>;
+
+export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;
+
+const ALL_FEATURES = Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
+
+/**
+ * Resolve the OAuth scope list for a set of features. Always includes
+ * identity scopes; deduplicates the union across requested features.
+ *
+ * Default (no `features` arg) returns the union of every feature —
+ * matches the single-consent-prompt behavior we shipped at m7.
+ * `include_granted_scopes=true` on the authorize URL means an
+ * incremental re-prompt later just merges into the same grant.
+ */
+export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
+  const wanted = features?.length ? features : ALL_FEATURES;
+  const set = new Set<string>(IDENTITY_SCOPES);
+  for (const f of wanted) {
+    for (const scope of GOOGLE_FEATURE_SCOPES[f]) set.add(scope);
+  }
+  return [...set];
+}
+
+/**
+ * Default scopes when initiating a Google connection. Equivalent to
+ * `scopesForFeatures()` (= union of every feature) — kept as a const
+ * for readability at call sites that mean "give me the full grant."
+ */
+export const DEFAULT_GOOGLE_SCOPES: string[] = scopesForFeatures();
 
 export interface GoogleOAuthConfig {
   clientId: string;

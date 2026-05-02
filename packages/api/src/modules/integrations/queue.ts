@@ -9,6 +9,9 @@ import {
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
 import { createRedisConnection } from "../../queue/connection";
+import { enqueueRun } from "../agent/queue";
+import { createRun } from "../agent/service";
+import { TRIAGE_WORKFLOW_SLUG } from "../triage/workflow-input";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -22,7 +25,19 @@ import { createRedisConnection } from "../../queue/connection";
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 
 export type IngestionJobData =
-  | { kind: "gmail.ingest_recent"; credentialId: string; query?: string; maxMessages?: number }
+  | {
+      kind: "gmail.ingest_recent";
+      credentialId: string;
+      query?: string;
+      maxMessages?: number;
+      /**
+       * Fan triage runs over the freshly-inserted docs after this job finishes.
+       * Default false — bulk re-ingests (30+ days of backlog) skip triage to
+       * avoid burning LLM tokens on stale mail. The OAuth callback opts in
+       * for the small first-connect seed (~8 messages).
+       */
+      triageInsertedDocs?: boolean;
+    }
   | { kind: "gmail.poll_history"; credentialId: string; reason?: "webhook" | "poll-fallback" }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
@@ -91,6 +106,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
       );
+      if (data.triageInsertedDocs && result.insertedDocumentIds.length) {
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
+      }
       return result;
     }
     case "gmail.poll_history": {
@@ -100,6 +118,17 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
           `errors=${result.errors} fullResync=${result.fullResync}`,
       );
+      // Fan triage runs over freshly-inserted docs (ADR-0025 #1). One run
+      // per doc — each gets its own Gmail label. We deliberately do NOT
+      // triage the bulk re-ingest path: fullResync pulls in 30+ days of
+      // backlog, and labels on month-old emails add noise without value.
+      if (!result.fullResync && result.insertedDocumentIds.length) {
+        // Webhook polls are real-time triggers; sweep-driven polls are an
+        // ingestion fallback when pubsub is silent — record them distinctly
+        // so the audit log tells the two paths apart.
+        const triageReason = data.reason === "poll-fallback" ? "ingest" : "webhook";
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, triageReason);
+      }
       return result;
     }
     case "gmail.watch_renew": {
@@ -178,6 +207,37 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     default: {
       const _exhaustive: never = data;
       throw new Error(`unknown ingestion job kind: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
+
+/**
+ * Spawn one email-triage run per freshly-inserted Gmail document (ADR-0025
+ * #1). Failures are logged-and-swallowed: we never want a triage-enqueue
+ * problem to fail the ingestion job that just successfully wrote the docs.
+ *
+ * `reason` is a small audit string surfaced on the run's metadata so we can
+ * tell webhook-driven triages apart from manual smoke runs in the logs.
+ */
+async function enqueueTriageRuns(
+  userId: string,
+  documentIds: string[],
+  reason: "webhook" | "manual" | "ingest" | "reply",
+): Promise<void> {
+  for (const documentId of documentIds) {
+    try {
+      const { runId } = await createRun({
+        userId,
+        workflowSlug: TRIAGE_WORKFLOW_SLUG,
+        input: { documentId, reason },
+        metadata: { source: "gmail", triggeredBy: reason, documentId },
+      });
+      await enqueueRun(runId);
+    } catch (err) {
+      console.warn(
+        `[ingestion:worker] failed to enqueue triage for doc=${documentId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 }

@@ -131,6 +131,7 @@ Alfred uses AI SDK v6 (`ai@^6`). Common v6 differences:
 - `maxSteps` → `stopWhen: [stepCountIs(n)]`.
 - `tool()` uses `inputSchema`, not `parameters`.
 - `LanguageModel` is a union — do not hardcode string model IDs in type positions.
+- `generateObject` *@deprecated* — Use `generateText` with an `output` setting instead.
 
 Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers.
 
@@ -143,6 +144,49 @@ Embeddings: `embed(text, opts?)` from `@alfred/ai/embeddings` — currently a ze
 `createUntrackedRedisConnection()` is for short-lived probes (health checks) — caller must close it.
 
 Never create raw `new IORedis()` in app code; always use these factories.
+
+## Email triage (m9)
+
+Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of six categories: `action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`. Each category maps to an `Alfred/<Name>` Gmail label that gets written back to the message.
+
+The pipeline:
+
+1. `gmail.poll_history` (BullMQ) inserts a fresh `documents` row.
+2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`).
+3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `classify` (cheap-tier LLM via `@alfred/ai`'s `metered.object()`) → `apply-label` (`messages.modify`).
+4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`* label id is persisted on `applied_label_id`.
+
+Initial-sync seed: the OAuth callback (`google-routes.ts /callback`) enqueues a `gmail.ingest_recent` job with `maxMessages: 8, triageInsertedDocs: true` so a brand-new account has classified mail to look at immediately. The flag is the opt-in that narrows ADR-0025's "no triage on bulk re-ingest" rule — only callers that explicitly request triage get it. Re-connect is idempotent (dedup index → 0 inserts → 0 triage runs).
+
+Re-classification on reply happens implicitly: every new message in a thread is its own document and gets its own triage run. We never sweep the whole thread.
+
+Label management (`packages/integrations/src/google/labels.ts`):
+
+- `ensureAlfredLabels(credentialId)` idempotently creates the six labels and caches the id map on `integration_credentials.metadata.alfredLabels`. Pass `force: true` to rebuild if a label was deleted out-of-band.
+- `applyTriageLabel({ credentialId, messageId, category, previousLabelId })` adds the chosen label and removes the previous one (when supplied) in a single Gmail round-trip.
+
+Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts` (requires a connected Google account + at least one ingested email).
+
+## Morning briefing (m10)
+
+Per ADR-0025 #2 alfred sends a daily inbox-only digest email built from triage tags. Calendar + "relevant updates" sections are deferred to a follow-up milestone.
+
+The pipeline:
+
+1. `briefing.tick` (BullMQ cron, hourly) scans users; for each, resolves `briefing.timezone` + `briefing.delivery_hour` from `user_preferences` (fallback chain: pref row → `UTC` + `7`) and enqueues a `morning-briefing` agent run when the user's local hour matches.
+2. The `morning-briefing` workflow (`apps/server/src/builtins/workflows/morning-briefing.ts`) runs `gather` → `compose` → `send`:
+   - `gather` queries `email_triage` joined to `documents` for the last 24h, partitioning into `action_needed` / `awaiting_reply` / `meeting` / `payment` priority buckets and counting `newsletter` / `fyi` for the suppressed-counts tail line.
+   - `compose` renders a deterministic HTML+text email (no LLM call — the classifier rationales already carry the per-item gloss).
+   - `send` calls `notify()` with idempotency key `briefing:{userId}:{YYYY-MM-DD-in-user-tz}`.
+3. `notify()` (`packages/api/src/modules/notifications/`) writes an `email_sends` row at `status='queued'`, POSTs to Resend, then transitions to `'sent'` (with provider id) or `'failed'`. The `(user_id, idempotency_key)` unique index is what makes a duplicate cron tick a no-op.
+
+OAuth scope refactor that landed alongside m10:
+
+- `packages/integrations/src/google/oauth.ts` exposes `GOOGLE_FEATURE_SCOPES` (`briefing` / `triage` / `reply_draft`) + `scopesForFeatures(features?)`. `DEFAULT_GOOGLE_SCOPES` is now `scopesForFeatures()` — equivalent to "every feature."
+- `/api/integrations/google/connect?features=briefing,triage` narrows the consent screen; default (no param) keeps the m7 single-prompt behavior.
+- `requireScopes(credentialId, features[])` from `@alfred/integrations/google` throws `MissingScopesError` (typed `code: 'MISSING_SCOPES'`) when a credential drifted; workflows that hit Gmail directly should call this. Briefing reads from local DB only and skips it.
+
+Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-briefing.ts` (forces a send for the first user, ignoring the tz/hour gate; verifies idempotent re-run).
 
 ## Replicache
 
@@ -162,20 +206,22 @@ Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing va
 
 Key vars for local dev (pre-filled in `apps/server/.env`):
 
-| Var                            | Notes                                                  |
-| ------------------------------ | ------------------------------------------------------ |
-| `DATABASE_URL`                 | Postgres — local docker default already set            |
-| `REDIS_URL`                    | Redis — local docker default already set               |
-| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32` |
-| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                  |
-| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up             |
-| `RESEND_API_KEY`               | Required for OTP email delivery                        |
-| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                 |
-| `ANTHROPIC_API_KEY`            | Required — primary LLM                                 |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings            |
-| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect)|
-| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to            |
-| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription           |
+
+| Var                            | Notes                                                   |
+| ------------------------------ | ------------------------------------------------------- |
+| `DATABASE_URL`                 | Postgres — local docker default already set             |
+| `REDIS_URL`                    | Redis — local docker default already set                |
+| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32`  |
+| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                   |
+| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up              |
+| `RESEND_API_KEY`               | Required for OTP email delivery                         |
+| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                  |
+| `ANTHROPIC_API_KEY`            | Required — primary LLM                                  |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings             |
+| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect) |
+| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to             |
+| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription            |
+
 
 All other vars are optional and safe to leave blank locally.
 
@@ -185,18 +231,19 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 
 ## Milestone status
 
-- [x] 1 — Scaffold
-- [x] 2 — Auth + first Railway deploy
-- [x] 3 — Replicache MVP
-- [x] 4 — Realtime stack (outbox → Redis → SSE)
-- [x] 5 — Durable agent runtime
-- [x] 6 — Cost metering
-- [x] 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
-- [ ] 8 — Memory primitives
-- [ ] 9 — Email triage workflow
-- [ ] 10 — Morning briefing workflow
-- [ ] 11 — Cold-start research
-- [ ] 12 — Skills + user-authored workflows
-- [ ] 13 — Boss + sub-agent orchestration
-- [ ] 14 — MCP client
-- [ ] 15 — Observability
+- 1 — Scaffold
+- 2 — Auth + first Railway deploy
+- 3 — Replicache MVP
+- 4 — Realtime stack (outbox → Redis → SSE)
+- 5 — Durable agent runtime
+- 6 — Cost metering
+- 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
+- 8 — Memory primitives
+- 9 — Email triage workflow (9a schema + Gmail label plumbing, 9b classifier + workflow, 9c trigger from poll_history, 9d smoke-triage)
+- 10 — Morning briefing workflow (10-pre per-feature scope sets + requireScopes; 10a email_sends + notify(); 10b morning-briefing workflow; 10c hourly briefing.tick + tz resolution; 10d smoke-briefing). Inbox-only at v1; calendar deferred.
+- 11 — Cold-start research
+- 12 — Skills + user-authored workflows
+- 13 — Boss + sub-agent orchestration
+- 14 — MCP client
+- 15 — Observability
+
