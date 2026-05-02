@@ -2,14 +2,8 @@
   "name": "@alfred/integrations",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    },
-    "./google": {
-      "types": "./dist/google/index.d.ts",
-      "default": "./src/google/index.ts"
-    }
+    ".": "./src/index.ts",
+    "./google": "./src/google/index.ts"
   },
   "scripts": {
     "build": "tsdown",

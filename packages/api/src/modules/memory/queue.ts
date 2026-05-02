@@ -1,8 +1,10 @@
 import { user as userTable } from "@alfred/db/schemas";
+import { embed } from "@alfred/ai/embeddings";
 import { Queue, Worker, type Job } from "bullmq";
 import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
+import { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
 
 /**
  * Memory-cron queue. Holds repeatable jobs that fan out into per-user
@@ -16,7 +18,9 @@ export type MemoryJobData =
   /** Repeatable trigger; handler enumerates active users and creates a run for each. */
   | { kind: "memory.extract.daily" }
   /** Direct trigger (manual ad-hoc invocation) — single-user fan-out. */
-  | { kind: "memory.extract.run"; userId: string };
+  | { kind: "memory.extract.run"; userId: string }
+  /** Repeatable: backfill embeddings for memory_chunks written without one. */
+  | { kind: "memory.embed_sweep" };
 
 let _queue: Queue<MemoryJobData> | undefined;
 let _worker: Worker<MemoryJobData> | undefined;
@@ -85,6 +89,32 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
         `[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`,
       );
       return result;
+    }
+    case "memory.embed_sweep": {
+      const candidates = await findPendingEmbedChunks(50);
+      let succeeded = 0;
+      let failed = 0;
+      for (const c of candidates) {
+        try {
+          const vec = await embed(c.content, {
+            inputType: "document",
+            userId: c.userId,
+            idempotencyKey: `memory-embed:${c.id}`,
+          });
+          await embedMemoryChunk(c.id, c.userId, vec);
+          succeeded++;
+        } catch (err) {
+          failed++;
+          console.warn(
+            `[memory:worker] memory.embed_sweep failed for ${c.id}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      console.log(
+        `[memory:worker] memory.embed_sweep candidates=${candidates.length} succeeded=${succeeded} failed=${failed}`,
+      );
+      return { candidates: candidates.length, succeeded, failed };
     }
     default: {
       const _exhaustive: never = data;

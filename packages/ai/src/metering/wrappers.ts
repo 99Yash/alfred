@@ -52,9 +52,10 @@ function normalizeProvider(raw: string): string {
   return head;
 }
 
-function extractTextUsage<TOOLS extends ToolSet, OUTPUT>(
-  result: GenerateTextResult<TOOLS, OUTPUT>,
-): MeteredResult {
+// `metered()` only reads `totalUsage`/`finishReason`/`toolCalls`/`steps`,
+// none of which depend on the OUTPUT generic — so we collapse to the
+// widest valid instantiation and let the call site cast through `never`.
+function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredResult {
   return {
     usage: usageFromSdk(result.totalUsage),
     responseMeta: {
@@ -107,14 +108,19 @@ export interface AttributedCall extends CallAttribution {
   idempotencyKey?: string;
 }
 
-export async function meteredGenerateText<TOOLS extends ToolSet>(
+export async function meteredGenerateText(
   args: GenerateTextArgs,
   attribution: AttributedCall = {},
-) {
+): Promise<GenerateTextResult<ToolSet, never>> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = { ...attribution, kind: "llm", ...ids };
-  return metered(meta, () => generateText(args), extractTextUsage as never) as Promise<
-    GenerateTextResult<TOOLS, never>
+  // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
+  // but the `Output` interface is not exported as a nameable type, only via a
+  // namespace alias. Cast through unknown to a callable shape and pin the
+  // public return type to <ToolSet, never>, which downstream callers (which
+  // never use `experimental_output`) can read freely.
+  return metered(meta, () => generateText(args), extractTextUsage as never) as unknown as Promise<
+    GenerateTextResult<ToolSet, never>
   >;
 }
 

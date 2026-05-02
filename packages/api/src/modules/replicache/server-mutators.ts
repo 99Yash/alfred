@@ -1,9 +1,16 @@
-import { notes, rejectedInferences, userFacts } from "@alfred/db/schemas";
+import {
+  notes,
+  rejectedInferences,
+  userFacts,
+  userPreferences,
+} from "@alfred/db/schemas";
 import type {
   FactConfirmArgs,
   FactEditArgs,
   FactRejectArgs,
   NoteCreateArgs,
+  PrefDeleteArgs,
+  PrefSetArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import { valueSignature } from "../memory/signature";
@@ -130,6 +137,35 @@ export const serverMutators = {
         supersedesId: old.id,
       })
       .onConflictDoNothing();
+  },
+
+  /**
+   * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
+   * `row_version` so the next pull patches the client.
+   *
+   * Inlined against `tx` rather than calling `setPreference()` so the
+   * write commits inside the push handler's outer transaction.
+   */
+  async prefSet(tx: DbTx, args: PrefSetArgs, ctx: ServerMutatorCtx): Promise<void> {
+    const source = args.source ?? { kind: "user" };
+    await tx
+      .insert(userPreferences)
+      .values({ userId: ctx.userId, key: args.key, value: args.value, source })
+      .onConflictDoUpdate({
+        target: [userPreferences.userId, userPreferences.key],
+        set: {
+          value: args.value,
+          source,
+          rowVersion: sql`${userPreferences.rowVersion} + 1`,
+        },
+      });
+  },
+
+  /** Delete a preference. No-op if missing. */
+  async prefDelete(tx: DbTx, args: PrefDeleteArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .delete(userPreferences)
+      .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
   },
 } as const;
 

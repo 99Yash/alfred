@@ -6,6 +6,24 @@ export interface SyncedNote {
   rowVersion: number;
 }
 
+/**
+ * What the client gets per `user_preferences` row.
+ *
+ * The client store keys preferences by the user-facing `key`
+ * (`tone`, `briefing.delivery_hour`, …) rather than the row id —
+ * `(userId, key)` is the natural primary key on the server side and
+ * keeping the same on the client makes the optimistic upsert a single
+ * `tx.set`, no read-then-write.
+ */
+export interface SyncedPreference {
+  /** The user-facing preference key — also used as the CVR id. */
+  key: string;
+  userId: string;
+  value: unknown;
+  source: Record<string, unknown>;
+  rowVersion: number;
+}
+
 /** What the client gets per `user_facts` row. */
 export interface SyncedFact {
   id: string;

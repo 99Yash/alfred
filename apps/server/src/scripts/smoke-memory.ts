@@ -1,5 +1,5 @@
 /**
- * Smoke test for the m8a memory primitives.
+ * Smoke test for the m8a/m8b memory primitives.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smoke-memory.ts
  *
@@ -14,11 +14,12 @@
  *   7. reject a fresh proposal → rejected_inferences row written
  *   8. propose the same (key, value) again → returns null (re-extraction guard)
  *   9. preferences upsert / get / list
- *  10. memory chunk write + (no embed sweep here — recall test deferred to m8b)
+ *  10. memory chunk write + idempotent dedup
+ *  11. status counts (what the memory page would show)
+ *  12. (m8b) embed sweep + recallMemory round-trip — gated on VOYAGE_API_KEY
  *
- * No external services beyond Postgres are touched. Embedding recall over
- * `memory_chunks` requires a real Voyage call and lands with the m8b
- * extraction workflow.
+ * Step 12 is skipped when `VOYAGE_API_KEY` is unset so the smoke stays
+ * runnable without billable provider calls.
  */
 import {
   AUTO_CONFIRM_THRESHOLD,
@@ -27,6 +28,8 @@ import {
   closeRedis,
   confirmFact,
   editFact,
+  embedMemoryChunk,
+  findPendingEmbedChunks,
   getPreference,
   getPreferences,
   getSupersessionChain,
@@ -35,12 +38,14 @@ import {
   proposeFact,
   recallActiveByKey,
   recallLatestByKey,
+  recallMemory,
   rejectFact,
   setPreference,
   supersedeFact,
   warmPool,
   writeMemoryChunk,
 } from "@alfred/api";
+import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -241,6 +246,50 @@ async function main() {
   console.log(
     `[smoke] 11. status counts: proposed=${proposedList.length} confirmed=${confirmedList.length}`,
   );
+
+  // ---------------------------------------------------------------------
+  // 12. m8b: embed sweep + recall round-trip
+  //
+  // Inline equivalent of `memory.embed_sweep` (the BullMQ job): pull
+  // pending rows, embed, write back, recall. Gated on VOYAGE_API_KEY so
+  // the smoke stays runnable without provider creds.
+  // ---------------------------------------------------------------------
+  if (!process.env.VOYAGE_API_KEY) {
+    console.log("[smoke] 12. skipped — VOYAGE_API_KEY unset");
+  } else {
+    const pending = await findPendingEmbedChunks(50);
+    const ours = pending.find((p) => p.id === chunk.id);
+    assert(ours, `chunk ${chunk.id} should be in pending list before embed`);
+
+    const vec = await embed(chunk.content, {
+      inputType: "document",
+      userId,
+      idempotencyKey: `smoke-memory:${chunk.id}`,
+    });
+    assert(vec.length === 1024, `expected 1024-dim vector, got ${vec.length}`);
+    await embedMemoryChunk(chunk.id, userId, vec);
+
+    const stillPending = await findPendingEmbedChunks(50);
+    assert(
+      !stillPending.find((p) => p.id === chunk.id),
+      `chunk ${chunk.id} should no longer be pending after embed`,
+    );
+
+    const hits = await recallMemory({
+      userId,
+      query: "who manages the data team?",
+      limit: 5,
+    });
+    const ourHit = hits.find((h) => h.chunkId === chunk.id);
+    assert(ourHit, `recallMemory should surface our chunk ${chunk.id}`);
+    assert(
+      ourHit.similarity > 0.3,
+      `expected meaningful similarity, got ${ourHit.similarity.toFixed(3)}`,
+    );
+    console.log(
+      `[smoke] 12. embed+recall ok (similarity=${ourHit.similarity.toFixed(3)}, hits=${hits.length})`,
+    );
+  }
 
   console.log("\n[smoke] PASS");
 }
