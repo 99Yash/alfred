@@ -215,7 +215,7 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       }
 
       const tokens = await exchangeCode(query.code);
-      await upsertCredential({
+      const credential = await upsertCredential({
         userId: decoded.userId,
         provider: "google",
         accountId: tokens.accountId,
@@ -226,6 +226,25 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
         scopes: tokens.scopes,
         metadata: { token_type: tokens.token_type },
       });
+
+      // Initial-sync seed: pull the last few messages and triage them so a
+      // brand-new account has classified mail to look at immediately. The
+      // job is idempotent — a re-connect with no new messages fans no
+      // triage runs. Capped tight (8 msgs) so first-run LLM cost stays in
+      // pennies; bulk historical re-ingest still skips triage.
+      try {
+        await getIngestionQueue().add("gmail.ingest_recent", {
+          kind: "gmail.ingest_recent",
+          credentialId: credential.id,
+          maxMessages: 8,
+          triageInsertedDocs: true,
+        });
+      } catch (err) {
+        console.warn(
+          `[google.callback] failed to enqueue initial-sync for ${credential.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
 
       // Bounce back to the SPA. We don't have an "integrations" page yet;
       // land on the root with a query flag the UI can pick up.

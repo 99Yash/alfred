@@ -25,7 +25,19 @@ import { TRIAGE_WORKFLOW_SLUG } from "../triage/workflow-input";
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 
 export type IngestionJobData =
-  | { kind: "gmail.ingest_recent"; credentialId: string; query?: string; maxMessages?: number }
+  | {
+      kind: "gmail.ingest_recent";
+      credentialId: string;
+      query?: string;
+      maxMessages?: number;
+      /**
+       * Fan triage runs over the freshly-inserted docs after this job finishes.
+       * Default false — bulk re-ingests (30+ days of backlog) skip triage to
+       * avoid burning LLM tokens on stale mail. The OAuth callback opts in
+       * for the small first-connect seed (~8 messages).
+       */
+      triageInsertedDocs?: boolean;
+    }
   | { kind: "gmail.poll_history"; credentialId: string; reason?: "webhook" | "poll-fallback" }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
@@ -94,6 +106,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
       );
+      if (data.triageInsertedDocs && result.insertedDocumentIds.length) {
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
+      }
       return result;
     }
     case "gmail.poll_history": {
