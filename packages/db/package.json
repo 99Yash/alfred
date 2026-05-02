@@ -2,14 +2,8 @@
   "name": "@alfred/db",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "default": "./src/*.ts"
-    }
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
   },
   "scripts": {
     "build": "tsdown",
@@ -18,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "dev": "drizzle-kit studio",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:sync-prices": "tsx --env-file=../../apps/server/.env src/scripts/sync-prices.ts"
   },
   "dependencies": {
     "dotenv": "catalog:",
@@ -31,7 +26,8 @@
     "@types/pg": "^8.18.0",
     "drizzle-kit": "^0.31.2",
     "nanoid": "5.1.5",
-    "tsdown": "catalog:"
+    "tsdown": "catalog:",
+    "tsx": "^4.19.2"
   },
   "peerDependencies": {
     "typescript": "^5"

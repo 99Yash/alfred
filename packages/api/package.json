@@ -2,28 +2,26 @@
   "name": "@alfred/api",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "default": "./src/*.ts"
-    }
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
   },
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b"
   },
   "dependencies": {
+    "@alfred/ai": "workspace:*",
     "@alfred/auth": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "@alfred/integrations": "workspace:*",
     "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
     "ioredis": "catalog:",
+    "jose": "^6.2.2",
     "pg": "^8.16.3",
     "zod": "catalog:"
   },

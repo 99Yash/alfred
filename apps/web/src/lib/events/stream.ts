@@ -19,7 +19,13 @@ export interface OpenEventStreamOptions {
   onError?: (err: Event) => void;
 }
 
-const KNOWN_KINDS = new Set<EventKind>(["agent.progress", "tool.call", "approval.requested"]);
+const KNOWN_KINDS = new Set<EventKind>([
+  "agent.progress",
+  "agent.run",
+  "tool.call",
+  "approval.requested",
+  "memory.fact_learned",
+]);
 
 function isKnownKind(value: string): value is EventKind {
   return KNOWN_KINDS.has(value as EventKind);

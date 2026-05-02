@@ -15,10 +15,11 @@ pnpm db:migrate      # apply pending migrations
 pnpm db:studio       # Drizzle Studio GUI
 ```
 
-Two non-standard rules:
+One non-standard rule:
 
-- **Build before type-check.** Run `pnpm build` before `pnpm check-types` after touching any `packages/*` source file. Downstream packages resolve types from `dist/`. Stale `.d.ts` files cause phantom errors.
 - **Never `db:push` outside local exploration.** Always `db:generate` → `db:migrate`.
+
+Workspace packages export TS source directly (`./src/index.ts`), so `pnpm check-types` works on a fresh tree without a prior build.
 
 ## Monorepo layout
 
@@ -103,10 +104,9 @@ Schema lives in `packages/db/src/schema/`. Export everything through `packages/d
 ```bash
 # Typical schema change workflow
 # 1. Edit packages/db/src/schema/<file>.ts
-# 2. pnpm build              ← refresh dist/ so downstream packages compile
-# 3. pnpm db:generate        ← diff schema → migration SQL
-# 4. pnpm db:migrate         ← apply to local DB
-# 5. pnpm check-types        ← verify nothing broke
+# 2. pnpm db:generate        ← diff schema → migration SQL
+# 3. pnpm db:migrate         ← apply to local DB
+# 4. pnpm check-types        ← verify nothing broke
 ```
 
 Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
@@ -150,11 +150,11 @@ Never create raw `new IORedis()` in app code; always use these factories.
 
 When adding a new synced entity:
 
-1. Add a `<entity>Key` helper + prefix in `packages/sync/src/keys.ts`.
+1. Add an entry to `IDB_KEY` in `packages/sync/src/keys.ts` — one function that returns the prefix when called with `{}` and a single-row key when called with `{ id }`. The slug here drives every generic dispatcher downstream.
 2. Define the read shape in `packages/sync/src/types.ts` (must include `rowVersion: number`).
-3. Add `<entity><Action>Client` mutator + zod arg schema in `packages/sync/src/mutators/<entity>.ts`, register both in `mutators/index.ts`.
-4. Add the matching server-side mutator in `packages/api/src/modules/replicache/server-mutators.ts` (write the row, bump `row_version`, emit poke after commit).
-5. Extend the CVR projection in `packages/api/src/modules/replicache/cvr.ts` so pulls diff the new entity.
+3. Add `<entity><Action>Client` mutator + zod arg schema in `packages/sync/src/mutators/<entity>.ts`, register both in `mutators/index.ts` (`clientMutators` + `mutatorArgsSchemas`).
+4. Add the matching server-side mutator in `packages/api/src/modules/replicache/server-mutators.ts` — write against the supplied `tx` (so it commits inside the push handler's outer transaction) and bump `row_version`. Pokes fire generically from the push handler after commit.
+5. Add a fetcher to `ENTITY_FETCHERS` in `packages/api/src/modules/replicache/pull.ts` returning `{ id, rowVersion, serialized }` per row. The CVR snapshot shape (`Partial<Record<IDBKeys, ClientViewMap>>`) is generic — no `cvr.ts` change needed.
 
 ## Environment variables
 
@@ -173,6 +173,9 @@ Key vars for local dev (pre-filled in `apps/server/.env`):
 | `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                 |
 | `ANTHROPIC_API_KEY`            | Required — primary LLM                                 |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings            |
+| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect)|
+| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to            |
+| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription           |
 
 All other vars are optional and safe to leave blank locally.
 
@@ -186,9 +189,9 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 - [x] 2 — Auth + first Railway deploy
 - [x] 3 — Replicache MVP
 - [x] 4 — Realtime stack (outbox → Redis → SSE)
-- [ ] 5 — Durable agent runtime
-- [ ] 6 — Cost metering
-- [ ] 7 — Gmail integration end-to-end
+- [x] 5 — Durable agent runtime
+- [x] 6 — Cost metering
+- [x] 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
 - [ ] 8 — Memory primitives
 - [ ] 9 — Email triage workflow
 - [ ] 10 — Morning briefing workflow

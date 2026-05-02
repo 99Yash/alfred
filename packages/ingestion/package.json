@@ -2,14 +2,16 @@
   "name": "@alfred/ingestion",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
-    }
+    ".": "./src/index.ts"
   },
   "scripts": {
     "build": "tsdown",
     "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@alfred/ai": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",

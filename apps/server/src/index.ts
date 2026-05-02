@@ -1,11 +1,22 @@
 import {
   app,
+  closeAgentQueue,
   closeConnections,
   closeEventBridge,
+  closeIngestionQueue,
+  closeMemoryQueue,
   closeRedis,
   closeReplicachePokeBridge,
   initEventBridge,
   initReplicachePokeBridge,
+  scheduleRepeatableIngestionJobs,
+  scheduleRepeatableMemoryJobs,
+  startAgentWorker,
+  startIngestionWorker,
+  startMemoryWorker,
+  stopAgentWorker,
+  stopIngestionWorker,
+  stopMemoryWorker,
   warmPool,
 } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -13,12 +24,24 @@ import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
 import { Elysia } from "elysia";
+import { registerBuiltinWorkflows } from "./builtins";
 import "./instrument";
 
 // Boot sequence: connect to Postgres pool, realtime event bridge, Replicache poke bus.
 await warmPool();
 await initEventBridge();
 await initReplicachePokeBridge();
+// Register built-in workflows BEFORE the worker starts pulling jobs —
+// otherwise a job picked up first might not find its workflow slug.
+registerBuiltinWorkflows();
+await startAgentWorker();
+await startIngestionWorker();
+await startMemoryWorker();
+// Register the m7c repeatable jobs (poll-sweep, watch-renew, embed-sweep).
+// Idempotent: rerunning on every boot upserts the same scheduler ids.
+await scheduleRepeatableIngestionJobs();
+// Daily memory-extraction trigger (m8b). Idempotent like the ingestion ones.
+await scheduleRepeatableMemoryJobs();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -38,6 +61,23 @@ const server = new Elysia({ adapter: node() })
 async function shutdown(signal: string) {
   console.log(`\n${signal} received, shutting down...`);
   await server.stop();
+  try {
+    // Stop the agent worker FIRST so in-flight steps finish and commit
+    // (or roll back) before we yank Redis. Per ADR-0014: graceful
+    // shutdown drains the active step.
+    await stopAgentWorker();
+    await closeAgentQueue();
+    await stopIngestionWorker();
+    await closeIngestionQueue();
+    await stopMemoryWorker();
+    await closeMemoryQueue();
+    console.log("Workers stopped");
+  } catch (err) {
+    console.error(
+      "Error stopping workers:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   try {
     await closeEventBridge();
     await closeReplicachePokeBridge();
