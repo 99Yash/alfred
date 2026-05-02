@@ -1,6 +1,7 @@
 import {
   app,
   closeAgentQueue,
+  closeBriefingQueue,
   closeConnections,
   closeEventBridge,
   closeIngestionQueue,
@@ -9,12 +10,15 @@ import {
   closeReplicachePokeBridge,
   initEventBridge,
   initReplicachePokeBridge,
+  scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
   startAgentWorker,
+  startBriefingWorker,
   startIngestionWorker,
   startMemoryWorker,
   stopAgentWorker,
+  stopBriefingWorker,
   stopIngestionWorker,
   stopMemoryWorker,
   warmPool,
@@ -37,11 +41,14 @@ registerBuiltinWorkflows();
 await startAgentWorker();
 await startIngestionWorker();
 await startMemoryWorker();
+await startBriefingWorker();
 // Register the m7c repeatable jobs (poll-sweep, watch-renew, embed-sweep).
 // Idempotent: rerunning on every boot upserts the same scheduler ids.
 await scheduleRepeatableIngestionJobs();
 // Daily memory-extraction trigger (m8b). Idempotent like the ingestion ones.
 await scheduleRepeatableMemoryJobs();
+// Hourly briefing.tick (m10c). Same idempotency story.
+await scheduleRepeatableBriefingJobs();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -71,6 +78,8 @@ async function shutdown(signal: string) {
     await closeIngestionQueue();
     await stopMemoryWorker();
     await closeMemoryQueue();
+    await stopBriefingWorker();
+    await closeBriefingQueue();
     console.log("Workers stopped");
   } catch (err) {
     console.error(

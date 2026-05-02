@@ -2,4 +2,5 @@ export * from "./provider.js";
 export * from "./models.js";
 export * from "./embeddings.js";
 export * from "./tools.js";
+export * from "./agent.js";
 export * from "./metering/index.js";
