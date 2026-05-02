@@ -1,28 +1,29 @@
+import type { IDBKeys } from "@alfred/sync";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "../../queue/connection";
 
-/** One entry per note row in the CVR snapshot. */
+/** One entry per row in the CVR snapshot — `v` is the row's `row_version`. */
 export interface CVRRow {
   v: number;
 }
+
+/** id → CVRRow for one entity. */
+export type ClientViewMap = Record<string, CVRRow>;
 
 /**
  * A Client-View Record — what the client had last time they pulled.
  * Diffing the current visible row set against this produces the next patch.
  *
+ * `entities` is keyed by `IDBKeys` (e.g. `"NOTE"`, `"FACT"`) so the pull
+ * dispatcher can iterate generically — adding a new synced entity is one
+ * line in the `IDB_KEY` registry plus one entry in the pull entity table.
+ *
  * `clients` tracks `lastMutationId` per client at snapshot time. Pull emits
  * only the diffs so Replicache's invariant holds: if `cookie` doesn't change,
  * `lastMutationIDChanges` must be empty.
- *
- * Tracked entity sets:
- *   - notes: every `notes` row visible to the user.
- *   - facts: every `user_facts` row with status ∈ {proposed, confirmed} —
- *     i.e. anything actionable in the correction-loop UX. Rejected /
- *     edited / superseded rows stay server-side as audit history.
  */
 export interface CVRSnapshot {
-  notes: Record<string, CVRRow>;
-  facts?: Record<string, CVRRow>;
+  entities: Partial<Record<IDBKeys, ClientViewMap>>;
   clients?: Record<string, number>;
 }
 

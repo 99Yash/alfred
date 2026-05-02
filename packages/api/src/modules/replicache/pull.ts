@@ -5,8 +5,9 @@ import {
   replicacheClientGroup,
   userFacts,
 } from "@alfred/db/schemas";
+import { IDB_KEY, IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { getCVRStore, type CVRRow, type CVRSnapshot } from "./cvr";
+import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
 import type { ReplicacheModel } from "./model";
 
 export type PatchOp =
@@ -21,6 +22,64 @@ export interface PullResponse {
   lastMutationIDChanges: Record<string, number>;
   patch: PatchOp[];
 }
+
+/**
+ * One row's contribution to the patch: its row_version (drives CVR diff)
+ * and its serialized form (the value Replicache writes to the client store).
+ */
+interface EntityRow {
+  id: string;
+  rowVersion: number;
+  serialized: Record<string, unknown>;
+}
+
+/**
+ * Per-entity fetcher. Each entry maps an `IDBKeys` slug to:
+ *  - the SQL query that returns the user's currently-synced rows for that entity
+ *  - the row → `EntityRow` projection
+ *
+ * The pull dispatcher iterates this table to produce patches generically;
+ * adding a new entity is one entry here + one entry in `IDB_KEY`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbTx = any;
+
+const ENTITY_FETCHERS: Record<IDBKeys, (tx: DbTx, userId: string) => Promise<EntityRow[]>> = {
+  NOTE: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(notes)
+      .where(eq(notes.userId, userId))
+      .orderBy(asc(notes.id));
+    return rows.map((n: typeof notes.$inferSelect) => ({
+      id: n.id,
+      rowVersion: n.rowVersion,
+      serialized: serializeNote(n),
+    }));
+  },
+
+  // Only `proposed` + `confirmed` reach the client — rejected / edited /
+  // superseded rows stay server-side as audit history. A status transition
+  // out of this window naturally looks like a delete to the client (the
+  // card disappears), which matches the correction-loop UX.
+  FACT: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.userId, userId),
+          inArray(userFacts.status, ["proposed", "confirmed"]),
+        ),
+      )
+      .orderBy(asc(userFacts.id));
+    return rows.map((f: typeof userFacts.$inferSelect) => ({
+      id: f.id,
+      rowVersion: f.rowVersion,
+      serialized: serializeFact(f),
+    }));
+  },
+};
 
 function serializeNote(n: {
   id: string;
@@ -88,74 +147,43 @@ export async function handlePull(
     }
 
     // Load previous CVR snapshot. A mismatch (e.g. stale cookie from a
-    // different client group) is treated as cold sync.
+    // different client group, or a pre-refactor snapshot shape) is treated
+    // as cold sync.
     const cookieMatchesGroup = cookie != null && cookie.clientGroupID === clientGroupID;
     const prev: CVRSnapshot | null = cookieMatchesGroup
       ? await cvrStore.get(clientGroupID, cookie.order)
       : null;
-    const isColdSync = prev == null;
-    const prevSnapshot: CVRSnapshot = prev ?? { notes: {} };
+    const isColdSync = prev == null || !prev.entities;
+    const prevSnapshot: CVRSnapshot = prev ?? { entities: {} };
 
-    // Query all notes visible to this user, ordered by id for determinism.
-    const currentNotes = await tx
-      .select()
-      .from(notes)
-      .where(eq(notes.userId, userId))
-      .orderBy(asc(notes.id));
-
-    // Query the actionable user_facts (proposed + confirmed). The other
-    // statuses stay server-side — they're audit history, not part of
-    // the correction-loop UX surface.
-    const currentFacts = await tx
-      .select()
-      .from(userFacts)
-      .where(
-        and(
-          eq(userFacts.userId, userId),
-          inArray(userFacts.status, ["proposed", "confirmed"]),
-        ),
-      )
-      .orderBy(asc(userFacts.id));
-
-    // Build next CVR and diff patch.
-    const nextNotes: Record<string, CVRRow> = {};
-    const nextFacts: Record<string, CVRRow> = {};
     const patch: PatchOp[] = [];
     if (isColdSync) patch.push({ op: "clear" });
 
-    for (const n of currentNotes) {
-      nextNotes[n.id] = { v: n.rowVersion };
-      const prevRow = prevSnapshot.notes[n.id];
-      if (!prevRow || prevRow.v !== n.rowVersion) {
-        patch.push({ op: "put", key: `note/${n.id}`, value: serializeNote(n) });
-      }
-    }
+    // Generic per-entity diff loop — driven entirely by IDB_KEY_NAMES so a
+    // new entity adds one line to the registry + one fetcher above.
+    const nextEntities: Partial<Record<IDBKeys, ClientViewMap>> = {};
+    for (const slug of IDB_KEY_NAMES) {
+      const rows = await ENTITY_FETCHERS[slug](tx, userId);
+      const nextMap: ClientViewMap = {};
+      const prevMap = prevSnapshot.entities?.[slug] ?? {};
 
-    const prevFacts = prevSnapshot.facts ?? {};
-    for (const f of currentFacts) {
-      nextFacts[f.id] = { v: f.rowVersion };
-      const prevRow = prevFacts[f.id];
-      if (!prevRow || prevRow.v !== f.rowVersion) {
-        patch.push({ op: "put", key: `fact/${f.id}`, value: serializeFact(f) });
-      }
-    }
-
-    // Emit del for rows present in prev snapshot but absent now (deletions).
-    // Includes both real deletes AND status transitions out of the
-    // {proposed, confirmed} window — a fact moving to `rejected` looks
-    // like a deletion to the client, which matches the UX (the card
-    // disappears).
-    if (!isColdSync) {
-      for (const id of Object.keys(prevSnapshot.notes)) {
-        if (!nextNotes[id]) {
-          patch.push({ op: "del", key: `note/${id}` });
+      for (const r of rows) {
+        nextMap[r.id] = { v: r.rowVersion };
+        const prevRow: CVRRow | undefined = prevMap[r.id];
+        if (!prevRow || prevRow.v !== r.rowVersion) {
+          patch.push({ op: "put", key: IDB_KEY[slug]({ id: r.id }), value: r.serialized });
         }
       }
-      for (const id of Object.keys(prevFacts)) {
-        if (!nextFacts[id]) {
-          patch.push({ op: "del", key: `fact/${id}` });
+
+      if (!isColdSync) {
+        for (const id of Object.keys(prevMap)) {
+          if (!nextMap[id]) {
+            patch.push({ op: "del", key: IDB_KEY[slug]({ id }) });
+          }
         }
       }
+
+      nextEntities[slug] = nextMap;
     }
 
     // Per-client LMID deltas — only emit clients whose LMID changed.
@@ -174,8 +202,7 @@ export async function handlePull(
     }
 
     const nextSnapshot: CVRSnapshot = {
-      notes: nextNotes,
-      facts: nextFacts,
+      entities: nextEntities,
       clients: currentLmids,
     };
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { WriteTransaction } from "replicache";
-import { noteKey } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import type { SyncedNote } from "../types";
 
 export const noteCreateArgsSchema = z.object({
@@ -15,5 +15,5 @@ export type NoteCreateArgs = z.infer<typeof noteCreateArgsSchema>;
 
 export async function noteCreateClient(tx: WriteTransaction, args: NoteCreateArgs): Promise<void> {
   const value: SyncedNote = { ...args, rowVersion: 0 };
-  await tx.set(noteKey(args.id), value as unknown as import("replicache").ReadonlyJSONValue);
+  await tx.set(IDB_KEY.NOTE({ id: args.id }), normalizeToReadonlyJSON(value));
 }

@@ -1,6 +1,6 @@
-import type { ReadonlyJSONValue, WriteTransaction } from "replicache";
+import type { WriteTransaction } from "replicache";
 import { z } from "zod";
-import { factKey } from "../keys";
+import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import type { SyncedFact } from "../types";
 
 /**
@@ -55,13 +55,13 @@ export const factEditArgsSchema = z.object({
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
-  const value = await tx.get(factKey(factId));
+  const value = await tx.get(IDB_KEY.FACT({ id: factId }));
   if (!value) return null;
   return value as unknown as SyncedFact;
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
-  await tx.set(factKey(fact.id), fact as unknown as ReadonlyJSONValue);
+  await tx.set(IDB_KEY.FACT({ id: fact.id }), normalizeToReadonlyJSON(fact));
 }
 
 /**
@@ -88,9 +88,10 @@ export async function factRejectClient(
   tx: WriteTransaction,
   args: FactRejectArgs,
 ): Promise<void> {
-  const exists = await tx.has(factKey(args.factId));
+  const key = IDB_KEY.FACT({ id: args.factId });
+  const exists = await tx.has(key);
   if (!exists) return;
-  await tx.del(factKey(args.factId));
+  await tx.del(key);
 }
 
 /**
@@ -102,7 +103,7 @@ export async function factRejectClient(
 export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): Promise<void> {
   const old = await readFact(tx, args.factId);
   if (!old) return;
-  await tx.del(factKey(args.factId));
+  await tx.del(IDB_KEY.FACT({ id: args.factId }));
 
   const now = new Date().toISOString();
   const replacement: SyncedFact = {
