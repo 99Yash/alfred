@@ -2,7 +2,7 @@
 
 Alfred is a personal AI assistant (single user, multi-device). It connects to email, calendar, and other integrations to run background workflows and answer questions about the user's day.
 
-Read [`decisions.md`](./decisions.md) before proposing architecture changes — 25 ADRs cover every major choice and rejection.
+Read `[decisions.md](./decisions.md)` before proposing architecture changes — 25 ADRs cover every major choice and rejection.
 
 ## Commands
 
@@ -43,9 +43,9 @@ All packages are `@alfred/*`. Never import `@milkpod/*`.
 
 ## How the pieces coordinate
 
-**Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
+**Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/`* to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client with the `emailOTPClient()` plugin. It talks to the Better Auth endpoints mounted on the Elysia server (`/api/auth/*`).
+**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client with the `emailOTPClient()` plugin. It talks to the Better Auth endpoints mounted on the Elysia server (`/api/auth/`*).
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
 
@@ -131,6 +131,7 @@ Alfred uses AI SDK v6 (`ai@^6`). Common v6 differences:
 - `maxSteps` → `stopWhen: [stepCountIs(n)]`.
 - `tool()` uses `inputSchema`, not `parameters`.
 - `LanguageModel` is a union — do not hardcode string model IDs in type positions.
+- `generateObject` *@deprecated* — Use `generateText` with an `output` setting instead.
 
 Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers.
 
@@ -143,6 +144,26 @@ Embeddings: `embed(text, opts?)` from `@alfred/ai/embeddings` — currently a ze
 `createUntrackedRedisConnection()` is for short-lived probes (health checks) — caller must close it.
 
 Never create raw `new IORedis()` in app code; always use these factories.
+
+## Email triage (m9)
+
+Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of six categories: `action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`. Each category maps to an `Alfred/<Name>` Gmail label that gets written back to the message.
+
+The pipeline:
+
+1. `gmail.poll_history` (BullMQ) inserts a fresh `documents` row.
+2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`).
+3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `classify` (cheap-tier LLM via `@alfred/ai`'s `metered.object()`) → `apply-label` (`messages.modify`).
+4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`* label id is persisted on `applied_label_id`.
+
+Re-classification on reply happens implicitly: every new message in a thread is its own document and gets its own triage run. We never sweep the whole thread.
+
+Label management (`packages/integrations/src/google/labels.ts`):
+
+- `ensureAlfredLabels(credentialId)` idempotently creates the six labels and caches the id map on `integration_credentials.metadata.alfredLabels`. Pass `force: true` to rebuild if a label was deleted out-of-band.
+- `applyTriageLabel({ credentialId, messageId, category, previousLabelId })` adds the chosen label and removes the previous one (when supplied) in a single Gmail round-trip.
+
+Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts` (requires a connected Google account + at least one ingested email).
 
 ## Replicache
 
@@ -162,20 +183,22 @@ Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing va
 
 Key vars for local dev (pre-filled in `apps/server/.env`):
 
-| Var                            | Notes                                                  |
-| ------------------------------ | ------------------------------------------------------ |
-| `DATABASE_URL`                 | Postgres — local docker default already set            |
-| `REDIS_URL`                    | Redis — local docker default already set               |
-| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32` |
-| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                  |
-| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up             |
-| `RESEND_API_KEY`               | Required for OTP email delivery                        |
-| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                 |
-| `ANTHROPIC_API_KEY`            | Required — primary LLM                                 |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings            |
-| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect)|
-| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to            |
-| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription           |
+
+| Var                            | Notes                                                   |
+| ------------------------------ | ------------------------------------------------------- |
+| `DATABASE_URL`                 | Postgres — local docker default already set             |
+| `REDIS_URL`                    | Redis — local docker default already set                |
+| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32`  |
+| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                   |
+| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up              |
+| `RESEND_API_KEY`               | Required for OTP email delivery                         |
+| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                  |
+| `ANTHROPIC_API_KEY`            | Required — primary LLM                                  |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings             |
+| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect) |
+| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to             |
+| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription            |
+
 
 All other vars are optional and safe to leave blank locally.
 
@@ -185,18 +208,19 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 
 ## Milestone status
 
-- [x] 1 — Scaffold
-- [x] 2 — Auth + first Railway deploy
-- [x] 3 — Replicache MVP
-- [x] 4 — Realtime stack (outbox → Redis → SSE)
-- [x] 5 — Durable agent runtime
-- [x] 6 — Cost metering
-- [x] 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
-- [ ] 8 — Memory primitives
-- [ ] 9 — Email triage workflow
-- [ ] 10 — Morning briefing workflow
-- [ ] 11 — Cold-start research
-- [ ] 12 — Skills + user-authored workflows
-- [ ] 13 — Boss + sub-agent orchestration
-- [ ] 14 — MCP client
-- [ ] 15 — Observability
+- 1 — Scaffold
+- 2 — Auth + first Railway deploy
+- 3 — Replicache MVP
+- 4 — Realtime stack (outbox → Redis → SSE)
+- 5 — Durable agent runtime
+- 6 — Cost metering
+- 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; webhook activation deferred — see [pending-setup.md](./pending-setup.md))
+- 8 — Memory primitives
+- 9 — Email triage workflow (9a schema + Gmail label plumbing, 9b classifier + workflow, 9c trigger from poll_history, 9d smoke-triage)
+- 10 — Morning briefing workflow
+- 11 — Cold-start research
+- 12 — Skills + user-authored workflows
+- 13 — Boss + sub-agent orchestration
+- 14 — MCP client
+- 15 — Observability
+

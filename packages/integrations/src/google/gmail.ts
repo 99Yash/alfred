@@ -274,6 +274,80 @@ export async function stopWatch(args: { accessToken: string }): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// users.labels — list / create / messages.modify
+// ---------------------------------------------------------------------------
+
+const labelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["system", "user"]).optional(),
+  messageListVisibility: z.enum(["show", "hide"]).optional(),
+  labelListVisibility: z
+    .enum(["labelShow", "labelShowIfUnread", "labelHide"])
+    .optional(),
+});
+export type GmailLabel = z.infer<typeof labelSchema>;
+
+const listLabelsResponseSchema = z.object({
+  labels: z.array(labelSchema).optional(),
+});
+
+export async function listLabels(args: { accessToken: string }): Promise<GmailLabel[]> {
+  const json = await getJson(`${API_BASE}/labels`, args.accessToken);
+  return listLabelsResponseSchema.parse(json).labels ?? [];
+}
+
+export interface CreateLabelArgs {
+  accessToken: string;
+  /** e.g. `Alfred/ActionNeeded` — `/` produces a nested label in the Gmail UI. */
+  name: string;
+  /** `show` (default) keeps the label rendered next to the message subject. */
+  messageListVisibility?: "show" | "hide";
+  /** `labelShow` (default) keeps the label visible in the sidebar. */
+  labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
+}
+
+export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
+  const payload: Record<string, unknown> = {
+    name: args.name,
+    messageListVisibility: args.messageListVisibility ?? "show",
+    labelListVisibility: args.labelListVisibility ?? "labelShow",
+  };
+  const json = await postJson(`${API_BASE}/labels`, args.accessToken, payload);
+  return labelSchema.parse(json);
+}
+
+export interface ModifyMessageLabelsArgs {
+  accessToken: string;
+  /** Gmail message id (NOT thread id). */
+  messageId: string;
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+}
+
+/**
+ * Apply / remove labels on a single message in one round-trip. Gmail's
+ * `messages.modify` is idempotent — adding a label that's already on the
+ * message is a no-op, and the same goes for removing one that isn't.
+ *
+ * Returns the message metadata (id + labelIds) so callers can verify the
+ * post-modify label set without an extra get call.
+ */
+export async function modifyMessageLabels(
+  args: ModifyMessageLabelsArgs,
+): Promise<GmailMessage> {
+  const payload: Record<string, unknown> = {};
+  if (args.addLabelIds?.length) payload.addLabelIds = args.addLabelIds;
+  if (args.removeLabelIds?.length) payload.removeLabelIds = args.removeLabelIds;
+  const json = await postJson(
+    `${API_BASE}/messages/${args.messageId}/modify`,
+    args.accessToken,
+    payload,
+  );
+  return messageSchema.parse(json);
+}
+
+// ---------------------------------------------------------------------------
 // MIME helpers
 // ---------------------------------------------------------------------------
 
