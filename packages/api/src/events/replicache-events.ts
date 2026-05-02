@@ -15,6 +15,7 @@
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
+import { createRedisConnection, isQueueEnabled } from "../queue/connection";
 
 export interface ReplicachePoke {
   userId: string;
@@ -47,8 +48,6 @@ let subscriber: IORedis | undefined;
 const userRefCounts = new Map<string, number>();
 
 export async function initReplicachePokeBridge(): Promise<void> {
-  const { isQueueEnabled, createRedisConnection } = await import("../queue/connection");
-
   if (!isQueueEnabled()) return;
 
   try {
@@ -93,6 +92,18 @@ export async function closeReplicachePokeBridge(): Promise<void> {
 
 function publish(event: ReplicachePoke): void {
   const channel = channelFor(event.userId);
+  // Lazy-init the Redis publisher so processes that didn't call
+  // `initReplicachePokeBridge()` (smoke scripts, ad-hoc CLI work,
+  // BullMQ workers in alternative entry points) still deliver pokes
+  // across processes. The subscriber side stays gated on init —
+  // only the SSE handler subscribes, and that runs from the server.
+  if (!publisher && isQueueEnabled()) {
+    try {
+      publisher = createRedisConnection();
+    } catch {
+      publisher = undefined;
+    }
+  }
   if (publisher) {
     publisher.publish(channel, JSON.stringify(event)).catch(() => {
       emitter.emit(eventFor(event.userId), event);

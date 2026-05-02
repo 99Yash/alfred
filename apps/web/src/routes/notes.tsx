@@ -3,7 +3,7 @@ import { useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { useSubscribe } from "~/lib/replicache/hooks";
-import { notePrefix } from "@alfred/sync";
+import { IDB_KEY } from "@alfred/sync";
 import type { SyncedNote } from "@alfred/sync";
 import type { ReadTransaction } from "replicache";
 
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/notes")({
 });
 
 const listNotes = async (tx: ReadTransaction): Promise<SyncedNote[]> => {
-  const entries = await tx.scan({ prefix: notePrefix }).entries().toArray();
+  const entries = await tx.scan({ prefix: IDB_KEY.NOTE({}) }).entries().toArray();
   return entries.map(([, v]) => v as unknown as SyncedNote);
 };
 

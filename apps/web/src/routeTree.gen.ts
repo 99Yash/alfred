@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as NotesRouteImport } from './routes/notes'
+import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
@@ -17,6 +18,11 @@ import { Route as DebugEventsRouteImport } from './routes/debug.events'
 const NotesRoute = NotesRouteImport.update({
   id: '/notes',
   path: '/notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoryRoute = MemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -38,12 +44,14 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/debug/events': typeof DebugEventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/debug/events': typeof DebugEventsRoute
 }
@@ -51,20 +59,22 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/debug/events': typeof DebugEventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/notes' | '/debug/events'
+  fullPaths: '/' | '/login' | '/memory' | '/notes' | '/debug/events'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/notes' | '/debug/events'
-  id: '__root__' | '/' | '/login' | '/notes' | '/debug/events'
+  to: '/' | '/login' | '/memory' | '/notes' | '/debug/events'
+  id: '__root__' | '/' | '/login' | '/memory' | '/notes' | '/debug/events'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
   DebugEventsRoute: typeof DebugEventsRoute
 }
@@ -76,6 +86,13 @@ declare module '@tanstack/react-router' {
       path: '/notes'
       fullPath: '/notes'
       preLoaderRoute: typeof NotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memory': {
+      id: '/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -105,6 +122,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
   DebugEventsRoute: DebugEventsRoute,
 }
