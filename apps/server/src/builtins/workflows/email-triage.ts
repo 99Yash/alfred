@@ -10,7 +10,11 @@ import {
   type TriageClassification,
   type Workflow,
 } from "@alfred/api";
-import { applyTriageLabel, type TriageCategory } from "@alfred/integrations/google";
+import {
+  applyTriageLabel,
+  TRIAGE_CATEGORIES,
+  type TriageCategory,
+} from "@alfred/integrations/google";
 import { z } from "zod";
 
 /**
@@ -40,14 +44,7 @@ import { z } from "zod";
  *     repeats.
  */
 
-const TRIAGE_CATEGORIES_SCHEMA = z.enum([
-  "action_needed",
-  "awaiting_reply",
-  "meeting",
-  "fyi",
-  "payment",
-  "newsletter",
-]);
+const TRIAGE_CATEGORIES_SCHEMA = z.enum(TRIAGE_CATEGORIES);
 
 const stateSchema = z.object({
   documentId: z.string(),

@@ -68,7 +68,7 @@ Rules:
    - 0.9+: the category is unambiguous (newsletter from a clearly promotional sender, payment receipt with amount, etc.).
    - 0.7-0.9: clear category but with some overlap.
    - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
-   - Never below 0.5 — always commit to a category.
+   - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
 7. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
 
 Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "..." }`;
