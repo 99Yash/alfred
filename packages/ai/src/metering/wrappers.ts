@@ -1,9 +1,10 @@
 import {
   embed,
-  generateObject,
   generateText,
+  Output,
+  type CallWarning,
   type EmbedResult,
-  type GenerateObjectResult,
+  type FinishReason,
   type GenerateTextResult,
   type LanguageModel,
   type LanguageModelUsage,
@@ -66,15 +67,6 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
   };
 }
 
-function extractObjectUsage<O>(result: GenerateObjectResult<O>): MeteredResult {
-  return {
-    usage: usageFromSdk(result.usage),
-    responseMeta: {
-      finishReason: result.finishReason,
-    },
-  };
-}
-
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
   return {
     usage: { inputTokens: result.usage.tokens, outputTokens: 0 },
@@ -93,8 +85,25 @@ function usageFromSdk(usage: LanguageModelUsage | undefined) {
 }
 
 export type GenerateTextArgs = Parameters<typeof generateText>[0];
-export type GenerateObjectArgs = Parameters<typeof generateObject>[0];
 export type EmbedArgs = Parameters<typeof embed>[0];
+
+type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
+
+export interface MeteredGenerateObjectArgs<O>
+  extends Omit<GenerateTextArgs, "output" | "experimental_output"> {
+  schema: ObjectSchema<O>;
+  /** Optional name forwarded to `Output.object` — some providers use it for tool/schema naming. */
+  schemaName?: string;
+  /** Optional description forwarded to `Output.object` — surfaces as additional LLM guidance. */
+  schemaDescription?: string;
+}
+
+export interface MeteredGenerateObjectResult<O> {
+  object: O;
+  usage: LanguageModelUsage;
+  finishReason: FinishReason;
+  warnings: CallWarning[] | undefined;
+}
 
 export interface AttributedCall extends CallAttribution {
   /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
@@ -124,15 +133,43 @@ export async function meteredGenerateText(
   >;
 }
 
+/**
+ * Structured-output wrapper. AI SDK v6 deprecated `generateObject` in favor of
+ * `generateText` + `Output.object`, so we route through the text path and
+ * project the schema-validated result into a `{ object, usage, ... }` shape
+ * to keep call sites stable.
+ */
 export async function meteredGenerateObject<O>(
-  args: GenerateObjectArgs,
+  args: MeteredGenerateObjectArgs<O>,
   attribution: AttributedCall = {},
-) {
-  const ids = resolveIds(args.model, attribution);
+): Promise<MeteredGenerateObjectResult<O>> {
+  const { schema, schemaName, schemaDescription, ...rest } = args;
+  const ids = resolveIds(rest.model, attribution);
   const meta: MeteredMeta = { ...attribution, kind: "llm", ...ids };
-  return metered(meta, () => generateObject(args), extractObjectUsage as never) as Promise<
-    GenerateObjectResult<O>
-  >;
+  type Result = GenerateTextResult<ToolSet, ReturnType<typeof Output.object<O>>>;
+  // The discriminated `Prompt` union (prompt | messages) doesn't survive an
+  // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
+  // back to the SDK's parameter type so the call type-checks; the original
+  // `args` already satisfied the union.
+  const callArgs = {
+    ...rest,
+    output: Output.object({
+      schema,
+      name: schemaName,
+      description: schemaDescription,
+    }),
+  } as unknown as Parameters<typeof generateText>[0];
+  const result = (await metered(
+    meta,
+    () => generateText(callArgs),
+    extractTextUsage as never,
+  )) as unknown as Result;
+  return {
+    object: result.output,
+    usage: result.totalUsage,
+    finishReason: result.finishReason,
+    warnings: result.warnings,
+  };
 }
 
 export async function meteredEmbed(

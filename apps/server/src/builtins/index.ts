@@ -1,5 +1,6 @@
 import { registerWorkflow } from "@alfred/api";
 import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
+import { emailTriageWorkflow } from "./workflows/email-triage";
 import { memoryExtractionWorkflow } from "./workflows/memory-extraction";
 
 /**
@@ -10,4 +11,5 @@ import { memoryExtractionWorkflow } from "./workflows/memory-extraction";
 export function registerBuiltinWorkflows(): void {
   registerWorkflow(echoWithApprovalWorkflow);
   registerWorkflow(memoryExtractionWorkflow);
+  registerWorkflow(emailTriageWorkflow);
 }
