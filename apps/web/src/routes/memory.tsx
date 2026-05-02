@@ -1,4 +1,4 @@
-import { factPrefix, type SyncedFact } from "@alfred/sync";
+import { IDB_KEY, type SyncedFact } from "@alfred/sync";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/memory")({
 });
 
 const listFacts = async (tx: ReadTransaction): Promise<SyncedFact[]> => {
-  const entries = await tx.scan({ prefix: factPrefix }).entries().toArray();
+  const entries = await tx.scan({ prefix: IDB_KEY.FACT({}) }).entries().toArray();
   return entries.map(([, v]) => v as unknown as SyncedFact);
 };
 
