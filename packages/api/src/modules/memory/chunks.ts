@@ -103,6 +103,26 @@ export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<
   return rows.map((r) => r.id);
 }
 
+/**
+ * Pending chunks across all users — drives the system-wide embed sweep.
+ * Returns id + userId + content so the worker can embed without a
+ * second roundtrip per row.
+ */
+export async function findPendingEmbedChunks(
+  limit = 50,
+): Promise<Array<{ id: string; userId: string; content: string }>> {
+  const rows = await db()
+    .select({
+      id: memoryChunks.id,
+      userId: memoryChunks.userId,
+      content: memoryChunks.content,
+    })
+    .from(memoryChunks)
+    .where(isNull(memoryChunks.embedding))
+    .limit(limit);
+  return rows;
+}
+
 export interface RecallMemoryArgs {
   userId: string;
   query: string;

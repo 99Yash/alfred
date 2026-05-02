@@ -4,6 +4,7 @@ import {
   replicacheClient,
   replicacheClientGroup,
   userFacts,
+  userPreferences,
 } from "@alfred/db/schemas";
 import { IDB_KEY, IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -79,6 +80,22 @@ const ENTITY_FETCHERS: Record<IDBKeys, (tx: DbTx, userId: string) => Promise<Ent
       serialized: serializeFact(f),
     }));
   },
+
+  // Preferences are keyed by `(user_id, key)`; the IDB id is the pref
+  // key (not the row id) so the optimistic upsert on the client can
+  // address the row without a lookup. Same shape on both sides.
+  PREFERENCE: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .orderBy(asc(userPreferences.key));
+    return rows.map((p: typeof userPreferences.$inferSelect) => ({
+      id: p.key,
+      rowVersion: p.rowVersion,
+      serialized: serializePreference(p),
+    }));
+  },
 };
 
 function serializeNote(n: {
@@ -114,6 +131,18 @@ function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown
     rowVersion: f.rowVersion,
     createdAt: toIso(f.createdAt),
     updatedAt: toIso(f.updatedAt),
+  };
+}
+
+function serializePreference(
+  p: typeof userPreferences.$inferSelect,
+): Record<string, unknown> {
+  return {
+    key: p.key,
+    userId: p.userId,
+    value: p.value,
+    source: p.source,
+    rowVersion: p.rowVersion,
   };
 }
 

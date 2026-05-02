@@ -25,6 +25,15 @@ export const IDB_KEY = {
   NOTE: ({ id = "" }: { id?: string }) => constructIDBKey(["note", id]),
   /** `fact/` (prefix scan) or `fact/{id}` (single row). */
   FACT: ({ id = "" }: { id?: string }) => constructIDBKey(["fact", id]),
+  /**
+   * `pref/` (prefix scan) or `pref/{key}` (single row).
+   *
+   * `id` here is the user-facing preference key (`tone`,
+   * `briefing.delivery_hour`, …) — see `SyncedPreference`. Server-side
+   * uniqueness is `(user_id, key)`, so using `key` as the IDB id keeps
+   * the client and server agreeing without an extra lookup.
+   */
+  PREFERENCE: ({ id = "" }: { id?: string }) => constructIDBKey(["pref", id]),
 } as const;
 
 /** Union of every entity slug in the registry — drives generic dispatchers. */

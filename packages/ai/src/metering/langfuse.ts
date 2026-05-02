@@ -96,7 +96,6 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     success({ usage, costUsd, output }) {
       try {
         generation?.end({
-          endTime: new Date(),
           usage: usage
             ? {
                 input: usage.inputTokens,
@@ -122,7 +121,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     },
     error(message) {
       try {
-        generation?.end({ endTime: new Date(), level: "ERROR", statusMessage: message });
+        generation?.end({ level: "ERROR", statusMessage: message });
       } catch (err) {
         console.warn("[langfuse] span error end failed:", err instanceof Error ? err.message : String(err));
       }
@@ -155,14 +154,25 @@ export async function shutdownLangfuse(): Promise<void> {
   }
 }
 
-function stripParams(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+type LangfuseModelParam = string | number | boolean | string[] | null;
+
+function stripParams(
+  meta: Record<string, unknown> | undefined,
+): { [key: string]: LangfuseModelParam } | undefined {
   if (!meta) return undefined;
-  // Drop fields that are too large or not relevant to the trace.
+  // Drop fields that are too large or not relevant to the trace, and coerce
+  // remaining values to the primitive shapes Langfuse accepts.
   const skip = new Set(["prompt", "messages", "system"]);
-  const out: Record<string, unknown> = {};
+  const out: { [key: string]: LangfuseModelParam } = {};
   for (const [k, v] of Object.entries(meta)) {
     if (skip.has(k)) continue;
-    out[k] = v;
+    if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+      out[k] = v;
+    } else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
+      out[k] = v as string[];
+    }
+    // Anything else (objects, mixed arrays) is silently dropped — Langfuse
+    // can't render them and including them broke the type contract.
   }
   return out;
 }
