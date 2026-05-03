@@ -25,9 +25,8 @@ export {
 } from "./extract";
 export type { ColdStartProposal } from "./extract";
 
-export { hasPriorColdStartRun } from "./dedup";
-
 export {
+  COLD_START_DEDUP_KEY,
   COLD_START_WORKFLOW_SLUG,
   coldStartWorkflowInputSchema,
 } from "./workflow-input";

@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 /**
  * Identity signals fed to cold-start research (ADR-0011). The shape grows
@@ -90,6 +90,12 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
 
   const integrations: ColdStartSignals["integrations"] = {};
 
+  // The schema explicitly allows multiple Google accounts per user
+  // (work + personal Gmail). Order by `createdAt` ASC so the oldest
+  // active credential wins — at signup that's trivially the only one
+  // (callback just inserted it), and on a future re-research it's the
+  // original onboarding credential, which is the most defensible
+  // anchor for "who are you" research.
   const googleRows = await db()
     .select({
       accountLabel: integrationCredentials.accountLabel,
@@ -102,6 +108,7 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
         eq(integrationCredentials.status, "active"),
       ),
     )
+    .orderBy(asc(integrationCredentials.createdAt))
     .limit(1);
   const google = googleRows[0];
   if (google?.accountLabel) {

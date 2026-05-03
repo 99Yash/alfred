@@ -1,9 +1,9 @@
 import {
+  COLD_START_DEDUP_KEY,
   COLD_START_WORKFLOW_SLUG,
   coldStartWorkflowInputSchema,
   collectColdStartSignals,
   extractColdStartFacts,
-  hasPriorColdStartRun,
   proposeFact,
   researchUser,
   writeMemoryChunk,
@@ -29,12 +29,20 @@ import { z } from "zod";
  *                       `memory_chunks` row for later semantic recall.
  *
  * Idempotency:
- *   - Trigger-side dedup (`hasPriorColdStartRun`) gates *enqueueing* a
- *     second run for the same user.
+ *   - Trigger-side: the workflow declares `dedupKey: () => 'cold-start'`,
+ *     so the partial unique index on `agent_runs(user_id, workflow_slug,
+ *     dedup_key) WHERE dedup_key IS NOT NULL AND status NOT IN
+ *     ('failed', 'cancelled')` makes any second `createRun` for the same
+ *     user fail with `23505`. There is no in-workflow "skip if prior
+ *     run exists" gate — concurrent inserts are blocked at the DB.
  *   - Step-side: `proposeFact` already short-circuits on the rejection
  *     guard + active-dup guard, and `writeMemoryChunk` upserts on
  *     `(user_id, kind, content_hash)`. So an in-step retry after a
  *     worker crash never double-writes.
+ *   - Cost: a worker crash mid-research re-bills Perplexity on retry —
+ *     Sonar has no idempotency-key API, so the per-step idempotency key
+ *     we forward is observability metadata only. Acceptable at ~$0.07
+ *     per duplicate; not worth a checkpoint cache for the rare case.
  *
  * Latency budget:
  *   - Sonar Deep Research is the dominant cost. Tagged `kind=web_search`
@@ -45,7 +53,6 @@ import { z } from "zod";
 
 const stateSchema = z.object({
   reason: z.enum(["signup", "manual"]),
-  force: z.boolean(),
   /** Computed in step 1; threaded through the rest of the run. */
   signals: z
     .object({
@@ -94,35 +101,25 @@ export const coldStartResearchWorkflow: Workflow<State> = {
 
   initialState(input) {
     const parsed = coldStartWorkflowInputSchema.parse(input.input ?? {});
-    return { reason: parsed.reason, force: parsed.force };
+    return { reason: parsed.reason };
   },
+
+  // Singleton-per-user. The DB-level partial unique index (see
+  // packages/db/src/schema/agent.ts → `agent_runs_dedup_key_idx`)
+  // turns a duplicate `createRun` into Postgres `23505`. Failed +
+  // cancelled rows are excluded from the index so a Perplexity outage
+  // isn't a permanent lockout.
+  dedupKey: () => COLD_START_DEDUP_KEY,
 
   steps: {
     "gather-signals": {
       id: "gather-signals",
       async run(ctx) {
-        // In-workflow dedup gate. The trigger-side check in google-routes
-        // already short-circuits the common case, but `/api/agent/runs`
-        // accepts any registered slug from any authenticated user — so
-        // without this gate, a user could re-trigger an expensive Sonar
-        // call on demand. `force: true` (smoke script, future re-research
-        // button) bypasses; the OAuth callback always passes `force: false`.
-        if (!ctx.state.force) {
-          const hasPrior = await hasPriorColdStartRun(ctx.userId, {
-            excludeRunId: ctx.runId,
-          });
-          if (hasPrior) {
-            await ctx.log(
-              "gather-signals: prior cold-start run exists; skipping (no force)",
-            );
-            return {
-              kind: "done",
-              state: ctx.state,
-              output: { skipped: "prior-run-exists" },
-            };
-          }
-        }
-
+        // No in-workflow dedup gate — the partial unique index on
+        // `agent_runs.(user_id, workflow_slug, dedup_key)` makes a
+        // second concurrent run impossible to even insert, so by the
+        // time this step runs, this row is the lone active research
+        // run for the user.
         const signals = await collectColdStartSignals(ctx.userId);
         await ctx.log(
           `gather-signals: name="${signals.name}" domain=${signals.emailDomain ?? "n/a"}${
@@ -143,11 +140,16 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals) {
           throw new Error("[cold-start] research entered without signals");
         }
+        // Stable per-run key (omit attempt) so the api_call_log /
+        // Langfuse trace ties together attempts of the same step. The
+        // key is metadata only — Perplexity has no idempotency-key API,
+        // so a worker-crash retry will re-bill Sonar regardless of what
+        // we forward here.
         const result: ResearchResult = await researchUser({
           signals: ctx.state.signals,
           runId: ctx.runId,
           stepId: "research",
-          idempotencyKey: ctx.idempotencyKey,
+          idempotencyKey: `cold-start.research:${ctx.runId}`,
         });
         await ctx.log(
           `research: finishReason=${result.meta.finishReason} chars=${result.content.length} citations=${result.citations.length}`,
@@ -166,6 +168,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals || !ctx.state.research) {
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
+        // Stable per-run key (see `research` step above for rationale).
         const proposals: ColdStartProposal[] = await extractColdStartFacts({
           signals: ctx.state.signals,
           research: {
@@ -174,7 +177,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           },
           runId: ctx.runId,
           stepId: "extract-facts",
-          idempotencyKey: ctx.idempotencyKey,
+          idempotencyKey: `cold-start.extract:${ctx.runId}`,
         });
         await ctx.log(`extract-facts: proposals=${proposals.length}`);
         return {

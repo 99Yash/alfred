@@ -12,9 +12,11 @@
  *     so the signal collector contributes more than the bare email.
  *
  * What this verifies end-to-end:
- *   1. createRun + enqueueRun cycle a `cold-start-research` run with
- *      `force: true` (bypassing trigger-side dedup).
- *   2. The workflow runs gather-signals → research → extract-facts →
+ *   1. Any prior cold-start run for this user is moved to `cancelled`
+ *      so the partial unique index on `agent_runs.dedup_key` doesn't
+ *      reject the fresh smoke run.
+ *   2. createRun + enqueueRun cycle a `cold-start-research` run.
+ *   3. The workflow runs gather-signals → research → extract-facts →
  *      persist to completion.
  *   3. The run output reports a non-negative `factsProposed`,
  *      `memoryChunkId`, and `citationCount`.
@@ -126,13 +128,31 @@ async function main() {
   }
   console.log(`[smoke-cold-start] target: ${u.email} (id=${u.id})`);
 
-  // force: true bypasses the trigger-side hasPriorColdStartRun guard so
-  // the smoke can be re-run repeatedly. (The guard is enforced upstream
-  // at the OAuth callback, not inside the workflow.)
+  // The cold-start workflow is singleton-per-user via the partial
+  // unique index on `agent_runs.dedup_key`. Cancel any prior active
+  // row so the fresh insert below isn't blocked. Failed/cancelled
+  // rows are excluded from the index, so this leaves history intact.
+  const stomped = await db()
+    .update(agentRuns)
+    .set({ status: "cancelled", endedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(agentRuns.userId, u.id),
+        eq(agentRuns.workflowSlug, COLD_START_WORKFLOW_SLUG),
+        sql`${agentRuns.status} NOT IN ('failed', 'cancelled')`,
+      ),
+    )
+    .returning({ id: agentRuns.id });
+  if (stomped.length) {
+    console.log(
+      `[smoke-cold-start] cancelled ${stomped.length} prior run(s) to clear the dedup index.`,
+    );
+  }
+
   const { runId } = await createRun({
     userId: u.id,
     workflowSlug: COLD_START_WORKFLOW_SLUG,
-    input: { reason: "manual", force: true },
+    input: { reason: "manual" },
     metadata: { triggeredBy: "smoke-cold-start" },
   });
   await enqueueRun(runId);

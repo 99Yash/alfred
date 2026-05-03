@@ -3,7 +3,7 @@ import { authMacro } from "../../middleware/auth";
 import { runOnce } from "./executor";
 import { enqueueRun, closeAgentQueue } from "./queue";
 import { listWorkflows, registerWorkflow } from "./registry";
-import { createRun, getRun, signalRun } from "./service";
+import { createRun, getRun, isUniqueViolation, signalRun } from "./service";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
 export {
@@ -55,6 +55,16 @@ export const agent = new Elysia({ prefix: "/api/agent" })
             await enqueueRun(runId);
             return { runId };
           } catch (err) {
+            // Workflows that declare a `dedupKey` use a partial unique
+            // index to enforce singleton semantics; a duplicate trips
+            // Postgres 23505 here. Surface that as 409 so callers can
+            // distinguish "already running / already done" from a real
+            // 4xx — the raw constraint name is unhelpful to clients.
+            if (isUniqueViolation(err)) {
+              return status(409, {
+                message: `An active run for workflow "${body.workflowSlug}" already exists.`,
+              });
+            }
             const msg = err instanceof Error ? err.message : String(err);
             return status(400, { message: msg });
           }

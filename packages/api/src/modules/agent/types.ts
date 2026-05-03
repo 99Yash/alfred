@@ -95,6 +95,10 @@ export interface WorkflowInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface DedupKeyArgs extends WorkflowInput {
+  userId: string;
+}
+
 export interface Workflow<S = unknown> {
   /** Stable slug; used to look up the workflow when resuming a run after a deploy. */
   slug: string;
@@ -106,4 +110,15 @@ export interface Workflow<S = unknown> {
   steps: Record<string, Step<S>>;
   /** Optional zod schema validating `initialState` shape. Run on every load to catch state drift after deploys. */
   stateSchema?: z.ZodType<S>;
+  /**
+   * Optional singleton-key derivation for workflows that may run at most
+   * once per (user, key) at a time. When defined and non-null, the
+   * partial unique index on `agent_runs.(user_id, workflow_slug, dedup_key)`
+   * makes a second `createRun` for the same triple fail with a unique
+   * violation while a prior run is still active. Failed/cancelled rows
+   * are excluded so a transient outage isn't a permanent lockout.
+   * Caller-supplied input is intentionally NOT in scope here — the
+   * workflow owns dedup, not the caller.
+   */
+  dedupKey?(args: DedupKeyArgs): string | null;
 }
