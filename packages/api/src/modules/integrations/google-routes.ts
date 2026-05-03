@@ -14,7 +14,7 @@ import {
 } from "@alfred/integrations/google";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Elysia, status, t } from "elysia";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { createRun, enqueueRun } from "../agent";
 import { COLD_START_WORKFLOW_SLUG, hasPriorColdStartRun } from "../cold-start";
@@ -289,10 +289,23 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       // "onboarding complete enough to research" trigger. Future
       // integrations (GitHub, …) can extend the signal collector without
       // re-firing this — `hasPriorColdStartRun` gates lifetime uniqueness.
-      // Wrapped in try/catch because a research-trigger failure must not
-      // bounce the user back to an OAuth error page.
+      //
+      // Wrapped in a tx + `pg_advisory_xact_lock` keyed on the user so
+      // two near-simultaneous OAuth callbacks (e.g. user has the consent
+      // page open in two tabs) serialise: the first inserts the run row
+      // and commits, the second blocks on the lock and then sees the
+      // row when it re-checks. Without this guard the gap between
+      // `hasPriorColdStartRun` and `createRun` was wide enough to
+      // double-fire a $0.07 Sonar Deep Research call.
+      //
+      // Try/catch wraps the whole block — a research-trigger failure
+      // must not bounce the user back to an OAuth error page.
       try {
-        if (!(await hasPriorColdStartRun(decoded.userId))) {
+        await db().transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${`cold-start:${decoded.userId}`}))`,
+          );
+          if (await hasPriorColdStartRun(decoded.userId)) return;
           const { runId } = await createRun({
             userId: decoded.userId,
             workflowSlug: COLD_START_WORKFLOW_SLUG,
@@ -300,7 +313,7 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
             metadata: { triggeredBy: "google.callback" },
           });
           await enqueueRun(runId);
-        }
+        });
       } catch (err) {
         console.warn(
           `[google.callback] failed to enqueue cold-start research for ${decoded.userId}:`,
