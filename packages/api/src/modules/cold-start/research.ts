@@ -75,11 +75,11 @@ function buildResearchPrompt(signals: ColdStartSignals): string {
   lines.push("");
   lines.push(`Please answer these questions about me, using public web sources only:`);
   lines.push(
-    `1. Professional summary: my likely current role, employer, and city if publicly stated anywhere (LinkedIn, company website, conference bios, GitHub profile, personal site). Cite each claim.`,
+    `1. Professional summary — current role, employer, and city if publicly stated anywhere (LinkedIn, company website, conference bios, GitHub profile, personal site). Cite each claim.`,
   );
   if (signals.emailDomain && !signals.emailDomainIsConsumer) {
     lines.push(
-      `2. The company at "${signals.emailDomain}" — one-paragraph summary of what they do, rough size, stage, and headquarters. (This is presumably my employer.)`,
+      `2. The company at "${signals.emailDomain}" — one short paragraph: what they do, rough size, stage, and headquarters. (This is presumably my employer.)`,
     );
   } else {
     lines.push(`2. (Skipped — consumer email domain, not an employer.)`);
@@ -90,10 +90,13 @@ function buildResearchPrompt(signals: ColdStartSignals): string {
   lines.push(
     `4. Public social handles, personal site, or GitHub username that match me. Mark each as "high confidence" or "tentative".`,
   );
+  lines.push(
+    `5. Personal context that's been publicly mentioned (interviews, profiles, social media, press): marital status, spouse/partner if publicly named, and children if any are public figures. For any family member who is themselves a public figure, add one short paragraph on what makes them notable — same name-disambiguation discipline as section 1. Skip the whole section if nothing is publicly attested; do NOT speculate from common surnames or shared cities.`,
+  );
   lines.push("");
   lines.push(`Ground rules:`);
   lines.push(
-    `- Public information only. No private details (home address, phone number, family members) even if you stumble on them.`,
+    `- Public sources only. Specifically: do NOT include contact details (home address, personal phone number, exact birthdate beyond year). Family members are in scope only when a public source has named the relationship explicitly.`,
   );
   lines.push(
     `- If multiple people share my name and you can't distinguish, say so rather than guessing — false matches are worse than gaps.`,
@@ -105,7 +108,7 @@ function buildResearchPrompt(signals: ColdStartSignals): string {
     `- If you genuinely can't find a public profile that matches the name + email above, return a short "no confident match" answer rather than padding with low-confidence guesses.`,
   );
   lines.push(
-    `- Keep the final answer under ~1200 words. Bullets and short paragraphs over long prose; no preamble or meta-commentary.`,
+    `- Substance over padding. No section preambles, executive summaries, or meta-commentary about how research was conducted. If a section has nothing, write one line saying so and move on. Aim for ~1500 words total of dense, citation-grounded findings.`,
   );
   return lines.join("\n");
 }
