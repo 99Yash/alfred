@@ -19,6 +19,14 @@ export interface CallAttribution {
   stepId?: string;
   attempt?: number;
   messageId?: string;
+  /**
+   * Override `api_call_log.kind`. The `meteredGenerateText` /
+   * `meteredGenerateObject` wrappers default to `'llm'`; pass
+   * `'web_search'` here when routing a Perplexity Sonar (or future
+   * search-shaped) model so cost rollups bucket it correctly per
+   * ADR-0015. `meteredEmbed` always uses `'embedding'` regardless.
+   */
+  kind?: CallKind;
 }
 
 export interface MeteredMeta extends CallAttribution {
