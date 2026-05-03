@@ -13,6 +13,7 @@
     "@ai-sdk/anthropic": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
+    "@ai-sdk/perplexity": "catalog:",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "ai": "catalog:",

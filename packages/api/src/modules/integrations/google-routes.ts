@@ -16,6 +16,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Elysia, status, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
+import { createRun, enqueueRun } from "../agent";
+import { COLD_START_WORKFLOW_SLUG, hasPriorColdStartRun } from "../cold-start";
 import { getIngestionQueue } from "./queue";
 import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
 
@@ -277,6 +279,31 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       } catch (err) {
         console.warn(
           `[google.callback] failed to enqueue initial-sync for ${credential.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
+      // Cold-start research seed (ADR-0011 + ADR-0022): once at most per
+      // user. Google is currently the only integration that contributes
+      // signals beyond the bare user row, so this callback doubles as the
+      // "onboarding complete enough to research" trigger. Future
+      // integrations (GitHub, …) can extend the signal collector without
+      // re-firing this — `hasPriorColdStartRun` gates lifetime uniqueness.
+      // Wrapped in try/catch because a research-trigger failure must not
+      // bounce the user back to an OAuth error page.
+      try {
+        if (!(await hasPriorColdStartRun(decoded.userId))) {
+          const { runId } = await createRun({
+            userId: decoded.userId,
+            workflowSlug: COLD_START_WORKFLOW_SLUG,
+            input: { reason: "signup", force: false },
+            metadata: { triggeredBy: "google.callback" },
+          });
+          await enqueueRun(runId);
+        }
+      } catch (err) {
+        console.warn(
+          `[google.callback] failed to enqueue cold-start research for ${decoded.userId}:`,
           err instanceof Error ? err.message : String(err),
         );
       }

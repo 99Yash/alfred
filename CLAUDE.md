@@ -133,7 +133,7 @@ Alfred uses AI SDK v6 (`ai@^6`). Common v6 differences:
 - `LanguageModel` is a union — do not hardcode string model IDs in type positions.
 - `generateObject` *@deprecated* — Use `generateText` with an `output` setting instead.
 
-Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers.
+Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()`, `getWebSearchModel()`, `getResearchModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers. The two web-search models (Perplexity Sonar Pro for live, Sonar Deep Research for cold-start) must be routed through `meteredGenerateText` with `attribution.kind = 'web_search'` so cost rollups bucket them apart from the LLM line.
 
 Embeddings: `embed(text, opts?)` from `@alfred/ai/embeddings` — currently a zero-vector stub; real Voyage wiring comes in milestone 7. All embedding dimensions must be 1024.
 
@@ -188,6 +188,27 @@ OAuth scope refactor that landed alongside m10:
 
 Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-briefing.ts` (forces a send for the first user, ignoring the tz/hour gate; verifies idempotent re-run).
 
+## Cold-start research (m11)
+
+Per ADR-0011 + ADR-0022 alfred runs one Perplexity Sonar Deep Research call per user at signup, extracts structured `user_facts` proposals from the result, and stores the freeform research as a `memory_chunks` row for later semantic recall. Lifetime-once per user.
+
+The pipeline:
+
+1. The Google OAuth callback (`google-routes.ts /callback`) calls `hasPriorColdStartRun(userId)`; if false, `createRun({ workflowSlug: COLD_START_WORKFLOW_SLUG, … })` + `enqueueRun(runId)`. Failures are logged but don't bounce the user back to an error page.
+2. The `cold-start-research` workflow (`apps/server/src/builtins/workflows/cold-start-research.ts`) runs `gather-signals` → `research` → `extract-facts` → `persist`:
+   - `gather-signals` calls `collectColdStartSignals(userId)` — reads the `user` row + connected `integration_credentials` per provider. v1 contributes `{ name, email, emailDomain, emailDomainIsConsumer, integrations.google? }`.
+   - `research` calls `researchUser({ signals })` — one `meteredGenerateText` call against `getResearchModel()` (Perplexity `sonar-deep-research`) with `attribution.kind = 'web_search'`. 30–120s; returns prose + extracted citations.
+   - `extract-facts` calls `extractColdStartFacts({ signals, research })` — cheap-tier (`getCheapModel()` + `meteredGenerateObject`) converts research prose into structured `{ key, value, confidence, rationale }` proposals.
+   - `persist` calls `proposeFact()` per proposal (auto-confirm at confidence ≥0.85 per ADR-0019; existing rejection + active-dup guards apply) and `writeMemoryChunk({ kind: 'cold_start_research', … })` for the research summary. Embedding lands via the existing memory embed-sweep.
+3. Cost lands as one `web_search` row + one cheap-tier `llm` row in `api_call_log`, attributable to the run via `(run_id, step_id)`.
+
+Trigger semantics:
+
+- The OAuth callback is the trigger because Google is currently the only integration that contributes signals beyond the user row. When more integrations land (GitHub, …), the trigger should move to whatever signal indicates "onboarding finished" — probably an explicit `cold-start ready` event once an onboarding flow exists.
+- `force: true` on the workflow input bypasses the workflow's own cycle (the smoke uses this); the trigger-side `hasPriorColdStartRun` guard is what makes a re-connect a no-op.
+
+Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-cold-start.ts` (forces a fresh run for the first user; verifies the research → extract → persist pipeline lands a `memory_chunks` row plus zero-or-more `user_facts` proposals tagged `source.kind='cold_start'`). Requires `PERPLEXITY_API_KEY`.
+
 ## Replicache
 
 `packages/sync` ships the client-side mutators (currently `noteCreate`) and shared key helpers. Server-side push/pull/poke endpoints live at `/api/replicache/{push,pull,events}` (see `packages/api/src/modules/replicache/`). Pokes flow over Redis Pub/Sub on `replicache-pokes:u:<userId>` channels and reach the browser via SSE.
@@ -221,6 +242,7 @@ Key vars for local dev (pre-filled in `apps/server/.env`):
 | `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect) |
 | `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to             |
 | `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription            |
+| `PERPLEXITY_API_KEY`           | m11 — Sonar Deep Research at signup + Sonar Pro tool    |
 
 
 All other vars are optional and safe to leave blank locally.
@@ -241,7 +263,7 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 - 8 — Memory primitives
 - 9 — Email triage workflow (9a schema + Gmail label plumbing, 9b classifier + workflow, 9c trigger from poll_history, 9d smoke-triage)
 - 10 — Morning briefing workflow (10-pre per-feature scope sets + requireScopes; 10a email_sends + notify(); 10b morning-briefing workflow; 10c hourly briefing.tick + tz resolution; 10d smoke-briefing). Inbox-only at v1; calendar deferred.
-- 11 — Cold-start research
+- 11 — Cold-start research at signup (11a `getResearchModel()` + Perplexity Sonar Deep Research wired through `meteredGenerateText` with `kind='web_search'`; 11b `packages/api/src/modules/cold-start/` — signal collector, research call, cheap-tier extractor, dedup; 11c `cold-start-research` builtin workflow with steps `gather-signals` → `research` → `extract-facts` → `persist`; 11d trigger from `google-routes.ts` `/callback` gated by `hasPriorColdStartRun` so a re-connect doesn't re-run; 11e `smoke-cold-start.ts`). Signals are extensible per-integration — Google contributes `accountEmail` today; future GitHub/etc. integrations plug into `collectColdStartSignals` without workflow change. v1 trigger fires from the OAuth callback because Google is currently the only integration that contributes signals beyond the user row; revisit once another integration lands.
 - 12 — Skills + user-authored workflows
 - 13 — Boss + sub-agent orchestration
 - 14 — MCP client
