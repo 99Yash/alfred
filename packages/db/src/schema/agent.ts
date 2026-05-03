@@ -49,6 +49,14 @@ export const agentRuns = pgTable(
     error: jsonb("error"),
     output: jsonb("output"),
     metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    /**
+     * Optional workflow-declared singleton key. When non-null and the run
+     * is not in a terminal-failure state, no second row with the same
+     * (user_id, workflow_slug, dedup_key) can exist — see the partial
+     * unique index below. Used by lifetime-once workflows like
+     * cold-start-research; left null by everything else.
+     */
+    dedupKey: text("dedup_key"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastCheckpointAt: timestamp("last_checkpoint_at", { withTimezone: true }),
@@ -59,6 +67,14 @@ export const agentRuns = pgTable(
     index("agent_runs_runnable_idx")
       .on(t.lastCheckpointAt)
       .where(sql`${t.status} IN ('pending', 'runnable', 'running')`),
+    // Enforces "at most one active run per (user, workflow, dedup_key)."
+    // Excludes failed/cancelled so a transient outage doesn't permanently
+    // lock a workflow out — a later trigger can produce a fresh attempt.
+    // Workflows opt in by declaring `dedupKey` on their definition; rows
+    // with a null dedup key are unaffected (most workflows).
+    uniqueIndex("agent_runs_dedup_key_idx")
+      .on(t.userId, t.workflowSlug, t.dedupKey)
+      .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
   ],
 );
 
