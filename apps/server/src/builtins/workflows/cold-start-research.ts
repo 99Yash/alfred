@@ -3,6 +3,7 @@ import {
   coldStartWorkflowInputSchema,
   collectColdStartSignals,
   extractColdStartFacts,
+  hasPriorColdStartRun,
   proposeFact,
   researchUser,
   writeMemoryChunk,
@@ -100,6 +101,28 @@ export const coldStartResearchWorkflow: Workflow<State> = {
     "gather-signals": {
       id: "gather-signals",
       async run(ctx) {
+        // In-workflow dedup gate. The trigger-side check in google-routes
+        // already short-circuits the common case, but `/api/agent/runs`
+        // accepts any registered slug from any authenticated user — so
+        // without this gate, a user could re-trigger an expensive Sonar
+        // call on demand. `force: true` (smoke script, future re-research
+        // button) bypasses; the OAuth callback always passes `force: false`.
+        if (!ctx.state.force) {
+          const hasPrior = await hasPriorColdStartRun(ctx.userId, {
+            excludeRunId: ctx.runId,
+          });
+          if (hasPrior) {
+            await ctx.log(
+              "gather-signals: prior cold-start run exists; skipping (no force)",
+            );
+            return {
+              kind: "done",
+              state: ctx.state,
+              output: { skipped: "prior-run-exists" },
+            };
+          }
+        }
+
         const signals = await collectColdStartSignals(ctx.userId);
         await ctx.log(
           `gather-signals: name="${signals.name}" domain=${signals.emailDomain ?? "n/a"}${
