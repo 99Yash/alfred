@@ -1,0 +1,2 @@
+ALTER TABLE "agent_runs" ADD COLUMN "dedup_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_runs_dedup_key_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","dedup_key") WHERE "agent_runs"."dedup_key" IS NOT NULL AND "agent_runs"."status" NOT IN ('failed', 'cancelled');

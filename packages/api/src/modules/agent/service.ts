@@ -4,6 +4,20 @@ import { and, eq, sql } from "drizzle-orm";
 import { requireWorkflow } from "./registry";
 import type { WakeCondition, WorkflowInput } from "./types";
 
+interface PgErrorLike {
+  code?: string;
+}
+
+/**
+ * `true` when the given error is a Postgres unique-violation (SQLSTATE
+ * 23505). Used by `/api/agent/runs` and the OAuth-callback trigger to
+ * detect a duplicate `agent_runs.dedup_key` and surface it as a 409 /
+ * silent no-op respectively, instead of leaking the raw constraint name.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as PgErrorLike).code === "23505";
+}
+
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is
  * presumed abandoned and may be reclaimed by another worker. Shared
@@ -28,6 +42,14 @@ export interface CreateRunResult {
  * a cron trigger) is responsible for enqueueing the BullMQ job afterwards
  * — keeping persistence and enqueue separate means a Redis blip won't
  * orphan a row, and a recovery sweep can re-enqueue from the table.
+ *
+ * Workflows that opt into singleton semantics expose a `dedupKey` hook;
+ * its value lands on `agent_runs.dedup_key` and the partial unique index
+ * (user_id, workflow_slug, dedup_key) WHERE dedup_key IS NOT NULL AND
+ * status NOT IN ('failed', 'cancelled') turns a duplicate into a Postgres
+ * `23505` unique-violation. Callers either catch that (OAuth-callback
+ * trigger logs + continues) or surface it as a 4xx (the generic /runs
+ * endpoint).
  */
 export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
   const workflow = requireWorkflow(args.workflowSlug);
@@ -36,6 +58,14 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
     input: args.input,
     metadata: args.metadata,
   });
+
+  const dedupKey =
+    workflow.dedupKey?.({
+      userId: args.userId,
+      brief: args.brief,
+      input: args.input,
+      metadata: args.metadata,
+    }) ?? null;
 
   const inserted = await db()
     .insert(agentRuns)
@@ -47,6 +77,7 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
       currentStep: workflow.initialStep,
       metadata: (args.metadata as object) ?? {},
       status: "pending",
+      dedupKey,
     })
     .returning({ id: agentRuns.id });
 

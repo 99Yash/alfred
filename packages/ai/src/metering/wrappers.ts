@@ -122,7 +122,7 @@ export async function meteredGenerateText(
   attribution: AttributedCall = {},
 ): Promise<GenerateTextResult<ToolSet, never>> {
   const ids = resolveIds(args.model, attribution);
-  const meta: MeteredMeta = { ...attribution, kind: "llm", ...ids };
+  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
   // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
   // but the `Output` interface is not exported as a nameable type, only via a
   // namespace alias. Cast through unknown to a callable shape and pin the
@@ -145,7 +145,7 @@ export async function meteredGenerateObject<O>(
 ): Promise<MeteredGenerateObjectResult<O>> {
   const { schema, schemaName, schemaDescription, ...rest } = args;
   const ids = resolveIds(rest.model, attribution);
-  const meta: MeteredMeta = { ...attribution, kind: "llm", ...ids };
+  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
   type Result = GenerateTextResult<ToolSet, ReturnType<typeof Output.object<O>>>;
   // The discriminated `Prompt` union (prompt | messages) doesn't survive an
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast

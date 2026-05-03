@@ -16,6 +16,9 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Elysia, status, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
+import { createRun, enqueueRun } from "../agent";
+import { isUniqueViolation } from "../agent/service";
+import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
 import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
 
@@ -279,6 +282,46 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
           `[google.callback] failed to enqueue initial-sync for ${credential.id}:`,
           err instanceof Error ? err.message : String(err),
         );
+      }
+
+      // Cold-start research seed (ADR-0011 + ADR-0022): once at most per
+      // user. Google is currently the only integration that contributes
+      // signals beyond the bare user row, so this callback doubles as the
+      // "onboarding complete enough to research" trigger.
+      //
+      // Lifetime uniqueness is enforced at the DB level: the workflow
+      // declares `dedupKey: () => 'cold-start'`, and the partial unique
+      // index on `agent_runs.(user_id, workflow_slug, dedup_key)` makes
+      // a duplicate `createRun` fail with Postgres `23505`. Two
+      // simultaneous callbacks both insert; the loser gets a unique
+      // violation and falls through. A prior failed/cancelled run is
+      // excluded from the index, so a transient Perplexity outage isn't
+      // a permanent lockout — a later reconnect re-fires.
+      //
+      // Try/catch eats both unique-violations (expected on reconnect)
+      // and any other failure — a research-trigger problem must not
+      // bounce the user back to an OAuth error page.
+      try {
+        const { runId } = await createRun({
+          userId: decoded.userId,
+          workflowSlug: COLD_START_WORKFLOW_SLUG,
+          input: { reason: "signup" },
+          metadata: { triggeredBy: "google.callback" },
+        });
+        await enqueueRun(runId);
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          // Reconnect after a successful (or in-flight) prior run —
+          // expected, log at info level only.
+          console.log(
+            `[google.callback] cold-start research already exists for ${decoded.userId}; skipping.`,
+          );
+        } else {
+          console.warn(
+            `[google.callback] failed to enqueue cold-start research for ${decoded.userId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
 
       // Bounce back to the SPA. We don't have an "integrations" page yet;
