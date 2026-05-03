@@ -71,6 +71,13 @@
       "when": 1777722498526,
       "tag": "0009_little_ego",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777790937849,
+      "tag": "0010_pretty_black_panther",
+      "breakpoints": true
     }
   ]
 }
