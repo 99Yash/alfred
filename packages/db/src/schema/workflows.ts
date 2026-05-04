@@ -8,8 +8,96 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { z } from "zod";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+/**
+ * Workflow trigger — discriminated by `kind`. See `workflows.trigger`.
+ */
+export const workflowTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    schedule: z.string(),
+    timezone: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("event"),
+    source: z.string(),
+    filter: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({ kind: z.literal("manual") }),
+  z.object({ kind: z.literal("on_signal"), name: z.string() }),
+]);
+export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>;
+
+/**
+ * Workflow step — discriminated by `kind` per ADR-0017. See `workflows.steps`.
+ */
+export const workflowStepSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("run_skill"),
+    id: z.string(),
+    skillSlug: z.string(),
+    input: z.record(z.string(), z.unknown()).optional(),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("tool_call"),
+    id: z.string(),
+    tool: z.string(),
+    input: z.record(z.string(), z.unknown()).optional(),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("llm_call"),
+    id: z.string(),
+    prompt: z.string(),
+    model: z.string().optional(),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("agent_run"),
+    id: z.string(),
+    workflowSlug: z.string(),
+    input: z.record(z.string(), z.unknown()).optional(),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("condition"),
+    id: z.string(),
+    expr: z.string(),
+    onTrue: z.string(),
+    onFalse: z.string(),
+  }),
+  z.object({
+    kind: z.literal("parallel"),
+    id: z.string(),
+    branches: z.array(z.string()),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("loop"),
+    id: z.string(),
+    over: z.string(),
+    body: z.string(),
+    next: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("hil_approve"),
+    id: z.string(),
+    prompt: z.string().optional(),
+    next: z.string().optional(),
+  }),
+]);
+export type WorkflowStep = z.infer<typeof workflowStepSchema>;
+
+export const workflowStepsSchema = z.array(workflowStepSchema);
+export type WorkflowSteps = z.infer<typeof workflowStepsSchema>;
+
+/** Step ids that require HIL approval (see `workflows.hil_gates`). */
+export const workflowHilGatesSchema = z.array(z.string());
+export type WorkflowHilGates = z.infer<typeof workflowHilGatesSchema>;
 
 /**
  * Workflows (ADR-0017).
@@ -55,7 +143,10 @@ export const workflows = pgTable(
      *   { kind: 'on_signal', name: 'cold-start.ready' }
      * Trigger-side dispatchers consult `status='active'` before enqueuing.
      */
-    trigger: jsonb("trigger").notNull().default(sql`'{"kind":"manual"}'::jsonb`),
+    trigger: jsonb("trigger")
+      .$type<WorkflowTrigger>()
+      .notNull()
+      .default(sql`'{"kind":"manual"}'::jsonb`),
     /**
      * Natural-language brief for user-authored workflows. Built-ins keep
      * this null and rely on their TS module's step definitions.
@@ -67,12 +158,15 @@ export const workflows = pgTable(
      * `tool_call`, `llm_call`, `agent_run`, `condition`, `parallel`,
      * `loop`, `hil_approve`). Null = brief-only agent run.
      */
-    steps: jsonb("steps"),
+    steps: jsonb("steps").$type<WorkflowSteps>(),
     /**
      * Step ids that require HIL approval. Only meaningful with explicit
      * `steps`. Shape: `string[]`.
      */
-    hilGates: jsonb("hil_gates").notNull().default(sql`'[]'::jsonb`),
+    hilGates: jsonb("hil_gates")
+      .$type<WorkflowHilGates>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /**
      * Bound on which integrations the workflow's agent runs may load
      * (ADR-0026 lazy-loading). The agent's initial `state.activeIntegrations`

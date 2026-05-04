@@ -11,6 +11,7 @@ export {
   listWorkflows,
   createRun,
   getRun,
+  isUniqueViolation,
   signalRun,
   enqueueRun,
   runOnce,

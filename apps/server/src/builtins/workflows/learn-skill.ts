@@ -1,13 +1,17 @@
 import {
-  LEARN_SKILL_WORKFLOW_SLUG,
   collectSkillLearnContext,
   commitSkillRevision,
+  createRun,
   distillSkill,
+  enqueueRun,
   finalizeSkillRun,
+  isUniqueViolation,
+  LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   learnSkillWorkflowInputSchema,
   proposeFact,
   recordSkillRun,
+  SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   type ParsedMention,
   type SkillLearnContext,
   type SkillProposal,
@@ -226,8 +230,45 @@ export const learnSkillWorkflow: Workflow<State> = {
           producedRevisionId: commit.revisionId,
         });
 
+        // Phase 2: kick off async deep documentation. Fire-and-forget —
+        // a failure to enqueue the doc workflow must NOT undo the v1
+        // commit that already succeeded. Per-skill dedup means a Learn
+        // re-fire while an earlier doc is still running surfaces as
+        // 23505 here; we log + continue so the in-flight doc finishes
+        // (it will re-read the latest revision in its gather step).
+        let docRunId: string | null = null;
+        let docEnqueueStatus: "enqueued" | "deduplicated" | "failed" = "enqueued";
+        try {
+          const created = await createRun({
+            userId: ctx.userId,
+            workflowSlug: SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+            input: {
+              skillId: ctx.state.skillId,
+              triggeringLearnRunId: ctx.runId,
+            },
+            metadata: {
+              triggeredBy: "learn-skill",
+              triggeringLearnRunId: ctx.runId,
+            },
+          });
+          await enqueueRun(created.runId);
+          docRunId = created.runId;
+        } catch (err) {
+          if (isUniqueViolation(err)) {
+            docEnqueueStatus = "deduplicated";
+            await ctx.log(
+              `persist: skill-documentation already in flight for skill=${ctx.state.skillId}; the running doc will pick up the latest revision`,
+            );
+          } else {
+            docEnqueueStatus = "failed";
+            await ctx.log(
+              `persist: failed to enqueue skill-documentation: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
         await ctx.log(
-          `persist: revisionId=${commit.revisionId} status=${commit.skillStatus} facts=${inserted}/${distill.proposals.length} (skipped=${skipped})`,
+          `persist: revisionId=${commit.revisionId} status=${commit.skillStatus} facts=${inserted}/${distill.proposals.length} (skipped=${skipped}) doc=${docEnqueueStatus}${docRunId ? `:${docRunId}` : ""}`,
         );
 
         return {
@@ -240,6 +281,8 @@ export const learnSkillWorkflow: Workflow<State> = {
             factsProposed: inserted,
             factsSkipped: skipped,
             mentionCount: mentions.length,
+            documentationRunId: docRunId,
+            documentationEnqueueStatus: docEnqueueStatus,
           },
         };
       },
