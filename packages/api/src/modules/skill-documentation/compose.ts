@@ -62,7 +62,10 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
     lines.push(`(no matches)`);
   } else {
     ctx.documentHits.forEach((h, i) => {
-      const stamp = h.authoredAt ? h.authoredAt.toISOString().slice(0, 10) : "n/a";
+      // `authoredAt` is typed as `Date | null`, but `documentHits` rides through
+      // `agent_runs.state` jsonb between steps as `z.unknown[]` — so on resume it
+      // arrives as an ISO string. `new Date(...)` accepts either form.
+      const stamp = h.authoredAt ? new Date(h.authoredAt).toISOString().slice(0, 10) : "n/a";
       lines.push(
         `- [${i + 1}] source=${h.source} title=${h.title ?? "(untitled)"} date=${stamp} sim=${h.similarity.toFixed(2)}`,
       );
