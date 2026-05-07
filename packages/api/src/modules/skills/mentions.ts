@@ -48,15 +48,19 @@ export function parseMentions(text: string): ParsedMention[] {
     if (!slug || match.index === undefined) continue;
     const atOffset = full.indexOf("@");
     const slugLower = slug.toLowerCase();
-    const raw = `@${prefix ? `${prefix.toLowerCase()}:` : ""}${slugLower}`;
+    // Regex is case-insensitive, so `prefix` can be "Skill" / "INTEGRATION" /
+    // etc. Lower once and reuse — comparing the raw capture would misclassify
+    // any non-lowercase prefix as `unresolved`.
+    const prefixLower = prefix?.toLowerCase();
+    const raw = `@${prefixLower ? `${prefixLower}:` : ""}${slugLower}`;
     out.push({
       raw,
       kind:
-        prefix === "skill"
+        prefixLower === "skill"
           ? "skill"
-          : prefix === "integration"
+          : prefixLower === "integration"
             ? "integration"
-            : prefix === "person"
+            : prefixLower === "person"
               ? "collaborator"
               : "unresolved",
       slug: slugLower,
