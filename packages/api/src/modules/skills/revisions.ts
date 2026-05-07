@@ -92,16 +92,10 @@ export interface RecordSkillRunArgs {
 }
 
 export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: string }> {
-  // Idempotent on (agent_run_id) via the unique index — re-runs of the
-  // same agent step (worker crash, replay) don't insert a second row.
-  const [existing] = await db()
-    .select({ id: skillRuns.id })
-    .from(skillRuns)
-    .where(eq(skillRuns.agentRunId, args.agentRunId))
-    .limit(1);
-  if (existing) return existing;
-
-  const [row] = await db()
+  // Idempotent on (agent_run_id) via the unique index. Atomic upsert
+  // matches the pattern used in notify() — a concurrent caller can't
+  // slip between a select-then-insert and trip the unique index.
+  const inserted = await db()
     .insert(skillRuns)
     .values({
       skillId: args.skillId,
@@ -110,10 +104,20 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
       agentRunId: args.agentRunId,
       status: "running",
     })
+    .onConflictDoNothing({ target: skillRuns.agentRunId })
     .returning({ id: skillRuns.id });
 
-  if (!row) throw new Error(`[learn-skill] skill_runs insert returned no row`);
-  return row;
+  if (inserted[0]) return inserted[0];
+
+  const [existing] = await db()
+    .select({ id: skillRuns.id })
+    .from(skillRuns)
+    .where(eq(skillRuns.agentRunId, args.agentRunId))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`[learn-skill] skill_runs upsert conflicted but no row found on lookup`);
+  }
+  return existing;
 }
 
 /** Mark a `skill_runs` row terminal. Idempotent: a second call is a no-op. */

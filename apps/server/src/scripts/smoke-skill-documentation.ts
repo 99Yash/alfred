@@ -31,7 +31,9 @@ import {
   createRun,
   enqueueRun,
   LEARN_SKILL_WORKFLOW_SLUG,
+  learnSkillDedupKey,
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+  skillDocumentationDedupKey,
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
@@ -123,7 +125,11 @@ async function main() {
 
   // Cancel any prior in-flight learn or doc runs for this skill so the
   // partial unique indexes don't reject our fresh inserts.
-  for (const slug of [LEARN_SKILL_WORKFLOW_SLUG, SKILL_DOCUMENTATION_WORKFLOW_SLUG]) {
+  const dedupKeysBySlug: Array<[string, string]> = [
+    [LEARN_SKILL_WORKFLOW_SLUG, learnSkillDedupKey(skillId)],
+    [SKILL_DOCUMENTATION_WORKFLOW_SLUG, skillDocumentationDedupKey(skillId)],
+  ];
+  for (const [slug, dedupKey] of dedupKeysBySlug) {
     const stomped = await db()
       .update(agentRuns)
       .set({ status: "cancelled", endedAt: new Date(), updatedAt: new Date() })
@@ -131,7 +137,7 @@ async function main() {
         and(
           eq(agentRuns.userId, u.id),
           eq(agentRuns.workflowSlug, slug),
-          sql`${agentRuns.dedupKey} LIKE ${`%${skillId}`}`,
+          eq(agentRuns.dedupKey, dedupKey),
           sql`${agentRuns.status} NOT IN ('failed', 'cancelled')`,
         ),
       )
