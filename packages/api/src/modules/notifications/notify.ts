@@ -9,7 +9,11 @@ import { getResendClient } from "./resend-client";
  * via its `kind` column. Adding a new kind: extend this union and pick
  * an idempotency-key convention (see `notifications.ts` schema doc).
  */
-export type NotificationKind = "briefing" | "evening_recap" | "approval";
+export type NotificationKind =
+  | "briefing"
+  | "evening_recap"
+  | "approval"
+  | "skill_documented";
 
 export interface NotifyArgs {
   userId: string;
