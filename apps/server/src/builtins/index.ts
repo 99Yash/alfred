@@ -2,8 +2,10 @@ import { registerWorkflow } from "@alfred/api";
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
 import { emailTriageWorkflow } from "./workflows/email-triage";
+import { learnSkillWorkflow } from "./workflows/learn-skill";
 import { memoryExtractionWorkflow } from "./workflows/memory-extraction";
 import { morningBriefingWorkflow } from "./workflows/morning-briefing";
+import { skillDocumentationWorkflow } from "./workflows/skill-documentation";
 
 /**
  * Boot-time registration of every built-in workflow. Add new workflows
@@ -16,4 +18,6 @@ export function registerBuiltinWorkflows(): void {
   registerWorkflow(emailTriageWorkflow);
   registerWorkflow(morningBriefingWorkflow);
   registerWorkflow(coldStartResearchWorkflow);
+  registerWorkflow(learnSkillWorkflow);
+  registerWorkflow(skillDocumentationWorkflow);
 }

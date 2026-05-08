@@ -22,6 +22,7 @@ export {
   stopAgentWorker,
   closeAgentQueue,
   createRun,
+  isUniqueViolation,
   signalRun,
   enqueueRun,
 } from "./modules/agent/index.js";
@@ -38,6 +39,8 @@ export * from "./modules/triage/index.js";
 export * from "./modules/briefing/index.js";
 export * from "./modules/cold-start/index.js";
 export * from "./modules/notifications/index.js";
+export * from "./modules/skills/index.js";
+export * from "./modules/skill-documentation/index.js";
 export type {
   Workflow,
   WorkflowInput,
