@@ -3,6 +3,9 @@ import {
   notes,
   replicacheClient,
   replicacheClientGroup,
+  skillRevisions,
+  skillRuns,
+  skills,
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
@@ -96,7 +99,49 @@ const ENTITY_FETCHERS: Record<IDBKeys, (tx: DbTx, userId: string) => Promise<Ent
       serialized: serializePreference(p),
     }));
   },
+
+  SKILL: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(skills)
+      .where(eq(skills.userId, userId))
+      .orderBy(asc(skills.id));
+    return rows.map((s: typeof skills.$inferSelect) => ({
+      id: s.id,
+      rowVersion: s.rowVersion,
+      serialized: serializeSkill(s),
+    }));
+  },
+
+  SKILL_REVISION: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(skillRevisions)
+      .where(eq(skillRevisions.userId, userId))
+      .orderBy(asc(skillRevisions.id));
+    return rows.map((r: typeof skillRevisions.$inferSelect) => ({
+      id: r.id,
+      rowVersion: r.rowVersion,
+      serialized: serializeSkillRevision(r),
+    }));
+  },
+
+  SKILL_RUN: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(skillRuns)
+      .where(eq(skillRuns.userId, userId))
+      .orderBy(asc(skillRuns.id));
+    return rows.map((r: typeof skillRuns.$inferSelect) => ({
+      id: r.id,
+      rowVersion: r.rowVersion,
+      serialized: serializeSkillRun(r),
+    }));
+  },
 };
+
+const toIso = (d: Date | null | undefined): string | null =>
+  d instanceof Date ? d.toISOString() : (d ?? null);
 
 function serializeNote(n: {
   id: string;
@@ -109,14 +154,12 @@ function serializeNote(n: {
     id: n.id,
     userId: n.userId,
     text: n.text,
-    createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
+    createdAt: toIso(n.createdAt),
     rowVersion: n.rowVersion,
   };
 }
 
 function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown> {
-  const toIso = (d: Date | null | undefined) =>
-    d instanceof Date ? d.toISOString() : d ?? null;
   return {
     id: f.id,
     userId: f.userId,
@@ -143,6 +186,54 @@ function serializePreference(
     value: p.value,
     source: p.source,
     rowVersion: p.rowVersion,
+  };
+}
+
+function serializeSkill(s: typeof skills.$inferSelect): Record<string, unknown> {
+  return {
+    id: s.id,
+    userId: s.userId,
+    slug: s.slug,
+    name: s.name,
+    description: s.description,
+    currentRevisionId: s.currentRevisionId,
+    status: s.status,
+    isBuiltin: s.isBuiltin,
+    lastInvokedAt: toIso(s.lastInvokedAt),
+    rowVersion: s.rowVersion,
+    createdAt: toIso(s.createdAt),
+    updatedAt: toIso(s.updatedAt),
+  };
+}
+
+function serializeSkillRevision(
+  r: typeof skillRevisions.$inferSelect,
+): Record<string, unknown> {
+  return {
+    id: r.id,
+    skillId: r.skillId,
+    userId: r.userId,
+    kind: r.kind,
+    body: r.body,
+    metadata: r.metadata,
+    createdByRunId: r.createdByRunId,
+    rowVersion: r.rowVersion,
+    createdAt: toIso(r.createdAt),
+  };
+}
+
+function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unknown> {
+  return {
+    id: r.id,
+    skillId: r.skillId,
+    userId: r.userId,
+    kind: r.kind,
+    agentRunId: r.agentRunId,
+    status: r.status,
+    producedRevisionId: r.producedRevisionId,
+    rowVersion: r.rowVersion,
+    startedAt: toIso(r.startedAt),
+    endedAt: toIso(r.endedAt),
   };
 }
 

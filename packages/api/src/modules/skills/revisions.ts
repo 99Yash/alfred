@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { skillRevisions, skillRuns, skills } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 /**
  * Append a `skill_revisions` row, advance `skills.current_revision_id`,
@@ -65,6 +65,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
     const flippingFromDraft = args.kind === "distilled" && skill.status === "draft";
     const updatePatch: Record<string, unknown> = {
       currentRevisionId: revision.id,
+      rowVersion: sql`${skills.rowVersion} + 1`,
     };
     if (args.newName) updatePatch.name = args.newName;
     if (flippingFromDraft) updatePatch.status = "active";
@@ -134,6 +135,7 @@ export async function finalizeSkillRun(args: FinalizeSkillRunArgs): Promise<void
       status: args.status,
       producedRevisionId: args.producedRevisionId ?? null,
       endedAt: new Date(),
+      rowVersion: sql`${skillRuns.rowVersion} + 1`,
     })
     .where(eq(skillRuns.agentRunId, args.agentRunId));
 }

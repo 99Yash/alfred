@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -62,6 +63,7 @@ export const skills = pgTable(
      * `@skill:<slug>`.
      */
     lastInvokedAt: timestamp("last_invoked_at", { withTimezone: true }),
+    rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [
@@ -108,6 +110,7 @@ export const skillRevisions = pgTable(
     metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
     /** Pointer to the `agent_runs.id` that produced this revision (null for `manual`). */
     createdByRunId: text("created_by_run_id"),
+    rowVersion: integer("row_version").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
@@ -148,6 +151,7 @@ export const skillRuns = pgTable(
     status: text("status").notNull().default("pending"),
     /** Set on success. Null while the run is in flight or after a failure. */
     producedRevisionId: text("produced_revision_id"),
+    rowVersion: integer("row_version").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
