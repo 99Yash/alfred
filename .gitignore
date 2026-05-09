@@ -62,3 +62,6 @@ distill-loop.sh
 ui-polish-plan.md
 ui-polish-progress.txt
 ui-polish-loop.sh
+
+# warden
+.warden/

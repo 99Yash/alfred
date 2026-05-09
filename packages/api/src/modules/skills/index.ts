@@ -48,3 +48,6 @@ export type {
   FinalizeSkillRunArgs,
   RecordSkillRunArgs,
 } from "./revisions";
+
+export { slugifyForUser } from "./slug";
+export { skillsRoutes } from "./routes";

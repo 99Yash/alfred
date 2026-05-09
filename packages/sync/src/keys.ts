@@ -34,6 +34,12 @@ export const IDB_KEY = {
    * the client and server agreeing without an extra lookup.
    */
   PREFERENCE: ({ id = "" }: { id?: string }) => constructIDBKey(["pref", id]),
+  /** `skill/` (prefix scan) or `skill/{id}` (single row). */
+  SKILL: ({ id = "" }: { id?: string }) => constructIDBKey(["skill", id]),
+  /** `skillrev/` (prefix scan) or `skillrev/{id}` (single row). */
+  SKILL_REVISION: ({ id = "" }: { id?: string }) => constructIDBKey(["skillrev", id]),
+  /** `skillrun/` (prefix scan) or `skillrun/{id}` (single row). */
+  SKILL_RUN: ({ id = "" }: { id?: string }) => constructIDBKey(["skillrun", id]),
 } as const;
 
 /** Union of every entity slug in the registry — drives generic dispatchers. */

@@ -9,6 +9,7 @@ import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
 import { agent } from "./modules/agent/index.js";
 import { integrations } from "./modules/integrations/index.js";
+import { skillsRoutes } from "./modules/skills/index.js";
 
 export { closeConnections, warmPool } from "@alfred/db";
 export { closeRedis } from "./queue/connection.js";
@@ -57,6 +58,7 @@ export const app = new Elysia({ name: "api" })
   .use(events)
   .use(agent)
   .use(integrations)
+  .use(skillsRoutes)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);

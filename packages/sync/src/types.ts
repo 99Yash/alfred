@@ -24,6 +24,53 @@ export interface SyncedPreference {
   rowVersion: number;
 }
 
+/** What the client gets per `skills` row. */
+export interface SyncedSkill {
+  id: string;
+  userId: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  currentRevisionId: string | null;
+  /** active | draft | archived. */
+  status: string;
+  isBuiltin: boolean;
+  lastInvokedAt: string | null;
+  rowVersion: number;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+/** What the client gets per `skill_revisions` row. */
+export interface SyncedSkillRevision {
+  id: string;
+  skillId: string;
+  userId: string;
+  /** distilled | documented | manual. */
+  kind: string;
+  body: string;
+  metadata: Record<string, unknown>;
+  createdByRunId: string | null;
+  rowVersion: number;
+  createdAt: string;
+}
+
+/** What the client gets per `skill_runs` row. */
+export interface SyncedSkillRun {
+  id: string;
+  skillId: string;
+  userId: string;
+  /** learn | document. */
+  kind: string;
+  agentRunId: string;
+  /** Mirrors agent_runs.status. */
+  status: string;
+  producedRevisionId: string | null;
+  rowVersion: number;
+  startedAt: string;
+  endedAt: string | null;
+}
+
 /** What the client gets per `user_facts` row. */
 export interface SyncedFact {
   id: string;

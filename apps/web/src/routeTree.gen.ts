@@ -9,12 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NotesRoute = NotesRouteImport.update({
   id: '/notes',
   path: '/notes',
@@ -35,6 +42,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsSlugRoute = SkillsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => SkillsRoute,
+} as any)
 const DebugEventsRoute = DebugEventsRouteImport.update({
   id: '/debug/events',
   path: '/debug/events',
@@ -46,14 +58,18 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/skills': typeof SkillsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
+  '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/skills': typeof SkillsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
+  '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -61,14 +77,38 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/skills': typeof SkillsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
+  '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/memory' | '/notes' | '/debug/events'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/memory'
+    | '/notes'
+    | '/skills'
+    | '/debug/events'
+    | '/skills/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/memory' | '/notes' | '/debug/events'
-  id: '__root__' | '/' | '/login' | '/memory' | '/notes' | '/debug/events'
+  to:
+    | '/'
+    | '/login'
+    | '/memory'
+    | '/notes'
+    | '/skills'
+    | '/debug/events'
+    | '/skills/$slug'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/memory'
+    | '/notes'
+    | '/skills'
+    | '/debug/events'
+    | '/skills/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,11 +116,19 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
+  SkillsRoute: typeof SkillsRouteWithChildren
   DebugEventsRoute: typeof DebugEventsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/notes': {
       id: '/notes'
       path: '/notes'
@@ -109,6 +157,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills/$slug': {
+      id: '/skills/$slug'
+      path: '/$slug'
+      fullPath: '/skills/$slug'
+      preLoaderRoute: typeof SkillsSlugRouteImport
+      parentRoute: typeof SkillsRoute
+    }
     '/debug/events': {
       id: '/debug/events'
       path: '/debug/events'
@@ -119,11 +174,23 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SkillsRouteChildren {
+  SkillsSlugRoute: typeof SkillsSlugRoute
+}
+
+const SkillsRouteChildren: SkillsRouteChildren = {
+  SkillsSlugRoute: SkillsSlugRoute,
+}
+
+const SkillsRouteWithChildren =
+  SkillsRoute._addFileChildren(SkillsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
+  SkillsRoute: SkillsRouteWithChildren,
   DebugEventsRoute: DebugEventsRoute,
 }
 export const routeTree = rootRouteImport

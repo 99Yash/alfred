@@ -22,12 +22,15 @@
     "posthog-js": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.0",
     "replicache": "catalog:",
     "tailwind-merge": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
+    "@tailwindcss/typography": "^0.5.16",
     "@tanstack/router-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "^19.0.0",
