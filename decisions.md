@@ -39,6 +39,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 | Observability         | Sentry (errors) + PostHog (product analytics) + Langfuse (agent traces) — all on free tiers                       |
 | Integration freshness | Webhooks where available + polling fallback (per-integration policy table in ADR-0024)                            |
 | Built-in features     | 7 background workflows shipped with the app (ADR-0025); user-authored workflows alongside                         |
+| Workflow trigger dispatch | Generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs` (ADR-0027)          |
 
 ---
 
@@ -820,6 +821,88 @@ Concretely:
 
 ---
 
+## ADR-0027 — Workflow trigger dispatch: generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs`
+
+**Decision.** Three coordinated choices that together define how a `workflows` row becomes an `agent_runs` row:
+
+1. **Cron dispatch is a single `workflows.tick` BullMQ repeatable** running every minute. There is no per-workflow BullMQ scheduler. The `workflows` table is the source of truth for "what should fire next."
+2. **Scheduling state is denormalized onto `workflows`** as `next_run_at` and `last_scheduled_at` columns, with a partial index keying the tick query. `cron-parser` runs at write-time (when `trigger` mutates and after each fire), not in the per-tick hot path.
+3. **`createRun` accepts a first-class `trigger` field**, mirrored on `agent_runs` as a `trigger jsonb` column. Cron, manual, event, and on-signal kinds all funnel through one `createRun` primitive — no per-kind execution paths.
+
+**Why.**
+
+- **One operational surface.** A second scan-and-fan-out tick (alongside `briefing.tick` per ADR-0025) keeps the operator's mental model coherent — every recurring fan-out in the codebase is "find a BullMQ tick log; read what it dispatched." Per-workflow schedulers would shard that view across N BullMQ entries.
+- **Lifecycle is a row edit.** Activate/Pause/Edit/Delete on a workflow is a `workflows` UPDATE that also recomputes `next_run_at`. No reconciliation between two stores (the row and a BullMQ scheduler) is required. Per-workflow schedulers would require a hook on every mutation that adds/removes/replaces the BullMQ entry; mismatched state is a class of bug that doesn't exist here.
+- **The tick is an index lookup, not a scan.** Denormalizing `next_run_at` + `(status='active' AND trigger->>'kind'='cron')` partial index means each tick is `WHERE next_run_at <= now() ORDER BY next_run_at LIMIT 100` — O(log n), no per-row cron parsing. `cron-parser` is a write-time dep, not a hot-path dep.
+- **Idempotency is a BullMQ jobId, not a database read.** The tick enqueues with `jobId = workflow:{workflowId}:scheduled:{nextRunAtIso}`; BullMQ's native dedup makes a retried tick a no-op without consulting `agent_runs`. The next fire uses a different `nextRunAtIso`, so the jobId is unique per scheduled instant.
+- **Unified `trigger` field future-proofs the event story.** Today m12 only emits `kind='cron'` and `kind='manual'` triggers. m13's event router (Gmail webhook, calendar push, etc.) builds the same `trigger` block (`{ kind: 'event', eventId, payload }`) and hands it to the same `createRun`. No second execution path to invent; no `metadata.triggeredBy` migration when event triggers land.
+- **`trigger.kind` becomes a queryable column.** "Show all event-triggered runs in the last 24h" or "filter History tab to cron-only" is a column filter, not a JSON-extraction probe.
+- **`trigger.scheduledFor` distinguishes wall clock from scheduled time.** A tick fired at `09:00:23` for the `09:00:00` schedule stamps `scheduledFor = "09:00:00"` and `started_at = "09:00:23"`. Useful when a deploy or Redis blip delays the tick.
+
+**Schema sketch.**
+
+```
+workflows                                  -- new columns + index
+  ADD COLUMN next_run_at        timestamptz
+  ADD COLUMN last_scheduled_at  timestamptz
+  CREATE INDEX workflows_next_run_at_idx
+    ON workflows (next_run_at)
+    WHERE status = 'active' AND trigger->>'kind' = 'cron'
+
+agent_runs                                 -- new column
+  ADD COLUMN trigger jsonb
+    -- { kind: 'cron'    | 'event'    | 'manual'    | 'on_signal',
+    --   scheduledFor?:  timestamptz iso (cron),
+    --   eventId?:       text         (event idempotency key),
+    --   payload?:       jsonb        (event payload),
+    --   signalName?:    text         (on_signal) }
+```
+
+**Tick query.**
+
+```sql
+SELECT id, slug, user_id, brief, trigger, next_run_at
+FROM workflows
+WHERE status = 'active'
+  AND trigger->>'kind' = 'cron'
+  AND next_run_at <= now()
+ORDER BY next_run_at ASC
+LIMIT 100;
+```
+
+Per row: (1) `createRun({ workflowSlug, userId, trigger: { kind: 'cron', scheduledFor: nextRunAtIso } })`; (2) `enqueueRun(runId, { jobId: \`workflow:${id}:scheduled:${nextRunAtIso}\` })`; (3) compute `next_run_at` via `cron-parser` from the row's `trigger.schedule` + tz, UPDATE the row with new `next_run_at` and `last_scheduled_at = scheduledFor`. The `LIMIT 100` is a personal-scale ceiling — if N grows past one tick's budget, cursor on `next_run_at` and re-tick. Today 100 covers a lifetime; document the cursor as future work.
+
+**`createRun` signature.**
+
+```ts
+createRun({
+  userId,
+  workflowSlug,
+  input,
+  trigger: { kind, scheduledFor?, eventId?, payload?, signalName? },
+  metadata?,                  // remains for diagnostic breadcrumbs
+})
+```
+
+Existing call-sites that pass `metadata: { triggeredBy: '…' }` migrate to `trigger: { kind: '…', … }` — most of them are builtin dispatchers (briefing tick, triage poll, cold-start callback) and migrate cleanly.
+
+**Implementation notes.**
+
+- `next_run_at` is recomputed at exactly two moments: (i) after a `workflows` write that changes `trigger` or flips `status` to `active`; (ii) inside the tick handler, right after `createRun` succeeds for that row. Both happen inside the same transaction as the row update for write-(i) and the same tx as `createRun` for write-(ii).
+- Tz resolution: workflow row's `trigger.timezone` (first), else `user_preferences.timezone` (fallback), else `UTC` (final fallback) — same chain as ADR-0025's morning briefing.
+- m12 ships only the dispatcher; the `createRun` for user-authored workflows lands as `failed` (reason `user_authored_brief_execution_pending_m13`) until the agent runtime fills in. This is a milestone-scoping note, not an architectural decision — captured in `CLAUDE.md`'s milestone status section and `CONTEXT.md`'s m12 scope.
+
+**Alternatives.**
+
+- (a) Per-workflow BullMQ scheduler with native cron pattern (rejected — adds lifecycle hooks on every mutation; shards the operational surface across N BullMQ entries; no read-view payoff at single-user scale; "BullMQ owns cron" optimization isn't load-bearing here).
+- (b) Hybrid — builtins keep per-feature ticks; user-authored uses generic tick (rejected — creates two patterns; any new builtin would have to choose; doesn't simplify either side).
+- (c) `pg_cron` (rejected — Postgres-extension dep, doesn't compose with BullMQ retry/observability story, no Railway-managed support for the extension).
+- (d) Per-workflow Vercel/Inngest cron (rejected — vendor coupling for a primitive we already have via BullMQ; ADR-0006 already rejected vendor agent runtimes for the same reason).
+- (e) Tick-time cron parsing without `next_run_at` denormalization (rejected — O(n) per tick + cron parsing in the hot path; "next 5 runs" UI requires the column anyway; the write-time cost is a single `cron-parser.next()` call).
+- (f) Per-kind `createRun` variants (`createCronRun`, `createEventRun`, …) (rejected — three call paths means three places to keep in sync when adding fields; unified `trigger` matches the discriminated union we already validate at the `workflows.trigger` layer).
+
+---
+
 ## Open / deferred
 
 Items intentionally not decided yet. Each is a future ADR when its time comes.
@@ -866,7 +949,13 @@ The decisions are now self-contained enough to start building. Proposed mileston
 9. **First built-in workflow: email triage** ✅ _done 2026-05-02_ — `email_triage` table keyed on `document_id`; six-bucket cheap-tier classifier in `packages/api/src/modules/triage/classify.ts` running through `metered.object()`; `email-triage` builtin workflow (`classify` → `apply-label`); `Alfred/<Cat>` Gmail labels managed by `packages/integrations/src/google/labels.ts` with id-map cache on `integration_credentials.metadata.alfredLabels`; `gmail.poll_history` fans out one triage run per fresh insert (skipping `fullResync`). Re-evaluation on reply is implicit — every new message is its own document and gets its own run. `smoke-triage.ts` exercises the full loop (LLM call + Gmail label round-trip + idempotent re-run). Settings-page toggle deferred to m12 (no `workflows` table yet).
 10. **First built-in workflow: morning briefing** — proves cron → multi-source query → email send (ADR-0025 + ADR-0020).
 11. **Cold-start research** ✅ _done 2026-05-03_ — `getResearchModel()` (Perplexity `sonar-deep-research`) + `getWebSearchModel()` (`sonar-pro`) added to `@alfred/ai/provider`; `meteredGenerateText` / `meteredGenerateObject` accept an optional `attribution.kind` so cold-start routes log as `web_search` (ADR-0015). `packages/api/src/modules/cold-start/` ships `collectColdStartSignals` (extensible per-integration; v1 contributes `{ name, email, emailDomain, integrations.google? }`), `researchUser`, `extractColdStartFacts` (cheap-tier transformer), and `hasPriorColdStartRun`. `cold-start-research` builtin workflow runs `gather-signals` → `research` → `extract-facts` → `persist`; persist calls `proposeFact()` (auto-confirm gated by ADR-0019) per proposal and writes one `memory_chunks` row at `kind='cold_start_research'`. Trigger lives on the Google OAuth callback (`google-routes.ts /callback`), gated by `hasPriorColdStartRun` so a re-connect doesn't re-run; the trigger choice is dictated by Google being the only m11-era integration that contributes signals beyond the user row. `smoke-cold-start.ts` forces a run for the first user (skipping the trigger-side dedup) and verifies output shape + chunk + per-run facts.
-12. **Skills + user-authored workflows** — UI for skill markdown editing, workflow brief authoring (ADR-0017).
-13. **Boss + sub-agent orchestration** — once skills/workflows exist, add the multi-agent runtime on top (ADR-0016).
+12. **Skills + user-authored workflows** — authoring surface only; execution deferred to m13 (ADR-0017, ADR-0027). Sub-tasks:
+    - **12a** Workflows CRUD API (`packages/api/src/modules/workflows/` — list/get/create/update/delete + status toggle; builtins immutable except `status`; rejects writes to `steps` with "explicit DAGs land in a later milestone").
+    - **12b** `/workflows` list + `/workflows/$slug` brief editor (matches the dimension authoring shell: Plan / History / Approvals tabs, Schedule segment lit, Triggers segment disabled with "lands with m13" tooltip, Auto-approve toggle as inverse of `hil_gates`, Activate flips `status`). No DAG editor (ADR-0017 reaffirmed).
+    - **12c** Replicache sync for workflows (`SyncedWorkflow`, `IDB_KEY.WORKFLOW`, fetcher, server mutators for status toggle + brief update). Same shape as the shipped skills sync.
+    - **12d** Cron dispatch (ADR-0027): generic `workflows.tick` minute-ly + `cron-parser` matcher. `manual` trigger ships as a "Run now" button → direct `createRun`. `event` / `on_signal` dispatchers deferred to m13.
+    - **12e** Settings page: unified active↔paused toggle for builtins + user-authored. Closes the m9 deferral.
+    - **Execution stub**: `createRun` for `is_builtin=false` workflows lands as `failed` with reason `user_authored_brief_execution_pending_m13`. History tab on the workflow detail page shows those rows honestly. m13 replaces the stub with the real `AlfredAgent` loop.
+13. **Boss + sub-agent orchestration** — replaces m12's execution stub. Builds the tool registry + tool dispatcher + `load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026).
 14. **MCP client** — connect external MCP servers, register their tools (ADR-0018).
 15. **Observability polish** — review Sentry/PostHog/Langfuse instrumentation; add agent-trace UI surface in alfred itself (ADR-0023).
