@@ -1,0 +1,10 @@
+uid=28_0 RootWebArea "New Chat - Dimension" url="https://dimension.dev/chat"
+  uid=28_78 region "Notifications alt+T" live="polite" relevant="additions text"
+  uid=28_79 alert atomic live="assertive" relevant="additions text"
+    uid=28_80 StaticText "New Chat - Dimension"
+  uid=29_0 dialog "Search for chats or navigate" description="You can search for chats or navigate to a specific page by searching"
+    uid=29_1 generic
+      uid=29_2 heading "Search for chats or navigate" level="2"
+      uid=29_3 StaticText "You can search for chats or navigate to a specific page by searching"
+      uid=29_4 combobox autocomplete="list" expandable expanded focusable focused haspopup="listbox"
+      uid=29_5 listbox "Suggestions" orientation="vertical"
