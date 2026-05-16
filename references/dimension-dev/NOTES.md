@@ -6,11 +6,16 @@ The product is being shut down on 2026-05-20. This folder is a frozen reference 
 
 For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) see `../../dimension-dev-recon.md`. This file is only about the UI surface.
 
+**For the recreate-fidelity layer — colors, fonts, radii, spacing, component computed styles — see [`tokens.md`](./tokens.md).** That file is the answer to "could a designer or engineer rebuild a captured surface to within a few pixels using only this archive."
+
+**For Alfred's chat surface specifically — message shapes, streaming vs. completed, tool-card flavors, the icon vocabulary, inline-code / code-block / table / suggestion-chip styling — see [`chat-anatomy.md`](./chat-anatomy.md).** That file is the answer to "if Alfred only ever rebuilt one thing from Dimension, the chat, what would the build manifest look like?"
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
 - `snapshots/` — a11y trees (text) of the same states, useful for figuring out exact labels and component nesting
 - `marketing-images/` — high-res product screenshots Dimension's own marketing pages embed (often cleaner reference than my logged-in shots because there's no shutdown banner, no real-data clutter)
+- `tokens.md` — design tokens (color scales, semantic shadcn vars, fonts, radii) + computed styles for key components + observed motion + mobile breakpoint behavior. Pulled live via DevTools `getComputedStyle` + `document.styleSheets` walk; no source maps were exposed (`.js.map` URLs return 404)
 
 ## App chrome (shared across all authenticated routes)
 
@@ -246,6 +251,77 @@ Modal centered overlay. Title `Search for chats or navigate`. Single combobox in
 
 So this is a Linear-style command palette doing double duty as both **navigation** and **chat search**.
 
+### `/library` populated + `/library/<artifactId>` viewer
+Files: `15-library-populated.png`, `15b-library-artifact-viewer.png`
+
+With the PDF run from the `/chat/<threadId>` artifact-generation capture now persisted, the empty-state library route renders the artifact as a card:
+
+- **Card structure**: live iframe of page 1 (NOT a static thumbnail — the same `srcdoc`-rendered HTML is mounted inside a smaller iframe), then `<h3>` artifact title, then a meta row `PDF Document · Today`, plus a kebab-menu button right.
+- **Pattern**: thumbnails are real document content scaled down. There's no separate thumbnail-generation pipeline — the same renderer that drives the side panel drives the card. Cheap to implement (one renderer), but means the library list cost scales with content complexity.
+
+Clicking the title opens `/library/<artifactId>` as a **modal overlay** on top of the library list (the list stays in the DOM behind it). The viewer chrome:
+
+- **Header**: 65-px-tall bar. Left: document icon + title + sub-line `Last modified: 14 minutes ago`. Right: four icon buttons — share, download, fullscreen-toggle, close (`X`). Same four-button set as the in-chat artifact panel header but with relative timestamp added.
+- **Body**: vertical stack of pages, each preceded by a strip with `Page` on the left and `N / total` on the right. So **the standalone viewer uses positional labels** (`Page 1, Page 2, …`), unlike the in-chat panel which uses the model-stamped semantic titles (`Cover Page, Sri Viswanath — Founder & CEO, …`). The strip is monochrome text, no styling.
+- **Footer hint**: bottom-right `Esc to exit` — keyboard parity for closing the modal.
+- **Background**: the modal sits on a dimmed pure-black backdrop with the page content centered in a narrow column (~430px wide); the rest of the viewport is empty gutter.
+
+**Pattern**: the in-chat artifact panel and the `/library/<artifactId>` viewer share the same renderer (same iframe-per-page chrome with the page-number strip) but **diverge on naming and on chrome**:
+
+- In-chat: page titles are model-stamped (`Cover Page`), header is panel-sized, no close (close = "close panel" = navigate back to right rail), no "Last modified".
+- Standalone: page titles are positional (`Page 1`), header has share/download/fullscreen/close, "Last modified" subtitle, `Esc to exit` hint.
+
+So the same content gets two presentation contexts: *concurrent* (panel, while the chat is alive) and *focused* (modal viewer, when the user just wants to read).
+
+### `/workflows/<id>` — `History` and `Approvals` tabs (empty states)
+Files: `17-workflow-history-tab.png`, `17b-workflow-approvals-tab.png`
+
+URL routing: each tab updates the query param — `?tab=history`, `?tab=approvals`. So tab state is reflected in the URL, deep-linkable.
+
+- **History (empty)**: centered illustration (play-button icon in a rounded rectangle), h-text `No workflow runs yet`, sub `Once a workflow is run, you can see the history here.` Pure empty state.
+- **Approvals (empty)**: centered (no illustration in this case — text only), `Nothing to approve`, sub `If approval is needed, it will show up here.`
+
+Both follow the same empty-state shape as `07-library-empty.png` and `/skills` before any are created: short imperative h3 + reassuring single-line sub. No "create your first" CTA — the action that populates these tabs happens elsewhere (runs are created by the workflow firing; approvals appear when a HIL gate is hit).
+
+### Share dialog (from `/workflows/<id>`)
+Files: `16-workflow-share-dialog.png`
+
+Anchored popover under the `Share` button. Contents:
+
+- Label: `Share`
+- Big button: `Copy Link` (icon + label, auto-focused)
+- Three smaller social-share icon buttons: `whatsapp`, `x-twitter`, `linkedin`
+
+That's it — no permissions/scopes selector, no per-recipient access, no "anyone with the link / restricted" toggle. Sharing is a public URL by default. Same dialog likely opens from the chat thread `Share` button and the skill detail `Share` button (didn't capture them but the a11y tree on those pages shows the same `expandable haspopup="dialog"` shape).
+
+### `/integrations/slack` — non-Google connector detail (not connected)
+Files: `18-integration-slack.png`
+
+Confirms the connector-detail schema matches `/integrations/google_gmail` exactly, with surface-level differences only:
+
+- **Title** is just `Slack` (no `_` prefix like `google_gmail`); URL is `/integrations/slack`.
+- **Primary CTA** is `Connect` (vs. `Add Account` on connected providers).
+- **Marketing hero strip** between header and the data row — multi-device product photo (Mac + tablet + mobile rendering Slack). Connected providers don't have this; it's a "what you'll get" preview for unconnected ones.
+- **Status row**: `Connected | Date | Status` columns show em-dashes (`—`) for un-connected entries, with `Status: Not connected` resolved.
+- **Trust banner**: `Your data is safe — Your data stays in Slack's database. We only access it on your command.` with a circular gauge/lock icon. Stronger wording than Gmail's banner ("we never train"); presumably custom-tuned per-provider.
+- **Capabilities list** (icons + names): `Send Messages, Read Messages, Create Channels, Manage Channels, Fetch Unread Messages, Thread Management, File Sharing`. Same flat list pattern, plain-English capability names.
+- **Overview**: same `Connect your X to Dimension for intelligent team … management.` prose template, X-substituted.
+
+So provider pages are template-rendered from a per-provider data shape: `{ title, subtitle, marketingImage, trustBanner, capabilities[], overviewText }`. Easy to scale — just add a row per provider.
+
+### Mobile (`max-md`, ≤ 768px)
+Files: `19-mobile-chat-new.png`, `19b-mobile-chat-thread.png`, `19c-mobile-integrations.png`, `19d-mobile-settings.png`
+
+Captured via DevTools device emulation (390×844, 3× DPR). See [`tokens.md`](./tokens.md#mobile--768px-responsive-behavior) for the full breakdown; summary:
+
+- Sidebar → hamburger top-left
+- On `/chat`: top bar gains a `Dimension ▾` model picker + 2 right icons (share + quick-access toggle)
+- On `/chat/<threadId>` with an artifact: the **artifact panel moves inline below the chat thread** (not side-by-side) — same iframe-per-page layout, just vertically stacked
+- `/settings` sub-nav becomes a vertical icon list with a left blue accent bar marking the active section
+- `/integrations` is a single-column scroll with `Manage` / `Connect` buttons right-aligned
+
+Tailwind `md` (768px) is the breakpoint that switches all of this.
+
 ### `/morning-briefing` (marketing) and `/todo` (marketing)
 Files: `10-morning-briefing-marketing.png`, `12-todo-marketing.png`, plus `marketing-images/*`
 
@@ -340,12 +416,23 @@ Alfred today maps cleanly: integrations ✓, memory primitives ✓ (≈ skills),
 
 ## What's not in this archive but might matter later
 
-- `/library/<artifactId>` — standalone artifact viewer route never visited; library was empty. We now have the **in-chat** artifact panel (`13-chat-artifact-pages-populated.png`), which is presumably the same iframe-per-page renderer as the library detail view, but with a different chrome wrapper. The library viewer probably adds: persistent header (no "Working on it"), version history, re-run / regenerate action.
-- `/workflows/<id>` with `History` and `Approvals` tabs populated — only saw `Plan`.
-- `/integrations/<provider>` for non-Google providers — schema may vary (Notion, Linear, etc.).
-- The Share dialog from workflows/skills/chat.
-- The **fullscreen** state of the artifact panel (the third icon button in its header). Likely just the iframe stack at viewport-width — worth checking before May 20 if we want it for reference.
-- Artifact types other than PDF — the library type-filter menu lists Presentations, Documents, Spreadsheets, PDF Documents (`07b-library-types-menu.png`), so each presumably has its own page-renderer variant.
-- Mobile / responsive views.
-- The actual in-app Morning Briefing surface (only saw the marketing render).
-- `/sandbox/*` routes from the recon doc — internal HIL experiments worth poking before May 20 if curious.
+Closed in the May-16 follow-up pass:
+
+- ~~`/library/<artifactId>` standalone viewer~~ — captured (`15b-library-artifact-viewer.png`); confirmed same iframe-per-page renderer, with `Esc to exit` + positional `Page N` labels + relative-time subtitle as the only divergences from the in-chat panel.
+- ~~`/workflows/<id>` `History` + `Approvals` tabs~~ — captured as empty states (`17-…`, `17b-…`); URL-routed via `?tab=`.
+- ~~Share dialog~~ — captured (`16-workflow-share-dialog.png`); just `Copy Link` + WhatsApp/X/LinkedIn.
+- ~~Non-Google connector page~~ — captured Slack (`18-integration-slack.png`); same template, only surface diffs.
+- ~~Mobile / responsive views~~ — captured (`19-…`, `19b-…`, `19c-…`, `19d-…`); single-column with hamburger nav, artifact panel inlines below chat.
+- ~~Design tokens (colors, fonts, radii, spacing)~~ — captured live and consolidated into [`tokens.md`](./tokens.md). No source maps were exposed (`.js.map` URLs returned 404), but `getComputedStyle` + `document.styleSheets` walk recovered the full token set including the dual-mode color scales.
+
+Still uncaptured (deliberately or for lack of access):
+
+- **Artifact types other than PDF** — the library type-filter menu lists Presentations, Documents, Spreadsheets, PDF Documents (`07b-library-types-menu.png`), so each presumably has its own page-renderer variant. We only ever generated a PDF; the others remain inferred.
+- **Fullscreen state** of the in-chat artifact panel (third header button) — likely just the iframe stack at viewport-width.
+- **Hover/focus state visuals** — Tailwind class strings tell us what the hover state *resolves to* (e.g. `hover:bg-gray-100 hover:text-gray-900` → known specific colors per [`tokens.md`](./tokens.md)), but we don't have hover screenshots.
+- **Onboarding / auth flow** — never opened `/sso` or the OAuth consent dance for a fresh account; can't repeat without losing the existing session.
+- **Animation timings beyond opacity** — no spring/transform animations were caught in computed styles; if Dimension has anything fancier (modal slide-up, page transition curves), it would need video to capture.
+- **The actual in-app Morning Briefing surface** (only saw the marketing render in `10-…`).
+- **`/sandbox/*` routes** from the recon doc — internal HIL experiments worth poking before May 20 if curious.
+- **The desktop / mobile native shell** — the `--desktop-title-bar-height` and `--safe-area-inset-*` tokens hint at Electron / Tauri / PWA wrappers we have no captures of.
+- **Light mode** — the light-mode color scale is defined in CSS but nothing in the app activates it. Possibly dead code, possibly a setting we didn't find.
