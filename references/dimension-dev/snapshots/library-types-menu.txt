@@ -1,0 +1,15 @@
+uid=17_0 RootWebArea "Library - Dimension" url="https://dimension.dev/library"
+  uid=17_52 region "Notifications alt+T" live="polite" relevant="additions text"
+  uid=17_53 alert atomic live="assertive" relevant="additions text"
+    uid=17_54 StaticText "Library - Dimension"
+  uid=19_0 dialog
+    uid=19_1 generic
+      uid=19_2 combobox autocomplete="list" expandable expanded focusable focused haspopup="listbox"
+      uid=19_3 listbox "Suggestions" orientation="vertical"
+        uid=19_4 checkbox checked
+        uid=19_5 checkbox
+        uid=19_6 checkbox
+        uid=19_7 checkbox
+        uid=19_8 checkbox
+  uid=19_9 StaticText "Click to filter"
+  uid=19_10 StaticText "Click to filter"
