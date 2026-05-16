@@ -31,7 +31,7 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 ## Runtime primitives
 
-**Tick.** A BullMQ repeatable that fans out per-user. Existing pattern: `briefing.tick` (hourly, `packages/api/src/modules/briefing/repeatable.ts`). m12 adds `workflows.tick` (minute-ly, generic) per ADR-0027.
+**Tick.** A BullMQ repeatable that fans out per-user. Existing pattern: `briefing.tick` (hourly, `packages/api/src/modules/briefing/repeatable.ts`). m12 adds `workflows.tick` (every minute, generic) per ADR-0027.
 
 **Dispatcher.** The piece that turns a trigger into a `createRun` + `enqueueRun` call. Exists implicitly per-feature today (e.g. the briefing tick handler); m12's `workflows.tick` is the first generic dispatcher.
 
