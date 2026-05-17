@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { initObservability } from "./lib/observability";
 import { ReplicacheProvider } from "./lib/replicache/context";
+import { ThemeProvider } from "./lib/theme";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
 
@@ -27,10 +28,12 @@ if (!rootEl) throw new Error("#root element not found");
 
 createRoot(rootEl).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ReplicacheProvider>
-        <RouterProvider router={router} />
-      </ReplicacheProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ReplicacheProvider>
+          <RouterProvider router={router} />
+        </ReplicacheProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

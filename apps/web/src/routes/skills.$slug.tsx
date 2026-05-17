@@ -4,7 +4,8 @@ import {
   type SyncedSkillRevision,
   type SyncedSkillRun,
 } from "@alfred/sync";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowLeft, Loader2, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,6 +15,16 @@ import { client, edenErrorMessage } from "~/lib/eden";
 import { useEventStream } from "~/lib/events/use-event-stream";
 import { useSubscribe } from "~/lib/replicache/hooks";
 import { RunStatusPill, SkillStatusPill } from "~/lib/skills-ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  PageContainer,
+  PageHeader,
+  SectionHeader,
+  Textarea,
+} from "~/lib/ui";
+import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/skills/$slug")({
   component: SkillDetailPage,
@@ -31,10 +42,13 @@ function SkillDetailPage() {
   const { slug } = Route.useParams();
   const { data: session } = authClient.useSession();
 
-  const listSkills = useCallback(async (tx: ReadTransaction): Promise<SyncedSkill[]> => {
-    const entries = await tx.scan({ prefix: IDB_KEY.SKILL({}) }).entries().toArray();
-    return entries.map(([, v]) => v as unknown as SyncedSkill);
-  }, []);
+  const listSkills = useCallback(
+    async (tx: ReadTransaction): Promise<SyncedSkill[]> => {
+      const entries = await tx.scan({ prefix: IDB_KEY.SKILL({}) }).entries().toArray();
+      return entries.map(([, v]) => v as unknown as SyncedSkill);
+    },
+    [],
+  );
 
   const listRevisions = useCallback(
     async (tx: ReadTransaction): Promise<SyncedSkillRevision[]> => {
@@ -47,10 +61,16 @@ function SkillDetailPage() {
     [],
   );
 
-  const listRuns = useCallback(async (tx: ReadTransaction): Promise<SyncedSkillRun[]> => {
-    const entries = await tx.scan({ prefix: IDB_KEY.SKILL_RUN({}) }).entries().toArray();
-    return entries.map(([, v]) => v as unknown as SyncedSkillRun);
-  }, []);
+  const listRuns = useCallback(
+    async (tx: ReadTransaction): Promise<SyncedSkillRun[]> => {
+      const entries = await tx
+        .scan({ prefix: IDB_KEY.SKILL_RUN({}) })
+        .entries()
+        .toArray();
+      return entries.map(([, v]) => v as unknown as SyncedSkillRun);
+    },
+    [],
+  );
 
   const allSkills = useSubscribe(listSkills);
   const allRevisions = useSubscribe(listRevisions);
@@ -81,15 +101,8 @@ function SkillDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [livePhase, setLivePhase] = useState<{ step: string; phase: string } | null>(null);
 
-  // Pre-fill prompt with the prior revision's body-derived prompt source.
-  // We don't persist the original prompt yet; surface a sane default
-  // (empty) so the user types fresh — re-learn doesn't auto-replay.
-  // (Plan D5 calls for "pre-filled with last prompt", which lands once
-  // we persist the prompt on the run; for v1, blank is fine.)
-
   const eventFrames = useEventStream(50);
 
-  // Watch the live event stream for the active run's progress.
   useEffect(() => {
     if (!activeRun) {
       setLivePhase(null);
@@ -109,7 +122,6 @@ function SkillDetailPage() {
     }
   }, [eventFrames, activeRun]);
 
-  // Reset live phase when the active run finishes.
   useEffect(() => {
     if (!activeRun) setLivePhase(null);
   }, [activeRun]);
@@ -136,135 +148,171 @@ function SkillDetailPage() {
 
   if (!session?.user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center space-y-4">
-          <p className="text-muted-foreground">Not signed in.</p>
-          <a href="/login" className="underline text-sm">
-            Sign in
-          </a>
-        </div>
-      </div>
+      <PageContainer>
+        <EmptyState
+          title="Not signed in"
+          description="Sign in to view this skill."
+          action={
+            <a
+              href="/login"
+              className="text-sm underline text-muted-foreground hover:text-foreground"
+            >
+              Sign in
+            </a>
+          }
+        />
+      </PageContainer>
     );
   }
 
   if (allSkills === undefined) {
-    return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
+    return (
+      <PageContainer>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </PageContainer>
+    );
   }
 
   if (!skill) {
     return (
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
-        <a href="/skills" className="text-sm underline">
-          ← Skills
-        </a>
-        <p className="text-sm text-muted-foreground">
-          No skill found with slug <code className="font-mono">{slug}</code>.
-        </p>
-      </div>
+      <PageContainer>
+        <BackLink />
+        <EmptyState
+          title="Skill not found"
+          description={
+            <>
+              No skill with slug <code className="font-mono">{slug}</code>.
+            </>
+          }
+        />
+      </PageContainer>
     );
   }
 
   const learnDisabled = submitting || !prompt.trim() || activeRun !== null;
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="space-y-1">
-          <a href="/skills" className="text-sm underline text-muted-foreground">
-            ← Skills
-          </a>
-          <h1 className="text-2xl font-bold">{skill.name}</h1>
-          <p className="text-xs font-mono text-muted-foreground">/{skill.slug}</p>
-        </div>
-        <SkillStatusPill status={skill.status} />
+    <PageContainer>
+      <div className="space-y-1">
+        <BackLink />
+        <PageHeader
+          title={skill.name}
+          description={
+            <span className="font-mono text-[12px] text-muted-foreground">
+              /{skill.slug}
+            </span>
+          }
+          right={<SkillStatusPill status={skill.status} />}
+        />
       </div>
 
-      <div className="border-b flex gap-1">
+      {/* Tabs */}
+      <div className="border-b flex gap-1 -mt-3">
         <TabButton active={tab === "learn"} onClick={() => setTab("learn")}>
           Learn
         </TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>
-          History{" "}
-          <span className="text-xs text-muted-foreground">({skillRuns.length})</span>
+          History
+          <span className="ml-1 text-[11px] text-muted-foreground tabular">
+            {skillRuns.length}
+          </span>
         </TabButton>
       </div>
 
       {tab === "learn" ? (
         <div className="space-y-6">
-          <section className="rounded-md border p-4 space-y-3">
-            <h2 className="text-sm font-semibold">Re-learn</h2>
-            <textarea
+          <Card className="p-5 space-y-3">
+            <SectionHeader
+              title="Re-learn"
+              description="Refine what Alfred remembers. The new prompt replaces the previous body once distilled."
+            />
+            <Textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="New prompt for this skill…"
-              className="w-full rounded-md border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-primary min-h-[100px]"
               maxLength={8_000}
               disabled={activeRun !== null}
+              className="font-mono text-[12.5px] min-h-[120px]"
             />
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
-            <div className="flex justify-end">
-              <button
-                onClick={onRelearn}
-                disabled={learnDisabled}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {submitting
-                  ? "Starting…"
-                  : activeRun
-                    ? "Learning…"
-                    : "Learn"}
-              </button>
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground tabular">
+                {prompt.length}/8000
+              </p>
+              <Button onClick={onRelearn} disabled={learnDisabled}>
+                {submitting ? (
+                  "Starting…"
+                ) : activeRun ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" /> Learning
+                  </>
+                ) : (
+                  <>
+                    <RotateCw size={13} /> Re-learn
+                  </>
+                )}
+              </Button>
             </div>
-          </section>
+          </Card>
 
           {activeRun ? (
-            <div className="rounded-md border bg-amber-50 border-amber-200 px-4 py-3 text-sm">
-              <span className="font-medium">Learning:</span>{" "}
-              {livePhase
-                ? STEP_LABELS[livePhase.step] ??
-                  `${livePhase.step} (${livePhase.phase})`
-                : "Starting…"}
+            <div className="flex items-center gap-2 rounded-md border bg-amber-500/5 border-amber-500/30 px-4 py-2.5 text-[13px]">
+              <Loader2 size={14} className="animate-spin text-amber-500 shrink-0" />
+              <span className="font-medium">Learning:</span>
+              <span className="text-muted-foreground">
+                {livePhase
+                  ? (STEP_LABELS[livePhase.step] ??
+                    `${livePhase.step} (${livePhase.phase})`)
+                  : "Starting…"}
+              </span>
             </div>
           ) : null}
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Body</h2>
+          <section className="space-y-3">
+            <SectionHeader title="Body" />
             {currentRevision ? (
-              <article className="prose prose-sm max-w-none rounded-md border p-4">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {currentRevision.body}
-                </ReactMarkdown>
-              </article>
+              <Card className="px-5 py-4">
+                <article className="prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {currentRevision.body}
+                  </ReactMarkdown>
+                </article>
+              </Card>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No body yet — alfred is still distilling.
-              </p>
+              <EmptyState
+                title="No body yet"
+                description="Alfred is still distilling. Check back in a moment."
+              />
             )}
           </section>
         </div>
       ) : (
-        <section className="space-y-2">
+        <section className="space-y-3">
+          <SectionHeader title="Runs" count={skillRuns.length} />
           {skillRuns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No runs yet.</p>
+            <EmptyState
+              title="No runs yet"
+              description="A run starts every time you Learn or Re-learn this skill."
+            />
           ) : (
             <ul className="space-y-2">
               {skillRuns.map((run) => (
                 <li
                   key={run.id}
-                  className="rounded-md border px-4 py-3 text-sm space-y-1"
+                  className="rounded-lg border bg-card px-4 py-3 text-sm shadow-soft space-y-1"
                 >
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium capitalize">{run.kind}</span>
                     <RunStatusPill status={run.status} />
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground tabular">
                     Started {new Date(run.startedAt).toLocaleString()}
                     {run.endedAt
                       ? ` · ended ${new Date(run.endedAt).toLocaleString()}`
                       : ""}
                   </p>
                   {run.producedRevisionId ? (
-                    <p className="text-xs font-mono text-muted-foreground">
+                    <p className="text-[11px] font-mono text-muted-foreground">
                       revision {run.producedRevisionId}
                     </p>
                   ) : null}
@@ -274,7 +322,18 @@ function SkillDetailPage() {
           )}
         </section>
       )}
-    </div>
+    </PageContainer>
+  );
+}
+
+function BackLink() {
+  return (
+    <Link
+      to="/skills"
+      className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <ArrowLeft size={12} /> All skills
+    </Link>
   );
 }
 
@@ -290,14 +349,14 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
+      className={cn(
+        "inline-flex items-center px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors",
         active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
     >
       {children}
     </button>
   );
 }
-
