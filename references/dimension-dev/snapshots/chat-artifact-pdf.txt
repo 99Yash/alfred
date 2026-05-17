@@ -1,0 +1,187 @@
+uid=1_0 RootWebArea "Sycamore Company Research and Preparation - Dimension" url="https://dimension.dev/chat/019e31ad-8818-72ae-8b21-5595959a426a"
+  uid=1_1 region "Shutdown notice"
+    uid=1_2 StaticText "Dimension is winding down on"
+    uid=1_3 StaticText " "
+    uid=1_4 StaticText "May 20, 2026"
+    uid=1_5 StaticText ". We'll handle cancellations and refunds automatically."
+    uid=1_6 link "Learn more" url="https://dimension.dev/winding-down"
+  uid=1_8 main
+    [ ... left sidebar (New Chat / Search / Integrations / Workflows / Skills / Library / thread list / Settings) — same as chat-thread.txt ... ]
+    uid=1_48 button "Sycamore Company Research and Preparation" expandable haspopup="menu"
+    uid=1_49 button "Share" disableable disabled
+    uid=1_50 button "Open quick access"
+
+    --- user message ---
+    uid=1_51 StaticText "see https://sycamore.so/ and let me know about the background of 5 of the major people there. I need to know their background how i can connect to them, How can I prepare for the role. my website is at www.yashk.xyx Put it in a PDF format and email it to my personal email."
+
+    --- assistant run, "Working on it..." while in-flight ---
+    uid=1_52 heading "Working on it..." level="3"
+    uid=1_53 region "Working on it..."
+
+      uid=1_54 button "Thought for 4s" expandable
+      uid=1_55 StaticText "Great Saturday project! Let me dig into Sycamore and their team. I'll start by researching the company and identifying the key people."
+
+      --- tool call: web search, expanded by default, inline card ---
+      uid=1_56 button "sycamore.so company 10 results found" expandable expanded
+      uid=1_57 region "sycamore.so company 10 results found"
+        [ 10 links, each: image (favicon) + StaticText (page title) + StaticText (domain) ]
+        e.g. link "About - Sycamore About - Sycamore sycamore.so" url="https://sycamore.so/about/"
+
+      uid=1_98 button "site:sycamore.so team 10 results found" expandable expanded
+      uid=1_99 region "site:sycamore.so team 10 results found"
+        [ 10 links — same shape ]
+
+      uid=1_140 button "Thought for 13s" expandable
+      uid=1_141 StaticText "Good stuff. I can see "
+      uid=1_142 link "Sycamore.so" url="http://sycamore.so/"
+      uid=1_144 StaticText " is Sri Viswanath's enterprise AI agent OS startup ($65M seed). The website only prominently features Sri as founder. Let me dig deeper..."
+
+      uid=1_145 button "sycamore.so careers open roles 10 results found" expandable expanded
+      uid=1_146 region "sycamore.so careers open roles 10 results found"
+        [ 10 links ]
+
+      uid=1_187 button "Sycamore Labs team members employees 10 results found" expandable expanded
+      uid=1_188 region "Sycamore Labs team members employees 10 results found"
+        [ 10 links ]
+
+      --- inline action-status row: icon + text, sibling of the tool cards ---
+      uid=1_229 image "user-search"
+      uid=1_230 StaticText "People search completed successfully."
+
+      uid=1_231 button "Thought for 13s" expandable
+      uid=1_232 StaticText "Found some great leads. I can see Sri Viswanath (CEO), Anand Chowdhary (Head of Product), Jian Vora (Founding Engineer), and Amrit Baveja (Founding Team). Let me find one more key person and also look at your website."
+
+      --- live in-flight statuses; these stream in and out as work happens ---
+      uid=1_233 StaticText "Processing attachment..."
+      uid=1_234 StaticText "Searching the web for "
+      uid=1_235 StaticText "\"sycamore labs\" founding team engineer"
+      uid=1_236 StaticText "..."
+      uid=1_237 image "user-search"
+      uid=1_238 StaticText "Searching web for people..."
+
+      uid=1_239 button "Thought for 20s" expandable
+      uid=1_240 StaticText "I've got a really solid picture now. Found the 5 key people at Sycamore, pulled your profile from your website, and have all the open roles. Let me now create the PDF and email it to you."
+
+      --- artifact tool: status line + expandable card with the tool name ---
+      uid=1_241 StaticText "PDF document created successfully."
+      uid=1_242 button "Create PDF Document" expandable
+
+      --- per-page streaming statuses; once the LLM names the page, the line gets the title inline ---
+      --- mid-stream (a few pages are still generic "Creating page...") ---
+      uid=3_0 StaticText "Creating "
+      uid=3_1 StaticText "Cover Page"
+      uid=3_2 StaticText " page..."
+      uid=3_3 StaticText "Creating "
+      uid=3_4 StaticText "Sri Viswanath — Founder & CEO"
+      uid=3_5 StaticText " page..."
+      uid=3_6 StaticText "Creating "
+      uid=3_7 StaticText "Anand Chowdhary — Head of Product"
+      uid=3_8 StaticText " page..."
+      uid=3_9 StaticText "Creating "
+      uid=3_10 StaticText "Jian Vora & Ashudeep Singh — Founding Engineers"
+      uid=3_11 StaticText " page..."
+      uid=3_12 StaticText "Creating "
+      uid=3_13 StaticText "Igor Katkov — Founding Engineer & Open Roles"
+      uid=3_14 StaticText " page..."
+      uid=3_15 StaticText "Creating page..."
+
+      --- once each page resolves, the same status line flips: "Creating ... page..." -> "Created ... page." ---
+      uid=4_0 StaticText "Created "
+      uid=4_1 StaticText "Cover Page"
+      uid=4_2 StaticText " page."
+      [ ... one "Created <title> page." per page ... ]
+      uid=4_15 StaticText "Page created successfully."
+      uid=4_16 StaticText "PDF document completed."
+
+      uid=4_17 StaticText "Now let me export the PDF and email it to you."
+      uid=4_18 StaticText "PDF exported successfully."
+
+      --- email action: icon + status, then the tool button ---
+      uid=4_19 image "envelope"
+      uid=4_20 StaticText "Email sent successfully."
+      uid=4_21 button "Write E-Mail" expandable
+
+    --- composer (chat input) ---
+    uid=1_247 generic focusable focused value="\n"
+      uid=1_248 paragraph
+        uid=1_249 StaticText "Type and press enter to start chatting..."
+        uid=1_250 LineBreak "\n"
+    uid=1_251 button expandable haspopup="menu"
+    uid=1_252 button "Auto" pressed
+    uid=1_253 button
+    uid=1_254 button
+
+    --- right-hand ARTIFACT PANEL ---
+    --- header row: title + 4 unlabeled icon buttons (share, download, fullscreen, close) ---
+    uid=1_255 StaticText "Sycamore Labs — Key People & Role Preparation Guide"
+    uid=1_256 button
+    uid=1_257 button
+    uid=1_258 button
+    uid=1_259 button
+
+    --- body, empty state (before any page resolves) ---
+    --- uid=1_260 StaticText "No Pages Yet"
+    --- uid=1_261 StaticText "Pages appear here as they're generated"
+
+    --- body, populated: per page, a title strip + "<n> / <total>" counter + iframe rendering the page HTML ---
+    uid=3_16 StaticText "Cover Page"
+    uid=3_17 StaticText "1"
+    uid=3_18 StaticText " / "
+    uid=3_19 StaticText "6"
+    uid=3_20 Iframe "Page 1"
+      uid=3_21 RootWebArea url="about:srcdoc"
+        uid=3_22 StaticText "RESEARCH BRIEFING"
+        uid=3_23 heading "SYCAMORE LABS" level="1"
+        uid=3_24 StaticText "Key People, Connection Strategy & Role Preparation Guide"
+        [ ... cover-page content: company name, funding, HQ, "Prepared for <user>" footer, page-number stamp "01 / 06" ... ]
+
+    uid=3_40 StaticText "Sri Viswanath — Founder & CEO"
+    uid=3_41 StaticText "2"
+    uid=3_42 StaticText " / "
+    uid=3_43 StaticText "6"
+    uid=3_44 Iframe "Page 2"
+      uid=3_45 RootWebArea url="about:srcdoc"
+        [ person profile: section eyebrow, h1 name, subhead, CAREER TIMELINE list, BACKGROUND paras, EDUCATION line, "How to connect:" pitch, "SYCAMORE LABS · RESEARCH BRIEFING" + "02 / 06" footer ]
+
+    uid=3_75 StaticText "Anand Chowdhary — Head of Product"
+    uid=3_76 StaticText "3"
+    uid=3_77 StaticText " / "
+    uid=3_78 StaticText "6"
+    uid=3_79 Iframe "Page 3"
+      uid=3_80 RootWebArea url="about:srcdoc"
+        [ same per-person profile structure ]
+
+    uid=3_111 StaticText "Jian Vora & Ashudeep Singh — Founding Engineers"
+    uid=3_112 StaticText "4"
+    uid=3_113 StaticText " / "
+    uid=3_114 StaticText "6"
+    uid=3_115 Iframe "Page 4"
+      uid=3_116 RootWebArea url="about:srcdoc"
+        [ two-person page: h2 + subhead + paragraph + CONNECTION ANGLE for each ]
+
+    uid=3_133 StaticText "Igor Katkov — Founding Engineer & Open Roles"
+    uid=3_134 StaticText "5"
+    uid=3_135 StaticText " / "
+    uid=3_136 StaticText "6"
+    uid=3_137 Iframe "Page 5"
+      uid=3_138 RootWebArea url="about:srcdoc"
+        [ profile + OPEN ROLES list ]
+
+    uid=3_166 StaticText "Connection Strategy & Role Preparation"
+    uid=3_167 StaticText "6"
+    uid=3_168 StaticText " / "
+    uid=3_169 StaticText "6"
+    uid=3_170 Iframe "Page 6"
+      uid=4_22 RootWebArea url="about:srcdoc"
+        [ strategy page: BEST-FIT ROLES paragraph, YOUR STRENGTHS list, PREPARATION CHECKLIST with arrow bullets, "Warmest path in:" closing ]
+
+  uid=1_262 region "Notifications alt+T" live="polite" relevant="additions text"
+  uid=1_263 alert atomic live="assertive" relevant="additions text"
+    uid=1_264 StaticText "New Chat - Dimension"
+
+--- notes ---
+- While the iframes are streaming HTML in, their RootWebArea is marked `busy`. Once the page finishes loading, the `busy` flag clears. So a page row whose iframe RootWebArea is `busy` corresponds to a chat-side status of "Creating <title> page...".
+- Page rows in the panel use the same titles the LLM emits in the chat status stream — they are stamped twice (panel strip + in-document footer "0N / 06"), so the title and the page itself are decoupled and named before the body resolves.
+- The right panel's empty state ("No Pages Yet" / "Pages appear here as they're generated") is replaced in-place by the first resolved page; pages append below.
+- Streaming status `StaticText`s sit inline among the tool buttons / regions in the assistant message — they are not their own region. So when a status completes, the same text node is replaced (e.g. "Creating <title> page..." → "Created <title> page.").
+- The top-level "Working on it..." heading stays until the run finishes (after the final tool — email — completes). It's the only run-level status indicator; per-step progress is the inline stream described above.

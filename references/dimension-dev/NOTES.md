@@ -6,11 +6,18 @@ The product is being shut down on 2026-05-20. This folder is a frozen reference 
 
 For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) see `../../dimension-dev-recon.md`. This file is only about the UI surface.
 
+**For the recreate-fidelity layer — colors, fonts, radii, spacing, component computed styles — see [`tokens.md`](./tokens.md).** That file is the answer to "could a designer or engineer rebuild a captured surface to within a few pixels using only this archive."
+
+**For Alfred's chat surface specifically — message shapes, streaming vs. completed, tool-card flavors, the icon vocabulary, inline-code / code-block / table / suggestion-chip styling — see [`chat-anatomy.md`](./chat-anatomy.md).** That file is the answer to "if Alfred only ever rebuilt one thing from Dimension, the chat, what would the build manifest look like?"
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
 - `snapshots/` — a11y trees (text) of the same states, useful for figuring out exact labels and component nesting
 - `marketing-images/` — high-res product screenshots Dimension's own marketing pages embed (often cleaner reference than my logged-in shots because there's no shutdown banner, no real-data clutter)
+- `artifact-html/` — **raw `srcdoc` HTML** of generated artifacts (the per-page `<iframe>` mounts in the artifact panel). This is the **document engine** — Dimension's biggest under-documented capability and the largest roadmap gap for Alfred. See [`artifact-html/README.md`](./artifact-html/README.md) for the design-system + template-pattern breakdown
+- `onboarding.md` — the post-signup onboarding flow, **reconstructed from the JS bundle** (server-gated, no screenshots). Sign-in → feature carousel → questionnaire → Google connect → trust beat → install/pocket → finish. Includes verbatim copy, analytics events, the `routeToOnboarding` server-flag pattern, and a section on Alfred-relevant patterns to lift
+- `tokens.md` — design tokens (color scales, semantic shadcn vars, fonts, radii) + computed styles for key components + observed motion + mobile breakpoint behavior. Pulled live via DevTools `getComputedStyle` + `document.styleSheets` walk; no source maps were exposed (`.js.map` URLs return 404)
 
 ## App chrome (shared across all authenticated routes)
 
@@ -86,6 +93,32 @@ So the disclosure model is **two-level nested progressive disclosure** — tool 
 The composer at the bottom of an active thread uses the same chip row as `/chat/new` plus a `Tab` autocomplete affordance shown in faded text.
 
 **Pattern**: per-message reactions (thumbs up, copy) live on the *assistant* message only. Important — they don't pollute user-message rendering.
+
+### `/chat/<threadId>` — same route, **with an artifact being generated**
+Files: `13-chat-artifact-pages-populated.png`, `13b-chat-artifact-completed.png`, `snapshots/chat-artifact-pdf.txt`
+
+Captured while the agent was processing the prompt *"… create a PDF and email it to me"* — a multi-tool run that does web research, then composes a 6-page PDF, then sends it via Gmail. As soon as the agent decides to produce an artifact, the right rail (the To Do / Suggestions / Briefing widgets) is swapped for an **artifact preview panel** co-located with the chat. So `/chat/<threadId>` has two right-rail modes — quick-access widgets by default, artifact viewer while an artifact is being authored.
+
+**Artifact panel structure** (right side, full-height):
+1. Header row: artifact title (`"Sycamore Labs — Key People & Role Preparation Guide"`), then four unlabeled icon buttons — share, download, open-in-fullscreen, close. Title is stamped by the LLM before any page resolves.
+2. Body, empty state: `"No Pages Yet"` h-text + sub `"Pages appear here as they're generated"`, with a document-icon glyph.
+3. Body, populated: a vertical stack of page rows. Each row is `[title strip "Cover Page" | "<n> / <total>" counter]` above an `<iframe>` that loads the page as HTML via `about:srcdoc`. While a page is mid-stream the iframe's RootWebArea carries `busy`; it clears when the page resolves.
+
+**Streaming-status pattern in the chat stream**. The assistant message body interleaves three kinds of nodes:
+- **Tool cards** — `[<tool name> ... results found]` expandable button + region of result rows (search hits with favicons; see `09b-chat-thread-action-expanded.png` for the same shape).
+- **Thought-for pills** — `Thought for 4s`, `Thought for 13s`, `Thought for 20s` — collapsible CoT summary, one per "thinking" beat between tool calls.
+- **Inline status text** — bare `StaticText` siblings of the cards, no container. These mutate in place as the tool runs. The two patterns I saw:
+  - **Generic verb-ing → verb-ed**: `"Creating page..."` flips to `"Created Cover Page page."` once the LLM has named the page. Same DOM node, text replaced. So early in the stream you see one or more anonymous `"Creating page..."` rows that gradually get re-stamped with titles as the model decides what to name them.
+  - **Icon + status**: `image "envelope"` + `"Email sent successfully."` — short rows that emoji-prefix a discrete tool finish. (Other icons seen: `user-search` for people lookups.)
+
+**Per-tool action cards.** Tools that *do* something substantive (vs. just search) emit a labeled expandable button after their inline status: `Create PDF Document`, `Write E-Mail`. Different from the search cards in that they don't pre-expand — you have to click to see the call args. So the conversation pane carries three classes of tool surfacing:
+1. **Search/lookup tools** — pre-expanded with the result list inline (`"sycamore.so company 10 results found"`).
+2. **Action tools** — collapsed by default with the action name (`Create PDF Document`, `Write E-Mail`); side effects (the PDF, the sent email) are evidenced elsewhere (the panel for the PDF; nothing in-chat for the email beyond the status line).
+3. **Bare inline status** — the streaming `"Creating <title> page..."` / `"PDF exported successfully."` / `"Email sent successfully."` rows.
+
+**Run-level status**. The whole assistant turn is wrapped in a `Working on it...` h3 region that stays for the entire multi-step run — only one run-level indicator, per-step state lives in the inline stream. It clears when the final tool resolves.
+
+**Pattern**: artifact = first-class right-rail entity, not a chat bubble. The user reviews the artifact in-place while the conversation pane stays available for follow-up prompts. Both panes are simultaneously alive — they're not modal — so the agent can keep talking while pages stream into the panel. This is the only place I saw the right rail get "borrowed" by a feature; the standard widgets snap back once the run ends (toggled by the `Open quick access` button in the top bar).
 
 ### `/workflows` — list of scheduled / triggered automations
 Files: `01-workflows.png`, `snapshots/workflows.txt`
@@ -220,12 +253,127 @@ Modal centered overlay. Title `Search for chats or navigate`. Single combobox in
 
 So this is a Linear-style command palette doing double duty as both **navigation** and **chat search**.
 
+### `/library` populated + `/library/<artifactId>` viewer
+Files: `15-library-populated.png`, `15b-library-artifact-viewer.png`
+
+With the PDF run from the `/chat/<threadId>` artifact-generation capture now persisted, the empty-state library route renders the artifact as a card:
+
+- **Card structure**: live iframe of page 1 (NOT a static thumbnail — the same `srcdoc`-rendered HTML is mounted inside a smaller iframe), then `<h3>` artifact title, then a meta row `PDF Document · Today`, plus a kebab-menu button right.
+- **Pattern**: thumbnails are real document content scaled down. There's no separate thumbnail-generation pipeline — the same renderer that drives the side panel drives the card. Cheap to implement (one renderer), but means the library list cost scales with content complexity.
+
+Clicking the title opens `/library/<artifactId>` as a **modal overlay** on top of the library list (the list stays in the DOM behind it). The viewer chrome:
+
+- **Header**: 65-px-tall bar. Left: document icon + title + sub-line `Last modified: 14 minutes ago`. Right: four icon buttons — share, download, fullscreen-toggle, close (`X`). Same four-button set as the in-chat artifact panel header but with relative timestamp added.
+- **Body**: vertical stack of pages, each preceded by a strip with `Page` on the left and `N / total` on the right. So **the standalone viewer uses positional labels** (`Page 1, Page 2, …`), unlike the in-chat panel which uses the model-stamped semantic titles (`Cover Page, Sri Viswanath — Founder & CEO, …`). The strip is monochrome text, no styling.
+- **Footer hint**: bottom-right `Esc to exit` — keyboard parity for closing the modal.
+- **Background**: the modal sits on a dimmed pure-black backdrop with the page content centered in a narrow column (~430px wide); the rest of the viewport is empty gutter.
+
+**Pattern**: the in-chat artifact panel and the `/library/<artifactId>` viewer share the same renderer (same iframe-per-page chrome with the page-number strip) but **diverge on naming and on chrome**:
+
+- In-chat: page titles are model-stamped (`Cover Page`), header is panel-sized, no close (close = "close panel" = navigate back to right rail), no "Last modified".
+- Standalone: page titles are positional (`Page 1`), header has share/download/fullscreen/close, "Last modified" subtitle, `Esc to exit` hint.
+
+So the same content gets two presentation contexts: *concurrent* (panel, while the chat is alive) and *focused* (modal viewer, when the user just wants to read).
+
+### `/workflows/<id>` — `History` and `Approvals` tabs (empty states)
+Files: `17-workflow-history-tab.png`, `17b-workflow-approvals-tab.png`
+
+URL routing: each tab updates the query param — `?tab=history`, `?tab=approvals`. So tab state is reflected in the URL, deep-linkable.
+
+- **History (empty)**: centered illustration (play-button icon in a rounded rectangle), h-text `No workflow runs yet`, sub `Once a workflow is run, you can see the history here.` Pure empty state.
+- **Approvals (empty)**: centered (no illustration in this case — text only), `Nothing to approve`, sub `If approval is needed, it will show up here.`
+
+Both follow the same empty-state shape as `07-library-empty.png` and `/skills` before any are created: short imperative h3 + reassuring single-line sub. No "create your first" CTA — the action that populates these tabs happens elsewhere (runs are created by the workflow firing; approvals appear when a HIL gate is hit).
+
+### Share dialog (from `/workflows/<id>`)
+Files: `16-workflow-share-dialog.png`
+
+Anchored popover under the `Share` button. Contents:
+
+- Label: `Share`
+- Big button: `Copy Link` (icon + label, auto-focused)
+- Three smaller social-share icon buttons: `whatsapp`, `x-twitter`, `linkedin`
+
+That's it — no permissions/scopes selector, no per-recipient access, no "anyone with the link / restricted" toggle. Sharing is a public URL by default. Same dialog likely opens from the chat thread `Share` button and the skill detail `Share` button (didn't capture them but the a11y tree on those pages shows the same `expandable haspopup="dialog"` shape).
+
+### `/integrations/slack` — non-Google connector detail (not connected)
+Files: `18-integration-slack.png`
+
+Confirms the connector-detail schema matches `/integrations/google_gmail` exactly, with surface-level differences only:
+
+- **Title** is just `Slack` (no `_` prefix like `google_gmail`); URL is `/integrations/slack`.
+- **Primary CTA** is `Connect` (vs. `Add Account` on connected providers).
+- **Marketing hero strip** between header and the data row — multi-device product photo (Mac + tablet + mobile rendering Slack). Connected providers don't have this; it's a "what you'll get" preview for unconnected ones.
+- **Status row**: `Connected | Date | Status` columns show em-dashes (`—`) for un-connected entries, with `Status: Not connected` resolved.
+- **Trust banner**: `Your data is safe — Your data stays in Slack's database. We only access it on your command.` with a circular gauge/lock icon. Stronger wording than Gmail's banner ("we never train"); presumably custom-tuned per-provider.
+- **Capabilities list** (icons + names): `Send Messages, Read Messages, Create Channels, Manage Channels, Fetch Unread Messages, Thread Management, File Sharing`. Same flat list pattern, plain-English capability names.
+- **Overview**: same `Connect your X to Dimension for intelligent team … management.` prose template, X-substituted.
+
+So provider pages are template-rendered from a per-provider data shape: `{ title, subtitle, marketingImage, trustBanner, capabilities[], overviewText }`. Easy to scale — just add a row per provider.
+
+### Mobile (`max-md`, ≤ 768px)
+Files: `19-mobile-chat-new.png`, `19b-mobile-chat-thread.png`, `19c-mobile-integrations.png`, `19d-mobile-settings.png`
+
+Captured via DevTools device emulation (390×844, 3× DPR). See [`tokens.md`](./tokens.md#mobile--768px-responsive-behavior) for the full breakdown; summary:
+
+- Sidebar → hamburger top-left
+- On `/chat`: top bar gains a `Dimension ▾` model picker + 2 right icons (share + quick-access toggle)
+- On `/chat/<threadId>` with an artifact: the **artifact panel moves inline below the chat thread** (not side-by-side) — same iframe-per-page layout, just vertically stacked
+- `/settings` sub-nav becomes a vertical icon list with a left blue accent bar marking the active section
+- `/integrations` is a single-column scroll with `Manage` / `Connect` buttons right-aligned
+
+Tailwind `md` (768px) is the breakpoint that switches all of this.
+
 ### `/morning-briefing` (marketing) and `/todo` (marketing)
 Files: `10-morning-briefing-marketing.png`, `12-todo-marketing.png`, plus `marketing-images/*`
 
 These public URLs are marketing landing pages, not the in-app surface. They're useful because they embed clean product screenshots of the actual in-app UI for those features. See `marketing-images/morning-briefing-borderless.png` and `marketing-images/todo-list.png` for the in-app reference.
 
 The morning briefing from those shots: city/temp top, big greeting `Enjoy your Day, <name>.`, headline like `"You have 3 Meetings and 23 Emails."`, then a paragraph in prose (`"It's a quiet day on the calendar..."`), then two columns `TO DO` and `SUGGESTIONS`. So the briefing is a *prose summary up front, not a bullet list* — the bullets sit below as the actionable bits.
+
+### `/` — marketing home (logged-out, incognito)
+Files: `14-marketing-home.png`, `14b-home-tab-catch-up.png`, `14c-home-tab-action-plan.png`, `14d-home-tab-deep-work.png`, `14e-home-tab-inbox.png`, `14f-home-tab-meeting-prep.png`, `14g-home-tab-daily-recap.png`, `snapshots/marketing-home.txt`
+
+**Hero**. Eyebrow `Introducing Dimension`, h1 `"The AI coworker that never sleeps."`, four value-prop bullets:
+
+1. *Helps you get work done across 30+ apps*
+2. *Drafts emails and preps meetings around the clock*
+3. *Chat via iMessage, Slack, mobile, or web*
+4. *Enterprise-grade encryption — we never train on your data*
+
+Single primary CTA `Get Started`. No social proof, no logo wall, no testimonials — they trust the value props to do the work. The fourth bullet is a *security* promise placed at the same visual weight as the feature bullets, not buried in a separate trust section.
+
+**The use-case showcase is the gold mine** (`14*-home-tab-*.png`). One section, h6 eyebrow `What Dimension handles for you`, then a left-column tab list of seven cases, each with its own illustrated panel on the right. The seven cases — *Morning Briefing, Catch Up, Action Plan, Deep Work, Inbox, Meeting Prep, Daily Recap* — are this product's complete story. Each panel pairs:
+
+- A single sentence elevator pitch (e.g. *"Dimension auto-tags every inbound email so you know what needs action, what's FYI, and what's noise. Responses are pre-drafted in your tone so you can just hit send."*)
+- A faithful mock of the actual in-app surface (not abstract illustration) — Action Plan's mock is the `Todo + SUGGESTIONS` widget from the right rail; Catch Up's is the same conversation-thread chrome as `/chat/<threadId>`; Daily Recap is a Resend-styled email from `hey@dimension.dev` opening "*That email from David this morning turned into a closed deal by end of day. $140K year one...*" — i.e. exactly the prose-up-front pattern the morning briefing uses.
+
+**The seven cases are the same six "Features" agents from settings, plus one new one.** Compare the [`08b-settings-features.png`](screenshots/08b-settings-features.png) list to the home tabs:
+
+| Settings (feature toggle) | Home (use-case tab) |
+| --- | --- |
+| Morning Briefing | Morning Briefing |
+| Email Auto-Drafting | Catch Up |
+| Action Items | Action Plan |
+| — | Deep Work *(new — non-recurring, user-triggered)* |
+| Email Tagging | Inbox |
+| Meeting Prep | Meeting Prep |
+| Evening Recap | Daily Recap |
+
+So the marketing surface renames the always-on background agents into product-storyable buckets (`Action Items` → `Action Plan`, `Email Tagging` → `Inbox`, `Email Auto-Drafting` → `Catch Up`, `Evening Recap` → `Daily Recap`) and adds **Deep Work** as the explicit user-triggered "go-do-a-task" case. Deep Work is the only one not represented as a settings toggle because it isn't always-on — it's the on-demand agent run that fires when the user types a prompt.
+
+**Lower sections**: a CTA band (`Your smartest coworker starts today.`), then a `FEATURES` strip with three more cards — *Search* (a results panel with sub-tabs across GitHub/Drive/Notion/Docs/Linear), *Everywhere* (the iMessage/Slack pitch with an "On the Go" illustration), *Integrations* (a logo grid mock). Then a final CTA `Double your time for deep work.`, then the footer.
+
+**Footer choices worth noting**:
+- `Login with SSO` is the only auth link, and it lives in the *footer*, not the top nav. Top right is reserved for `Get Started` (sign-up).
+- No email/password option is exposed publicly.
+- Their `Features` and `Use Cases` nav buttons are mega-menus (didn't expand them, but the `expandable` flag is on both).
+
+**Patterns worth borrowing for Alfred's eventual landing page**:
+- The seven-case grid is the right way to communicate a horizontal product like Alfred. The reader instantly sees the surface area without you having to write a "what Alfred does" prose section.
+- One-sentence-per-case copy with a real product mock beats marketing prose every time.
+- Putting `Enterprise-grade encryption — we never train on your data` at hero-bullet weight signals that the trust story is part of the value prop, not a compliance footnote.
+- The marketing-name vs. settings-name divergence (`Email Auto-Drafting` ↔ `Catch Up`) is a small but real cost — pick one naming and stick with it. Alfred currently has `email-triage`, `morning-briefing`, `cold-start-research` as workflow slugs; the user-facing names should probably mirror dimension's *story-friendly* side, not the engineering slug.
 
 ## Cross-cutting product concepts
 
@@ -256,6 +404,9 @@ Alfred today maps cleanly: integrations ✓, memory primitives ✓ (≈ skills),
 8. **Right rail as proactive surface** — To Do, Suggestions, Morning Briefing pull work *to* the user instead of waiting for prompts.
 9. **`Auto approve` everywhere it's risky** — global setting in user profile, per-workflow override. Recognises that approval friction is the main UX tax.
 10. **Command palette doubles as navigation** — `⌘K` opens chat search; default state is nav links.
+11. **Artifact panel co-located with the chat** — long-form outputs (PDFs, slide decks, docs) render as live-streaming pages in the right rail of the same thread, not as attachments or links. The conversation stays usable while the artifact builds. Each page resolves independently, so the user sees structure (page titles, page count) before any content. This is the right place to lift from when we build Alfred's artifact surface — it's strictly better than a chat bubble with "here's your file."
+12. **Streaming status text that mutates in place** — `"Creating page..."` → `"Created Cover Page page."` is a single text node whose contents flip when the step resolves. Much less visual noise than appending a fresh "done" line below the in-progress one, and it keeps the run timeline scannable.
+13. **Three tiers of tool surfacing in the chat stream** — pre-expanded search cards, collapsed action-card buttons, and bare inline status text. Each tier matches how much the user needs to inspect the tool's output: search results are content (always shown), actions are evidenced elsewhere (collapsed by default), and bare status is just a heartbeat (not a card at all). We should resist the urge to wrap *every* tool call in a card.
 
 ## Patterns to leave behind / consider carefully
 
@@ -267,10 +418,31 @@ Alfred today maps cleanly: integrations ✓, memory primitives ✓ (≈ skills),
 
 ## What's not in this archive but might matter later
 
-- `/library/<artifactId>` — never visited; library was empty. Would show the artifact viewer (slide deck / doc / sheet).
-- `/workflows/<id>` with `History` and `Approvals` tabs populated — only saw `Plan`.
-- `/integrations/<provider>` for non-Google providers — schema may vary (Notion, Linear, etc.).
-- The Share dialog from workflows/skills/chat.
-- Mobile / responsive views.
-- The actual in-app Morning Briefing surface (only saw the marketing render).
-- `/sandbox/*` routes from the recon doc — internal HIL experiments worth poking before May 20 if curious.
+Closed in the May-16 follow-up pass:
+
+- ~~`/library/<artifactId>` standalone viewer~~ — captured (`15b-library-artifact-viewer.png`); confirmed same iframe-per-page renderer, with `Esc to exit` + positional `Page N` labels + relative-time subtitle as the only divergences from the in-chat panel.
+- ~~`/workflows/<id>` `History` + `Approvals` tabs~~ — captured as empty states (`17-…`, `17b-…`); URL-routed via `?tab=`.
+- ~~Share dialog~~ — captured (`16-workflow-share-dialog.png`); just `Copy Link` + WhatsApp/X/LinkedIn.
+- ~~Non-Google connector page~~ — captured Slack (`18-integration-slack.png`); same template, only surface diffs.
+- ~~Mobile / responsive views~~ — captured (`19-…`, `19b-…`, `19c-…`, `19d-…`); single-column with hamburger nav, artifact panel inlines below chat.
+- ~~Design tokens (colors, fonts, radii, spacing)~~ — captured live and consolidated into [`tokens.md`](./tokens.md). No source maps were exposed (`.js.map` URLs returned 404), but `getComputedStyle` + `document.styleSheets` walk recovered the full token set including the dual-mode color scales.
+
+Closed in the May-17 follow-up pass (chat-surface menus):
+
+- ~~Thread-title kebab menu~~ — captured (`22-chat-thread-title-kebab.png`); just `Rename (R)` + `Delete (Delete)`. Share is its own top-bar button, NOT in the menu.
+- ~~Composer `+` menu~~ — captured (`23-chat-composer-kebab.png`); just `Add photos & files` + `at-sign Mention`. No skills/workflows/integrations entry-points; `@`-mention is the path.
+- ~~Model picker~~ — captured (`24-chat-model-picker.png`); only two semantic tiers: `Dimension` (default) and `Dimension Pro` (locked behind premium). No provider/model names exposed.
+
+See [`chat-anatomy.md`](./chat-anatomy.md#menus-on-a-chat-thread) for the rolled-up writeup.
+
+Still uncaptured (deliberately or for lack of access):
+
+- **Artifact types other than PDF** — the library type-filter menu lists Presentations, Documents, Spreadsheets, PDF Documents (`07b-library-types-menu.png`), so each presumably has its own page-renderer variant. We only ever generated a PDF; the others remain inferred.
+- **Fullscreen state** of the in-chat artifact panel (third header button) — likely just the iframe stack at viewport-width.
+- **Hover/focus state visuals** — Tailwind class strings tell us what the hover state *resolves to* (e.g. `hover:bg-gray-100 hover:text-gray-900` → known specific colors per [`tokens.md`](./tokens.md)), but we don't have hover screenshots.
+- **Onboarding / auth flow** — never opened `/sso` or the OAuth consent dance for a fresh account; can't repeat without losing the existing session.
+- **Animation timings beyond opacity** — no spring/transform animations were caught in computed styles; if Dimension has anything fancier (modal slide-up, page transition curves), it would need video to capture.
+- **The actual in-app Morning Briefing surface** (only saw the marketing render in `10-…`).
+- **`/sandbox/*` routes** from the recon doc — internal HIL experiments worth poking before May 20 if curious.
+- **The desktop / mobile native shell** — the `--desktop-title-bar-height` and `--safe-area-inset-*` tokens hint at Electron / Tauri / PWA wrappers we have no captures of.
+- **Light mode** — the light-mode color scale is defined in CSS but nothing in the app activates it. Possibly dead code, possibly a setting we didn't find.
