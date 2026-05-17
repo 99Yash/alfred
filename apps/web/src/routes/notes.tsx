@@ -1,6 +1,6 @@
 import { IDB_KEY, type SyncedNote } from "@alfred/sync";
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowUp, FileText, StickyNote } from "lucide-react";
+import { ArrowUp, FileText, Mic, StickyNote } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth-client";
@@ -106,23 +106,38 @@ function NotesPage() {
           placeholder="Type a note. Enter to save, Shift+Enter for a newline."
           className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed outline-none placeholder:text-muted-foreground/70 max-h-[40dvh]"
         />
-        <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <p className="text-[11px] text-muted-foreground/80">
+        <div className="flex items-center justify-between gap-1.5 px-1.5 pb-1.5">
+          <p className="pl-2 text-[11px] text-muted-foreground/80">
             {text.length > 0 ? `${text.length} chars` : "Notes are private."}
           </p>
-          <button
-            type="submit"
-            disabled={creating || !text.trim()}
-            aria-label="Save note"
-            className={cn(
-              "inline-flex items-center justify-center size-8 rounded-full transition-colors",
-              text.trim() && !creating
-                ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed",
-            )}
-          >
-            <ArrowUp size={15} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled
+              title="Voice input"
+              aria-label="Voice input"
+              className={cn(
+                "inline-flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md",
+                "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                "transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+              )}
+            >
+              <Mic size={15} />
+            </button>
+            <button
+              type="submit"
+              disabled={creating || !text.trim()}
+              aria-label="Save note"
+              className={cn(
+                "inline-flex items-center justify-center size-8 rounded-full transition-colors",
+                text.trim() && !creating
+                  ? "bg-foreground text-background hover:bg-foreground/90"
+                  : "bg-muted text-muted-foreground/70 cursor-not-allowed",
+              )}
+            >
+              <ArrowUp size={15} />
+            </button>
+          </div>
         </div>
       </form>
 
