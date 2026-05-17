@@ -1,5 +1,5 @@
 import { IDB_KEY, type SyncedFact } from "@alfred/sync";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth-client";
@@ -30,7 +30,6 @@ const TOAST_LIFETIME_MS = 8_000;
 const MAX_TOASTS = 5;
 
 function MemoryPage() {
-  const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const rep = useReplicache();
   const facts = useSubscribe(listFacts);
@@ -142,11 +141,6 @@ function MemoryPage() {
     return { proposed: p, confirmed: c };
   }, [facts]);
 
-  const signOut = async () => {
-    await authClient.signOut();
-    await navigate({ to: "/login" });
-  };
-
   if (!session?.user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -162,18 +156,7 @@ function MemoryPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Memory</h1>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{session.user.email}</span>
-          <a href="/notes" className="underline">
-            Notes
-          </a>
-          <button onClick={signOut} className="underline">
-            Sign out
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold">Memory</h1>
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">

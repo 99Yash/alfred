@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
@@ -17,7 +17,6 @@ const listNotes = async (tx: ReadTransaction): Promise<SyncedNote[]> => {
 };
 
 function NotesPage() {
-  const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const rep = useReplicache();
   const notes = useSubscribe(listNotes);
@@ -40,11 +39,6 @@ function NotesPage() {
     }
   };
 
-  const signOut = async () => {
-    await authClient.signOut();
-    await navigate({ to: "/login" });
-  };
-
   if (!session?.user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -60,15 +54,7 @@ function NotesPage() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Notes</h1>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{session.user.email}</span>
-          <button onClick={signOut} className="underline">
-            Sign out
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold">Notes</h1>
 
       <div className="flex gap-2">
         <input
