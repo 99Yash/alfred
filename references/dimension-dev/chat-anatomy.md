@@ -18,11 +18,37 @@ Captures referenced:
 
 The whole run is wrapped in a region with `<h3>Working on it...</h3>` as its only run-level indicator. Inside, three classes of nodes interleave in chronological order:
 
-1. **Thought-for accordion pills** — `<button aria-expanded="false">Thought for 4s</button>`. Collapsed by default. The "4s" / "13s" / "20s" is the wall-clock duration of that planning beat between tool calls.
+1. **Thought-for accordion pills** — `<button aria-expanded="false">Thought for 4s</button>`. Collapsed by default. The "4s" / "13s" / "20s" is the wall-clock duration of that planning beat between tool calls. **During** active thinking (before the beat resolves), the heading is `Thinking` (level 3) with the streaming chain-of-thought rendered inside as plain prose ("The user wants…"). Once the beat ends, the heading collapses to the `Thought for Xs` button. So **the active state and resolved state are different DOM** — not just a label flip. (Captured live in `screenshots/30-chat-streaming-thinking-early.png` showing the early `Thinking` heading; `screenshots/30b-chat-streaming-tool-active.png` shows multiple already-resolved `Thought for 2s` pills mid-run.)
 2. **Tool-call accordion cards** — collapsed disclosures like `Create PDF Document`, `Write E-Mail`, or the **pre-expanded** search-result cards `<button aria-expanded="true">sycamore.so company 10 results found</button>`.
-3. **Bare inline status text** — `StaticText` nodes with no container, e.g. `"Processing attachment..."`, `"Searching the web for "X"..."`, `"Creating Cover Page page..."`. These mutate **in place** as the step resolves: `Creating Cover Page page...` → `Created Cover Page page.` (same DOM node, text replaced).
+3. **Bare inline status text** — `StaticText` nodes with no container, e.g. `"Processing attachment..."`, `"Searching the web for "X"..."`, `"Creating Cover Page page..."`, `"Searching web for people..."`. These mutate **in place** as the step resolves: `Creating Cover Page page...` → `Created Cover Page page.` (same DOM node, text replaced). The in-flight version always ends with `...`; the resolved version ends with `.` and no ellipsis.
 
 Each tool-completion also emits a **status row** — a tiny custom SVG icon (no background, no chip) + a one-line `StaticText`. E.g. `<svg><title>envelope</title>…</svg> Email sent successfully.` or `<svg><title>user-search</title>…</svg> People search completed successfully.`
+
+**Mid-run UI state**, observed live (2026-05-17):
+
+- The thread title is **auto-named after the first user turn** — saw `"New Chat"` flip to `"Sycamore Labs Interview Preparation"` ~1s after sending. The LLM does the naming. Visible in the top bar and sidebar simultaneously.
+- The top-bar **`Share` button is disabled mid-run** (`aria-disabled` set on the button). Share unlocks only after the run completes. Sensible — sharing a half-finished thread shows a broken state.
+- The same custom-title SVG (e.g. `user-search`) is used **both for the in-flight status row and the completion status row** — only the prefix text changes (`"Searching web for people..."` → `"People search completed successfully."`). One icon, two contexts.
+- Multiple **consecutive `Thought for Xs` pills with the same duration** are normal. Saw two `Thought for 2s` pills back-to-back in the same run — each is a discrete thinking beat between tool calls. Don't dedupe.
+
+**Run-finished toast** (observed once, transient):
+
+A toast appears in the bottom-right (probably) when the run completes:
+
+```
+Run finished.
+[Go to Settings]  [×]
+Sound notifications are available when a run finishes. You can enable or configure them in Settings > Preference.
+```
+
+So the run-complete moment doubles as a **first-time discovery hook for the sound-on-complete setting**. The toast renders in the `aria-live="polite"` notifications region (`region "Notifications alt+T"` in a11y tree). One-shot — the localStorage `run-complete-sfx-toast-shown: "true"` flag tracks dismissal.
+
+**Pill color hierarchy**, post-completion (live measurement):
+
+- Summary pill (`Searched multiple sources`): 14/20 DM Sans 500, color `rgb(237, 237, 237)` — bright
+- Thought-for pill (`Thought for 34s`): 14/20 DM Sans 500, color `rgb(112, 112, 112)` — visibly dimmer
+
+So thought-for pills are quieter than the run-summary pill, even when both are at the same hierarchy level. The "what I did" headline (summary) reads as primary; the "how long I thought" metadata reads as secondary. Worth lifting — most chat clones give CoT and run-summary equal visual weight.
 
 ### Once the run finishes
 
@@ -319,6 +345,22 @@ Used HEAVILY in technical responses — 39 inline `<code>` elements in the singl
 
 URLs in prose auto-linkify with `text-purple-600 active:text-purple-700 hover:underline`. Email addresses become `mailto:` links with the same styling. No "citation chip" pattern (numbered references) — just regular underlined links.
 
+### Inline citation chip — confirmed pattern
+
+When the assistant cites a researched fact mid-prose, the link gets a **16×16 favicon prefix** rendered inline as a small rounded image. The `<a>` has alt-text `"Web Search"` and contains a `<div class="size-4 rounded overflow-clip">` wrapping an `<img>` that points to `https://www.google.com/s2/favicons?domain=<host>&sz=128`. Structure observed:
+
+```html
+<a href="https://linkedin.com/in/sriviswanath">
+  <div class="relative overflow-clip size-4 shrink-0 rounded">
+    <img alt="Web Search" src="https://www.google.com/s2/favicons?domain=linkedin.com&sz=128"
+         style="position:absolute;height:100%;width:100%;inset:0;">
+  </div>
+  Sri Viswanath
+</a>
+```
+
+So inline citations = favicon + text, no extra chrome (no superscript number, no brackets, no tooltip badge). The favicon is the visual indicator that "this is a web citation" — much subtler than academic-style numbered references. Picked up live in `screenshots/31-chat-completed-fresh-account.png` mid-prose throughout the company brief.
+
 ### Lists
 
 Numbered lists (`<ol class="list-decimal">`) and bullets are standard Typography. Used routinely.
@@ -413,6 +455,24 @@ Two thread-specific touches:
 
 1. **Tab-autocomplete suggestion** — when the agent has a likely next prompt for you, the placeholder is replaced with dimmed-text of that suggestion + a `[Tab]` keycap chip. E.g. `draft a cold outreach to Anand Chowdhary` + `[Tab]`. Press Tab to accept.
 2. The `Auto` toggle (model picker) and send button reuse the chip styling from `/chat/new`. See `tokens.md` for the bespoke neumorphic gradient on the `Auto` toggle.
+
+**Composer "+" menu** (`screenshots/23-chat-composer-kebab.png`): only two items — `Add photos & files` and `at-sign Mention`. They don't surface skills, workflows, or integrations directly from the composer; `@`-mention is the path. Worth lifting the minimalism: most chat clones over-pack this menu.
+
+**Model picker** (`screenshots/24-chat-model-picker.png`, only on `/chat/new` — collapses to just the `Auto` toggle in active threads): two options only — `Dimension — Great for almost everything.` (default) and `Dimension Pro — Our flagship agent for complex tasks.` (locked behind a premium plan). They never expose provider names (no "Claude 4 Opus", no "GPT-4"); only two semantic tiers. Alfred's existing `getBossModel / getCheapModel / getResearchModel` dispatcher already matches this stance — keep models opaque on the surface.
+
+## Menus on a chat thread
+
+Three small menus live on `/chat/<id>`. Each is its own Radix popover with 2 items — they don't pile actions in.
+
+**Thread-title kebab** (the kebab next to the title in the top bar; `screenshots/22-chat-thread-title-kebab.png`): just two items.
+- `Rename` — shortcut `R`
+- `Delete` — shortcut `Delete` key
+
+`Share` is NOT in this menu — it lives as a sibling top-bar button. `Open quick access` (the right-rail re-opener) is also a sibling button. The kebab is strictly for destructive/identity actions on the thread itself.
+
+**Sidebar thread-row kebab** (kebab inside each thread row, revealed on hover via `opacity-0 group-hover:opacity-100`): same two items, same shortcuts. Confirms the menu is content-driven, not location-driven.
+
+**Pattern**: Resist the temptation to overload thread-level kebabs with archive / pin / tag / export / duplicate. Dimension keeps it at two, and it works.
 
 ## Summary: what Alfred actually needs to copy
 
