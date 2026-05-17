@@ -102,8 +102,12 @@ type State = z.infer<typeof stateSchema>;
 
 export const learnSkillWorkflow: Workflow<State> = {
   slug: LEARN_SKILL_WORKFLOW_SLUG,
+  name: "Learn skill",
   description:
     "Sync phase of skill authoring — distill the user's prompt + memory into a v1 skill body and fact proposals (ADR-0017).",
+  // User-initiated from the skills CRUD surface (/api/skills POST + the
+  // /:id/relearn endpoint). No cron path.
+  trigger: { kind: "manual" },
   initialStep: "gather",
   stateSchema,
 
@@ -247,9 +251,12 @@ export const learnSkillWorkflow: Workflow<State> = {
               triggeringLearnRunId: ctx.runId,
             },
             metadata: {
-              triggeredBy: "learn-skill",
               triggeringLearnRunId: ctx.runId,
             },
+            // Parent-workflow-driven spawn: the eventId is the parent
+            // run id so History/query surfaces can locate every doc run
+            // emitted by a specific learn run.
+            trigger: { kind: "event", eventId: `learn-skill:${ctx.runId}` },
           });
           await enqueueRun(created.runId);
           docRunId = created.runId;

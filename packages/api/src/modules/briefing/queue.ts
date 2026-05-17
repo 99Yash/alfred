@@ -167,6 +167,14 @@ export async function enqueueBriefingRun(
       reason: args.reason,
       briefingDate: args.briefingDate,
     },
+    // briefing-cron predates ADR-0027's generic `workflows.tick`. It
+    // still owns its own per-feature fan-out (because matching local
+    // hour ≠ a single `next_run_at`), so we stamp the trigger here
+    // rather than at a central dispatcher.
+    trigger:
+      args.reason === "cron"
+        ? { kind: "cron", scheduledFor: new Date().toISOString() }
+        : { kind: "manual" },
   });
   await enqueueRun(runId);
   return { runId };

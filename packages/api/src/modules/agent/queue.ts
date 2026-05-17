@@ -27,14 +27,28 @@ export function getAgentQueue(): Queue<AgentJobData> {
   return _queue;
 }
 
-/** Enqueue a run for execution. Lease arbitration is at the DB layer (FOR
- *  UPDATE SKIP LOCKED), so multiple jobs racing the same runId is safe —
- *  only one will see the row to lease. We don't pass a jobId; BullMQ
- *  forbids ':' in custom ids and the natural `${runId}:${Date.now()}`
- *  shape is the easiest way to encode "one job per enqueue call." */
-export async function enqueueRun(runId: string, opts?: { delayMs?: number }): Promise<void> {
+/**
+ * Enqueue a run for execution. Lease arbitration is at the DB layer (FOR
+ * UPDATE SKIP LOCKED), so multiple jobs racing the same `runId` is safe —
+ * only one will see the row to lease.
+ *
+ * `jobId` (ADR-0027) opts the enqueue into BullMQ's native dedup: a
+ * second `add` with the same `jobId` is a no-op until the prior job is
+ * removed. The cron dispatcher uses
+ * `workflow.{workflowId}.scheduled.{scheduledForMs}` so a retried tick
+ * never enqueues the same scheduled instant twice; one-off "Run now"
+ * presses pass no `jobId` and get the default per-enqueue identity.
+ *
+ * BullMQ forbids `:` in custom jobIds (see
+ * `bullmq/.../job.js`'s `Custom Id cannot contain :` check), so the
+ * separator is `.`.
+ */
+export async function enqueueRun(
+  runId: string,
+  opts?: { delayMs?: number; jobId?: string },
+): Promise<void> {
   const queue = getAgentQueue();
-  await queue.add("step", { runId }, { delay: opts?.delayMs });
+  await queue.add("step", { runId }, { delay: opts?.delayMs, jobId: opts?.jobId });
 }
 
 export async function closeAgentQueue(): Promise<void> {

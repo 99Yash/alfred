@@ -67,6 +67,7 @@ async function main() {
     workflowSlug: "echo-with-approval",
     brief: "smoke test",
     input: { greeting: "hello durable runtime" },
+    trigger: { kind: "manual" },
   });
   console.log(`[smoke] created runId=${runId}`);
 

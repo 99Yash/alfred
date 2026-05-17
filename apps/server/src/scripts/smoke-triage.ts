@@ -150,6 +150,7 @@ async function main() {
     workflowSlug: TRIAGE_WORKFLOW_SLUG,
     input: { documentId: doc.id, reason: "manual" },
     metadata: { source: "smoke-triage" },
+    trigger: { kind: "manual" },
   });
   await enqueueRun(runId1);
   console.log(`[smoke-triage] run 1 enqueued: ${runId1}`);
@@ -206,6 +207,7 @@ async function main() {
     workflowSlug: TRIAGE_WORKFLOW_SLUG,
     input: { documentId: doc.id, reason: "manual" },
     metadata: { source: "smoke-triage", attempt: 2 },
+    trigger: { kind: "manual" },
   });
   await enqueueRun(runId2);
   console.log(`[smoke-triage] run 2 enqueued: ${runId2}`);

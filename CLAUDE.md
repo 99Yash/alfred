@@ -4,17 +4,6 @@ Alfred is a personal AI assistant (single user, multi-device). It connects to em
 
 Read [`decisions.md`](./decisions.md) before proposing architecture changes — 25 ADRs cover every major choice and rejection.
 
-## Commands
-
-```bash
-pnpm dev             # start server (:3001) + web (:3000) in watch mode
-pnpm build           # build all packages/apps
-pnpm check-types     # tsc across all packages
-pnpm db:generate     # generate Drizzle migration from schema diff
-pnpm db:migrate      # apply pending migrations
-pnpm db:studio       # Drizzle Studio GUI
-```
-
 One non-standard rule:
 
 - **Never `db:push` outside local exploration.** Always `db:generate` → `db:migrate`.
@@ -85,7 +74,7 @@ Key patterns in this repo:
 
 ```ts
 // Auth guard via macro (packages/api/src/middleware/auth.ts)
-app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
+app.use(authMacro).get('/protected', ({ user }) => user, { auth: true });
 
 // Global error handler (packages/api/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.
@@ -131,7 +120,7 @@ Alfred uses AI SDK v6 (`ai@^6`). Common v6 differences:
 - `maxSteps` → `stopWhen: [stepCountIs(n)]`.
 - `tool()` uses `inputSchema`, not `parameters`.
 - `LanguageModel` is a union — do not hardcode string model IDs in type positions.
-- `generateObject` *@deprecated* — Use `generateText` with an `output` setting instead.
+- `generateObject` _@deprecated_ — Use `generateText` with an `output` setting instead.
 
 Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()`, `getWebSearchModel()`, `getResearchModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers. The two web-search models (Perplexity Sonar Pro for live, Sonar Deep Research for cold-start) must be routed through `meteredGenerateText` with `attribution.kind = 'web_search'` so cost rollups bucket them apart from the LLM line.
 
@@ -145,69 +134,13 @@ Embeddings: `embed(text, opts?)` from `@alfred/ai/embeddings` — currently a ze
 
 Never create raw `new IORedis()` in app code; always use these factories.
 
-## Email triage (m9)
+## Domain pipelines
 
-Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of six categories: `action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`. Each category maps to an `Alfred/<Name>` Gmail label that gets written back to the message.
+Per-feature operational details live alongside the code orientation here:
 
-The pipeline:
-
-1. `gmail.poll_history` (BullMQ) inserts a fresh `documents` row.
-2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`).
-3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `classify` (cheap-tier LLM via `@alfred/ai`'s `metered.object()`) → `apply-label` (`messages.modify`).
-4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`* label id is persisted on `applied_label_id`.
-
-Initial-sync seed: the OAuth callback (`google-routes.ts /callback`) enqueues a `gmail.ingest_recent` job with `maxMessages: 8, triageInsertedDocs: true` so a brand-new account has classified mail to look at immediately. The flag is the opt-in that narrows ADR-0025's "no triage on bulk re-ingest" rule — only callers that explicitly request triage get it. Re-connect is idempotent (dedup index → 0 inserts → 0 triage runs).
-
-Re-classification on reply happens implicitly: every new message in a thread is its own document and gets its own triage run. We never sweep the whole thread.
-
-Label management (`packages/integrations/src/google/labels.ts`):
-
-- `ensureAlfredLabels(credentialId)` idempotently creates the six labels and caches the id map on `integration_credentials.metadata.alfredLabels`. Pass `force: true` to rebuild if a label was deleted out-of-band.
-- `applyTriageLabel({ credentialId, messageId, category, previousLabelId })` adds the chosen label and removes the previous one (when supplied) in a single Gmail round-trip.
-
-Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts` (requires a connected Google account + at least one ingested email).
-
-## Morning briefing (m10)
-
-Per ADR-0025 #2 alfred sends a daily inbox-only digest email built from triage tags. Calendar + "relevant updates" sections are deferred to a follow-up milestone.
-
-The pipeline:
-
-1. `briefing.tick` (BullMQ cron, hourly) scans users; for each, resolves `briefing.timezone` + `briefing.delivery_hour` from `user_preferences` (fallback chain: pref row → `UTC` + `7`) and enqueues a `morning-briefing` agent run when the user's local hour matches.
-2. The `morning-briefing` workflow (`apps/server/src/builtins/workflows/morning-briefing.ts`) runs `gather` → `compose` → `send`:
-   - `gather` queries `email_triage` joined to `documents` for the last 24h, partitioning into `action_needed` / `awaiting_reply` / `meeting` / `payment` priority buckets and counting `newsletter` / `fyi` for the suppressed-counts tail line.
-   - `compose` renders a deterministic HTML+text email (no LLM call — the classifier rationales already carry the per-item gloss).
-   - `send` calls `notify()` with idempotency key `briefing:{userId}:{YYYY-MM-DD-in-user-tz}`.
-3. `notify()` (`packages/api/src/modules/notifications/`) writes an `email_sends` row at `status='queued'`, POSTs to Resend, then transitions to `'sent'` (with provider id) or `'failed'`. The `(user_id, idempotency_key)` unique index is what makes a duplicate cron tick a no-op.
-
-OAuth scope refactor that landed alongside m10:
-
-- `packages/integrations/src/google/oauth.ts` exposes `GOOGLE_FEATURE_SCOPES` (`briefing` / `triage` / `reply_draft`) + `scopesForFeatures(features?)`. `DEFAULT_GOOGLE_SCOPES` is now `scopesForFeatures()` — equivalent to "every feature."
-- `/api/integrations/google/connect?features=briefing,triage` narrows the consent screen; default (no param) keeps the m7 single-prompt behavior.
-- `requireScopes(credentialId, features[])` from `@alfred/integrations/google` throws `MissingScopesError` (typed `code: 'MISSING_SCOPES'`) when a credential drifted; workflows that hit Gmail directly should call this. Briefing reads from local DB only and skips it.
-
-Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-briefing.ts` (forces a send for the first user, ignoring the tz/hour gate; verifies idempotent re-run).
-
-## Cold-start research (m11)
-
-Per ADR-0011 + ADR-0022 alfred runs one Perplexity Sonar Deep Research call per user at signup, extracts structured `user_facts` proposals from the result, and stores the freeform research as a `memory_chunks` row for later semantic recall. Lifetime-once per user.
-
-The pipeline:
-
-1. The Google OAuth callback (`google-routes.ts /callback`) calls `createRun({ workflowSlug: COLD_START_WORKFLOW_SLUG, … })` + `enqueueRun(runId)`. The workflow declares `dedupKey: () => 'cold-start'`, and the partial unique index `agent_runs_dedup_key_idx` on `(user_id, workflow_slug, dedup_key) WHERE dedup_key IS NOT NULL AND status NOT IN ('failed','cancelled')` is the authoritative gate — a duplicate insert (re-connect, second tab) trips Postgres `23505`, which the callback catches and logs. Other failures are also logged but don't bounce the user back to an error page.
-2. The `cold-start-research` workflow (`apps/server/src/builtins/workflows/cold-start-research.ts`) runs `gather-signals` → `research` → `extract-facts` → `persist`:
-   - `gather-signals` calls `collectColdStartSignals(userId)` — reads the `user` row + connected `integration_credentials` per provider, ordered by `created_at` ASC so multi-account users get a deterministic anchor. v1 contributes `{ name, email, emailDomain, emailDomainIsConsumer, integrations.google? }`.
-   - `research` calls `researchUser({ signals })` — one `meteredGenerateText` call against `getResearchModel()` (Perplexity `sonar-deep-research`) with `attribution.kind = 'web_search'`. 30–120s; returns prose + extracted citations. The forwarded `idempotencyKey` is stable per-run (`cold-start.research:${runId}`) — Sonar has no idempotency-key API, so this is observability metadata only; a worker-crash retry will re-bill.
-   - `extract-facts` calls `extractColdStartFacts({ signals, research })` — cheap-tier (`getCheapModel()` + `meteredGenerateObject`) converts research prose into structured `{ key, value, confidence, rationale }` proposals.
-   - `persist` calls `proposeFact()` per proposal (auto-confirm at confidence ≥0.85 per ADR-0019; existing rejection + active-dup guards apply) and `writeMemoryChunk({ kind: 'cold_start_research', … })` for the research summary. Embedding lands via the existing memory embed-sweep.
-3. Cost lands as one `web_search` row + one cheap-tier `llm` row in `api_call_log`, attributable to the run via `(run_id, step_id)`.
-
-Trigger semantics:
-
-- The OAuth callback is the trigger because Google is currently the only integration that contributes signals beyond the user row. When more integrations land (GitHub, …), the trigger should move to whatever signal indicates "onboarding finished" — probably an explicit `cold-start ready` event once an onboarding flow exists.
-- Lifetime-once is enforced by the unique index — there is no input-level `force` toggle. Letting `force` be caller-controlled would let any authenticated user spam expensive Sonar runs through `/api/agent/runs`. To re-research a user (future settings button, smoke script), cancel the prior `agent_runs` row first so the new insert clears the partial index.
-
-Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-cold-start.ts` (cancels any prior cold-start run for the first user, then forces a fresh one; verifies the research → extract → persist pipeline lands a `memory_chunks` row plus zero-or-more `user_facts` proposals tagged `source.kind='cold_start'`). Requires `PERPLEXITY_API_KEY`.
+- **Email triage (m9)** — Gmail-message classification + label write-back. See [`docs/triage.md`](./docs/triage.md).
+- **Morning briefing (m10)** — daily inbox-only digest via `notify()` + Resend. See [`docs/briefing.md`](./docs/briefing.md).
+- **Cold-start research (m11)** — one-shot Perplexity Sonar Deep Research at signup, lifetime-once per user. See [`docs/cold-start.md`](./docs/cold-start.md).
 
 ## Replicache
 
@@ -225,27 +158,9 @@ When adding a new synced entity:
 
 Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing vars throws a clear error listing what's missing.
 
-Key vars for local dev (pre-filled in `apps/server/.env`):
+Key vars for local dev should be pre-filled in `apps/server/.env`
 
-
-| Var                            | Notes                                                   |
-| ------------------------------ | ------------------------------------------------------- |
-| `DATABASE_URL`                 | Postgres — local docker default already set             |
-| `REDIS_URL`                    | Redis — local docker default already set                |
-| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32`  |
-| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                   |
-| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up              |
-| `RESEND_API_KEY`               | Required for OTP email delivery                         |
-| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                  |
-| `ANTHROPIC_API_KEY`            | Required — primary LLM                                  |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings             |
-| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect) |
-| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to             |
-| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription            |
-| `PERPLEXITY_API_KEY`           | m11 — Sonar Deep Research at signup + Sonar Pro tool    |
-
-
-All other vars are optional and safe to leave blank locally.
+Some vars are optional and safe to leave blank locally.
 
 When adding a new env var: update `packages/env/src/server.ts`, `apps/server/.env`, `.env.example`, and this file.
 
@@ -264,8 +179,7 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 - 9 — Email triage workflow (9a schema + Gmail label plumbing, 9b classifier + workflow, 9c trigger from poll_history, 9d smoke-triage)
 - 10 — Morning briefing workflow (10-pre per-feature scope sets + requireScopes; 10a email_sends + notify(); 10b morning-briefing workflow; 10c hourly briefing.tick + tz resolution; 10d smoke-briefing). Inbox-only at v1; calendar deferred.
 - 11 — Cold-start research at signup (11a `getResearchModel()` + Perplexity Sonar Deep Research wired through `meteredGenerateText` with `kind='web_search'`; 11b `packages/api/src/modules/cold-start/` — signal collector, research call, cheap-tier extractor, dedup; 11c `cold-start-research` builtin workflow with steps `gather-signals` → `research` → `extract-facts` → `persist`; 11d trigger from `google-routes.ts` `/callback` gated by `hasPriorColdStartRun` so a re-connect doesn't re-run; 11e `smoke-cold-start.ts`). Signals are extensible per-integration — Google contributes `accountEmail` today; future GitHub/etc. integrations plug into `collectColdStartSignals` without workflow change. v1 trigger fires from the OAuth callback because Google is currently the only integration that contributes signals beyond the user row; revisit once another integration lands.
-- 12 — Skills + user-authored workflows (authoring surface only; execution deferred to m13 per ADR-0017 + ADR-0027). Skills half already shipped earlier (schema, learn-skill + skill-documentation workflows, `/skills` UI, Replicache sync). Workflows half: **12a** workflows CRUD API (`packages/api/src/modules/workflows/`; builtins immutable except `status`; writes to `steps` rejected with "explicit DAGs land in a later milestone"); **12b** `/workflows` list + `/workflows/$slug` brief editor matching the dimension authoring shell (Plan / History / Approvals tabs, Schedule segment lit, Triggers segment disabled with "lands with m13" tooltip, Auto-approve toggle as inverse of `hil_gates`, Activate flips `status`); **12c** Replicache sync (`SyncedWorkflow`, `IDB_KEY.WORKFLOW`, fetcher, server mutators); **12d** trigger dispatch per ADR-0027 — adds `workflows.next_run_at` + `workflows.last_scheduled_at` columns + partial index, `agent_runs.trigger` jsonb column, generic `workflows.tick` handler running every minute using `cron-parser` at write-time (recompute `next_run_at` on row mutation and after each fire), BullMQ-jobId idempotency (`workflow:{id}:scheduled:{nextRunAtIso}`), unified `createRun({ trigger: { kind, scheduledFor?, eventId?, payload? } })` primitive (existing call-sites migrate from `metadata.triggeredBy` to `trigger`); `manual` trigger as a "Run now" button → direct `createRun({ trigger: { kind: 'manual' } })`; `event`/`on_signal` dispatchers deferred to m13 (the union supports them, no router yet); **12e** settings page unified active↔paused toggle for builtins + user-authored (closes the m9 deferral). **Execution stub**: `createRun` for `is_builtin=false` workflows lands as `failed` with reason `user_authored_brief_execution_pending_m13`. History tab on the workflow detail page shows those rows honestly. m13 replaces the stub.
+- 12 — Skills + user-authored workflows: authoring surface + trigger dispatch only; execution deferred to m13 per ADR-0017 + ADR-0027. Brief-only authoring (no DAG editor), `cron` + `manual` triggers live, `event`/`on_signal` UI-disabled until m13. Execution stub: `createRun` for `is_builtin=false` lands as `failed` with reason `user_authored_brief_execution_pending_m13`. See [`CONTEXT.md`](./CONTEXT.md) for the locked m12 scope and ADR-0027 for the trigger-dispatch design.
 - 13 — Boss + sub-agent orchestration. Replaces m12's execution stub. Builds the tool registry + tool dispatcher + `load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026).
 - 14 — MCP client
 - 15 — Observability
-

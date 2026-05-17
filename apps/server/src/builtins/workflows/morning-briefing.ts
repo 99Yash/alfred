@@ -67,8 +67,16 @@ interface SerializedDigest {
 
 export const morningBriefingWorkflow: Workflow<State> = {
   slug: BRIEFING_WORKFLOW_SLUG,
+  name: "Morning briefing",
   description:
     "Daily inbox-only morning briefing — last-24h priority email by triage tag, sent via Resend (ADR-0025 #2).",
+  // Declared as cron for documentation honesty, but `next_run_at` is
+  // left null at seed time so the generic workflows.tick partial index
+  // skips it — `briefing.tick` (packages/api/src/modules/briefing/) owns
+  // dispatch because the per-user "local hour matches delivery_hour"
+  // check is per-feature. Migrating onto workflows.tick with per-user
+  // schedules computed from `briefing.delivery_hour` is a follow-up.
+  trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
 

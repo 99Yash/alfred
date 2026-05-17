@@ -1,4 +1,4 @@
-import { user as userTable } from "@alfred/db/schemas";
+import { user as userTable, type AgentRunTrigger } from "@alfred/db/schemas";
 import { embed } from "@alfred/ai/embeddings";
 import { Queue, Worker, type Job } from "bullmq";
 import { db } from "@alfred/db";
@@ -75,9 +75,12 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
     case "memory.extract.daily": {
       // Single-user today, but the shape carries us forward.
       const users = await db().select({ id: userTable.id }).from(userTable);
+      const scheduledFor = new Date().toISOString();
       let enqueued = 0;
       for (const u of users) {
-        await enqueueExtractionForUser(u.id);
+        await enqueueExtractionForUser(u.id, {
+          trigger: { kind: "cron", scheduledFor },
+        });
         enqueued++;
       }
       console.log(`[memory:worker] memory.extract.daily fan-out users=${enqueued}`);
@@ -135,6 +138,8 @@ export async function enqueueExtractionForUser(
       string,
       Array<{ key: string; value: unknown; confidence: number; rationale: string }>
     >;
+    /** Trigger context — defaults to manual when called ad-hoc. */
+    trigger?: AgentRunTrigger;
   },
 ): Promise<{ runId: string }> {
   const { runId } = await createRun({
@@ -147,6 +152,7 @@ export async function enqueueExtractionForUser(
       sinceDays: opts?.sinceDays,
       maxDocs: opts?.maxDocs,
     },
+    trigger: opts?.trigger ?? { kind: "manual" },
   });
   await enqueueRun(runId);
   return { runId };

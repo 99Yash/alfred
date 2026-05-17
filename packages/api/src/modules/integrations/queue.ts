@@ -230,7 +230,10 @@ async function enqueueTriageRuns(
         userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
         input: { documentId, reason },
-        metadata: { source: "gmail", triggeredBy: reason, documentId },
+        metadata: { source: "gmail", documentId },
+        // `eventId` is the document id — naturally per-message and lets
+        // History filter triages by their source doc.
+        trigger: { kind: "event", eventId: documentId, payload: { source: "gmail", reason } },
       });
       await enqueueRun(runId);
     } catch (err) {
