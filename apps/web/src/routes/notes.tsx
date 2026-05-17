@@ -11,6 +11,7 @@ import {
   PageContainer,
   PageHeader,
   SectionHeader,
+  ToolButton,
 } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
@@ -111,19 +112,9 @@ function NotesPage() {
             {text.length > 0 ? `${text.length} chars` : "Notes are private."}
           </p>
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled
-              title="Voice input"
-              aria-label="Voice input"
-              className={cn(
-                "inline-flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md",
-                "text-muted-foreground hover:text-foreground hover:bg-accent/60",
-                "transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
-              )}
-            >
+            <ToolButton label="Voice input" disabled>
               <Mic size={15} />
-            </button>
+            </ToolButton>
             <button
               type="submit"
               disabled={creating || !text.trim()}

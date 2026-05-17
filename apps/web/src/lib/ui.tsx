@@ -262,6 +262,35 @@ export const Button = forwardRef<
   );
 });
 
+/**
+ * Icon-only chrome button used inside composer chip rows (attach, mic, etc.).
+ * Square-ish min hit target (32×32) with quiet ghost styling.
+ */
+export const ToolButton = forwardRef<
+  HTMLButtonElement,
+  Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & {
+    label: string;
+  }
+>(function ToolButton({ label, className, children, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type={props.type ?? "button"}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md",
+        "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+        "transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+});
+
 /* -------------------------------------------------------------------------- */
 /* Pills & badges                                                              */
 /* -------------------------------------------------------------------------- */

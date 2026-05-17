@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
+import { ToolButton } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -168,7 +169,7 @@ function Composer() {
           <ToolButton label="Add files & mentions" disabled>
             <Plus size={16} />
           </ToolButton>
-          <AutoToggle on />
+          <AutoToggle />
           <ModelPicker value="Default" />
         </div>
 
@@ -197,26 +198,24 @@ function Composer() {
 }
 
 /**
- * Bespoke neumorphic toggle for "Auto" mode. Mirrors dimension's composer
- * primitive (`#0f0f0f → #1e1e1e` off, `#141414 → rgba(20,20,20,0.5)` on).
- * Disabled until m13 ships the boss agent; the toggle is decorative for now.
+ * Bespoke neumorphic toggle for "Auto" mode. The dark-mode gradient mirrors
+ * dimension's composer primitive (`#141414 → rgba(20,20,20,0.5)`); light mode
+ * resolves through semantic tokens so it doesn't render as a near-black chip
+ * on a near-white page. Decoration-only until m13 wires real toggle state.
  */
-function AutoToggle({ on }: { on: boolean }) {
+function AutoToggle() {
   return (
     <button
       type="button"
       disabled
-      aria-pressed={on}
+      aria-pressed="true"
       title="Auto mode (boss model picks the agent)"
       className={cn(
         "inline-flex items-center justify-center h-[31px] min-w-[71px] px-3",
-        "rounded-[10px] backdrop-blur-sm",
-        "border border-white/5 dark:border-white/5",
+        "rounded-[10px] backdrop-blur-sm border border-foreground/10",
+        "bg-muted/60 dark:bg-gradient-to-b dark:from-[#141414] dark:to-[#141414]/50",
         "text-[12px] font-medium tabular text-foreground/90",
         "transition-opacity disabled:cursor-not-allowed disabled:opacity-90",
-        on
-          ? "bg-gradient-to-b from-[#141414] to-[#141414]/50"
-          : "bg-gradient-to-b from-[#0f0f0f] to-[#1e1e1e]",
       )}
     >
       Auto
@@ -243,35 +242,6 @@ function ModelPicker({ value }: { value: string }) {
     >
       {value}
       <ChevronDown size={12} className="opacity-70" />
-    </button>
-  );
-}
-
-function ToolButton({
-  label,
-  children,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md",
-        "text-muted-foreground hover:text-foreground hover:bg-accent/60",
-        "transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
-      )}
-    >
-      {children}
     </button>
   );
 }
