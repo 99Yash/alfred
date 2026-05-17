@@ -15,16 +15,26 @@ export namespace ReplicacheModel {
    * `clientGroupID` so a stale cookie from a different group is detected
    * and treated as a cold sync rather than silently missing the CVR cache.
    */
-  export const pullCookie = t.Object({
-    order: t.Integer({ minimum: 0 }),
-    clientGroupID: t.String({ minLength: 1, maxLength: 200 }),
-  });
-  export type PullCookie = typeof pullCookie.static;
+  export type PullCookie = {
+    order: number;
+    clientGroupID: string;
+  };
 
+  /**
+   * Body schema for `/replicache/pull`. `cookie` is typed as `t.Unknown`
+   * (rather than `t.Nullable(...)`) because `t.Nullable` desugars to
+   * `t.Union([schema, t.Null()])` and Elysia 1.4's `exact-mirror`
+   * validator logs a noisy "[exact-mirror] TypeBox's TypeCompiler is
+   * required to use Union" warning on every route compile. The handler
+   * does the (cheap) shape narrow at the top of `executePull` — see
+   * `narrowPullCookie` in `pull.ts`. Replicache sends either `null` on
+   * cold start or a `{ order, clientGroupID }` object thereafter; we
+   * tolerate any other shape by treating it as cold-sync.
+   */
   export const pull = t.Object({
     pullVersion: t.Literal(1),
     clientGroupID: t.String({ minLength: 1, maxLength: 200 }),
-    cookie: t.Nullable(pullCookie),
+    cookie: t.Unknown(),
     profileID: t.Optional(t.String({ maxLength: 200 })),
     schemaVersion: t.Optional(t.String({ maxLength: 50 })),
   });

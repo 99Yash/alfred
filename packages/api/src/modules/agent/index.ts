@@ -1,9 +1,9 @@
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { runOnce } from "./executor";
-import { enqueueRun, closeAgentQueue } from "./queue";
+import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
 import { listWorkflows, registerWorkflow } from "./registry";
-import { createRun, getRun, isUniqueViolation, signalRun } from "./service";
+import { createRun, getRun, isUniqueViolation, signalRun, type SignalArgs } from "./service";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
 export {
@@ -14,6 +14,7 @@ export {
   isUniqueViolation,
   signalRun,
   enqueueRun,
+  getAgentQueue,
   runOnce,
   startAgentWorker,
   stopAgentWorker,
@@ -52,6 +53,10 @@ export const agent = new Elysia({ prefix: "/api/agent" })
               brief: body.brief,
               input: body.input,
               metadata: body.metadata,
+              // /api/agent/runs is the generic "Run now" surface. Cron
+              // and event dispatchers go through their own paths; an
+              // HTTP-initiated run is always manual per ADR-0027.
+              trigger: { kind: "manual" },
             });
             await enqueueRun(runId);
             return { runId };
@@ -93,10 +98,35 @@ export const agent = new Elysia({ prefix: "/api/agent" })
         async ({ params, body, user }) => {
           const run = await getRun(params.runId, user.id);
           if (!run) return status(404, { message: "Run not found" });
-          const woken = await signalRun({
-            runId: params.runId,
-            match: body.match,
-          });
+          // Reshape the flat body into the discriminated union that
+          // `signalRun` consumes. `kind` is `t.String()` rather than a
+          // literal-union because Elysia 1.4's `exact-mirror` validator
+          // logs a noisy warning the first time it sees ANY `t.Union`
+          // schema (even of literals) and falls through without
+          // enforcing it — same end state, less log noise. The handler
+          // narrows + validates instead.
+          let match: SignalArgs["match"];
+          if (body.match) {
+            const kind = body.match.kind;
+            if (kind === "hil") {
+              if (!body.match.approvalId) {
+                return status(400, { message: "match.kind='hil' requires approvalId" });
+              }
+              match = { kind: "hil", approvalId: body.match.approvalId };
+            } else if (kind === "signal") {
+              if (!body.match.name) {
+                return status(400, { message: "match.kind='signal' requires name" });
+              }
+              match = { kind: "signal", name: body.match.name };
+            } else if (kind === "any") {
+              match = { kind: "any" };
+            } else {
+              return status(400, {
+                message: `match.kind must be 'hil' | 'signal' | 'any'; got ${String(kind)}`,
+              });
+            }
+          }
+          const woken = await signalRun({ runId: params.runId, match });
           if (!woken) return status(409, { message: "Run not waiting on a matching condition" });
           await enqueueRun(params.runId);
           return { ok: true };
@@ -105,17 +135,11 @@ export const agent = new Elysia({ prefix: "/api/agent" })
           params: t.Object({ runId: t.String() }),
           body: t.Object({
             match: t.Optional(
-              t.Union([
-                t.Object({
-                  kind: t.Literal("hil"),
-                  approvalId: t.String({ minLength: 1, maxLength: 120 }),
-                }),
-                t.Object({
-                  kind: t.Literal("signal"),
-                  name: t.String({ minLength: 1, maxLength: 120 }),
-                }),
-                t.Object({ kind: t.Literal("any") }),
-              ]),
+              t.Object({
+                kind: t.String({ minLength: 1, maxLength: 16 }),
+                approvalId: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
+                name: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
+              }),
             ),
           }),
         },

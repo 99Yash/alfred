@@ -94,8 +94,12 @@ type State = z.infer<typeof stateSchema>;
 
 export const coldStartResearchWorkflow: Workflow<State> = {
   slug: COLD_START_WORKFLOW_SLUG,
+  name: "Cold-start research",
   description:
     "Cold-start research at signup — Sonar Deep Research → cheap-tier extract → user_facts proposals + memory_chunks (ADR-0011 + ADR-0022).",
+  // Fires from the Google OAuth callback; lifetime-once is enforced by
+  // the workflow's own `dedupKey: () => 'cold-start'`.
+  trigger: { kind: "event", source: "google.oauth.callback" },
   initialStep: "gather-signals",
   stateSchema,
 

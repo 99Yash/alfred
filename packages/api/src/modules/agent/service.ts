@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { agentRuns } from "@alfred/db/schemas";
+import { agentRuns, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { requireWorkflow } from "./registry";
 import type { WakeCondition, WorkflowInput } from "./types";
@@ -31,6 +31,13 @@ export const STALE_RUN_LEASE_MS = 60_000;
 export interface CreateRunArgs extends WorkflowInput {
   userId: string;
   workflowSlug: string;
+  /**
+   * What caused this run to be created (ADR-0027). Required — every
+   * call-site declares its kind explicitly so the unified dispatcher
+   * surface stays auditable. `metadata` remains for diagnostic
+   * breadcrumbs (e.g. webhook delivery id, internal idempotency).
+   */
+  trigger: AgentRunTrigger;
 }
 
 export interface CreateRunResult {
@@ -76,6 +83,7 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
       state: (initialState as object) ?? {},
       currentStep: workflow.initialStep,
       metadata: (args.metadata as object) ?? {},
+      trigger: args.trigger,
       status: "pending",
       dedupKey,
     })

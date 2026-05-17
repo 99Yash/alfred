@@ -237,11 +237,32 @@ function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unk
   };
 }
 
+/**
+ * Replicache sends `cookie: null` on first pull and a
+ * `{ order, clientGroupID }` object thereafter. The route's TypeBox
+ * schema types `cookie` as `unknown` (to avoid `t.Nullable`'s Union
+ * desugaring); this helper does the runtime narrow, returning `null`
+ * for any non-conforming shape — treated downstream as cold-sync,
+ * matching the prior `t.Nullable` semantics.
+ */
+function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const obj = raw as { order?: unknown; clientGroupID?: unknown };
+  if (typeof obj.order !== "number" || !Number.isInteger(obj.order) || obj.order < 0) {
+    return null;
+  }
+  if (typeof obj.clientGroupID !== "string" || obj.clientGroupID.length === 0) {
+    return null;
+  }
+  return { order: obj.order, clientGroupID: obj.clientGroupID };
+}
+
 export async function handlePull(
   userId: string,
   body: PullRequestBody,
 ): Promise<PullResponse | { forbidden: true }> {
-  const { clientGroupID, cookie } = body;
+  const { clientGroupID } = body;
+  const cookie = narrowPullCookie(body.cookie);
   const cvrStore = getCVRStore();
 
   return await db().transaction(async (tx) => {

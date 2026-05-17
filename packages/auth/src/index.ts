@@ -5,6 +5,9 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins/email-otp";
 import { Resend } from "resend";
+import { getOnUserCreatedHooks } from "./hooks";
+
+export { registerOnUserCreated, type OnUserCreatedHook } from "./hooks";
 
 let _auth: ReturnType<typeof betterAuth<BetterAuthOptions>> | undefined;
 
@@ -66,6 +69,22 @@ export function auth() {
             if (!user.name) {
               const prefix = user.email.split("@")[0] ?? "Alfred";
               return { data: { ...user, name: prefix } };
+            }
+          },
+          // Fan out post-signup work to whatever the server bootstrap
+          // registered via `registerOnUserCreated`. Each hook runs in
+          // sequence; failures log + continue so one broken downstream
+          // subsystem can't bounce a legitimate signup.
+          after: async (user) => {
+            for (const hook of getOnUserCreatedHooks()) {
+              try {
+                await hook({ id: user.id, email: user.email });
+              } catch (err) {
+                console.error("[auth] onUserCreated hook failed", {
+                  userId: user.id,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
             }
           },
         },
