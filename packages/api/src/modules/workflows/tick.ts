@@ -32,6 +32,12 @@ export interface TickResult {
   scanned: number;
   enqueued: number;
   raced: number;
+  /**
+   * Rows whose cron expression failed to parse — distinct from CAS races
+   * (`raced`) so monitoring can alert on broken schedules without false
+   * positives from legitimate worker contention.
+   */
+  invalid: number;
   failed: number;
 }
 
@@ -49,6 +55,7 @@ export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<
 
   let enqueued = 0;
   let raced = 0;
+  let invalid = 0;
   let failed = 0;
 
   for (const row of due) {
@@ -56,6 +63,7 @@ export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<
       const result = await dispatchOne(row);
       if (result === "enqueued") enqueued++;
       else if (result === "raced") raced++;
+      else if (result === "invalid") invalid++;
     } catch (err) {
       failed++;
       console.warn(
@@ -67,10 +75,10 @@ export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<
 
   if (due.length > 0) {
     console.log(
-      `[workflows:tick] scanned=${due.length} enqueued=${enqueued} raced=${raced} failed=${failed}`,
+      `[workflows:tick] scanned=${due.length} enqueued=${enqueued} raced=${raced} invalid=${invalid} failed=${failed}`,
     );
   }
-  return { scanned: due.length, enqueued, raced, failed };
+  return { scanned: due.length, enqueued, raced, invalid, failed };
 }
 
 async function selectDueRows(now: Date): Promise<DueRow[]> {
@@ -100,13 +108,22 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
   return rows.flatMap((r) => (r.nextRunAt ? [{ ...r, nextRunAt: r.nextRunAt }] : []));
 }
 
-async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced"> {
+async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid"> {
   const scheduledFor = row.nextRunAt;
   const scheduledForIso = scheduledFor.toISOString();
 
   // Compute the *next* fire before the CAS so we can write both columns
   // atomically. `cron-parser` runs in the workflow's resolved tz; a
   // malformed schedule returns null and falls through to a clear log.
+  //
+  // `from: scheduledFor` (not `from: now`) keeps cron spacing
+  // deterministic when a tick is mildly delayed. The catch: if a row
+  // sat in the index with a stale `next_run_at` (e.g. paused for days
+  // and then reactivated without re-priming), this will replay every
+  // missed period one-per-tick until caught up. m12a's CRUD activate
+  // path is responsible for re-priming `next_run_at` from now() on
+  // status → 'active'; until that lands, no caller produces a stale
+  // active cron row (builtin seeder writes `next_run_at = null`).
   const timezone = await resolveWorkflowTimezone(row.userId, row.trigger);
   const newNext = computeNextRunAt(row.trigger, { from: scheduledFor, timezone });
   if (!newNext) {
@@ -120,7 +137,7 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced"> {
       .update(workflows)
       .set({ nextRunAt: null, updatedAt: new Date() })
       .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)));
-    return "raced";
+    return "invalid";
   }
 
   // CAS: only this tick worker may advance the row from the instant we
@@ -140,6 +157,13 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced"> {
     return "raced";
   }
 
+  // `createRun` → `requireWorkflow` looks the slug up in the in-memory
+  // builtin registry. When m12a's CRUD lands and active cron rows can
+  // be user-authored, an unregistered slug will throw here — the CAS
+  // above will have already advanced, so the throw turns into a
+  // silently lost run (counted as `failed`). The m13 execution stub
+  // is supposed to catch this inside `createRun` and produce a
+  // `failed` row instead of throwing.
   const { runId } = await createRun({
     userId: row.userId,
     workflowSlug: row.slug,
