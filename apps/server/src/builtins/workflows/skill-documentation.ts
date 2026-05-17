@@ -102,8 +102,13 @@ type State = z.infer<typeof stateSchema>;
 
 export const skillDocumentationWorkflow: Workflow<State> = {
   slug: SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+  name: "Skill documentation",
   description:
     "Async deep-documentation pass for a skill — hybrid search + boss-tier compose + email notify (ADR-0017).",
+  // Spawned by the parent `learn-skill` workflow once the sync phase
+  // commits a revision; `event.source = 'learn-skill'` captures that
+  // relationship for History filters.
+  trigger: { kind: "event", source: "learn-skill" },
   initialStep: "gather-context",
   stateSchema,
 

@@ -91,8 +91,15 @@ const inputSchema = z.object({
 
 export const memoryExtractionWorkflow: Workflow<State> = {
   slug: "memory-extraction",
+  name: "Memory extraction",
   description:
     "Daily extraction of structured facts from recently-ingested documents (ADR-0019).",
+  // Declared as cron for honesty; `next_run_at` stays null at seed time
+  // so the generic workflows.tick skips it. The per-feature
+  // `memory.extract.daily` BullMQ repeatable (memory/repeatable.ts)
+  // owns dispatch today. Future: migrate onto workflows.tick with a
+  // per-user schedule and retire the per-feature tick.
+  trigger: { kind: "cron", schedule: "0 3 * * *" },
   initialStep: "pick-documents",
   stateSchema,
 

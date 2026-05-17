@@ -22,7 +22,9 @@ type State = z.infer<typeof stateSchema>;
 
 export const echoWithApprovalWorkflow: Workflow<State> = {
   slug: "echo-with-approval",
+  name: "Echo with approval (smoke)",
   description: "Greet → wait for HIL approval → echo back. Smoke test for the durable runtime.",
+  trigger: { kind: "manual" },
   initialStep: "say-hello",
   stateSchema,
   initialState(input) {

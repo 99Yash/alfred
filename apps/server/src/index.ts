@@ -8,19 +8,25 @@ import {
   closeMemoryQueue,
   closeRedis,
   closeReplicachePokeBridge,
+  closeWorkflowsQueue,
   initEventBridge,
   initReplicachePokeBridge,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
+  scheduleRepeatableWorkflowsJobs,
+  registerOnUserCreated,
+  seedBuiltinWorkflowsForUser,
   startAgentWorker,
   startBriefingWorker,
   startIngestionWorker,
   startMemoryWorker,
+  startWorkflowsWorker,
   stopAgentWorker,
   stopBriefingWorker,
   stopIngestionWorker,
   stopMemoryWorker,
+  stopWorkflowsWorker,
   warmPool,
 } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -38,10 +44,18 @@ await initReplicachePokeBridge();
 // Register built-in workflows BEFORE the worker starts pulling jobs —
 // otherwise a job picked up first might not find its workflow slug.
 registerBuiltinWorkflows();
+// Register the post-signup hook BEFORE Better Auth's databaseHooks can
+// fire. New users get their builtin `workflows` rows seeded immediately
+// so the settings page + workflows.tick partial index see them from
+// turn 0.
+registerOnUserCreated(async (user) => {
+  await seedBuiltinWorkflowsForUser(user.id);
+});
 await startAgentWorker();
 await startIngestionWorker();
 await startMemoryWorker();
 await startBriefingWorker();
+await startWorkflowsWorker();
 // Register the m7c repeatable jobs (poll-sweep, watch-renew, embed-sweep).
 // Idempotent: rerunning on every boot upserts the same scheduler ids.
 await scheduleRepeatableIngestionJobs();
@@ -49,6 +63,11 @@ await scheduleRepeatableIngestionJobs();
 await scheduleRepeatableMemoryJobs();
 // Hourly briefing.tick (m10c). Same idempotency story.
 await scheduleRepeatableBriefingJobs();
+// Per-minute generic workflows.tick (ADR-0027). Reads the partial
+// `workflows_next_run_at_idx`; user-authored cron workflows fire here.
+// Per-feature ticks (briefing/memory) still own their lanes; their
+// builtin rows seed with `next_run_at = null` to stay out of this scan.
+await scheduleRepeatableWorkflowsJobs();
 
 const server = new Elysia({ adapter: node() })
   .use(
@@ -80,6 +99,8 @@ async function shutdown(signal: string) {
     await closeMemoryQueue();
     await stopBriefingWorker();
     await closeBriefingQueue();
+    await stopWorkflowsWorker();
+    await closeWorkflowsQueue();
     console.log("Workers stopped");
   } catch (err) {
     console.error(

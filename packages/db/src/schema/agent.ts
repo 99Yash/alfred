@@ -9,8 +9,40 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { z } from "zod";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+/**
+ * Trigger that caused this `agent_runs` row to be inserted (ADR-0027).
+ *
+ * Mirrors `workflows.trigger`'s shape at the union level but carries the
+ * concrete firing context: a cron tick stamps `scheduledFor`, an event
+ * dispatch stamps `eventId` (used by callers as a per-event idempotency
+ * key), a manual "Run now" carries no payload, an on-signal dispatch
+ * names the signal.
+ *
+ * All four kinds funnel through one `createRun` primitive — no per-kind
+ * execution paths. Old call-sites that stamped `metadata.triggeredBy`
+ * migrate to populating this column directly; `metadata` is reserved for
+ * diagnostic breadcrumbs (e.g. which webhook delivery id fanned out).
+ */
+export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    /** Scheduled instant as ISO-8601; distinct from `started_at` (wall-clock). */
+    scheduledFor: z.string(),
+  }),
+  z.object({
+    kind: z.literal("event"),
+    /** Caller-supplied stable id; the event source's natural per-occurrence key. */
+    eventId: z.string(),
+    payload: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({ kind: z.literal("manual") }),
+  z.object({ kind: z.literal("on_signal"), signalName: z.string() }),
+]);
+export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
 /**
  * One row per durable agent run.
@@ -49,6 +81,13 @@ export const agentRuns = pgTable(
     error: jsonb("error"),
     output: jsonb("output"),
     metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    /**
+     * What caused this row to be inserted (ADR-0027). Discriminated by
+     * `kind`; see `agentRunTriggerSchema`. Nullable for legacy rows
+     * inserted before this column existed — new `createRun` calls always
+     * populate it.
+     */
+    trigger: jsonb("trigger").$type<AgentRunTrigger>(),
     /**
      * Optional workflow-declared singleton key. When non-null and the run
      * is not in a terminal-failure state, no second row with the same

@@ -56,7 +56,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
             userId: user.id,
             workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
             input,
-            metadata: { triggeredBy: "skills.create" },
+            trigger: { kind: "manual" },
           });
           await recordSkillRun({
             userId: user.id,
@@ -95,7 +95,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
               userId: user.id,
               workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
               input,
-              metadata: { triggeredBy: "skills.relearn" },
+              trigger: { kind: "manual" },
             });
             await recordSkillRun({
               userId: user.id,

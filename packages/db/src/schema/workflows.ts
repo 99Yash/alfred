@@ -187,6 +187,22 @@ export const workflows = pgTable(
     lastRunId: text("last_run_id"),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     lastRunStatus: text("last_run_status"),
+    /**
+     * Cron dispatch denormalization (ADR-0027). Recomputed via `cron-parser`
+     * at exactly two write moments: (i) after a `workflows` write that
+     * mutates `trigger` or flips `status` to `active`, (ii) inside
+     * `workflows.tick` right after a successful fire. Null for non-cron
+     * triggers and for paused/draft cron workflows that haven't been
+     * primed yet.
+     */
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    /**
+     * The `scheduledFor` instant of the most recent fire — distinct from
+     * `last_run_at` (wall-clock end of the run). Useful to detect tick
+     * delays (`last_run_at - last_scheduled_at`) and to seed the next
+     * `cron-parser.next()` call.
+     */
+    lastScheduledAt: timestamp("last_scheduled_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [
@@ -197,5 +213,12 @@ export const workflows = pgTable(
     index("workflows_active_idx")
       .on(t.userId, t.slug)
       .where(sql`${t.status} = 'active'`),
+    // ADR-0027: tick query is `WHERE next_run_at <= now() ORDER BY
+    // next_run_at LIMIT 100` over the active cron set. Partial keeps the
+    // index tight; the status + trigger.kind filters land in the WHERE
+    // clause so non-cron and paused rows never touch the index.
+    index("workflows_next_run_at_idx")
+      .on(t.nextRunAt)
+      .where(sql`${t.status} = 'active' AND ${t.trigger}->>'kind' = 'cron'`),
   ],
 );

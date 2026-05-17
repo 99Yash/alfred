@@ -1,3 +1,4 @@
+import type { WorkflowTrigger } from "@alfred/db/schemas";
 import type { z } from "zod";
 
 /**
@@ -102,7 +103,27 @@ export interface DedupKeyArgs extends WorkflowInput {
 export interface Workflow<S = unknown> {
   /** Stable slug; used to look up the workflow when resuming a run after a deploy. */
   slug: string;
+  /**
+   * Display name shown in the settings / workflows list. Required for
+   * built-ins because the seeder writes it into the `workflows.name`
+   * column at deploy time.
+   */
+  name: string;
   description?: string;
+  /**
+   * Trigger declaration for built-ins (ADR-0027). Seeded into the
+   * `workflows.trigger` column per user; the cron dispatcher reads it
+   * back via the partial index. User-authored workflows manage their
+   * trigger through the CRUD API instead.
+   */
+  trigger: WorkflowTrigger;
+  /**
+   * Optional explicit allowlist for `load_integration` during agent
+   * runs (ADR-0026). Mirrored onto the `workflows.allowed_integrations`
+   * column; empty array = unrestricted (subject to the user's connected
+   * integrations).
+   */
+  allowedIntegrations?: string[];
   /** Build the run's initial state from the caller's input. Throw to refuse the run. */
   initialState(input: WorkflowInput): S;
   /** Step the executor enters first. */
