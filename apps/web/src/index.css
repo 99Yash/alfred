@@ -1,2 +1,223 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/* -----------------------------------------------------------------------------
+ * Fonts
+ * Open Runde (local) — body. Inter (Google) — UI / numerics. Newsreader (Google)
+ * — sprinkled serif (greetings, hero copy). Mono falls back to the system.
+ * Only Medium + Semibold of Open Runde are locally available; we lean on those
+ * weights everywhere and let Inter cover anything heavier or thinner.
+ * -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Medium.woff2") format("woff2");
+  font-weight: 400 550;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Semibold.woff2") format("woff2");
+  font-weight: 551 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap");
+
+/* -----------------------------------------------------------------------------
+ * Dark variant + theme
+ * Tokens live as raw CSS vars on :root / .dark, then @theme inline maps them
+ * to Tailwind's color tokens so utilities like bg-background / text-foreground
+ * resolve through the swap.
+ * -------------------------------------------------------------------------- */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  /* Light — warm paper neutrals. Provisional; swap freely. */
+  --background: oklch(0.99 0.003 95);
+  --foreground: oklch(0.18 0.01 270);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 270);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 270);
+  --primary: oklch(0.22 0.01 270);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.96 0.005 95);
+  --secondary-foreground: oklch(0.22 0.01 270);
+  --muted: oklch(0.965 0.005 95);
+  --muted-foreground: oklch(0.5 0.012 270);
+  --accent: oklch(0.95 0.006 95);
+  --accent-foreground: oklch(0.22 0.01 270);
+  --destructive: oklch(0.58 0.21 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.92 0.005 95);
+  --input: oklch(0.92 0.005 95);
+  --ring: oklch(0.7 0.02 270);
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 4px 12px oklch(0 0 0 / 0.04);
+  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.06), 0 12px 24px oklch(0 0 0 / 0.08);
+}
+
+.dark {
+  /* Dark — neutral grays with a touch of warmth. Anchored on Dimension's
+   * computed gray-25/50/100/200 scale but with a hint of warm hue so Alfred
+   * doesn't read as pure-cold. */
+  --background: oklch(0.155 0.005 280);
+  --foreground: oklch(0.96 0.005 95);
+  --card: oklch(0.185 0.005 280);
+  --card-foreground: oklch(0.96 0.005 95);
+  --popover: oklch(0.185 0.005 280);
+  --popover-foreground: oklch(0.96 0.005 95);
+  --primary: oklch(0.96 0.005 95);
+  --primary-foreground: oklch(0.185 0.005 280);
+  --secondary: oklch(0.235 0.005 280);
+  --secondary-foreground: oklch(0.96 0.005 95);
+  --muted: oklch(0.23 0.005 280);
+  --muted-foreground: oklch(0.66 0.01 280);
+  --accent: oklch(0.255 0.005 280);
+  --accent-foreground: oklch(0.96 0.005 95);
+  --destructive: oklch(0.5 0.18 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.275 0.005 280);
+  --input: oklch(0.24 0.005 280);
+  --ring: oklch(0.55 0.02 280);
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 4px 12px oklch(0 0 0 / 0.4);
+  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.5), 0 12px 24px oklch(0 0 0 / 0.55);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans:
+    "Open Runde", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-serif:
+    "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, "Menlo", "Consolas",
+    "Liberation Mono", monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-pop: var(--shadow-pop);
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+
+  html {
+    /* Avoid the iOS Safari zoom-on-focus tax on small inputs. */
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+  }
+
+  /* Tabular numbers for time / counts. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Selection styling — quiet, not aggressive. */
+  ::selection {
+    background-color: color-mix(in oklch, var(--color-foreground) 18%, transparent);
+  }
+
+  /* Native form reset for the inputs we wire raw (no shadcn primitives yet). */
+  input,
+  textarea,
+  button,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Custom scrollbars — only inside scrollable panes (opt-in via .scrollbar). */
+  .scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  .scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 9999px;
+  }
+
+  /* Mobile nav drawer slide-in. */
+  @keyframes drawer-slide-in {
+    from {
+      transform: translateX(-100%);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  .drawer-slide-in {
+    animation: drawer-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Toast slide-up + fade-in. */
+  @keyframes toast-in {
+    from {
+      transform: translateY(8px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  .animate-toast-in {
+    animation: toast-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}

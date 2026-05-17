@@ -1,32 +1,30 @@
 /**
- * Tiny presentational helpers for the skills pages. Lives outside the
- * route files so the list and detail pages don't drift on tone choices.
+ * Status pills for the skills pages. Kept in their own file so the list and
+ * detail pages don't drift on tone choices. Uses the shared Pill primitive so
+ * tones work in both light and dark.
  */
 
-const SKILL_STATUS_TONES: Record<string, string> = {
-  active: "bg-green-100 text-green-800",
-  draft: "bg-amber-100 text-amber-800",
+import { Pill } from "~/lib/ui";
+
+type Tone = "neutral" | "positive" | "warning" | "negative" | "info";
+
+const SKILL_STATUS_TONE: Record<string, Tone> = {
+  active: "positive",
+  draft: "warning",
 };
 
-const RUN_STATUS_TONES: Record<string, string> = {
-  completed: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
-  cancelled: "bg-gray-100 text-gray-700",
+const RUN_STATUS_TONE: Record<string, Tone> = {
+  completed: "positive",
+  failed: "negative",
+  cancelled: "neutral",
 };
 
-const NEUTRAL_TONE = "bg-gray-100 text-gray-700";
-const IN_FLIGHT_TONE = "bg-amber-100 text-amber-800";
-
-function Pill({ status, tone }: { status: string; tone: string }) {
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>{status}</span>
-  );
-}
+const IN_FLIGHT_TONE: Tone = "warning";
 
 export function SkillStatusPill({ status }: { status: string }) {
-  return <Pill status={status} tone={SKILL_STATUS_TONES[status] ?? NEUTRAL_TONE} />;
+  return <Pill tone={SKILL_STATUS_TONE[status] ?? "neutral"}>{status}</Pill>;
 }
 
 export function RunStatusPill({ status }: { status: string }) {
-  return <Pill status={status} tone={RUN_STATUS_TONES[status] ?? IN_FLIGHT_TONE} />;
+  return <Pill tone={RUN_STATUS_TONE[status] ?? IN_FLIGHT_TONE}>{status}</Pill>;
 }
