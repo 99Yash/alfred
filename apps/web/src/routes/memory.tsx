@@ -1,11 +1,21 @@
 import { IDB_KEY, type SyncedFact } from "@alfred/sync";
 import { createFileRoute } from "@tanstack/react-router";
+import { Brain, Check, Pencil, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth-client";
 import { useEventStream } from "~/lib/events/use-event-stream";
 import { useReplicache } from "~/lib/replicache/context";
 import { useSubscribe } from "~/lib/replicache/hooks";
+import {
+  Button,
+  EmptyState,
+  PageContainer,
+  PageHeader,
+  Pill,
+  SectionHeader,
+} from "~/lib/ui";
+import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/memory")({
   component: MemoryPage,
@@ -22,7 +32,6 @@ interface LearnedToast {
   key: string;
   preview: string;
   confidence: number;
-  /** Wall-clock timestamp for ordering + auto-dismiss. */
   receivedAt: number;
 }
 
@@ -37,9 +46,6 @@ function MemoryPage() {
 
   const [toasts, setToasts] = useState<LearnedToast[]>([]);
 
-  // Map memory.fact_learned events into auto-dismissing toasts. The
-  // event stream gives us a running list newest-first; we only react
-  // to the head element to avoid re-toasting on reconnect replay.
   useEffect(() => {
     const head = eventFrames[0];
     if (!head || head.kind !== "memory.fact_learned") return;
@@ -63,7 +69,6 @@ function MemoryPage() {
     });
   }, [eventFrames]);
 
-  // Sweep toasts past their lifetime.
   useEffect(() => {
     if (toasts.length === 0) return;
     const timer = setInterval(() => {
@@ -105,9 +110,6 @@ function MemoryPage() {
   const onEdit = useCallback(
     async (fact: SyncedFact) => {
       if (!rep) return;
-      // Minimal editor — prompts for a JSON value. Strings without quotes
-      // are accepted (re-wrapped). Power-user UX, but enough to prove the
-      // round-trip; v2 swaps in an inline editor.
       const current =
         typeof fact.value === "string" ? fact.value : JSON.stringify(fact.value);
       const raw = window.prompt(`Edit value for ${fact.key}`, current);
@@ -117,7 +119,6 @@ function MemoryPage() {
       try {
         nextValue = JSON.parse(trimmed);
       } catch {
-        // not JSON — keep as string
         nextValue = trimmed;
       }
       await rep.mutate.factEdit({
@@ -143,139 +144,179 @@ function MemoryPage() {
 
   if (!session?.user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center space-y-4">
-          <p className="text-muted-foreground">Not signed in.</p>
-          <a href="/login" className="underline text-sm">
-            Sign in
-          </a>
-        </div>
-      </div>
+      <PageContainer>
+        <EmptyState
+          icon={<Brain size={18} />}
+          title="Not signed in"
+          description="Sign in to view Alfred's memory."
+          action={
+            <a
+              href="/login"
+              className="text-sm underline text-muted-foreground hover:text-foreground"
+            >
+              Sign in
+            </a>
+          }
+        />
+      </PageContainer>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <h1 className="text-2xl font-bold">Memory</h1>
+    <>
+      <PageContainer>
+        <PageHeader
+          eyebrow="Workspace"
+          title="Memory"
+          description="Facts Alfred has learned about you. High-confidence facts auto-confirm; the rest wait for your review."
+        />
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          Proposed{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({proposed.length})
-          </span>
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Alfred isn't confident enough to add these on its own.
-        </p>
-        {facts === undefined ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : proposed.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing pending review.</p>
-        ) : (
-          <ul className="space-y-2">
-            {proposed.map((fact) => (
-              <li key={fact.id} className="rounded-md border px-4 py-3 text-sm space-y-2">
-                <div className="flex items-baseline justify-between gap-3">
-                  <code className="font-mono text-xs">{fact.key}</code>
-                  <span className="text-xs text-muted-foreground">
-                    {(fact.confidence * 100).toFixed(0)}% confidence
+        <section className="space-y-3">
+          <SectionHeader
+            title="Proposed"
+            count={proposed.length}
+            description="Alfred isn't confident enough to add these on its own."
+          />
+          {facts === undefined ? (
+            <p className="text-sm text-muted-foreground px-1">Loading…</p>
+          ) : proposed.length === 0 ? (
+            <EmptyState
+              icon={<Sparkles size={18} />}
+              title="Nothing pending review"
+              description="When Alfred sees something it isn't sure about, it'll show up here."
+            />
+          ) : (
+            <ul className="space-y-2">
+              {proposed.map((fact) => (
+                <li
+                  key={fact.id}
+                  className="rounded-lg border bg-card px-4 py-3 text-sm shadow-soft space-y-2.5"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <code className="font-mono text-[12px] text-foreground/90 break-all">
+                      {fact.key}
+                    </code>
+                    <Pill tone={confidenceTone(fact.confidence)}>
+                      {(fact.confidence * 100).toFixed(0)}%
+                    </Pill>
+                  </div>
+                  <div className="rounded-md bg-muted/40 px-3 py-2 font-mono text-[12px] whitespace-pre-wrap break-words">
+                    {previewValue(fact.value)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular">
+                    {sourceLabel(fact.source)} ·{" "}
+                    {new Date(fact.createdAt).toLocaleString()}
+                  </div>
+                  <div className="flex gap-1.5 pt-0.5">
+                    <Button size="sm" onClick={() => onConfirm(fact.id)}>
+                      <Check size={12} /> Confirm
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onEdit(fact)}
+                    >
+                      <Pencil size={12} /> Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onReject(fact.id)}
+                    >
+                      <X size={12} /> Reject
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <SectionHeader
+            title="Confirmed"
+            count={confirmed.length}
+            description={
+              confirmed.length === 0
+                ? undefined
+                : "Acts as background context on every Alfred run."
+            }
+          />
+          {confirmed.length === 0 ? (
+            <EmptyState
+              icon={<Brain size={18} />}
+              title="No confirmed facts yet"
+              description="As Alfred works with you, high-confidence facts will land here automatically."
+            />
+          ) : (
+            <ul className="divide-y rounded-lg border bg-card shadow-soft overflow-hidden">
+              {confirmed.map((fact) => (
+                <li
+                  key={fact.id}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent/30 transition-colors"
+                >
+                  <code className="font-mono text-[12px] shrink-0 text-muted-foreground">
+                    {fact.key}
+                  </code>
+                  <span className="font-mono text-[12px] flex-1 truncate">
+                    {previewValue(fact.value)}
                   </span>
-                </div>
-                <div className="font-mono text-xs whitespace-pre-wrap break-words">
-                  {previewValue(fact.value)}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {sourceLabel(fact.source)} · {new Date(fact.createdAt).toLocaleString()}
-                </div>
-                <div className="flex gap-2 pt-1">
                   <button
-                    onClick={() => onConfirm(fact.id)}
-                    className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+                    onClick={() => onEdit(fact)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    Confirm
+                    edit
                   </button>
                   <button
                     onClick={() => onReject(fact.id)}
-                    className="rounded-md border px-3 py-1 text-xs font-medium"
+                    className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
                   >
-                    Reject
+                    forget
                   </button>
-                  <button
-                    onClick={() => onEdit(fact)}
-                    className="rounded-md border px-3 py-1 text-xs font-medium"
-                  >
-                    Edit
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </PageContainer>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          Confirmed{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({confirmed.length})
-          </span>
-        </h2>
-        {confirmed.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No confirmed facts yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {confirmed.map((fact) => (
-              <li
-                key={fact.id}
-                className="rounded-md border px-4 py-2 text-sm flex items-center gap-3"
-              >
-                <code className="font-mono text-xs flex-shrink-0">{fact.key}</code>
-                <span className="font-mono text-xs flex-1 truncate">
-                  {previewValue(fact.value)}
-                </span>
-                <button
-                  onClick={() => onEdit(fact)}
-                  className="text-xs underline text-muted-foreground"
-                >
-                  edit
-                </button>
-                <button
-                  onClick={() => onReject(fact.id)}
-                  className="text-xs underline text-muted-foreground"
-                >
-                  reject
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Toast stack — anchored bottom-right. */}
+      {/* Toast stack — anchored bottom-right, above the right rail if present. */}
       <div className="fixed bottom-4 right-4 flex flex-col gap-2 max-w-sm z-50">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="rounded-md border bg-background px-4 py-3 text-sm shadow-lg space-y-2"
+            className={cn(
+              "rounded-lg border bg-popover px-4 py-3 text-sm shadow-pop",
+              "animate-toast-in",
+            )}
           >
-            <div className="text-xs text-muted-foreground">Alfred learned</div>
-            <div>
-              <code className="font-mono text-xs">{toast.key}</code>
-              <span className="ml-2 font-mono text-xs">{toast.preview}</span>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+              <Sparkles size={11} /> Alfred learned
             </div>
-            <div className="flex justify-end gap-2 text-xs">
-              <button onClick={() => undoToast(toast)} className="underline">
+            <div className="space-y-1">
+              <code className="font-mono text-[11px] text-muted-foreground">
+                {toast.key}
+              </code>
+              <p className="text-[13px] font-mono break-words">{toast.preview}</p>
+            </div>
+            <div className="flex justify-end gap-2 text-[11px] pt-2">
+              <button
+                onClick={() => undoToast(toast)}
+                className="underline hover:text-foreground"
+              >
                 Undo
               </button>
-              <button onClick={() => dismissToast(toast.id)} className="text-muted-foreground">
+              <button
+                onClick={() => dismissToast(toast.id)}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 Dismiss
               </button>
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -294,4 +335,10 @@ function sourceLabel(source: Record<string, unknown> | unknown): string {
   const kind = typeof s.kind === "string" ? s.kind : "unknown";
   const id = typeof s.id === "string" ? s.id : null;
   return id ? `${kind} · ${id}` : kind;
+}
+
+function confidenceTone(c: number): "positive" | "warning" | "negative" {
+  if (c >= 0.75) return "positive";
+  if (c >= 0.5) return "warning";
+  return "negative";
 }
