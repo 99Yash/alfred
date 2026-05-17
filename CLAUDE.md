@@ -4,17 +4,6 @@ Alfred is a personal AI assistant (single user, multi-device). It connects to em
 
 Read [`decisions.md`](./decisions.md) before proposing architecture changes — 25 ADRs cover every major choice and rejection.
 
-## Commands
-
-```bash
-pnpm dev             # start server (:3001) + web (:3000) in watch mode
-pnpm build           # build all packages/apps
-pnpm check-types     # tsc across all packages
-pnpm db:generate     # generate Drizzle migration from schema diff
-pnpm db:migrate      # apply pending migrations
-pnpm db:studio       # Drizzle Studio GUI
-```
-
 One non-standard rule:
 
 - **Never `db:push` outside local exploration.** Always `db:generate` → `db:migrate`.
@@ -85,7 +74,7 @@ Key patterns in this repo:
 
 ```ts
 // Auth guard via macro (packages/api/src/middleware/auth.ts)
-app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
+app.use(authMacro).get('/protected', ({ user }) => user, { auth: true });
 
 // Global error handler (packages/api/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.
@@ -131,7 +120,7 @@ Alfred uses AI SDK v6 (`ai@^6`). Common v6 differences:
 - `maxSteps` → `stopWhen: [stepCountIs(n)]`.
 - `tool()` uses `inputSchema`, not `parameters`.
 - `LanguageModel` is a union — do not hardcode string model IDs in type positions.
-- `generateObject` *@deprecated* — Use `generateText` with an `output` setting instead.
+- `generateObject` _@deprecated_ — Use `generateText` with an `output` setting instead.
 
 Model selection: `getBossModel()`, `getSubAgentModel()`, `getCheapModel()`, `getWebSearchModel()`, `getResearchModel()` from `@alfred/ai/provider`. Do not call AI SDK provider functions directly from route handlers. The two web-search models (Perplexity Sonar Pro for live, Sonar Deep Research for cold-start) must be routed through `meteredGenerateText` with `attribution.kind = 'web_search'` so cost rollups bucket them apart from the LLM line.
 
@@ -154,7 +143,7 @@ The pipeline:
 1. `gmail.poll_history` (BullMQ) inserts a fresh `documents` row.
 2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`).
 3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `classify` (cheap-tier LLM via `@alfred/ai`'s `metered.object()`) → `apply-label` (`messages.modify`).
-4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`* label id is persisted on `applied_label_id`.
+4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`\* label id is persisted on `applied_label_id`.
 
 Initial-sync seed: the OAuth callback (`google-routes.ts /callback`) enqueues a `gmail.ingest_recent` job with `maxMessages: 8, triageInsertedDocs: true` so a brand-new account has classified mail to look at immediately. The flag is the opt-in that narrows ADR-0025's "no triage on bulk re-ingest" rule — only callers that explicitly request triage get it. Re-connect is idempotent (dedup index → 0 inserts → 0 triage runs).
 
@@ -225,27 +214,9 @@ When adding a new synced entity:
 
 Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing vars throws a clear error listing what's missing.
 
-Key vars for local dev (pre-filled in `apps/server/.env`):
+Key vars for local dev should be pre-filled in `apps/server/.env`
 
-
-| Var                            | Notes                                                   |
-| ------------------------------ | ------------------------------------------------------- |
-| `DATABASE_URL`                 | Postgres — local docker default already set             |
-| `REDIS_URL`                    | Redis — local docker default already set                |
-| `BETTER_AUTH_SECRET`           | Min 32 chars — generate with `openssl rand -base64 32`  |
-| `BETTER_AUTH_URL`              | `http://localhost:3001` for local dev                   |
-| `ALFRED_ALLOWED_EMAIL`         | Your email — only address that can sign up              |
-| `RESEND_API_KEY`               | Required for OTP email delivery                         |
-| `RESEND_FROM_EMAIL`            | e.g. `Alfred <noreply@yourdomain.com>`                  |
-| `ANTHROPIC_API_KEY`            | Required — primary LLM                                  |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required — fallback LLM + Gemini embeddings             |
-| `GOOGLE_OAUTH_*`               | Required for m7 Gmail OAuth (client id/secret/redirect) |
-| `GOOGLE_PUBSUB_TOPIC`          | m7c — Pub/Sub topic Gmail push publishes to             |
-| `GOOGLE_PUBSUB_AUDIENCE`       | m7c — OIDC audience on the push subscription            |
-| `PERPLEXITY_API_KEY`           | m11 — Sonar Deep Research at signup + Sonar Pro tool    |
-
-
-All other vars are optional and safe to leave blank locally.
+Some vars are optional and safe to leave blank locally.
 
 When adding a new env var: update `packages/env/src/server.ts`, `apps/server/.env`, `.env.example`, and this file.
 
@@ -268,4 +239,3 @@ Do not use `process.env` directly in app code — always go through `serverEnv()
 - 13 — Boss + sub-agent orchestration. Replaces m12's execution stub. Builds the tool registry + tool dispatcher + `load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026).
 - 14 — MCP client
 - 15 — Observability
-

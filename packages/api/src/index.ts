@@ -17,6 +17,7 @@ export { initEventBridge, closeEventBridge } from "./events/index.js";
 export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
 export { publishEvent } from "./events/publish.js";
 export type { EventFrame, EventKind, EventPayload } from "./events/types.js";
+export { registerOnUserCreated, type OnUserCreatedHook } from "@alfred/auth";
 export {
   registerWorkflow,
   startAgentWorker,
@@ -26,6 +27,7 @@ export {
   isUniqueViolation,
   signalRun,
   enqueueRun,
+  getAgentQueue,
 } from "./modules/agent/index.js";
 export {
   startIngestionWorker,
@@ -42,6 +44,7 @@ export * from "./modules/cold-start/index.js";
 export * from "./modules/notifications/index.js";
 export * from "./modules/skills/index.js";
 export * from "./modules/skill-documentation/index.js";
+export * from "./modules/workflows/index.js";
 export type {
   Workflow,
   WorkflowInput,

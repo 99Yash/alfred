@@ -306,7 +306,12 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
           userId: decoded.userId,
           workflowSlug: COLD_START_WORKFLOW_SLUG,
           input: { reason: "signup" },
-          metadata: { triggeredBy: "google.callback" },
+          // OAuth callback is an external system event (Google's IdP).
+          // `eventId` is the credential id — naturally per-occurrence,
+          // and the `dedupKey: () => 'cold-start'` on the workflow
+          // already enforces lifetime-once, so this is mostly for
+          // breadcrumb-style filtering in History.
+          trigger: { kind: "event", eventId: `google.callback:${credential.id}` },
         });
         await enqueueRun(runId);
       } catch (err) {

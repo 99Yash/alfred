@@ -18,6 +18,7 @@
     "@alfred/integrations": "workspace:*",
     "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
+    "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
     "ioredis": "catalog:",

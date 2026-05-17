@@ -152,7 +152,7 @@ async function main() {
     userId: u.id,
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
     input: { skillId, prompt: SAMPLE_PROMPT, reason: "manual" },
-    metadata: { triggeredBy: "smoke-skill-doc" },
+    trigger: { kind: "manual" },
   });
   await enqueueRun(learn.runId);
   console.log(`[smoke-skill-doc] learn enqueued: ${learn.runId}`);

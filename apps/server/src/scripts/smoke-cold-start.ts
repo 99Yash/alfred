@@ -153,7 +153,7 @@ async function main() {
     userId: u.id,
     workflowSlug: COLD_START_WORKFLOW_SLUG,
     input: { reason: "manual" },
-    metadata: { triggeredBy: "smoke-cold-start" },
+    trigger: { kind: "manual" },
   });
   await enqueueRun(runId);
   console.log(`[smoke-cold-start] run enqueued: ${runId}`);
