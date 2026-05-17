@@ -15,6 +15,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 - `screenshots/` — full-page PNGs of each captured route/state
 - `snapshots/` — a11y trees (text) of the same states, useful for figuring out exact labels and component nesting
 - `marketing-images/` — high-res product screenshots Dimension's own marketing pages embed (often cleaner reference than my logged-in shots because there's no shutdown banner, no real-data clutter)
+- `artifact-html/` — **raw `srcdoc` HTML** of generated artifacts (the per-page `<iframe>` mounts in the artifact panel). This is the **document engine** — Dimension's biggest under-documented capability and the largest roadmap gap for Alfred. See [`artifact-html/README.md`](./artifact-html/README.md) for the design-system + template-pattern breakdown
+- `onboarding.md` — the post-signup onboarding flow, **reconstructed from the JS bundle** (server-gated, no screenshots). Sign-in → feature carousel → questionnaire → Google connect → trust beat → install/pocket → finish. Includes verbatim copy, analytics events, the `routeToOnboarding` server-flag pattern, and a section on Alfred-relevant patterns to lift
 - `tokens.md` — design tokens (color scales, semantic shadcn vars, fonts, radii) + computed styles for key components + observed motion + mobile breakpoint behavior. Pulled live via DevTools `getComputedStyle` + `document.styleSheets` walk; no source maps were exposed (`.js.map` URLs return 404)
 
 ## App chrome (shared across all authenticated routes)
@@ -424,6 +426,14 @@ Closed in the May-16 follow-up pass:
 - ~~Non-Google connector page~~ — captured Slack (`18-integration-slack.png`); same template, only surface diffs.
 - ~~Mobile / responsive views~~ — captured (`19-…`, `19b-…`, `19c-…`, `19d-…`); single-column with hamburger nav, artifact panel inlines below chat.
 - ~~Design tokens (colors, fonts, radii, spacing)~~ — captured live and consolidated into [`tokens.md`](./tokens.md). No source maps were exposed (`.js.map` URLs returned 404), but `getComputedStyle` + `document.styleSheets` walk recovered the full token set including the dual-mode color scales.
+
+Closed in the May-17 follow-up pass (chat-surface menus):
+
+- ~~Thread-title kebab menu~~ — captured (`22-chat-thread-title-kebab.png`); just `Rename (R)` + `Delete (Delete)`. Share is its own top-bar button, NOT in the menu.
+- ~~Composer `+` menu~~ — captured (`23-chat-composer-kebab.png`); just `Add photos & files` + `at-sign Mention`. No skills/workflows/integrations entry-points; `@`-mention is the path.
+- ~~Model picker~~ — captured (`24-chat-model-picker.png`); only two semantic tiers: `Dimension` (default) and `Dimension Pro` (locked behind premium). No provider/model names exposed.
+
+See [`chat-anatomy.md`](./chat-anatomy.md#menus-on-a-chat-thread) for the rolled-up writeup.
 
 Still uncaptured (deliberately or for lack of access):
 
