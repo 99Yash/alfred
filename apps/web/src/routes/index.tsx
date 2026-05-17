@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
+  ChevronDown,
   Mic,
   Paperclip,
   Plug,
+  Plus,
   Sparkles,
   Wand2,
 } from "lucide-react";
@@ -12,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
+import { ToolButton } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -152,7 +155,7 @@ function Composer() {
           }
         }}
         rows={2}
-        placeholder="Ask Alfred to do something…"
+        placeholder="Type and press enter to start chatting…"
         className={cn(
           "block w-full resize-none bg-transparent px-4 pt-4 pb-2",
           "text-[15px] leading-relaxed outline-none",
@@ -161,18 +164,17 @@ function Composer() {
         )}
       />
 
-      <div className="flex items-center justify-between gap-2 px-2 pb-2">
+      <div className="flex items-center justify-between gap-1.5 px-1.5 pb-1.5">
         <div className="flex items-center gap-1">
-          <ToolButton label="Attach files" disabled>
-            <Paperclip size={15} />
+          <ToolButton label="Add files & mentions" disabled>
+            <Plus size={16} />
           </ToolButton>
-          <ToolButton label="Auto mode" disabled>
-            <span className="text-[11px] font-medium px-1.5 tabular">Auto</span>
-          </ToolButton>
+          <AutoToggle />
+          <ModelPicker value="Default" />
         </div>
 
         <div className="flex items-center gap-1">
-          <ToolButton label="Dictate" disabled>
+          <ToolButton label="Voice input" disabled>
             <Mic size={15} />
           </ToolButton>
           <button
@@ -184,7 +186,7 @@ function Composer() {
               "transition-colors",
               hasContent
                 ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed",
+                : "bg-muted text-muted-foreground/70 cursor-not-allowed",
             )}
           >
             <ArrowUp size={15} />
@@ -195,31 +197,51 @@ function Composer() {
   );
 }
 
-function ToolButton({
-  label,
-  children,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
+/**
+ * Bespoke neumorphic toggle for "Auto" mode. The dark-mode gradient mirrors
+ * dimension's composer primitive (`#141414 → rgba(20,20,20,0.5)`); light mode
+ * resolves through semantic tokens so it doesn't render as a near-black chip
+ * on a near-white page. Decoration-only until m13 wires real toggle state.
+ */
+function AutoToggle() {
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
+      disabled
+      aria-pressed="true"
+      title="Auto mode (boss model picks the agent)"
       className={cn(
-        "inline-flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md",
-        "text-muted-foreground hover:text-foreground hover:bg-accent/60",
-        "transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+        "inline-flex items-center justify-center h-[31px] min-w-[71px] px-3",
+        "rounded-[10px] backdrop-blur-sm border border-foreground/10",
+        "bg-muted/60 dark:bg-gradient-to-b dark:from-[#141414] dark:to-[#141414]/50",
+        "text-[12px] font-medium tabular text-foreground/90",
+        "transition-opacity disabled:cursor-not-allowed disabled:opacity-90",
       )}
     >
-      {children}
+      Auto
+    </button>
+  );
+}
+
+/**
+ * Model-picker chip. Semantic tiers only ("Default" / "Pro") — never provider
+ * names. Disabled until m13/m14 land actual model routing.
+ */
+function ModelPicker({ value }: { value: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      title="Model picker — lands with m13"
+      className={cn(
+        "inline-flex items-center gap-1 h-8 px-2.5 rounded-md",
+        "text-[12px] font-medium text-muted-foreground",
+        "hover:text-foreground hover:bg-accent/60",
+        "transition-colors disabled:cursor-not-allowed disabled:opacity-80",
+      )}
+    >
+      {value}
+      <ChevronDown size={12} className="opacity-70" />
     </button>
   );
 }

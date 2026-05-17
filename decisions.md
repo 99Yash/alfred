@@ -40,6 +40,9 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 | Integration freshness | Webhooks where available + polling fallback (per-integration policy table in ADR-0024)                            |
 | Built-in features     | 7 background workflows shipped with the app (ADR-0025); user-authored workflows alongside                         |
 | Workflow trigger dispatch | Generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs` (ADR-0027)          |
+| Composer voice input  | Browser-native `SpeechRecognition` (Web Speech API); no server STT (ADR-0028)                                     |
+| Composer model picker | Opaque tiers (`Default` / `Pro`); never raw provider/SKU names (ADR-0029)                                         |
+| Composer `+` menu / Tab autocomplete | Decoration-only in m12; behavior lands post-m13 (ADR-0030)                                         |
 
 ---
 
@@ -900,6 +903,89 @@ Existing call-sites that pass `metadata: { triggeredBy: '…' }` migrate to `tri
 - (d) Per-workflow Vercel/Inngest cron (rejected — vendor coupling for a primitive we already have via BullMQ; ADR-0006 already rejected vendor agent runtimes for the same reason).
 - (e) Tick-time cron parsing without `next_run_at` denormalization (rejected — O(n) per tick + cron parsing in the hot path; "next 5 runs" UI requires the column anyway; the write-time cost is a single `cron-parser.next()` call).
 - (f) Per-kind `createRun` variants (`createCronRun`, `createEventRun`, …) (rejected — three call paths means three places to keep in sync when adding fields; unified `trigger` matches the discriminated union we already validate at the `workflows.trigger` layer).
+
+---
+
+## ADR-0028 — Composer voice dictation: Web Speech API, browser-native, no server round-trip
+
+**Decision.** When the composer mic button activates (post-m13), it uses the browser's `SpeechRecognition` API to stream interim transcripts directly into the textarea. No server-side STT, no audio bytes leave the device. Falls back to a disabled state with a tooltip on browsers without support (mainly Firefox desktop today).
+
+**Why.**
+
+- **Zero new infra.** No Whisper API call, no audio upload pipeline, no per-minute STT cost line in the cost-metering table. The browser does the recognition; we only see text.
+- **Privacy posture stays consistent with single-user scope (ADR-0001).** Audio never traverses our server. The dictated text enters the existing composer path and is treated identically to typed input.
+- **Distinct from ADR-0004's "no voice mode."** ADR-0004 rules out audio-in audio-out conversational voice (LiveKit-class infra). Dictation is a keyboard alternative — speech → text inserted into a text field the user can edit before sending. The two are unrelated capabilities; ADR-0004 doesn't preclude this.
+- **Good-enough quality for personal use.** Chromium and Safari ship usable English STT for free; the user is the only target audience, so we don't need to engineer around accent/edge-case coverage.
+- **Reversible.** If browser STT proves too lossy, swap the activation handler to call a `/api/stt` endpoint backed by Whisper/Deepgram — same UX, different transport. The composer doesn't care.
+
+**Implementation sketch (when m13 lands the live chat surface).**
+
+- `useSpeechRecognition()` hook in `apps/web/src/lib/` wrapping `window.SpeechRecognition || webkitSpeechRecognition`, surfacing `{ supported, listening, transcript, interim, start, stop, error }`.
+- Mic button toggles `listening`. Interim results stream into the textarea as the user speaks; final segments commit on pause. User can edit before sending.
+- Mobile: same API works on iOS Safari and Android Chrome. The `--keyboard-height` token from dimension's recon (ADR-0003 era) gives a hint about how to keep the composer above the IME, but no special handling needed for STT itself.
+- Disabled state today (m12): the mic button renders with `disabled` + tooltip "Voice input — lands with m13". Keeps the chrome honest about what's wired.
+
+**Alternatives.**
+
+- (a) Whisper API on the server (rejected for v1 — adds STT cost line, audio upload, retry semantics; saves us nothing the browser can't do at single-user scale).
+- (b) Local Whisper.cpp via WASM (rejected — ~50MB model download, cold-start cost; browser STT is faster and free).
+- (c) No dictation at all (rejected — the composer mic icon is one of dimension's lifted patterns, and dictation is genuinely useful for longer-form prompts on mobile).
+
+**Caveats.** Firefox desktop has no `SpeechRecognition` (Mozilla parked the spec). The fallback is "button disabled with tooltip" — acceptable for a personal tool where the user picks the browser. Chromium's STT also has a soft cap on session length (~60s) before it auto-stops; the hook should auto-restart on `end` if `listening` is still true.
+
+---
+
+## ADR-0029 — Composer model picker: opaque semantic tiers, never provider names
+
+**Decision.** The composer's model picker exposes two values only: `Default` (the boss model — `getBossModel()`) and `Pro` (a higher-tier opt-in for complex tasks — points at the same family today, room to upgrade later). Provider/vendor names (`Claude`, `GPT`, `Sonnet`, `Opus`, etc.) are never shown in the user-facing UI. The chip renders disabled until m13/m14 wire actual routing.
+
+**Why.**
+
+- **Stack-locking pressure is real.** Once a user picks `Claude 4 Opus` from a dropdown, swapping the underlying SKU (whether for cost, latency, or a vendor migration) becomes a UX migration too. Opaque tiers keep the dispatcher (`getBossModel` / `getSubAgentModel` / `getCheapModel`) as the real source of truth — the surface stays stable while the SKUs underneath rotate.
+- **Matches the existing dispatcher philosophy.** `@alfred/ai/provider` already abstracts models behind semantic getters (per CLAUDE.md). Hardcoding string model IDs at the UI layer would invert that — the dispatcher becomes a label resolver, not a routing decision.
+- **Dimension's pattern, validated.** Dimension's recon (`references/dimension-dev/chat-anatomy.md`) confirms they ship only `Dimension` / `Dimension Pro` in the picker — same stance, different brand. The two-tier UX is enough for "I want this answered quickly" vs. "do the deep work" without polluting the surface with seven SKU choices.
+- **Single-user scope (ADR-0001) doesn't change this.** Even with one user, future-me will appreciate the dispatcher boundary when a model gets deprecated mid-thread.
+
+**Surface contract.**
+
+- Default tier: routes through `getBossModel()` for chat turns, sub-agents pick their own model via the dispatcher (ADR-0016 + ADR-0026).
+- Pro tier: same routing, but the boss model can be upgraded in-session (e.g. a "deeper" boss SKU when ADR-0021/0022 patterns suggest it's worth the cost). Today both tiers resolve to the same model; the chip exists so the upgrade path is wired before it's needed.
+- The chip never shows raw model IDs. Settings or a debug surface can expose what's actually routing, but not the composer.
+
+**Alternatives.**
+
+- (a) Full provider dropdown (`Claude 4 Opus / Sonnet 4.5 / GPT-5 / …`) (rejected — locks the UI to specific SKUs; mirrors ChatGPT's surface but ChatGPT is selling SKU choice as a product, alfred isn't).
+- (b) No model picker at all (rejected — losing the Pro affordance means we can't expose the "do the deep work" gear when it matters; the picker also doubles as an auto-mode toggle once `Auto` graduates from neumorphic decoration to a real routing decision).
+- (c) Three+ tiers (`Fast / Default / Pro / Research`) (rejected — `Auto` already encodes "let the boss pick"; the cheap tier is dispatcher-internal, never user-selected; research-tier work goes through `getResearchModel()` triggered by tools, not by composer choice per ADR-0022).
+
+**Caveat.** If a tier ever needs a sub-name (`Pro — fast`, `Pro — deep`), promote it to a second-level picker rather than collapsing back to SKU strings. The opacity is the invariant.
+
+---
+
+## ADR-0030 — Composer `+` menu and tab-autocomplete: deferred to post-m13
+
+**Decision.** The composer's `+` button (in place of the older paperclip) and tab-autocomplete suggestion both ship as decoration-only in m12, with real behavior deferred:
+
+- **`+` menu** — two items only at v1, mirroring dimension's recon (`chat-anatomy.md` §"Composer 'Add' menu"): `Add photos & files` and `@ Mention`. File upload pipeline depends on the ingestion stack post-m7; @-mention depends on the boss agent's awareness of skills/integrations (m13).
+- **Tab-autocomplete suggestion** — when the boss agent has a probable next-prompt for the user, the placeholder is replaced with dimmed-text + a `[Tab]` keycap; Tab accepts. Depends on the boss agent producing those suggestions (m13) and the `agent.suggestion` event flowing over the existing SSE bus (ADR-0005).
+
+**Why.**
+
+- **The chrome is cheap; the behavior isn't.** Rendering a `+` icon and an empty popover takes minutes. The actual file-upload pipeline (chunker boundaries, dedup against `documents`, embedding budget per ADR-0010) is multiple PRs and likely needs its own ADR when it lands. Same for @-mention indexing — it needs to know the skill/integration registry the boss agent builds.
+- **Don't ship half-wired affordances.** A `+` button that opens an empty menu is worse than no button. Disabled + tooltip ("Files & mentions — coming soon") matches the rest of the m12 stub surface (model picker, mic) honestly.
+- **Tab-autocomplete is a m13 emergent behavior, not a m12 feature.** The suggestion only makes sense once there's an agent producing a continuation. Shipping the keycap UI before then would be cosmetic.
+
+**When this becomes a real ADR.**
+
+- File-upload pipeline: probably ADR-003x when post-m7 attachments land, covering MIME whitelist, dedup with the Gmail attachment path, max-size, virus-scan stance.
+- @-mention: probably folded into ADR-0017 (skills) or a new ADR if the index turns out non-trivial — e.g. if mentions index people from contacts/Gmail headers in addition to skills/workflows.
+- Tab-autocomplete: a small ADR when m13 has produced a real suggestion stream. Likely just "boss agent emits `agent.suggestion` over SSE; composer subscribes; one-shot per turn."
+
+**Alternatives.**
+
+- (a) Ship the `+` menu now with stubbed file-upload (rejected — invites half-broken UX; the upload box is meaningful surface area, not chrome).
+- (b) Drop the `+` icon entirely and bring it back when behavior exists (rejected — keeps dimension parity worse than necessary; the icon being there + disabled signals intent without lying about what works).
+- (c) Implement Tab-autocomplete with a stub suggestion (rejected — same problem as (a); fake suggestions train wrong muscle memory).
 
 ---
 
