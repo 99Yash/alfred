@@ -27,7 +27,6 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.0",
     "replicache": "catalog:",
-    "simple-icons": "^16.20.0",
     "tailwind-merge": "catalog:"
   },
   "devDependencies": {

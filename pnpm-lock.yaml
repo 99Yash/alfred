@@ -246,9 +246,6 @@ importers:
       replicache:
         specifier: 'catalog:'
         version: 15.3.0
-      simple-icons:
-        specifier: ^16.20.0
-        version: 16.20.0
       tailwind-merge:
         specifier: 'catalog:'
         version: 3.5.0
@@ -3728,10 +3725,6 @@ packages:
   set-cookie-parser@3.1.0:
     resolution: {integrity: sha512-kjnC1DXBHcxaOaOXBHBeRtltsDG2nUiUni+jP92M9gYdW12rsmx92UsfpH7o5tDRs7I1ZZPSQJQGv3UaRfCiuw==}
 
-  simple-icons@16.20.0:
-    resolution: {integrity: sha512-2b7Xu+Zy+iwLiuLSAcWuxnM1ETNFy7JmxWSjh0Y/A8P3KGjFFcokbpWbUf/IivMNbR9WuZ/QQlirh5bGh3Q2vA==}
-    engines: {node: '>=0.12.18'}
-
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
@@ -7109,8 +7102,6 @@ snapshots:
   seroval@1.5.2: {}
 
   set-cookie-parser@3.1.0: {}
-
-  simple-icons@16.20.0: {}
 
   source-map-js@1.2.1: {}
 

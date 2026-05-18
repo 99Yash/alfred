@@ -1,15 +1,6 @@
-import { Check, Globe2, Slack, Users, type LucideIcon } from "lucide-react";
-import {
-  siGithub,
-  siGmail,
-  siGooglecalendar,
-  siGoogledocs,
-  siGoogledrive,
-  siGooglesheets,
-  siGoogleslides,
-  siLinear,
-  type SimpleIcon,
-} from "simple-icons";
+import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
+import { useId } from "react";
+import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integration-svgs";
 import { cn } from "~/lib/utils";
 
 export type IntegrationBrand =
@@ -27,8 +18,12 @@ export type IntegrationBrand =
 
 type BrandIconMeta =
   | {
-      kind: "simple";
-      icon: SimpleIcon;
+      kind: "svg";
+      slug: BrandSvgSlug;
+      // currentColor brand fallback for marks whose dimension source uses a
+      // white-on-dark gradient (github, linear). Other multicolor SVGs ignore
+      // currentColor entirely.
+      plainColor?: string;
       frostColor?: string;
     }
   | {
@@ -39,15 +34,25 @@ type BrandIconMeta =
 
 const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
   collaborators: { kind: "lucide", icon: Users, color: "#e5e7eb" },
-  github: { kind: "simple", icon: siGithub, frostColor: "#f4f4f5" },
-  gmail: { kind: "simple", icon: siGmail },
-  google_calendar: { kind: "simple", icon: siGooglecalendar },
-  google_drive: { kind: "simple", icon: siGoogledrive },
-  google_docs: { kind: "simple", icon: siGoogledocs },
-  google_sheets: { kind: "simple", icon: siGooglesheets },
-  google_slides: { kind: "simple", icon: siGoogleslides },
-  linear: { kind: "simple", icon: siLinear },
-  slack: { kind: "lucide", icon: Slack, color: "#4A154B" },
+  github: {
+    kind: "svg",
+    slug: "github",
+    plainColor: "#181717",
+    frostColor: "#f4f4f5",
+  },
+  gmail: { kind: "svg", slug: "gmail" },
+  google_calendar: { kind: "svg", slug: "google_calendar" },
+  google_drive: { kind: "svg", slug: "google_drive" },
+  google_docs: { kind: "svg", slug: "google_docs" },
+  google_sheets: { kind: "svg", slug: "google_sheets" },
+  google_slides: { kind: "svg", slug: "google_slides" },
+  linear: {
+    kind: "svg",
+    slug: "linear",
+    plainColor: "#5E6AD2",
+    frostColor: "#ffffff",
+  },
+  slack: { kind: "svg", slug: "slack" },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 };
 
@@ -58,9 +63,9 @@ const TILE_SIZE_CLASS = {
 } as const;
 
 const GLYPH_SIZE = {
-  sm: 15,
-  md: 19,
-  xs: 12,
+  sm: 22,
+  md: 32,
+  xs: 18,
 } as const;
 
 const CHECK_SIZE_CLASS = {
@@ -115,7 +120,7 @@ export function IntegrationIcon({
 
 export function IntegrationGlyph({
   brand,
-  size = 16,
+  size = 22,
   variant = "plain",
   className,
 }: {
@@ -125,25 +130,35 @@ export function IntegrationGlyph({
   className?: string;
 }) {
   const meta = BRAND_ICONS[brand];
+  // useId is always called regardless of branch so hook order is stable.
+  const reactId = useId();
+  const uid = `ai_${reactId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
-    return <Icon size={size} className={cn("shrink-0", className)} style={{ color: meta.color }} />;
+    return (
+      <Icon
+        size={size}
+        className={cn("shrink-0", className)}
+        style={{ color: meta.color }}
+      />
+    );
   }
 
-  const color = variant === "frost" && meta.frostColor ? meta.frostColor : `#${meta.icon.hex}`;
+  const color = variant === "frost" ? meta.frostColor : meta.plainColor;
+  const inner = BRAND_SVGS[meta.slug].replaceAll("__UID0__", uid);
 
   return (
     <svg
       aria-hidden
       className={cn("shrink-0", className)}
-      fill="currentColor"
+      fill="none"
       height={size}
-      style={{ color }}
-      viewBox="0 0 24 24"
+      style={color ? { color } : undefined}
+      viewBox="0 0 50 50"
       width={size}
-    >
-      <path d={meta.icon.path} />
-    </svg>
+      xmlns="http://www.w3.org/2000/svg"
+      dangerouslySetInnerHTML={{ __html: inner }}
+    />
   );
 }
