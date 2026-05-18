@@ -434,7 +434,7 @@ Alfred today maps cleanly: integrations ✓, memory primitives ✓ (≈ skills),
 - **`Refer and earn credits` in primary nav.** Promo. Single-user, doesn't apply.
 - **A flat thread list with no folders/projects.** Works at hobby scale, breaks past ~50 threads. Worth thinking about how to group long-term.
 - **Locking the skill title after creation.** Feels like a Postgres-constraint leak, not a deliberate choice. Don't replicate.
-- **No visible model picker except behind `Auto`**. Whether to expose models depends on Alfred's stance on model surfacing — current code routes per task type via `getBossModel/getCheapModel/etc.`, which is closer to `Auto` only. Probably keep ours opaque too.
+- **No visible model picker except behind `Auto`**. Whether to expose models depends on Alfred's stance on model surfacing — current code already routes per task type behind the scenes, which is closer to `Auto` only. Probably keep ours opaque too.
 
 ## What's not in this archive but might matter later
 
