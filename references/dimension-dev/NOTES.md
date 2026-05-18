@@ -10,6 +10,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 
 **For Alfred's chat surface specifically — message shapes, streaming vs. completed, tool-card flavors, the icon vocabulary, inline-code / code-block / table / suggestion-chip styling — see [`chat-anatomy.md`](./chat-anatomy.md).** That file is the answer to "if Alfred only ever rebuilt one thing from Dimension, the chat, what would the build manifest look like?"
 
+**For the rebuild bridge into Alfred's current codebase — which local components already match Dimension, what to add next, and what order to build it in — see [`alfred-replication-map.md`](./alfred-replication-map.md).**
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
@@ -18,6 +20,22 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 - `artifact-html/` — **raw `srcdoc` HTML** of generated artifacts (the per-page `<iframe>` mounts in the artifact panel). This is the **document engine** — Dimension's biggest under-documented capability and the largest roadmap gap for Alfred. See [`artifact-html/README.md`](./artifact-html/README.md) for the design-system + template-pattern breakdown
 - `onboarding.md` — the post-signup onboarding flow, **reconstructed from the JS bundle** (server-gated, no screenshots). Sign-in → feature carousel → questionnaire → Google connect → trust beat → install/pocket → finish. Includes verbatim copy, analytics events, the `routeToOnboarding` server-flag pattern, and a section on Alfred-relevant patterns to lift
 - `tokens.md` — design tokens (color scales, semantic shadcn vars, fonts, radii) + computed styles for key components + observed motion + mobile breakpoint behavior. Pulled live via DevTools `getComputedStyle` + `document.styleSheets` walk; no source maps were exposed (`.js.map` URLs return 404)
+- `alfred-replication-map.md` — Dimension patterns mapped directly onto Alfred's existing `apps/web` primitives, with a build-order checklist and missing component recipes
+
+## 2026-05-18 final live pass
+
+The site is still available on 2026-05-18, two days before the announced shutdown. Added one more authenticated pass:
+
+- `screenshots/32-final-pass-chat-new-2026-05-18.png` + `snapshots/final-pass-chat-new-2026-05-18.txt` — current chat landing with shutdown banner and quick rail
+- `screenshots/33-connect-tools-modal-2026-05-18.png` + `snapshots/connect-tools-modal-2026-05-18.txt` — the `Connect Your Tools` modal, which reuses the integration catalog inside a dialog
+- `screenshots/34-quick-rail-emails-tab-2026-05-18.png` + `snapshots/quick-rail-emails-tab-2026-05-18.txt` — quick rail email mode empty state
+- `screenshots/35-quick-rail-meetings-tab-2026-05-18.png` + `snapshots/quick-rail-meetings-tab-2026-05-18.txt` — quick rail meetings mode empty state
+- `screenshots/36-final-pass-integrations-connected-2026-05-18.png` + `snapshots/final-pass-integrations-connected-2026-05-18.txt` — current connected-provider catalog, now showing Google Drive, Google Calendar, Gmail, Notion, GitHub, Vercel, Railway, and MCP Server as the custom integration affordance
+- `screenshots/37-composer-at-mention-menu-2026-05-18.png` + `snapshots/composer-at-mention-menu-2026-05-18.txt` — composer `@` mention menu opened from the chat textarea
+- `screenshots/38-composer-at-mention-filter-g-2026-05-18.png` + `snapshots/composer-at-mention-filter-g-2026-05-18.txt` — mention menu filtered after typing `@g`
+- `screenshots/39-composer-at-mention-inserted-2026-05-18.png` + `snapshots/composer-at-mention-inserted-2026-05-18.txt` — selected `Gmail` mention rendered back into the composer
+
+Source maps still do not appear to be exposed. On 2026-05-18, I checked 10 key Next chunks (`webpack`, `framework`, `main`, `_app`, chat, library, workflows, integrations, settings, skills). None contained `sourceMappingURL`; their corresponding `.js.map` URLs returned 404.
 
 ## App chrome (shared across all authenticated routes)
 

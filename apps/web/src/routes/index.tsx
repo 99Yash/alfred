@@ -2,15 +2,26 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
+  CalendarDays,
   ChevronDown,
+  FileText,
+  FolderOpen,
+  Github,
+  Globe2,
+  Mail,
   Mic,
   Paperclip,
   Plug,
   Plus,
+  Presentation,
+  Rows3,
+  Slack,
   Sparkles,
+  Table2,
+  Users,
   Wand2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
@@ -42,11 +53,7 @@ function HomePage() {
   const rightRail = useMemo(
     () =>
       session?.user ? (
-        <HomeRightRail
-          longDate={longDate}
-          healthOk={healthOk}
-          healthLoading={healthLoading}
-        />
+        <HomeRightRail longDate={longDate} healthOk={healthOk} healthLoading={healthLoading} />
       ) : null,
     [session?.user, longDate, healthOk, healthLoading],
   );
@@ -80,12 +87,9 @@ function HomePage() {
       <div className="flex-1 grid place-items-center px-4 sm:px-6 lg:px-10">
         <div className="w-full max-w-2xl space-y-8 -mt-16 md:-mt-8">
           <header className="text-center space-y-2">
-            <p className="text-[12px] tracking-wide text-muted-foreground tabular">
-              {longDate}
-            </p>
+            <p className="text-[12px] tracking-wide text-muted-foreground tabular">{longDate}</p>
             <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl tracking-tight leading-tight">
-              {greeting},{" "}
-              <span className="italic text-muted-foreground/90">{name}</span>
+              {greeting}, <span className="italic text-muted-foreground/90">{name}</span>
             </h1>
           </header>
 
@@ -118,10 +122,96 @@ function HomePage() {
 
 /* -------------------------------------------------------------------------- */
 
+type MentionItem = {
+  id: string;
+  label: string;
+  aliases: string[];
+  icon: ComponentType<{ size?: number; className?: string }>;
+  connected?: boolean;
+};
+
+const MENTION_ITEMS: MentionItem[] = [
+  {
+    id: "collaborators",
+    label: "Collaborators",
+    aliases: ["people", "teammates", "users"],
+    icon: Users,
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    aliases: ["gh", "repo", "repos", "pull request", "issue"],
+    icon: Github,
+    connected: true,
+  },
+  {
+    id: "gmail",
+    label: "Gmail",
+    aliases: ["mail", "email", "inbox"],
+    icon: Mail,
+    connected: true,
+  },
+  {
+    id: "google_calendar",
+    label: "Google Calendar",
+    aliases: ["calendar", "meetings", "events"],
+    icon: CalendarDays,
+    connected: true,
+  },
+  {
+    id: "google_drive",
+    label: "Google Drive",
+    aliases: ["drive", "files"],
+    icon: FolderOpen,
+    connected: true,
+  },
+  {
+    id: "google_docs",
+    label: "Google Docs",
+    aliases: ["docs", "documents"],
+    icon: FileText,
+  },
+  {
+    id: "google_sheets",
+    label: "Google Sheets",
+    aliases: ["sheets", "spreadsheet", "spreadsheets"],
+    icon: Table2,
+  },
+  {
+    id: "google_slides",
+    label: "Google Slides",
+    aliases: ["slides", "presentation", "deck"],
+    icon: Presentation,
+  },
+  {
+    id: "linear",
+    label: "Linear",
+    aliases: ["issues", "tickets", "projects"],
+    icon: Rows3,
+  },
+  {
+    id: "slack",
+    label: "Slack",
+    aliases: ["messages", "channels", "chat"],
+    icon: Slack,
+  },
+  {
+    id: "web",
+    label: "Web",
+    aliases: ["browser", "search", "internet"],
+    icon: Globe2,
+  },
+];
+
 function Composer() {
   const [value, setValue] = useState("");
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const hasContent = value.trim().length > 0;
+  const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
 
   const send = () => {
     if (!hasContent) return;
@@ -129,8 +219,57 @@ function Composer() {
     // eslint-disable-next-line no-console
     console.info("[alfred] composer submit:", value.trim());
     setValue("");
+    setMentionOpen(false);
+    setMentionStart(null);
+    setMentionQuery("");
     queueMicrotask(() => ref.current?.focus());
   };
+
+  const syncMentionState = useCallback((nextValue: string, caret: number) => {
+    const token = activeMentionToken(nextValue, caret);
+    if (!token) {
+      setMentionOpen(false);
+      setMentionStart(null);
+      setMentionQuery("");
+      return;
+    }
+
+    setMentionStart(token.start);
+    setMentionQuery(token.query);
+    setMentionOpen(true);
+  }, []);
+
+  const insertMention = useCallback(
+    (item: MentionItem) => {
+      const textarea = ref.current;
+      const caret = textarea?.selectionStart ?? value.length;
+      const start = mentionStart ?? activeMentionToken(value, caret)?.start;
+      if (start == null) return;
+
+      const next = `${value.slice(0, start)}@${item.label} ${value.slice(caret)}`;
+      const nextCaret = start + item.label.length + 2;
+      setValue(next);
+      setMentionOpen(false);
+      setMentionStart(null);
+      setMentionQuery("");
+
+      requestAnimationFrame(() => {
+        textarea?.focus();
+        textarea?.setSelectionRange(nextCaret, nextCaret);
+      });
+    },
+    [mentionStart, value],
+  );
+
+  useEffect(() => {
+    setSelectedMentionIndex(0);
+  }, [mentionQuery]);
+
+  useEffect(() => {
+    if (selectedMentionIndex >= filteredMentions.length) {
+      setSelectedMentionIndex(0);
+    }
+  }, [filteredMentions.length, selectedMentionIndex]);
 
   return (
     <form
@@ -144,11 +283,65 @@ function Composer() {
         "transition-shadow",
       )}
     >
+      {mentionOpen ? (
+        <MentionMenu
+          items={filteredMentions}
+          selectedIndex={selectedMentionIndex}
+          query={mentionQuery}
+          onSelect={insertMention}
+          onHover={setSelectedMentionIndex}
+        />
+      ) : null}
+
       <textarea
         ref={ref}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          setValue(nextValue);
+          syncMentionState(nextValue, e.target.selectionStart);
+        }}
+        onClick={(e) => {
+          syncMentionState(value, e.currentTarget.selectionStart);
+        }}
+        onKeyUp={(e) => {
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+            syncMentionState(value, e.currentTarget.selectionStart);
+          }
+        }}
         onKeyDown={(e) => {
+          if (mentionOpen) {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setSelectedMentionIndex((i) =>
+                filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
+              );
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setSelectedMentionIndex((i) =>
+                filteredMentions.length === 0
+                  ? 0
+                  : (i - 1 + filteredMentions.length) % filteredMentions.length,
+              );
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              const item = filteredMentions[selectedMentionIndex];
+              if (item) {
+                e.preventDefault();
+                insertMention(item);
+                return;
+              }
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setMentionOpen(false);
+              return;
+            }
+          }
+
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();
@@ -194,6 +387,104 @@ function Composer() {
         </div>
       </div>
     </form>
+  );
+}
+
+function MentionMenu({
+  items,
+  selectedIndex,
+  query,
+  onSelect,
+  onHover,
+}: {
+  items: MentionItem[];
+  selectedIndex: number;
+  query: string;
+  onSelect: (item: MentionItem) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "absolute left-3 bottom-[calc(100%+0.5rem)] z-20",
+        "w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl border bg-card/85",
+        "backdrop-blur-md shadow-pop p-2",
+        "animate-menu-pop-in origin-bottom-left",
+      )}
+    >
+      <div className="max-h-80 overflow-y-auto scrollbar scroll-py-2">
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center">
+            <p className="text-sm font-medium">No matches</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              No integration matches @{query}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {items.map((item, index) => (
+              <MentionMenuItem
+                key={item.id}
+                item={item}
+                selected={index === selectedIndex}
+                onMouseEnter={() => onHover(index)}
+                onSelect={() => onSelect(item)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-1 flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground/80">
+        <span>@ mentions route the run through a tool</span>
+        <span className="tabular">Enter</span>
+      </div>
+    </div>
+  );
+}
+
+function MentionMenuItem({
+  item,
+  selected,
+  onMouseEnter,
+  onSelect,
+}: {
+  item: MentionItem;
+  selected: boolean;
+  onMouseEnter: () => void;
+  onSelect: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      aria-selected={selected}
+      onMouseEnter={onMouseEnter}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onSelect();
+      }}
+      className={cn(
+        "group flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2 py-2",
+        "text-left text-sm outline-none transition-colors",
+        selected ? "bg-accent/70 text-foreground" : "text-foreground hover:bg-accent/50",
+      )}
+    >
+      <span
+        className={cn(
+          "grid size-7 shrink-0 place-items-center rounded-lg border bg-background/70",
+          "text-muted-foreground shadow-soft",
+        )}
+      >
+        <Icon size={15} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.connected ? (
+        <span className="rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          connected
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -296,8 +587,8 @@ function HomeRightRail({
             Suggestions
           </p>
           <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground italic">
-            Alfred will surface proactive suggestions here once integrations are
-            connected and the boss agent is wired (m13).
+            Alfred will surface proactive suggestions here once integrations are connected and the
+            boss agent is wired (m13).
           </div>
         </section>
 
@@ -306,8 +597,7 @@ function HomeRightRail({
             Morning briefing
           </p>
           <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground">
-            Daily digest delivers each morning. Configure timezone & hour in
-            Settings.
+            Daily digest delivers each morning. Configure timezone & hour in Settings.
           </div>
         </section>
 
@@ -370,12 +660,14 @@ function displayName(user: SessionUser | null | undefined): string {
   if (user.email) {
     const local = user.email.split("@")[0];
     if (local && local.length > 0) {
-      return local
-        .replace(/[._-]+/g, " ")
-        .split(" ")
-        .map(capitalize)
-        .filter(Boolean)
-        .join(" ") || local;
+      return (
+        local
+          .replace(/[._-]+/g, " ")
+          .split(" ")
+          .map(capitalize)
+          .filter(Boolean)
+          .join(" ") || local
+      );
     }
   }
   return "there";
@@ -383,6 +675,27 @@ function displayName(user: SessionUser | null | undefined): string {
 
 function capitalize(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
+}
+
+function filterMentions(query: string): MentionItem[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return MENTION_ITEMS;
+  return MENTION_ITEMS.filter((item) => {
+    const haystack = [item.label, ...item.aliases].join(" ").toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
+
+function activeMentionToken(value: string, caret: number): { start: number; query: string } | null {
+  const beforeCaret = value.slice(0, caret);
+  const start = beforeCaret.lastIndexOf("@");
+  if (start < 0) return null;
+  const charBefore = start === 0 ? "" : value[start - 1];
+  if (charBefore && !/\s/.test(charBefore)) return null;
+
+  const query = beforeCaret.slice(start + 1);
+  if (/[\s@]/.test(query)) return null;
+  return { start, query };
 }
 
 function greetingFor(date: Date): string {
