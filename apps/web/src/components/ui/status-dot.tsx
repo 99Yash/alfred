@@ -49,7 +49,6 @@ export function StatusDot({
 }: StatusDotProps) {
   return (
     <span
-      role="status"
       aria-hidden
       className={cn("inline-block rounded-full shrink-0", TONE[tone], SIZE[size], className)}
       {...rest}
