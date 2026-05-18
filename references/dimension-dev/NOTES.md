@@ -34,6 +34,8 @@ The site is still available on 2026-05-18, two days before the announced shutdow
 - `screenshots/37-composer-at-mention-menu-2026-05-18.png` + `snapshots/composer-at-mention-menu-2026-05-18.txt` — composer `@` mention menu opened from the chat textarea
 - `screenshots/38-composer-at-mention-filter-g-2026-05-18.png` + `snapshots/composer-at-mention-filter-g-2026-05-18.txt` — mention menu filtered after typing `@g`
 - `screenshots/39-composer-at-mention-inserted-2026-05-18.png` + `snapshots/composer-at-mention-inserted-2026-05-18.txt` — selected `Gmail` mention rendered back into the composer
+- `screenshots/40-gmail-action-no-approval-2026-05-18.png` — live Gmail draft request while the tool run was active; no explicit human approval dialog appeared before the action progressed
+- `screenshots/41-gmail-draft-review-response-2026-05-18.png` + `snapshots/gmail-draft-review-response-2026-05-18.txt` — final response for that same request; Dimension reported the email was saved as a Gmail draft and explicitly said it does not have a built-in "approve before send" confirmation gate
 
 Source maps still do not appear to be exposed. On 2026-05-18, I checked 10 key Next chunks (`webpack`, `framework`, `main`, `_app`, chat, library, workflows, integrations, settings, skills). None contained `sourceMappingURL`; their corresponding `.js.map` URLs returned 404.
 

@@ -16,6 +16,8 @@ Primary source files:
 - `screenshots/37-composer-at-mention-menu-2026-05-18.png` - composer `@` mention menu
 - `screenshots/38-composer-at-mention-filter-g-2026-05-18.png` - mention filtering after typing `@g`
 - `screenshots/39-composer-at-mention-inserted-2026-05-18.png` - inserted mention chip state
+- `screenshots/40-gmail-action-no-approval-2026-05-18.png` - Gmail draft request while a tool run was active, with no explicit approval gate visible
+- `screenshots/41-gmail-draft-review-response-2026-05-18.png` - final Gmail draft response documenting Dimension's lack of built-in approve-before-send
 
 ## Current Alfred surface area
 
@@ -25,9 +27,9 @@ Alfred is already closer to Dimension than a greenfield app:
 | --- | --- | --- | --- |
 | Collapsible left app shell | `apps/web/src/lib/app-shell.tsx` | Desktop collapse + mobile drawer already exist | Keep; eventually promote Integrations / Workflows / Skills / Library to first-class nav as routes land. |
 | Right rail | `apps/web/src/lib/app-shell.tsx` (`useRightRail`) | Generic right-rail slot exists | Keep. This is the exact abstraction needed for quick access now and artifact viewer later. |
-| Composer landing | `apps/web/src/routes/index.tsx` | Greeting, large composer, Auto chip, model chip, mic/send controls already wired visually | Keep; swap preview submit for m13 chat submit. |
+| Composer landing | `apps/web/src/routes/index.tsx` | Greeting, large composer, approval policy chip, model chip, mic/send controls, and local review preview are wired visually | Keep; swap preview submit for m13 chat submit. |
 | Composer mention menu | `apps/web/src/routes/index.tsx` | `@` opens a local integration picker with filtering + keyboard selection | Keep as preview behavior; m13 should turn inserted mentions into semantic tool constraints. |
-| Auto/model controls | `apps/web/src/routes/index.tsx` | AutoToggle mirrors Dimension's dark gradient; ModelPicker uses semantic tier | Keep the semantic model stance from ADR-0029. Rename `Default` to `Alfred` or `Alfred Pro` only if/when tiers exist. |
+| Auto/model controls | `apps/web/src/routes/index.tsx` | `ApprovalModeToggle` makes Manual review vs Auto approve explicit; ModelPicker uses the semantic `Alfred` tier | Keep the semantic model stance from ADR-0029. Alfred should diverge from Dimension by using `Auto` for approval policy, not opaque model choice. |
 | Icon-only tool buttons | `apps/web/src/lib/ui.tsx` (`ToolButton`) | Matches the composer/tool chrome need | Keep; use for attach, mention, mic, artifact header buttons. |
 | Cards / rows / empty states | `apps/web/src/lib/ui.tsx` | Small primitives exist | Keep, but add a separate `FrostPanel` for Dimension's glass surfaces instead of overloading `Card`. |
 | Skills list/detail | `apps/web/src/routes/skills.tsx`, `skills.$slug.tsx` | Functional m12 skill authoring + distillation history | Reshape later toward Dimension's `Prompt` + `Memory Update` + approval layout. |
@@ -56,6 +58,8 @@ These are deliberately small and compatible with the current `ui.tsx` style.
 | `UserMessageBubble` | Right-aligned user prompt bubble | `rounded-2xl bg-card/75 px-4 py-3 ml-auto max-w-2xl` | `chat-anatomy.md` |
 | `AssistantProse` | Full-width markdown response, no bubble | `ReactMarkdown`, `remark-gfm`, Tailwind Typography | `skills.$slug.tsx` already uses this stack |
 | `RunSummaryButton` | Collapsed "Searched multiple sources..." run heading | `button`, chevron, optional count/status text | `chat-anatomy.md` |
+| `ApprovalModeToggle` | Composer-level control for whether the boss model can auto-accept internal skills/workflows | `button[aria-pressed]`, shield icon, mode-aware color | `chat-anatomy.md` approval/HIL note |
+| `RunReviewPreview` | Human-in-loop handoff shown after submit while m13 chat runs are stubbed | user prompt bubble + approval rows + approve/require-review actions | `chat-anatomy.md` approval/HIL note |
 | `ThoughtPill` | Muted CoT summary disclosure | `button`, chevron, muted markdown body | `chat-anatomy.md` |
 | `ToolAccordion` | Search/action tool details | generic accordion wrapper; tool-specific body slots | `chat-anatomy.md` |
 | `SearchResultList` | Pre-expanded search results with favicons | rows using `google.com/s2/favicons` | `chat-anatomy.md` |
@@ -90,6 +94,8 @@ Recommended Alfred shape:
 Current `HomePage` already has the right skeleton. Changes when m13 chat lands:
 
 - Composer submit creates or resumes a chat run instead of logging to console.
+- The approval policy goes with the run request: `manual` means proposed internal changes wait for review; `auto` lets the boss model auto-accept low-risk skill/workflow changes after adjudication.
+- External side effects remain human-gated even when internal auto-approval is enabled. Dimension does not enforce this distinction, so this is an Alfred safety improvement rather than a clone detail.
 - Replace bottom helper text with connected-tool affordances or remove it once the composer is live.
 - Right rail becomes `QuickAccessRail`.
 - Add first-prompt suggestion from cold-start research when available, matching `onboarding.md`'s "hidden 4th surface."
