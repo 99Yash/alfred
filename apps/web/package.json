@@ -12,12 +12,14 @@
     "@alfred/api": "workspace:*",
     "@alfred/sync": "workspace:*",
     "@elysiajs/eden": "catalog:",
+    "@radix-ui/react-dialog": "^1.1.15",
     "@sentry/react": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
     "better-auth": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "cmdk": "^1.1.1",
     "lucide-react": "catalog:",
     "posthog-js": "catalog:",
     "react": "catalog:",
@@ -25,6 +27,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.0",
     "replicache": "catalog:",
+    "simple-icons": "^16.20.0",
     "tailwind-merge": "catalog:"
   },
   "devDependencies": {
