@@ -65,3 +65,6 @@ ui-polish-loop.sh
 
 # warden
 .warden/
+
+# Local design recon dumps (screenshots, DOM/network captures)
+references/dimension-dev/_live/

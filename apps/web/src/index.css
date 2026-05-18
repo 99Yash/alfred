@@ -42,6 +42,57 @@
 :root {
   --radius: 0.625rem;
 
+  /* -------------------------------------------------------------------------
+   * Dimension token scales (captured 2026-05-18 from dimension.dev live recon —
+   * see references/dimension-dev/dimension-design-reference-2026-05-18.md).
+   * RGB triplets stored space-separated so they compose with `rgb(var(--…))`
+   * and `rgb(var(--…) / 0.5)` for opacity. These exist alongside the shadcn
+   * OKLCH tokens below — they're used by the new `components/ui/*` primitives
+   * and any route migrated to the Dimension grammar. Existing routes remain
+   * on the OKLCH tokens until their Stage 2 pass.
+   * --------------------------------------------------------------------- */
+
+  /* Neutral (16 stops). */
+  --gray-0: 0 0 0;
+  --gray-25: 16 16 16;        /* rail bottom, popover surface */
+  --gray-50: 28 28 28;        /* input fill at 50% opacity */
+  --gray-100: 35 35 35;       /* input default border, switch off track */
+  --gray-200: 40 40 40;       /* input hover border */
+  --gray-300: 46 46 46;       /* input focus border */
+  --gray-400: 52 52 52;
+  --gray-500: 62 62 62;
+  --gray-600: 80 80 80;       /* dividers */
+  --gray-700: 112 112 112;    /* disabled text */
+  --gray-800: 160 160 160;    /* muted text */
+  --gray-850: 190 190 190;
+  --gray-900: 209 209 209;    /* hover text uplift */
+  --gray-950: 237 237 237;    /* default body text */
+  --gray-1000: 255 255 255;
+
+  /* Brand purple (11 stops). Primary CTA uses the inline gradient
+   * #5d44df → #4f37cb which sits between purple-300 and purple-400. */
+  --purple-50: 34 27 75;
+  --purple-100: 55 45 130;
+  --purple-200: 64 47 164;
+  --purple-300: 79 55 203;
+  --purple-400: 83 59 229;
+  --purple-500: 107 98 242;   /* focus ring */
+  --purple-600: 128 129 249;
+  --purple-700: 164 172 253;
+  --purple-800: 199 205 254;
+  --purple-900: 224 228 255;
+  --purple-950: 238 241 255;
+
+  /* Frost composition vars. Per-component overrides take precedence
+   * (e.g. the Upgrade pill bumps both higher for a louder hairline). */
+  --frost-strength: 1;          /* multiplier on inset white glow opacity */
+  --frost-border-strength: 1;   /* multiplier on hairline gradient opacity */
+
+  /* Motion. Active-press is instant (no transition) per Dimension. */
+  --motion-hover: 200ms;
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+  --press-scale: 0.96;
+
   /* Light — warm paper neutrals. Provisional; swap freely. */
   --background: oklch(0.99 0.003 95);
   --foreground: oklch(0.18 0.01 270);
@@ -68,10 +119,9 @@
 }
 
 .dark {
-  /* Dark — neutral grays with a touch of warmth. Anchored on Dimension's
-   * computed gray-25/50/100/200 scale but with a hint of warm hue so Alfred
-   * doesn't read as pure-cold. */
-  --background: oklch(0.155 0.005 280);
+  /* Dark — Dimension's exact body bg `rgb(12, 12, 12)` (#0c0c0c). All
+   * contrast comes from the foreground; the body stays calm. */
+  --background: rgb(12, 12, 12);
   --foreground: oklch(0.96 0.005 95);
   --card: oklch(0.185 0.005 280);
   --card-foreground: oklch(0.96 0.005 95);
@@ -115,6 +165,37 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Dimension gray + purple — emit utilities like bg-gray-50, text-gray-800,
+   * border-gray-300, ring-purple-500, etc. RGB triplets in --gray-N and
+   * --purple-N expand here through rgb(var(...)). */
+  --color-gray-0: rgb(var(--gray-0));
+  --color-gray-25: rgb(var(--gray-25));
+  --color-gray-50: rgb(var(--gray-50));
+  --color-gray-100: rgb(var(--gray-100));
+  --color-gray-200: rgb(var(--gray-200));
+  --color-gray-300: rgb(var(--gray-300));
+  --color-gray-400: rgb(var(--gray-400));
+  --color-gray-500: rgb(var(--gray-500));
+  --color-gray-600: rgb(var(--gray-600));
+  --color-gray-700: rgb(var(--gray-700));
+  --color-gray-800: rgb(var(--gray-800));
+  --color-gray-850: rgb(var(--gray-850));
+  --color-gray-900: rgb(var(--gray-900));
+  --color-gray-950: rgb(var(--gray-950));
+  --color-gray-1000: rgb(var(--gray-1000));
+
+  --color-purple-50: rgb(var(--purple-50));
+  --color-purple-100: rgb(var(--purple-100));
+  --color-purple-200: rgb(var(--purple-200));
+  --color-purple-300: rgb(var(--purple-300));
+  --color-purple-400: rgb(var(--purple-400));
+  --color-purple-500: rgb(var(--purple-500));
+  --color-purple-600: rgb(var(--purple-600));
+  --color-purple-700: rgb(var(--purple-700));
+  --color-purple-800: rgb(var(--purple-800));
+  --color-purple-900: rgb(var(--purple-900));
+  --color-purple-950: rgb(var(--purple-950));
 
   --font-sans:
     "Open Runde", "Inter", ui-sans-serif, system-ui, -apple-system,
@@ -239,5 +320,220 @@
   }
   .animate-menu-pop-in {
     animation: menu-pop-in 140ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* Dialog/CommandPalette entrance: overlay fades, content fades + zooms.
+   * Used by [data-state] attributes from Radix Dialog. */
+  @keyframes dialog-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes dialog-overlay-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes dialog-content-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes dialog-content-out {
+    from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------------------
+   * Dimension primitives (added 2026-05-18)
+   * -------------------------------------------------------------------------*/
+
+  /* `frost-border` — pure-white hairline gradient painted via ::before, plus
+   * an inset white glow on the element itself. Recipe pulled from live
+   * inspection of Dimension's Upgrade Plan button on 2026-05-18:
+   *
+   *   ::before {
+   *     inset: -0.5px;                         (overshoots half-pixel)
+   *     padding: 0.5px;                        (ring is half a pixel wide)
+   *     background: linear-gradient(to bottom right,
+   *       white 0%, white/25 42%, white/25 62%, white 100%);
+   *     opacity: calc(0.25 * var(--frost-border-strength));   (hover → 0.35)
+   *     mask: linear-gradient(#000 0 0) content-box exclude,
+   *           linear-gradient(#000 0 0) exclude;
+   *   }
+   *
+   * Parameterized by --frost-strength (inset white glow) and
+   * --frost-border-strength (hairline opacity multiplier). Defaults to
+   * 1 / 1; the Upgrade Plan variant bumps to 0.8 / 3.
+   *
+   * Usage: add `frost-border` class to any pill/panel that should feel
+   * "lifted" — primary buttons, floating overlays, agent panels. The
+   * element must be `position: relative` (handled by the class).
+   */
+  .frost-border {
+    position: relative;
+    isolation: isolate;
+    box-shadow: inset 0 0 7px 1px rgba(255, 255, 255, calc(0.13 * var(--frost-strength)));
+    transition: box-shadow var(--motion-hover) var(--motion-easing);
+  }
+  .frost-border::before {
+    content: "";
+    position: absolute;
+    inset: -0.5px;
+    border-radius: inherit;
+    padding: 0.5px;
+    background: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(255, 255, 255, 0.25) 42%,
+      rgba(255, 255, 255, 0.25) 62%,
+      rgba(255, 255, 255, 1) 100%
+    );
+    opacity: calc(0.25 * var(--frost-border-strength));
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    transition: opacity var(--motion-hover) var(--motion-easing);
+  }
+  .frost-border:hover {
+    box-shadow: inset 0 0 8px 1px rgba(255, 255, 255, calc(0.22 * var(--frost-strength)));
+  }
+  .frost-border:hover::before {
+    opacity: calc(0.35 * var(--frost-border-strength));
+  }
+  .frost-border:active {
+    box-shadow: inset 0 0 7px 1px rgba(255, 255, 255, calc(0.13 * var(--frost-strength)));
+  }
+  .frost-border:active::before {
+    opacity: calc(0.25 * var(--frost-border-strength));
+  }
+  .frost-border:disabled::before,
+  .frost-border[data-disabled]::before {
+    opacity: 0;
+  }
+
+  /* `heading-display` — gradient text fade used on every Dimension route
+   * title (white → white/60 vertical). Lavender variant for active tabs. */
+  .heading-display {
+    background: linear-gradient(180deg, rgb(var(--gray-1000)), rgb(var(--gray-1000) / 0.6));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .heading-display-lavender {
+    background: linear-gradient(180deg, rgb(var(--gray-1000)), #bfbcef);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* Active-press helper. Applied via `:active` from inside primitives.
+   * Snap; no transition. */
+  .press-scale:active {
+    transform: scale(var(--press-scale));
+  }
+
+  .frost-popover {
+    background:
+      radial-gradient(
+        120% 90% at 8% -12%,
+        rgba(255, 255, 255, 0.16),
+        rgba(255, 255, 255, 0.04) 34%,
+        transparent 62%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(39, 39, 39, 0.98) 0%,
+        rgba(18, 18, 18, 0.96) 52%,
+        rgba(8, 8, 8, 0.98) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.86);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+      0 18px 48px rgba(0, 0, 0, 0.58),
+      0 3px 12px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(22px) saturate(1.25);
+    -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  }
+
+  .frost-panel {
+    background:
+      radial-gradient(
+        130% 90% at 10% -16%,
+        rgba(255, 255, 255, 0.14),
+        rgba(255, 255, 255, 0.045) 38%,
+        transparent 66%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(34, 34, 34, 0.94) 0%,
+        rgba(17, 17, 17, 0.95) 54%,
+        rgba(9, 9, 9, 0.96) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.045),
+      0 14px 38px rgba(0, 0, 0, 0.44),
+      0 2px 10px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  }
+
+  .frost-icon-tile {
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+      rgba(14, 14, 14, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+
+  .frost-badge {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
+      rgba(18, 18, 18, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+
+  .mention-menu-row[data-selected="true"] {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.055)),
+      rgba(40, 40, 40, 0.72);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+
+  /* `composer-editor` — applied to the home composer textarea. Matches the
+   * Dimension /chat composer's fade: the top 12px and bottom 12px of any
+   * long input fades to transparent so scrolled-off content trails out
+   * gracefully instead of clipping at the viewport edge.
+   *
+   * See dimension-design-reference-2026-05-18.md §3.1. */
+  .composer-editor {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 12px),
+      transparent 100%
+    );
+            mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 12px),
+      transparent 100%
+    );
   }
 }

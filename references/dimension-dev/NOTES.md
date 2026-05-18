@@ -12,6 +12,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 
 **For the rebuild bridge into Alfred's current codebase — which local components already match Dimension, what to add next, and what order to build it in — see [`alfred-replication-map.md`](./alfred-replication-map.md).**
 
+**For the final live preservation pass from 2026-05-18 — fresh `/chat` and active-thread screenshots, source-map recheck, network inventory, weather media assets, and localhost comparison — see [`final-live-ui-recon-2026-05-18.md`](./final-live-ui-recon-2026-05-18.md).**
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
@@ -25,6 +27,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 ## 2026-05-18 final live pass
 
 The site is still available on 2026-05-18, two days before the announced shutdown. Added one more authenticated pass:
+
+- `final-live-ui-recon-2026-05-18.md` + `_live/2026-05-18-fresh/` — fresh preservation bundle containing current `/chat`, active thread, Alfred localhost comparison, source-map status, network procedure inventory, and the public weather media assets (`partly_cloudy.mp4`, `sunny.mp4`) used by the right rail
 
 - `screenshots/32-final-pass-chat-new-2026-05-18.png` + `snapshots/final-pass-chat-new-2026-05-18.txt` — current chat landing with shutdown banner and quick rail
 - `screenshots/33-connect-tools-modal-2026-05-18.png` + `snapshots/connect-tools-modal-2026-05-18.txt` — the `Connect Your Tools` modal, which reuses the integration catalog inside a dialog
