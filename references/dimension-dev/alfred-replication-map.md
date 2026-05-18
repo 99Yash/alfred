@@ -18,6 +18,10 @@ Primary source files:
 - `screenshots/39-composer-at-mention-inserted-2026-05-18.png` - inserted mention chip state
 - `screenshots/40-gmail-action-no-approval-2026-05-18.png` - Gmail draft request while a tool run was active, with no explicit approval gate visible
 - `screenshots/41-gmail-draft-review-response-2026-05-18.png` - final Gmail draft response documenting Dimension's lack of built-in approve-before-send
+- `screenshots/42-tab-follow-up-suggestion-2026-05-18.png` - active-thread composer follow-up suggestion with `Tab` keycap
+- `screenshots/43-tab-follow-up-accepted-2026-05-18.png` - `Tab` accepted suggestion inserted into the composer without submitting
+- `screenshots/44-auto-off-composer-2026-05-18.png` - `Auto` toggled off; same label, unpressed state
+- `screenshots/45-auto-off-skill-review-no-gate-2026-05-18.png` - Auto-off skill proposal test showing Dimension has no staged skill approval UI
 
 ## Current Alfred surface area
 
@@ -64,6 +68,7 @@ These are deliberately small and compatible with the current `ui.tsx` style.
 | `ToolAccordion` | Search/action tool details | generic accordion wrapper; tool-specific body slots | `chat-anatomy.md` |
 | `SearchResultList` | Pre-expanded search results with favicons | rows using `google.com/s2/favicons` | `chat-anatomy.md` |
 | `RelatedSuggestions` | Numbered follow-up rows | divided list + `FrostPanel` number badge | `chat-anatomy.md` |
+| `TabSuggestionHint` | Ghost follow-up prompt in an empty active-thread composer | muted absolute text layer + small `Tab` keycap; Tab accepts, never submits | screenshots 42, 43 |
 | `MentionMenu` | `@` integration picker in composer | text trigger, filtered list, arrow/Enter/Tab keyboard loop | screenshots 37, 38, 39 |
 | `QuickAccessRail` | Tasks / Emails / Meetings tabs | `useRightRail` + local tab state | final-pass screenshots 32, 34, 35 |
 | `IntegrationCatalog` | Search + grouped provider rows | provider metadata array | screenshots 33, 36 |
@@ -100,6 +105,9 @@ Current `HomePage` already has the right skeleton. Changes when m13 chat lands:
 - Right rail becomes `QuickAccessRail`.
 - Add first-prompt suggestion from cold-start research when available, matching `onboarding.md`'s "hidden 4th surface."
 - Keep `@` mention support in the composer. Today Alfred inserts plain-text mentions; m13 should preserve selected mention IDs in the run request.
+- Active-thread composer should support Dimension's follow-up hint: show a muted suggested prompt and a `Tab` keycap when the composer is empty; pressing `Tab` fills the text but does not submit.
+
+Approval caveat from the final live pass: Dimension's `Auto` off state did **not** expose a separate approval queue. When asked for a skill approval UI with `Auto` off, Dimension answered that no staged `Approve`/`Reject` surface exists and memory writes save immediately once the memory tool is called. Alfred's manual-review UI is therefore not a clone detail; it is the safer Alfred-specific version of the same product intent.
 
 ### Composer `@` mentions
 
