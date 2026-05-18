@@ -4,7 +4,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import {
-  Bell,
+  Archive,
   Brain,
   ChevronsLeft,
   ChevronsRight,
@@ -14,10 +14,14 @@ import {
   Menu,
   Monitor,
   Moon,
+  MoonStar,
   Plus,
+  Plug,
   Search,
   Settings,
+  Sparkles,
   Sun,
+  Workflow,
   X,
 } from "lucide-react";
 import {
@@ -30,6 +34,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { CommandPalette } from "~/components/ui/command-palette";
 import { authClient } from "~/lib/auth-client";
 import { useTheme, type Theme } from "~/lib/theme";
 import { cn } from "~/lib/utils";
@@ -45,7 +50,13 @@ interface NavItem {
 }
 
 const SECTION_NAV: ReadonlyArray<NavItem> = [
-  { to: "/skills", label: "Skills", icon: Plus },
+  { to: "/integrations", label: "Integrations", icon: Plug },
+  { to: "/workflows", label: "Workflows", icon: Workflow },
+  { to: "/skills", label: "Skills", icon: Sparkles },
+  { to: "/library", label: "Library", icon: Archive },
+];
+
+const PERSONAL_NAV: ReadonlyArray<NavItem> = [
   { to: "/memory", label: "Memory", icon: Brain },
   { to: "/notes", label: "Notes", icon: FileText },
 ];
@@ -80,6 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Close the mobile drawer on route change.
   useEffect(() => {
@@ -96,13 +108,32 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileNavOpen]);
 
+  // Close the palette on route change so navigation feels clean.
+  useEffect(() => {
+    setPaletteOpen(false);
+  }, [location.pathname]);
+
+  // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
+  const authed = !isPending && !!session?.user && location.pathname !== "/login";
+  useEffect(() => {
+    if (!authed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [authed]);
+
   const ctx = useMemo<RightRailContextValue>(
     () => ({ setContent: setRightRailNode }),
     [],
   );
 
   // Unauthenticated routes (login, etc.) get bare children — no chrome.
-  if (isPending || !session?.user || location.pathname === "/login") {
+  if (!authed) {
     return (
       <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>
     );
@@ -141,6 +172,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onToggleCollapsed={() => undefined}
                 onClose={() => setMobileNavOpen(false)}
                 showCloseButton
+                onOpenPalette={() => setPaletteOpen(true)}
               />
             </div>
           </div>
@@ -158,6 +190,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             email={session.user.email}
             collapsed={collapsed}
             onToggleCollapsed={() => setCollapsed((c) => !c)}
+            onOpenPalette={() => setPaletteOpen(true)}
           />
         </aside>
 
@@ -168,14 +201,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           {rightRailNode ? (
             <aside
               className={cn(
-                "hidden lg:flex shrink-0 border-l bg-card/30",
-                "w-[320px] xl:w-[360px] flex-col",
+                "hidden lg:flex shrink-0 flex-col bg-background p-2 pl-0",
+                "w-[344px] xl:w-[374px]",
               )}
             >
               {rightRailNode}
             </aside>
           ) : null}
         </main>
+
+        <AppCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       </div>
     </RightRailContext.Provider>
   );
@@ -189,6 +224,7 @@ interface SidebarProps {
   onToggleCollapsed: () => void;
   onClose?: () => void;
   showCloseButton?: boolean;
+  onOpenPalette?: () => void;
 }
 
 function Sidebar({
@@ -197,6 +233,7 @@ function Sidebar({
   onToggleCollapsed,
   onClose,
   showCloseButton,
+  onOpenPalette,
 }: SidebarProps) {
   const { theme, resolved, setTheme } = useTheme();
   const navigate = useNavigate();
@@ -279,19 +316,21 @@ function Sidebar({
       <div className="px-2 pb-3">
         <button
           type="button"
-          // Wired later — for now click navigates to home.
+          onClick={onOpenPalette}
+          aria-label="Open search"
           className={cn(
             "group flex w-full items-center gap-2 rounded-md",
             "px-2.5 py-1.5 text-[13px] text-muted-foreground",
             "hover:bg-accent/60 hover:text-foreground transition-colors",
             collapsed && "justify-center px-0",
           )}
+          title={collapsed ? "Search (⌘K)" : undefined}
         >
           <Search size={15} className="shrink-0" />
           {!collapsed ? (
             <>
               <span className="flex-1 text-left">Search</span>
-              <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] tabular">
+              <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-muted-foreground tabular">
                 <Command size={10} /> K
               </kbd>
             </>
@@ -301,11 +340,6 @@ function Sidebar({
 
       {/* Section nav */}
       <nav className="flex-1 overflow-y-auto scrollbar px-2 space-y-0.5">
-        {!collapsed ? (
-          <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Workspace
-          </p>
-        ) : null}
         {SECTION_NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -317,36 +351,26 @@ function Sidebar({
 
         {!collapsed ? (
           <p className="px-2 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Coming soon
+            Personal
           </p>
         ) : null}
-        {[
-          { label: "Workflows", icon: Bell },
-          { label: "Integrations", icon: Settings },
-          { label: "Library", icon: FileText },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className={cn(
-              "flex items-center gap-2 mx-0 px-2.5 py-1.5 rounded-md text-[13px]",
-              "text-muted-foreground/60 cursor-not-allowed",
-              collapsed && "justify-center px-0",
-            )}
-            title={collapsed ? item.label : undefined}
-          >
-            <item.icon size={15} className="shrink-0" />
-            {!collapsed ? <span className="flex-1 truncate">{item.label}</span> : null}
-            {!collapsed ? (
-              <span className="text-[9px] uppercase tracking-wider px-1 py-0.5 rounded border border-dashed border-border/60">
-                soon
-              </span>
-            ) : null}
-          </div>
+        {PERSONAL_NAV.map((item) => (
+          <NavLink
+            key={item.to}
+            item={item}
+            collapsed={collapsed}
+            active={isActive(location.pathname, item.to)}
+          />
         ))}
       </nav>
 
-      {/* Footer: theme + sign-out */}
+      {/* Footer: settings + theme + sign-out */}
       <div className="border-t px-2 py-2 space-y-0.5">
+        <NavLink
+          item={{ to: "/settings", label: "Settings", icon: Settings }}
+          collapsed={collapsed}
+          active={isActive(location.pathname, "/settings")}
+        />
         <button
           type="button"
           onClick={cycleTheme}
@@ -469,3 +493,102 @@ function isActive(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
+/* -----------------------------------------------------------------------------
+ * App-level command palette
+ * Mounted at AppShell scope so ⌘K works on every authed route. Routes can layer
+ * their own commands later by reading a context — for now this set covers
+ * navigation, theme cycling, and sign-out.
+ * -------------------------------------------------------------------------- */
+
+function AppCommandPalette({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
+
+  const go = useCallback(
+    (to: string) => {
+      onOpenChange(false);
+      void navigate({ to });
+    },
+    [navigate, onOpenChange],
+  );
+
+  const cycleTheme = useCallback(() => {
+    const order: Theme[] = ["system", "light", "dark"];
+    const idx = order.indexOf(theme);
+    const next = order[(idx + 1) % order.length] ?? "system";
+    setTheme(next);
+    onOpenChange(false);
+  }, [theme, setTheme, onOpenChange]);
+
+  const signOut = useCallback(async () => {
+    onOpenChange(false);
+    await authClient.signOut();
+    await navigate({ to: "/login" });
+  }, [navigate, onOpenChange]);
+
+  return (
+    <CommandPalette
+      open={open}
+      onOpenChange={onOpenChange}
+      placeholder="Search for chats, skills, integrations…"
+      ariaTitle="Search Alfred"
+      footer={<CommandPalette.Legend />}
+    >
+      <CommandPalette.Group heading="Actions">
+        <CommandPalette.Item
+          value="action:new-chat"
+          keywords={["new", "chat", "thread", "compose"]}
+          onSelect={() => go("/")}
+          icon={Plus}
+          shortcut="↵"
+        >
+          New chat
+        </CommandPalette.Item>
+        <CommandPalette.Item
+          value="action:cycle-theme"
+          keywords={["theme", "dark", "light", "system", "appearance"]}
+          onSelect={cycleTheme}
+          icon={MoonStar}
+        >
+          Cycle theme
+        </CommandPalette.Item>
+        <CommandPalette.Item
+          value="action:sign-out"
+          keywords={["logout", "sign out", "log out"]}
+          onSelect={signOut}
+          icon={LogOut}
+        >
+          Sign out
+        </CommandPalette.Item>
+      </CommandPalette.Group>
+
+      <CommandPalette.Group heading="Navigate">
+        {[...SECTION_NAV, ...PERSONAL_NAV].map((item) => (
+          <CommandPalette.Item
+            key={item.to}
+            value={`nav:${item.to}`}
+            keywords={[item.label.toLowerCase()]}
+            onSelect={() => go(item.to)}
+            icon={item.icon}
+          >
+            {item.label}
+          </CommandPalette.Item>
+        ))}
+        <CommandPalette.Item
+          value="nav:/settings"
+          keywords={["settings", "preferences", "account"]}
+          onSelect={() => go("/settings")}
+          icon={Settings}
+        >
+          Settings
+        </CommandPalette.Item>
+      </CommandPalette.Group>
+    </CommandPalette>
+  );
+}

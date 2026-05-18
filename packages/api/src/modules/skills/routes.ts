@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { skills } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
+import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
@@ -30,14 +31,19 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
       .post(
         "/",
         async ({ user, body }) => {
-          const slug = await slugifyForUser(user.id, body.name);
+          /* `prompt` is optional so the client can instantly create a draft
+           * skill and navigate into the editor; the learn run only fires when
+           * the caller actually supplies prompt text. */
+          const rawName = body.name?.trim() ?? "";
+          const name = rawName.length > 0 ? rawName : "Untitled skill";
+          const slug = await slugifyForUser(user.id, name);
 
           const inserted = await db()
             .insert(skills)
             .values({
               userId: user.id,
               slug,
-              name: body.name.trim(),
+              name,
               status: "draft",
               currentRevisionId: null,
               isBuiltin: false,
@@ -47,9 +53,17 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
           const skill = inserted[0];
           if (!skill) return status(500, { message: "Failed to insert skill" });
 
+          const trimmedPrompt = body.prompt?.trim() ?? "";
+          if (trimmedPrompt.length === 0) {
+            /* No learn run for an empty draft. Fire a poke so the client
+             * sees the new row before its detail page renders. */
+            emitReplicachePokes([user.id]);
+            return { skillId: skill.id, slug: skill.slug, runId: null };
+          }
+
           const input: LearnSkillWorkflowInput = {
             skillId: skill.id,
-            prompt: body.prompt,
+            prompt: trimmedPrompt,
             reason: "manual",
           };
           const created = await createRun({
@@ -70,8 +84,8 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
         },
         {
           body: t.Object({
-            name: t.String({ minLength: 1, maxLength: 200 }),
-            prompt: t.String({ minLength: 1, maxLength: 8_000 }),
+            name: t.Optional(t.String({ maxLength: 200 })),
+            prompt: t.Optional(t.String({ maxLength: 8_000 })),
           }),
         },
       )

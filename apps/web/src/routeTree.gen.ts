@@ -9,17 +9,37 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkflowsRouteImport } from './routes/workflows'
+import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as SkillsRouteImport } from './routes/skills'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LibraryRouteImport } from './routes/library'
+import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 
+const WorkflowsRoute = WorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StyleguideRoute = StyleguideRouteImport.update({
+  id: '/styleguide',
+  path: '/styleguide',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SkillsRoute = SkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotesRoute = NotesRouteImport.update({
@@ -35,6 +55,16 @@ const MemoryRoute = MemoryRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LibraryRoute = LibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsRoute = IntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,29 +85,44 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/integrations': typeof IntegrationsRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
+  '/styleguide': typeof StyleguideRoute
+  '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/integrations': typeof IntegrationsRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
+  '/styleguide': typeof StyleguideRoute
+  '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/integrations': typeof IntegrationsRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
+  '/styleguide': typeof StyleguideRoute
+  '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
@@ -85,48 +130,89 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/integrations'
+    | '/library'
     | '/login'
     | '/memory'
     | '/notes'
+    | '/settings'
     | '/skills'
+    | '/styleguide'
+    | '/workflows'
     | '/debug/events'
     | '/skills/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/integrations'
+    | '/library'
     | '/login'
     | '/memory'
     | '/notes'
+    | '/settings'
     | '/skills'
+    | '/styleguide'
+    | '/workflows'
     | '/debug/events'
     | '/skills/$slug'
   id:
     | '__root__'
     | '/'
+    | '/integrations'
+    | '/library'
     | '/login'
     | '/memory'
     | '/notes'
+    | '/settings'
     | '/skills'
+    | '/styleguide'
+    | '/workflows'
     | '/debug/events'
     | '/skills/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  IntegrationsRoute: typeof IntegrationsRoute
+  LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
+  SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
+  StyleguideRoute: typeof StyleguideRoute
+  WorkflowsRoute: typeof WorkflowsRoute
   DebugEventsRoute: typeof DebugEventsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workflows': {
+      id: '/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/styleguide': {
+      id: '/styleguide'
+      path: '/styleguide'
+      fullPath: '/styleguide'
+      preLoaderRoute: typeof StyleguideRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/skills': {
       id: '/skills'
       path: '/skills'
       fullPath: '/skills'
       preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notes': {
@@ -148,6 +234,20 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library': {
+      id: '/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof LibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations': {
+      id: '/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof IntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -187,10 +287,15 @@ const SkillsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  IntegrationsRoute: IntegrationsRoute,
+  LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
+  SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
+  StyleguideRoute: StyleguideRoute,
+  WorkflowsRoute: WorkflowsRoute,
   DebugEventsRoute: DebugEventsRoute,
 }
 export const routeTree = rootRouteImport

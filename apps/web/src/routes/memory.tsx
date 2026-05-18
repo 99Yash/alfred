@@ -3,18 +3,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Brain, Check, Pencil, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
+import { Button } from "~/components/ui/button";
+import { Card } from "~/components/ui/card";
+import { StatusDot, type StatusTone } from "~/components/ui/status-dot";
 import { authClient } from "~/lib/auth-client";
 import { useEventStream } from "~/lib/events/use-event-stream";
 import { useReplicache } from "~/lib/replicache/context";
 import { useSubscribe } from "~/lib/replicache/hooks";
-import {
-  Button,
-  EmptyState,
-  PageContainer,
-  PageHeader,
-  Pill,
-  SectionHeader,
-} from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/memory")({
@@ -144,171 +139,166 @@ function MemoryPage() {
 
   if (!session?.user) {
     return (
-      <PageContainer>
-        <EmptyState
-          icon={<Brain size={18} />}
-          title="Not signed in"
-          description="Sign in to view Alfred's memory."
-          action={
+      <MemoryShell>
+        <div className="mt-12">
+          <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <span
+              className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
+              aria-hidden
+            >
+              <Brain size={18} />
+            </span>
+            <p className="text-sm font-medium text-gray-950">Not signed in</p>
+            <p className="text-[12.5px] text-gray-800">
+              Sign in to view Alfred's memory.
+            </p>
             <a
               href="/login"
-              className="text-sm underline text-muted-foreground hover:text-foreground"
+              className="mt-2 text-[12.5px] text-gray-900 underline underline-offset-4 hover:text-gray-1000"
             >
               Sign in
             </a>
-          }
-        />
-      </PageContainer>
+          </Card>
+        </div>
+      </MemoryShell>
     );
   }
 
   return (
     <>
-      <PageContainer>
-        <PageHeader
-          eyebrow="Workspace"
-          title="Memory"
-          description="Facts Alfred has learned about you. High-confidence facts auto-confirm; the rest wait for your review."
-        />
-
-        <section className="space-y-3">
-          <SectionHeader
-            title="Proposed"
-            count={proposed.length}
-            description="Alfred isn't confident enough to add these on its own."
-          />
-          {facts === undefined ? (
-            <p className="text-sm text-muted-foreground px-1">Loading…</p>
-          ) : proposed.length === 0 ? (
-            <EmptyState
-              icon={<Sparkles size={18} />}
-              title="Nothing pending review"
-              description="When Alfred sees something it isn't sure about, it'll show up here."
+      <MemoryShell>
+        <div className="mx-auto mt-12 w-full max-w-3xl space-y-12">
+          <section className="space-y-3">
+            <SectionHeading
+              title="Proposed"
+              count={proposed.length}
+              hint="Alfred isn't confident enough to add these on its own."
             />
-          ) : (
-            <ul className="space-y-2">
-              {proposed.map((fact) => (
-                <li
-                  key={fact.id}
-                  className="rounded-lg border bg-card px-4 py-3 text-sm shadow-soft space-y-2.5"
+            {facts === undefined ? (
+              <p className="text-sm text-gray-800 px-1">Loading…</p>
+            ) : proposed.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+                <span
+                  className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
+                  aria-hidden
                 >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <code className="font-mono text-[12px] text-foreground/90 break-all">
-                      {fact.key}
-                    </code>
-                    <Pill tone={confidenceTone(fact.confidence)}>
-                      {(fact.confidence * 100).toFixed(0)}%
-                    </Pill>
-                  </div>
-                  <div className="rounded-md bg-muted/40 px-3 py-2 font-mono text-[12px] whitespace-pre-wrap break-words">
-                    {previewValue(fact.value)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground tabular">
-                    {sourceLabel(fact.source)} ·{" "}
-                    {new Date(fact.createdAt).toLocaleString()}
-                  </div>
-                  <div className="flex gap-1.5 pt-0.5">
-                    <Button size="sm" onClick={() => onConfirm(fact.id)}>
-                      <Check size={12} /> Confirm
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => onEdit(fact)}
-                    >
-                      <Pencil size={12} /> Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onReject(fact.id)}
-                    >
-                      <X size={12} /> Reject
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                  <Sparkles size={18} />
+                </span>
+                <p className="text-sm font-medium text-gray-950">
+                  Nothing pending review
+                </p>
+                <p className="max-w-[28rem] text-[12.5px] text-gray-800">
+                  When Alfred sees something it isn't sure about, it'll show up
+                  here for you to confirm.
+                </p>
+              </Card>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {proposed.map((fact) => (
+                  <li key={fact.id}>
+                    <ProposedFactCard
+                      fact={fact}
+                      onConfirm={() => onConfirm(fact.id)}
+                      onEdit={() => onEdit(fact)}
+                      onReject={() => onReject(fact.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-        <section className="space-y-3">
-          <SectionHeader
-            title="Confirmed"
-            count={confirmed.length}
-            description={
-              confirmed.length === 0
-                ? undefined
-                : "Acts as background context on every Alfred run."
-            }
-          />
-          {confirmed.length === 0 ? (
-            <EmptyState
-              icon={<Brain size={18} />}
-              title="No confirmed facts yet"
-              description="As Alfred works with you, high-confidence facts will land here automatically."
+          <section className="space-y-3">
+            <SectionHeading
+              title="Confirmed"
+              count={confirmed.length}
+              hint={
+                confirmed.length === 0
+                  ? undefined
+                  : "Acts as background context on every Alfred run."
+              }
             />
-          ) : (
-            <ul className="divide-y rounded-lg border bg-card shadow-soft overflow-hidden">
-              {confirmed.map((fact) => (
-                <li
-                  key={fact.id}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent/30 transition-colors"
+            {confirmed.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+                <span
+                  className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
+                  aria-hidden
                 >
-                  <code className="font-mono text-[12px] shrink-0 text-muted-foreground">
-                    {fact.key}
-                  </code>
-                  <span className="font-mono text-[12px] flex-1 truncate">
-                    {previewValue(fact.value)}
-                  </span>
-                  <button
-                    onClick={() => onEdit(fact)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    edit
-                  </button>
-                  <button
-                    onClick={() => onReject(fact.id)}
-                    className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    forget
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </PageContainer>
+                  <Brain size={18} />
+                </span>
+                <p className="text-sm font-medium text-gray-950">
+                  No confirmed facts yet
+                </p>
+                <p className="max-w-[28rem] text-[12.5px] text-gray-800">
+                  As Alfred works with you, high-confidence facts will land here
+                  automatically.
+                </p>
+              </Card>
+            ) : (
+              <Card className="overflow-hidden p-0">
+                <ul className="divide-y divide-white/[0.04]">
+                  {confirmed.map((fact) => (
+                    <li
+                      key={fact.id}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-950 transition-colors hover:bg-white/[0.02]"
+                    >
+                      <code className="font-mono text-[12px] shrink-0 text-gray-800">
+                        {fact.key}
+                      </code>
+                      <span className="font-mono text-[12px] flex-1 truncate text-gray-950">
+                        {previewValue(fact.value)}
+                      </span>
+                      <button
+                        onClick={() => onEdit(fact)}
+                        className="text-[11.5px] text-gray-800 transition-colors hover:text-gray-1000"
+                      >
+                        edit
+                      </button>
+                      <button
+                        onClick={() => onReject(fact.id)}
+                        className="text-[11.5px] text-gray-800 transition-colors hover:text-red-400"
+                      >
+                        forget
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+          </section>
+        </div>
+      </MemoryShell>
 
-      {/* Toast stack — anchored bottom-right, above the right rail if present. */}
-      <div className="fixed bottom-4 right-4 flex flex-col gap-2 max-w-sm z-50">
+      {/* Toast stack — anchored bottom-right. */}
+      <div className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col gap-2">
         {toasts.map((toast) => (
           <div
             key={toast.id}
             className={cn(
-              "rounded-lg border bg-popover px-4 py-3 text-sm shadow-pop",
-              "animate-toast-in",
+              "frost-popover animate-toast-in rounded-2xl px-4 py-3 text-sm",
             )}
           >
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+            <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-gray-800">
               <Sparkles size={11} /> Alfred learned
             </div>
             <div className="space-y-1">
-              <code className="font-mono text-[11px] text-muted-foreground">
+              <code className="font-mono text-[11px] text-gray-800">
                 {toast.key}
               </code>
-              <p className="text-[13px] font-mono break-words">{toast.preview}</p>
+              <p className="break-words font-mono text-[13px] text-gray-1000">
+                {toast.preview}
+              </p>
             </div>
-            <div className="flex justify-end gap-2 text-[11px] pt-2">
+            <div className="flex justify-end gap-2 pt-2 text-[11.5px]">
               <button
                 onClick={() => undoToast(toast)}
-                className="underline hover:text-foreground"
+                className="text-gray-900 underline underline-offset-2 transition-colors hover:text-gray-1000"
               >
                 Undo
               </button>
               <button
                 onClick={() => dismissToast(toast.id)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-gray-800 transition-colors hover:text-gray-1000"
               >
                 Dismiss
               </button>
@@ -319,6 +309,114 @@ function MemoryPage() {
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Layout shell                                                               */
+/* -------------------------------------------------------------------------- */
+
+function MemoryShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+      <div className="md:hidden h-6" />
+
+      <header className="space-y-4 text-center">
+        <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
+          Memory
+        </h1>
+        <p className="mx-auto max-w-[44rem] text-sm text-gray-800">
+          Facts Alfred has learned about you. High-confidence facts auto-confirm;
+          the rest wait for your review.
+        </p>
+      </header>
+
+      {children}
+    </div>
+  );
+}
+
+function SectionHeading({
+  title,
+  count,
+  hint,
+}: {
+  title: string;
+  count?: number;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-[15px] font-medium text-gray-1000">{title}</h2>
+        {typeof count === "number" ? (
+          <span className="text-[12.5px] text-gray-800 tabular">{count}</span>
+        ) : null}
+      </div>
+      {hint ? (
+        <p className="text-[12.5px] text-gray-800">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Proposed fact card                                                         */
+/* -------------------------------------------------------------------------- */
+
+function ProposedFactCard({
+  fact,
+  onConfirm,
+  onEdit,
+  onReject,
+}: {
+  fact: SyncedFact;
+  onConfirm: () => void;
+  onEdit: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <Card className="space-y-2.5 px-4 py-3 text-gray-950">
+      <div className="flex items-baseline justify-between gap-3">
+        <code className="font-mono text-[12px] text-gray-1000 break-all">
+          {fact.key}
+        </code>
+        <ConfidenceChip confidence={fact.confidence} />
+      </div>
+      <div className="rounded-md bg-white/[0.03] px-3 py-2 font-mono text-[12px] whitespace-pre-wrap break-words text-gray-1000">
+        {previewValue(fact.value)}
+      </div>
+      <div className="text-[11px] text-gray-800 tabular">
+        {sourceLabel(fact.source)} · {new Date(fact.createdAt).toLocaleString()}
+      </div>
+      <div className="flex flex-wrap gap-1.5 pt-0.5">
+        <Button variant="primary" size="sm" onClick={onConfirm} leading={<Check size={12} />}>
+          Confirm
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onEdit} leading={<Pencil size={12} />}>
+          Edit
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onReject} leading={<X size={12} />}>
+          Reject
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function ConfidenceChip({ confidence }: { confidence: number }) {
+  const tone: StatusTone =
+    confidence >= 0.75 ? "emerald" : confidence >= 0.5 ? "amber" : "red";
+  const pct = (confidence * 100).toFixed(0);
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-gray-1000 tabular">
+      <StatusDot tone={tone} size="sm" />
+      {pct}%
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function previewValue(value: unknown): string {
   if (typeof value === "string") return value;
@@ -335,10 +433,4 @@ function sourceLabel(source: Record<string, unknown> | unknown): string {
   const kind = typeof s.kind === "string" ? s.kind : "unknown";
   const id = typeof s.id === "string" ? s.id : null;
   return id ? `${kind} · ${id}` : kind;
-}
-
-function confidenceTone(c: number): "positive" | "warning" | "negative" {
-  if (c >= 0.75) return "positive";
-  if (c >= 0.5) return "warning";
-  return "negative";
 }

@@ -22,6 +22,7 @@ Primary source files:
 - `screenshots/43-tab-follow-up-accepted-2026-05-18.png` - `Tab` accepted suggestion inserted into the composer without submitting
 - `screenshots/44-auto-off-composer-2026-05-18.png` - `Auto` toggled off; same label, unpressed state
 - `screenshots/45-auto-off-skill-review-no-gate-2026-05-18.png` - Auto-off skill proposal test showing Dimension has no staged skill approval UI
+- `final-live-ui-recon-2026-05-18.md` - final preservation pass with fresh `/chat` and active-thread captures, source-map status, network inventory, weather media assets, and direct localhost comparison
 
 ## Current Alfred surface area
 
@@ -44,7 +45,7 @@ Alfred is already closer to Dimension than a greenfield app:
 ## Build order
 
 1. **Chat surface first.** Implement asymmetric message rendering, run summary pills, tool accordions, and related chips before expanding more routes. This is the highest-value Dimension pattern and maps directly to m13.
-2. **Right rail second.** Replace the placeholder rail in `HomeRightRail` with three tabs: Tasks, Emails, Meetings. The 2026-05-18 captures confirm Emails and Meetings are full-mode tabs with simple empty states, not subpanels under To Do.
+2. **Right rail second, and treat it as a signature surface.** Replace the placeholder rail in `HomeRightRail` with three tabs: Tasks, Emails, Meetings. The final live `/chat` capture shows the rail is media-backed (`partly_cloudy.mp4`) and carries a large part of Dimension's perceived quality; build Alfred's version with app-owned media/visual treatment rather than shipping Dimension's asset.
 3. **Command palette.** Wire the existing Search sidebar row to a modal with nav defaults (`New Chat`, `Settings`, `Integrations`, `Workflows`, `Skills`, `Library`) before full chat search exists.
 4. **Integrations catalog.** Build catalog rows and connector detail pages from provider metadata. The final pass shows the same catalog appears both as `/integrations` and as the `Connect Your Tools` modal.
 5. **Skills/memory convergence.** Keep the existing skill backend, but change the detail UI to show source prompt, generated memory bullets, approvals, and run history in Dimension's two-tab shape.
