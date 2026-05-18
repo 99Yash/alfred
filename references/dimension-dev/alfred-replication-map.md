@@ -58,7 +58,7 @@ These are deliberately small and compatible with the current `ui.tsx` style.
 | `UserMessageBubble` | Right-aligned user prompt bubble | `rounded-2xl bg-card/75 px-4 py-3 ml-auto max-w-2xl` | `chat-anatomy.md` |
 | `AssistantProse` | Full-width markdown response, no bubble | `ReactMarkdown`, `remark-gfm`, Tailwind Typography | `skills.$slug.tsx` already uses this stack |
 | `RunSummaryButton` | Collapsed "Searched multiple sources..." run heading | `button`, chevron, optional count/status text | `chat-anatomy.md` |
-| `ApprovalModeToggle` | Composer-level control for whether the boss model can auto-accept internal skills/workflows | `button[aria-pressed]`, shield icon, mode-aware color | `chat-anatomy.md` approval/HIL note |
+| `ApprovalModeToggle` | Composer-level control for whether Alfred can auto-accept internal skills/workflows | `button[aria-pressed]`, shield icon, mode-aware color | `chat-anatomy.md` approval/HIL note |
 | `RunReviewPreview` | Human-in-loop handoff shown after submit while m13 chat runs are stubbed | user prompt bubble + approval rows + approve/require-review actions | `chat-anatomy.md` approval/HIL note |
 | `ThoughtPill` | Muted CoT summary disclosure | `button`, chevron, muted markdown body | `chat-anatomy.md` |
 | `ToolAccordion` | Search/action tool details | generic accordion wrapper; tool-specific body slots | `chat-anatomy.md` |
@@ -94,7 +94,7 @@ Recommended Alfred shape:
 Current `HomePage` already has the right skeleton. Changes when m13 chat lands:
 
 - Composer submit creates or resumes a chat run instead of logging to console.
-- The approval policy goes with the run request: `manual` means proposed internal changes wait for review; `auto` lets the boss model auto-accept low-risk skill/workflow changes after adjudication.
+- The approval policy goes with the run request: `manual` means proposed internal changes wait for review; `auto` lets Alfred auto-accept low-risk skill/workflow changes when safe.
 - External side effects remain human-gated even when internal auto-approval is enabled. Dimension does not enforce this distinction, so this is an Alfred safety improvement rather than a clone detail.
 - Replace bottom helper text with connected-tool affordances or remove it once the composer is live.
 - Right rail becomes `QuickAccessRail`.

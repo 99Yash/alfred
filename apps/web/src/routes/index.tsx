@@ -683,7 +683,7 @@ function RunReviewPreview({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium">{header}</p>
               <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                {isAuto ? "boss adjudicates" : "human in loop"}
+                {isAuto ? "Alfred decides" : "Needs review"}
               </span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
@@ -872,7 +872,7 @@ function inferApprovalItems(prompt: string): ApprovalItem[] {
     items.push({
       kind: "run",
       title: "Agent run",
-      description: "Boss model can plan the request and choose tools",
+      description: "Alfred can plan the request and choose tools",
       icon: ClipboardCheck,
     });
   }
@@ -939,7 +939,7 @@ function HomeRightRail({
           </p>
           <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground italic">
             Alfred will surface proactive suggestions here once integrations are connected and the
-            boss agent is wired (m13).
+            chat surface is live.
           </div>
         </section>
 

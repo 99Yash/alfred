@@ -487,14 +487,14 @@ Visual contract:
 - Row: 44px tall, `rounded-[10px] px-2 py-2`, `gap-2.5`, `text-sm`, 28px provider icon tile.
 - Inserted mention: purple-tinted pill, gradient-clipped label, `@` shifted up by 1px, provider icon at `size-3.5`.
 
-**Model picker** (`screenshots/24-chat-model-picker.png`, only on `/chat/new` — collapses to just the `Auto` toggle in active threads): two options only — `Dimension — Great for almost everything.` (default) and `Dimension Pro — Our flagship agent for complex tasks.` (locked behind a premium plan). They never expose provider names (no "Claude 4 Opus", no "GPT-4"); only two semantic tiers. Alfred's existing `getBossModel / getCheapModel / getResearchModel` dispatcher already matches this stance — keep models opaque on the surface.
+**Model picker** (`screenshots/24-chat-model-picker.png`, only on `/chat/new` — collapses to just the `Auto` toggle in active threads): two options only — `Dimension — Great for almost everything.` (default) and `Dimension Pro — Our flagship agent for complex tasks.` (locked behind a premium plan). They never expose provider names (no "Claude 4 Opus", no "GPT-4"); only two semantic tiers. Alfred's existing server-side model dispatcher already matches this stance — keep models opaque on the surface.
 
 **Approval / human-in-loop behavior** (`screenshots/40-gmail-action-no-approval-2026-05-18.png`, `41-gmail-draft-review-response-2026-05-18.png`): I submitted a guarded Gmail request: draft an email to `no-reply@example.com`, do not send it, and show any review/approval step. Dimension created the Gmail draft and then replied that it has no built-in "approve before send" confirmation gate. The final answer framed the safe pattern as "ask me to draft it, review it in Gmail, and hit send yourself."
 
 Alfred should deliberately diverge here. The composer-level `Auto` control should not be ambiguous model-selection chrome; it should be an approval policy:
 
-- **Manual review**: boss model proposes skills/workflows/tool actions, but waits before durable behavior changes.
-- **Auto approve**: boss model can auto-accept low-risk internal changes such as user-authored skills or workflows after adjudication.
+- **Manual review**: Alfred proposes skills/workflows/tool actions, but waits before durable behavior changes.
+- **Auto approve**: Alfred can auto-accept low-risk internal changes such as user-authored skills or workflows when safe.
 - **External side effects**: email sends, calendar invites, Slack posts, deletes, and other outbound/destructive actions stay human-gated even when internal auto-approval is enabled.
 
 ## Menus on a chat thread
