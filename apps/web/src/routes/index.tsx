@@ -221,6 +221,12 @@ const MENTION_ITEMS: MentionItem[] = [
   },
 ];
 
+const MENTION_LISTBOX_ID = "composer-mention-listbox";
+
+function mentionOptionId(item: MentionItem) {
+  return `composer-mention-option-${item.id}`;
+}
+
 function Composer() {
   const [value, setValue] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
@@ -232,6 +238,7 @@ function Composer() {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const hasContent = value.trim().length > 0;
   const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
+  const selectedMention = filteredMentions[selectedMentionIndex];
 
   const send = () => {
     if (!hasContent) return;
@@ -389,11 +396,11 @@ function Composer() {
               }
               if (e.key === "Enter" || e.key === "Tab") {
                 const item = filteredMentions[selectedMentionIndex];
+                e.preventDefault();
                 if (item) {
-                  e.preventDefault();
                   insertMention(item);
-                  return;
                 }
+                return;
               }
               if (e.key === "Escape") {
                 e.preventDefault();
@@ -409,6 +416,12 @@ function Composer() {
           }}
           rows={3}
           placeholder="Ask Alfred to plan, write, remember, or run something..."
+          aria-autocomplete="list"
+          aria-controls={mentionOpen ? MENTION_LISTBOX_ID : undefined}
+          aria-expanded={mentionOpen}
+          aria-activedescendant={
+            mentionOpen && selectedMention ? mentionOptionId(selectedMention) : undefined
+          }
           className={cn(
             "block w-full resize-none bg-transparent px-3.5 pt-3.5 pb-2",
             "min-h-[96px] max-h-[40dvh]",
@@ -484,7 +497,12 @@ function MentionMenu({
         "animate-menu-pop-in origin-bottom-left",
       )}
     >
-      <div className="max-h-80 overflow-y-auto scrollbar scroll-py-2">
+      <div
+        id={MENTION_LISTBOX_ID}
+        role="listbox"
+        aria-label="Mentionable tools and integrations"
+        className="max-h-80 overflow-y-auto scrollbar scroll-py-2"
+      >
         {items.length === 0 ? (
           <div className="px-3 py-6 text-center">
             <p className="text-sm font-medium">No matches</p>
@@ -528,15 +546,18 @@ function MentionMenuItem({
 }) {
   const Icon = item.icon;
   return (
-    <button
-      type="button"
+    <div
+      id={mentionOptionId(item)}
+      role="option"
       aria-selected={selected}
+      tabIndex={-1}
       onMouseEnter={onMouseEnter}
       onMouseDown={(e) => {
         e.preventDefault();
         onSelect();
       }}
       className={cn(
+        "cursor-default",
         "group flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2 py-2",
         "text-left text-sm outline-none transition-colors",
         selected ? "bg-accent/70 text-foreground" : "text-foreground hover:bg-accent/50",
@@ -556,7 +577,7 @@ function MentionMenuItem({
           connected
         </span>
       ) : null}
-    </button>
+    </div>
   );
 }
 
