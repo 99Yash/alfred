@@ -2,15 +2,33 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
+  AtSign,
+  CalendarDays,
   ChevronDown,
+  Check,
+  CircleAlert,
+  ClipboardCheck,
+  Clock3,
+  FileText,
+  FolderOpen,
+  Github,
+  Globe2,
+  Mail,
   Mic,
   Paperclip,
   Plug,
-  Plus,
+  Presentation,
+  Rows3,
+  ShieldAlert,
+  ShieldCheck,
+  Slack,
   Sparkles,
+  Table2,
+  Users,
   Wand2,
+  Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
@@ -42,11 +60,7 @@ function HomePage() {
   const rightRail = useMemo(
     () =>
       session?.user ? (
-        <HomeRightRail
-          longDate={longDate}
-          healthOk={healthOk}
-          healthLoading={healthLoading}
-        />
+        <HomeRightRail longDate={longDate} healthOk={healthOk} healthLoading={healthLoading} />
       ) : null,
     [session?.user, longDate, healthOk, healthLoading],
   );
@@ -80,12 +94,9 @@ function HomePage() {
       <div className="flex-1 grid place-items-center px-4 sm:px-6 lg:px-10">
         <div className="w-full max-w-2xl space-y-8 -mt-16 md:-mt-8">
           <header className="text-center space-y-2">
-            <p className="text-[12px] tracking-wide text-muted-foreground tabular">
-              {longDate}
-            </p>
+            <p className="text-[12px] tracking-wide text-muted-foreground tabular">{longDate}</p>
             <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl tracking-tight leading-tight">
-              {greeting},{" "}
-              <span className="italic text-muted-foreground/90">{name}</span>
+              {greeting}, <span className="italic text-muted-foreground/90">{name}</span>
             </h1>
           </header>
 
@@ -118,108 +129,704 @@ function HomePage() {
 
 /* -------------------------------------------------------------------------- */
 
+type MentionItem = {
+  id: string;
+  label: string;
+  aliases: string[];
+  icon: ComponentType<{ size?: number; className?: string }>;
+  connected?: boolean;
+};
+
+type ApprovalMode = "manual" | "auto";
+type ReviewPreviewStatus = "pending" | "auto" | "approved" | "rejected";
+
+type ReviewPreview = {
+  id: number;
+  prompt: string;
+  mode: ApprovalMode;
+  mentions: MentionItem[];
+  status: ReviewPreviewStatus;
+};
+
+const MENTION_ITEMS: MentionItem[] = [
+  {
+    id: "collaborators",
+    label: "Collaborators",
+    aliases: ["people", "teammates", "users"],
+    icon: Users,
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    aliases: ["gh", "repo", "repos", "pull request", "issue"],
+    icon: Github,
+    connected: true,
+  },
+  {
+    id: "gmail",
+    label: "Gmail",
+    aliases: ["mail", "email", "inbox"],
+    icon: Mail,
+    connected: true,
+  },
+  {
+    id: "google_calendar",
+    label: "Google Calendar",
+    aliases: ["calendar", "meetings", "events"],
+    icon: CalendarDays,
+    connected: true,
+  },
+  {
+    id: "google_drive",
+    label: "Google Drive",
+    aliases: ["drive", "files"],
+    icon: FolderOpen,
+    connected: true,
+  },
+  {
+    id: "google_docs",
+    label: "Google Docs",
+    aliases: ["docs", "documents"],
+    icon: FileText,
+  },
+  {
+    id: "google_sheets",
+    label: "Google Sheets",
+    aliases: ["sheets", "spreadsheet", "spreadsheets"],
+    icon: Table2,
+  },
+  {
+    id: "google_slides",
+    label: "Google Slides",
+    aliases: ["slides", "presentation", "deck"],
+    icon: Presentation,
+  },
+  {
+    id: "linear",
+    label: "Linear",
+    aliases: ["issues", "tickets", "projects"],
+    icon: Rows3,
+  },
+  {
+    id: "slack",
+    label: "Slack",
+    aliases: ["messages", "channels", "chat"],
+    icon: Slack,
+  },
+  {
+    id: "web",
+    label: "Web",
+    aliases: ["browser", "search", "internet"],
+    icon: Globe2,
+  },
+];
+
+const MENTION_LISTBOX_ID = "composer-mention-listbox";
+
+function mentionOptionId(item: MentionItem) {
+  return `composer-mention-option-${item.id}`;
+}
+
 function Composer() {
   const [value, setValue] = useState("");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
+  const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const hasContent = value.trim().length > 0;
+  const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
+  const selectedMention = filteredMentions[selectedMentionIndex];
 
   const send = () => {
     if (!hasContent) return;
+    const prompt = value.trim();
+    const mentions = detectMentions(prompt);
+
+    setReviewPreview({
+      id: Date.now(),
+      prompt,
+      mode: approvalMode,
+      mentions,
+      status: approvalMode === "auto" ? "auto" : "pending",
+    });
+
     // Stubbed until m13 lands the chat surface.
     // eslint-disable-next-line no-console
-    console.info("[alfred] composer submit:", value.trim());
+    console.info("[alfred] composer submit:", {
+      prompt,
+      approvalMode,
+      mentions: mentions.map((item) => item.id),
+    });
     setValue("");
+    setMentionOpen(false);
+    setMentionStart(null);
+    setMentionQuery("");
     queueMicrotask(() => ref.current?.focus());
   };
 
+  const syncMentionState = useCallback((nextValue: string, caret: number) => {
+    const token = activeMentionToken(nextValue, caret);
+    if (!token) {
+      setMentionOpen(false);
+      setMentionStart(null);
+      setMentionQuery("");
+      return;
+    }
+
+    setMentionStart(token.start);
+    setMentionQuery(token.query);
+    setMentionOpen(true);
+  }, []);
+
+  const insertMention = useCallback(
+    (item: MentionItem) => {
+      const textarea = ref.current;
+      const caret = textarea?.selectionStart ?? value.length;
+      const start = mentionStart ?? activeMentionToken(value, caret)?.start;
+      if (start == null) return;
+
+      const next = `${value.slice(0, start)}@${item.label} ${value.slice(caret)}`;
+      const nextCaret = start + item.label.length + 2;
+      setValue(next);
+      setMentionOpen(false);
+      setMentionStart(null);
+      setMentionQuery("");
+
+      requestAnimationFrame(() => {
+        textarea?.focus();
+        textarea?.setSelectionRange(nextCaret, nextCaret);
+      });
+    },
+    [mentionStart, value],
+  );
+
+  const openMentionMenu = useCallback(() => {
+    const textarea = ref.current;
+    const caret = textarea?.selectionStart ?? value.length;
+    const spacer = caret > 0 && !/\s/.test(value.charAt(caret - 1)) ? " " : "";
+    const next = `${value.slice(0, caret)}${spacer}@${value.slice(caret)}`;
+    const nextCaret = caret + spacer.length + 1;
+
+    setValue(next);
+    setMentionStart(caret + spacer.length);
+    setMentionQuery("");
+    setMentionOpen(true);
+    setSelectedMentionIndex(0);
+
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }, [value]);
+
+  const updateReviewPreview = useCallback((status: ReviewPreviewStatus) => {
+    setReviewPreview((preview) => (preview ? { ...preview, status } : preview));
+  }, []);
+
+  useEffect(() => {
+    setSelectedMentionIndex(0);
+  }, [mentionQuery]);
+
+  useEffect(() => {
+    if (selectedMentionIndex >= filteredMentions.length) {
+      setSelectedMentionIndex(0);
+    }
+  }, [filteredMentions.length, selectedMentionIndex]);
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        send();
-      }}
-      className={cn(
-        "relative rounded-2xl border bg-card shadow-soft",
-        "focus-within:ring-2 focus-within:ring-ring/40 focus-within:border-foreground/40",
-        "transition-shadow",
-      )}
-    >
-      <textarea
-        ref={ref}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            send();
-          }
+    <div className="space-y-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
         }}
-        rows={2}
-        placeholder="Type and press enter to start chatting…"
         className={cn(
-          "block w-full resize-none bg-transparent px-4 pt-4 pb-2",
-          "text-[15px] leading-relaxed outline-none",
-          "placeholder:text-muted-foreground/70",
-          "max-h-[40dvh]",
+          "relative overflow-visible rounded-[22px] bg-card/85 p-1.5 shadow-pop",
+          "ring-1 ring-border/70 backdrop-blur-sm",
+          "focus-within:ring-2 focus-within:ring-ring/45",
+          "transition-[box-shadow,background-color]",
         )}
-      />
+      >
+        {mentionOpen ? (
+          <MentionMenu
+            items={filteredMentions}
+            selectedIndex={selectedMentionIndex}
+            query={mentionQuery}
+            onSelect={insertMention}
+            onHover={setSelectedMentionIndex}
+          />
+        ) : null}
 
-      <div className="flex items-center justify-between gap-1.5 px-1.5 pb-1.5">
-        <div className="flex items-center gap-1">
-          <ToolButton label="Add files & mentions" disabled>
-            <Plus size={16} />
-          </ToolButton>
-          <AutoToggle />
-          <ModelPicker value="Default" />
-        </div>
+        <textarea
+          ref={ref}
+          value={value}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            setValue(nextValue);
+            syncMentionState(nextValue, e.target.selectionStart);
+          }}
+          onClick={(e) => {
+            syncMentionState(value, e.currentTarget.selectionStart);
+          }}
+          onKeyUp={(e) => {
+            if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+              syncMentionState(value, e.currentTarget.selectionStart);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (mentionOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSelectedMentionIndex((i) =>
+                  filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
+                );
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSelectedMentionIndex((i) =>
+                  filteredMentions.length === 0
+                    ? 0
+                    : (i - 1 + filteredMentions.length) % filteredMentions.length,
+                );
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                const item = filteredMentions[selectedMentionIndex];
+                e.preventDefault();
+                if (item) {
+                  insertMention(item);
+                }
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMentionOpen(false);
+                return;
+              }
+            }
 
-        <div className="flex items-center gap-1">
-          <ToolButton label="Voice input" disabled>
-            <Mic size={15} />
-          </ToolButton>
-          <button
-            type="submit"
-            disabled={!hasContent}
-            aria-label="Send"
-            className={cn(
-              "inline-flex items-center justify-center size-8 rounded-full",
-              "transition-colors",
-              hasContent
-                ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-muted text-muted-foreground/70 cursor-not-allowed",
-            )}
-          >
-            <ArrowUp size={15} />
-          </button>
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          rows={3}
+          placeholder="Ask Alfred to plan, write, remember, or run something..."
+          aria-autocomplete="list"
+          aria-controls={mentionOpen ? MENTION_LISTBOX_ID : undefined}
+          aria-expanded={mentionOpen}
+          aria-activedescendant={
+            mentionOpen && selectedMention ? mentionOptionId(selectedMention) : undefined
+          }
+          className={cn(
+            "block w-full resize-none bg-transparent px-3.5 pt-3.5 pb-2",
+            "min-h-[96px] max-h-[40dvh]",
+            "text-[15px] leading-relaxed outline-none",
+            "placeholder:text-muted-foreground/65",
+          )}
+        />
+
+        <ApprovalPolicyStrip mode={approvalMode} />
+
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <ToolButton label="Mention tool" onClick={openMentionMenu}>
+              <AtSign size={15} />
+            </ToolButton>
+            <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
+            <ModelPicker value="Alfred" />
+          </div>
+
+          <div className="flex items-center gap-1">
+            <ToolButton label="Voice input" disabled>
+              <Mic size={15} />
+            </ToolButton>
+            <button
+              type="submit"
+              disabled={!hasContent}
+              aria-label="Send"
+              className={cn(
+                "inline-flex size-9 items-center justify-center rounded-full",
+                "transition-[background-color,color,transform] active:scale-[0.96]",
+                hasContent
+                  ? "bg-foreground text-background shadow-soft hover:bg-foreground/90"
+                  : "bg-muted text-muted-foreground/70 cursor-not-allowed",
+              )}
+            >
+              <ArrowUp size={16} />
+            </button>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+
+      {reviewPreview ? (
+        <RunReviewPreview
+          preview={reviewPreview}
+          onApprove={() => updateReviewPreview("approved")}
+          onReject={() => updateReviewPreview("rejected")}
+          onDismiss={() => setReviewPreview(null)}
+        />
+      ) : null}
+    </div>
   );
 }
 
-/**
- * Bespoke neumorphic toggle for "Auto" mode. The dark-mode gradient mirrors
- * dimension's composer primitive (`#141414 → rgba(20,20,20,0.5)`); light mode
- * resolves through semantic tokens so it doesn't render as a near-black chip
- * on a near-white page. Decoration-only until m13 wires real toggle state.
- */
-function AutoToggle() {
+function MentionMenu({
+  items,
+  selectedIndex,
+  query,
+  onSelect,
+  onHover,
+}: {
+  items: MentionItem[];
+  selectedIndex: number;
+  query: string;
+  onSelect: (item: MentionItem) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "absolute left-3 bottom-[calc(100%+0.5rem)] z-20",
+        "w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl border bg-card/85",
+        "backdrop-blur-md shadow-pop p-2",
+        "animate-menu-pop-in origin-bottom-left",
+      )}
+    >
+      <div
+        id={MENTION_LISTBOX_ID}
+        role="listbox"
+        aria-label="Mentionable tools and integrations"
+        className="max-h-80 overflow-y-auto scrollbar scroll-py-2"
+      >
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center">
+            <p className="text-sm font-medium">No matches</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              No integration matches @{query}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {items.map((item, index) => (
+              <MentionMenuItem
+                key={item.id}
+                item={item}
+                selected={index === selectedIndex}
+                onMouseEnter={() => onHover(index)}
+                onSelect={() => onSelect(item)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-1 flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground/80">
+        <span>@ mentions route the run through a tool</span>
+        <span className="tabular">Enter</span>
+      </div>
+    </div>
+  );
+}
+
+function MentionMenuItem({
+  item,
+  selected,
+  onMouseEnter,
+  onSelect,
+}: {
+  item: MentionItem;
+  selected: boolean;
+  onMouseEnter: () => void;
+  onSelect: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <div
+      id={mentionOptionId(item)}
+      role="option"
+      aria-selected={selected}
+      tabIndex={-1}
+      onMouseEnter={onMouseEnter}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onSelect();
+      }}
+      className={cn(
+        "cursor-default",
+        "group flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2 py-2",
+        "text-left text-sm outline-none transition-colors",
+        selected ? "bg-accent/70 text-foreground" : "text-foreground hover:bg-accent/50",
+      )}
+    >
+      <span
+        className={cn(
+          "grid size-7 shrink-0 place-items-center rounded-lg border bg-background/70",
+          "text-muted-foreground shadow-soft",
+        )}
+      >
+        <Icon size={15} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.connected ? (
+        <span className="rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          connected
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function ApprovalPolicyStrip({ mode }: { mode: ApprovalMode }) {
+  const isAuto = mode === "auto";
+  const Icon = isAuto ? ShieldCheck : ShieldAlert;
+
+  return (
+    <div
+      className={cn(
+        "mx-1 flex items-center gap-2 rounded-2xl px-3 py-2",
+        "bg-muted/45 text-[12px] text-muted-foreground",
+      )}
+    >
+      <span
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-full",
+          isAuto
+            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+            : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        )}
+      >
+        <Icon size={13} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        {isAuto
+          ? "Auto approval for internal skills and workflows"
+          : "Manual review before Alfred changes skills or workflows"}
+      </span>
+      <span className="hidden shrink-0 rounded-full bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
+        External actions stay gated
+      </span>
+    </div>
+  );
+}
+
+function ApprovalModeToggle({
+  mode,
+  onModeChange,
+}: {
+  mode: ApprovalMode;
+  onModeChange: (mode: ApprovalMode) => void;
+}) {
+  const isAuto = mode === "auto";
+  const Icon = isAuto ? ShieldCheck : ShieldAlert;
+
   return (
     <button
       type="button"
-      disabled
-      aria-pressed="true"
-      title="Auto mode (boss model picks the agent)"
+      aria-pressed={isAuto}
+      title={
+        isAuto
+          ? "Auto approve internal skill and workflow changes"
+          : "Ask for human review before internal changes"
+      }
+      onClick={() => onModeChange(isAuto ? "manual" : "auto")}
       className={cn(
-        "inline-flex items-center justify-center h-[31px] min-w-[71px] px-3",
-        "rounded-[10px] backdrop-blur-sm border border-foreground/10",
-        "bg-muted/60 dark:bg-gradient-to-b dark:from-[#141414] dark:to-[#141414]/50",
-        "text-[12px] font-medium tabular text-foreground/90",
-        "transition-opacity disabled:cursor-not-allowed disabled:opacity-90",
+        "inline-flex h-8 min-w-[118px] items-center justify-center gap-1.5 px-2.5",
+        "rounded-[11px] border backdrop-blur-sm",
+        "text-[12px] font-medium tabular",
+        "transition-[background-color,color,transform,box-shadow] active:scale-[0.96]",
+        isAuto
+          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-soft dark:text-emerald-300"
+          : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
       )}
     >
-      Auto
+      <Icon size={13} />
+      {isAuto ? "Auto approve" : "Manual review"}
     </button>
+  );
+}
+
+function RunReviewPreview({
+  preview,
+  onApprove,
+  onReject,
+  onDismiss,
+}: {
+  preview: ReviewPreview;
+  onApprove: () => void;
+  onReject: () => void;
+  onDismiss: () => void;
+}) {
+  const isAuto = preview.mode === "auto";
+  const items = inferApprovalItems(preview.prompt);
+  const header =
+    preview.status === "approved"
+      ? "Approved for this preview"
+      : preview.status === "rejected"
+        ? "Manual gate kept"
+        : isAuto
+          ? "Auto approval path"
+          : "Human review path";
+  const HeaderIcon =
+    preview.status === "approved"
+      ? Check
+      : preview.status === "rejected"
+        ? CircleAlert
+        : isAuto
+          ? ShieldCheck
+          : Clock3;
+
+  return (
+    <div className="animate-menu-pop-in space-y-2">
+      <div className="flex justify-end">
+        <div className="max-w-[82%] rounded-2xl bg-card/80 px-4 py-2.5 text-left text-[13px] leading-relaxed shadow-soft ring-1 ring-border/60">
+          {preview.prompt}
+        </div>
+      </div>
+
+      <div className="rounded-[20px] bg-card/80 p-3 shadow-pop ring-1 ring-border/70 backdrop-blur-sm">
+        <div className="flex items-start gap-3">
+          <span
+            className={cn(
+              "mt-0.5 grid size-8 shrink-0 place-items-center rounded-2xl",
+              isAuto
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            )}
+          >
+            <HeaderIcon size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium">{header}</p>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                {isAuto ? "Alfred decides" : "Needs review"}
+              </span>
+            </div>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+              {isAuto
+                ? "Alfred can carry low-risk internal changes forward, while external side effects still stop for review."
+                : "Alfred should propose the internal changes and wait before creating or updating durable behavior."}
+            </p>
+
+            {preview.mentions.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {preview.mentions.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <span
+                      key={item.id}
+                      className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                    >
+                      <Icon size={11} />
+                      @{item.label}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 divide-y divide-border/70 overflow-hidden rounded-2xl bg-background/55 ring-1 ring-border/60">
+          {items.map((item) => (
+            <ApprovalActionRow key={item.kind} item={item} preview={preview} />
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-muted-foreground">
+            Preview only until m13 wires chat runs.
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="h-8 rounded-md px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            >
+              Dismiss
+            </button>
+            {preview.status === "pending" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onReject}
+                  className="h-8 rounded-md border bg-background px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                >
+                  Keep manual
+                </button>
+                <button
+                  type="button"
+                  onClick={onApprove}
+                  className="h-8 rounded-md bg-foreground px-2.5 text-[12px] font-medium text-background transition-[background-color,transform] hover:bg-foreground/90 active:scale-[0.96]"
+                >
+                  Approve internal plan
+                </button>
+              </>
+            ) : null}
+            {preview.status === "auto" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onReject}
+                  className="h-8 rounded-md border bg-background px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                >
+                  Require review
+                </button>
+                <button
+                  type="button"
+                  onClick={onApprove}
+                  className="h-8 rounded-md bg-foreground px-2.5 text-[12px] font-medium text-background transition-[background-color,transform] hover:bg-foreground/90 active:scale-[0.96]"
+                >
+                  Confirm auto path
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type ApprovalItem = {
+  kind: "skill" | "workflow" | "external" | "run";
+  title: string;
+  description: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+};
+
+function ApprovalActionRow({ item, preview }: { item: ApprovalItem; preview: ReviewPreview }) {
+  const Icon = item.icon;
+  const isExternal = item.kind === "external";
+  const status = approvalStatusFor(item, preview);
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5">
+      <span className="grid size-7 shrink-0 place-items-center rounded-xl bg-card text-muted-foreground shadow-soft ring-1 ring-border/60">
+        <Icon size={14} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium">{item.title}</p>
+        <p className="truncate text-[12px] text-muted-foreground">{item.description}</p>
+      </div>
+      <span
+        className={cn(
+          "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+          isExternal
+            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+            : preview.status === "approved"
+              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "bg-muted text-muted-foreground",
+        )}
+      >
+        {status}
+      </span>
+    </div>
   );
 }
 
@@ -244,6 +851,62 @@ function ModelPicker({ value }: { value: string }) {
       <ChevronDown size={12} className="opacity-70" />
     </button>
   );
+}
+
+function detectMentions(text: string) {
+  const lower = text.toLowerCase();
+  return MENTION_ITEMS.filter((item) => lower.includes(`@${item.label.toLowerCase()}`));
+}
+
+function inferApprovalItems(prompt: string): ApprovalItem[] {
+  const lower = prompt.toLowerCase();
+  const items: ApprovalItem[] = [];
+
+  if (/\b(skill|learn|remember|memory|preference|always|tone|style)\b/.test(lower)) {
+    items.push({
+      kind: "skill",
+      title: "Skill or memory update",
+      description: "Create durable instructions from the request",
+      icon: Sparkles,
+    });
+  }
+
+  if (/\b(workflow|automation|automate|schedule|daily|weekly|hourly|trigger|when)\b/.test(lower)) {
+    items.push({
+      kind: "workflow",
+      title: "Workflow change",
+      description: "Create or update a recurring agent behavior",
+      icon: Workflow,
+    });
+  }
+
+  if (/\b(send|email|gmail|calendar|invite|slack|message|post|delete|cancel)\b/.test(lower)) {
+    items.push({
+      kind: "external",
+      title: "External action",
+      description: "Outbound or destructive effects require review",
+      icon: ShieldAlert,
+    });
+  }
+
+  if (items.length === 0) {
+    items.push({
+      kind: "run",
+      title: "Agent run",
+      description: "Alfred can plan the request and choose tools",
+      icon: ClipboardCheck,
+    });
+  }
+
+  return items;
+}
+
+function approvalStatusFor(item: ApprovalItem, preview: ReviewPreview) {
+  if (item.kind === "external") return "Human gate";
+  if (preview.status === "approved") return "Approved";
+  if (preview.status === "rejected") return "Manual";
+  if (preview.status === "auto") return "Auto eligible";
+  return "Review";
 }
 
 function ChipLink({
@@ -296,8 +959,8 @@ function HomeRightRail({
             Suggestions
           </p>
           <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground italic">
-            Alfred will surface proactive suggestions here once integrations are
-            connected and the boss agent is wired (m13).
+            Alfred will surface proactive suggestions here once integrations are connected and the
+            chat surface is live.
           </div>
         </section>
 
@@ -306,8 +969,7 @@ function HomeRightRail({
             Morning briefing
           </p>
           <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground">
-            Daily digest delivers each morning. Configure timezone & hour in
-            Settings.
+            Daily digest delivers each morning. Configure timezone & hour in Settings.
           </div>
         </section>
 
@@ -370,12 +1032,14 @@ function displayName(user: SessionUser | null | undefined): string {
   if (user.email) {
     const local = user.email.split("@")[0];
     if (local && local.length > 0) {
-      return local
-        .replace(/[._-]+/g, " ")
-        .split(" ")
-        .map(capitalize)
-        .filter(Boolean)
-        .join(" ") || local;
+      return (
+        local
+          .replace(/[._-]+/g, " ")
+          .split(" ")
+          .map(capitalize)
+          .filter(Boolean)
+          .join(" ") || local
+      );
     }
   }
   return "there";
@@ -383,6 +1047,27 @@ function displayName(user: SessionUser | null | undefined): string {
 
 function capitalize(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
+}
+
+function filterMentions(query: string): MentionItem[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return MENTION_ITEMS;
+  return MENTION_ITEMS.filter((item) => {
+    const haystack = [item.label, ...item.aliases].join(" ").toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
+
+function activeMentionToken(value: string, caret: number): { start: number; query: string } | null {
+  const beforeCaret = value.slice(0, caret);
+  const start = beforeCaret.lastIndexOf("@");
+  if (start < 0) return null;
+  const charBefore = start === 0 ? "" : value[start - 1];
+  if (charBefore && !/\s/.test(charBefore)) return null;
+
+  const query = beforeCaret.slice(start + 1);
+  if (/[\s@]/.test(query)) return null;
+  return { start, query };
 }
 
 function greetingFor(date: Date): string {

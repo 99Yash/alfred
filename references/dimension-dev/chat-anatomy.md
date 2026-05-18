@@ -451,14 +451,54 @@ The composer chip-row at the bottom is mostly the same as `/chat/new`:
 [+]   [Auto ✓]    …prose box…    [mic]   [↑ send]
 ```
 
-Two thread-specific touches:
+Three thread-specific touches:
 
-1. **Tab-autocomplete suggestion** — when the agent has a likely next prompt for you, the placeholder is replaced with dimmed-text of that suggestion + a `[Tab]` keycap chip. E.g. `draft a cold outreach to Anand Chowdhary` + `[Tab]`. Press Tab to accept.
+1. **Tab-autocomplete suggestion** (`screenshots/42-tab-follow-up-suggestion-2026-05-18.png`, `43-tab-follow-up-accepted-2026-05-18.png`) — when the agent has a likely next prompt for you, the empty composer shows that text in dimmed placeholder style plus a `[Tab]` keycap chip. Pressing `Tab` accepts the suggestion into editable composer text, but does **not** submit it. Observed example: `send the email` + `[Tab]` became the literal composer value `send the email`.
 2. The `Auto` toggle (model picker) and send button reuse the chip styling from `/chat/new`. See `tokens.md` for the bespoke neumorphic gradient on the `Auto` toggle.
+3. **Auto-off state** (`screenshots/44-auto-off-composer-2026-05-18.png`) — clicking `Auto` removes the pressed/selected state and keeps the same `Auto` label. There is no visible replacement label like "Manual" and no approval drawer appears just from toggling it.
 
 **Composer "+" menu** (`screenshots/23-chat-composer-kebab.png`): only two items — `Add photos & files` and `at-sign Mention`. They don't surface skills, workflows, or integrations directly from the composer; `@`-mention is the path. Worth lifting the minimalism: most chat clones over-pack this menu.
 
-**Model picker** (`screenshots/24-chat-model-picker.png`, only on `/chat/new` — collapses to just the `Auto` toggle in active threads): two options only — `Dimension — Great for almost everything.` (default) and `Dimension Pro — Our flagship agent for complex tasks.` (locked behind a premium plan). They never expose provider names (no "Claude 4 Opus", no "GPT-4"); only two semantic tiers. Alfred's existing `getBossModel / getCheapModel / getResearchModel` dispatcher already matches this stance — keep models opaque on the surface.
+**`@` mention menu** (`screenshots/37-composer-at-mention-menu-2026-05-18.png`, `38-composer-at-mention-filter-g-2026-05-18.png`, `39-composer-at-mention-inserted-2026-05-18.png`): typing `@` directly in the composer opens the integration/collaborator picker. It is built on Tiptap/ProseMirror (`tiptap ProseMirror tiptap-minimum-input`) and renders the picker as a `react-renderer` popover.
+
+Observed interaction contract:
+
+- Empty query list: `Collaborators`, `Linear`, `Notion`, `Google Drive`, `Google Docs`, `Google Sheets`, `Google Slides`, `Google Calendar`, `Gmail`, `Web`, `Slack`.
+- Typing after `@` filters immediately. `@g` produced `GitHub`, `Gmail`, Google suite entries, `Granola`, `PostHog`, `Mercury`, `Supabase`, so the matcher is fuzzy/subsequence-ish rather than prefix-only.
+- ArrowDown/ArrowUp moves the active item. Active row uses `aria-selected="true"` and dark selected bg `rgba(40, 40, 40, 0.45)`.
+- Enter inserts the active mention and closes the menu.
+- Inserted mentions are non-editable ProseMirror nodes (`contenteditable="false"`) with `data-id` and a serialized `data-item` JSON payload. The Gmail node carried:
+
+```json
+{
+  "id": "google_gmail",
+  "label": "Gmail",
+  "type": "static",
+  "isCategory": false,
+  "isMentionable": true,
+  "parentCategory": null,
+  "meta": null,
+  "aliases": ["gmail", "mail", "email"]
+}
+```
+
+Visual contract:
+
+- Popup surface: `min-w-[19rem] max-w-[19rem] rounded-2xl frost-border bg-gray-25/75 backdrop-blur`, `p-2`, scrollable `max-h-[20rem]`.
+- Row: 44px tall, `rounded-[10px] px-2 py-2`, `gap-2.5`, `text-sm`, 28px provider icon tile.
+- Inserted mention: purple-tinted pill, gradient-clipped label, `@` shifted up by 1px, provider icon at `size-3.5`.
+
+**Model picker** (`screenshots/24-chat-model-picker.png`, only on `/chat/new` — collapses to just the `Auto` toggle in active threads): two options only — `Dimension — Great for almost everything.` (default) and `Dimension Pro — Our flagship agent for complex tasks.` (locked behind a premium plan). They never expose provider names (no "Claude 4 Opus", no "GPT-4"); only two semantic tiers. Alfred's existing server-side model dispatcher already matches this stance — keep models opaque on the surface.
+
+**Approval / human-in-loop behavior** (`screenshots/40-gmail-action-no-approval-2026-05-18.png`, `41-gmail-draft-review-response-2026-05-18.png`, `44-auto-off-composer-2026-05-18.png`, `45-auto-off-skill-review-no-gate-2026-05-18.png`): I submitted a guarded Gmail request: draft an email to `no-reply@example.com`, do not send it, and show any review/approval step. Dimension created the Gmail draft and then replied that it has no built-in "approve before send" confirmation gate. The final answer framed the safe pattern as "ask me to draft it, review it in Gmail, and hit send yourself."
+
+I also toggled `Auto` off and asked Dimension to propose a skill/memory preference without saving it, specifically requesting the manual approval UI. It responded that Dimension does not have a skill proposal/approval UI, has no staged `Approve`/`Reject` area, and that `ADD_TO_MEMORY` saves immediately when called. In other words: the observed human-in-loop control is conversational, not a separate UI component.
+
+Alfred should deliberately diverge here. The composer-level `Auto` control should not be ambiguous model-selection chrome; it should be an approval policy:
+
+- **Manual review**: Alfred proposes skills/workflows/tool actions, but waits before durable behavior changes.
+- **Auto approve**: Alfred can auto-accept low-risk internal changes such as user-authored skills or workflows when safe.
+- **External side effects**: email sends, calendar invites, Slack posts, deletes, and other outbound/destructive actions stay human-gated even when internal auto-approval is enabled.
 
 ## Menus on a chat thread
 
