@@ -3,16 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ArrowUp, FileText, Mic, StickyNote } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ReadTransaction } from "replicache";
+import { Card } from "~/components/ui/card";
+import { IconButton } from "~/components/ui/icon-button";
+import { Textarea } from "~/components/ui/textarea";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { useSubscribe } from "~/lib/replicache/hooks";
-import {
-  EmptyState,
-  PageContainer,
-  PageHeader,
-  SectionHeader,
-  ToolButton,
-} from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/notes")({
@@ -51,50 +47,57 @@ function NotesPage() {
 
   if (!session?.user) {
     return (
-      <PageContainer>
-        <EmptyState
-          icon={<StickyNote size={18} />}
-          title="Not signed in"
-          description="Sign in to start capturing notes."
-          action={
+      <NotesShell>
+        <div className="mt-12">
+          <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <span
+              className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
+              aria-hidden
+            >
+              <StickyNote size={18} />
+            </span>
+            <p className="text-sm font-medium text-gray-950">Not signed in</p>
+            <p className="text-[12.5px] text-gray-800">
+              Sign in to start capturing notes.
+            </p>
             <a
               href="/login"
-              className="text-sm underline text-muted-foreground hover:text-foreground"
+              className="mt-2 text-[12.5px] text-gray-900 underline underline-offset-4 hover:text-gray-1000"
             >
               Sign in
             </a>
-          }
-        />
-      </PageContainer>
+          </Card>
+        </div>
+      </NotesShell>
     );
   }
 
   const sorted = [...(notes ?? [])].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
+  const hasContent = text.trim().length > 0;
 
   return (
-    <PageContainer>
-      <PageHeader
-        eyebrow="Workspace"
-        title="Notes"
-        description="Loose captures. Synced across devices via Replicache; not (yet) read by Alfred."
-      />
-
-      {/* Composer */}
+    <NotesShell>
+      <div className="mx-auto w-full max-w-[688px]">
+      {/* Composer — same chrome grammar as the home composer but trimmed:
+       * no mention/approval/model row, just text + mic (disabled) + send. */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           createNote();
         }}
         className={cn(
-          "relative rounded-xl border bg-card shadow-soft",
-          "focus-within:ring-2 focus-within:ring-ring/40 focus-within:border-foreground/40",
-          "transition-shadow",
+          "mt-10 w-full",
+          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 shadow-pop",
+          "ring-1 ring-white/10 backdrop-blur-sm",
+          "focus-within:ring-2 focus-within:ring-purple-500/40",
+          "transition-[box-shadow,background-color]",
         )}
       >
-        <textarea
+        <Textarea
           ref={textareaRef}
+          variant="inline"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -105,71 +108,102 @@ function NotesPage() {
           }}
           rows={2}
           placeholder="Type a note. Enter to save, Shift+Enter for a newline."
-          className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed outline-none placeholder:text-muted-foreground/70 max-h-[40dvh]"
+          className="composer-editor min-h-[64px] max-h-[40dvh] px-3 pt-3 pb-2 text-sm leading-6"
         />
-        <div className="flex items-center justify-between gap-1.5 px-1.5 pb-1.5">
-          <p className="pl-2 text-[11px] text-muted-foreground/80">
-            {text.length > 0 ? `${text.length} chars` : "Notes are private."}
+
+        <div className="flex items-center justify-between gap-2 px-1 pb-1">
+          <p className="pl-2 text-[11.5px] text-gray-800">
+            {hasContent ? `${text.length} chars` : "Notes are private."}
           </p>
           <div className="flex items-center gap-1">
-            <ToolButton label="Voice input" disabled>
+            <IconButton label="Voice input" disabled className="rounded-full">
               <Mic size={15} />
-            </ToolButton>
+            </IconButton>
             <button
               type="submit"
-              disabled={creating || !text.trim()}
+              disabled={creating || !hasContent}
               aria-label="Save note"
               className={cn(
-                "inline-flex items-center justify-center size-8 rounded-full transition-colors",
-                text.trim() && !creating
-                  ? "bg-foreground text-background hover:bg-foreground/90"
-                  : "bg-muted text-muted-foreground/70 cursor-not-allowed",
+                "inline-flex size-8 items-center justify-center rounded-full",
+                "transition-[opacity,filter,transform] active:scale-[0.96]",
+                "text-black backdrop-blur-sm",
+                "bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)]",
+                "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4),0_18px_11px_rgba(0,0,0,0.01),0_8px_8px_rgba(0,0,0,0.01),0_2px_4px_rgba(0,0,0,0.02)]",
+                hasContent && !creating
+                  ? "hover:brightness-110 active:brightness-105"
+                  : "opacity-50 cursor-not-allowed",
               )}
             >
-              <ArrowUp size={15} />
+              <ArrowUp size={16} strokeWidth={2.25} />
             </button>
           </div>
         </div>
       </form>
 
-      <section className="space-y-3">
-        <SectionHeader
-          title="Recent"
-          count={sorted.length}
-          description={
-            sorted.length === 0
-              ? undefined
-              : "Newest first. Nothing here is sent to Alfred."
-          }
-        />
+      <section className="mt-12 space-y-3">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-[15px] font-medium text-gray-1000">Recent</h2>
+          <span className="text-[12.5px] text-gray-800 tabular">{sorted.length}</span>
+        </div>
 
         {notes === undefined ? (
-          <p className="text-sm text-muted-foreground px-1">Loading…</p>
+          <p className="text-sm text-gray-800 px-1">Loading…</p>
         ) : sorted.length === 0 ? (
-          <EmptyState
-            icon={<FileText size={18} />}
-            title="No notes yet"
-            description="Capture something quick — a thought, a task, anything."
-          />
+          <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <span
+              className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
+              aria-hidden
+            >
+              <FileText size={18} />
+            </span>
+            <p className="text-sm font-medium text-gray-950">No notes yet</p>
+            <p className="max-w-[28rem] text-[12.5px] text-gray-800">
+              Capture something quick — a thought, a task, anything. Newest
+              first; nothing here is sent to Alfred.
+            </p>
+          </Card>
         ) : (
-          <ul className="space-y-2">
+          <ul className="flex flex-col gap-1">
             {sorted.map((note) => (
-              <li
-                key={note.id}
-                className="rounded-lg border bg-card px-4 py-3 text-sm shadow-soft"
-              >
-                <p className="whitespace-pre-wrap break-words leading-relaxed">
-                  {note.text}
-                </p>
-                <p className="mt-2 text-[11px] text-muted-foreground tabular">
-                  {formatTimestamp(note.createdAt)}
-                </p>
+              <li key={note.id}>
+                <Card className="px-4 py-3 text-gray-950">
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                    {note.text}
+                  </p>
+                  <p className="mt-2 text-[11.5px] text-gray-800 tabular">
+                    {formatTimestamp(note.createdAt)}
+                  </p>
+                </Card>
               </li>
             ))}
           </ul>
         )}
       </section>
-    </PageContainer>
+      </div>
+    </NotesShell>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Layout shell                                                               */
+/* -------------------------------------------------------------------------- */
+
+function NotesShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+      <div className="md:hidden h-6" />
+
+      <header className="space-y-4 text-center">
+        <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
+          Notes
+        </h1>
+        <p className="text-sm text-gray-800">
+          Loose captures. Synced across devices — not (yet) read by Alfred.
+        </p>
+      </header>
+
+      {children}
+    </div>
   );
 }
 

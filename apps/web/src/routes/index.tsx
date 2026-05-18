@@ -1,37 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  ArrowRight,
   ArrowUp,
-  AtSign,
-  CalendarDays,
-  ChevronDown,
   Check,
+  CheckSquare2,
   CircleAlert,
   ClipboardCheck,
   Clock3,
-  FileText,
-  FolderOpen,
-  Github,
-  Globe2,
   Mail,
   Mic,
-  Paperclip,
-  Plug,
-  Presentation,
-  Rows3,
+  PartyPopper,
+  Pencil,
+  Plus,
   ShieldAlert,
   ShieldCheck,
-  Slack,
   Sparkles,
-  Table2,
-  Users,
-  Wand2,
+  Square,
+  Video,
   Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
+import { IntegrationGlyph, IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
 import { ToolButton } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
@@ -60,9 +53,9 @@ function HomePage() {
   const rightRail = useMemo(
     () =>
       session?.user ? (
-        <HomeRightRail longDate={longDate} healthOk={healthOk} healthLoading={healthLoading} />
+        <QuickAccessRail healthOk={healthOk} healthLoading={healthLoading} />
       ) : null,
-    [session?.user, longDate, healthOk, healthLoading],
+    [session?.user, healthOk, healthLoading],
   );
   useRightRail(rightRail);
 
@@ -87,40 +80,32 @@ function HomePage() {
   }
 
   return (
-    <div className="min-h-[100dvh] flex flex-col">
+    <div className="relative min-h-[100dvh] flex flex-col">
       {/* Top spacer to keep the mobile hamburger from colliding with the title */}
       <div className="md:hidden h-14 shrink-0" />
 
       <div className="flex-1 grid place-items-center px-4 sm:px-6 lg:px-10">
-        <div className="w-full max-w-2xl space-y-8 -mt-16 md:-mt-8">
+        <div className="w-full max-w-[688px] space-y-4 -mt-16 md:-mt-8">
           <header className="text-center space-y-2">
-            <p className="text-[12px] tracking-wide text-muted-foreground tabular">{longDate}</p>
-            <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl tracking-tight leading-tight">
-              {greeting}, <span className="italic text-muted-foreground/90">{name}</span>
+            <p className="text-lg tracking-tight text-white/50">{longDate}</p>
+            <h1
+              className={cn(
+                "text-balance text-3xl font-normal tracking-tight sm:text-4xl pb-1",
+                "bg-clip-text text-transparent",
+                "bg-gradient-to-b from-white to-white/60",
+              )}
+            >
+              {greeting}, {name}
             </h1>
           </header>
 
           <Composer />
+        </div>
+      </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <ChipLink href="/skills" icon={<Sparkles size={13} />}>
-              Teach Alfred a skill
-            </ChipLink>
-            <ChipLink href="/memory" icon={<Wand2 size={13} />}>
-              Review memory
-            </ChipLink>
-            <ChipLink href="/notes" icon={<Paperclip size={13} />}>
-              Capture a note
-            </ChipLink>
-          </div>
-
-          <p className="text-center text-[11px] text-muted-foreground/80">
-            <Plug size={11} className="inline -mt-0.5 mr-1" />
-            <span>Chat surface lands with m13.</span>{" "}
-            <span className="opacity-70">
-              The composer above is a preview — input is logged, not sent.
-            </span>
-          </p>
+      <div className="hidden md:block pointer-events-none absolute inset-x-0 bottom-6 px-10">
+        <div className="pointer-events-auto mx-auto w-full max-w-[688px]">
+          <SetupNudge />
         </div>
       </div>
     </div>
@@ -133,7 +118,7 @@ type MentionItem = {
   id: string;
   label: string;
   aliases: string[];
-  icon: ComponentType<{ size?: number; className?: string }>;
+  brand: IntegrationBrand;
   connected?: boolean;
 };
 
@@ -153,71 +138,70 @@ const MENTION_ITEMS: MentionItem[] = [
     id: "collaborators",
     label: "Collaborators",
     aliases: ["people", "teammates", "users"],
-    icon: Users,
+    brand: "collaborators",
   },
   {
     id: "github",
     label: "GitHub",
     aliases: ["gh", "repo", "repos", "pull request", "issue"],
-    icon: Github,
-    connected: true,
+    brand: "github",
   },
   {
     id: "gmail",
     label: "Gmail",
     aliases: ["mail", "email", "inbox"],
-    icon: Mail,
+    brand: "gmail",
     connected: true,
   },
   {
     id: "google_calendar",
     label: "Google Calendar",
     aliases: ["calendar", "meetings", "events"],
-    icon: CalendarDays,
+    brand: "google_calendar",
     connected: true,
   },
   {
     id: "google_drive",
     label: "Google Drive",
     aliases: ["drive", "files"],
-    icon: FolderOpen,
+    brand: "google_drive",
     connected: true,
   },
   {
     id: "google_docs",
     label: "Google Docs",
     aliases: ["docs", "documents"],
-    icon: FileText,
+    brand: "google_docs",
   },
   {
     id: "google_sheets",
     label: "Google Sheets",
     aliases: ["sheets", "spreadsheet", "spreadsheets"],
-    icon: Table2,
+    brand: "google_sheets",
   },
   {
     id: "google_slides",
     label: "Google Slides",
     aliases: ["slides", "presentation", "deck"],
-    icon: Presentation,
+    brand: "google_slides",
   },
   {
     id: "linear",
     label: "Linear",
     aliases: ["issues", "tickets", "projects"],
-    icon: Rows3,
+    brand: "linear",
   },
   {
     id: "slack",
     label: "Slack",
     aliases: ["messages", "channels", "chat"],
-    icon: Slack,
+    brand: "slack",
   },
   {
     id: "web",
     label: "Web",
     aliases: ["browser", "search", "internet"],
-    icon: Globe2,
+    brand: "web",
   },
 ];
 
@@ -344,8 +328,8 @@ function Composer() {
           send();
         }}
         className={cn(
-          "relative overflow-visible rounded-[22px] bg-card/85 p-1.5 shadow-pop",
-          "ring-1 ring-border/70 backdrop-blur-sm",
+          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 shadow-pop",
+          "ring-1 ring-white/10 backdrop-blur-sm",
           "focus-within:ring-2 focus-within:ring-ring/45",
           "transition-[box-shadow,background-color]",
         )}
@@ -415,7 +399,7 @@ function Composer() {
             }
           }}
           rows={3}
-          placeholder="Ask Alfred to plan, write, remember, or run something..."
+          placeholder="Type and press enter to start chatting..."
           aria-autocomplete="list"
           aria-controls={mentionOpen ? MENTION_LISTBOX_ID : undefined}
           aria-expanded={mentionOpen}
@@ -423,19 +407,17 @@ function Composer() {
             mentionOpen && selectedMention ? mentionOptionId(selectedMention) : undefined
           }
           className={cn(
-            "block w-full resize-none bg-transparent px-3.5 pt-3.5 pb-2",
-            "min-h-[96px] max-h-[40dvh]",
-            "text-[15px] leading-relaxed outline-none",
+            "composer-editor block w-full resize-none bg-transparent px-3 pt-3 pb-2",
+            "min-h-[50px] max-h-[320px]",
+            "text-sm leading-6 outline-none",
             "placeholder:text-muted-foreground/65",
           )}
         />
 
-        <ApprovalPolicyStrip mode={approvalMode} />
-
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2 px-1 pb-1">
           <div className="flex min-w-0 items-center gap-1">
-            <ToolButton label="Mention tool" onClick={openMentionMenu}>
-              <AtSign size={15} />
+            <ToolButton label="Add context" onClick={openMentionMenu} className="rounded-full">
+              <Plus size={15} />
             </ToolButton>
             <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
             <ModelPicker value="Alfred" />
@@ -450,17 +432,22 @@ function Composer() {
               disabled={!hasContent}
               aria-label="Send"
               className={cn(
-                "inline-flex size-9 items-center justify-center rounded-full",
-                "transition-[background-color,color,transform] active:scale-[0.96]",
+                "inline-flex size-8 items-center justify-center rounded-full",
+                "transition-[opacity,filter,transform] active:scale-[0.96]",
+                "text-black backdrop-blur-sm",
+                "bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)]",
+                "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4),0_18px_11px_rgba(0,0,0,0.01),0_8px_8px_rgba(0,0,0,0.01),0_2px_4px_rgba(0,0,0,0.02)]",
                 hasContent
-                  ? "bg-foreground text-background shadow-soft hover:bg-foreground/90"
-                  : "bg-muted text-muted-foreground/70 cursor-not-allowed",
+                  ? "hover:brightness-110 active:brightness-105"
+                  : "opacity-50 cursor-not-allowed",
               )}
             >
-              <ArrowUp size={16} />
+              <ArrowUp size={16} strokeWidth={2.25} />
             </button>
           </div>
         </div>
+
+        <ConnectedToolsRow />
       </form>
 
       {reviewPreview ? (
@@ -488,16 +475,28 @@ function MentionMenu({
   onSelect: (item: MentionItem) => void;
   onHover: (index: number) => void;
 }) {
+  const listboxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const selectedItem = items[selectedIndex];
+    if (!selectedItem) return;
+
+    const selectedOption = document.getElementById(mentionOptionId(selectedItem));
+    if (!selectedOption || !listboxRef.current?.contains(selectedOption)) return;
+
+    selectedOption.scrollIntoView({ block: "nearest" });
+  }, [items, selectedIndex]);
+
   return (
     <div
       className={cn(
         "absolute left-3 bottom-[calc(100%+0.5rem)] z-20",
-        "w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl border bg-card/85",
-        "backdrop-blur-md shadow-pop p-2",
+        "frost-popover w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl p-2",
         "animate-menu-pop-in origin-bottom-left",
       )}
     >
       <div
+        ref={listboxRef}
         id={MENTION_LISTBOX_ID}
         role="listbox"
         aria-label="Mentionable tools and integrations"
@@ -505,10 +504,8 @@ function MentionMenu({
       >
         {items.length === 0 ? (
           <div className="px-3 py-6 text-center">
-            <p className="text-sm font-medium">No matches</p>
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              No integration matches @{query}
-            </p>
+            <p className="text-sm font-medium text-white/86">No matches</p>
+            <p className="mt-1 text-[12px] text-white/50">No integration matches @{query}</p>
           </div>
         ) : (
           <div className="space-y-0.5">
@@ -523,11 +520,6 @@ function MentionMenu({
             ))}
           </div>
         )}
-      </div>
-
-      <div className="mt-1 flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground/80">
-        <span>@ mentions route the run through a tool</span>
-        <span className="tabular">Enter</span>
       </div>
     </div>
   );
@@ -544,7 +536,6 @@ function MentionMenuItem({
   onMouseEnter: () => void;
   onSelect: () => void;
 }) {
-  const Icon = item.icon;
   return (
     <div
       id={mentionOptionId(item)}
@@ -556,60 +547,17 @@ function MentionMenuItem({
         e.preventDefault();
         onSelect();
       }}
+      data-selected={selected}
       className={cn(
         "cursor-default",
-        "group flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2 py-2",
-        "text-left text-sm outline-none transition-colors",
-        selected ? "bg-accent/70 text-foreground" : "text-foreground hover:bg-accent/50",
+        "mention-menu-row group flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2 py-2",
+        "text-left text-sm text-white/86 outline-none",
+        "transition-[background-color,box-shadow,color]",
+        !selected && "hover:bg-white/[0.055]",
       )}
     >
-      <span
-        className={cn(
-          "grid size-7 shrink-0 place-items-center rounded-lg border bg-background/70",
-          "text-muted-foreground shadow-soft",
-        )}
-      >
-        <Icon size={15} />
-      </span>
+      <IntegrationIcon brand={item.brand} connected={item.connected} size="sm" variant="frost" />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {item.connected ? (
-        <span className="rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          connected
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-function ApprovalPolicyStrip({ mode }: { mode: ApprovalMode }) {
-  const isAuto = mode === "auto";
-  const Icon = isAuto ? ShieldCheck : ShieldAlert;
-
-  return (
-    <div
-      className={cn(
-        "mx-1 flex items-center gap-2 rounded-2xl px-3 py-2",
-        "bg-muted/45 text-[12px] text-muted-foreground",
-      )}
-    >
-      <span
-        className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-full",
-          isAuto
-            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-            : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        )}
-      >
-        <Icon size={13} />
-      </span>
-      <span className="min-w-0 flex-1 truncate">
-        {isAuto
-          ? "Auto approval for internal skills and workflows"
-          : "Manual review before Alfred changes skills or workflows"}
-      </span>
-      <span className="hidden shrink-0 rounded-full bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
-        External actions stay gated
-      </span>
     </div>
   );
 }
@@ -622,7 +570,6 @@ function ApprovalModeToggle({
   onModeChange: (mode: ApprovalMode) => void;
 }) {
   const isAuto = mode === "auto";
-  const Icon = isAuto ? ShieldCheck : ShieldAlert;
 
   return (
     <button
@@ -635,17 +582,26 @@ function ApprovalModeToggle({
       }
       onClick={() => onModeChange(isAuto ? "manual" : "auto")}
       className={cn(
-        "inline-flex h-8 min-w-[118px] items-center justify-center gap-1.5 px-2.5",
-        "rounded-[11px] border backdrop-blur-sm",
-        "text-[12px] font-medium tabular",
-        "transition-[background-color,color,transform,box-shadow] active:scale-[0.96]",
+        "group/auto inline-flex h-8 min-w-[72px] items-center justify-center gap-1.5 px-3",
+        "rounded-[10px] outline-none backdrop-blur-sm",
+        "text-[13px] font-normal text-white/86",
+        "transition-[opacity,filter] hover:opacity-90 active:opacity-80",
+        "focus-visible:ring-2 focus-visible:ring-white/20",
         isAuto
-          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-soft dark:text-emerald-300"
-          : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          ? "bg-[linear-gradient(180deg,#141414_0%,rgba(20,20,20,0.5)_100%)]"
+          : "bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)]",
       )}
     >
-      <Icon size={13} />
-      {isAuto ? "Auto approve" : "Manual review"}
+      <span>Auto</span>
+      <span
+        aria-hidden
+        className={cn(
+          "inline-block size-2.5 rounded-full transition-[background-color,box-shadow]",
+          isAuto
+            ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.55),inset_0_1px_0_rgba(255,255,255,0.4)]"
+            : "bg-white/[0.18] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.35)]",
+        )}
+      />
     </button>
   );
 }
@@ -679,23 +635,29 @@ function RunReviewPreview({
         : isAuto
           ? ShieldCheck
           : Clock3;
+  const headerTone =
+    preview.status === "approved"
+      ? "text-emerald-200"
+      : preview.status === "rejected"
+        ? "text-amber-200"
+        : isAuto
+          ? "text-emerald-200"
+          : "text-amber-200";
 
   return (
     <div className="animate-menu-pop-in space-y-2">
       <div className="flex justify-end">
-        <div className="max-w-[82%] rounded-2xl bg-card/80 px-4 py-2.5 text-left text-[13px] leading-relaxed shadow-soft ring-1 ring-border/60">
+        <div className="max-w-[82%] rounded-2xl bg-[#101010]/92 px-4 py-2.5 text-left text-[13px] leading-relaxed text-white/85 shadow-soft ring-1 ring-white/10">
           {preview.prompt}
         </div>
       </div>
 
-      <div className="rounded-[20px] bg-card/80 p-3 shadow-pop ring-1 ring-border/70 backdrop-blur-sm">
+      <div className="frost-panel rounded-[20px] p-3 text-white">
         <div className="flex items-start gap-3">
           <span
             className={cn(
-              "mt-0.5 grid size-8 shrink-0 place-items-center rounded-2xl",
-              isAuto
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              "frost-icon-tile mt-0.5 grid size-8 shrink-0 place-items-center rounded-2xl",
+              headerTone,
             )}
           >
             <HeaderIcon size={16} />
@@ -703,11 +665,11 @@ function RunReviewPreview({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium">{header}</p>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+              <span className="frost-badge rounded-full px-2 py-0.5 text-[11px] text-white/65">
                 {isAuto ? "Alfred decides" : "Needs review"}
               </span>
             </div>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-[12.5px] leading-relaxed text-white/58">
               {isAuto
                 ? "Alfred can carry low-risk internal changes forward, while external side effects still stop for review."
                 : "Alfred should propose the internal changes and wait before creating or updating durable behavior."}
@@ -716,14 +678,12 @@ function RunReviewPreview({
             {preview.mentions.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {preview.mentions.map((item) => {
-                  const Icon = item.icon;
                   return (
                     <span
                       key={item.id}
-                      className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                      className="frost-badge inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-white/62"
                     >
-                      <Icon size={11} />
-                      @{item.label}
+                      <IntegrationGlyph brand={item.brand} size={11} variant="frost" />@{item.label}
                     </span>
                   );
                 })}
@@ -732,21 +692,19 @@ function RunReviewPreview({
           </div>
         </div>
 
-        <div className="mt-3 divide-y divide-border/70 overflow-hidden rounded-2xl bg-background/55 ring-1 ring-border/60">
+        <div className="mt-3 divide-y divide-white/[0.08] overflow-hidden rounded-2xl bg-black/25 ring-1 ring-white/10">
           {items.map((item) => (
             <ApprovalActionRow key={item.kind} item={item} preview={preview} />
           ))}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-muted-foreground">
-            Preview only until m13 wires chat runs.
-          </p>
+          <p className="text-[11px] text-white/48">Saved as a local run preview.</p>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onDismiss}
-              className="h-8 rounded-md px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+              className="h-8 rounded-md px-2.5 text-[12px] text-white/58 transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               Dismiss
             </button>
@@ -755,14 +713,14 @@ function RunReviewPreview({
                 <button
                   type="button"
                   onClick={onReject}
-                  className="h-8 rounded-md border bg-background px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                  className="h-8 rounded-md border border-white/10 bg-white/[0.045] px-2.5 text-[12px] text-white/64 transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
                   Keep manual
                 </button>
                 <button
                   type="button"
                   onClick={onApprove}
-                  className="h-8 rounded-md bg-foreground px-2.5 text-[12px] font-medium text-background transition-[background-color,transform] hover:bg-foreground/90 active:scale-[0.96]"
+                  className="h-8 rounded-md bg-white px-2.5 text-[12px] font-medium text-black transition-[background-color,transform] hover:bg-white/90 active:scale-[0.96]"
                 >
                   Approve internal plan
                 </button>
@@ -773,14 +731,14 @@ function RunReviewPreview({
                 <button
                   type="button"
                   onClick={onReject}
-                  className="h-8 rounded-md border bg-background px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                  className="h-8 rounded-md border border-white/10 bg-white/[0.045] px-2.5 text-[12px] text-white/64 transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
                   Require review
                 </button>
                 <button
                   type="button"
                   onClick={onApprove}
-                  className="h-8 rounded-md bg-foreground px-2.5 text-[12px] font-medium text-background transition-[background-color,transform] hover:bg-foreground/90 active:scale-[0.96]"
+                  className="h-8 rounded-md bg-white px-2.5 text-[12px] font-medium text-black transition-[background-color,transform] hover:bg-white/90 active:scale-[0.96]"
                 >
                   Confirm auto path
                 </button>
@@ -806,22 +764,22 @@ function ApprovalActionRow({ item, preview }: { item: ApprovalItem; preview: Rev
   const status = approvalStatusFor(item, preview);
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5">
-      <span className="grid size-7 shrink-0 place-items-center rounded-xl bg-card text-muted-foreground shadow-soft ring-1 ring-border/60">
+    <div className="flex items-center gap-3 px-3 py-2.5 text-white">
+      <span className="frost-icon-tile grid size-7 shrink-0 place-items-center rounded-xl text-white/58">
         <Icon size={14} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-medium">{item.title}</p>
-        <p className="truncate text-[12px] text-muted-foreground">{item.description}</p>
+        <p className="truncate text-[12px] text-white/52">{item.description}</p>
       </div>
       <span
         className={cn(
-          "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+          "frost-badge shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
           isExternal
-            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+            ? "text-sky-200"
             : preview.status === "approved"
-              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "bg-muted text-muted-foreground",
+              ? "text-emerald-200"
+              : "text-white/58",
         )}
       >
         {status}
@@ -839,16 +797,27 @@ function ModelPicker({ value }: { value: string }) {
     <button
       type="button"
       disabled
-      title="Model picker — lands with m13"
+      title="Model picker"
       className={cn(
-        "inline-flex items-center gap-1 h-8 px-2.5 rounded-md",
-        "text-[12px] font-medium text-muted-foreground",
-        "hover:text-foreground hover:bg-accent/60",
-        "transition-colors disabled:cursor-not-allowed disabled:opacity-80",
+        "inline-flex h-[30px] items-center justify-between gap-2 rounded-lg px-2 py-1",
+        "border border-transparent bg-[linear-gradient(180deg,#0C0C0C_0%,#151515_100%)]",
+        "text-[13px] font-normal text-white/86 backdrop-blur-sm",
+        "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
+        "transition-[filter] hover:brightness-110",
+        "disabled:cursor-not-allowed disabled:opacity-95",
       )}
     >
-      {value}
-      <ChevronDown size={12} className="opacity-70" />
+      <span
+        aria-hidden
+        className={cn(
+          "grid size-4 shrink-0 place-items-center rounded-full",
+          "bg-[radial-gradient(circle_at_30%_30%,#a5a5a5,#1e1e1e_70%)]",
+          "shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(0,0,0,0.4)]",
+        )}
+      >
+        <Sparkles size={9} className="text-white/85" />
+      </span>
+      <span className="leading-none">{value}</span>
     </button>
   );
 }
@@ -909,107 +878,250 @@ function approvalStatusFor(item: ApprovalItem, preview: ReviewPreview) {
   return "Review";
 }
 
-function ChipLink({
-  href,
-  icon,
-  children,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function ConnectedToolsRow() {
+  const tools: IntegrationBrand[] = [
+    "gmail",
+    "google_calendar",
+    "google_drive",
+    "google_docs",
+    "google_sheets",
+    "google_slides",
+    "github",
+    "linear",
+    "slack",
+    "web",
+  ];
+
   return (
     <a
-      href={href}
+      href="/integrations"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border bg-card/40",
-        "px-3 py-1 text-[12px] text-muted-foreground",
-        "hover:bg-accent/60 hover:text-foreground transition-colors",
+        "group -mt-1 flex h-[46px] items-center justify-between gap-3 rounded-b-2xl",
+        "px-4 pt-3.5 pb-3 text-[13px] text-white/70 outline-none",
+        "transition-colors hover:text-white",
+        "focus-visible:ring-2 focus-visible:ring-white/[0.18]",
       )}
     >
-      <span className="opacity-80">{icon}</span>
-      {children}
+      <span className="min-w-0 truncate font-normal text-white/86 transition-colors group-hover:text-white">
+        Connect Your Tools
+      </span>
+      <span className="flex shrink-0 items-center gap-[3px]">
+        {tools.map((brand) => (
+          <IntegrationGlyph
+            key={brand}
+            brand={brand}
+            size={16}
+            variant="plain"
+            className="opacity-90 transition-opacity group-hover:opacity-100"
+          />
+        ))}
+      </span>
+    </a>
+  );
+}
+
+function SetupNudge() {
+  return (
+    <a
+      href="/integrations"
+      className={cn(
+        "group relative block h-[74px] overflow-hidden rounded-3xl px-4 shadow-pop",
+        "text-white ring-1 ring-white/10 outline-none",
+        "transition-[box-shadow,transform]",
+        "hover:shadow-[0_18px_46px_rgba(0,0,0,0.38)] hover:ring-white/[0.16]",
+        "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
+      )}
+    >
+      <span className="absolute inset-0 bg-[linear-gradient(135deg,#8cc7d3_0%,#425d72_36%,#171717_100%)]" />
+      <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
+      <span className="relative flex h-full items-center justify-between gap-4">
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">Connect tools for live context</span>
+          <span className="mt-0.5 block truncate text-[12px] text-white/70">
+            Bring Gmail, Calendar, Drive, and code sources into Alfred.
+          </span>
+        </span>
+        <span
+          className={cn(
+            "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2",
+            "text-[13px] font-medium text-black backdrop-blur-sm",
+            "bg-[linear-gradient(180deg,rgba(255,255,255,0.85)_0%,#eeeeee_100%)]",
+            "shadow-[inset_0_0_7px_1px_rgba(255,255,255,0.16),0_0_0_1px_rgba(0,0,0,0.08)]",
+            "transition-[filter,box-shadow]",
+            "group-hover:shadow-[inset_0_0_8px_1px_rgba(255,255,255,0.28),0_0_0_1px_rgba(0,0,0,0.08),0_2px_12px_rgba(255,255,255,0.18)]",
+          )}
+        >
+          Open Integrations
+          <ArrowRight size={14} strokeWidth={2.25} />
+        </span>
+      </span>
     </a>
   );
 }
 
 /* -------------------------------------------------------------------------- */
 
-function HomeRightRail({
-  longDate,
+type RailMode = "tasks" | "emails" | "meetings";
+
+const RAIL_TABS: Array<{
+  mode: RailMode;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}> = [
+  { mode: "tasks", label: "To Do", icon: CheckSquare2 },
+  { mode: "emails", label: "Emails", icon: Mail },
+  { mode: "meetings", label: "Meetings", icon: Video },
+];
+
+function QuickAccessRail({
   healthOk,
   healthLoading,
 }: {
-  longDate: string;
   healthOk: boolean;
   healthLoading: boolean;
 }) {
+  const [mode, setMode] = useState<RailMode>("tasks");
+  const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
+
   return (
-    <div className="flex h-full flex-col">
-      <header className="px-4 py-3 border-b">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
-          Today
-        </p>
-        <p className="text-[14px] font-medium mt-0.5">{longDate}</p>
-      </header>
+    <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
+      <div className="absolute inset-0 bg-[linear-gradient(155deg,#8cc7d3_0%,#40647d_31%,#1b2528_57%,#101010_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),rgba(0,0,0,0.12)_28%,rgba(0,0,0,0.72)_100%)]" />
+      <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),transparent)]" />
 
-      <div className="flex-1 overflow-y-auto scrollbar p-4 space-y-5">
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">
-            Suggestions
-          </p>
-          <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground italic">
-            Alfred will surface proactive suggestions here once integrations are connected and the
-            chat surface is live.
+      <div className="relative flex min-h-0 flex-1 flex-col p-4">
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[13px] font-medium text-white/86">
+              <span className="truncate">Bhubaneswar</span>
+              <span className="tabular">29°</span>
+              <span
+                className={cn(
+                  "ml-0.5 size-1.5 rounded-full",
+                  healthLoading ? "bg-white/50" : healthOk ? "bg-emerald-300" : "bg-red-300",
+                )}
+                title={
+                  healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"
+                }
+              />
+            </div>
+            <h2 className="mt-1 text-2xl font-medium tracking-tight">{active.label}</h2>
           </div>
-        </section>
 
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">
-            Morning briefing
-          </p>
-          <div className="rounded-md border bg-background/60 p-3 text-[12.5px] text-muted-foreground">
-            Daily digest delivers each morning. Configure timezone & hour in Settings.
-          </div>
-        </section>
-
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">
-            Status
-          </p>
-          <div className="rounded-md border bg-background/60 p-3 text-[12px] space-y-1">
-            <Row label="Server">
-              {healthLoading ? (
-                <span className="text-muted-foreground">checking…</span>
-              ) : (
-                <span
+          <div className="flex rounded-2xl bg-black/20 p-1 backdrop-blur-sm">
+            {RAIL_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const selected = mode === tab.mode;
+              return (
+                <button
+                  key={tab.mode}
+                  type="button"
+                  aria-label={tab.label}
+                  aria-pressed={selected}
+                  onClick={() => setMode(tab.mode)}
                   className={cn(
-                    "inline-flex items-center gap-1.5",
-                    healthOk ? "text-emerald-500" : "text-destructive",
+                    "grid h-9 w-14 place-items-center rounded-[14px]",
+                    "transition-[background-color,color,transform] active:scale-[0.96]",
+                    selected
+                      ? "bg-white/[0.12] text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
+                      : "text-white/50 hover:text-white/90",
                   )}
                 >
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      healthOk ? "bg-emerald-500" : "bg-destructive",
-                    )}
-                  />
-                  {healthOk ? "online" : "offline"}
-                </span>
-              )}
-            </Row>
+                  <Icon size={16} />
+                </button>
+              );
+            })}
           </div>
-        </section>
+        </header>
+
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar pb-1">
+          {mode === "tasks" ? <TasksPanel /> : null}
+          {mode === "emails" ? (
+            <RailEmpty title="All done!" text="No pending email drafts." />
+          ) : null}
+          {mode === "meetings" ? (
+            <RailEmpty title="All done!" text="You have no meetings scheduled for today." />
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function TasksPanel() {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
+        <button
+          type="button"
+          className={cn(
+            "px-2 py-0.5 text-sm text-white transition-colors hover:text-white/90",
+            "mix-blend-plus-lighter outline-none",
+          )}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          aria-label="Edit todos"
+          className="grid size-8 place-items-center rounded-xl text-white/70 transition-[background-color,color,transform] hover:bg-white/10 hover:text-white active:scale-[0.96]"
+        >
+          <Pencil size={15} />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        className={cn(
+          "mt-3 flex h-9 w-full items-center gap-2 rounded-md px-2",
+          "text-left text-sm text-white/50 transition-colors hover:text-white/90",
+        )}
+      >
+        <span
+          aria-hidden
+          className="grid size-4 shrink-0 place-items-center rounded-[4px] border border-white/40"
+        >
+          <Square size={10} className="opacity-0" />
+        </span>
+        <span>Add new to do</span>
+      </button>
+
+      <section className="mt-6">
+        <div className="flex items-center gap-1.5">
+          <ClipboardCheck size={11} className="text-white/60" />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
+            Suggestions
+          </p>
+        </div>
+
+        <div className="mt-10 flex flex-col items-center text-center">
+          <PartyPopper
+            size={40}
+            className="text-white/80 mix-blend-plus-lighter"
+            strokeWidth={1.5}
+          />
+          <p className="mt-3 text-sm font-medium">No Suggestions</p>
+          <p className="mt-1 max-w-[220px] text-[12px] leading-relaxed text-white/60">
+            New suggestions will appear here when available.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RailEmpty({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="grid min-h-[280px] place-items-center text-center">
+      <div className="flex flex-col items-center">
+        <PartyPopper
+          size={40}
+          className="text-white/80 mix-blend-plus-lighter"
+          strokeWidth={1.5}
+        />
+        <p className="mt-3 text-sm font-medium">{title}</p>
+        <p className="mt-1 text-[12px] text-white/60">{text}</p>
+      </div>
     </div>
   );
 }
@@ -1027,7 +1139,7 @@ function displayName(user: SessionUser | null | undefined): string {
   if (!user) return "there";
   if (user.name && user.name.trim().length > 0) {
     const first = user.name.trim().split(/\s+/)[0];
-    if (first) return first;
+    if (first) return capitalize(first);
   }
   if (user.email) {
     const local = user.email.split("@")[0];
@@ -1072,19 +1184,29 @@ function activeMentionToken(value: string, caret: number): { start: number; quer
 
 function greetingFor(date: Date): string {
   const hour = date.getHours();
-  if (hour < 5) return "Up late";
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  if (hour < 21) return "Good evening";
-  return "Good night";
+  if (hour < 5) return "Up Late";
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  if (hour < 21) return "Good Evening";
+  return "Good Night";
 }
 
 function formatLongDate(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
+  const month = date.toLocaleDateString(undefined, { month: "long" });
+  const day = date.getDate();
+  return `${weekday}, ${month} ${day}${ordinalSuffix(day)}`;
+}
+
+function ordinalSuffix(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return "th";
+  switch (n % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
 }
 
 /**
