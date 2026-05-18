@@ -17,7 +17,6 @@ import {
   useCallback,
   useState,
   type ButtonHTMLAttributes,
-  type KeyboardEvent,
 } from "react";
 import { cn } from "~/lib/utils";
 
@@ -29,7 +28,7 @@ interface SwitchProps
 }
 
 export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch(
-  { checked, defaultChecked = false, onCheckedChange, disabled, className, onClick, onKeyDown, ...rest },
+  { checked, defaultChecked = false, onCheckedChange, disabled, className, onClick, ...rest },
   ref,
 ) {
   const isControlled = checked !== undefined;
@@ -42,18 +41,6 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch
     if (!isControlled) setInternal(next);
     onCheckedChange?.(next);
   }, [disabled, value, isControlled, onCheckedChange]);
-
-  const handleKey = useCallback(
-    (e: KeyboardEvent<HTMLButtonElement>) => {
-      onKeyDown?.(e);
-      if (e.defaultPrevented) return;
-      if (e.key === " " || e.key === "Enter") {
-        e.preventDefault();
-        toggle();
-      }
-    },
-    [onKeyDown, toggle],
-  );
 
   return (
     <button
@@ -68,7 +55,6 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch
         if (e.defaultPrevented) return;
         toggle();
       }}
-      onKeyDown={handleKey}
       className={cn(
         /* track */
         "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full",
