@@ -36,6 +36,10 @@ The site is still available on 2026-05-18, two days before the announced shutdow
 - `screenshots/39-composer-at-mention-inserted-2026-05-18.png` + `snapshots/composer-at-mention-inserted-2026-05-18.txt` — selected `Gmail` mention rendered back into the composer
 - `screenshots/40-gmail-action-no-approval-2026-05-18.png` — live Gmail draft request while the tool run was active; no explicit human approval dialog appeared before the action progressed
 - `screenshots/41-gmail-draft-review-response-2026-05-18.png` + `snapshots/gmail-draft-review-response-2026-05-18.txt` — final response for that same request; Dimension reported the email was saved as a Gmail draft and explicitly said it does not have a built-in "approve before send" confirmation gate
+- `screenshots/42-tab-follow-up-suggestion-2026-05-18.png` + `snapshots/tab-follow-up-suggestion-2026-05-18.txt` — active-thread composer showing a dimmed suggested follow-up (`send the email`) with a `Tab` keycap affordance
+- `screenshots/43-tab-follow-up-accepted-2026-05-18.png` + `snapshots/tab-follow-up-accepted-2026-05-18.txt` — pressing `Tab` accepts that follow-up into the composer text, but does not submit it
+- `screenshots/44-auto-off-composer-2026-05-18.png` + `snapshots/auto-off-composer-2026-05-18.txt` — toggling `Auto` off removes the pressed state while leaving the label/chip unchanged
+- `screenshots/45-auto-off-skill-review-no-gate-2026-05-18.png` + `snapshots/auto-off-skill-review-no-gate-2026-05-18.txt` — with `Auto` off, Dimension still did not render a skill approval UI; it responded that there is no staged `Approve`/`Reject` surface and memory writes save immediately when the memory tool is called
 
 Source maps still do not appear to be exposed. On 2026-05-18, I checked 10 key Next chunks (`webpack`, `framework`, `main`, `_app`, chat, library, workflows, integrations, settings, skills). None contained `sourceMappingURL`; their corresponding `.js.map` URLs returned 404.
 
