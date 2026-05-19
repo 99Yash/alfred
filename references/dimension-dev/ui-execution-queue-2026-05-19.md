@@ -86,9 +86,9 @@ For each route, track these anchors:
 
 ## Immediate next slice
 
-Start with workflow detail tabs/share dialog.
+Start with integration detail variants.
 
-Reason: library populated/type-menu states now exist. The next low-risk route-specific gap is workflow detail: Overview, Triggers, History, Approvals, and Share dialog can be fixture-backed without runtime work.
+Reason: workflow detail tabs/share dialog now exist. The next low-risk route-specific gap is integrations detail parity: connected/unconnected provider states, related Google rows, and CTA structure can be fixture-backed without runtime work.
 
 ## Completed slices
 
@@ -98,3 +98,4 @@ Reason: library populated/type-menu states now exist. The next low-risk route-sp
 - **2026-05-19 — Artifact panel controls**: Added query-addressable artifact panel states: completed, `?artifactState=generating`, and `?artifactState=empty`. The panel now has a 65px document header, status strip, icon toolbar, page thumbnail rail, selected-page metadata, unresolved page placeholder, and empty state.
 - **2026-05-19 — Connect tools modal**: Added a Radix Dialog-backed `ConnectToolsDialog` with provider search, connected count, grouped provider rows, connected/available status pills, and links into integration detail pages. Wired it to the home composer tray, setup nudge, and composer `+` menu.
 - **2026-05-19 — Library populated/type menu**: Added enough fixture artifacts to exercise PDF, document, presentation, and spreadsheet cards. Replaced the custom type menu with a Radix Popover-backed type filter using Dimension-style checkbox rows, selected-count trigger text, and clear action.
+- **2026-05-19 — Workflow detail tabs/share dialog**: Replaced the old Plan/empty-tab structure with Overview, Triggers, History, and Approvals states plus a Radix Dialog-backed Share workflow modal. The route now has fixture-backed metrics, trigger conditions, recent-run rows, approval policy rows, and a private-link preview.
