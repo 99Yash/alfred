@@ -86,11 +86,12 @@ For each route, track these anchors:
 
 ## Immediate next slice
 
-Start with chat preview state variants.
+Start with artifact panel controls.
 
-Reason: the shared composer shell and its menu surfaces now exist. The next highest-impact gap is the missing set of chat states Dimension exposes during and after runs: streaming/thinking, active tool, all-expanded tools, and richer assistant content.
+Reason: chat state variants now exist. The next highest-impact gap is the artifact side panel: toolbar states, page index/thumbnails, loading/PDF-generation placeholder, and tighter page controls around the already wired iframe pages.
 
 ## Completed slices
 
 - **2026-05-19 — Shared composer shell**: Added `DimensionComposerShell`, `DimensionComposerToolbar`, `DimensionComposerIconButton`, `DimensionComposerSendButton`, and `DimensionModelChip`. Home and chat now share the same shell/button geometry while keeping route-specific behavior and home-only connected-tools tray.
 - **2026-05-19 — Composer menus**: Added Radix Dropdown Menu/Popover-backed context menus, model picker, and overflow menus to the shared composer primitives. Home now has a `+` menu, local model picker, and composer options menu; chat has matching context/model/overflow surfaces with chat-specific items.
+- **2026-05-19 — Chat preview states**: Added query-addressable chat states: `?state=all-expanded`, `?state=streaming`, `?state=active-tool`, and `?state=rich-content`. The chat route also accepts `?artifact=1` to force the artifact panel on any thread id. Browser verification covered all five chat states including the default completed state.
