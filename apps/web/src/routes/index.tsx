@@ -347,7 +347,7 @@ function Composer() {
           send();
         }}
         className={cn(
-          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 shadow-pop",
+          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 pb-0 shadow-pop",
           "ring-1 ring-white/10 backdrop-blur-sm",
           "focus-within:ring-2 focus-within:ring-ring/45",
           "transition-[box-shadow,background-color]",
@@ -908,13 +908,13 @@ function ConnectedToolsRow() {
     <a
       href="/integrations"
       className={cn(
-        "group -mt-1 flex h-[46px] items-center justify-between gap-3 rounded-b-2xl",
-        "px-4 pt-3.5 pb-3 text-[13px] text-white/70 outline-none",
+        "group relative mx-auto -mb-px -mt-px flex h-[46px] w-[calc(100%-32px)] items-center justify-between gap-3 rounded-b-2xl",
+        "border-t border-white/[0.055] bg-black/[0.08] px-4 pt-3.5 pb-3 text-[13px] text-white/42 outline-none",
         "transition-colors hover:text-white",
         "focus-visible:ring-2 focus-visible:ring-white/[0.18]",
       )}
     >
-      <span className="min-w-0 truncate font-normal text-white/86 transition-colors group-hover:text-white">
+      <span className="min-w-0 truncate font-normal transition-colors group-hover:text-white/86">
         Connect Your Tools
       </span>
       <span className="flex shrink-0 items-center gap-[3px]">
@@ -924,7 +924,7 @@ function ConnectedToolsRow() {
             brand={brand}
             size={16}
             variant="plain"
-            className="opacity-90 transition-opacity group-hover:opacity-100"
+            className="opacity-75 transition-opacity group-hover:opacity-100"
           />
         ))}
       </span>
@@ -972,7 +972,7 @@ function SetupNudge() {
         "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
       )}
     >
-      <span className="cloud-video-fallback absolute inset-0" />
+      <span className="dimension-weather-surface absolute inset-0" />
       <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
       <span className="relative flex h-full items-center justify-between gap-4">
         <span className="min-w-0">
