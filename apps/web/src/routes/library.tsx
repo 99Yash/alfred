@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { FileText, Filter, MoreHorizontal, PartyPopper, Search, Star } from "lucide-react";
 import { useId, useMemo, useState } from "react";
+import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { Input } from "~/components/ui/input";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
 import {
@@ -187,15 +188,23 @@ function ArtifactCard({ artifact }: { artifact: LibraryArtifact }) {
       className="group overflow-hidden rounded-3xl border border-white/[0.06] bg-[#141414] outline-none transition-[background-color,transform] duration-200 hover:bg-[#181818] focus-visible:ring-2 focus-visible:ring-purple-500 active:scale-[0.99]"
     >
       <div className="aspect-[4/3] border-b border-white/[0.06] bg-[#0f0f0f] p-4">
-        <div className="mx-auto flex h-full max-w-[210px] flex-col rounded-lg bg-[#ededed] p-4 text-black shadow-2xl">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-black/45">
-            {artifact.pages[0]?.kicker}
-          </p>
-          <p className="mt-3 text-lg font-semibold leading-5">{artifact.pages[0]?.title}</p>
-          <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-black/60">
-            {artifact.pages[0]?.body}
-          </p>
-        </div>
+        {artifact.pages[0]?.html ? (
+          <ArtifactPageFrame
+            html={artifact.pages[0].html}
+            title={`${artifact.title} cover preview`}
+            className="mx-auto h-full max-w-[210px] rounded-lg"
+          />
+        ) : (
+          <div className="mx-auto flex h-full max-w-[210px] flex-col rounded-lg bg-[#ededed] p-4 text-black shadow-2xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-black/45">
+              {artifact.pages[0]?.kicker}
+            </p>
+            <p className="mt-3 text-lg font-semibold leading-5">{artifact.pages[0]?.title}</p>
+            <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-black/60">
+              {artifact.pages[0]?.body}
+            </p>
+          </div>
+        )}
       </div>
       <div className="flex items-start gap-3 p-4">
         <span
