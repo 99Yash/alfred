@@ -21,6 +21,7 @@ import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 
@@ -84,6 +85,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
+  id: '/$artifact',
+  path: '/$artifact',
+  getParentRoute: () => LibraryRoute,
+} as any)
 const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
   id: '/$provider',
   path: '/$provider',
@@ -98,7 +104,7 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/integrations': typeof IntegrationsRouteWithChildren
-  '/library': typeof LibraryRoute
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
@@ -108,13 +114,14 @@ export interface FileRoutesByFullPath {
   '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/integrations': typeof IntegrationsRouteWithChildren
-  '/library': typeof LibraryRoute
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -131,7 +139,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/integrations': typeof IntegrationsRouteWithChildren
-  '/library': typeof LibraryRoute
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/workflows'
     | '/debug/events'
     | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/workflows'
     | '/debug/events'
     | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
     | '/workflows/$workflow'
   id:
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/workflows'
     | '/debug/events'
     | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesById: FileRoutesById
@@ -198,7 +210,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   IntegrationsRoute: typeof IntegrationsRouteWithChildren
-  LibraryRoute: typeof LibraryRoute
+  LibraryRoute: typeof LibraryRouteWithChildren
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
@@ -295,6 +307,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
     }
+    '/library/$artifact': {
+      id: '/library/$artifact'
+      path: '/$artifact'
+      fullPath: '/library/$artifact'
+      preLoaderRoute: typeof LibraryArtifactRouteImport
+      parentRoute: typeof LibraryRoute
+    }
     '/integrations/$provider': {
       id: '/integrations/$provider'
       path: '/$provider'
@@ -324,6 +343,17 @@ const IntegrationsRouteWithChildren = IntegrationsRoute._addFileChildren(
   IntegrationsRouteChildren,
 )
 
+interface LibraryRouteChildren {
+  LibraryArtifactRoute: typeof LibraryArtifactRoute
+}
+
+const LibraryRouteChildren: LibraryRouteChildren = {
+  LibraryArtifactRoute: LibraryArtifactRoute,
+}
+
+const LibraryRouteWithChildren =
+  LibraryRoute._addFileChildren(LibraryRouteChildren)
+
 interface SkillsRouteChildren {
   SkillsSlugRoute: typeof SkillsSlugRoute
 }
@@ -350,7 +380,7 @@ const WorkflowsRouteWithChildren = WorkflowsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   IntegrationsRoute: IntegrationsRouteWithChildren,
-  LibraryRoute: LibraryRoute,
+  LibraryRoute: LibraryRouteWithChildren,
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
