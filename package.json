@@ -12,7 +12,7 @@
     "db:studio": "turbo run db:studio --filter=@alfred/db",
     "db:generate": "turbo run db:generate --filter=@alfred/db",
     "db:migrate": "turbo run db:migrate --filter=@alfred/db",
-    "check": "oxlint && oxfmt --write"
+    "check": "oxlint && oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json"
   },
   "devDependencies": {
     "@types/node": "^22.13.11",

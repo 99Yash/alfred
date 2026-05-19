@@ -111,9 +111,7 @@ export async function uninstallGmailWatch(credentialId: string): Promise<void> {
     .where(eq(integrationCredentials.id, credentialId));
 }
 
-export async function getGmailWatchState(
-  credentialId: string,
-): Promise<GmailWatchState | null> {
+export async function getGmailWatchState(credentialId: string): Promise<GmailWatchState | null> {
   const rows = await db()
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)

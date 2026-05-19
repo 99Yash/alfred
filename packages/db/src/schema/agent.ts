@@ -74,13 +74,17 @@ export const agentRuns = pgTable(
     workflowSlug: text("workflow_slug").notNull(),
     brief: text("brief"),
     status: text("status").notNull().default("pending"),
-    state: jsonb("state").notNull().default(sql`'{}'::jsonb`),
+    state: jsonb("state")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     currentStep: text("current_step").notNull(),
     attempt: integer("attempt").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),
     error: jsonb("error"),
     output: jsonb("output"),
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     /**
      * What caused this row to be inserted (ADR-0027). Discriminated by
      * `kind`; see `agentRunTriggerSchema`. Nullable for legacy rows

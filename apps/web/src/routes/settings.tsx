@@ -1,16 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import {
-  AlertTriangle,
-  Bell,
-  LogOut,
-  Plug,
-  ShieldAlert,
-  Sliders,
-  Sparkles,
-  User,
-} from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { BadgeDollarSign, Gift, PackageCheck, Sliders, Sparkles, User } from "lucide-react";
 import { useState, type ComponentType, type ReactNode } from "react";
-import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
@@ -27,7 +17,7 @@ export const Route = createFileRoute("/settings")({
 /* Section registry                                                            */
 /* -------------------------------------------------------------------------- */
 
-type SectionId = "user" | "integrations" | "notifications" | "preferences" | "danger";
+type SectionId = "user" | "billing" | "plan" | "features" | "preferences" | "referrals";
 
 interface SectionDef {
   id: SectionId;
@@ -37,10 +27,11 @@ interface SectionDef {
 
 const SECTIONS: ReadonlyArray<SectionDef> = [
   { id: "user", label: "User", icon: User },
-  { id: "integrations", label: "Integrations", icon: Plug },
-  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "billing", label: "Billing", icon: BadgeDollarSign },
+  { id: "plan", label: "Plan", icon: PackageCheck },
+  { id: "features", label: "Features", icon: Sparkles },
   { id: "preferences", label: "Preferences", icon: Sliders },
-  { id: "danger", label: "Danger", icon: ShieldAlert },
+  { id: "referrals", label: "Referrals", icon: Gift },
 ];
 
 function SettingsPage() {
@@ -109,23 +100,30 @@ function SettingsNavRow({
       aria-current={active ? "page" : undefined}
       className={cn(
         "group relative inline-flex items-center gap-2 rounded-md",
-        "h-8 px-2 text-sm font-medium whitespace-nowrap",
-        "transition-colors duration-200",
+        "h-7 w-44 px-2 text-sm font-medium whitespace-nowrap",
+        "transition-[background-color,color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
+        "active:scale-[0.98]",
         active
-          ? "text-gray-1000"
-          : "text-gray-800 hover:text-gray-900",
+          ? "bg-white/[0.04] text-gray-1000"
+          : "text-gray-800 hover:bg-white/[0.025] hover:text-gray-900",
       )}
     >
-      {active ? (
-        <span
-          aria-hidden
-          /* 2px purple left bar — vertical orientation on desktop, hidden on
-           * mobile where the nav goes horizontal and the bar would be wrong. */
-          className="hidden md:block absolute left-[-10px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-[rgb(var(--purple-400))]"
-        />
-      ) : null}
-      <Icon size={14} className="shrink-0" />
+      <span
+        aria-hidden
+        className={cn(
+          "absolute left-0 top-1/2 h-3.5 w-[2px] -translate-y-1/2 rounded-full bg-[rgb(var(--purple-400))]",
+          "transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+          active ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
+        )}
+      />
+      <Icon
+        size={14}
+        className={cn(
+          "shrink-0 transition-[color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+          active ? "translate-x-0.5 text-gray-1000" : "text-gray-800 group-hover:text-gray-900",
+        )}
+      />
       <span>{section.label}</span>
     </button>
   );
@@ -136,11 +134,40 @@ function SettingsNavRow({
 /* -------------------------------------------------------------------------- */
 
 function SettingsPanel({ section }: { section: SectionId }) {
-  if (section === "user") return <UserSection />;
-  if (section === "integrations") return <IntegrationsSection />;
-  if (section === "notifications") return <NotificationsSection />;
-  if (section === "preferences") return <PreferencesSection />;
-  return <DangerSection />;
+  let panel: ReactNode;
+  if (section === "user") panel = <UserSection />;
+  else if (section === "billing")
+    panel = (
+      <SimpleSection
+        icon={BadgeDollarSign}
+        title="Billing"
+        description="Manage invoices, payment method, and billing contact."
+      />
+    );
+  else if (section === "plan")
+    panel = (
+      <SimpleSection
+        icon={PackageCheck}
+        title="Plan"
+        description="Review your current plan and usage limits."
+      />
+    );
+  else if (section === "features") panel = <FeaturesSection />;
+  else if (section === "preferences") panel = <PreferencesSection />;
+  else
+    panel = (
+      <SimpleSection
+        icon={Gift}
+        title="Referrals"
+        description="Referral credit sharing arrives with billing."
+      />
+    );
+
+  return (
+    <div key={section} className="animate-settings-panel-in">
+      {panel}
+    </div>
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -232,10 +259,7 @@ function UserSection() {
         description="Update your account details."
       />
 
-      <Field
-        label="Username"
-        helper="What should we call you?"
-      >
+      <Field label="Username" helper="What should we call you?">
         <Input
           defaultValue={name}
           placeholder="Your name"
@@ -245,15 +269,8 @@ function UserSection() {
         />
       </Field>
 
-      <Field
-        label="Email"
-        helper="Manage the email you use to sign into Alfred."
-      >
-        <Input
-          value={email}
-          disabled
-          aria-label="Email"
-        />
+      <Field label="Email" helper="Manage the email you use to sign into Alfred.">
+        <Input value={email} disabled aria-label="Email" />
       </Field>
 
       <Field
@@ -273,53 +290,40 @@ function UserSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Integrations section — link to /integrations                               */
-/* -------------------------------------------------------------------------- */
-
-function IntegrationsSection() {
-  const navigate = useNavigate();
+function SimpleSection({
+  icon,
+  title,
+  description,
+}: {
+  icon: ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  description: string;
+}) {
   return (
     <PanelCard>
-      <PanelHeader
-        icon={Plug}
-        title="Connected tools"
-        description="Manage the integrations Alfred can read, write, and act on."
-      />
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-[12.5px] text-gray-800">
-          Integration management lives on its own surface.
-        </p>
-        <Button
-          variant="ghost"
-          size="md"
-          onClick={() => navigate({ to: "/integrations" })}
-        >
-          Open Integrations
-        </Button>
-      </div>
+      <PanelHeader icon={icon} title={title} description={description} />
+      <p className="text-[12.5px] text-gray-800">
+        This preserves the Dimension settings navigation shape while the backend for this section
+        lands.
+      </p>
     </PanelCard>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Notifications section                                                       */
+/* Features section                                                            */
 /* -------------------------------------------------------------------------- */
 
-function NotificationsSection() {
-  /* Local state — the toggles are not wired to the backend yet. m10's
-   * morning-briefing currently runs unconditionally for the single user;
-   * auto-approve lives in the home composer only. Settings will own these
-   * when the m13 settings backend lands. */
+function FeaturesSection() {
   const [briefing, setBriefing] = useState(true);
   const [autoApprove, setAutoApprove] = useState(false);
 
   return (
     <PanelCard>
       <PanelHeader
-        icon={Bell}
-        title="Notifications"
-        description="Choose what Alfred sends you and when."
+        icon={Sparkles}
+        title="Features"
+        description="Choose which Alfred surfaces are enabled."
       />
 
       <FieldRow
@@ -358,10 +362,7 @@ function PreferencesSection() {
         description="Tune the surfaces Alfred shows you."
       />
 
-      <Field
-        label="Theme"
-        helper="Choose Alfred's appearance. System matches your OS."
-      >
+      <Field label="Theme" helper="Choose Alfred's appearance. System matches your OS.">
         <Tabs<Theme>
           variant="pill"
           value={theme}
@@ -386,68 +387,6 @@ function PreferencesSection() {
           <span>Alfred (default)</span>
         </div>
       </Field>
-    </PanelCard>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Danger section                                                              */
-/* -------------------------------------------------------------------------- */
-
-function DangerSection() {
-  const navigate = useNavigate();
-  const [signingOut, setSigningOut] = useState(false);
-
-  const signOut = async () => {
-    if (signingOut) return;
-    setSigningOut(true);
-    try {
-      await authClient.signOut();
-      await navigate({ to: "/login" });
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
-  return (
-    <PanelCard>
-      <PanelHeader
-        icon={ShieldAlert}
-        title="Danger zone"
-        description="Account-level actions. These are deliberate — review before pressing."
-      />
-
-      <FieldRow
-        label="Logout from this account"
-        helper="You can sign back in any time with the same email."
-        control={
-          <Button
-            variant="destructive"
-            size="md"
-            leading={<LogOut size={14} />}
-            onClick={signOut}
-            loading={signingOut}
-          >
-            Logout
-          </Button>
-        }
-      />
-
-      <FieldRow
-        label="Delete account"
-        helper="Permanently delete your account and all associated data. Wired with the m13 settings backend."
-        control={
-          <Button
-            variant="destructive"
-            size="md"
-            leading={<AlertTriangle size={14} />}
-            disabled
-            title="Account deletion arrives with the m13 settings backend"
-          >
-            Delete account
-          </Button>
-        }
-      />
     </PanelCard>
   );
 }

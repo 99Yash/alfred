@@ -131,7 +131,10 @@ export async function findUnembeddedDocumentIds(opts: {
 }): Promise<string[]> {
   const limit = opts.limit ?? 100;
   const noChunksFilter = notExists(
-    db().select({ one: sql`1` }).from(chunks).where(eq(chunks.documentId, documents.id)),
+    db()
+      .select({ one: sql`1` })
+      .from(chunks)
+      .where(eq(chunks.documentId, documents.id)),
   );
   const filters = [noChunksFilter];
   if (opts.userId) filters.push(eq(documents.userId, opts.userId));

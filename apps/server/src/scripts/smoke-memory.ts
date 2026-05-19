@@ -115,10 +115,7 @@ async function main() {
   const confirmed = await confirmFact(proposed.id, userId);
   assert(confirmed, "confirmFact returned null for a proposed row");
   assert(confirmed.status === "confirmed", `expected confirmed, got ${confirmed.status}`);
-  assert(
-    confirmed.rowVersion > proposed.rowVersion,
-    "confirmFact should bump rowVersion",
-  );
+  assert(confirmed.rowVersion > proposed.rowVersion, "confirmFact should bump rowVersion");
   console.log(`[smoke] 3. confirmed ${proposed.id}`);
 
   // ---------------------------------------------------------------------
@@ -150,10 +147,7 @@ async function main() {
   console.log(`[smoke] 5. edited ${superseded.id} → ${edited.id}`);
 
   const chain = await getSupersessionChain(userId, edited.id);
-  assert(
-    chain.length === 3,
-    `supersession chain should be 3 deep, got ${chain.length}`,
-  );
+  assert(chain.length === 3, `supersession chain should be 3 deep, got ${chain.length}`);
   console.log(`[smoke]    chain: ${chain.map((c) => `${c.id}(${c.status})`).join(" → ")}`);
 
   // ---------------------------------------------------------------------
@@ -212,8 +206,13 @@ async function main() {
   const fetched = await getPreference(userId, prefKey);
   assert(fetched && fetched.value === "warm but concise", `getPreference mismatch`);
   const all_prefs = await getPreferences(userId);
-  assert(all_prefs.find((p) => p.key === prefKey), `getPreferences should include our key`);
-  console.log(`[smoke] 9. preferences round-trip ok (rowVersion ${set1.rowVersion} → ${set2.rowVersion})`);
+  assert(
+    all_prefs.find((p) => p.key === prefKey),
+    `getPreferences should include our key`,
+  );
+  console.log(
+    `[smoke] 9. preferences round-trip ok (rowVersion ${set1.rowVersion} → ${set2.rowVersion})`,
+  );
 
   // ---------------------------------------------------------------------
   // 10. memory_chunks write — embedding-free path (recall is m8b)
@@ -296,7 +295,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke] FAIL", err instanceof Error ? err.stack ?? err.message : err);
+    console.error("[smoke] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
     process.exitCode = 1;
   })
   .finally(async () => {

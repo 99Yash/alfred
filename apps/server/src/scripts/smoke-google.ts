@@ -136,10 +136,14 @@ function printOAuthSetupInstructions() {
   console.log("\nTo provision Google OAuth for local testing:");
   console.log("  1. https://console.cloud.google.com/ → select or create a project.");
   console.log("  2. APIs & Services → Library → enable 'Gmail API'.");
-  console.log("  3. APIs & Services → OAuth consent screen → External, add yourself as a test user.");
+  console.log(
+    "  3. APIs & Services → OAuth consent screen → External, add yourself as a test user.",
+  );
   console.log("  4. APIs & Services → Credentials → Create credentials → OAuth client ID");
   console.log("     - Application type: Web application");
-  console.log("     - Authorized redirect URI: http://localhost:3001/api/integrations/google/callback");
+  console.log(
+    "     - Authorized redirect URI: http://localhost:3001/api/integrations/google/callback",
+  );
   console.log("  5. Copy the Client ID + Client Secret into apps/server/.env:");
   console.log("       GOOGLE_OAUTH_CLIENT_ID=...");
   console.log("       GOOGLE_OAUTH_CLIENT_SECRET=...");
@@ -149,7 +153,9 @@ function printOAuthSetupInstructions() {
 function printConnectInstructions() {
   console.log("To connect your Google account:");
   console.log("  1. Sign in at http://localhost:3000 (existing Better Auth flow).");
-  console.log("  2. Open http://localhost:3001/api/integrations/google/connect in the SAME browser.");
+  console.log(
+    "  2. Open http://localhost:3001/api/integrations/google/connect in the SAME browser.",
+  );
   console.log("     (the route requires the auth cookie from step 1)");
   console.log("  3. Approve the consent screen.");
   console.log("  4. You'll be redirected back to the SPA with `?google_connected=<email>`.");

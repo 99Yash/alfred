@@ -39,11 +39,7 @@ async function main() {
   // Wait briefly for the fire-and-forget DB write.
   await new Promise((r) => setTimeout(r, 500));
 
-  const after = await db()
-    .select()
-    .from(apiCallLog)
-    .orderBy(desc(apiCallLog.id))
-    .limit(1);
+  const after = await db().select().from(apiCallLog).orderBy(desc(apiCallLog.id)).limit(1);
   const row = after[0];
   if (!row) throw new Error("no api_call_log row appeared after metered call");
 

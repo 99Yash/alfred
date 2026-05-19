@@ -282,9 +282,7 @@ const labelSchema = z.object({
   name: z.string(),
   type: z.enum(["system", "user"]).optional(),
   messageListVisibility: z.enum(["show", "hide"]).optional(),
-  labelListVisibility: z
-    .enum(["labelShow", "labelShowIfUnread", "labelHide"])
-    .optional(),
+  labelListVisibility: z.enum(["labelShow", "labelShowIfUnread", "labelHide"]).optional(),
 });
 export type GmailLabel = z.infer<typeof labelSchema>;
 
@@ -333,9 +331,7 @@ export interface ModifyMessageLabelsArgs {
  * Returns the message metadata (id + labelIds) so callers can verify the
  * post-modify label set without an extra get call.
  */
-export async function modifyMessageLabels(
-  args: ModifyMessageLabelsArgs,
-): Promise<GmailMessage> {
+export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promise<GmailMessage> {
   const payload: Record<string, unknown> = {};
   if (args.addLabelIds?.length) payload.addLabelIds = args.addLabelIds;
   if (args.removeLabelIds?.length) payload.removeLabelIds = args.removeLabelIds;

@@ -13,12 +13,7 @@
  */
 import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
-import {
-  apiCallLog,
-  chunks,
-  documents,
-  user as userTable,
-} from "@alfred/db/schemas";
+import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
 import { embedDocument, semanticSearch } from "@alfred/ingestion";
 import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";

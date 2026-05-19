@@ -174,32 +174,17 @@ function ProviderRow({ provider }: { provider: Provider }) {
         "text-gray-950",
       )}
     >
-      <IntegrationIcon
-        brand={provider.brand}
-        size="md"
-        connected={false}
-        title={provider.name}
-      />
+      <IntegrationIcon brand={provider.brand} size="md" connected={false} title={provider.name} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-950">
-          {provider.name}
-        </p>
-        <p className="truncate text-[12.5px] text-gray-800">
-          {provider.description}
-        </p>
+        <p className="truncate text-sm font-medium text-gray-950">{provider.name}</p>
+        <p className="truncate text-[12.5px] text-gray-800">{provider.description}</p>
       </div>
       <ActionButton status={provider.status} provider={provider.name} />
     </Card>
   );
 }
 
-function ActionButton({
-  status,
-  provider,
-}: {
-  status: Status;
-  provider: string;
-}) {
+function ActionButton({ status, provider }: { status: Status; provider: string }) {
   if (status === "connected") {
     return (
       <Button variant="ghost" size="md" aria-label={`Manage ${provider}`}>
@@ -215,12 +200,7 @@ function ActionButton({
     );
   }
   return (
-    <Button
-      variant="ghost"
-      size="md"
-      disabled
-      aria-label={`${provider} coming soon`}
-    >
+    <Button variant="ghost" size="md" disabled aria-label={`${provider} coming soon`}>
       Coming Soon
     </Button>
   );
@@ -229,9 +209,7 @@ function ActionButton({
 function MCPServerSection() {
   return (
     <section className="space-y-3">
-      <h2 className="text-[15px] font-medium text-gray-1000">
-        Your Integrations
-      </h2>
+      <h2 className="text-[15px] font-medium text-gray-1000">Your Integrations</h2>
       <div className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3">
         <Card interactive className="flex items-center gap-3 px-3 py-2.5">
           <span
@@ -241,9 +219,7 @@ function MCPServerSection() {
             <Plug size={18} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-gray-950">
-              MCP Server
-            </p>
+            <p className="truncate text-sm font-medium text-gray-950">MCP Server</p>
             <p className="truncate text-[12.5px] text-gray-800">
               Connect any MCP server to extend Alfred.
             </p>
@@ -273,17 +249,12 @@ function matches(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(q);
 }
 
-function filterSections(
-  sections: ReadonlyArray<Section>,
-  query: string,
-): ReadonlyArray<Section> {
+function filterSections(sections: ReadonlyArray<Section>, query: string): ReadonlyArray<Section> {
   if (!query.trim()) return sections;
   return sections
     .map((section) => ({
       ...section,
-      providers: section.providers.filter((p) =>
-        matches(`${p.name} ${p.description}`, query),
-      ),
+      providers: section.providers.filter((p) => matches(`${p.name} ${p.description}`, query)),
     }))
     .filter((section) => section.providers.length > 0);
 }

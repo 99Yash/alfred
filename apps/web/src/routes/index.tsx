@@ -4,23 +4,18 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
-  CheckSquare2,
   CircleAlert,
   ClipboardCheck,
   Clock3,
-  Mail,
   Mic,
-  PartyPopper,
-  Pencil,
   Plus,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  Square,
-  Video,
   Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { QuickAccessRail } from "~/components/quick-access-rail";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
@@ -52,9 +47,7 @@ function HomePage() {
   // we'd loop the AppShell state on every render.
   const rightRail = useMemo(
     () =>
-      session?.user ? (
-        <QuickAccessRail healthOk={healthOk} healthLoading={healthLoading} />
-      ) : null,
+      session?.user ? <QuickAccessRail healthOk={healthOk} healthLoading={healthLoading} /> : null,
     [session?.user, healthOk, healthLoading],
   );
   useRightRail(rightRail);
@@ -960,173 +953,6 @@ function SetupNudge() {
 }
 
 /* -------------------------------------------------------------------------- */
-
-type RailMode = "tasks" | "emails" | "meetings";
-
-const RAIL_TABS: Array<{
-  mode: RailMode;
-  label: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-}> = [
-  { mode: "tasks", label: "To Do", icon: CheckSquare2 },
-  { mode: "emails", label: "Emails", icon: Mail },
-  { mode: "meetings", label: "Meetings", icon: Video },
-];
-
-function QuickAccessRail({
-  healthOk,
-  healthLoading,
-}: {
-  healthOk: boolean;
-  healthLoading: boolean;
-}) {
-  const [mode, setMode] = useState<RailMode>("tasks");
-  const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
-
-  return (
-    <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
-      <div className="absolute inset-0 bg-[linear-gradient(155deg,#8cc7d3_0%,#40647d_31%,#1b2528_57%,#101010_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),rgba(0,0,0,0.12)_28%,rgba(0,0,0,0.72)_100%)]" />
-      <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),transparent)]" />
-
-      <div className="relative flex min-h-0 flex-1 flex-col p-4">
-        <header className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[13px] font-medium text-white/86">
-              <span className="truncate">Bhubaneswar</span>
-              <span className="tabular">29°</span>
-              <span
-                className={cn(
-                  "ml-0.5 size-1.5 rounded-full",
-                  healthLoading ? "bg-white/50" : healthOk ? "bg-emerald-300" : "bg-red-300",
-                )}
-                title={
-                  healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"
-                }
-              />
-            </div>
-            <h2 className="mt-1 text-2xl font-medium tracking-tight">{active.label}</h2>
-          </div>
-
-          <div className="flex rounded-2xl bg-black/20 p-1 backdrop-blur-sm">
-            {RAIL_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const selected = mode === tab.mode;
-              return (
-                <button
-                  key={tab.mode}
-                  type="button"
-                  aria-label={tab.label}
-                  aria-pressed={selected}
-                  onClick={() => setMode(tab.mode)}
-                  className={cn(
-                    "grid h-9 w-14 place-items-center rounded-[14px]",
-                    "transition-[background-color,color,transform] active:scale-[0.96]",
-                    selected
-                      ? "bg-white/[0.12] text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
-                      : "text-white/50 hover:text-white/90",
-                  )}
-                >
-                  <Icon size={16} />
-                </button>
-              );
-            })}
-          </div>
-        </header>
-
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar pb-1">
-          {mode === "tasks" ? <TasksPanel /> : null}
-          {mode === "emails" ? (
-            <RailEmpty title="All done!" text="No pending email drafts." />
-          ) : null}
-          {mode === "meetings" ? (
-            <RailEmpty title="All done!" text="You have no meetings scheduled for today." />
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TasksPanel() {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
-        <button
-          type="button"
-          className={cn(
-            "px-2 py-0.5 text-sm text-white transition-colors hover:text-white/90",
-            "mix-blend-plus-lighter outline-none",
-          )}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          aria-label="Edit todos"
-          className="grid size-8 place-items-center rounded-xl text-white/70 transition-[background-color,color,transform] hover:bg-white/10 hover:text-white active:scale-[0.96]"
-        >
-          <Pencil size={15} />
-        </button>
-      </div>
-
-      <button
-        type="button"
-        className={cn(
-          "mt-3 flex h-9 w-full items-center gap-2 rounded-md px-2",
-          "text-left text-sm text-white/50 transition-colors hover:text-white/90",
-        )}
-      >
-        <span
-          aria-hidden
-          className="grid size-4 shrink-0 place-items-center rounded-[4px] border border-white/40"
-        >
-          <Square size={10} className="opacity-0" />
-        </span>
-        <span>Add new to do</span>
-      </button>
-
-      <section className="mt-6">
-        <div className="flex items-center gap-1.5">
-          <ClipboardCheck size={11} className="text-white/60" />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
-            Suggestions
-          </p>
-        </div>
-
-        <div className="mt-10 flex flex-col items-center text-center">
-          <PartyPopper
-            size={40}
-            className="text-white/80 mix-blend-plus-lighter"
-            strokeWidth={1.5}
-          />
-          <p className="mt-3 text-sm font-medium">No Suggestions</p>
-          <p className="mt-1 max-w-[220px] text-[12px] leading-relaxed text-white/60">
-            New suggestions will appear here when available.
-          </p>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function RailEmpty({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="grid min-h-[280px] place-items-center text-center">
-      <div className="flex flex-col items-center">
-        <PartyPopper
-          size={40}
-          className="text-white/80 mix-blend-plus-lighter"
-          strokeWidth={1.5}
-        />
-        <p className="mt-3 text-sm font-medium">{title}</p>
-        <p className="mt-1 text-[12px] text-white/60">{text}</p>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -1202,10 +1028,14 @@ function ordinalSuffix(n: number): string {
   const mod100 = n % 100;
   if (mod100 >= 11 && mod100 <= 13) return "th";
   switch (n % 10) {
-    case 1: return "st";
-    case 2: return "nd";
-    case 3: return "rd";
-    default: return "th";
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
   }
 }
 

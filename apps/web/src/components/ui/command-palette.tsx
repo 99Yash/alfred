@@ -21,14 +21,8 @@
 
 import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
-import {
-  type ComponentType,
-  type ReactNode,
-} from "react";
-import {
-  Dialog,
-  DialogContent,
-} from "~/components/ui/dialog";
+import { type ComponentType, type ReactNode } from "react";
+import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { Kbd } from "~/components/ui/kbd";
 import { cn } from "~/lib/utils";
 
@@ -63,11 +57,7 @@ function Root({
 }: CommandPaletteProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        title={ariaTitle}
-        srOnlyHeader
-        className="max-w-[640px] p-0"
-      >
+      <DialogContent title={ariaTitle} srOnlyHeader className="max-w-[640px] p-0">
         <CommandPrimitive
           label={ariaTitle}
           /* cmdk does its own keyboard handling; Radix's focus trap keeps
@@ -88,23 +78,14 @@ function Root({
           </div>
 
           {/* Body — scrolling list */}
-          <CommandPrimitive.List
-            className={cn(
-              "max-h-[400px] overflow-y-auto scrollbar",
-              "p-2",
-            )}
-          >
+          <CommandPrimitive.List className={cn("max-h-[400px] overflow-y-auto scrollbar", "p-2")}>
             <CommandPrimitive.Empty className="py-8 text-center text-[13px] text-gray-800">
               {emptyLabel}
             </CommandPrimitive.Empty>
             {children}
           </CommandPrimitive.List>
 
-          {footer ? (
-            <div className="border-t border-white/8 px-4 py-2.5">
-              {footer}
-            </div>
-          ) : null}
+          {footer ? <div className="border-t border-white/8 px-4 py-2.5">{footer}</div> : null}
         </CommandPrimitive>
       </DialogContent>
     </Dialog>
@@ -157,15 +138,7 @@ interface ItemProps {
   children: ReactNode;
 }
 
-function Item({
-  value,
-  keywords,
-  onSelect,
-  icon: Icon,
-  shortcut,
-  disabled,
-  children,
-}: ItemProps) {
+function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, children }: ItemProps) {
   return (
     <CommandPrimitive.Item
       value={value}
@@ -206,11 +179,7 @@ function Item({
 /* Legend (footer keyboard hints)                                              */
 /* -------------------------------------------------------------------------- */
 
-function Legend({
-  hints,
-}: {
-  hints?: ReadonlyArray<{ keys: ReactNode; label: string }>;
-}) {
+function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
   const items = hints ?? [
     { keys: "↑↓", label: "Navigate" },
     { keys: "↵", label: "Select" },

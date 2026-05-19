@@ -1,13 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
 
@@ -48,7 +40,9 @@ export const documents = pgTable(
     /** When the source was authored (email Date header, event start time, message ts). */
     authoredAt: timestamp("authored_at", { withTimezone: true }),
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow().notNull(),
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
   },
   (t) => [
@@ -85,7 +79,9 @@ export const chunks = pgTable(
     embedding: vectorColumn("embedding", 1024),
     tokenCount: integer("token_count"),
     contentHash: text("content_hash").notNull(),
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
   },
   (t) => [

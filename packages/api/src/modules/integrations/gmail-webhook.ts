@@ -29,9 +29,7 @@ import { getIngestionQueue } from "./queue";
  * already-handled-elsewhere notifications as 200 is the right default.
  */
 
-const GOOGLE_OIDC_JWKS = createRemoteJWKSet(
-  new URL("https://www.googleapis.com/oauth2/v3/certs"),
-);
+const GOOGLE_OIDC_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 const GOOGLE_OIDC_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 interface PubSubMessage {

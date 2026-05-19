@@ -136,13 +136,7 @@ export function IntegrationGlyph({
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
-    return (
-      <Icon
-        size={size}
-        className={cn("shrink-0", className)}
-        style={{ color: meta.color }}
-      />
-    );
+    return <Icon size={size} className={cn("shrink-0", className)} style={{ color: meta.color }} />;
   }
 
   const color = variant === "frost" ? meta.frostColor : meta.plainColor;

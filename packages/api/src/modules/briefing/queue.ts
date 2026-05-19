@@ -3,7 +3,11 @@ import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
-import { localDateInTimezone, localHourInTimezone, resolveBriefingPreferences } from "./preferences";
+import {
+  localDateInTimezone,
+  localHourInTimezone,
+  resolveBriefingPreferences,
+} from "./preferences";
 import { BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
 
 /**
@@ -156,9 +160,7 @@ interface EnqueueBriefingRunArgs {
  * Public helper — also used by the smoke script (m10d) and ad-hoc
  * triggers from a future settings-page button.
  */
-export async function enqueueBriefingRun(
-  args: EnqueueBriefingRunArgs,
-): Promise<{ runId: string }> {
+export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
   const { runId } = await createRun({
     userId: args.userId,
     workflowSlug: BRIEFING_WORKFLOW_SLUG,

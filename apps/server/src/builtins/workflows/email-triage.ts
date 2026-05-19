@@ -110,9 +110,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: existing.rationale ?? "",
           };
           model = existing.model;
-          await ctx.log(
-            `classify: reuse existing row category=${classification.category}`,
-          );
+          await ctx.log(`classify: reuse existing row category=${classification.category}`);
         } else {
           try {
             const result = await classifyEmail({

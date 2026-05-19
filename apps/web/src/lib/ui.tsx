@@ -52,9 +52,7 @@ export function PageHeader({
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="font-serif text-3xl sm:text-4xl tracking-tight leading-tight">
-          {title}
-        </h1>
+        <h1 className="font-serif text-3xl sm:text-4xl tracking-tight leading-tight">{title}</h1>
         {description ? (
           <p className="text-sm text-muted-foreground max-w-prose">{description}</p>
         ) : null}
@@ -83,14 +81,10 @@ export function SectionHeader({
             {title}
           </h2>
           {typeof count === "number" ? (
-            <span className="text-[11px] text-muted-foreground/70 tabular">
-              {count}
-            </span>
+            <span className="text-[11px] text-muted-foreground/70 tabular">{count}</span>
           ) : null}
         </div>
-        {description ? (
-          <p className="text-[12.5px] text-muted-foreground">{description}</p>
-        ) : null}
+        {description ? <p className="text-[12.5px] text-muted-foreground">{description}</p> : null}
       </div>
       {right ? <div className="shrink-0">{right}</div> : null}
     </div>
@@ -101,20 +95,9 @@ export function SectionHeader({
 /* Cards / rows                                                                */
 /* -------------------------------------------------------------------------- */
 
-export function Card({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-card text-card-foreground shadow-soft",
-        className,
-      )}
-    >
+    <div className={cn("rounded-lg border bg-card text-card-foreground shadow-soft", className)}>
       {children}
     </div>
   );
@@ -122,21 +105,10 @@ export function Card({
 
 /** Same look as `Card` but rendered as a styling class string for cases where
  * the consumer needs to pass it onto a non-div element (Link, button, etc.). */
-export const cardClasses =
-  "rounded-lg border bg-card text-card-foreground shadow-soft";
+export const cardClasses = "rounded-lg border bg-card text-card-foreground shadow-soft";
 
-export function CardRow({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("rounded-lg border bg-card px-4 py-3", className)}>
-      {children}
-    </div>
-  );
+export function CardRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("rounded-lg border bg-card px-4 py-3", className)}>{children}</div>;
 }
 
 export function EmptyState({
@@ -167,9 +139,7 @@ export function EmptyState({
       <div className="space-y-1">
         <p className="text-sm font-medium">{title}</p>
         {description ? (
-          <p className="text-[12.5px] text-muted-foreground max-w-prose mx-auto">
-            {description}
-          </p>
+          <p className="text-[12.5px] text-muted-foreground max-w-prose mx-auto">{description}</p>
         ) : null}
       </div>
       {action ? <div className="pt-1">{action}</div> : null}
@@ -224,12 +194,9 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
 type ButtonSize = "sm" | "md";
 
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
-  primary:
-    "bg-foreground text-background hover:bg-foreground/90 disabled:bg-foreground/40",
-  secondary:
-    "border bg-background text-foreground hover:bg-accent/60 disabled:opacity-50",
-  ghost:
-    "text-muted-foreground hover:text-foreground hover:bg-accent/60 disabled:opacity-50",
+  primary: "bg-foreground text-background hover:bg-foreground/90 disabled:bg-foreground/40",
+  secondary: "border bg-background text-foreground hover:bg-accent/60 disabled:opacity-50",
+  ghost: "text-muted-foreground hover:text-foreground hover:bg-accent/60 disabled:opacity-50",
   destructive:
     "bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50",
 };
@@ -298,16 +265,11 @@ export const ToolButton = forwardRef<
 type PillTone = "neutral" | "positive" | "warning" | "negative" | "info";
 
 const PILL_TONE: Record<PillTone, string> = {
-  neutral:
-    "bg-muted text-muted-foreground",
-  positive:
-    "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
-  warning:
-    "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300",
-  negative:
-    "bg-destructive/10 text-destructive dark:text-red-300",
-  info:
-    "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-300",
+  neutral: "bg-muted text-muted-foreground",
+  positive: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
+  warning: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300",
+  negative: "bg-destructive/10 text-destructive dark:text-red-300",
+  info: "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-300",
 };
 
 export function Pill({

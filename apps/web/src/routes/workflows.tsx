@@ -1,12 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  CalendarClock,
-  CheckCircle2,
-  Clock3,
-  Mail,
-  Plus,
-  Sparkles,
-} from "lucide-react";
+import { CalendarClock, CheckCircle2, Clock3, Mail, Plus, Sparkles } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import { Button } from "~/components/ui/button";
 import { Card } from "~/components/ui/card";
@@ -80,7 +73,7 @@ function WorkflowsPage() {
       <div className="mt-12 space-y-12">
         <section className="space-y-3">
           <h2 className="text-[15px] font-medium text-gray-1000">Built-ins</h2>
-          <div className="flex flex-col gap-1">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {BUILTINS.map((workflow) => (
               <WorkflowCard key={workflow.name} workflow={workflow} />
             ))}
@@ -88,9 +81,7 @@ function WorkflowsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-[15px] font-medium text-gray-1000">
-            Your workflows
-          </h2>
+          <h2 className="text-[15px] font-medium text-gray-1000">Your workflows</h2>
           <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <span
               className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
@@ -98,12 +89,10 @@ function WorkflowsPage() {
             >
               <Sparkles size={18} />
             </span>
-            <p className="text-sm font-medium text-gray-950">
-              No workflows yet
-            </p>
+            <p className="text-sm font-medium text-gray-950">No workflows yet</p>
             <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-              Author your own scheduled or event-driven flows once user-authored
-              workflows land in milestone 12.
+              Author your own scheduled or event-driven flows once user-authored workflows land in
+              milestone 12.
             </p>
           </Card>
         </section>
@@ -120,10 +109,8 @@ const TINT: Record<Workflow["tint"], string> = {
   violet:
     "bg-[rgb(var(--purple-400)/0.16)] text-[rgb(var(--purple-700))] " +
     "ring-1 ring-inset ring-[rgb(var(--purple-400)/0.18)]",
-  emerald:
-    "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/20",
-  amber:
-    "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-500/20",
+  emerald: "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/20",
+  amber: "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-500/20",
 };
 
 function WorkflowCard({ workflow }: { workflow: Workflow }) {
@@ -132,30 +119,28 @@ function WorkflowCard({ workflow }: { workflow: Workflow }) {
     <Card
       interactive
       className={cn(
-        "flex items-center gap-3 px-3 py-2.5 text-gray-950",
+        "min-h-[244px] overflow-hidden rounded-3xl p-6 text-gray-950",
+        "bg-gradient-to-b from-[#181818] to-[#131313]",
+        "ring-1 ring-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "flex flex-col",
         /* Cursor opt-out — Card.interactive sets cursor-pointer, but the
          * built-ins aren't clickable yet. Override until editor lands. */
         "cursor-default hover:bg-[#181818]",
       )}
     >
       <span
-        className={cn(
-          "grid size-10 shrink-0 place-items-center rounded-xl",
-          TINT[workflow.tint],
-        )}
+        className={cn("grid size-11 shrink-0 place-items-center rounded-2xl", TINT[workflow.tint])}
         aria-hidden
       >
         <Icon size={18} />
       </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-950">
-          {workflow.name}
-        </p>
-        <p className="truncate text-[12.5px] text-gray-800">
+      <div className="mt-6 min-w-0 flex-1">
+        <p className="line-clamp-2 text-base font-medium text-gray-1000">{workflow.name}</p>
+        <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-gray-800">
           {workflow.description}
         </p>
       </div>
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/[0.04] px-2.5 py-1 text-[11.5px] text-gray-800 tabular">
+      <span className="mt-6 inline-flex w-fit shrink-0 items-center gap-1 rounded-full bg-white/[0.04] px-2.5 py-1 text-[11.5px] text-gray-800 tabular">
         <Clock3 size={11} />
         {workflow.cadence}
       </span>

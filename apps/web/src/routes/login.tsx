@@ -71,14 +71,14 @@ function LoginPage() {
           </div>
           <h1 className="font-serif text-3xl tracking-tight">Alfred</h1>
           <p className="text-sm text-muted-foreground">
-            {step === "email"
-              ? "Sign in with your email to continue."
-              : (
-                <>
-                  We sent a 6-digit code to{" "}
-                  <span className="font-medium text-foreground">{email}</span>.
-                </>
-              )}
+            {step === "email" ? (
+              "Sign in with your email to continue."
+            ) : (
+              <>
+                We sent a 6-digit code to{" "}
+                <span className="font-medium text-foreground">{email}</span>.
+              </>
+            )}
           </p>
         </div>
 
@@ -150,9 +150,7 @@ function LoginPage() {
             </form>
           )}
 
-          {error ? (
-            <p className="text-xs text-destructive text-center">{error}</p>
-          ) : null}
+          {error ? <p className="text-xs text-destructive text-center">{error}</p> : null}
         </div>
 
         <p className="text-center text-[11px] text-muted-foreground/70">
@@ -163,13 +161,7 @@ function LoginPage() {
   );
 }
 
-function Field({
-  icon,
-  children,
-}: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Field({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <label
       className={cn(

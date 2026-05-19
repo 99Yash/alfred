@@ -12,16 +12,13 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.5.
  */
 
-import {
-  forwardRef,
-  useCallback,
-  useState,
-  type ButtonHTMLAttributes,
-} from "react";
+import { forwardRef, useCallback, useState, type ButtonHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 
-interface SwitchProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onChange" | "type" | "value"> {
+interface SwitchProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "onChange" | "type" | "value"
+> {
   checked?: boolean;
   defaultChecked?: boolean;
   onCheckedChange?: (checked: boolean) => void;

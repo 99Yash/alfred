@@ -109,8 +109,18 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
 }
 
 function pricesEqual(
-  a: { inputPerMtok: number; outputPerMtok: number; cachedInputPerMtok: number | null; perCallUsd: number | null },
-  b: { inputPerMtok: number; outputPerMtok: number; cachedInputPerMtok: number | null; perCallUsd: number | null },
+  a: {
+    inputPerMtok: number;
+    outputPerMtok: number;
+    cachedInputPerMtok: number | null;
+    perCallUsd: number | null;
+  },
+  b: {
+    inputPerMtok: number;
+    outputPerMtok: number;
+    cachedInputPerMtok: number | null;
+    perCallUsd: number | null;
+  },
 ): boolean {
   return (
     a.inputPerMtok === b.inputPerMtok &&
@@ -187,7 +197,8 @@ async function main() {
 main()
   .catch((err) => {
     console.error("[sync-prices] FAIL:", err);
-    if (err instanceof Error && "cause" in err) console.error("[sync-prices] cause:", (err as { cause?: unknown }).cause);
+    if (err instanceof Error && "cause" in err)
+      console.error("[sync-prices] cause:", (err as { cause?: unknown }).cause);
     process.exitCode = 1;
   })
   .finally(async () => {

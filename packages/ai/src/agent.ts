@@ -220,7 +220,7 @@ export class AlfredAgent<CTX = unknown> {
 
   private buildAttribution(perTurn: Partial<AttributedCall> | undefined): AttributedCall {
     const base = this.s.attribution ?? {};
-    const merged: AttributedCall = { ...base, ...(perTurn ?? {}) };
+    const merged: AttributedCall = { ...base, ...perTurn };
     if (!merged.name) {
       merged.name = this.id ? `agent:${this.id}` : merged.name;
     }
@@ -230,10 +230,7 @@ export class AlfredAgent<CTX = unknown> {
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-async function resolve<T, CTX>(
-  v: T | ((ctx: CTX) => Promise<T> | T),
-  ctx: CTX,
-): Promise<T> {
+async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX): Promise<T> {
   return typeof v === "function" ? await (v as (c: CTX) => Promise<T> | T)(ctx) : v;
 }
 
