@@ -140,6 +140,7 @@ Radix/Alfred build:
 - Search can be a plain `Input` unless it opens suggestions.
 - Rows should be `<button>` or `<a>` depending on whether they open a provider detail route.
 - Keep provider metadata shared with the `Connect Your Tools` modal to avoid drift.
+- Use [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md) as the consolidated design source for catalog categories, provider states, detail templates, capabilities, and keyboard behavior.
 
 ### `/integrations/google_drive`
 

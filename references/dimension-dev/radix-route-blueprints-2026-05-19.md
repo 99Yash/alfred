@@ -325,7 +325,7 @@ Build notes:
 
 ## `/integrations` catalog
 
-Evidence: `screenshots/05-integrations.png`, `screenshots/36-final-pass-integrations-connected-2026-05-18.png`, `snapshots/integrations.txt`, `snapshots/final-pass-integrations-connected-2026-05-18.txt`.
+Evidence: `screenshots/05-integrations.png`, `screenshots/36-final-pass-integrations-connected-2026-05-18.png`, `snapshots/integrations.txt`, `snapshots/final-pass-integrations-connected-2026-05-18.txt`, plus the consolidated live capture in [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md).
 
 DOM target:
 
@@ -356,7 +356,7 @@ Build notes:
 
 ## `/integrations/<provider>` connector detail
 
-Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`, plus the authenticated Google Drive detail capture in [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md).
+Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`, plus the authenticated Google Drive detail capture in [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md) and the cross-provider design in [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md).
 
 DOM target:
 
