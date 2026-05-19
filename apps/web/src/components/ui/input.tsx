@@ -53,13 +53,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 ) {
   /* Bare input — most usage. */
   if (!leading && !trailing) {
-    return (
-      <input
-        ref={ref}
-        className={cn(BASE, VARIANT[variant], className)}
-        {...rest}
-      />
-    );
+    return <input ref={ref} className={cn(BASE, VARIANT[variant], className)} {...rest} />;
   }
 
   /* Slotted input — wrap in a relative container so we can absolutely position
@@ -73,19 +67,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       ) : null}
       <input
         ref={ref}
-        className={cn(
-          BASE,
-          VARIANT[variant],
-          leading && "pl-9",
-          trailing && "pr-9",
-          className,
-        )}
+        className={cn(BASE, VARIANT[variant], leading && "pl-9", trailing && "pr-9", className)}
         {...rest}
       />
       {trailing ? (
-        <span className="absolute right-3 inline-flex text-gray-800">
-          {trailing}
-        </span>
+        <span className="absolute right-3 inline-flex text-gray-800">{trailing}</span>
       ) : null}
     </div>
   );

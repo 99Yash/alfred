@@ -44,44 +44,35 @@ function SkillDetailPage() {
   const { slug } = Route.useParams();
   const { data: session } = authClient.useSession();
 
-  const listSkills = useCallback(
-    async (tx: ReadTransaction): Promise<SyncedSkill[]> => {
-      const entries = await tx.scan({ prefix: IDB_KEY.SKILL({}) }).entries().toArray();
-      return entries.map(([, v]) => v as unknown as SyncedSkill);
-    },
-    [],
-  );
+  const listSkills = useCallback(async (tx: ReadTransaction): Promise<SyncedSkill[]> => {
+    const entries = await tx
+      .scan({ prefix: IDB_KEY.SKILL({}) })
+      .entries()
+      .toArray();
+    return entries.map(([, v]) => v as unknown as SyncedSkill);
+  }, []);
 
-  const listRevisions = useCallback(
-    async (tx: ReadTransaction): Promise<SyncedSkillRevision[]> => {
-      const entries = await tx
-        .scan({ prefix: IDB_KEY.SKILL_REVISION({}) })
-        .entries()
-        .toArray();
-      return entries.map(([, v]) => v as unknown as SyncedSkillRevision);
-    },
-    [],
-  );
+  const listRevisions = useCallback(async (tx: ReadTransaction): Promise<SyncedSkillRevision[]> => {
+    const entries = await tx
+      .scan({ prefix: IDB_KEY.SKILL_REVISION({}) })
+      .entries()
+      .toArray();
+    return entries.map(([, v]) => v as unknown as SyncedSkillRevision);
+  }, []);
 
-  const listRuns = useCallback(
-    async (tx: ReadTransaction): Promise<SyncedSkillRun[]> => {
-      const entries = await tx
-        .scan({ prefix: IDB_KEY.SKILL_RUN({}) })
-        .entries()
-        .toArray();
-      return entries.map(([, v]) => v as unknown as SyncedSkillRun);
-    },
-    [],
-  );
+  const listRuns = useCallback(async (tx: ReadTransaction): Promise<SyncedSkillRun[]> => {
+    const entries = await tx
+      .scan({ prefix: IDB_KEY.SKILL_RUN({}) })
+      .entries()
+      .toArray();
+    return entries.map(([, v]) => v as unknown as SyncedSkillRun);
+  }, []);
 
   const allSkills = useSubscribe(listSkills);
   const allRevisions = useSubscribe(listRevisions);
   const allRuns = useSubscribe(listRuns);
 
-  const skill = useMemo(
-    () => allSkills?.find((s) => s.slug === slug) ?? null,
-    [allSkills, slug],
-  );
+  const skill = useMemo(() => allSkills?.find((s) => s.slug === slug) ?? null, [allSkills, slug]);
   const currentRevision = useMemo(() => {
     if (!skill?.currentRevisionId) return null;
     return allRevisions?.find((r) => r.id === skill.currentRevisionId) ?? null;
@@ -206,9 +197,7 @@ function SkillDetailPage() {
           <h1 className="heading-display text-[28px] leading-[34px] font-medium tracking-tight">
             {skill.name}
           </h1>
-          <p className="mt-1 font-mono text-[12.5px] text-gray-800">
-            /{skill.slug}
-          </p>
+          <p className="mt-1 font-mono text-[12.5px] text-gray-800">/{skill.slug}</p>
         </div>
         <div className="pt-1">
           <SkillStatusPill status={skill.status} />
@@ -263,13 +252,9 @@ function SkillDetailPage() {
               rows={6}
               className="font-mono text-[12.5px] min-h-[140px]"
             />
-            {error ? (
-              <p className="text-[12.5px] text-red-400">{error}</p>
-            ) : null}
+            {error ? <p className="text-[12.5px] text-red-400">{error}</p> : null}
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[11.5px] text-gray-800 tabular">
-                {prompt.length}/8000
-              </p>
+              <p className="text-[11.5px] text-gray-800 tabular">{prompt.length}/8000</p>
               <Button
                 variant="primary"
                 size="lg"
@@ -314,8 +299,7 @@ function SkillDetailPage() {
               <span className="font-medium text-gray-950">Learning:</span>
               <span className="text-gray-800">
                 {livePhase
-                  ? (STEP_LABELS[livePhase.step] ??
-                    `${livePhase.step} (${livePhase.phase})`)
+                  ? (STEP_LABELS[livePhase.step] ?? `${livePhase.step} (${livePhase.phase})`)
                   : "Starting…"}
               </span>
             </div>
@@ -326,16 +310,12 @@ function SkillDetailPage() {
             {currentRevision ? (
               <Card className="px-5 py-4">
                 <article className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {currentRevision.body}
-                  </ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentRevision.body}</ReactMarkdown>
                 </article>
               </Card>
             ) : (
               <Card className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-                <p className="text-sm font-medium text-gray-950">
-                  No body yet
-                </p>
+                <p className="text-sm font-medium text-gray-950">No body yet</p>
                 <p className="text-[12.5px] text-gray-800">
                   {activeRun
                     ? "Alfred is distilling — check back in a moment."
@@ -348,10 +328,7 @@ function SkillDetailPage() {
       ) : (
         <section className="space-y-3">
           <h2 className="text-[15px] font-medium text-gray-1000">
-            Runs{" "}
-            <span className="ml-1 text-[11px] text-gray-800 tabular">
-              {skillRuns.length}
-            </span>
+            Runs <span className="ml-1 text-[11px] text-gray-800 tabular">{skillRuns.length}</span>
           </h2>
           {skillRuns.length === 0 ? (
             <Card className="flex flex-col items-center gap-2 px-6 py-12 text-center">
@@ -363,21 +340,14 @@ function SkillDetailPage() {
           ) : (
             <div className="flex flex-col gap-1">
               {skillRuns.map((run) => (
-                <Card
-                  key={run.id}
-                  className="flex flex-col gap-1.5 px-4 py-3 text-gray-950"
-                >
+                <Card key={run.id} className="flex flex-col gap-1.5 px-4 py-3 text-gray-950">
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-sm font-medium capitalize text-gray-950">
-                      {run.kind}
-                    </span>
+                    <span className="text-sm font-medium capitalize text-gray-950">{run.kind}</span>
                     <RunStatusPill status={run.status} />
                   </div>
                   <p className="text-[11.5px] text-gray-800 tabular">
                     Started {new Date(run.startedAt).toLocaleString()}
-                    {run.endedAt
-                      ? ` · ended ${new Date(run.endedAt).toLocaleString()}`
-                      : ""}
+                    {run.endedAt ? ` · ended ${new Date(run.endedAt).toLocaleString()}` : ""}
                   </p>
                   {run.producedRevisionId ? (
                     <p className="text-[11px] font-mono text-gray-800">

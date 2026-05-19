@@ -1,1 +1,2 @@
-// Shared Elysia/TypeBox schemas — populated as routes grow
+// Shared Elysia/TypeBox schemas - populated as routes grow.
+export {};

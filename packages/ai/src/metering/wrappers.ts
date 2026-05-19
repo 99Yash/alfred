@@ -89,8 +89,10 @@ export type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
 
-export interface MeteredGenerateObjectArgs<O>
-  extends Omit<GenerateTextArgs, "output" | "experimental_output"> {
+export interface MeteredGenerateObjectArgs<O> extends Omit<
+  GenerateTextArgs,
+  "output" | "experimental_output"
+> {
   schema: ObjectSchema<O>;
   /** Optional name forwarded to `Output.object` — some providers use it for tool/schema naming. */
   schemaName?: string;

@@ -1,8 +1,4 @@
-import {
-  Link,
-  useLocation,
-  useNavigate,
-} from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   Brain,
@@ -127,16 +123,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
-  const ctx = useMemo<RightRailContextValue>(
-    () => ({ setContent: setRightRailNode }),
-    [],
-  );
+  const ctx = useMemo<RightRailContextValue>(() => ({ setContent: setRightRailNode }), []);
 
   // Unauthenticated routes (login, etc.) get bare children — no chrome.
   if (!authed) {
-    return (
-      <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>
-    );
+    return <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>;
   }
 
   return (
@@ -267,18 +258,12 @@ function Sidebar({
         </div>
         {!collapsed ? (
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium leading-tight truncate">
-              Alfred
-            </p>
+            <p className="text-[13px] font-medium leading-tight truncate">Alfred</p>
             <p className="text-[11px] text-muted-foreground truncate">{email}</p>
           </div>
         ) : null}
         {showCloseButton ? (
-          <IconButton
-            label="Close navigation"
-            onClick={onClose}
-            icon={<X size={16} />}
-          />
+          <IconButton label="Close navigation" onClick={onClose} icon={<X size={16} />} />
         ) : (
           <IconButton
             label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -385,9 +370,7 @@ function Sidebar({
           {!collapsed ? (
             <>
               <span className="flex-1 text-left capitalize">{theme}</span>
-              <span className="text-[10px] text-muted-foreground/70 capitalize">
-                {resolved}
-              </span>
+              <span className="text-[10px] text-muted-foreground/70 capitalize">{resolved}</span>
             </>
           ) : null}
         </button>
@@ -473,13 +456,7 @@ function IconButton({
   );
 }
 
-function ThemeIcon({
-  theme,
-  resolved,
-}: {
-  theme: Theme;
-  resolved: "light" | "dark";
-}) {
+function ThemeIcon({ theme, resolved }: { theme: Theme; resolved: "light" | "dark" }) {
   if (theme === "system") return <Monitor size={15} className="shrink-0" />;
   return resolved === "dark" ? (
     <Moon size={15} className="shrink-0" />

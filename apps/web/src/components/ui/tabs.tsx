@@ -52,8 +52,10 @@ export function Tabs<T extends string = string>({
   label = "Tabs",
   className,
 }: TabsProps<T>) {
-  if (variant === "segmented") return <SegmentedTabs {...{ value, onValueChange, items, label, className }} />;
-  if (variant === "pill") return <PillTabs {...{ value, onValueChange, items, label, className }} />;
+  if (variant === "segmented")
+    return <SegmentedTabs {...{ value, onValueChange, items, label, className }} />;
+  if (variant === "pill")
+    return <PillTabs {...{ value, onValueChange, items, label, className }} />;
   return <UnderlineTabs {...{ value, onValueChange, items, label, className }} />;
 }
 
@@ -87,12 +89,11 @@ function UnderlineTabs<T extends string>({
             onClick={() => onValueChange(item.value)}
             className={cn(
               "relative inline-flex items-center gap-1.5 px-2 pb-1.5 pt-1 text-sm font-medium",
-              "transition-colors duration-200",
+              "transition-[color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
               "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
+              "active:scale-[0.98]",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              active
-                ? "heading-display-lavender"
-                : "text-gray-800 hover:text-gray-900",
+              active ? "heading-display-lavender" : "text-gray-800 hover:text-gray-900",
             )}
           >
             {item.icon ? <span className="inline-flex shrink-0">{item.icon}</span> : null}
@@ -143,8 +144,9 @@ function SegmentedTabs<T extends string>({
             onClick={() => onValueChange(item.value)}
             className={cn(
               "h-9 min-w-14 rounded-[14px] px-3 grid place-items-center gap-1.5 text-sm font-medium",
-              "transition-[background-color,color,box-shadow] duration-200",
+              "transition-[background-color,color,box-shadow,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
               "outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
+              "active:scale-[0.96]",
               "disabled:opacity-50 disabled:cursor-not-allowed",
               active
                 ? "bg-white/[0.12] text-gray-1000 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
@@ -190,12 +192,11 @@ function PillTabs<T extends string>({
             onClick={() => onValueChange(item.value)}
             className={cn(
               "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium",
-              "transition-[background-color,color] duration-200",
+              "transition-[background-color,color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
               "outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
+              "active:scale-[0.97]",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              active
-                ? "bg-white/90 text-gray-50"
-                : "text-gray-800 hover:text-gray-900",
+              active ? "bg-white/90 text-gray-50" : "text-gray-800 hover:text-gray-900",
             )}
           >
             {item.icon ? <span className="inline-flex shrink-0">{item.icon}</span> : null}

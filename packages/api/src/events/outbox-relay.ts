@@ -91,9 +91,10 @@ async function drainOnce(): Promise<number> {
     }
 
     if (published.length > 0) {
-      await client.query(`UPDATE events_outbox SET published_at = now() WHERE id = ANY($1::bigint[])`, [
-        published,
-      ]);
+      await client.query(
+        `UPDATE events_outbox SET published_at = now() WHERE id = ANY($1::bigint[])`,
+        [published],
+      );
     }
 
     await client.query("COMMIT");

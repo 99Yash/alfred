@@ -151,7 +151,9 @@ async function main() {
   const run2 = await pollRun(runId2, "run 2");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
   const out2 = run2.output as { emailSendId: string; status: string };
-  console.log(`[smoke-briefing] run 2 output: status=${out2.status} emailSendId=${out2.emailSendId}`);
+  console.log(
+    `[smoke-briefing] run 2 output: status=${out2.status} emailSendId=${out2.emailSendId}`,
+  );
   assert(
     out2.status === "duplicate",
     `expected run 2 to short-circuit as duplicate, got ${out2.status}`,
@@ -166,10 +168,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(
-      "[smoke-briefing] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
+    console.error("[smoke-briefing] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
     process.exitCode = 1;
   })
   .finally(async () => {

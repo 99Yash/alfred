@@ -84,10 +84,7 @@ export async function factConfirmClient(
  * the row to `status='rejected'` (which we don't sync) and writes a
  * rejected_inferences row.
  */
-export async function factRejectClient(
-  tx: WriteTransaction,
-  args: FactRejectArgs,
-): Promise<void> {
+export async function factRejectClient(tx: WriteTransaction, args: FactRejectArgs): Promise<void> {
   const key = IDB_KEY.FACT({ id: args.factId });
   const exists = await tx.has(key);
   if (!exists) return;

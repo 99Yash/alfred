@@ -108,10 +108,7 @@ export async function ensureAlfredLabels(
   return map;
 }
 
-async function findLabelByName(
-  accessToken: string,
-  name: string,
-): Promise<string | undefined> {
+async function findLabelByName(accessToken: string, name: string): Promise<string | undefined> {
   const all = await listLabels({ accessToken });
   return all.find((l) => l.name === name)?.id;
 }
@@ -147,10 +144,7 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
   };
 }
 
-async function persistCachedLabels(
-  credentialId: string,
-  map: AlfredLabelMap,
-): Promise<void> {
+async function persistCachedLabels(credentialId: string, map: AlfredLabelMap): Promise<void> {
   // Merge into existing metadata via jsonb_set so we don't clobber unrelated
   // keys (e.g. watch-channel state stored alongside).
   const value = JSON.stringify({

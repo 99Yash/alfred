@@ -14,12 +14,6 @@ import { cn } from "~/lib/utils";
 
 export const FrostPanel = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   function FrostPanel({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        className={cn("frost-panel rounded-2xl p-3", className)}
-        {...rest}
-      />
-    );
+    return <div ref={ref} className={cn("frost-panel rounded-2xl p-3", className)} {...rest} />;
   },
 );

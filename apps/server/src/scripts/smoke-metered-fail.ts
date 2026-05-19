@@ -46,7 +46,8 @@ async function main() {
   if (!row) throw new Error("no failure row in api_call_log");
 
   console.log(`[fail-smoke] failure row: cost=${row.costUsd} error=${JSON.stringify(row.error)}`);
-  if (Number(row.costUsd) !== 0) throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
+  if (Number(row.costUsd) !== 0)
+    throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
   const err = row.error as { message?: string } | null;
   if (err?.message !== "synthetic failure for smoke test") {
     throw new Error(`error column not populated correctly: ${JSON.stringify(row.error)}`);

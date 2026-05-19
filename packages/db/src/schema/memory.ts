@@ -73,7 +73,9 @@ export const userFacts = pgTable(
     /** proposed | confirmed | rejected | edited | superseded — see file header. */
     status: text("status").notNull().default("proposed"),
     /** Provenance: { kind: 'document'|'chunk'|'tool_call'|'cold_start'|'user', id?: string }. */
-    source: jsonb("source").notNull().default(sql`'{}'::jsonb`),
+    source: jsonb("source")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     /**
      * Temporal validity window (ADR-0012). `valid_from` is when the fact
      * became true (extractor's best guess at the source's authoring time),
@@ -119,7 +121,9 @@ export const userPreferences = pgTable(
     key: text("key").notNull(),
     value: jsonb("value").notNull(),
     /** Optional provenance — usually `{ kind: 'user' }`; agents can suggest a pref via `{ kind: 'agent' }`. */
-    source: jsonb("source").notNull().default(sql`'{}'::jsonb`),
+    source: jsonb("source")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -157,9 +161,13 @@ export const styleProfiles = pgTable(
     recipientId: text("recipient_id"),
     profileDoc: text("profile_doc").notNull(),
     /** [{ subject, body, sentAt }] or similar — channel-shaped. */
-    examples: jsonb("examples").notNull().default(sql`'[]'::jsonb`),
+    examples: jsonb("examples")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** Provenance: array of document ids the profile was distilled from. */
-    sourceMsgIds: jsonb("source_msg_ids").notNull().default(sql`'[]'::jsonb`),
+    sourceMsgIds: jsonb("source_msg_ids")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     generatedAt: timestamp("generated_at", { withTimezone: true }),
     /** How many source messages went into this profile. Drives `regenerate_needed` heuristics. */
     generatedFromCount: integer("generated_from_count").notNull().default(0),
@@ -206,9 +214,13 @@ export const entities = pgTable(
     kind: text("kind").notNull(),
     canonicalName: text("canonical_name").notNull(),
     /** Alternate names, email aliases, slack handles. */
-    aliases: jsonb("aliases").notNull().default(sql`'[]'::jsonb`),
+    aliases: jsonb("aliases")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** Free-form bag — title, domain, headshot url, … */
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -236,7 +248,9 @@ export const entityRelations = pgTable(
       .references(() => entities.id, { onDelete: "cascade" }),
     /** manager_of | reports_to | works_at | colleague_of | invested_in | … */
     relation: text("relation").notNull(),
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
   },
   (t) => [
@@ -282,8 +296,12 @@ export const memoryChunks = pgTable(
     /** sha256 of `content` — skip re-embed when content hasn't changed. */
     contentHash: text("content_hash").notNull(),
     /** Provenance refs: `{ kind: 'thread_summary', threadId: '…' }`, `{ kind: 'extraction_run', runId: '…' }`. */
-    source: jsonb("source").notNull().default(sql`'{}'::jsonb`),
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    source: jsonb("source")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
   },
   (t) => [

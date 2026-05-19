@@ -27,13 +27,7 @@ export const memorySourceSchema = z.object({
 });
 export type MemorySource = z.infer<typeof memorySourceSchema>;
 
-export const FACT_STATUSES = [
-  "proposed",
-  "confirmed",
-  "rejected",
-  "edited",
-  "superseded",
-] as const;
+export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
 export type FactStatus = (typeof FACT_STATUSES)[number];
 
 /**

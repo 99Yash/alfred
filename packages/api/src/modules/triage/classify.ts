@@ -91,11 +91,7 @@ function userPrompt(args: ClassifyEmailArgs): string {
   // classification when our fine-grained taxonomy aligns.
   if (labelIds.length) {
     const userVisible = labelIds.filter(
-      (l) =>
-        l.startsWith("CATEGORY_") ||
-        l === "IMPORTANT" ||
-        l === "STARRED" ||
-        l === "INBOX",
+      (l) => l.startsWith("CATEGORY_") || l === "IMPORTANT" || l === "STARRED" || l === "INBOX",
     );
     if (userVisible.length) lines.push(`GmailLabels: ${userVisible.join(", ")}`);
   }
@@ -105,9 +101,10 @@ function userPrompt(args: ClassifyEmailArgs): string {
   // Cap to keep token budget bounded — most emails fit easily; the rare
   // long thread gets truncated, which is fine for triage (the lede usually
   // suffices to classify).
-  const content = args.document.content.length > 6_000
-    ? args.document.content.slice(0, 6_000) + "\n[…truncated]"
-    : args.document.content;
+  const content =
+    args.document.content.length > 6_000
+      ? args.document.content.slice(0, 6_000) + "\n[…truncated]"
+      : args.document.content;
   lines.push(content);
   return lines.join("\n");
 }

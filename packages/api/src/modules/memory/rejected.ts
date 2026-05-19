@@ -11,11 +11,7 @@ import { valueSignature } from "./signature";
  */
 
 /** Has the user already rejected `(key, value)`? */
-export async function isRejected(
-  userId: string,
-  key: string,
-  value: unknown,
-): Promise<boolean> {
+export async function isRejected(userId: string, key: string, value: unknown): Promise<boolean> {
   const sig = valueSignature(value);
   const [hit] = await db()
     .select({ id: rejectedInferences.id })

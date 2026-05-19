@@ -9,11 +9,7 @@ import { getResendClient } from "./resend-client";
  * via its `kind` column. Adding a new kind: extend this union and pick
  * an idempotency-key convention (see `notifications.ts` schema doc).
  */
-export type NotificationKind =
-  | "briefing"
-  | "evening_recap"
-  | "approval"
-  | "skill_documented";
+export type NotificationKind = "briefing" | "evening_recap" | "approval" | "skill_documented";
 
 export interface NotifyArgs {
   userId: string;
@@ -86,10 +82,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       .select({ id: emailSends.id })
       .from(emailSends)
       .where(
-        and(
-          eq(emailSends.userId, args.userId),
-          eq(emailSends.idempotencyKey, args.idempotencyKey),
-        ),
+        and(eq(emailSends.userId, args.userId), eq(emailSends.idempotencyKey, args.idempotencyKey)),
       );
     const row = existing[0];
     if (!row) {

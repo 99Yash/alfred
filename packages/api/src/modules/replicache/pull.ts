@@ -71,10 +71,7 @@ const ENTITY_FETCHERS: Record<IDBKeys, (tx: DbTx, userId: string) => Promise<Ent
       .select()
       .from(userFacts)
       .where(
-        and(
-          eq(userFacts.userId, userId),
-          inArray(userFacts.status, ["proposed", "confirmed"]),
-        ),
+        and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
       )
       .orderBy(asc(userFacts.id));
     return rows.map((f: typeof userFacts.$inferSelect) => ({
@@ -177,9 +174,7 @@ function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown
   };
 }
 
-function serializePreference(
-  p: typeof userPreferences.$inferSelect,
-): Record<string, unknown> {
+function serializePreference(p: typeof userPreferences.$inferSelect): Record<string, unknown> {
   return {
     key: p.key,
     userId: p.userId,
@@ -206,9 +201,7 @@ function serializeSkill(s: typeof skills.$inferSelect): Record<string, unknown> 
   };
 }
 
-function serializeSkillRevision(
-  r: typeof skillRevisions.$inferSelect,
-): Record<string, unknown> {
+function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): Record<string, unknown> {
   return {
     id: r.id,
     skillId: r.skillId,

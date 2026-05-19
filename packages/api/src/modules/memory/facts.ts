@@ -209,11 +209,7 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
     .update(userFacts)
     .set({ status: "confirmed", rowVersion: sql`${userFacts.rowVersion} + 1` })
     .where(
-      and(
-        eq(userFacts.id, factId),
-        eq(userFacts.userId, userId),
-        eq(userFacts.status, "proposed"),
-      ),
+      and(eq(userFacts.id, factId), eq(userFacts.userId, userId), eq(userFacts.status, "proposed")),
     )
     .returning();
   if (!row) return null;
@@ -445,10 +441,7 @@ export async function listFactsByStatus(
 }
 
 /** Walk the supersession chain from a row back to its origin. */
-export async function getSupersessionChain(
-  userId: string,
-  factId: string,
-): Promise<FactRow[]> {
+export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
   const chain: FactRow[] = [];
   let cursor: string | null = factId;
   while (cursor) {

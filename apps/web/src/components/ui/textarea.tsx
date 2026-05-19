@@ -35,15 +35,16 @@ const INLINE = cn(
   "outline-none focus-visible:outline-none focus-visible:ring-0",
 );
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  function Textarea({ className, variant = "card", rows, ...rest }, ref) {
-    return (
-      <textarea
-        ref={ref}
-        rows={rows ?? (variant === "card" ? 4 : 1)}
-        className={cn(variant === "card" ? CARD : INLINE, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, variant = "card", rows, ...rest },
+  ref,
+) {
+  return (
+    <textarea
+      ref={ref}
+      rows={rows ?? (variant === "card" ? 4 : 1)}
+      className={cn(variant === "card" ? CARD : INLINE, className)}
+      {...rest}
+    />
+  );
+});

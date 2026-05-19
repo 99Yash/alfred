@@ -49,10 +49,7 @@ interface VoyageEmbeddingResponse {
   usage: { total_tokens: number };
 }
 
-async function callVoyage(
-  texts: string[],
-  opts: EmbedOptions,
-): Promise<VoyageEmbeddingResponse> {
+async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEmbeddingResponse> {
   const env = serverEnv();
   if (!env.VOYAGE_API_KEY) {
     throw new Error("[embeddings] VOYAGE_API_KEY missing — set it to use the embeddings module");
@@ -122,10 +119,7 @@ export async function embed(text: string, opts: EmbedOptions = {}): Promise<numb
  * themselves and merge. For our scale (one user, paragraph-sized
  * chunks), one call per document covers it.
  */
-export async function embedMany(
-  texts: string[],
-  opts: EmbedOptions = {},
-): Promise<number[][]> {
+export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promise<number[][]> {
   if (texts.length === 0) return [];
   const filtered = texts.map((t) => (t.length === 0 ? " " : t));
   const response = await callVoyage(filtered, opts);

@@ -23,10 +23,7 @@ import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/ingestion";
-import {
-  findCredentialsNeedingPoll,
-  pollGmailHistory,
-} from "@alfred/integrations/google";
+import { findCredentialsNeedingPoll, pollGmailHistory } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 
 async function main() {
@@ -50,9 +47,7 @@ async function main() {
     return;
   }
 
-  console.log(
-    `[smoke-google-poll] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`,
-  );
+  console.log(`[smoke-google-poll] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
 
   // ---- Phase 1: pre-state ---------------------------------------------------
   const cursorBefore = await loadCursor(cred.id);
@@ -74,16 +69,16 @@ async function main() {
 
   // ---- Phase 3: re-poll (should be a clean no-op when nothing changed) ----
   const second = await pollGmailHistory({ credentialId: cred.id });
-  console.log(`[smoke-google-poll] re-poll: inserted=${second.inserted} pages=${second.pagesFetched}`);
+  console.log(
+    `[smoke-google-poll] re-poll: inserted=${second.inserted} pages=${second.pagesFetched}`,
+  );
 
   // ---- Phase 4: poll-sweep candidate query -------------------------------
   // The credential we just polled should NOT appear in a 5-minute-old window.
   const cutoff = new Date(Date.now() - 5 * 60 * 1000);
   const stale = await findCredentialsNeedingPoll(cutoff);
   if (stale.find((s) => s.credentialId === cred.id)) {
-    throw new Error(
-      `findCredentialsNeedingPoll returned just-polled credential ${cred.id}`,
-    );
+    throw new Error(`findCredentialsNeedingPoll returned just-polled credential ${cred.id}`);
   }
   console.log(
     `[smoke-google-poll] sweep query excludes fresh credential ✓ (${stale.length} other stale)`,

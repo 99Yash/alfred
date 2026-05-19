@@ -159,10 +159,7 @@ async function main() {
   console.log(`[smoke-cold-start] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "cold-start run");
-  assert(
-    run.status === "completed",
-    `run status=${run.status} error=${JSON.stringify(run.error)}`,
-  );
+  assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
   const out = run.output as {
     factsProposed: number;

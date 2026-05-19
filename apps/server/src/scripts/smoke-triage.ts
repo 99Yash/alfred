@@ -116,9 +116,7 @@ async function main() {
     console.log("Run smoke-google.ts first to connect an account + bulk ingest.");
     return;
   }
-  console.log(
-    `[smoke-triage] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`,
-  );
+  console.log(`[smoke-triage] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
 
   // ---- Phase 1: ensure Alfred labels exist ---------------------------------
   const labels = await ensureAlfredLabels(cred.id);
@@ -156,7 +154,10 @@ async function main() {
   console.log(`[smoke-triage] run 1 enqueued: ${runId1}`);
 
   const run1 = await pollRun(runId1, "run 1");
-  assert(run1.status === "completed", `run 1 status=${run1.status} error=${JSON.stringify(run1.error)}`);
+  assert(
+    run1.status === "completed",
+    `run 1 status=${run1.status} error=${JSON.stringify(run1.error)}`,
+  );
   const out1 = run1.output as {
     category: TriageCategory;
     confidence: number;
@@ -215,7 +216,9 @@ async function main() {
   const run2 = await pollRun(runId2, "run 2");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
   const out2 = run2.output as { category: TriageCategory; appliedLabelId: string };
-  console.log(`[smoke-triage] run 2 output: category=${out2.category} appliedLabelId=${out2.appliedLabelId}`);
+  console.log(
+    `[smoke-triage] run 2 output: category=${out2.category} appliedLabelId=${out2.appliedLabelId}`,
+  );
 
   const labelsFinal = await fetchMessageLabelIds(cred.id, doc.sourceId);
   const alfredLabelsFinal = labelsFinal.filter((id) => labels.allIds.includes(id));
@@ -234,10 +237,7 @@ async function main() {
   assert(finalRow.runId === runId2, `triage row runId=${finalRow.runId} != run2=${runId2}`);
 
   // Quick sanity: total email_triage rows for this user matches docs we've triaged.
-  const rowCount = await db()
-    .select()
-    .from(emailTriage)
-    .where(eq(emailTriage.userId, cred.userId));
+  const rowCount = await db().select().from(emailTriage).where(eq(emailTriage.userId, cred.userId));
   console.log(`[smoke-triage] total email_triage rows for user: ${rowCount.length}`);
 
   console.log("\n[smoke-triage] PASS");

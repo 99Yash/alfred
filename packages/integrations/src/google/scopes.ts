@@ -53,7 +53,9 @@ export async function requireScopes(
     throw new Error(`[google.scopes] credential not found: ${credentialId}`);
   }
   if (row.status !== "active") {
-    throw new Error(`[google.scopes] credential not active: ${credentialId} (status=${row.status})`);
+    throw new Error(
+      `[google.scopes] credential not active: ${credentialId} (status=${row.status})`,
+    );
   }
   const granted = new Set<string>((row.scopes as string[] | null) ?? []);
   const required = scopesForFeatures(features);

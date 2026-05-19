@@ -85,8 +85,7 @@ export async function collectColdStartSignals(userId: string): Promise<ColdStart
   if (!u) throw new Error(`[cold-start] user ${userId} not found`);
 
   const emailDomain = parseDomain(u.email);
-  const emailDomainIsConsumer =
-    emailDomain != null && CONSUMER_EMAIL_DOMAINS.has(emailDomain);
+  const emailDomainIsConsumer = emailDomain != null && CONSUMER_EMAIL_DOMAINS.has(emailDomain);
 
   const integrations: ColdStartSignals["integrations"] = {};
 

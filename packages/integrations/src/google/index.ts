@@ -14,11 +14,7 @@ export type {
   GoogleFeature,
 } from "./oauth";
 export { requireScopes, featuresFromGrantedScopes, MissingScopesError } from "./scopes";
-export {
-  upsertCredential,
-  listCredentials,
-  getFreshAccessToken,
-} from "./credentials";
+export { upsertCredential, listCredentials, getFreshAccessToken } from "./credentials";
 export type { CredentialRow } from "./credentials";
 export {
   ingestRecentGmail,
