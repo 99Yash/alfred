@@ -9,6 +9,7 @@ Primary evidence:
 - [`final-live-ui-recon-2026-05-18.md`](./final-live-ui-recon-2026-05-18.md) — final broad preservation pass
 - [`live-ui-reference-2026-05-19.md`](./live-ui-reference-2026-05-19.md) — fresh live `/chat` capture + source-map status
 - [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — late meeting-prep card/dialog capture + accessibility contract
+- [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) — final weather/right-rail specifics and secondary-route traversal notes
 - [`screenshots/`](./screenshots/) and [`snapshots/`](./snapshots/) — per-state viewport and a11y evidence
 
 ## Reconstruction rule
@@ -204,6 +205,8 @@ Accessibility requirements:
 
 Evidence: chat landing screenshots, `screenshots/34-quick-rail-emails-tab-2026-05-18.png`, `screenshots/35-quick-rail-meetings-tab-2026-05-18.png`.
 
+Companion detail: [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) captures the final live weather video geometry, route calls, tab/accessibility notes, and exact style anchors for this rail.
+
 DOM target:
 
 ```tsx
@@ -246,6 +249,7 @@ Build notes:
 - Segmented tab track is `bg-black/20`, `rounded-2xl`, cells `56×36`, `rounded-[14px]`.
 - Add-todo row uses Radix Checkbox plus transparent `Textarea variant="inline"`.
 - `SUGGESTIONS` is left-aligned and uses `mix-blend-plus-lighter` over media.
+- Icon-only rail tabs need explicit `aria-label`s in Alfred; the live Dimension tree did not expose useful names for every tab.
 
 ## `/chat/<threadId>` active conversation
 
@@ -384,7 +388,7 @@ Radix/component choices:
 
 ## `/workflows` list
 
-Evidence: `screenshots/01-workflows.png`, `snapshots/workflows.txt`, `screenshots/17-workflow-history-tab.png`, `screenshots/17b-workflow-approvals-tab.png`.
+Evidence: `screenshots/01-workflows.png`, `snapshots/workflows.txt`, `screenshots/17-workflow-history-tab.png`, `screenshots/17b-workflow-approvals-tab.png`, plus the final live traversal in [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md).
 
 DOM target:
 
@@ -392,20 +396,22 @@ DOM target:
 <RoutePage>
   <PageHeader align="center" title="Workflows" subtitle="Create a scheduled or trigger-based workflow." />
   <Button>Create Workflow</Button>
-  <WorkflowList>
+  <WorkflowGrid>
     <Card interactive>
       <h3>Morning Briefing</h3>
-      <p>Click to edit your workflow</p>
+      <p>{workflowPreview}</p>
+      <StatusPill />
     </Card>
-  </WorkflowList>
+  </WorkflowGrid>
 </RoutePage>
 ```
 
 Build notes:
 
-- List rows are simple cards. No grid.
+- Current live list uses a frosted card grid, not the earlier simple row list.
+- Workflow cards are about `334×244`, `p-6`, `rounded-3xl`, with a `#181818 -> #131313` gradient, frost border, title, preview copy, and status/action pill.
 - Create Workflow is the primary purple CTA.
-- Empty and user-authored states should keep the same list/card grammar.
+- Empty and user-authored states should keep the same card-grid grammar.
 
 ## `/workflows/<id>` builder
 
@@ -457,7 +463,7 @@ Radix/component choices:
 
 ## `/skills` list
 
-Evidence: `screenshots/03-skills.png`, `snapshots/skills.txt`.
+Evidence: `screenshots/03-skills.png`, `snapshots/skills.txt`, plus the final live traversal in [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md).
 
 DOM target:
 
@@ -465,18 +471,20 @@ DOM target:
 <RoutePage>
   <PageHeader align="center" title="Skills" subtitle="Create a skill for your agent to learn." />
   <Button>Create Skill</Button>
-  <SkillList>
+  <SkillGrid>
     <Card interactive>
       <h3>{skillTitle}</h3>
       <p>{originalPromptPreview}</p>
     </Card>
-  </SkillList>
+  </SkillGrid>
 </RoutePage>
 ```
 
 Build notes:
 
-- Skill list cards are text-first, no heavy iconography required.
+- Current live skill list uses a frosted card grid matching workflows.
+- Skill cards are about `334×209`, `p-6`, `rounded-3xl`, text-first, with no heavy iconography required.
+- Clamp long prompt previews so card height stays stable.
 - Create Skill starts a draft and navigates directly into detail in Alfred.
 
 ## `/skills/<id>` detail
@@ -548,7 +556,10 @@ DOM target:
 
 Radix/component choices:
 
-- Type filter menu can use Dropdown Menu or Popover.
+- `All Types` is a frost pill trigger, about `107×37`, `rounded-full`.
+- The type filter opens a compact `250×238`, `rounded-2xl`, blurred frost popover/dialog with combobox/listbox semantics and checkbox rows.
+- Type filter menu can use Dropdown Menu or Popover; prefer Popover if it includes combobox/search behavior.
+- Checked type boxes are purple (`rgb(83,59,229)`) with a small inset white glow; unchecked boxes are dark gray.
 - Artifact viewer can use Dialog for standalone library open, but in chat should use the right rail panel.
 - Artifact cards are plain work cards; artifact pages/content use `FrostPanel`/iframe wrappers.
 
@@ -564,10 +575,11 @@ DOM target:
   <div className="settings-grid">
     <nav aria-label="Settings sections">
       <SettingsSectionButton value="user">User</SettingsSectionButton>
-      <SettingsSectionButton value="integrations">Integrations</SettingsSectionButton>
-      <SettingsSectionButton value="notifications">Notifications</SettingsSectionButton>
+      <SettingsSectionButton value="billing">Billing</SettingsSectionButton>
+      <SettingsSectionButton value="plan">Plan</SettingsSectionButton>
+      <SettingsSectionButton value="features">Features</SettingsSectionButton>
       <SettingsSectionButton value="preferences">Preferences</SettingsSectionButton>
-      <SettingsSectionButton value="danger">Danger</SettingsSectionButton>
+      <SettingsSectionButton value="referrals">Referrals</SettingsSectionButton>
     </nav>
 
     <PanelCard>
@@ -585,9 +597,9 @@ Build notes:
 
 - Settings title is left-aligned; most other route titles are centered.
 - Inner nav is vertical on desktop and horizontal-scroll on mobile.
-- Active inner-nav row uses a purple left bar.
+- Live section nav rows are about `176×28`, `py-1`, icon + label, `14px` medium text; active row is near-white, inactive row is muted gray.
 - Panel is a subdued `rounded-2xl` card with small field rows.
-- Theme/mode choices are pill tabs. Notification toggles are Switch rows.
+- Mode choices are pill tabs about `32px` tall with `role="tab"` semantics. Preference toggles are Switch rows; off state is `44×24`, rounded-full, dark gray with frost border.
 
 ## Search / command palette
 

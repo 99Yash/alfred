@@ -16,6 +16,7 @@ Companion references that remain canonical:
 - [`alfred-replication-map.md`](./alfred-replication-map.md) — route/component translation map
 - [`radix-route-blueprints-2026-05-19.md`](./radix-route-blueprints-2026-05-19.md) — route-by-route Radix-equivalent DOM blueprints
 - [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — meeting-prep card/dialog addition, keyboard behavior, and HTML repro
+- [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) — weather/right-rail specifics and final route traversal notes for integrations, workflows, skills, library, and settings
 - [`REWRITE_PROGRESS.md`](./REWRITE_PROGRESS.md) — what has already landed locally
 
 ## Source-map status

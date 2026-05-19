@@ -18,6 +18,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 
 **For the late 2026-05-19 meeting-prep UI addition on `/chat` — upcoming meeting card, `View meeting prep` dialog, keyboard behavior, accessibility checklist, and static HTML repro — see [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md).**
 
+**For the final weather/right-rail and cross-route traversal notes from 2026-05-19 — weather video behavior, todo rail geometry, `/integrations`, `/workflows`, `/skills`, `/library`, and `/settings` implementation notes — see [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md).**
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
@@ -29,6 +31,7 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 - `alfred-replication-map.md` — Dimension patterns mapped directly onto Alfred's existing `apps/web` primitives, with a build-order checklist and missing component recipes
 - `radix-route-blueprints-2026-05-19.md` — route-level Radix-equivalent DOM/component trees for rebuilding the captured Dimension surfaces in Alfred
 - `chat-meeting-prep-reference-2026-05-19.md` — final-day meeting-prep card/dialog capture, accessibility contract, keyboard behavior, and static HTML reproduction steps
+- `weather-and-route-notes-2026-05-19.md` — final weather/right-rail and secondary-route traversal notes with sanitized geometry, Radix mappings, and keyboard/accessibility checks
 - `html-repros/` — sanitized standalone HTML reproductions of captured interactive surfaces
 
 ## 2026-05-18 final live pass
