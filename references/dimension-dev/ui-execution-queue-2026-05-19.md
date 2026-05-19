@@ -86,10 +86,11 @@ For each route, track these anchors:
 
 ## Immediate next slice
 
-Start with composer/model/context menus.
+Start with chat preview state variants.
 
-Reason: the shared composer shell now exists, so the next highest-impact gap is the set of open surfaces that Dimension users see around it: `+` context menu, model picker, composer kebab, and mention menu shell.
+Reason: the shared composer shell and its menu surfaces now exist. The next highest-impact gap is the missing set of chat states Dimension exposes during and after runs: streaming/thinking, active tool, all-expanded tools, and richer assistant content.
 
 ## Completed slices
 
 - **2026-05-19 — Shared composer shell**: Added `DimensionComposerShell`, `DimensionComposerToolbar`, `DimensionComposerIconButton`, `DimensionComposerSendButton`, and `DimensionModelChip`. Home and chat now share the same shell/button geometry while keeping route-specific behavior and home-only connected-tools tray.
+- **2026-05-19 — Composer menus**: Added Radix Dropdown Menu/Popover-backed context menus, model picker, and overflow menus to the shared composer primitives. Home now has a `+` menu, local model picker, and composer options menu; chat has matching context/model/overflow surfaces with chat-specific items.

@@ -5,12 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowRight,
+  AtSign,
   Check,
   CircleAlert,
   ClipboardCheck,
   Clock3,
+  FileUp,
+  Link2,
   Mic,
   Plus,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -19,11 +23,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
+  DimensionComposerContextMenu,
   DimensionComposerIconButton,
+  DimensionComposerOverflowMenu,
   DimensionComposerSendButton,
   DimensionComposerShell,
   DimensionComposerToolbar,
-  DimensionModelChip,
+  DimensionModelPicker,
+  type DimensionComposerMenuItem,
 } from "~/components/dimension-composer-shell";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
@@ -210,6 +217,18 @@ const MENTION_ITEMS: MentionItem[] = [
 ];
 
 const MENTION_LISTBOX_ID = "composer-mention-listbox";
+const MODEL_OPTIONS = [
+  {
+    id: "alfred",
+    label: "Alfred",
+    description: "Fast default routing for everyday work",
+  },
+  {
+    id: "alfred-pro",
+    label: "Alfred Pro",
+    description: "Deeper reasoning for complex planning",
+  },
+];
 
 function mentionOptionId(item: MentionItem) {
   return `composer-mention-option-${item.id}`;
@@ -218,6 +237,7 @@ function mentionOptionId(item: MentionItem) {
 function Composer() {
   const [value, setValue] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
+  const [model, setModel] = useState("alfred");
   const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionStart, setMentionStart] = useState<number | null>(null);
@@ -225,6 +245,14 @@ function Composer() {
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const hasContent = value.trim().length > 0;
   const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
+  const modelOptions = useMemo(
+    () =>
+      MODEL_OPTIONS.map((option) => ({
+        ...option,
+        selected: option.id === model,
+      })),
+    [model],
+  );
 
   const syncMentionState = useCallback((editor: Editor) => {
     const nextValue = editor.getText();
@@ -335,6 +363,48 @@ function Composer() {
     setReviewPreview((preview) => (preview ? { ...preview, status } : preview));
   }, []);
 
+  const contextItems: DimensionComposerMenuItem[] = useMemo(
+    () => [
+      {
+        label: "Mention a tool",
+        description: "Search connected apps and sources",
+        icon: <AtSign size={15} />,
+        onSelect: openMentionMenu,
+      },
+      {
+        label: "Connect tools",
+        description: "Bring Gmail, Calendar, Drive, and more",
+        icon: <Link2 size={15} />,
+        href: "/integrations",
+      },
+      {
+        label: "Upload file",
+        description: "Coming with artifact ingestion",
+        icon: <FileUp size={15} />,
+        disabled: true,
+      },
+    ],
+    [openMentionMenu],
+  );
+  const overflowItems: DimensionComposerMenuItem[] = useMemo(
+    () => [
+      {
+        label: approvalMode === "auto" ? "Switch to manual review" : "Switch to auto mode",
+        description:
+          approvalMode === "auto" ? "Ask before durable changes" : "Let Alfred proceed locally",
+        icon: <ShieldCheck size={15} />,
+        onSelect: () => setApprovalMode(approvalMode === "auto" ? "manual" : "auto"),
+      },
+      {
+        label: "Composer settings",
+        description: "Review gates, integrations, preferences",
+        icon: <Settings2 size={15} />,
+        href: "/settings",
+      },
+    ],
+    [approvalMode],
+  );
+
   useEffect(() => {
     setSelectedMentionIndex(0);
   }, [mentionQuery]);
@@ -357,20 +427,21 @@ function Composer() {
           <DimensionComposerToolbar
             start={
               <>
-                <DimensionComposerIconButton
-                  label="Add context"
-                  onClick={openMentionMenu}
-                  className="rounded-full"
-                >
+                <DimensionComposerContextMenu items={contextItems}>
                   <Plus size={15} />
-                </DimensionComposerIconButton>
+                </DimensionComposerContextMenu>
                 <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
                 <ComposerStatusPill />
               </>
             }
             end={
               <>
-                <DimensionModelChip value="Alfred" />
+                <DimensionModelPicker
+                  value={MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"}
+                  options={modelOptions}
+                  onSelect={setModel}
+                />
+                <DimensionComposerOverflowMenu items={overflowItems} />
                 <DimensionComposerIconButton label="Voice input" disabled>
                   <Mic size={15} />
                 </DimensionComposerIconButton>

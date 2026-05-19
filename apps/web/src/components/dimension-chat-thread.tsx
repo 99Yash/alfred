@@ -3,16 +3,20 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  AtSign,
   Bot,
   ChevronRight,
   Copy,
   Download,
   Ellipsis,
   FileText,
+  FileUp,
+  Link2,
   Maximize2,
   Mic,
   PanelRightOpen,
   Plus,
+  Settings2,
   Share2,
   ThumbsUp,
   X,
@@ -20,10 +24,14 @@ import {
 import { useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import {
+  DimensionComposerContextMenu,
   DimensionComposerIconButton,
+  DimensionComposerOverflowMenu,
   DimensionComposerSendButton,
   DimensionComposerShell,
   DimensionComposerToolbar,
+  DimensionModelPicker,
+  type DimensionComposerMenuItem,
 } from "~/components/dimension-composer-shell";
 import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifact-pages";
 import { cn } from "~/lib/utils";
@@ -110,6 +118,19 @@ const ROLE_RESULTS: SearchResult[] = [
     title: "Product engineer",
     domain: "jobs.example",
     href: "https://example.com/",
+  },
+];
+
+const CHAT_MODEL_OPTIONS = [
+  {
+    id: "alfred",
+    label: "Alfred",
+    description: "Fast default routing for everyday work",
+  },
+  {
+    id: "alfred-pro",
+    label: "Alfred Pro",
+    description: "Deeper reasoning for complex planning",
   },
 ];
 
@@ -627,6 +648,7 @@ function RelatedSuggestions({ onSelect }: { onSelect: (prompt: string) => void }
 function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const [value, setValue] = useState("");
   const [autoMode, setAutoMode] = useState(true);
+  const [model, setModel] = useState("alfred");
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -660,6 +682,50 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   };
 
   const hasContent = value.trim().length > 0;
+  const contextItems: DimensionComposerMenuItem[] = [
+    {
+      label: "Mention a tool",
+      description: "Reference integrations in the next reply",
+      icon: <AtSign size={15} />,
+      disabled: true,
+    },
+    {
+      label: "Attach artifact",
+      description: "Use the current briefing as context",
+      icon: <FileText size={15} />,
+      disabled: true,
+    },
+    {
+      label: "Upload file",
+      description: "Coming with artifact ingestion",
+      icon: <FileUp size={15} />,
+      disabled: true,
+    },
+    {
+      label: "Connect tools",
+      description: "Manage source access",
+      icon: <Link2 size={15} />,
+      href: "/integrations",
+    },
+  ];
+  const overflowItems: DimensionComposerMenuItem[] = [
+    {
+      label: autoMode ? "Switch to manual review" : "Switch to auto mode",
+      description: autoMode ? "Ask before durable changes" : "Let Alfred proceed locally",
+      icon: <Settings2 size={15} />,
+      onSelect: () => setAutoMode((mode) => !mode),
+    },
+    {
+      label: "Thread settings",
+      description: "Title, sharing, and run controls",
+      icon: <Ellipsis size={15} />,
+      disabled: true,
+    },
+  ];
+  const modelOptions = CHAT_MODEL_OPTIONS.map((option) => ({
+    ...option,
+    selected: option.id === model,
+  }));
 
   return (
     <DimensionComposerShell
@@ -673,9 +739,9 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
           startClassName="flex-1"
           start={
             <>
-              <DimensionComposerIconButton label="Add context">
+              <DimensionComposerContextMenu items={contextItems}>
                 <Plus size={15} />
-              </DimensionComposerIconButton>
+              </DimensionComposerContextMenu>
               <button
                 type="button"
                 aria-pressed={autoMode}
@@ -706,6 +772,12 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
           }
           end={
             <>
+              <DimensionModelPicker
+                value={CHAT_MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"}
+                options={modelOptions}
+                onSelect={setModel}
+              />
+              <DimensionComposerOverflowMenu items={overflowItems} />
               <DimensionComposerIconButton label="Dictate" disabled>
                 <Mic size={15} />
               </DimensionComposerIconButton>
