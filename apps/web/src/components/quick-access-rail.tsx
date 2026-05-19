@@ -42,7 +42,7 @@ export function QuickAccessRail({
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
-      <div className="absolute inset-0 bg-[linear-gradient(155deg,#8cc7d3_0%,#40647d_31%,#1b2528_57%,#101010_100%)]" />
+      <div className="cloud-video-fallback absolute inset-0" />
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),rgba(0,0,0,0.12)_28%,rgba(0,0,0,0.72)_100%)]" />
       <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),transparent)]" />
 
@@ -51,7 +51,7 @@ export function QuickAccessRail({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-sm font-bold tracking-[0.04em] text-white/60 mix-blend-plus-lighter">
               <span className="truncate">Bhubaneswar</span>
-              <span className="tabular">29°</span>
+              <span className="tabular">30°</span>
               <span className="sr-only">
                 {healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"}
               </span>
@@ -102,8 +102,9 @@ export function QuickAccessRail({
           ) : null}
         </div>
 
-        <button
-          type="button"
+        <a
+          href="/workflows"
+          aria-label="Open Morning Briefing"
           className={cn(
             "-mx-5 mt-auto flex h-[57px] items-center justify-between border-t border-white/5",
             "bg-black/[0.1] px-5 text-left text-base font-medium text-white",
@@ -112,7 +113,7 @@ export function QuickAccessRail({
         >
           Morning Briefing
           <ArrowRight size={16} />
-        </button>
+        </a>
       </div>
     </div>
   );
@@ -167,16 +168,22 @@ function TasksPanel() {
           </p>
         </div>
 
-        <div className="mt-10 flex flex-col items-center text-center">
-          <PartyPopper
-            size={40}
-            className="text-white/80 mix-blend-plus-lighter"
-            strokeWidth={1.5}
-          />
-          <p className="mt-3 text-sm font-medium">No Suggestions</p>
-          <p className="mt-1 max-w-[220px] text-[12px] leading-relaxed text-white/60">
-            New suggestions will appear here when available.
-          </p>
+        <div className="mt-7 border-t border-white/20 pt-5">
+          <button
+            type="button"
+            className={cn(
+              "group flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left",
+              "text-white outline-none transition-colors hover:bg-white/[0.06]",
+              "focus-visible:ring-2 focus-visible:ring-white/22",
+            )}
+          >
+            <span className="mt-0.5 text-2xl leading-none text-white/60 transition-colors group-hover:text-white">
+              +
+            </span>
+            <span className="max-w-[230px] text-sm leading-relaxed">
+              Review unanswered briefing follow-up
+            </span>
+          </button>
         </div>
       </section>
     </div>

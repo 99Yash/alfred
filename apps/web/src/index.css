@@ -590,4 +590,35 @@
     color: rgba(255, 255, 255, 0.35);
     pointer-events: none;
   }
+
+  .cloud-video-fallback {
+    background:
+      radial-gradient(circle at 18% 14%, rgba(222, 239, 255, 0.36) 0 9%, transparent 21%),
+      radial-gradient(circle at 72% 18%, rgba(201, 222, 248, 0.24) 0 12%, transparent 26%),
+      radial-gradient(circle at 30% 82%, rgba(231, 242, 255, 0.2) 0 16%, transparent 34%),
+      linear-gradient(152deg, #6f99d6 0%, #4e7fc7 34%, #416fb3 62%, #2d5ca7 100%);
+    background-size:
+      150% 150%,
+      170% 170%,
+      160% 160%,
+      100% 100%;
+    animation: cloud-drift 36s ease-in-out infinite alternate;
+  }
+
+  @keyframes cloud-drift {
+    from {
+      background-position:
+        0% 4%,
+        78% 0%,
+        12% 100%,
+        0 0;
+    }
+    to {
+      background-position:
+        18% 0%,
+        58% 12%,
+        28% 88%,
+        0 0;
+    }
+  }
 }
