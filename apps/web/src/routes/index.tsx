@@ -22,6 +22,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { ConnectToolsDialog } from "~/components/connect-tools-dialog";
 import {
   DimensionComposerContextMenu,
   DimensionComposerIconButton,
@@ -238,6 +239,7 @@ function Composer() {
   const [value, setValue] = useState("");
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
   const [model, setModel] = useState("alfred");
+  const [connectToolsOpen, setConnectToolsOpen] = useState(false);
   const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionStart, setMentionStart] = useState<number | null>(null);
@@ -375,7 +377,7 @@ function Composer() {
         label: "Connect tools",
         description: "Bring Gmail, Calendar, Drive, and more",
         icon: <Link2 size={15} />,
-        href: "/integrations",
+        onSelect: () => setConnectToolsOpen(true),
       },
       {
         label: "Upload file",
@@ -422,7 +424,7 @@ function Composer() {
           e.preventDefault();
           send();
         }}
-        tray={<ConnectedToolsRow />}
+        tray={<ConnectedToolsRow onOpen={() => setConnectToolsOpen(true)} />}
         toolbar={
           <DimensionComposerToolbar
             start={
@@ -513,6 +515,7 @@ function Composer() {
           onDismiss={() => setReviewPreview(null)}
         />
       ) : null}
+      <ConnectToolsDialog open={connectToolsOpen} onOpenChange={setConnectToolsOpen} />
     </div>
   );
 }
@@ -918,7 +921,7 @@ function approvalStatusFor(item: ApprovalItem, preview: ReviewPreview) {
   return "Review";
 }
 
-function ConnectedToolsRow() {
+function ConnectedToolsRow({ onOpen }: { onOpen: () => void }) {
   const tools: IntegrationBrand[] = [
     "gmail",
     "google_calendar",
@@ -933,8 +936,9 @@ function ConnectedToolsRow() {
   ];
 
   return (
-    <a
-      href="/integrations"
+    <button
+      type="button"
+      onClick={onOpen}
       className={cn(
         "group relative mx-auto -mb-px -mt-px flex h-[46px] w-[calc(100%-32px)] items-center justify-between gap-3 rounded-b-2xl",
         "border-t border-white/[0.055] bg-black/[0.08] px-4 pt-3.5 pb-3 text-[13px] text-white/42 outline-none",
@@ -956,7 +960,7 @@ function ConnectedToolsRow() {
           />
         ))}
       </span>
-    </a>
+    </button>
   );
 }
 
@@ -989,41 +993,47 @@ function UpcomingMeeting() {
 }
 
 function SetupNudge() {
+  const [open, setOpen] = useState(false);
+
   return (
-    <a
-      href="/integrations"
-      className={cn(
-        "group relative block h-[74px] overflow-hidden rounded-3xl px-4 shadow-pop",
-        "text-white ring-1 ring-white/10 outline-none",
-        "transition-[box-shadow,transform]",
-        "hover:shadow-[0_18px_46px_rgba(0,0,0,0.38)] hover:ring-white/[0.16]",
-        "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
-      )}
-    >
-      <WeatherVideoSurface />
-      <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
-      <span className="relative flex h-full items-center justify-between gap-4">
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">Connect tools for live context</span>
-          <span className="mt-0.5 block truncate text-[12px] text-white/70">
-            Bring Gmail, Calendar, Drive, and code sources into Alfred.
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn(
+          "group relative block h-[74px] w-full overflow-hidden rounded-3xl px-4 text-left shadow-pop",
+          "text-white ring-1 ring-white/10 outline-none",
+          "transition-[box-shadow,transform]",
+          "hover:shadow-[0_18px_46px_rgba(0,0,0,0.38)] hover:ring-white/[0.16]",
+          "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
+        )}
+      >
+        <WeatherVideoSurface />
+        <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
+        <span className="relative flex h-full items-center justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Connect tools for live context</span>
+            <span className="mt-0.5 block truncate text-[12px] text-white/70">
+              Bring Gmail, Calendar, Drive, and code sources into Alfred.
+            </span>
+          </span>
+          <span
+            className={cn(
+              "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2",
+              "text-[13px] font-medium text-black backdrop-blur-sm",
+              "bg-[linear-gradient(180deg,rgba(255,255,255,0.85)_0%,#eeeeee_100%)]",
+              "shadow-[inset_0_0_7px_1px_rgba(255,255,255,0.16),0_0_0_1px_rgba(0,0,0,0.08)]",
+              "transition-[filter,box-shadow]",
+              "group-hover:shadow-[inset_0_0_8px_1px_rgba(255,255,255,0.28),0_0_0_1px_rgba(0,0,0,0.08),0_2px_12px_rgba(255,255,255,0.18)]",
+            )}
+          >
+            Connect
+            <ArrowRight size={14} strokeWidth={2.25} />
           </span>
         </span>
-        <span
-          className={cn(
-            "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2",
-            "text-[13px] font-medium text-black backdrop-blur-sm",
-            "bg-[linear-gradient(180deg,rgba(255,255,255,0.85)_0%,#eeeeee_100%)]",
-            "shadow-[inset_0_0_7px_1px_rgba(255,255,255,0.16),0_0_0_1px_rgba(0,0,0,0.08)]",
-            "transition-[filter,box-shadow]",
-            "group-hover:shadow-[inset_0_0_8px_1px_rgba(255,255,255,0.28),0_0_0_1px_rgba(0,0,0,0.08),0_2px_12px_rgba(255,255,255,0.18)]",
-          )}
-        >
-          Open Integrations
-          <ArrowRight size={14} strokeWidth={2.25} />
-        </span>
-      </span>
-    </a>
+      </button>
+      <ConnectToolsDialog open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 
