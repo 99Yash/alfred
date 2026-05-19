@@ -10,9 +10,13 @@ function ChatThreadRoute() {
   const search = new URLSearchParams(window.location.search);
   const state = search.get("state");
   const artifact = search.get("artifact");
+  const artifactState = search.get("artifactState");
 
   return (
     <DimensionChatThread
+      artifactState={
+        artifactState === "empty" || artifactState === "generating" ? artifactState : "completed"
+      }
       previewState={
         state === "streaming" ||
         state === "active-tool" ||

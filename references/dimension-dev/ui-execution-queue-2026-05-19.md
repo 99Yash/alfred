@@ -39,7 +39,7 @@ These are blocked or risky until we capture/own the missing artifacts.
 
 | Surface | Blocker | Recommended action |
 | --- | --- | --- |
-| Weather video parity | Need owned/recreated `partly_cloudy.mp4`, ideally full five-state weather set. | Use the current video hook; add owned media once available. Do not commit Dimension-hosted videos. |
+| Weather video parity | Need owned/recreated `partly_cloudy.mp4`, ideally full five-state weather set. The reference appears to change by weather/time, so one fixed file is only the first parity target. | Use the current video hook; add owned media once available. Then map weather/time conditions to the five video states. Do not commit Dimension-hosted videos. |
 | Exact mobile parity | Need route-by-route local screenshots against the captured mobile references. | After each desktop route pass, run mobile checks at `390 x 844` and `430 x 932`. |
 | Exact model/context/kebab menu dimensions | Some open-menu DOM snapshots are still higher value than screenshots alone. | Capture final Dimension menu snapshots if the site remains reachable; otherwise use screenshots and CSS bundle signals. |
 | Weather lower falloff tuning | True appearance depends on the owned video. | Keep current CSS fallback; retune only after the actual video asset lands. |
@@ -86,12 +86,13 @@ For each route, track these anchors:
 
 ## Immediate next slice
 
-Start with artifact panel controls.
+Start with connect tools modal.
 
-Reason: chat state variants now exist. The next highest-impact gap is the artifact side panel: toolbar states, page index/thumbnails, loading/PDF-generation placeholder, and tighter page controls around the already wired iframe pages.
+Reason: artifact panel controls now exist. The next highest-impact home/chat gap is the connect-tools modal, because the composer tray and status surfaces already point users there.
 
 ## Completed slices
 
 - **2026-05-19 — Shared composer shell**: Added `DimensionComposerShell`, `DimensionComposerToolbar`, `DimensionComposerIconButton`, `DimensionComposerSendButton`, and `DimensionModelChip`. Home and chat now share the same shell/button geometry while keeping route-specific behavior and home-only connected-tools tray.
 - **2026-05-19 — Composer menus**: Added Radix Dropdown Menu/Popover-backed context menus, model picker, and overflow menus to the shared composer primitives. Home now has a `+` menu, local model picker, and composer options menu; chat has matching context/model/overflow surfaces with chat-specific items.
 - **2026-05-19 — Chat preview states**: Added query-addressable chat states: `?state=all-expanded`, `?state=streaming`, `?state=active-tool`, and `?state=rich-content`. The chat route also accepts `?artifact=1` to force the artifact panel on any thread id. Browser verification covered all five chat states including the default completed state.
+- **2026-05-19 — Artifact panel controls**: Added query-addressable artifact panel states: completed, `?artifactState=generating`, and `?artifactState=empty`. The panel now has a 65px document header, status strip, icon toolbar, page thumbnail rail, selected-page metadata, unresolved page placeholder, and empty state.
