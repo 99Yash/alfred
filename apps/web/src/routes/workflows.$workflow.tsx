@@ -1,20 +1,34 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, CheckCircle2, Clock3, Link2, MoreHorizontal, Play, Share2 } from "lucide-react";
-import { useState } from "react";
+import {
+  ArrowLeft,
+  CalendarClock,
+  CheckCircle2,
+  Copy,
+  Link2,
+  MoreHorizontal,
+  Play,
+  Share2,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { Card } from "~/components/ui/card";
+import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { getWorkflow, type WorkflowDefinition } from "~/lib/workflows";
+import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/workflows/$workflow")({
   component: WorkflowDetailPage,
 });
 
-type WorkflowTab = "plan" | "history" | "approvals";
+type WorkflowTab = "overview" | "triggers" | "history" | "approvals";
 
 const TABS: ReadonlyArray<TabItem<WorkflowTab>> = [
-  { value: "plan", label: "Plan" },
+  { value: "overview", label: "Overview" },
+  { value: "triggers", label: "Triggers" },
   { value: "history", label: "History" },
   { value: "approvals", label: "Approvals" },
 ];
@@ -22,7 +36,8 @@ const TABS: ReadonlyArray<TabItem<WorkflowTab>> = [
 function WorkflowDetailPage() {
   const { workflow: workflowId } = Route.useParams();
   const workflow = getWorkflow(workflowId);
-  const [tab, setTab] = useState<WorkflowTab>("plan");
+  const [tab, setTab] = useState<WorkflowTab>("overview");
+  const [shareOpen, setShareOpen] = useState(false);
 
   if (!workflow) {
     return (
@@ -50,7 +65,12 @@ function WorkflowDetailPage() {
           <p className="mt-1 max-w-xl text-sm leading-5 text-gray-800">{workflow.description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="ghost" size="md" leading={<Share2 size={14} />}>
+          <Button
+            variant="ghost"
+            size="md"
+            leading={<Share2 size={14} />}
+            onClick={() => setShareOpen(true)}
+          >
             Share
           </Button>
           <Button variant="ghost" size="md" aria-label="More workflow actions">
@@ -70,21 +90,16 @@ function WorkflowDetailPage() {
         label="Workflow detail sections"
       />
 
-      {tab === "plan" ? <PlanTab workflow={workflow} /> : null}
-      {tab === "history" ? (
-        <EmptyTab
-          icon={<Play size={18} />}
-          title="No workflow runs yet"
-          description="Once a workflow is run, you can see the history here."
-        />
-      ) : null}
-      {tab === "approvals" ? (
-        <EmptyTab
-          icon={<CheckCircle2 size={18} />}
-          title="Nothing to approve"
-          description="If approval is needed, it will show up here."
-        />
-      ) : null}
+      {tab === "overview" ? <OverviewTab workflow={workflow} /> : null}
+      {tab === "triggers" ? <TriggersTab workflow={workflow} /> : null}
+      {tab === "history" ? <HistoryTab workflow={workflow} /> : null}
+      {tab === "approvals" ? <ApprovalsTab workflow={workflow} /> : null}
+
+      <WorkflowShareDialog
+        workflow={workflow}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+      />
     </DetailShell>
   );
 }
@@ -110,21 +125,14 @@ function BackLink() {
   );
 }
 
-function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
+function OverviewTab({ workflow }: { workflow: WorkflowDefinition }) {
   return (
     <div className="grid gap-4">
-      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-1000">When</p>
-            <p className="mt-1 text-[12.5px] leading-5 text-gray-800">{workflow.trigger.summary}</p>
-          </div>
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/[0.05] px-3 py-1 text-[12px] text-gray-850">
-            <Clock3 size={12} />
-            {workflow.trigger.type}
-          </span>
-        </div>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MetricCard label="Status" value={workflow.status === "active" ? "Active" : "Draft"} />
+        <MetricCard label="Cadence" value={workflow.cadence} />
+        <MetricCard label="Trigger" value={workflow.trigger.type} />
+      </div>
 
       <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
         <label className="text-sm font-medium text-gray-1000" htmlFor="workflow-prompt">
@@ -166,27 +174,200 @@ function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
   );
 }
 
-function EmptyTab({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
+function TriggersTab({ workflow }: { workflow: WorkflowDefinition }) {
   return (
-    <Card className="grid min-h-[320px] place-items-center rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-12 text-center">
-      <div className="flex flex-col items-center">
-        <span
-          aria-hidden
-          className="frost-icon-tile grid size-11 place-items-center rounded-2xl text-gray-900"
-        >
-          {icon}
+    <div className="grid gap-4">
+      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <div className="flex items-start gap-3">
+          <WorkflowIcon tone="purple">
+            {workflow.trigger.type === "Schedule" ? (
+              <CalendarClock size={16} />
+            ) : (
+              <Zap size={16} />
+            )}
+          </WorkflowIcon>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium text-gray-1000">{workflow.trigger.type} trigger</p>
+              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-gray-800">
+                Enabled
+              </span>
+            </div>
+            <p className="mt-1 text-[12.5px] leading-5 text-gray-800">
+              {workflow.trigger.summary}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <p className="text-sm font-medium text-gray-1000">Trigger conditions</p>
+        <div className="mt-4 divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111]/70">
+          <TriggerRow label="Schedule window" value={workflow.cadence} />
+          <TriggerRow label="Required integrations" value={workflow.integrations.join(", ")} />
+          <TriggerRow label="Approval policy" value="Run automatically; stop for outbound writes" />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function HistoryTab({ workflow }: { workflow: WorkflowDefinition }) {
+  const rows = [
+    {
+      title: `${workflow.name} completed`,
+      description:
+        workflow.trigger.type === "Schedule"
+          ? "Delivered the latest briefing."
+          : "Processed the latest event batch.",
+      time: "Today",
+      status: "Completed",
+    },
+    {
+      title: "No-op run",
+      description: "Checked for eligible work and found nothing urgent.",
+      time: "Yesterday",
+      status: "No changes",
+    },
+  ];
+
+  return (
+    <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm font-medium text-gray-1000">Recent runs</p>
+        <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] text-gray-800">
+          Preview data
         </span>
-        <p className="mt-4 text-sm font-medium text-gray-950">{title}</p>
-        <p className="mt-1 max-w-md text-[12.5px] leading-relaxed text-gray-800">{description}</p>
+      </div>
+      <div className="divide-y divide-white/[0.06]">
+        {rows.map((row) => (
+          <div key={row.title} className="flex items-center gap-3 py-3">
+            <WorkflowIcon tone="green">
+              <CheckCircle2 size={16} />
+            </WorkflowIcon>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-gray-950">{row.title}</p>
+              <p className="truncate text-[12.5px] text-gray-800">{row.description}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-[12px] text-gray-850">{row.status}</p>
+              <p className="text-[11px] text-gray-700">{row.time}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </Card>
+  );
+}
+
+function ApprovalsTab({ workflow }: { workflow: WorkflowDefinition }) {
+  return (
+    <div className="grid gap-4">
+      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <div className="flex items-start gap-3">
+          <WorkflowIcon tone="green">
+            <ShieldCheck size={16} />
+          </WorkflowIcon>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-gray-1000">No pending approvals</p>
+            <p className="mt-1 text-[12.5px] leading-5 text-gray-800">
+              {workflow.name} can run automatically for low-risk steps. Outbound or destructive
+              actions still stop for review.
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <p className="text-sm font-medium text-gray-1000">Approval policy</p>
+        <div className="mt-4 divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111]/70">
+          <TriggerRow label="Internal planning" value="Auto eligible" />
+          <TriggerRow label="Email or calendar writes" value="Human gate" />
+          <TriggerRow label="Workflow edits" value="Human gate" />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function WorkflowShareDialog({
+  workflow,
+  open,
+  onOpenChange,
+}: {
+  workflow: WorkflowDefinition;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        title="Share workflow"
+        description="Copy a private link to this workflow preview."
+        className="max-w-[520px]"
+      >
+        <div className="px-6 pb-6">
+          <div className="rounded-2xl border border-white/[0.06] bg-[#111]/80 p-4">
+            <div className="flex items-center gap-3">
+              <WorkflowIcon tone="purple">
+                <Share2 size={16} />
+              </WorkflowIcon>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-gray-950">{workflow.name}</p>
+                <p className="truncate text-[12px] text-gray-700">{workflow.description}</p>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/[0.06] bg-black/25 px-3 py-2">
+              <Link2 size={14} className="shrink-0 text-gray-700" />
+              <p className="min-w-0 flex-1 truncate text-[12.5px] text-gray-800">
+                alfred.local/workflows/{workflow.id}
+              </p>
+              <Button variant="ghost" size="sm" leading={<Copy size={13} />}>
+                Copy
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={() => onOpenChange(false)} variant="white" size="md">
+              Done
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+      <p className="text-[12px] text-gray-700">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-gray-950">{value}</p>
+    </Card>
+  );
+}
+
+function TriggerRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <p className="text-[12.5px] text-gray-800">{label}</p>
+      <p className="min-w-0 truncate text-right text-[12.5px] font-medium text-gray-950">{value}</p>
+    </div>
+  );
+}
+
+function WorkflowIcon({ children, tone }: { children: ReactNode; tone: "green" | "purple" }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid size-9 shrink-0 place-items-center rounded-xl",
+        tone === "green"
+          ? "bg-emerald-500/12 text-emerald-300"
+          : "bg-purple-500/12 text-purple-300",
+      )}
+    >
+      {children}
+    </span>
   );
 }
