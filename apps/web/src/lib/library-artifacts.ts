@@ -1,3 +1,5 @@
+import { SYCAMORE_BRIEF_PAGES, type ArtifactPage } from "~/lib/artifact-pages";
+
 export type ArtifactType = "presentation" | "document" | "spreadsheet" | "pdf";
 
 export type LibraryArtifact = {
@@ -8,11 +10,7 @@ export type LibraryArtifact = {
   updatedLabel: string;
   favourite: boolean;
   summary: string;
-  pages: ReadonlyArray<{
-    title: string;
-    kicker: string;
-    body: string;
-  }>;
+  pages: ReadonlyArray<ArtifactPage>;
 };
 
 export const LIBRARY_ARTIFACTS: ReadonlyArray<LibraryArtifact> = [
@@ -23,19 +21,9 @@ export const LIBRARY_ARTIFACTS: ReadonlyArray<LibraryArtifact> = [
     typeLabel: "PDF Document",
     updatedLabel: "Today",
     favourite: true,
-    summary: "A compact briefing artifact with the same page-stack viewer used by chat outputs.",
-    pages: [
-      {
-        title: "Morning Briefing",
-        kicker: "Tuesday",
-        body: "You have 3 meetings and 23 emails. The inbox is quiet except for two same-day replies and one contract thread that needs review before lunch.",
-      },
-      {
-        title: "To Do",
-        kicker: "Action plan",
-        body: "Review the follow-up from David, approve the draft response for the pricing thread, and prepare talking points before the afternoon pipeline sync.",
-      },
-    ],
+    summary:
+      "The archived Sycamore research PDF, rendered from Dimension's captured iframe srcdoc pages.",
+    pages: SYCAMORE_BRIEF_PAGES,
   },
   {
     id: "weekly-pipeline-notes",

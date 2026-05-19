@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Download, Maximize2, Share2, X } from "lucide-react";
 import { useEffect } from "react";
+import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { Button } from "~/components/ui/button";
 import { getArtifact } from "~/lib/library-artifacts";
 
@@ -81,13 +82,17 @@ function ArtifactViewer() {
                   {index + 1} / {artifact.pages.length}
                 </span>
               </div>
-              <div className="min-h-[590px] rounded-xl bg-[#ededed] p-10 text-black shadow-2xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-black/45">
-                  {page.kicker}
-                </p>
-                <h2 className="mt-6 text-3xl font-semibold leading-tight">{page.title}</h2>
-                <p className="mt-6 text-[15px] leading-7 text-black/68">{page.body}</p>
-              </div>
+              {page.html ? (
+                <ArtifactPageFrame html={page.html} title={`${artifact.title} page ${index + 1}`} />
+              ) : (
+                <div className="min-h-[590px] rounded-xl bg-[#ededed] p-10 text-black shadow-2xl">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-black/45">
+                    {page.kicker}
+                  </p>
+                  <h2 className="mt-6 text-3xl font-semibold leading-tight">{page.title}</h2>
+                  <p className="mt-6 text-[15px] leading-7 text-black/68">{page.body}</p>
+                </div>
+              )}
             </section>
           ))}
         </div>

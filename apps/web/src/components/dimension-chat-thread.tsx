@@ -1,3 +1,7 @@
+import * as AccordionPrimitive from "@radix-ui/react-accordion";
+import Placeholder from "@tiptap/extension-placeholder";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
   ArrowUp,
   Bot,
@@ -14,13 +18,20 @@ import {
   ThumbsUp,
   X,
 } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ArtifactPageFrame } from "~/components/artifact-page-frame";
+import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifact-pages";
 import { cn } from "~/lib/utils";
 
 type SearchResult = {
   title: string;
   domain: string;
   href: string;
+};
+
+type LocalPreviewTurn = {
+  id: string;
+  prompt: string;
 };
 
 const COMPANY_RESULTS: SearchResult[] = [
@@ -102,6 +113,12 @@ export function DimensionChatThread({
 }: {
   showArtifactPanel?: boolean;
 }) {
+  const [localTurns, setLocalTurns] = useState<LocalPreviewTurn[]>([]);
+
+  const addLocalTurn = (prompt: string) => {
+    setLocalTurns((turns) => [...turns, { id: `${Date.now()}-${turns.length}`, prompt }]);
+  };
+
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col bg-[rgb(12,12,12)] text-gray-950">
       <ChatTopBar
@@ -119,7 +136,7 @@ export function DimensionChatThread({
                   their technical direction, recent activity, and sharp questions to ask.
                 </UserBubble>
 
-                <AssistantTurn />
+                <AssistantTurn onPrompt={addLocalTurn} />
 
                 <UserBubble>No need for the PDF yet. Give me one more quick lookup.</UserBubble>
 
@@ -147,15 +164,43 @@ export function DimensionChatThread({
                   <AssistantProse compact />
                   <ResponseActions />
                 </div>
+
+                {localTurns.map((turn) => (
+                  <LocalPreviewTurn key={turn.id} turn={turn} />
+                ))}
               </div>
             </div>
           </div>
 
-          <ThreadComposer />
+          <ThreadComposer onSubmit={addLocalTurn} />
         </section>
 
         {showArtifactPanel ? <ArtifactPanel /> : null}
       </div>
+    </div>
+  );
+}
+
+function LocalPreviewTurn({ turn }: { turn: LocalPreviewTurn }) {
+  return (
+    <div className="space-y-3">
+      <UserBubble>{turn.prompt}</UserBubble>
+      <RunAccordion title="Drafted local preview response" defaultOpen>
+        <div className="ml-[37px] space-y-3">
+          <ThoughtAccordion duration="1s">
+            This is a local UI preview. The real m13 runtime will replace this with persisted run
+            events and tool output.
+          </ThoughtAccordion>
+          <ToolStatus>Prepared a response shell from the current chat context.</ToolStatus>
+        </div>
+      </RunAccordion>
+      <div className="max-w-[900px] text-sm leading-[22px] text-gray-900">
+        <p>
+          I would continue from the Sycamore brief, preserve the research citations already shown,
+          and turn this into the next artifact or answer once the runtime is connected.
+        </p>
+      </div>
+      <ResponseActions />
     </div>
   );
 }
@@ -202,7 +247,7 @@ function UserBubble({ children }: { children: ReactNode }) {
   );
 }
 
-function AssistantTurn() {
+function AssistantTurn({ onPrompt }: { onPrompt: (prompt: string) => void }) {
   return (
     <div className="space-y-3">
       <RunAccordion title="Searched multiple sources" defaultOpen>
@@ -247,7 +292,7 @@ function AssistantTurn() {
 
       <AssistantProse />
       <ResponseActions />
-      <RelatedSuggestions />
+      <RelatedSuggestions onSelect={onPrompt} />
     </div>
   );
 }
@@ -297,70 +342,54 @@ function SearchAccordion({
   resultsFound: number;
   results: SearchResult[];
 }) {
-  const [open, setOpen] = useState(true);
-  const id = useId();
-  const triggerId = `${id}-trigger`;
-  const contentId = `${id}-content`;
-
   return (
-    <div>
-      <button
-        id={triggerId}
-        type="button"
-        aria-expanded={open}
-        aria-controls={contentId}
-        onClick={() => setOpen((value) => !value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && open) {
-            event.preventDefault();
-            setOpen(false);
-          }
-        }}
-        className={cn(
-          "group/search flex min-h-5 w-full max-w-2xl items-center gap-1 text-left text-sm font-medium leading-5 text-gray-950 outline-none",
-          "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
-        )}
-      >
-        <span className="min-w-0 truncate font-normal text-gray-900">{query}</span>
-        <ChevronRight
-          size={16}
-          aria-hidden
-          className="shrink-0 text-gray-700 transition-transform group-aria-expanded/search:rotate-90"
-        />
-        <span className="ml-auto shrink-0 pl-4 font-normal text-gray-700">
-          {resultsFound} results found
-        </span>
-      </button>
-
-      <div
-        id={contentId}
-        role="region"
-        aria-labelledby={triggerId}
-        hidden={!open}
-        className="mt-1.5 max-h-[130px] max-w-2xl overflow-y-auto rounded-lg border border-gray-200 p-1 scrollbar"
-      >
-        {results.map((result) => (
-          <a
-            key={`${result.domain}-${result.title}`}
-            href={result.href}
-            className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 outline-none transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:ring-1 focus-visible:ring-purple-600/40"
-          >
-            <span className="flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-gray-900">
-              <img
-                src={faviconFor(result.domain)}
-                alt=""
-                className="size-3 shrink-0 rounded-sm"
-                loading="lazy"
+    <AccordionPrimitive.Root type="single" collapsible defaultValue="results">
+      <AccordionPrimitive.Item value="results">
+        <AccordionPrimitive.Header asChild>
+          <h3>
+            <AccordionPrimitive.Trigger
+              className={cn(
+                "group/search flex min-h-5 w-full max-w-2xl items-center gap-1 text-left text-sm font-medium leading-5 text-gray-950 outline-none",
+                "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
+              )}
+            >
+              <span className="min-w-0 truncate font-normal text-gray-900">{query}</span>
+              <ChevronRight
+                size={16}
+                aria-hidden
+                className="shrink-0 text-gray-700 transition-transform group-data-[state=open]/search:rotate-90"
               />
-              <span className="truncate">{result.title}</span>
-            </span>
-            <span className="shrink-0 text-[13px] font-light leading-4 text-gray-700">
-              {result.domain}
-            </span>
-          </a>
-        ))}
-      </div>
-    </div>
+              <span className="ml-auto shrink-0 pl-4 font-normal text-gray-700">
+                {resultsFound} results found
+              </span>
+            </AccordionPrimitive.Trigger>
+          </h3>
+        </AccordionPrimitive.Header>
+
+        <AccordionPrimitive.Content className="mt-1.5 max-h-[130px] max-w-2xl overflow-y-auto rounded-lg border border-gray-200 p-1 scrollbar">
+          {results.map((result) => (
+            <a
+              key={`${result.domain}-${result.title}`}
+              href={result.href}
+              className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 outline-none transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:ring-1 focus-visible:ring-purple-600/40"
+            >
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-gray-900">
+                <img
+                  src={faviconFor(result.domain)}
+                  alt=""
+                  className="size-3 shrink-0 rounded-sm"
+                  loading="lazy"
+                />
+                <span className="truncate">{result.title}</span>
+              </span>
+              <span className="shrink-0 text-[13px] font-light leading-4 text-gray-700">
+                {result.domain}
+              </span>
+            </a>
+          ))}
+        </AccordionPrimitive.Content>
+      </AccordionPrimitive.Item>
+    </AccordionPrimitive.Root>
   );
 }
 
@@ -377,48 +406,36 @@ function Disclosure({
   triggerClassName?: string;
   contentClassName?: string;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const id = useId();
-  const triggerId = `${id}-trigger`;
-  const contentId = `${id}-content`;
-
   return (
-    <div>
-      <button
-        id={triggerId}
-        type="button"
-        aria-expanded={open}
-        aria-controls={contentId}
-        onClick={() => setOpen((value) => !value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && open) {
-            event.preventDefault();
-            setOpen(false);
-          }
-        }}
-        className={cn(
-          "group/disclosure flex min-h-5 items-center gap-1 text-left text-sm font-medium leading-5 outline-none transition-colors",
-          "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
-          triggerClassName,
-        )}
-      >
-        <ChevronRight
-          size={16}
-          aria-hidden
-          className="shrink-0 text-gray-700 transition-transform group-aria-expanded/disclosure:rotate-90"
-        />
-        {typeof title === "string" ? <span className="truncate">{title}</span> : title}
-      </button>
-      <div
-        id={contentId}
-        role="region"
-        aria-labelledby={triggerId}
-        hidden={!open}
-        className={cn("overflow-hidden text-sm", contentClassName)}
-      >
-        {children}
-      </div>
-    </div>
+    <AccordionPrimitive.Root
+      type="single"
+      collapsible
+      defaultValue={defaultOpen ? "content" : undefined}
+    >
+      <AccordionPrimitive.Item value="content">
+        <AccordionPrimitive.Header asChild>
+          <h3>
+            <AccordionPrimitive.Trigger
+              className={cn(
+                "group/disclosure flex min-h-5 items-center gap-1 text-left text-sm font-medium leading-5 outline-none transition-colors",
+                "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
+                triggerClassName,
+              )}
+            >
+              <ChevronRight
+                size={16}
+                aria-hidden
+                className="shrink-0 text-gray-700 transition-transform group-data-[state=open]/disclosure:rotate-90"
+              />
+              {typeof title === "string" ? <span className="truncate">{title}</span> : title}
+            </AccordionPrimitive.Trigger>
+          </h3>
+        </AccordionPrimitive.Header>
+        <AccordionPrimitive.Content className={cn("overflow-hidden text-sm", contentClassName)}>
+          {children}
+        </AccordionPrimitive.Content>
+      </AccordionPrimitive.Item>
+    </AccordionPrimitive.Root>
   );
 }
 
@@ -571,7 +588,7 @@ function ResponseActions() {
 const reactionClassName =
   "grid size-5 place-items-center rounded-md text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35";
 
-function RelatedSuggestions() {
+function RelatedSuggestions({ onSelect }: { onSelect: (prompt: string) => void }) {
   const suggestions = [
     "Turn this into a concise interview checklist",
     "Draft a 90-day ownership plan",
@@ -586,6 +603,7 @@ function RelatedSuggestions() {
           <button
             key={suggestion}
             type="button"
+            onClick={() => onSelect(suggestion)}
             className="group/suggestion flex w-full items-center justify-between gap-4 py-3 pr-3 text-left outline-none transition-colors hover:bg-[#151515] focus-visible:bg-[#151515] focus-visible:ring-2 focus-visible:ring-purple-600/35"
           >
             <span className="min-w-0 truncate text-sm text-gray-900 transition-colors group-hover/suggestion:text-gray-950">
@@ -601,20 +619,61 @@ function RelatedSuggestions() {
   );
 }
 
-function ThreadComposer() {
+function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
+  const [value, setValue] = useState("");
+  const [autoMode, setAutoMode] = useState(true);
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        blockquote: false,
+        codeBlock: false,
+        heading: false,
+        horizontalRule: false,
+      }),
+      Placeholder.configure({
+        placeholder: "Send a message to continue the conversation",
+      }),
+    ],
+    content: "",
+    editorProps: {
+      attributes: {
+        "aria-label": "Message",
+        class:
+          "tiptap ProseMirror tiptap-minimum-input composer-editor max-h-[240px] min-h-12 overflow-y-auto px-3 pb-2 pt-3 text-sm leading-5 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
+      },
+    },
+    onUpdate: ({ editor }) => setValue(editor.getText()),
+  });
+
+  const submit = () => {
+    const prompt = editor?.getText().trim() ?? "";
+    if (!prompt) return;
+    onSubmit(prompt);
+    editor?.commands.clearContent();
+    setValue("");
+    queueMicrotask(() => editor?.commands.focus());
+  };
+
+  const hasContent = value.trim().length > 0;
+
   return (
     <form
       aria-label="Message composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
       className="absolute inset-x-3 bottom-4 mx-auto max-w-5xl rounded-2xl border border-white/[0.08] bg-[#101010]/90 p-1 shadow-pop backdrop-blur-xl"
     >
       <div
-        role="textbox"
-        aria-label="Message"
-        aria-multiline="true"
-        tabIndex={0}
-        className="composer-editor min-h-9 px-3 pb-2 pt-3 text-sm leading-5 text-white/35 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            submit();
+          }
+        }}
       >
-        Send a message to continue the conversation
+        <EditorContent editor={editor} />
       </div>
       <div className="flex items-center gap-1 px-1 pb-1">
         <ComposerIconButton label="Add context">
@@ -622,22 +681,41 @@ function ThreadComposer() {
         </ComposerIconButton>
         <button
           type="button"
-          aria-pressed="true"
-          className="inline-flex h-8 min-w-[72px] items-center justify-center gap-1.5 rounded-[10px] bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)] px-3 text-[13px] text-white/86 backdrop-blur-sm"
+          aria-pressed={autoMode}
+          onClick={() => setAutoMode((mode) => !mode)}
+          className={cn(
+            "inline-flex h-8 min-w-[72px] items-center justify-center gap-1.5 rounded-[10px] px-3",
+            "text-[13px] text-white/86 backdrop-blur-sm transition-[background-color,filter]",
+            autoMode
+              ? "bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)]"
+              : "bg-white/[0.055] hover:bg-white/[0.075]",
+          )}
         >
           Auto
+          <span
+            aria-hidden
+            className={cn(
+              "size-2 rounded-full",
+              autoMode ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.55)]" : "bg-white/20",
+            )}
+          />
         </button>
         <span className="ml-auto hidden text-xs text-white/45 sm:inline">
-          Ready for review gates
+          {autoMode ? "Ready for review gates" : "Manual review mode"}
         </span>
         <ComposerIconButton label="Dictate" disabled>
           <Mic size={15} />
         </ComposerIconButton>
         <button
           type="submit"
-          disabled
+          disabled={!hasContent}
           aria-label="Send"
-          className="grid size-8 cursor-not-allowed place-items-center rounded-full bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)] text-black opacity-50"
+          className={cn(
+            "grid size-8 place-items-center rounded-full bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)] text-black transition-[opacity,filter,transform]",
+            hasContent
+              ? "hover:brightness-110 active:scale-[0.96]"
+              : "cursor-not-allowed opacity-50",
+          )}
         >
           <ArrowUp size={16} />
         </button>
@@ -674,7 +752,7 @@ function ArtifactPanel() {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/[0.06] px-3">
           <FileText size={16} className="text-gray-800" />
           <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-gray-950">
-            Interview preparation guide
+            Sycamore Labs briefing
           </h2>
           <IconMini label="Share">
             <Share2 size={14} />
@@ -691,24 +769,25 @@ function ArtifactPanel() {
         </header>
         <div className="minimal-scrollbar flex-1 overflow-y-auto p-4">
           <div className="space-y-3">
-            {[1, 2, 3].map((page) => (
-              <section key={page} aria-label={`Artifact page ${page}`} className="space-y-2">
+            {SYCAMORE_BRIEF_PAGES.map((page, index) => (
+              <section
+                key={page.title}
+                aria-label={`Artifact page ${index + 1}`}
+                className="space-y-2"
+              >
                 <div className="flex items-center justify-between text-xs text-gray-700">
+                  <span>{index === 0 ? "Cover Page" : page.title}</span>
                   <span>
-                    {page === 1 ? "Cover Page" : page === 2 ? "Company Brief" : "Questions"}
+                    {index + 1} / {SYCAMORE_BRIEF_PAGES.length}
                   </span>
-                  <span>{page} / 3</span>
                 </div>
-                <div className="aspect-[8.5/11] rounded-lg border border-white/[0.08] bg-[linear-gradient(135deg,#0a1a14,#13271d)] p-5 shadow-soft">
-                  <div className="h-full rounded border border-lime-300/10 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-lime-300/70">
-                      Generated artifact
-                    </p>
-                    <h3 className="mt-4 text-2xl font-semibold leading-tight text-white">
-                      {page === 1 ? "Interview Brief" : page === 2 ? "Company Fit" : "Question Set"}
-                    </h3>
-                  </div>
-                </div>
+                {page.html ? (
+                  <ArtifactPageFrame
+                    html={page.html}
+                    title={`Sycamore PDF page ${index + 1}`}
+                    className="rounded-xl ring-1 ring-white/[0.08]"
+                  />
+                ) : null}
               </section>
             ))}
           </div>

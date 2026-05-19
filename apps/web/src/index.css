@@ -574,4 +574,20 @@
       transparent 100%
     );
   }
+
+  .tiptap-minimum-input {
+    white-space: pre-wrap;
+  }
+
+  .tiptap-minimum-input p {
+    margin: 0;
+  }
+
+  .tiptap-minimum-input p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    color: rgba(255, 255, 255, 0.35);
+    pointer-events: none;
+  }
 }
