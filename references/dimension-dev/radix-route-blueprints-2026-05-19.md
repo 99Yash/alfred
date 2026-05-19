@@ -356,7 +356,7 @@ Build notes:
 
 ## `/integrations/<provider>` connector detail
 
-Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`.
+Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`, plus the authenticated Google Drive detail capture in [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md).
 
 DOM target:
 
@@ -374,6 +374,7 @@ DOM target:
 
   <ConnectedAccountsTable />
   <TrustBanner title="Your data is indexed & encrypted" />
+  <RelatedProviderSetup /> {/* Google Drive -> Docs, Sheets, Slides */}
   <CapabilitiesList />
   <OverviewSection />
 </ConnectorDetail>
@@ -385,6 +386,8 @@ Radix/component choices:
 - Disconnect action should use Radix Alert/Dialog later.
 - Accounts table is a plain table or `FrostPanel` depending density.
 - Capability bullets are user-facing scope names, not raw OAuth scopes.
+- Google Drive detail has a provider-specific `Complete your Google Setup` section for Google Docs, Google Sheets, and Google Slides. Do not model this as a generic upsell card; it is a quiet row list in the route content column.
+- Avoid Dimension's nested-button accessibility issue in the related-provider rows: make the whole row a single link/button or put exactly one trailing action inside a non-interactive row.
 
 ## `/workflows` list
 

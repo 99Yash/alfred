@@ -141,6 +141,26 @@ Radix/Alfred build:
 - Rows should be `<button>` or `<a>` depending on whether they open a provider detail route.
 - Keep provider metadata shared with the `Connect Your Tools` modal to avoid drift.
 
+### `/integrations/google_drive`
+
+Follow-up authenticated Chrome capture added after the initial route traversal because the provider-specific pages were under-documented. See [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md) for the full sanitized reference.
+
+Live structure:
+
+- Same authenticated app shell and centered route content column; no right rail.
+- Back link `All integrations`, provider header, and primary `Add Account` pill.
+- Connected account table/list with `Connected`, `Date`, `Status`, and a destructive `Disconnect` action.
+- Inline trust notice: `Your data is indexed & encrypted`.
+- Google-specific setup rows for `Google Docs`, `Google Sheets`, and `Google Slides`, each with a trailing `Manage` affordance.
+- Capability labels: `Read Files`, `Upload Files`, `Download Files`, `Create Folders`, `Share Files`, `Search Files`, `Manage Permissions`.
+- Overview section plus `Smart File Operations` explanatory copy.
+
+Radix/Alfred build:
+
+- Implement provider detail routes with shared provider metadata and provider-specific related integrations.
+- Use Radix `Dialog` for `Add Account` and `AlertDialog` for `Disconnect`.
+- Avoid nested interactive controls in the related Google setup rows.
+
 ### `/workflows`
 
 The current live route uses a card grid, not the earlier simple full-width row list.
@@ -212,10 +232,11 @@ When rebuilding these surfaces in Alfred, visit the following paths and verify a
 
 1. `/chat` - right rail weather media, todo tabs, add-todo row, suggestions, Morning Briefing action, meeting prep card/dialog.
 2. `/integrations` - centered title, large rounded search, connected/provider sections, three-column interactive rows.
-3. `/workflows` - centered title, primary create CTA, frosted card grid.
-4. `/skills` - centered title, primary create CTA, frosted card grid with clamped prompt previews.
-5. `/library` - `All Types` filter pill, popover geometry, checkbox states, artifact opening behavior.
-6. `/settings` - left title, section nav, field rows, tabs, switches, and focus order.
+3. `/integrations/google_drive` - provider detail header, connected-account table, related Google setup rows, capabilities, overview, add/disconnect dialogs.
+4. `/workflows` - centered title, primary create CTA, frosted card grid.
+5. `/skills` - centered title, primary create CTA, frosted card grid with clamped prompt previews.
+6. `/library` - `All Types` filter pill, popover geometry, checkbox states, artifact opening behavior.
+7. `/settings` - left title, section nav, field rows, tabs, switches, and focus order.
 
 Keyboard pass:
 
