@@ -8,6 +8,7 @@ Primary evidence:
 - [`dimension-design-reference-2026-05-18.md`](./dimension-design-reference-2026-05-18.md) — tokens, primitive recipes, route-level geometry
 - [`final-live-ui-recon-2026-05-18.md`](./final-live-ui-recon-2026-05-18.md) — final broad preservation pass
 - [`live-ui-reference-2026-05-19.md`](./live-ui-reference-2026-05-19.md) — fresh live `/chat` capture + source-map status
+- [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — late meeting-prep card/dialog capture + accessibility contract
 - [`screenshots/`](./screenshots/) and [`snapshots/`](./snapshots/) — per-state viewport and a11y evidence
 
 ## Reconstruction rule
@@ -80,7 +81,7 @@ Build notes:
 
 ## `/chat` landing
 
-Evidence: `screenshots/32-final-pass-chat-new-2026-05-18.png`, `screenshots/46-live-chat-home-2026-05-19.png`, `home-fidelity-gaps-2026-05-18.md`, `live-ui-reference-2026-05-19.md`.
+Evidence: `screenshots/32-final-pass-chat-new-2026-05-18.png`, `screenshots/46-live-chat-home-2026-05-19.png`, `home-fidelity-gaps-2026-05-18.md`, `live-ui-reference-2026-05-19.md`, `chat-meeting-prep-reference-2026-05-19.md`.
 
 DOM target:
 
@@ -124,6 +125,80 @@ Component breakdown:
 | `SetupOrUpgradeBanner` | absolute bottom overlay | ~`655×72`, `rounded-3xl`, video/animated background, `Button variant="white"` CTA |
 
 Alfred route target: `apps/web/src/routes/index.tsx`, then extract `ComposerShell`, `ModelPicker`, `QuickAccessRail` once stable.
+
+### `/chat` upcoming meeting prep
+
+Late 2026-05-19 live behavior added generated meeting preparation to the center landing column. Full implementation details live in [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md), with a standalone repro at [`html-repros/chat-meeting-prep-2026-05-19.html`](./html-repros/chat-meeting-prep-2026-05-19.html).
+
+DOM target:
+
+```tsx
+<UpcomingMeetingCard>
+  <p className="meeting-label">UPCOMING MEETING</p>
+  <div className="meeting-row">
+    <VideoIcon aria-hidden />
+    <div>
+      <p>
+        <span>{meeting.title}</span>
+        <span aria-hidden>  •  </span>
+        <time>{start}</time>
+        <span aria-hidden> - </span>
+        <time>{end}</time>
+      </p>
+      <p>{meetingPrep.summary}</p>
+    </div>
+
+    <Dialog>
+      <DialogTrigger asChild>
+        <IconButton aria-label="View meeting prep" />
+      </DialogTrigger>
+      <MeetingPrepDialog />
+    </Dialog>
+
+    <Button asChild variant="ghost">
+      <a href={joinUrl}>Join</a>
+    </Button>
+  </div>
+</UpcomingMeetingCard>
+```
+
+Dialog target:
+
+```tsx
+<DialogContent
+  title="Meeting Prep"
+  description="Meeting preparation notes."
+  className="w-[min(768px,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] rounded-3xl frost-border bg-[#1b1b1b] backdrop-blur"
+>
+  <DialogTitle>Meeting Prep</DialogTitle>
+  <DialogDescription className="sr-only">Meeting preparation notes.</DialogDescription>
+  <DialogClose asChild><IconButton aria-label="Close Dialog" /></DialogClose>
+  <ScrollArea>
+    <section aria-labelledby="where-things-stand">
+      <h3 id="where-things-stand">Where things stand:</h3>
+      <p>{summary}</p>
+    </section>
+    <section aria-labelledby="open-items">
+      <h3 id="open-items">Open items to track status on:</h3>
+      <ul>{items.map(item => <li />)}</ul>
+    </section>
+    <section aria-labelledby="attendees">
+      <h3 id="attendees">Who's usually in the room:</h3>
+      <p>{attendeeSummary}</p>
+    </section>
+  </ScrollArea>
+</DialogContent>
+```
+
+Accessibility requirements:
+
+- Trigger announces `View meeting prep`, `button`, `has popup dialog`.
+- Dialog has title + description and should include `aria-modal="true"`.
+- Initial focus should land on heading/content or `Close Dialog`, not an unlabeled footer action.
+- Every icon-only action must have `aria-label`.
+- `Tab` and `Shift+Tab` wrap inside the dialog.
+- `Escape` closes and restores focus to `View meeting prep`.
+- Background scroll is locked while open.
 
 ## Quick access rail
 
