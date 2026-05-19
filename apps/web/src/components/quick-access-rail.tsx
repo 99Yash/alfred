@@ -42,9 +42,9 @@ export function QuickAccessRail({
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
-      <div className="cloud-video-fallback absolute inset-0" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),rgba(0,0,0,0.12)_28%,rgba(0,0,0,0.72)_100%)]" />
-      <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),transparent)]" />
+      <div className="dimension-weather-surface absolute inset-0" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.1),rgba(0,0,0,0.08)_28%,rgba(7,17,31,0.7)_100%)]" />
+      <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.24),transparent)]" />
 
       <div className="relative flex min-h-0 flex-1 flex-col p-5 pb-0">
         <header className="flex items-start justify-between gap-3">
