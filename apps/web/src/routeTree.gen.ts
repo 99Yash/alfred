@@ -19,6 +19,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
@@ -73,6 +74,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkflowsWorkflowRoute = WorkflowsWorkflowRouteImport.update({
+  id: '/$workflow',
+  path: '/$workflow',
+  getParentRoute: () => WorkflowsRoute,
+} as any)
 const SkillsSlugRoute = SkillsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
@@ -99,10 +105,11 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -114,10 +121,11 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -130,10 +138,11 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   id:
     | '__root__'
     | '/'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -193,7 +205,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
-  WorkflowsRoute: typeof WorkflowsRoute
+  WorkflowsRoute: typeof WorkflowsRouteWithChildren
   DebugEventsRoute: typeof DebugEventsRoute
 }
 
@@ -269,6 +281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workflows/$workflow': {
+      id: '/workflows/$workflow'
+      path: '/$workflow'
+      fullPath: '/workflows/$workflow'
+      preLoaderRoute: typeof WorkflowsWorkflowRouteImport
+      parentRoute: typeof WorkflowsRoute
+    }
     '/skills/$slug': {
       id: '/skills/$slug'
       path: '/$slug'
@@ -316,6 +335,18 @@ const SkillsRouteChildren: SkillsRouteChildren = {
 const SkillsRouteWithChildren =
   SkillsRoute._addFileChildren(SkillsRouteChildren)
 
+interface WorkflowsRouteChildren {
+  WorkflowsWorkflowRoute: typeof WorkflowsWorkflowRoute
+}
+
+const WorkflowsRouteChildren: WorkflowsRouteChildren = {
+  WorkflowsWorkflowRoute: WorkflowsWorkflowRoute,
+}
+
+const WorkflowsRouteWithChildren = WorkflowsRoute._addFileChildren(
+  WorkflowsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   IntegrationsRoute: IntegrationsRouteWithChildren,
@@ -326,7 +357,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
-  WorkflowsRoute: WorkflowsRoute,
+  WorkflowsRoute: WorkflowsRouteWithChildren,
   DebugEventsRoute: DebugEventsRoute,
 }
 export const routeTree = rootRouteImport
