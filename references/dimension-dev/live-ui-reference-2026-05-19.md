@@ -17,6 +17,7 @@ Companion references that remain canonical:
 - [`radix-route-blueprints-2026-05-19.md`](./radix-route-blueprints-2026-05-19.md) — route-by-route Radix-equivalent DOM blueprints
 - [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — meeting-prep card/dialog addition, keyboard behavior, and HTML repro
 - [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) — weather/right-rail specifics and final route traversal notes for integrations, workflows, skills, library, and settings
+- [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md) — sanitized provider-detail capture for `/integrations/google_drive`, including related Google setup rows and capability labels
 - [`REWRITE_PROGRESS.md`](./REWRITE_PROGRESS.md) — what has already landed locally
 
 ## Source-map status
