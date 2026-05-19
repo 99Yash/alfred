@@ -19,6 +19,7 @@ Companion references that remain canonical:
 - [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) — weather/right-rail specifics and final route traversal notes for integrations, workflows, skills, library, and settings
 - [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md) — sanitized provider-detail capture for `/integrations/google_drive`, including related Google setup rows and capability labels
 - [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md) — consolidated integration catalog/detail design across connected, unconnected, related-provider, custom, and coming-soon states
+- [`chat-tool-rendering-sycamore-2026-05-19.md`](./chat-tool-rendering-sycamore-2026-05-19.md) — live Sycamore thread capture for completed research runs, nested tool accordions, web-result rows, citations, reaction buttons, composer state, and current no-iframe/PDF status
 - [`REWRITE_PROGRESS.md`](./REWRITE_PROGRESS.md) — what has already landed locally
 
 ## Source-map status
