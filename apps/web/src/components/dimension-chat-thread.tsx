@@ -55,6 +55,7 @@ export type ChatPreviewState =
   | "streaming"
   | "active-tool"
   | "rich-content";
+export type ArtifactPreviewState = "completed" | "generating" | "empty";
 
 const COMPANY_RESULTS: SearchResult[] = [
   {
@@ -146,9 +147,11 @@ const CHAT_MODEL_OPTIONS = [
 export function DimensionChatThread({
   showArtifactPanel = false,
   previewState = "completed",
+  artifactState = "completed",
 }: {
   showArtifactPanel?: boolean;
   previewState?: ChatPreviewState;
+  artifactState?: ArtifactPreviewState;
 }) {
   const [localTurns, setLocalTurns] = useState<LocalPreviewTurn[]>([]);
   const allExpanded = previewState === "all-expanded";
@@ -226,7 +229,7 @@ export function DimensionChatThread({
           <ThreadComposer onSubmit={addLocalTurn} />
         </section>
 
-        {showArtifactPanel ? <ArtifactPanel /> : null}
+        {showArtifactPanel ? <ArtifactPanel state={artifactState} /> : null}
       </div>
     </div>
   );
@@ -1014,63 +1017,202 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   );
 }
 
-function ArtifactPanel() {
+function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
+  const generatedPages =
+    state === "generating" ? SYCAMORE_BRIEF_PAGES.slice(0, 3) : SYCAMORE_BRIEF_PAGES;
+  const [selectedPage, setSelectedPage] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const selected = generatedPages[selectedPage] ?? generatedPages[0];
+  const isEmpty = state === "empty";
+  const isGenerating = state === "generating";
+
   return (
     <aside className="hidden w-[420px] shrink-0 border-l border-white/[0.06] bg-[#101010] p-2 xl:block">
       <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0c0c0c]">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/[0.06] px-3">
-          <FileText size={16} className="text-gray-800" />
-          <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-gray-950">
-            Sycamore Labs briefing
-          </h2>
+        <header className="flex h-[65px] shrink-0 items-center gap-2 border-b border-white/[0.06] px-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white/[0.045] text-gray-800">
+            <FileText size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-sm font-medium text-gray-950">
+              Sycamore Labs - Key People & Role Preparation Guide
+            </h2>
+            <p className="mt-0.5 truncate text-[12px] text-gray-700">
+              PDF Document ·{" "}
+              {isEmpty
+                ? "No pages yet"
+                : `${generatedPages.length} of ${SYCAMORE_BRIEF_PAGES.length} pages`}
+            </p>
+          </div>
           <IconMini label="Share">
             <Share2 size={14} />
           </IconMini>
           <IconMini label="Download">
             <Download size={14} />
           </IconMini>
-          <IconMini label="Open fullscreen">
+          <IconMini
+            label={fullscreen ? "Exit fullscreen" : "Open fullscreen"}
+            onClick={() => setFullscreen((open) => !open)}
+          >
             <Maximize2 size={14} />
           </IconMini>
           <IconMini label="Close">
             <X size={14} />
           </IconMini>
         </header>
-        <div className="minimal-scrollbar flex-1 overflow-y-auto p-4">
-          <div className="space-y-3">
-            {SYCAMORE_BRIEF_PAGES.map((page, index) => (
-              <section
-                key={page.title}
-                aria-label={`Artifact page ${index + 1}`}
-                className="space-y-2"
-              >
-                <div className="flex items-center justify-between text-xs text-gray-700">
-                  <span>{index === 0 ? "Cover Page" : page.title}</span>
-                  <span>
-                    {index + 1} / {SYCAMORE_BRIEF_PAGES.length}
-                  </span>
-                </div>
-                {page.html ? (
-                  <ArtifactPageFrame
-                    html={page.html}
-                    title={`Sycamore PDF page ${index + 1}`}
-                    className="rounded-xl ring-1 ring-white/[0.08]"
-                  />
-                ) : null}
-              </section>
-            ))}
+
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.045] px-3">
+          <div className="flex min-w-0 items-center gap-2 text-[12px] text-gray-700">
+            {isGenerating ? (
+              <>
+                <Loader2 size={13} className="animate-spin text-purple-500" />
+                <span>Generating PDF pages</span>
+              </>
+            ) : isEmpty ? (
+              <span>Waiting for page output</span>
+            ) : (
+              <span>
+                Viewing page {selectedPage + 1} of {SYCAMORE_BRIEF_PAGES.length}
+              </span>
+            )}
           </div>
+          {!isEmpty ? (
+            <span className="rounded-full bg-white/[0.045] px-2 py-0.5 text-[11px] text-gray-800">
+              {selected?.title ?? "Page"}
+            </span>
+          ) : null}
         </div>
+
+        {isEmpty ? (
+          <ArtifactEmptyState />
+        ) : (
+          <>
+            <div className="shrink-0 border-b border-white/[0.045] px-3 py-2">
+              <div className="minimal-scrollbar flex gap-2 overflow-x-auto pb-1">
+                {SYCAMORE_BRIEF_PAGES.map((page, index) => {
+                  const ready = index < generatedPages.length;
+                  const active = index === selectedPage;
+                  return (
+                    <button
+                      key={page.title}
+                      type="button"
+                      disabled={!ready}
+                      onClick={() => setSelectedPage(index)}
+                      className={cn(
+                        "group/thumb w-[82px] shrink-0 rounded-xl border p-1 text-left transition-colors",
+                        active
+                          ? "border-purple-500/55 bg-purple-500/10"
+                          : "border-white/[0.075] bg-white/[0.025] hover:bg-white/[0.05]",
+                        !ready && "cursor-not-allowed opacity-45",
+                      )}
+                    >
+                      <div className="overflow-hidden rounded-lg bg-white">
+                        {ready && page.html ? (
+                          <ArtifactPageFrame
+                            html={page.html}
+                            title={`${page.title} thumbnail`}
+                            className="rounded-lg shadow-none"
+                          />
+                        ) : (
+                          <div className="grid aspect-[8.5/11] place-items-center bg-gray-100">
+                            <Loader2 size={14} className="animate-spin text-gray-500" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[10px] text-gray-700">
+                        <span>Page {index + 1}</span>
+                        {active ? <span className="text-purple-300">Viewing</span> : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="minimal-scrollbar flex-1 overflow-y-auto p-4">
+              <div className={cn("space-y-3", fullscreen && "mx-auto max-w-[520px]")}>
+                {generatedPages.map((page, index) => (
+                  <section
+                    key={page.title}
+                    aria-label={`Artifact page ${index + 1}`}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-xs text-gray-700">
+                      <span>{index === 0 ? "Cover Page" : page.title}</span>
+                      <span>
+                        {index + 1} / {SYCAMORE_BRIEF_PAGES.length}
+                      </span>
+                    </div>
+                    {page.html ? (
+                      <ArtifactPageFrame
+                        html={page.html}
+                        title={`Sycamore PDF page ${index + 1}`}
+                        className="rounded-xl ring-1 ring-white/[0.08]"
+                      />
+                    ) : null}
+                  </section>
+                ))}
+
+                {isGenerating ? (
+                  <section aria-label="Artifact page generating" className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-gray-700">
+                      <span>Creating page...</span>
+                      <span>
+                        {generatedPages.length + 1} / {SYCAMORE_BRIEF_PAGES.length}
+                      </span>
+                    </div>
+                    <div className="grid aspect-[8.5/11] place-items-center rounded-xl border border-white/[0.08] bg-[#111] text-center">
+                      <div>
+                        <Loader2 size={18} className="mx-auto animate-spin text-purple-400" />
+                        <p className="mt-3 text-sm font-medium text-gray-950">
+                          Creating Interview Strategy page
+                        </p>
+                        <p className="mt-1 text-[12px] text-gray-700">
+                          Page content will appear here as it resolves.
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );
 }
 
-function IconMini({ label, children }: { label: string; children: ReactNode }) {
+function ArtifactEmptyState() {
+  return (
+    <div className="grid flex-1 place-items-center px-8 text-center">
+      <div>
+        <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-white/[0.045] text-gray-700">
+          <FileText size={22} />
+        </span>
+        <h3 className="mt-4 text-base font-medium text-gray-950">No Pages Yet</h3>
+        <p className="mt-1 text-sm leading-5 text-gray-700">
+          Pages appear here as they&apos;re generated.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function IconMini({
+  label,
+  children,
+  onClick,
+}: {
+  label: string;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
+      onClick={onClick}
       className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35"
     >
       {children}
