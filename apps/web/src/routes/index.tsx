@@ -1,3 +1,6 @@
+import Placeholder from "@tiptap/extension-placeholder";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -12,6 +15,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Video,
   Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
@@ -93,6 +97,7 @@ function HomePage() {
           </header>
 
           <Composer />
+          <UpcomingMeeting />
         </div>
       </div>
 
@@ -212,14 +217,57 @@ function Composer() {
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-  const ref = useRef<HTMLTextAreaElement | null>(null);
   const hasContent = value.trim().length > 0;
   const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
-  const selectedMention = filteredMentions[selectedMentionIndex];
+
+  const syncMentionState = useCallback((editor: Editor) => {
+    const nextValue = editor.getText();
+    const caret = editorCaretTextOffset(editor);
+    const token = activeMentionToken(nextValue, caret);
+    if (!token) {
+      setMentionOpen(false);
+      setMentionStart(null);
+      setMentionQuery("");
+      return;
+    }
+
+    setMentionStart(token.start);
+    setMentionQuery(token.query);
+    setMentionOpen(true);
+  }, []);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        blockquote: false,
+        codeBlock: false,
+        heading: false,
+        horizontalRule: false,
+      }),
+      Placeholder.configure({
+        placeholder: "Type and press enter to start chatting...",
+      }),
+    ],
+    content: "",
+    editorProps: {
+      attributes: {
+        "aria-autocomplete": "list",
+        "aria-controls": MENTION_LISTBOX_ID,
+        "aria-label": "Message",
+        class:
+          "tiptap ProseMirror tiptap-minimum-input composer-editor min-h-[50px] max-h-[320px] overflow-y-auto bg-transparent px-3 pb-2 pt-3 text-sm leading-6 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
+      },
+    },
+    onSelectionUpdate: ({ editor }) => syncMentionState(editor),
+    onUpdate: ({ editor }) => {
+      setValue(editor.getText());
+      syncMentionState(editor);
+    },
+  });
 
   const send = () => {
-    if (!hasContent) return;
-    const prompt = value.trim();
+    const prompt = editor?.getText().trim() ?? "";
+    if (!prompt) return;
     const mentions = detectMentions(prompt);
 
     setReviewPreview({
@@ -237,67 +285,45 @@ function Composer() {
       approvalMode,
       mentions: mentions.map((item) => item.id),
     });
+    editor?.commands.clearContent();
     setValue("");
     setMentionOpen(false);
     setMentionStart(null);
     setMentionQuery("");
-    queueMicrotask(() => ref.current?.focus());
+    queueMicrotask(() => editor?.commands.focus());
   };
-
-  const syncMentionState = useCallback((nextValue: string, caret: number) => {
-    const token = activeMentionToken(nextValue, caret);
-    if (!token) {
-      setMentionOpen(false);
-      setMentionStart(null);
-      setMentionQuery("");
-      return;
-    }
-
-    setMentionStart(token.start);
-    setMentionQuery(token.query);
-    setMentionOpen(true);
-  }, []);
 
   const insertMention = useCallback(
     (item: MentionItem) => {
-      const textarea = ref.current;
-      const caret = textarea?.selectionStart ?? value.length;
+      if (!editor) return;
+      const caret = editorCaretTextOffset(editor);
       const start = mentionStart ?? activeMentionToken(value, caret)?.start;
       if (start == null) return;
 
-      const next = `${value.slice(0, start)}@${item.label} ${value.slice(caret)}`;
-      const nextCaret = start + item.label.length + 2;
-      setValue(next);
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from: start + 1, to: caret + 1 })
+        .insertContent(`@${item.label} `)
+        .run();
       setMentionOpen(false);
       setMentionStart(null);
       setMentionQuery("");
-
-      requestAnimationFrame(() => {
-        textarea?.focus();
-        textarea?.setSelectionRange(nextCaret, nextCaret);
-      });
     },
-    [mentionStart, value],
+    [editor, mentionStart, value],
   );
 
   const openMentionMenu = useCallback(() => {
-    const textarea = ref.current;
-    const caret = textarea?.selectionStart ?? value.length;
+    if (!editor) return;
+    const caret = editorCaretTextOffset(editor);
     const spacer = caret > 0 && !/\s/.test(value.charAt(caret - 1)) ? " " : "";
-    const next = `${value.slice(0, caret)}${spacer}@${value.slice(caret)}`;
-    const nextCaret = caret + spacer.length + 1;
 
-    setValue(next);
+    editor.chain().focus().insertContent(`${spacer}@`).run();
     setMentionStart(caret + spacer.length);
     setMentionQuery("");
     setMentionOpen(true);
     setSelectedMentionIndex(0);
-
-    requestAnimationFrame(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(nextCaret, nextCaret);
-    });
-  }, [value]);
+  }, [editor, value]);
 
   const updateReviewPreview = useCallback((status: ReviewPreviewStatus) => {
     setReviewPreview((preview) => (preview ? { ...preview, status } : preview));
@@ -337,22 +363,7 @@ function Composer() {
           />
         ) : null}
 
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => {
-            const nextValue = e.target.value;
-            setValue(nextValue);
-            syncMentionState(nextValue, e.target.selectionStart);
-          }}
-          onClick={(e) => {
-            syncMentionState(value, e.currentTarget.selectionStart);
-          }}
-          onKeyUp={(e) => {
-            if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
-              syncMentionState(value, e.currentTarget.selectionStart);
-            }
-          }}
+        <div
           onKeyDown={(e) => {
             if (mentionOpen) {
               if (e.key === "ArrowDown") {
@@ -391,21 +402,9 @@ function Composer() {
               send();
             }
           }}
-          rows={3}
-          placeholder="Type and press enter to start chatting..."
-          aria-autocomplete="list"
-          aria-controls={mentionOpen ? MENTION_LISTBOX_ID : undefined}
-          aria-expanded={mentionOpen}
-          aria-activedescendant={
-            mentionOpen && selectedMention ? mentionOptionId(selectedMention) : undefined
-          }
-          className={cn(
-            "composer-editor block w-full resize-none bg-transparent px-3 pt-3 pb-2",
-            "min-h-[50px] max-h-[320px]",
-            "text-sm leading-6 outline-none",
-            "placeholder:text-muted-foreground/65",
-          )}
-        />
+        >
+          <EditorContent editor={editor} />
+        </div>
 
         <div className="flex items-center justify-between gap-2 px-1 pb-1">
           <div className="flex min-w-0 items-center gap-1">
@@ -413,10 +412,11 @@ function Composer() {
               <Plus size={15} />
             </ToolButton>
             <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
-            <ModelPicker value="Alfred" />
+            <ComposerStatusPill />
           </div>
 
           <div className="flex items-center gap-1">
+            <ModelPicker value="Alfred" />
             <ToolButton label="Voice input" disabled>
               <Mic size={15} />
             </ToolButton>
@@ -596,6 +596,25 @@ function ApprovalModeToggle({
         )}
       />
     </button>
+  );
+}
+
+function ComposerStatusPill() {
+  return (
+    <a
+      href="/settings"
+      className={cn(
+        "hidden h-8 items-center gap-2 rounded-[10px] px-3 sm:inline-flex",
+        "border border-white/[0.07] bg-[linear-gradient(180deg,rgba(84,22,22,0.72)_0%,rgba(16,16,16,0.86)_100%)]",
+        "text-[13px] text-white/70 outline-none backdrop-blur-sm",
+        "shadow-[inset_0_0_9px_rgba(255,255,255,0.06),0_2px_8px_rgba(0,0,0,0.18)]",
+        "transition-[filter,color] hover:text-white hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white/20",
+      )}
+    >
+      <CircleAlert size={15} className="text-red-400" strokeWidth={2.2} />
+      <span className="truncate">Review gates active</span>
+      <span className="font-medium text-indigo-300">Configure</span>
+    </a>
   );
 }
 
@@ -792,7 +811,7 @@ function ModelPicker({ value }: { value: string }) {
       disabled
       title="Model picker"
       className={cn(
-        "inline-flex h-[30px] items-center justify-between gap-2 rounded-lg px-2 py-1",
+        "inline-flex h-[30px] w-[108px] items-center justify-between gap-2 rounded-lg px-2 py-1",
         "border border-transparent bg-[linear-gradient(180deg,#0C0C0C_0%,#151515_100%)]",
         "text-[13px] font-normal text-white/86 backdrop-blur-sm",
         "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
@@ -913,6 +932,34 @@ function ConnectedToolsRow() {
   );
 }
 
+function UpcomingMeeting() {
+  return (
+    <section className="mx-auto hidden w-full max-w-[656px] pt-7 text-white/90 md:block">
+      <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-white/58">
+        Upcoming Meeting
+      </p>
+      <div className="mt-4 flex items-center gap-3">
+        <Video size={15} className="shrink-0 text-white/58" />
+        <p className="min-w-0 flex-1 truncate text-base leading-6">
+          Eng standup <span className="px-2 text-white/45">•</span>
+          <span className="text-white/86">10:00 AM - 11:00 AM</span>
+        </p>
+        <a
+          href="/integrations"
+          className={cn(
+            "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4",
+            "bg-white/[0.055] text-sm text-white/90 outline-none",
+            "transition-colors hover:bg-white/[0.085] focus-visible:ring-2 focus-visible:ring-white/20",
+          )}
+        >
+          <IntegrationGlyph brand="google_calendar" size={18} variant="plain" />
+          Join
+        </a>
+      </div>
+    </section>
+  );
+}
+
 function SetupNudge() {
   return (
     <a
@@ -925,7 +972,7 @@ function SetupNudge() {
         "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
       )}
     >
-      <span className="absolute inset-0 bg-[linear-gradient(135deg,#8cc7d3_0%,#425d72_36%,#171717_100%)]" />
+      <span className="cloud-video-fallback absolute inset-0" />
       <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
       <span className="relative flex h-full items-center justify-between gap-4">
         <span className="min-w-0">
@@ -1006,6 +1053,10 @@ function activeMentionToken(value: string, caret: number): { start: number; quer
   const query = beforeCaret.slice(start + 1);
   if (/[\s@]/.test(query)) return null;
   return { start, query };
+}
+
+function editorCaretTextOffset(editor: Editor): number {
+  return editor.state.doc.textBetween(0, editor.state.selection.from, "\n", "\n").length;
 }
 
 function greetingFor(date: Date): string {
