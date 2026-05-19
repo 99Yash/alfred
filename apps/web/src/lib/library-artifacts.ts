@@ -41,6 +41,38 @@ export const LIBRARY_ARTIFACTS: ReadonlyArray<LibraryArtifact> = [
       },
     ],
   },
+  {
+    id: "q2-hiring-readout",
+    title: "Q2 hiring readout",
+    type: "presentation",
+    typeLabel: "Presentation",
+    updatedLabel: "2 days ago",
+    favourite: true,
+    summary: "A generated hiring update deck with team priorities and interview pipeline notes.",
+    pages: [
+      {
+        title: "Hiring Readout",
+        kicker: "Q2 Planning",
+        body: "Pipeline quality is strongest in backend and applied AI roles, with bottlenecks around final-loop scheduling and rubric consistency.",
+      },
+    ],
+  },
+  {
+    id: "workspace-cost-review",
+    title: "Workspace cost review",
+    type: "spreadsheet",
+    typeLabel: "Spreadsheet",
+    updatedLabel: "Last week",
+    favourite: false,
+    summary: "A generated spreadsheet-style review of workspace usage, vendors, and renewal timing.",
+    pages: [
+      {
+        title: "Cost Review",
+        kicker: "Workspace Operations",
+        body: "Vendor spend is concentrated across communication, AI tooling, and storage. Renewal risk is highest for overlapping productivity tools.",
+      },
+    ],
+  },
 ];
 
 export function getArtifact(id: string): LibraryArtifact | undefined {

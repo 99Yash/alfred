@@ -1,6 +1,18 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
-import { FileText, Filter, MoreHorizontal, PartyPopper, Search, Star } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  FileSpreadsheet,
+  FileText,
+  Filter,
+  MoreHorizontal,
+  PartyPopper,
+  Presentation,
+  Search,
+  Star,
+} from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { Input } from "~/components/ui/input";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
@@ -44,10 +56,8 @@ function LibraryRoute() {
 
 function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
   const [filter, setFilter] = useState<LibraryFilter>("all");
-  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [types, setTypes] = useState<Set<ArtifactType>>(new Set());
-  const typeMenuId = useId();
 
   const artifacts = useMemo(() => {
     return LIBRARY_ARTIFACTS.filter((artifact) => {
@@ -75,17 +85,7 @@ function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
 
       <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex items-center gap-2">
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={typeMenuOpen}
-            aria-controls={typeMenuId}
-            onClick={() => setTypeMenuOpen((open) => !open)}
-            className="frost-border inline-flex h-[37px] items-center gap-2 rounded-full bg-gradient-to-b from-[#0c0c0c] to-[#151515] px-4 text-sm font-medium text-gray-1000 shadow-[inset_0_0_4px_rgba(0,0,0,0.4)] outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-purple-500"
-          >
-            <Filter size={14} />
-            All Types
-          </button>
+          <TypeFilterPopover selectedTypes={types} onSelectedTypesChange={setTypes} />
           <Tabs<LibraryFilter>
             variant="pill"
             value={filter}
@@ -93,10 +93,6 @@ function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
             items={FILTER_TABS.slice(1)}
             label="Library secondary filter"
           />
-
-          {typeMenuOpen ? (
-            <TypeMenu id={typeMenuId} selectedTypes={types} onSelectedTypesChange={setTypes} />
-          ) : null}
         </div>
         <div className="w-full sm:w-[320px]">
           <Input
@@ -126,12 +122,10 @@ function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
   );
 }
 
-function TypeMenu({
-  id,
+function TypeFilterPopover({
   selectedTypes,
   onSelectedTypesChange,
 }: {
-  id: string;
   selectedTypes: Set<ArtifactType>;
   onSelectedTypesChange: (types: Set<ArtifactType>) => void;
 }) {
@@ -145,38 +139,77 @@ function TypeMenu({
     else next.add(value);
     onSelectedTypesChange(next);
   };
+  const label = selectedTypes.size === 0 ? "All Types" : `${selectedTypes.size} selected`;
 
   return (
-    <div
-      id={id}
-      role="dialog"
-      aria-label="Artifact types"
-      className="absolute left-0 top-11 z-10 w-[250px] rounded-2xl border border-white/[0.08] bg-[#101010]/75 p-3 shadow-pop backdrop-blur-md"
-    >
-      <div className="mb-2 rounded-xl border border-white/[0.06] bg-[#1c1c1c]/80 px-3 py-2 text-[13px] text-gray-700">
-        Filter artifact types
-      </div>
-      <div role="listbox" aria-label="Artifact types" className="space-y-1">
-        {TYPE_OPTIONS.map((type) => {
-          const checked =
-            type.value === "all" ? selectedTypes.size === 0 : selectedTypes.has(type.value);
-          return (
-            <label
-              key={type.value}
-              className="flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-gray-900 hover:bg-white/[0.04]"
+    <PopoverPrimitive.Root>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "frost-border inline-flex h-[37px] items-center gap-2 rounded-full px-4",
+            "bg-gradient-to-b from-[#0c0c0c] to-[#151515]",
+            "text-sm font-medium text-gray-1000 shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
+            "outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-purple-500",
+            "data-[state=open]:text-white",
+          )}
+        >
+          <Filter size={14} />
+          {label}
+          <ChevronDown size={13} className="text-gray-700" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          className="z-50 w-[250px] rounded-2xl border border-white/[0.08] bg-[#101010]/85 p-3 shadow-pop backdrop-blur-md outline-none animate-menu-pop-in"
+        >
+          <div className="mb-2 rounded-xl border border-white/[0.06] bg-[#1c1c1c]/80 px-3 py-2 text-[13px] text-gray-700">
+            Filter artifact types
+          </div>
+          <div role="listbox" aria-label="Artifact types" className="space-y-1">
+            {TYPE_OPTIONS.map((type) => {
+              const checked =
+                type.value === "all" ? selectedTypes.size === 0 : selectedTypes.has(type.value);
+              return (
+                <button
+                  key={type.value}
+                  type="button"
+                  role="option"
+                  aria-selected={checked}
+                  onClick={() => toggleType(type.value)}
+                  className="flex h-9 w-full cursor-default items-center gap-2 rounded-lg px-2 text-left text-sm text-gray-900 outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.06]"
+                >
+                  <span
+                    className={cn(
+                      "grid size-4 shrink-0 place-items-center rounded border text-[10px]",
+                      checked
+                        ? "border-purple-500 bg-purple-600 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.26)]"
+                        : "border-white/10 bg-white/[0.035] text-transparent",
+                    )}
+                  >
+                    <Check size={11} strokeWidth={2.4} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{type.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedTypes.size > 0 ? (
+            <button
+              type="button"
+              onClick={() => onSelectedTypesChange(new Set())}
+              className="mt-2 h-8 w-full rounded-lg text-[12px] text-gray-700 outline-none hover:bg-white/[0.04] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-500"
             >
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggleType(type.value)}
-                className="size-4 rounded border border-white/10 accent-[rgb(83,59,229)]"
-              />
-              <span>{type.label}</span>
-            </label>
-          );
-        })}
-      </div>
-    </div>
+              Clear filters
+            </button>
+          ) : null}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }
 
@@ -207,12 +240,7 @@ function ArtifactCard({ artifact }: { artifact: LibraryArtifact }) {
         )}
       </div>
       <div className="flex items-start gap-3 p-4">
-        <span
-          aria-hidden
-          className="frost-icon-tile grid size-9 shrink-0 place-items-center rounded-xl text-gray-900"
-        >
-          <FileText size={16} />
-        </span>
+        <ArtifactTypeIcon artifact={artifact} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-gray-1000">{artifact.title}</p>
           <p className="mt-0.5 truncate text-[12px] text-gray-800">
@@ -227,6 +255,24 @@ function ArtifactCard({ artifact }: { artifact: LibraryArtifact }) {
         </span>
       </div>
     </Link>
+  );
+}
+
+function ArtifactTypeIcon({ artifact }: { artifact: LibraryArtifact }) {
+  const icon: Record<ArtifactType, ReactNode> = {
+    document: <FileText size={16} />,
+    pdf: <FileText size={16} />,
+    presentation: <Presentation size={16} />,
+    spreadsheet: <FileSpreadsheet size={16} />,
+  };
+
+  return (
+    <span
+      aria-hidden
+      className="frost-icon-tile grid size-9 shrink-0 place-items-center rounded-xl text-gray-900"
+    >
+      {icon[artifact.type]}
+    </span>
   );
 }
 
