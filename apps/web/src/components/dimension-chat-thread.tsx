@@ -3,7 +3,6 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  ArrowUp,
   Bot,
   ChevronRight,
   Copy,
@@ -20,6 +19,12 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
+import {
+  DimensionComposerIconButton,
+  DimensionComposerSendButton,
+  DimensionComposerShell,
+  DimensionComposerToolbar,
+} from "~/components/dimension-composer-shell";
 import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifact-pages";
 import { cn } from "~/lib/utils";
 
@@ -657,13 +662,58 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const hasContent = value.trim().length > 0;
 
   return (
-    <form
-      aria-label="Message composer"
+    <DimensionComposerShell
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
       className="absolute inset-x-3 bottom-4 mx-auto max-w-5xl rounded-2xl border border-white/[0.08] bg-[#101010]/90 p-1 shadow-pop backdrop-blur-xl"
+      toolbar={
+        <DimensionComposerToolbar
+          startClassName="flex-1"
+          start={
+            <>
+              <DimensionComposerIconButton label="Add context">
+                <Plus size={15} />
+              </DimensionComposerIconButton>
+              <button
+                type="button"
+                aria-pressed={autoMode}
+                onClick={() => setAutoMode((mode) => !mode)}
+                className={cn(
+                  "inline-flex h-8 min-w-[72px] items-center justify-center gap-1.5 rounded-[10px] px-3",
+                  "text-[13px] text-white/86 backdrop-blur-sm transition-[background-color,filter]",
+                  autoMode
+                    ? "bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)]"
+                    : "bg-white/[0.055] hover:bg-white/[0.075]",
+                )}
+              >
+                Auto
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-2 rounded-full",
+                    autoMode
+                      ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.55)]"
+                      : "bg-white/20",
+                  )}
+                />
+              </button>
+              <span className="ml-auto hidden text-xs text-white/45 sm:inline">
+                {autoMode ? "Ready for review gates" : "Manual review mode"}
+              </span>
+            </>
+          }
+          end={
+            <>
+              <DimensionComposerIconButton label="Dictate" disabled>
+                <Mic size={15} />
+              </DimensionComposerIconButton>
+              <DimensionComposerSendButton disabled={!hasContent} />
+            </>
+          }
+        />
+      }
     >
       <div
         onKeyDown={(event) => {
@@ -675,73 +725,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
       >
         <EditorContent editor={editor} />
       </div>
-      <div className="flex items-center gap-1 px-1 pb-1">
-        <ComposerIconButton label="Add context">
-          <Plus size={15} />
-        </ComposerIconButton>
-        <button
-          type="button"
-          aria-pressed={autoMode}
-          onClick={() => setAutoMode((mode) => !mode)}
-          className={cn(
-            "inline-flex h-8 min-w-[72px] items-center justify-center gap-1.5 rounded-[10px] px-3",
-            "text-[13px] text-white/86 backdrop-blur-sm transition-[background-color,filter]",
-            autoMode
-              ? "bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)]"
-              : "bg-white/[0.055] hover:bg-white/[0.075]",
-          )}
-        >
-          Auto
-          <span
-            aria-hidden
-            className={cn(
-              "size-2 rounded-full",
-              autoMode ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.55)]" : "bg-white/20",
-            )}
-          />
-        </button>
-        <span className="ml-auto hidden text-xs text-white/45 sm:inline">
-          {autoMode ? "Ready for review gates" : "Manual review mode"}
-        </span>
-        <ComposerIconButton label="Dictate" disabled>
-          <Mic size={15} />
-        </ComposerIconButton>
-        <button
-          type="submit"
-          disabled={!hasContent}
-          aria-label="Send"
-          className={cn(
-            "grid size-8 place-items-center rounded-full bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)] text-black transition-[opacity,filter,transform]",
-            hasContent
-              ? "hover:brightness-110 active:scale-[0.96]"
-              : "cursor-not-allowed opacity-50",
-          )}
-        >
-          <ArrowUp size={16} />
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function ComposerIconButton({
-  label,
-  disabled,
-  children,
-}: {
-  label: string;
-  disabled?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      className="grid size-8 place-items-center rounded-full text-white/78 transition-colors hover:bg-white/[0.055] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35 disabled:cursor-not-allowed disabled:opacity-45"
-    >
-      {children}
-    </button>
+    </DimensionComposerShell>
   );
 }
 

@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowRight,
-  ArrowUp,
   Check,
   CircleAlert,
   ClipboardCheck,
@@ -19,13 +18,19 @@ import {
   Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  DimensionComposerIconButton,
+  DimensionComposerSendButton,
+  DimensionComposerShell,
+  DimensionComposerToolbar,
+  DimensionModelChip,
+} from "~/components/dimension-composer-shell";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
 import { IntegrationGlyph, IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
-import { ToolButton } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -342,17 +347,38 @@ function Composer() {
 
   return (
     <div className="space-y-3">
-      <form
+      <DimensionComposerShell
         onSubmit={(e) => {
           e.preventDefault();
           send();
         }}
-        className={cn(
-          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 pb-0 shadow-pop",
-          "ring-1 ring-white/10 backdrop-blur-sm",
-          "focus-within:ring-2 focus-within:ring-ring/45",
-          "transition-[box-shadow,background-color]",
-        )}
+        tray={<ConnectedToolsRow />}
+        toolbar={
+          <DimensionComposerToolbar
+            start={
+              <>
+                <DimensionComposerIconButton
+                  label="Add context"
+                  onClick={openMentionMenu}
+                  className="rounded-full"
+                >
+                  <Plus size={15} />
+                </DimensionComposerIconButton>
+                <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
+                <ComposerStatusPill />
+              </>
+            }
+            end={
+              <>
+                <DimensionModelChip value="Alfred" />
+                <DimensionComposerIconButton label="Voice input" disabled>
+                  <Mic size={15} />
+                </DimensionComposerIconButton>
+                <DimensionComposerSendButton disabled={!hasContent} />
+              </>
+            }
+          />
+        }
       >
         {mentionOpen ? (
           <MentionMenu
@@ -406,43 +432,7 @@ function Composer() {
         >
           <EditorContent editor={editor} />
         </div>
-
-        <div className="flex items-center justify-between gap-2 px-1 pb-1">
-          <div className="flex min-w-0 items-center gap-1">
-            <ToolButton label="Add context" onClick={openMentionMenu} className="rounded-full">
-              <Plus size={15} />
-            </ToolButton>
-            <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
-            <ComposerStatusPill />
-          </div>
-
-          <div className="flex items-center gap-1">
-            <ModelPicker value="Alfred" />
-            <ToolButton label="Voice input" disabled>
-              <Mic size={15} />
-            </ToolButton>
-            <button
-              type="submit"
-              disabled={!hasContent}
-              aria-label="Send"
-              className={cn(
-                "inline-flex size-8 items-center justify-center rounded-full",
-                "transition-[opacity,filter,transform] active:scale-[0.96]",
-                "text-black backdrop-blur-sm",
-                "bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)]",
-                "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4),0_18px_11px_rgba(0,0,0,0.01),0_8px_8px_rgba(0,0,0,0.01),0_2px_4px_rgba(0,0,0,0.02)]",
-                hasContent
-                  ? "hover:brightness-110 active:brightness-105"
-                  : "opacity-50 cursor-not-allowed",
-              )}
-            >
-              <ArrowUp size={16} strokeWidth={2.25} />
-            </button>
-          </div>
-        </div>
-
-        <ConnectedToolsRow />
-      </form>
+      </DimensionComposerShell>
 
       {reviewPreview ? (
         <RunReviewPreview
@@ -798,40 +788,6 @@ function ApprovalActionRow({ item, preview }: { item: ApprovalItem; preview: Rev
         {status}
       </span>
     </div>
-  );
-}
-
-/**
- * Model-picker chip. Semantic tiers only ("Default" / "Pro") — never provider
- * names. Disabled until m13/m14 land actual model routing.
- */
-function ModelPicker({ value }: { value: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      title="Model picker"
-      className={cn(
-        "inline-flex h-[30px] w-[108px] items-center justify-between gap-2 rounded-lg px-2 py-1",
-        "border border-transparent bg-[linear-gradient(180deg,#0C0C0C_0%,#151515_100%)]",
-        "text-[13px] font-normal text-white/86 backdrop-blur-sm",
-        "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
-        "transition-[filter] hover:brightness-110",
-        "disabled:cursor-not-allowed disabled:opacity-95",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "grid size-4 shrink-0 place-items-center rounded-full",
-          "bg-[radial-gradient(circle_at_30%_30%,#a5a5a5,#1e1e1e_70%)]",
-          "shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(0,0,0,0.4)]",
-        )}
-      >
-        <Sparkles size={9} className="text-white/85" />
-      </span>
-      <span className="leading-none">{value}</span>
-    </button>
   );
 }
 
