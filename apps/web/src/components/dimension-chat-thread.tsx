@@ -12,10 +12,12 @@ import {
   FileText,
   FileUp,
   Link2,
+  Loader2,
   Maximize2,
   Mic,
   PanelRightOpen,
   Plus,
+  Search,
   Settings2,
   Share2,
   ThumbsUp,
@@ -46,6 +48,13 @@ type LocalPreviewTurn = {
   id: string;
   prompt: string;
 };
+
+export type ChatPreviewState =
+  | "completed"
+  | "all-expanded"
+  | "streaming"
+  | "active-tool"
+  | "rich-content";
 
 const COMPANY_RESULTS: SearchResult[] = [
   {
@@ -136,10 +145,13 @@ const CHAT_MODEL_OPTIONS = [
 
 export function DimensionChatThread({
   showArtifactPanel = false,
+  previewState = "completed",
 }: {
   showArtifactPanel?: boolean;
+  previewState?: ChatPreviewState;
 }) {
   const [localTurns, setLocalTurns] = useState<LocalPreviewTurn[]>([]);
+  const allExpanded = previewState === "all-expanded";
 
   const addLocalTurn = (prompt: string) => {
     setLocalTurns((turns) => [...turns, { id: `${Date.now()}-${turns.length}`, prompt }]);
@@ -162,34 +174,47 @@ export function DimensionChatThread({
                   their technical direction, recent activity, and sharp questions to ask.
                 </UserBubble>
 
-                <AssistantTurn onPrompt={addLocalTurn} />
+                {previewState === "streaming" || previewState === "active-tool" ? (
+                  <StreamingAssistantTurn phase={previewState} />
+                ) : (
+                  <AssistantTurn
+                    allExpanded={allExpanded}
+                    richContent={previewState === "rich-content"}
+                    onPrompt={addLocalTurn}
+                  />
+                )}
 
-                <UserBubble>No need for the PDF yet. Give me one more quick lookup.</UserBubble>
+                {previewState === "streaming" || previewState === "active-tool" ? null : (
+                  <>
+                    <UserBubble>No need for the PDF yet. Give me one more quick lookup.</UserBubble>
 
-                <div className="space-y-3">
-                  <RunAccordion title="Gathered information" defaultOpen={false}>
-                    <div className="ml-[37px]">
-                      <SearchAccordion
-                        query="Recent company updates"
-                        resultsFound={10}
-                        results={[
-                          {
-                            title: "Recent company update",
-                            domain: "company.example",
-                            href: "https://example.com/",
-                          },
-                          {
-                            title: "Founder interview",
-                            domain: "youtube.com",
-                            href: "https://youtube.com/",
-                          },
-                        ]}
-                      />
+                    <div className="space-y-3">
+                      <RunAccordion title="Gathered information" defaultOpen={allExpanded}>
+                        <div className="ml-[37px]">
+                          <SearchAccordion
+                            query="Recent company updates"
+                            resultsFound={10}
+                            results={[
+                              {
+                                title: "Recent company update",
+                                domain: "company.example",
+                                href: "https://example.com/",
+                              },
+                              {
+                                title: "Founder interview",
+                                domain: "youtube.com",
+                                href: "https://youtube.com/",
+                              },
+                            ]}
+                            defaultOpen={allExpanded}
+                          />
+                        </div>
+                      </RunAccordion>
+                      <AssistantProse compact />
+                      <ResponseActions />
                     </div>
-                  </RunAccordion>
-                  <AssistantProse compact />
-                  <ResponseActions />
-                </div>
+                  </>
+                )}
 
                 {localTurns.map((turn) => (
                   <LocalPreviewTurn key={turn.id} turn={turn} />
@@ -273,12 +298,20 @@ function UserBubble({ children }: { children: ReactNode }) {
   );
 }
 
-function AssistantTurn({ onPrompt }: { onPrompt: (prompt: string) => void }) {
+function AssistantTurn({
+  allExpanded = false,
+  richContent = false,
+  onPrompt,
+}: {
+  allExpanded?: boolean;
+  richContent?: boolean;
+  onPrompt: (prompt: string) => void;
+}) {
   return (
     <div className="space-y-3">
       <RunAccordion title="Searched multiple sources" defaultOpen>
         <div className="ml-[37px] space-y-3">
-          <ThoughtAccordion>
+          <ThoughtAccordion defaultOpen={allExpanded}>
             I should research the company, technical direction, recent funding, roles, and the
             user&apos;s profile before producing the brief.
           </ThoughtAccordion>
@@ -287,16 +320,18 @@ function AssistantTurn({ onPrompt }: { onPrompt: (prompt: string) => void }) {
             query="Sycamore Labs company"
             resultsFound={10}
             results={COMPANY_RESULTS}
+            defaultOpen={allExpanded}
           />
           <SearchAccordion
             query="Sycamore Labs tech stack engineering"
             resultsFound={10}
             results={TECH_RESULTS}
+            defaultOpen={allExpanded}
           />
 
           <ToolStatus>Processed profile URL.</ToolStatus>
 
-          <ThoughtAccordion>
+          <ThoughtAccordion defaultOpen={allExpanded}>
             I have the company overview; now I need open roles and founder context to make the
             questions sharper.
           </ThoughtAccordion>
@@ -305,20 +340,131 @@ function AssistantTurn({ onPrompt }: { onPrompt: (prompt: string) => void }) {
             query="Sycamore Labs careers hiring"
             resultsFound={10}
             results={ROLE_RESULTS}
+            defaultOpen={allExpanded}
           />
           <ToolStatus icon="user-search">People search completed successfully.</ToolStatus>
         </div>
       </RunAccordion>
 
-      <ThoughtAccordion duration="34s" className="max-w-5xl">
+      <ThoughtAccordion duration="34s" className="max-w-5xl" defaultOpen={allExpanded}>
         The company appears to be building trust and governance infrastructure for enterprise AI
         agents. The useful answer should connect that product thesis to reliability, memory,
         orchestration, and production ownership.
       </ThoughtAccordion>
 
-      <AssistantProse />
+      {richContent ? <RichAssistantProse /> : <AssistantProse />}
       <ResponseActions />
       <RelatedSuggestions onSelect={onPrompt} />
+    </div>
+  );
+}
+
+function StreamingAssistantTurn({ phase }: { phase: "streaming" | "active-tool" }) {
+  const isActiveTool = phase === "active-tool";
+
+  return (
+    <div className="space-y-3">
+      <RunAccordion title={isActiveTool ? "Searching sources" : "Thinking"} defaultOpen>
+        <div className="ml-[37px] space-y-3">
+          <ActiveThoughtRow>
+            I&apos;m checking company updates, engineering signals, and role context before turning
+            this into an interview prep brief.
+          </ActiveThoughtRow>
+
+          {isActiveTool ? (
+            <>
+              <ActiveToolRow
+                title="Searching web"
+                description="Sycamore Labs recent funding engineering direction"
+              />
+              <StreamingSearchPreview />
+            </>
+          ) : (
+            <PendingToolRow
+              title="Preparing web search"
+              description="Choosing the highest-signal company and role queries"
+            />
+          )}
+        </div>
+      </RunAccordion>
+
+      <div className="max-w-[900px] space-y-2 text-sm leading-[22px] text-gray-900">
+        <p>
+          I&apos;m building the brief around three angles: company thesis, technical direction, and
+          questions that expose how much ownership this role actually carries
+          <span className="ml-1 inline-block h-4 w-[7px] translate-y-[2px] animate-pulse rounded-sm bg-gray-800" />
+        </p>
+        {isActiveTool ? (
+          <p className="text-gray-700">
+            Search results are still resolving, so I&apos;m holding the final recommendations until
+            source context is stable.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ActiveThoughtRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="max-w-[880px] rounded-xl border border-gray-100 bg-gray-50/55 px-3 py-2 text-sm leading-[21px] text-gray-800">
+      <div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-gray-950">
+        <Loader2 size={14} className="animate-spin text-purple-600" />
+        Thought for 4s
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ActiveToolRow({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex max-w-2xl items-center gap-2 rounded-xl border border-purple-500/25 bg-purple-500/5 px-3 py-2 text-sm leading-5 text-gray-900">
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-purple-500/12 text-purple-600">
+        <Search size={16} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-gray-950">{title}</span>
+        <span className="block truncate text-[12.5px] text-gray-700">{description}</span>
+      </span>
+      <Loader2 size={15} className="shrink-0 animate-spin text-purple-600" />
+    </div>
+  );
+}
+
+function PendingToolRow({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex max-w-2xl items-center gap-2 text-sm leading-5 text-gray-800">
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-gray-50 text-gray-700">
+        <Search size={16} />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-gray-950">{title}</span>
+        <span className="block truncate text-[12.5px] text-gray-700">{description}</span>
+      </span>
+    </div>
+  );
+}
+
+function StreamingSearchPreview() {
+  return (
+    <div className="max-w-2xl overflow-hidden rounded-lg border border-gray-200 p-1">
+      {["Company research memo", "Founder interview notes", "Open engineering roles"].map(
+        (label, index) => (
+          <div
+            key={label}
+            className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-[13px] leading-4"
+          >
+            <span className="flex min-w-0 items-center gap-1.5 text-gray-900">
+              <span className="size-3 shrink-0 rounded-sm bg-gray-100" />
+              <span className="truncate">{label}</span>
+            </span>
+            <span
+              className={cn("h-3 shrink-0 rounded bg-gray-100", index === 0 ? "w-24" : "w-20")}
+            />
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -343,14 +489,17 @@ function ThoughtAccordion({
   children,
   duration = "2s",
   className,
+  defaultOpen,
 }: {
   children: ReactNode;
   duration?: string;
   className?: string;
+  defaultOpen?: boolean;
 }) {
   return (
     <Disclosure
       title={`Thought for ${duration}`}
+      defaultOpen={defaultOpen}
       triggerClassName={cn("text-gray-700", className)}
       contentClassName="text-gray-700"
     >
@@ -363,13 +512,19 @@ function SearchAccordion({
   query,
   resultsFound,
   results,
+  defaultOpen = true,
 }: {
   query: string;
   resultsFound: number;
   results: SearchResult[];
+  defaultOpen?: boolean;
 }) {
   return (
-    <AccordionPrimitive.Root type="single" collapsible defaultValue="results">
+    <AccordionPrimitive.Root
+      type="single"
+      collapsible
+      defaultValue={defaultOpen ? "results" : undefined}
+    >
       <AccordionPrimitive.Item value="results">
         <AccordionPrimitive.Header asChild>
           <h3>
@@ -563,6 +718,64 @@ function AssistantProse({ compact = false }: { compact?: boolean }) {
           looks like across multiple agents, and what surface area the role would own in the first
           90 days.
         </p>
+      </section>
+    </div>
+  );
+}
+
+function RichAssistantProse() {
+  return (
+    <div className="max-w-[900px] space-y-4 text-sm leading-[22px] text-gray-900">
+      <section className="space-y-2">
+        <h2 className="text-[22px] font-semibold leading-7 text-gray-950">Interview Brief</h2>
+        <p>
+          The strongest signal is that Sycamore is treating AI agents as enterprise infrastructure:
+          orchestration, trust boundaries, review loops, and memory become product primitives rather
+          than one-off workflow glue.
+        </p>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Prep Checklist</h3>
+        <ul className="list-inside list-disc space-y-1 text-gray-900">
+          <li>Connect their product thesis to reliability and auditability.</li>
+          <li>Ask where agent actions require human review versus automatic execution.</li>
+          <li>Bring one concrete example of production debugging under ambiguity.</li>
+        </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Role Fit Matrix</h3>
+        <div
+          role="table"
+          aria-label="Role fit matrix"
+          className="grid max-w-[760px] grid-cols-[1fr_1fr_0.7fr] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/55 text-[12.5px]"
+        >
+          <Cell header>Signal</Cell>
+          <Cell header>Why it matters</Cell>
+          <Cell header>Prep angle</Cell>
+          <Cell>Agent orchestration</Cell>
+          <Cell>Core technical surface for enterprise adoption</Cell>
+          <Cell>Systems design</Cell>
+          <Cell>Human review gates</Cell>
+          <Cell>Determines trust and liability boundaries</Cell>
+          <Cell>Product judgment</Cell>
+          <Cell>Memory and retrieval</Cell>
+          <Cell>Turns one-off answers into durable workflows</Cell>
+          <Cell>Architecture</Cell>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Code-Adjacent Question</h3>
+        <p>Ask how they model tool execution policy. A good follow-up could sound like:</p>
+        <pre className="max-w-[760px] overflow-x-auto rounded-2xl border border-gray-200 bg-[#111] p-3 text-[12.5px] leading-5 text-white/82">
+          <code>{`type ToolPolicy = {
+  requiresReview: boolean;
+  allowedScopes: string[];
+  auditTrail: "none" | "summary" | "full";
+};`}</code>
+        </pre>
       </section>
     </div>
   );
