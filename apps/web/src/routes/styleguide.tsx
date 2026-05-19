@@ -43,6 +43,7 @@ import { Switch } from "~/components/ui/switch";
 import { Tabs } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { QuickAccessRail } from "~/components/quick-access-rail";
+import { DimensionChatThread } from "~/components/dimension-chat-thread";
 
 export const Route = createFileRoute("/styleguide")({
   component: StyleguidePage,
@@ -77,6 +78,7 @@ function StyleguidePage() {
         <TextareaSection />
         <SwitchSection />
         <TabsSection />
+        <ChatThreadSection />
         <QuickAccessRailSection />
         <CardSection />
         <FrostPanelSection />
@@ -123,6 +125,22 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <div className="text-[12.5px] text-gray-800 tabular">{label}</div>
       <div className="flex flex-wrap items-center gap-3">{children}</div>
     </div>
+  );
+}
+
+function ChatThreadSection() {
+  return (
+    <Section
+      id="chat-thread"
+      title="Chat thread"
+      recipe="Active conversation: user bubble, tool trace accordions, thought disclosures, search rows, prose, reactions, suggestions, bottom composer."
+    >
+      <div className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[rgb(12,12,12)] shadow-pop">
+        <div className="h-[780px]">
+          <DimensionChatThread />
+        </div>
+      </div>
+    </Section>
   );
 }
 

@@ -24,6 +24,7 @@ import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
+import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -100,6 +101,11 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
   path: '/debug/events',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
+  id: '/chat/$threadId',
+  path: '/chat/$threadId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
@@ -183,6 +193,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
@@ -218,6 +230,7 @@ export interface RootRouteChildren {
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
+  ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
 }
 
@@ -328,6 +341,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DebugEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat/$threadId': {
+      id: '/chat/$threadId'
+      path: '/chat/$threadId'
+      fullPath: '/chat/$threadId'
+      preLoaderRoute: typeof ChatThreadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -388,6 +408,7 @@ const rootRouteChildren: RootRouteChildren = {
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
   WorkflowsRoute: WorkflowsRouteWithChildren,
+  ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
 }
 export const routeTree = rootRouteImport
