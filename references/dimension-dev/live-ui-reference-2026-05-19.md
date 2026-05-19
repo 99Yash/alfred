@@ -15,6 +15,7 @@ Companion references that remain canonical:
 - [`final-live-ui-recon-2026-05-18.md`](./final-live-ui-recon-2026-05-18.md) — broad final-pass preservation
 - [`alfred-replication-map.md`](./alfred-replication-map.md) — route/component translation map
 - [`radix-route-blueprints-2026-05-19.md`](./radix-route-blueprints-2026-05-19.md) — route-by-route Radix-equivalent DOM blueprints
+- [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — meeting-prep card/dialog addition, keyboard behavior, and HTML repro
 - [`REWRITE_PROGRESS.md`](./REWRITE_PROGRESS.md) — what has already landed locally
 
 ## Source-map status

@@ -16,6 +16,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 
 **For the Radix/component rebuild plan — route-by-route DOM blueprints for `/chat`, quick rail, active threads, artifacts, integrations, workflows, skills, library, settings, command palette, connect-tools modal, and mention menu — see [`radix-route-blueprints-2026-05-19.md`](./radix-route-blueprints-2026-05-19.md).**
 
+**For the late 2026-05-19 meeting-prep UI addition on `/chat` — upcoming meeting card, `View meeting prep` dialog, keyboard behavior, accessibility checklist, and static HTML repro — see [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md).**
+
 ## Folder layout
 
 - `screenshots/` — full-page PNGs of each captured route/state
@@ -26,6 +28,8 @@ For backend / architecture (Next.js Pages Router, tRPC, Ably, Replicache, etc.) 
 - `tokens.md` — design tokens (color scales, semantic shadcn vars, fonts, radii) + computed styles for key components + observed motion + mobile breakpoint behavior. Pulled live via DevTools `getComputedStyle` + `document.styleSheets` walk; no source maps were exposed (`.js.map` URLs return 404)
 - `alfred-replication-map.md` — Dimension patterns mapped directly onto Alfred's existing `apps/web` primitives, with a build-order checklist and missing component recipes
 - `radix-route-blueprints-2026-05-19.md` — route-level Radix-equivalent DOM/component trees for rebuilding the captured Dimension surfaces in Alfred
+- `chat-meeting-prep-reference-2026-05-19.md` — final-day meeting-prep card/dialog capture, accessibility contract, keyboard behavior, and static HTML reproduction steps
+- `html-repros/` — sanitized standalone HTML reproductions of captured interactive surfaces
 
 ## 2026-05-18 final live pass
 
