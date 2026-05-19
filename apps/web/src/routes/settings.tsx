@@ -1,6 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { BadgeDollarSign, Gift, PackageCheck, Sliders, Sparkles, User } from "lucide-react";
+import {
+  BadgeDollarSign,
+  Bell,
+  Gift,
+  Mail,
+  MessageSquare,
+  PackageCheck,
+  Slack,
+  Sliders,
+  Sparkles,
+  User,
+} from "lucide-react";
 import { useState, type ComponentType, type ReactNode } from "react";
+import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
@@ -246,10 +258,32 @@ function FieldRow({
 /* User section                                                               */
 /* -------------------------------------------------------------------------- */
 
+type CommunicationChannel = "email" | "slack" | "imessage" | "mobile";
+
+const COMMUNICATION_CHANNELS: ReadonlyArray<TabItem<CommunicationChannel>> = [
+  { value: "email", label: "Email", icon: <Mail size={13} /> },
+  { value: "slack", label: "Slack", icon: <Slack size={13} />, disabled: true },
+  { value: "imessage", label: "iMessage", icon: <MessageSquare size={13} />, disabled: true },
+  { value: "mobile", label: "Mobile", icon: <Bell size={13} />, disabled: true },
+];
+
 function UserSection() {
   const { data: session } = authClient.useSession();
   const name = session?.user?.name ?? "";
   const email = session?.user?.email ?? "";
+
+  const [channel, setChannel] = useState<CommunicationChannel>("email");
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const onSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await authClient.signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  };
 
   return (
     <PanelCard>
@@ -274,6 +308,25 @@ function UserSection() {
       </Field>
 
       <Field
+        label="Preferred Mode of Communication"
+        helper="Choose how Alfred should reach you with briefings and approvals."
+      >
+        <Tabs<CommunicationChannel>
+          variant="pill"
+          value={channel}
+          onValueChange={setChannel}
+          items={COMMUNICATION_CHANNELS}
+          label="Preferred mode of communication"
+        />
+      </Field>
+
+      <FieldRow
+        label="Auto Approve"
+        helper="Skip the approval prompt for low-risk actions Alfred takes on your behalf."
+        control={<Switch checked={autoApprove} onCheckedChange={setAutoApprove} />}
+      />
+
+      <Field
         label="Background"
         helper="Tell Alfred about yourself — used to ground every response."
       >
@@ -286,6 +339,39 @@ function UserSection() {
           aria-label="Background"
         />
       </Field>
+
+      <div className="space-y-1 border-t border-white/5 pt-6">
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0 space-y-0.5">
+            <p className="text-sm font-medium text-gray-1000">Logout from this account</p>
+            <p className="text-[12px] text-gray-800">Sign out on this device.</p>
+          </div>
+          <Button
+            variant="destructive"
+            size="md"
+            onClick={onSignOut}
+            disabled={signingOut}
+            loading={signingOut}
+          >
+            Logout
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-medium text-gray-1000">Delete Account</p>
+          <p className="text-[12px] text-gray-800">Permanently delete your account and data.</p>
+        </div>
+        <Button
+          variant="destructive"
+          size="md"
+          disabled
+          title="Account deletion arrives with the m13 settings backend"
+        >
+          Delete Account
+        </Button>
+      </div>
     </PanelCard>
   );
 }

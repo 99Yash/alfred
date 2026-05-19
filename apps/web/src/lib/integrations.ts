@@ -248,8 +248,18 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Your Integrations",
 ];
 
+const SHORT_SLUG_ALIASES: Readonly<Record<string, string>> = {
+  gmail: "google_gmail",
+  calendar: "google_calendar",
+  drive: "google_drive",
+  docs: "google_docs",
+  sheets: "google_sheets",
+  slides: "google_slides",
+};
+
 export function getIntegrationProvider(id: string): IntegrationProvider | undefined {
-  return INTEGRATION_PROVIDERS.find((provider) => provider.id === id);
+  const canonical = SHORT_SLUG_ALIASES[id] ?? id;
+  return INTEGRATION_PROVIDERS.find((provider) => provider.id === canonical);
 }
 
 export function getRelatedProviders(provider: IntegrationProvider): IntegrationProvider[] {

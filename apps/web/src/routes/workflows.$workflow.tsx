@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Link2,
   MoreHorizontal,
@@ -15,6 +16,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import { Card } from "~/components/ui/card";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
+import { Switch } from "~/components/ui/switch";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { getWorkflow, type WorkflowDefinition } from "~/lib/workflows";
@@ -24,11 +26,10 @@ export const Route = createFileRoute("/workflows/$workflow")({
   component: WorkflowDetailPage,
 });
 
-type WorkflowTab = "overview" | "triggers" | "history" | "approvals";
+type WorkflowTab = "plan" | "history" | "approvals";
 
 const TABS: ReadonlyArray<TabItem<WorkflowTab>> = [
-  { value: "overview", label: "Overview" },
-  { value: "triggers", label: "Triggers" },
+  { value: "plan", label: "Plan" },
   { value: "history", label: "History" },
   { value: "approvals", label: "Approvals" },
 ];
@@ -36,8 +37,9 @@ const TABS: ReadonlyArray<TabItem<WorkflowTab>> = [
 function WorkflowDetailPage() {
   const { workflow: workflowId } = Route.useParams();
   const workflow = getWorkflow(workflowId);
-  const [tab, setTab] = useState<WorkflowTab>("overview");
+  const [tab, setTab] = useState<WorkflowTab>("plan");
   const [shareOpen, setShareOpen] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(false);
 
   if (!workflow) {
     return (
@@ -65,6 +67,9 @@ function WorkflowDetailPage() {
           <p className="mt-1 max-w-xl text-sm leading-5 text-gray-800">{workflow.description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Button variant="ghost" size="md" aria-label="More workflow actions">
+            <MoreHorizontal size={16} />
+          </Button>
           <Button
             variant="ghost"
             size="md"
@@ -73,9 +78,16 @@ function WorkflowDetailPage() {
           >
             Share
           </Button>
-          <Button variant="ghost" size="md" aria-label="More workflow actions">
-            <MoreHorizontal size={16} />
-          </Button>
+          <label
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03]",
+              "h-8 px-3 text-sm text-gray-900 cursor-pointer select-none",
+              "transition-colors hover:bg-white/[0.05]",
+            )}
+          >
+            <span>Auto approve</span>
+            <Switch checked={autoApprove} onCheckedChange={setAutoApprove} />
+          </label>
           <Button size="mdPlus" leading={<Play size={14} />}>
             Activate
           </Button>
@@ -90,8 +102,7 @@ function WorkflowDetailPage() {
         label="Workflow detail sections"
       />
 
-      {tab === "overview" ? <OverviewTab workflow={workflow} /> : null}
-      {tab === "triggers" ? <TriggersTab workflow={workflow} /> : null}
+      {tab === "plan" ? <PlanTab workflow={workflow} /> : null}
       {tab === "history" ? <HistoryTab workflow={workflow} /> : null}
       {tab === "approvals" ? <ApprovalsTab workflow={workflow} /> : null}
 
@@ -125,14 +136,38 @@ function BackLink() {
   );
 }
 
-function OverviewTab({ workflow }: { workflow: WorkflowDefinition }) {
+type WhenMode = "schedule" | "triggers";
+
+const WHEN_TABS: ReadonlyArray<TabItem<WhenMode>> = [
+  { value: "schedule", label: "Schedule" },
+  { value: "triggers", label: "Triggers" },
+];
+
+function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
+  const initialMode: WhenMode = workflow.trigger.type === "Schedule" ? "schedule" : "triggers";
+  const [mode, setMode] = useState<WhenMode>(initialMode);
+
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Status" value={workflow.status === "active" ? "Active" : "Draft"} />
-        <MetricCard label="Cadence" value={workflow.cadence} />
-        <MetricCard label="Trigger" value={workflow.trigger.type} />
-      </div>
+      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-gray-1000">When</span>
+          <Tabs<WhenMode>
+            variant="segmented"
+            value={mode}
+            onValueChange={setMode}
+            items={WHEN_TABS}
+            label="When this workflow runs"
+            className="h-9"
+          />
+        </div>
+
+        {mode === "schedule" ? (
+          <ScheduleBuilder workflow={workflow} />
+        ) : (
+          <TriggerSummary workflow={workflow} />
+        )}
+      </Card>
 
       <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
         <label className="text-sm font-medium text-gray-1000" htmlFor="workflow-prompt">
@@ -156,7 +191,7 @@ function OverviewTab({ workflow }: { workflow: WorkflowDefinition }) {
             <Link2 size={16} />
           </span>
           <div>
-            <p className="text-sm font-medium text-gray-1000">Using integrations</p>
+            <p className="text-sm font-medium text-gray-1000">Using Integrations</p>
             <p className="mt-1 text-[12.5px] leading-5 text-gray-800">
               {workflow.integrations.join(", ")}. You can mention integrations using @ in the prompt
               when editing custom workflows.
@@ -174,42 +209,73 @@ function OverviewTab({ workflow }: { workflow: WorkflowDefinition }) {
   );
 }
 
-function TriggersTab({ workflow }: { workflow: WorkflowDefinition }) {
+function ScheduleBuilder({ workflow }: { workflow: WorkflowDefinition }) {
   return (
-    <div className="grid gap-4">
-      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <div className="flex items-start gap-3">
-          <WorkflowIcon tone="purple">
-            {workflow.trigger.type === "Schedule" ? (
-              <CalendarClock size={16} />
-            ) : (
-              <Zap size={16} />
-            )}
-          </WorkflowIcon>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-gray-1000">{workflow.trigger.type} trigger</p>
-              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-gray-800">
-                Enabled
-              </span>
-            </div>
-            <p className="mt-1 text-[12.5px] leading-5 text-gray-800">
-              {workflow.trigger.summary}
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-        <p className="text-sm font-medium text-gray-1000">Trigger conditions</p>
-        <div className="mt-4 divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111]/70">
-          <TriggerRow label="Schedule window" value={workflow.cadence} />
-          <TriggerRow label="Required integrations" value={workflow.integrations.join(", ")} />
-          <TriggerRow label="Approval policy" value="Run automatically; stop for outbound writes" />
-        </div>
-      </Card>
+    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-900">
+      <span className="text-gray-800">From</span>
+      <FauxControl>
+        <CalendarClock size={13} className="text-gray-800" />
+        <span>Starting date</span>
+        <ChevronDown size={13} className="text-gray-700" />
+      </FauxControl>
+      <span className="text-gray-800">run</span>
+      <FauxControl>
+        <span>every</span>
+        <ChevronDown size={13} className="text-gray-700" />
+      </FauxControl>
+      <FauxControl className="w-12 justify-center">
+        <span>1</span>
+      </FauxControl>
+      <FauxControl>
+        <span>day</span>
+        <ChevronDown size={13} className="text-gray-700" />
+      </FauxControl>
+      <span className="text-gray-800">at</span>
+      <FauxControl>
+        <span>{scheduleTimeLabel(workflow.cadence)}</span>
+        <ChevronDown size={13} className="text-gray-700" />
+      </FauxControl>
     </div>
   );
+}
+
+function TriggerSummary({ workflow }: { workflow: WorkflowDefinition }) {
+  return (
+    <div className="mt-4 flex items-start gap-3">
+      <WorkflowIcon tone="purple">
+        <Zap size={16} />
+      </WorkflowIcon>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-gray-1000">{workflow.trigger.type} trigger</p>
+        <p className="mt-1 text-[12.5px] leading-5 text-gray-800">{workflow.trigger.summary}</p>
+      </div>
+    </div>
+  );
+}
+
+function FauxControl({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.03]",
+        "h-8 px-2.5 text-[12.5px] font-medium text-gray-950",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function scheduleTimeLabel(cadence: string): string {
+  const match = cadence.match(/\d{1,2}:\d{2}(\s*(?:AM|PM|am|pm))?/);
+  return match ? match[0].trim() : "08:00";
 }
 
 function HistoryTab({ workflow }: { workflow: WorkflowDefinition }) {
@@ -335,15 +401,6 @@ function WorkflowShareDialog({
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-      <p className="text-[12px] text-gray-700">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-gray-950">{value}</p>
-    </Card>
   );
 }
 
