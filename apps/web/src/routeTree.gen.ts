@@ -20,6 +20,7 @@ import { Route as LibraryRouteImport } from './routes/library'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
@@ -77,6 +78,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
+  id: '/$provider',
+  path: '/$provider',
+  getParentRoute: () => IntegrationsRoute,
+} as any)
 const DebugEventsRoute = DebugEventsRouteImport.update({
   id: '/debug/events',
   path: '/debug/events',
@@ -85,7 +91,7 @@ const DebugEventsRoute = DebugEventsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
@@ -95,11 +101,12 @@ export interface FileRoutesByFullPath {
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
@@ -109,12 +116,13 @@ export interface FileRoutesByTo {
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/styleguide': typeof StyleguideRoute
   '/workflows': typeof WorkflowsRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
   '/skills/$slug': typeof SkillsSlugRoute
 }
 export interface FileRouteTypes {
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/workflows'
     | '/debug/events'
+    | '/integrations/$provider'
     | '/skills/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/workflows'
     | '/debug/events'
+    | '/integrations/$provider'
     | '/skills/$slug'
   id:
     | '__root__'
@@ -168,12 +179,13 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/workflows'
     | '/debug/events'
+    | '/integrations/$provider'
     | '/skills/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  IntegrationsRoute: typeof IntegrationsRoute
+  IntegrationsRoute: typeof IntegrationsRouteWithChildren
   LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
@@ -264,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
     }
+    '/integrations/$provider': {
+      id: '/integrations/$provider'
+      path: '/$provider'
+      fullPath: '/integrations/$provider'
+      preLoaderRoute: typeof IntegrationsProviderRouteImport
+      parentRoute: typeof IntegrationsRoute
+    }
     '/debug/events': {
       id: '/debug/events'
       path: '/debug/events'
@@ -273,6 +292,18 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface IntegrationsRouteChildren {
+  IntegrationsProviderRoute: typeof IntegrationsProviderRoute
+}
+
+const IntegrationsRouteChildren: IntegrationsRouteChildren = {
+  IntegrationsProviderRoute: IntegrationsProviderRoute,
+}
+
+const IntegrationsRouteWithChildren = IntegrationsRoute._addFileChildren(
+  IntegrationsRouteChildren,
+)
 
 interface SkillsRouteChildren {
   SkillsSlugRoute: typeof SkillsSlugRoute
@@ -287,7 +318,7 @@ const SkillsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  IntegrationsRoute: IntegrationsRoute,
+  IntegrationsRoute: IntegrationsRouteWithChildren,
   LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
