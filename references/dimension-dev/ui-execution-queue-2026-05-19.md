@@ -86,9 +86,9 @@ For each route, track these anchors:
 
 ## Immediate next slice
 
-Start with connect tools modal.
+Start with library populated/type menu states.
 
-Reason: artifact panel controls now exist. The next highest-impact home/chat gap is the connect-tools modal, because the composer tray and status surfaces already point users there.
+Reason: connect-tools modal now exists. The next low-risk route-specific gap is the library populated state/type menu, because artifact rendering is already wired and the route can stay fixture-backed.
 
 ## Completed slices
 
@@ -96,3 +96,4 @@ Reason: artifact panel controls now exist. The next highest-impact home/chat gap
 - **2026-05-19 — Composer menus**: Added Radix Dropdown Menu/Popover-backed context menus, model picker, and overflow menus to the shared composer primitives. Home now has a `+` menu, local model picker, and composer options menu; chat has matching context/model/overflow surfaces with chat-specific items.
 - **2026-05-19 — Chat preview states**: Added query-addressable chat states: `?state=all-expanded`, `?state=streaming`, `?state=active-tool`, and `?state=rich-content`. The chat route also accepts `?artifact=1` to force the artifact panel on any thread id. Browser verification covered all five chat states including the default completed state.
 - **2026-05-19 — Artifact panel controls**: Added query-addressable artifact panel states: completed, `?artifactState=generating`, and `?artifactState=empty`. The panel now has a 65px document header, status strip, icon toolbar, page thumbnail rail, selected-page metadata, unresolved page placeholder, and empty state.
+- **2026-05-19 — Connect tools modal**: Added a Radix Dialog-backed `ConnectToolsDialog` with provider search, connected count, grouped provider rows, connected/available status pills, and links into integration detail pages. Wired it to the home composer tray, setup nudge, and composer `+` menu.
