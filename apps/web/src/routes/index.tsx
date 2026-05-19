@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { QuickAccessRail } from "~/components/quick-access-rail";
+import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
@@ -972,7 +973,7 @@ function SetupNudge() {
         "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
       )}
     >
-      <span className="dimension-weather-surface absolute inset-0" />
+      <WeatherVideoSurface />
       <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
       <span className="relative flex h-full items-center justify-between gap-4">
         <span className="min-w-0">
