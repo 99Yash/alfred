@@ -22,6 +22,14 @@ type Section = {
   providers: ReadonlyArray<IntegrationProvider>;
 };
 
+const MCP_SECTION = {
+  heading: "Your Integrations",
+  name: "MCP Server",
+  description: "Connect any MCP server to extend Alfred.",
+} as const;
+
+const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+
 function IntegrationsRoute() {
   const hasChild = useChildMatches().length > 0;
   return hasChild ? <Outlet /> : <IntegrationsPage />;
@@ -31,7 +39,7 @@ function IntegrationsPage() {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => filterSections(query), [query]);
-  const mcpVisible = matches("MCP Server Connect any MCP server", query);
+  const mcpVisible = matches(MCP_HAYSTACK, query);
   const empty = filtered.length === 0 && !mcpVisible;
 
   return (
@@ -154,7 +162,7 @@ function ActionPill({
 function MCPServerSection() {
   return (
     <section className="space-y-3">
-      <h2 className="text-[15px] font-medium text-gray-1000">Your Integrations</h2>
+      <h2 className="text-[15px] font-medium text-gray-1000">{MCP_SECTION.heading}</h2>
       <div className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3">
         <Card
           aria-disabled
@@ -167,10 +175,8 @@ function MCPServerSection() {
             <Plug size={18} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-gray-950">MCP Server</p>
-            <p className="truncate text-[12.5px] text-gray-800">
-              Connect any MCP server to extend Alfred.
-            </p>
+            <p className="truncate text-sm font-medium text-gray-950">{MCP_SECTION.name}</p>
+            <p className="truncate text-[12.5px] text-gray-800">{MCP_SECTION.description}</p>
           </div>
           <span className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-gray-100 px-3.5 text-sm font-medium text-gray-700">
             <Plus size={14} />
