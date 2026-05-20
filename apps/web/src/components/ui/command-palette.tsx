@@ -187,8 +187,8 @@ function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: str
   ];
   return (
     <div className="flex items-center justify-end gap-4 text-[11px] text-gray-700 tabular">
-      {items.map((h, i) => (
-        <span key={i} className="inline-flex items-center gap-1.5">
+      {items.map((h) => (
+        <span key={h.label} className="inline-flex items-center gap-1.5">
           <Kbd>{h.keys}</Kbd>
           <span>{h.label}</span>
         </span>

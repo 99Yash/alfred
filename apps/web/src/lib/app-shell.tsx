@@ -23,8 +23,8 @@ import {
 } from "lucide-react";
 import {
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -72,7 +72,7 @@ interface RightRailContextValue {
 const RightRailContext = createContext<RightRailContextValue | null>(null);
 
 export function useRightRail(node: ReactNode | null) {
-  const ctx = useContext(RightRailContext);
+  const ctx = use(RightRailContext);
   useEffect(() => {
     if (!ctx) return;
     ctx.setContent(node);
@@ -91,15 +91,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Close the mobile drawer on route change. (Radix Dialog handles Escape +
-  // outside-click + focus trap for the drawer itself.)
+  // outside-click + focus trap for the drawer itself.) TanStack Router's
+  // useLocation() returns a fresh object per navigation, so depending on the
+  // whole reference is correct — and avoids the lint pattern that flags
+  // `location.pathname` as the mutable browser global.
   useEffect(() => {
     setMobileNavOpen(false);
-  }, [location.pathname]);
+  }, [location]);
 
   // Close the palette on route change so navigation feels clean.
   useEffect(() => {
     setPaletteOpen(false);
-  }, [location.pathname]);
+  }, [location]);
 
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && location.pathname !== "/login";
@@ -249,7 +252,7 @@ function Sidebar({
   return (
     <div className="flex h-full flex-col">
       {/* Brand / account row */}
-      <div className="flex items-center gap-2 px-3 py-3">
+      <div className="flex items-center gap-2 p-3">
         <div
           className={cn(
             "size-7 shrink-0 rounded-full bg-foreground text-background",
@@ -353,7 +356,7 @@ function Sidebar({
       </nav>
 
       {/* Footer: settings + theme + sign-out */}
-      <div className="border-t px-2 py-2 space-y-0.5">
+      <div className="border-t p-2 space-y-0.5">
         <NavLink
           item={{ to: "/settings", label: "Settings", icon: Settings }}
           collapsed={collapsed}

@@ -764,7 +764,7 @@ function FrostBorderSection() {
       </Row>
       <Row label="panel">
         <div className="frost-border rounded-2xl p-4 bg-[rgb(28,28,28)]/50 backdrop-blur-sm text-sm text-gray-950 min-w-[220px]">
-          Frost panel — used for code blocks and structured agent output. Holds a hairline plus an
+          Frost panel: used for code blocks and structured agent output. Holds a hairline plus an
           inset glow.
         </div>
       </Row>

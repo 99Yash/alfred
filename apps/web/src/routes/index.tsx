@@ -243,11 +243,28 @@ function Composer() {
   const [connectToolsOpen, setConnectToolsOpen] = useState(false);
   const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  // Caret offset where the active "@" mention token starts. Only used to
+  // compute insertion range inside event handlers, never read during render,
+  // so a ref is correct here (avoids extra renders on every keystroke).
+  const mentionStartRef = useRef<number | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const [prevMentionQuery, setPrevMentionQuery] = useState(mentionQuery);
+  // Reset the selected index whenever the mention query changes. React's
+  // "adjusting state during render" pattern: React discards this in-progress
+  // render and re-runs before committing, so the chain of effects below
+  // collapses into a single render with the correct selection.
+  if (prevMentionQuery !== mentionQuery) {
+    setPrevMentionQuery(mentionQuery);
+    setSelectedMentionIndex(0);
+  }
   const hasContent = value.trim().length > 0;
   const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
+  // Clamp during render so we never index past the filtered list.
+  const safeMentionIndex =
+    filteredMentions.length === 0
+      ? 0
+      : Math.min(selectedMentionIndex, filteredMentions.length - 1);
   const modelOptions = useMemo(
     () =>
       MODEL_OPTIONS.map((option) => ({
@@ -263,12 +280,12 @@ function Composer() {
     const token = activeMentionToken(nextValue, caret);
     if (!token) {
       setMentionOpen(false);
-      setMentionStart(null);
+      mentionStartRef.current = null;
       setMentionQuery("");
       return;
     }
 
-    setMentionStart(token.start);
+    mentionStartRef.current = token.start;
     setMentionQuery(token.query);
     setMentionOpen(true);
   }, []);
@@ -325,7 +342,7 @@ function Composer() {
     editor?.commands.clearContent();
     setValue("");
     setMentionOpen(false);
-    setMentionStart(null);
+    mentionStartRef.current = null;
     setMentionQuery("");
     queueMicrotask(() => editor?.commands.focus());
   };
@@ -334,7 +351,7 @@ function Composer() {
     (item: MentionItem) => {
       if (!editor) return;
       const caret = editorCaretTextOffset(editor);
-      const start = mentionStart ?? activeMentionToken(value, caret)?.start;
+      const start = mentionStartRef.current ?? activeMentionToken(value, caret)?.start;
       if (start == null) return;
 
       editor
@@ -347,10 +364,10 @@ function Composer() {
         .insertContent(`@${item.label} `)
         .run();
       setMentionOpen(false);
-      setMentionStart(null);
+      mentionStartRef.current = null;
       setMentionQuery("");
     },
-    [editor, mentionStart, value],
+    [editor, value],
   );
 
   const openMentionMenu = useCallback(() => {
@@ -359,7 +376,7 @@ function Composer() {
     const spacer = caret > 0 && !/\s/.test(value.charAt(caret - 1)) ? " " : "";
 
     editor.chain().focus().insertContent(`${spacer}@`).run();
-    setMentionStart(caret + spacer.length);
+    mentionStartRef.current = caret + spacer.length;
     setMentionQuery("");
     setMentionOpen(true);
     setSelectedMentionIndex(0);
@@ -410,16 +427,6 @@ function Composer() {
     ],
     [approvalMode],
   );
-
-  useEffect(() => {
-    setSelectedMentionIndex(0);
-  }, [mentionQuery]);
-
-  useEffect(() => {
-    if (selectedMentionIndex >= filteredMentions.length) {
-      setSelectedMentionIndex(0);
-    }
-  }, [filteredMentions.length, selectedMentionIndex]);
 
   return (
     <div className="space-y-3">
@@ -482,7 +489,7 @@ function Composer() {
                       return;
                     }
                     if (e.key === "Enter" || e.key === "Tab") {
-                      const item = filteredMentions[selectedMentionIndex];
+                      const item = filteredMentions[safeMentionIndex];
                       e.preventDefault();
                       if (item) {
                         insertMention(item);
@@ -528,7 +535,7 @@ function Composer() {
           >
             <MentionMenu
               items={filteredMentions}
-              selectedIndex={selectedMentionIndex}
+              selectedIndex={safeMentionIndex}
               query={mentionQuery}
               onSelect={insertMention}
               onHover={setSelectedMentionIndex}
@@ -1083,8 +1090,10 @@ function displayName(user: SessionUser | null | undefined): string {
         local
           .replace(/[._-]+/g, " ")
           .split(" ")
-          .map(capitalize)
-          .filter(Boolean)
+          .flatMap((word) => {
+            const capped = capitalize(word);
+            return capped ? [capped] : [];
+          })
           .join(" ") || local
       );
     }

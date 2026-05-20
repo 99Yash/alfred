@@ -11,15 +11,12 @@
  */
 
 import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { forwardRef, type ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithRef } from "react";
 import { cn } from "~/lib/utils";
 
-type SwitchProps = ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>;
+type SwitchProps = ComponentPropsWithRef<typeof SwitchPrimitive.Root>;
 
-export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch(
-  { className, ...rest },
-  ref,
-) {
+export function Switch({ className, ref, ...rest }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
       ref={ref}
@@ -49,4 +46,4 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch
       />
     </SwitchPrimitive.Root>
   );
-});
+}

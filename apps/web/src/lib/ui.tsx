@@ -5,7 +5,7 @@
  * route that owns it.
  */
 
-import { forwardRef, type ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 /* -------------------------------------------------------------------------- */
@@ -151,29 +151,32 @@ export function EmptyState({
 /* Form primitives                                                             */
 /* -------------------------------------------------------------------------- */
 
-export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  function Input({ className, ...props }, ref) {
-    return (
-      <input
-        ref={ref}
-        className={cn(
-          "block w-full rounded-md border bg-background px-3 py-2 text-sm",
-          "outline-none transition-shadow",
-          "placeholder:text-muted-foreground/70",
-          "focus:ring-2 focus:ring-ring/40 focus:border-foreground/40",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-          className,
-        )}
-        {...props}
-      />
-    );
-  },
-);
+export function Input({
+  className,
+  ref,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return (
+    <input
+      ref={ref}
+      className={cn(
+        "block w-full rounded-md border bg-background px-3 py-2 text-sm",
+        "outline-none transition-shadow",
+        "placeholder:text-muted-foreground/70",
+        "focus:ring-2 focus:ring-ring/40 focus:border-foreground/40",
+        "disabled:opacity-50 disabled:cursor-not-allowed",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
-export const Textarea = forwardRef<
-  HTMLTextAreaElement,
-  React.TextareaHTMLAttributes<HTMLTextAreaElement>
->(function Textarea({ className, ...props }, ref) {
+export function Textarea({
+  className,
+  ref,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
   return (
     <textarea
       ref={ref}
@@ -188,7 +191,7 @@ export const Textarea = forwardRef<
       {...props}
     />
   );
-});
+}
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
 type ButtonSize = "sm" | "md";
@@ -206,13 +209,17 @@ const BUTTON_SIZE: Record<ButtonSize, string> = {
   md: "h-9 px-4 text-sm gap-1.5",
 };
 
-export const Button = forwardRef<
-  HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & {
-    variant?: ButtonVariant;
-    size?: ButtonSize;
-  }
->(function Button({ className, variant = "primary", size = "md", ...props }, ref) {
+export function Button({
+  className,
+  variant = "primary",
+  size = "md",
+  ref,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  ref?: Ref<HTMLButtonElement>;
+}) {
   return (
     <button
       ref={ref}
@@ -227,18 +234,22 @@ export const Button = forwardRef<
       {...props}
     />
   );
-});
+}
 
 /**
  * Icon-only chrome button used inside composer chip rows (attach, mic, etc.).
  * Square-ish min hit target (32×32) with quiet ghost styling.
  */
-export const ToolButton = forwardRef<
-  HTMLButtonElement,
-  Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & {
-    label: string;
-  }
->(function ToolButton({ label, className, children, ...props }, ref) {
+export function ToolButton({
+  label,
+  className,
+  children,
+  ref,
+  ...props
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & {
+  label: string;
+  ref?: Ref<HTMLButtonElement>;
+}) {
   return (
     <button
       ref={ref}
@@ -256,7 +267,7 @@ export const ToolButton = forwardRef<
       {children}
     </button>
   );
-});
+}
 
 /* -------------------------------------------------------------------------- */
 /* Pills & badges                                                              */

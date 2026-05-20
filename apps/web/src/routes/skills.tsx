@@ -97,7 +97,7 @@ function SkillsPage() {
     );
   }
 
-  const sorted = [...(skills ?? [])].sort((a, b) =>
+  const sorted = (skills ?? []).toSorted((a, b) =>
     (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt),
   );
 
@@ -131,7 +131,7 @@ function SkillsPage() {
             </span>
             <p className="text-sm font-medium text-gray-950">No skills yet</p>
             <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-              A skill is a long-lived prompt Alfred internalizes — preferences, biographical facts,
+              A skill is a long-lived prompt Alfred internalizes: preferences, biographical facts,
               working styles. Click <em>Create Skill</em> above to author your first.
             </p>
           </Card>
@@ -161,7 +161,7 @@ function SkillsShell({ children }: { children: React.ReactNode }) {
           Skills
         </h1>
         <p className="text-sm text-gray-800">
-          Long-lived prompts Alfred internalizes — preferences, biographical facts, working styles.
+          Long-lived prompts Alfred internalizes: preferences, biographical facts, working styles.
         </p>
       </header>
 

@@ -10,7 +10,7 @@
  * migrate each route to this component during its Stage 2 pass.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import type { ButtonHTMLAttributes, Ref, ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 export type ButtonVariant =
@@ -31,6 +31,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   trailing?: ReactNode;
   /** Override the loading data attribute used to fade text + show spinner. */
   loading?: boolean;
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /* Sizes — heights and horizontal padding pulled from the recon doc. */
@@ -91,21 +92,19 @@ const VARIANT: Record<ButtonVariant, string> = {
   ),
 };
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  {
-    className,
-    variant = "primary",
-    size = "lg",
-    leading,
-    trailing,
-    loading,
-    type,
-    children,
-    disabled,
-    ...rest
-  },
+export function Button({
+  className,
+  variant = "primary",
+  size = "lg",
+  leading,
+  trailing,
+  loading,
+  type,
+  children,
+  disabled,
   ref,
-) {
+  ...rest
+}: ButtonProps) {
   return (
     <button
       ref={ref}
@@ -132,4 +131,4 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {trailing ? <span className="inline-flex shrink-0">{trailing}</span> : null}
     </button>
   );
-});
+}

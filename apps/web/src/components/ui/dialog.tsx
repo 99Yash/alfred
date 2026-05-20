@@ -17,7 +17,7 @@
  */
 
 import * as RadixDialog from "@radix-ui/react-dialog";
-import { forwardRef, type ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export const Dialog = RadixDialog.Root;
@@ -33,12 +33,19 @@ interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title
   className?: string;
   /** Override the overlay. Default ships the gray-0/70 scrim. */
   overlayClassName?: string;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(function DialogContent(
-  { title, description, srOnlyHeader = false, className, overlayClassName, children, ...rest },
+export function DialogContent({
+  title,
+  description,
+  srOnlyHeader = false,
+  className,
+  overlayClassName,
+  children,
   ref,
-) {
+  ...rest
+}: DialogContentProps) {
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay
@@ -92,4 +99,4 @@ export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(func
       </RadixDialog.Content>
     </RadixDialog.Portal>
   );
-});
+}
