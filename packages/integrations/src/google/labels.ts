@@ -5,13 +5,14 @@ import { getFreshAccessToken } from "./credentials";
 import { createLabel, listLabels, modifyMessageLabels } from "./gmail";
 
 /**
- * Alfred-owned Gmail labels (ADR-0025 #1).
+ * Triage labels (ADR-0025 #1).
  *
- * Labels live under a single `Alfred/` parent so they nest cleanly in the
- * Gmail sidebar and are trivial to opt out of (delete the parent label).
- * Category → label name mapping is canonical here; every read/write goes
- * through this module so the rest of the codebase never types raw label
- * strings.
+ * Reuse the user's existing numbered priority labels (originally created by
+ * Dimension and kept by the user). The numeric prefix gives a natural sort
+ * order in the Gmail sidebar — `action_needed` is "2: action needed", `fyi`
+ * is "6: fyi", etc. Category → label name mapping is canonical here; every
+ * read/write goes through this module so the rest of the codebase never
+ * types raw label strings.
  */
 
 export const TRIAGE_CATEGORIES = [
@@ -25,12 +26,12 @@ export const TRIAGE_CATEGORIES = [
 export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
 
 const LABEL_NAMES: Record<TriageCategory, string> = {
-  action_needed: "Alfred/ActionNeeded",
-  awaiting_reply: "Alfred/AwaitingReply",
-  meeting: "Alfred/Meeting",
-  fyi: "Alfred/FYI",
-  payment: "Alfred/Payment",
-  newsletter: "Alfred/Newsletter",
+  action_needed: "2: action needed",
+  awaiting_reply: "4: awaiting reply",
+  meeting: "5: meeting",
+  fyi: "6: fyi",
+  payment: "8: payment",
+  newsletter: "9: newsletter",
 };
 
 export function labelNameFor(category: TriageCategory): string {

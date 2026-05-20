@@ -12,7 +12,12 @@ export function getSubAgentModel(): LanguageModel {
 }
 
 export function getCheapModel(): LanguageModel {
-  return google("gemini-2.5-flash");
+  // Flash-Lite is Google's lowest-latency tier — typical p50 is well under
+  // a second for the short JSON outputs triage/extraction produce. Switched
+  // from `gemini-2.5-flash` after the user flagged label-write lag on a
+  // single inbound email; the larger Flash model was the bottleneck, not
+  // the pipeline.
+  return google("gemini-2.5-flash-lite");
 }
 
 /**
