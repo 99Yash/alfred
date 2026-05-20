@@ -42,4 +42,10 @@ export const MODEL_REGISTRY: ModelDescriptor[] = [
     name: "Gemini 2.5 Flash",
     capabilities: { costTier: "cheap", supportsToolCalls: true, minContextWindow: 1000000 },
   },
+  {
+    id: "gemini-2.5-flash-lite",
+    provider: "google",
+    name: "Gemini 2.5 Flash-Lite",
+    capabilities: { costTier: "cheap", supportsToolCalls: true, minContextWindow: 1000000 },
+  },
 ];
