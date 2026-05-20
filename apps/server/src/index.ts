@@ -103,10 +103,7 @@ async function shutdown(signal: string) {
     await closeWorkflowsQueue();
     console.log("Workers stopped");
   } catch (err) {
-    console.error(
-      "Error stopping workers:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.error("Error stopping workers:", err instanceof Error ? err.message : String(err));
   }
   try {
     await closeEventBridge();

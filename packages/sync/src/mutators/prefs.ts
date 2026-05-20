@@ -56,10 +56,7 @@ export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Pr
 }
 
 /** Optimistic delete. Server removes the row; next pull confirms. */
-export async function prefDeleteClient(
-  tx: WriteTransaction,
-  args: PrefDeleteArgs,
-): Promise<void> {
+export async function prefDeleteClient(tx: WriteTransaction, args: PrefDeleteArgs): Promise<void> {
   const idbKey = IDB_KEY.PREFERENCE({ id: args.key });
   const exists = await tx.has(idbKey);
   if (!exists) return;

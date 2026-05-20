@@ -10,13 +10,14 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.4.
  */
 
-import { forwardRef, type TextareaHTMLAttributes } from "react";
+import type { Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 
 export type TextareaVariant = "card" | "inline";
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   variant?: TextareaVariant;
+  ref?: Ref<HTMLTextAreaElement>;
 }
 
 const CARD = cn(
@@ -35,15 +36,13 @@ const INLINE = cn(
   "outline-none focus-visible:outline-none focus-visible:ring-0",
 );
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  function Textarea({ className, variant = "card", rows, ...rest }, ref) {
-    return (
-      <textarea
-        ref={ref}
-        rows={rows ?? (variant === "card" ? 4 : 1)}
-        className={cn(variant === "card" ? CARD : INLINE, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export function Textarea({ className, variant = "card", rows, ref, ...rest }: TextareaProps) {
+  return (
+    <textarea
+      ref={ref}
+      rows={rows ?? (variant === "card" ? 4 : 1)}
+      className={cn(variant === "card" ? CARD : INLINE, className)}
+      {...rest}
+    />
+  );
+}

@@ -17,15 +17,14 @@
  */
 
 import * as RadixDialog from "@radix-ui/react-dialog";
-import { forwardRef, type ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export const Dialog = RadixDialog.Root;
 export const DialogTrigger = RadixDialog.Trigger;
 export const DialogClose = RadixDialog.Close;
 
-interface DialogContentProps
-  extends Omit<RadixDialog.DialogContentProps, "title"> {
+interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title"> {
   title: ReactNode;
   description?: ReactNode;
   /** Hide title + description visually but keep them for screen readers. */
@@ -34,73 +33,70 @@ interface DialogContentProps
   className?: string;
   /** Override the overlay. Default ships the gray-0/70 scrim. */
   overlayClassName?: string;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
-  function DialogContent(
-    {
-      title,
-      description,
-      srOnlyHeader = false,
-      className,
-      overlayClassName,
-      children,
-      ...rest
-    },
-    ref,
-  ) {
-    return (
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay
-          className={cn(
-            "fixed inset-0 z-[100]",
-            "bg-[rgb(var(--gray-0)/0.7)] backdrop-blur-[4px]",
-            "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
-            "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
-            overlayClassName,
-          )}
-        />
-        <RadixDialog.Content
-          ref={ref}
-          className={cn(
-            "fixed left-1/2 top-1/2 z-[101]",
-            "-translate-x-1/2 -translate-y-1/2",
-            "w-[calc(100vw-2rem)] max-w-lg",
-            "rounded-3xl frost-popover",
-            "overflow-hidden",
-            "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
-            "data-[state=closed]:animate-[dialog-content-out_140ms_cubic-bezier(0.2,0,0,1)]",
-            "focus:outline-none",
-            className,
-          )}
-          {...rest}
-        >
-          {srOnlyHeader ? (
-            <>
-              <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-              <RadixDialog.Description className="sr-only">
-                {description ?? "Type to search; use arrow keys to navigate; press Enter to select."}
+export function DialogContent({
+  title,
+  description,
+  srOnlyHeader = false,
+  className,
+  overlayClassName,
+  children,
+  ref,
+  ...rest
+}: DialogContentProps) {
+  return (
+    <RadixDialog.Portal>
+      <RadixDialog.Overlay
+        className={cn(
+          "fixed inset-0 z-[100]",
+          "bg-[rgb(var(--gray-0)/0.7)] backdrop-blur-[4px]",
+          "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
+          "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
+          overlayClassName,
+        )}
+      />
+      <RadixDialog.Content
+        ref={ref}
+        className={cn(
+          "fixed left-1/2 top-1/2 z-[101]",
+          "-translate-x-1/2 -translate-y-1/2",
+          "w-[calc(100vw-2rem)] max-w-lg",
+          "rounded-3xl frost-popover",
+          "overflow-hidden",
+          "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
+          "data-[state=closed]:animate-[dialog-content-out_140ms_cubic-bezier(0.2,0,0,1)]",
+          "focus:outline-none",
+          className,
+        )}
+        {...rest}
+      >
+        {srOnlyHeader ? (
+          <>
+            <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
+            <RadixDialog.Description className="sr-only">
+              {description ?? "Type to search; use arrow keys to navigate; press Enter to select."}
+            </RadixDialog.Description>
+          </>
+        ) : (
+          <div className="px-6 pt-5 pb-3 space-y-1">
+            <RadixDialog.Title className="text-base font-medium text-gray-1000">
+              {title}
+            </RadixDialog.Title>
+            {description ? (
+              <RadixDialog.Description className="text-[13px] text-gray-800">
+                {description}
               </RadixDialog.Description>
-            </>
-          ) : (
-            <div className="px-6 pt-5 pb-3 space-y-1">
-              <RadixDialog.Title className="text-base font-medium text-gray-1000">
-                {title}
-              </RadixDialog.Title>
-              {description ? (
-                <RadixDialog.Description className="text-[13px] text-gray-800">
-                  {description}
-                </RadixDialog.Description>
-              ) : (
-                <RadixDialog.Description className="sr-only">
-                  Dialog content follows.
-                </RadixDialog.Description>
-              )}
-            </div>
-          )}
-          {children}
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    );
-  },
-);
+            ) : (
+              <RadixDialog.Description className="sr-only">
+                Dialog content follows.
+              </RadixDialog.Description>
+            )}
+          </div>
+        )}
+        {children}
+      </RadixDialog.Content>
+    </RadixDialog.Portal>
+  );
+}

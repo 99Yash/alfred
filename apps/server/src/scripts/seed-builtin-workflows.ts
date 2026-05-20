@@ -9,11 +9,7 @@
  * when shipping a new builtin (e.g. a new boss-agent workflow in m13)
  * without forcing a re-signup.
  */
-import {
-  closeConnections,
-  seedBuiltinWorkflowsForUser,
-  warmPool,
-} from "@alfred/api";
+import { closeConnections, seedBuiltinWorkflowsForUser, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { registerBuiltinWorkflows } from "../builtins";
@@ -37,9 +33,7 @@ async function main() {
     );
   }
 
-  console.log(
-    `[seed-builtin-workflows] done: users=${users.length} totalRowsTouched=${totalRows}`,
-  );
+  console.log(`[seed-builtin-workflows] done: users=${users.length} totalRowsTouched=${totalRows}`);
 }
 
 main()

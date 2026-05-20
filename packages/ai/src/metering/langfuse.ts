@@ -116,14 +116,20 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
           output,
         });
       } catch (err) {
-        console.warn("[langfuse] span end failed:", err instanceof Error ? err.message : String(err));
+        console.warn(
+          "[langfuse] span end failed:",
+          err instanceof Error ? err.message : String(err),
+        );
       }
     },
     error(message) {
       try {
         generation?.end({ level: "ERROR", statusMessage: message });
       } catch (err) {
-        console.warn("[langfuse] span error end failed:", err instanceof Error ? err.message : String(err));
+        console.warn(
+          "[langfuse] span error end failed:",
+          err instanceof Error ? err.message : String(err),
+        );
       }
     },
   };

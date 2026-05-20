@@ -17,7 +17,10 @@ export const Route = createFileRoute("/memory")({
 });
 
 const listFacts = async (tx: ReadTransaction): Promise<SyncedFact[]> => {
-  const entries = await tx.scan({ prefix: IDB_KEY.FACT({}) }).entries().toArray();
+  const entries = await tx
+    .scan({ prefix: IDB_KEY.FACT({}) })
+    .entries()
+    .toArray();
   return entries.map(([, v]) => v as unknown as SyncedFact);
 };
 
@@ -105,8 +108,7 @@ function MemoryPage() {
   const onEdit = useCallback(
     async (fact: SyncedFact) => {
       if (!rep) return;
-      const current =
-        typeof fact.value === "string" ? fact.value : JSON.stringify(fact.value);
+      const current = typeof fact.value === "string" ? fact.value : JSON.stringify(fact.value);
       const raw = window.prompt(`Edit value for ${fact.key}`, current);
       if (raw == null) return;
       const trimmed = raw.trim();
@@ -149,9 +151,7 @@ function MemoryPage() {
               <Brain size={18} />
             </span>
             <p className="text-sm font-medium text-gray-950">Not signed in</p>
-            <p className="text-[12.5px] text-gray-800">
-              Sign in to view Alfred's memory.
-            </p>
+            <p className="text-[12.5px] text-gray-800">Sign in to view Alfred's memory.</p>
             <a
               href="/login"
               className="mt-2 text-[12.5px] text-gray-900 underline underline-offset-4 hover:text-gray-1000"
@@ -184,12 +184,10 @@ function MemoryPage() {
                 >
                   <Sparkles size={18} />
                 </span>
-                <p className="text-sm font-medium text-gray-950">
-                  Nothing pending review
-                </p>
+                <p className="text-sm font-medium text-gray-950">Nothing pending review</p>
                 <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-                  When Alfred sees something it isn't sure about, it'll show up
-                  here for you to confirm.
+                  When Alfred sees something it isn't sure about, it'll show up here for you to
+                  confirm.
                 </p>
               </Card>
             ) : (
@@ -226,12 +224,9 @@ function MemoryPage() {
                 >
                   <Brain size={18} />
                 </span>
-                <p className="text-sm font-medium text-gray-950">
-                  No confirmed facts yet
-                </p>
+                <p className="text-sm font-medium text-gray-950">No confirmed facts yet</p>
                 <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-                  As Alfred works with you, high-confidence facts will land here
-                  automatically.
+                  As Alfred works with you, high-confidence facts will land here automatically.
                 </p>
               </Card>
             ) : (
@@ -274,20 +269,14 @@ function MemoryPage() {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={cn(
-              "frost-popover animate-toast-in rounded-2xl px-4 py-3 text-sm",
-            )}
+            className={cn("frost-popover animate-toast-in rounded-2xl px-4 py-3 text-sm")}
           >
             <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-gray-800">
               <Sparkles size={11} /> Alfred learned
             </div>
             <div className="space-y-1">
-              <code className="font-mono text-[11px] text-gray-800">
-                {toast.key}
-              </code>
-              <p className="break-words font-mono text-[13px] text-gray-1000">
-                {toast.preview}
-              </p>
+              <code className="font-mono text-[11px] text-gray-800">{toast.key}</code>
+              <p className="break-words font-mono text-[13px] text-gray-1000">{toast.preview}</p>
             </div>
             <div className="flex justify-end gap-2 pt-2 text-[11.5px]">
               <button
@@ -324,8 +313,8 @@ function MemoryShell({ children }: { children: React.ReactNode }) {
           Memory
         </h1>
         <p className="mx-auto max-w-[44rem] text-sm text-gray-800">
-          Facts Alfred has learned about you. High-confidence facts auto-confirm;
-          the rest wait for your review.
+          Facts Alfred has learned about you. High-confidence facts auto-confirm; the rest wait for
+          your review.
         </p>
       </header>
 
@@ -334,15 +323,7 @@ function MemoryShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SectionHeading({
-  title,
-  count,
-  hint,
-}: {
-  title: string;
-  count?: number;
-  hint?: string;
-}) {
+function SectionHeading({ title, count, hint }: { title: string; count?: number; hint?: string }) {
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-2">
@@ -351,9 +332,7 @@ function SectionHeading({
           <span className="text-[12.5px] text-gray-800 tabular">{count}</span>
         ) : null}
       </div>
-      {hint ? (
-        <p className="text-[12.5px] text-gray-800">{hint}</p>
-      ) : null}
+      {hint ? <p className="text-[12.5px] text-gray-800">{hint}</p> : null}
     </div>
   );
 }
@@ -376,9 +355,7 @@ function ProposedFactCard({
   return (
     <Card className="space-y-2.5 px-4 py-3 text-gray-950">
       <div className="flex items-baseline justify-between gap-3">
-        <code className="font-mono text-[12px] text-gray-1000 break-all">
-          {fact.key}
-        </code>
+        <code className="font-mono text-[12px] text-gray-1000 break-all">{fact.key}</code>
         <ConfidenceChip confidence={fact.confidence} />
       </div>
       <div className="rounded-md bg-white/[0.03] px-3 py-2 font-mono text-[12px] whitespace-pre-wrap break-words text-gray-1000">
@@ -403,8 +380,7 @@ function ProposedFactCard({
 }
 
 function ConfidenceChip({ confidence }: { confidence: number }) {
-  const tone: StatusTone =
-    confidence >= 0.75 ? "emerald" : confidence >= 0.5 ? "amber" : "red";
+  const tone: StatusTone = confidence >= 0.75 ? "emerald" : confidence >= 0.5 ? "amber" : "red";
   const pct = (confidence * 100).toFixed(0);
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-gray-1000 tabular">

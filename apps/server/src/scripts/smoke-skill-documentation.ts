@@ -211,7 +211,10 @@ async function main() {
   );
 
   // v2 revision row + metadata.
-  const [v2] = await db().select().from(skillRevisions).where(eq(skillRevisions.id, docOut.revisionId));
+  const [v2] = await db()
+    .select()
+    .from(skillRevisions)
+    .where(eq(skillRevisions.id, docOut.revisionId));
   assert(v2, "v2 skill_revisions row missing");
   assert(v2.kind === "documented", `expected v2 kind=documented, got ${v2.kind}`);
   const v2Meta = v2.metadata as Record<string, unknown>;
@@ -224,8 +227,14 @@ async function main() {
     .from(skillRuns)
     .where(eq(skillRuns.agentRunId, docRunId));
   assert(docSkillRun, "skill_runs row for doc workflow missing");
-  assert(docSkillRun.kind === "document", `expected skill_runs.kind=document, got ${docSkillRun.kind}`);
-  assert(docSkillRun.status === "completed", `expected skill_runs.status=completed, got ${docSkillRun.status}`);
+  assert(
+    docSkillRun.kind === "document",
+    `expected skill_runs.kind=document, got ${docSkillRun.kind}`,
+  );
+  assert(
+    docSkillRun.status === "completed",
+    `expected skill_runs.status=completed, got ${docSkillRun.status}`,
+  );
 
   // email_sends row idempotency-keyed on the v2 revision.
   const [emailRow] = await db()
@@ -253,7 +262,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-skill-doc] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+    console.error(
+      "[smoke-skill-doc] FAIL",
+      err instanceof Error ? (err.stack ?? err.message) : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

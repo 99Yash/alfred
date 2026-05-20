@@ -136,16 +136,14 @@ export function IntegrationGlyph({
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
-    return (
-      <Icon
-        size={size}
-        className={cn("shrink-0", className)}
-        style={{ color: meta.color }}
-      />
-    );
+    return <Icon size={size} className={cn("shrink-0", className)} style={{ color: meta.color }} />;
   }
 
   const color = variant === "frost" ? meta.frostColor : meta.plainColor;
+  // BRAND_SVGS is a hand-curated constant in source (see integration-svgs.ts);
+  // there is no user-provided HTML path into this value, so the no-danger rule
+  // is a false positive here. We use innerHTML to keep the SVG markup
+  // verbatim (filter/clipPath IDs need to live inside the same <svg> element).
   const inner = BRAND_SVGS[meta.slug].replaceAll("__UID0__", uid);
 
   return (
@@ -158,6 +156,7 @@ export function IntegrationGlyph({
       viewBox="0 0 50 50"
       width={size}
       xmlns="http://www.w3.org/2000/svg"
+      // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: inner }}
     />
   );

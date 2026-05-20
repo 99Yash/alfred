@@ -22,10 +22,7 @@ const PRIORITY_CATEGORIES = [
   "payment",
 ] as const satisfies readonly TriageCategory[];
 
-const SUPPRESSED_CATEGORIES = [
-  "newsletter",
-  "fyi",
-] as const satisfies readonly TriageCategory[];
+const SUPPRESSED_CATEGORIES = ["newsletter", "fyi"] as const satisfies readonly TriageCategory[];
 
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];

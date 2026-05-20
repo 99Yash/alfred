@@ -82,10 +82,7 @@ export function isValidTimezone(tz: string): boolean {
  * `sv-SE` locale formats dates as `YYYY-MM-DD` natively, which is the
  * shortest path to a stable ISO-style date string in any timezone.
  */
-export function localDateInTimezone(
-  timezone: string,
-  now: Date = new Date(),
-): string {
+export function localDateInTimezone(timezone: string, now: Date = new Date()): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: timezone,
     year: "numeric",

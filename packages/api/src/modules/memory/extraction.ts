@@ -83,8 +83,7 @@ function userPrompt(args: ExtractDocumentArgs): string {
   const lines: string[] = [];
   lines.push(`Source: ${args.document.source}`);
   if (args.document.title) lines.push(`Title: ${args.document.title}`);
-  if (args.document.authoredAt)
-    lines.push(`Authored: ${args.document.authoredAt.toISOString()}`);
+  if (args.document.authoredAt) lines.push(`Authored: ${args.document.authoredAt.toISOString()}`);
   lines.push("");
 
   if (args.existingFacts && args.existingFacts.length > 0) {
@@ -98,9 +97,10 @@ function userPrompt(args: ExtractDocumentArgs): string {
   lines.push("=== Document content ===");
   // Cap at ~12k chars to keep token budget bounded — most provider
   // emails fit easily; ingested docs that exceed this get truncated.
-  const content = args.document.content.length > 12_000
-    ? args.document.content.slice(0, 12_000) + "\n[…truncated]"
-    : args.document.content;
+  const content =
+    args.document.content.length > 12_000
+      ? args.document.content.slice(0, 12_000) + "\n[…truncated]"
+      : args.document.content;
   lines.push(content);
   return lines.join("\n");
 }
@@ -111,9 +111,7 @@ function userPrompt(args: ExtractDocumentArgs): string {
  * caller gets the raw error and the workflow can mark the doc as
  * processed with `proposed_count = 0`.
  */
-export async function extractFactsFromDocument(
-  args: ExtractDocumentArgs,
-): Promise<FactProposal[]> {
+export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promise<FactProposal[]> {
   const result = await meteredGenerateObject<z.infer<typeof extractionResultSchema>>(
     {
       model: getCheapModel(),

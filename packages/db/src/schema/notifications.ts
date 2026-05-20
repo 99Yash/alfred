@@ -40,7 +40,9 @@ export const emailSends = pgTable(
     /** Optional template id when we move to reusable templates — null today. */
     template: text("template"),
     /** Render input — kept so a failed send can be re-rendered/debugged later. */
-    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    payload: jsonb("payload")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     /** 'queued' → 'sent' | 'failed'. */
     status: text("status").notNull().default("queued"),
     /** Resend's message id, for cross-referencing in their dashboard. */

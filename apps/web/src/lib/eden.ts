@@ -28,7 +28,7 @@ export function edenErrorMessage(error: unknown, fallback: string): string {
     (error as { value: unknown }).value !== null &&
     "message" in ((error as { value: object }).value as object)
   ) {
-    return String(((error as { value: { message: unknown } }).value).message);
+    return String((error as { value: { message: unknown } }).value.message);
   }
   return fallback;
 }

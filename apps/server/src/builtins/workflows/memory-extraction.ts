@@ -92,8 +92,7 @@ const inputSchema = z.object({
 export const memoryExtractionWorkflow: Workflow<State> = {
   slug: "memory-extraction",
   name: "Memory extraction",
-  description:
-    "Daily extraction of structured facts from recently-ingested documents (ADR-0019).",
+  description: "Daily extraction of structured facts from recently-ingested documents (ADR-0019).",
   // Declared as cron for honesty; `next_run_at` stays null at seed time
   // so the generic workflows.tick skips it. The per-feature
   // `memory.extract.daily` BullMQ repeatable (memory/repeatable.ts)
@@ -136,10 +135,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           const rows = await db()
             .select({ id: documents.id })
             .from(documents)
-            .leftJoin(
-              memoryExtractionStatus,
-              eq(memoryExtractionStatus.documentId, documents.id),
-            )
+            .leftJoin(memoryExtractionStatus, eq(memoryExtractionStatus.documentId, documents.id))
             .where(
               and(
                 eq(documents.userId, ctx.userId),
@@ -170,9 +166,8 @@ export const memoryExtractionWorkflow: Workflow<State> = {
 
         // Pull the user's confirmed facts once — pass to extractor as
         // hints so it doesn't re-propose what we already know. Cheap.
-        const existing = ctx.state.mode === "auto"
-          ? await listFactsByStatus(ctx.userId, "confirmed", 50)
-          : [];
+        const existing =
+          ctx.state.mode === "auto" ? await listFactsByStatus(ctx.userId, "confirmed", 50) : [];
         const existingForPrompt = existing.map((f) => ({ key: f.key, value: f.value }));
 
         for (const docId of ctx.state.documentIds) {
@@ -242,9 +237,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           blocked += docBlocked;
         }
 
-        await ctx.log(
-          `process: docs=${processed} proposed=${proposed} blocked=${blocked}`,
-        );
+        await ctx.log(`process: docs=${processed} proposed=${proposed} blocked=${blocked}`);
         return {
           kind: "next",
           state: { ...ctx.state, processed, proposed, blocked },
@@ -259,7 +252,8 @@ export const memoryExtractionWorkflow: Workflow<State> = {
         // Write a memory_chunk so the run leaves a recallable trace —
         // future "what did alfred learn this week" queries hit this.
         // Idempotent on (user, kind, content_hash) so a retry is safe.
-        const summary = `Memory-extraction run ${ctx.runId} (${ctx.state.startedAt}): ` +
+        const summary =
+          `Memory-extraction run ${ctx.runId} (${ctx.state.startedAt}): ` +
           `processed ${ctx.state.processed} document(s); ` +
           `proposed ${ctx.state.proposed} fact(s); ` +
           `${ctx.state.blocked} suppressed by dedup/rejection guards.`;

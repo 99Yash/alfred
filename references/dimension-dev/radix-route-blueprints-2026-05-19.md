@@ -10,6 +10,7 @@ Primary evidence:
 - [`live-ui-reference-2026-05-19.md`](./live-ui-reference-2026-05-19.md) — fresh live `/chat` capture + source-map status
 - [`chat-meeting-prep-reference-2026-05-19.md`](./chat-meeting-prep-reference-2026-05-19.md) — late meeting-prep card/dialog capture + accessibility contract
 - [`weather-and-route-notes-2026-05-19.md`](./weather-and-route-notes-2026-05-19.md) — final weather/right-rail specifics and secondary-route traversal notes
+- [`chat-tool-rendering-sycamore-2026-05-19.md`](./chat-tool-rendering-sycamore-2026-05-19.md) — completed research-run tool trace, nested accordion contract, citation/reaction/composer details, and artifact iframe absence in the current Sycamore route
 - [`screenshots/`](./screenshots/) and [`snapshots/`](./snapshots/) — per-state viewport and a11y evidence
 
 ## Reconstruction rule
@@ -289,6 +290,46 @@ Radix/component choices:
 - Tool timeline has three node classes: search result disclosure, action-tool disclosure, inline status row.
 - Active-thread composer supports Dimension's `Tab` accepted suggestion overlay.
 
+### Completed research-run tool trace
+
+Evidence: [`chat-tool-rendering-sycamore-2026-05-19.md`](./chat-tool-rendering-sycamore-2026-05-19.md) and [`html-repros/chat-tool-rendering-2026-05-19.html`](./html-repros/chat-tool-rendering-2026-05-19.html).
+
+DOM target:
+
+```tsx
+<AssistantTurn>
+  <Accordion.Root type="multiple" defaultValue={["run-1"]}>
+    <Accordion.Item value="run-1">
+      <Accordion.Trigger>Searched multiple sources</Accordion.Trigger>
+      <Accordion.Content>
+        <ThoughtDisclosure duration="2s" />
+        <SearchResultsDisclosure query="Company research" resultCount={10} />
+        <SearchResultsDisclosure query="Technical direction" resultCount={10} />
+        <InlineToolStatus>Processed profile URL.</InlineToolStatus>
+        <ThoughtDisclosure duration="2s" />
+        <SearchResultsDisclosure query="Hiring and roles" resultCount={10} />
+        <InlineToolStatus icon="user-search">
+          People search completed successfully.
+        </InlineToolStatus>
+      </Accordion.Content>
+    </Accordion.Item>
+  </Accordion.Root>
+
+  <ThoughtDisclosure duration="34s" />
+  <MarkdownResponse />
+  <ResponseActions />
+</AssistantTurn>
+```
+
+Build notes:
+
+- Top-level run summary trigger is full conversation width (`max-w-5xl` / 1024px); nested tool rows are inset about 37px.
+- Search-result groups are open by default inside an expanded run summary, capped at `max-height: 130px`, and rendered as real links with Google favicon service images.
+- Thought disclosures are muted (`rgb(112,112,112)`) and use the same accordion mechanics, but no card chrome.
+- Status rows stay as plain inline rows; do not wrap them in cards.
+- The current Sycamore route has zero iframes and no artifact/PDF panel. Mount the artifact iframe panel only when an artifact card exists.
+- Reaction buttons should keep Dimension's three-icon visual order, but Alfred should provide explicit `aria-label`s instead of relying on repeated SVG titles.
+
 ## Chat artifact viewer mode
 
 Evidence: `screenshots/13-chat-artifact-pages-populated.png`, `screenshots/13-chat-pdf-generation.png`, `screenshots/13b-chat-artifact-completed.png`, `artifact-html/README.md`.
@@ -325,7 +366,7 @@ Build notes:
 
 ## `/integrations` catalog
 
-Evidence: `screenshots/05-integrations.png`, `screenshots/36-final-pass-integrations-connected-2026-05-18.png`, `snapshots/integrations.txt`, `snapshots/final-pass-integrations-connected-2026-05-18.txt`.
+Evidence: `screenshots/05-integrations.png`, `screenshots/36-final-pass-integrations-connected-2026-05-18.png`, `snapshots/integrations.txt`, `snapshots/final-pass-integrations-connected-2026-05-18.txt`, plus the consolidated live capture in [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md).
 
 DOM target:
 
@@ -356,7 +397,7 @@ Build notes:
 
 ## `/integrations/<provider>` connector detail
 
-Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`.
+Evidence: `screenshots/06-integration-gmail-detail.png`, `screenshots/18-integration-slack.png`, `snapshots/integration-gmail.txt`, plus the authenticated Google Drive detail capture in [`integration-google-drive-detail-2026-05-19.md`](./integration-google-drive-detail-2026-05-19.md) and the cross-provider design in [`integrations-overall-design-2026-05-19.md`](./integrations-overall-design-2026-05-19.md).
 
 DOM target:
 
@@ -374,6 +415,7 @@ DOM target:
 
   <ConnectedAccountsTable />
   <TrustBanner title="Your data is indexed & encrypted" />
+  <RelatedProviderSetup /> {/* Google Drive -> Docs, Sheets, Slides */}
   <CapabilitiesList />
   <OverviewSection />
 </ConnectorDetail>
@@ -385,6 +427,8 @@ Radix/component choices:
 - Disconnect action should use Radix Alert/Dialog later.
 - Accounts table is a plain table or `FrostPanel` depending density.
 - Capability bullets are user-facing scope names, not raw OAuth scopes.
+- Google Drive detail has a provider-specific `Complete your Google Setup` section for Google Docs, Google Sheets, and Google Slides. Do not model this as a generic upsell card; it is a quiet row list in the route content column.
+- Avoid Dimension's nested-button accessibility issue in the related-provider rows: make the whole row a single link/button or put exactly one trailing action inside a non-interactive row.
 
 ## `/workflows` list
 

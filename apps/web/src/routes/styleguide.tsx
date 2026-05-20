@@ -42,6 +42,8 @@ import { StatusDot } from "~/components/ui/status-dot";
 import { Switch } from "~/components/ui/switch";
 import { Tabs } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
+import { QuickAccessRail } from "~/components/quick-access-rail";
+import { DimensionChatThread } from "~/components/dimension-chat-thread";
 
 export const Route = createFileRoute("/styleguide")({
   component: StyleguidePage,
@@ -57,9 +59,11 @@ function StyleguidePage() {
             Alfred UI styleguide
           </h1>
           <p className="text-sm text-gray-800 max-w-prose">
-            Every primitive in <code className="font-mono text-[12px] text-green-400">apps/web/src/components/ui/</code>
-            {" "}rendered with default / hover / focus / active / disabled states.
-            Cross-reference{" "}
+            Every primitive in{" "}
+            <code className="font-mono text-[12px] text-green-400">
+              apps/web/src/components/ui/
+            </code>{" "}
+            rendered with default / hover / focus / active / disabled states. Cross-reference{" "}
             <code className="font-mono text-[12px] text-green-400">
               references/dimension-dev/dimension-design-reference-2026-05-18.md
             </code>{" "}
@@ -74,6 +78,8 @@ function StyleguidePage() {
         <TextareaSection />
         <SwitchSection />
         <TabsSection />
+        <ChatThreadSection />
+        <QuickAccessRailSection />
         <CardSection />
         <FrostPanelSection />
         <AvatarSection />
@@ -119,6 +125,22 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <div className="text-[12.5px] text-gray-800 tabular">{label}</div>
       <div className="flex flex-wrap items-center gap-3">{children}</div>
     </div>
+  );
+}
+
+function ChatThreadSection() {
+  return (
+    <Section
+      id="chat-thread"
+      title="Chat thread"
+      recipe="Active conversation: user bubble, tool trace accordions, thought disclosures, search rows, prose, reactions, suggestions, bottom composer."
+    >
+      <div className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[rgb(12,12,12)] shadow-pop">
+        <div className="h-[780px]">
+          <DimensionChatThread />
+        </div>
+      </div>
+    </Section>
   );
 }
 
@@ -433,7 +455,9 @@ function SwitchSection() {
         <div className="w-96 flex items-center justify-between rounded-2xl border border-white/5 px-3 py-2.5">
           <div className="space-y-0.5">
             <div className="text-sm text-gray-950">Auto-approve replies</div>
-            <div className="text-[12.5px] text-gray-800">Drafts will be sent without confirmation.</div>
+            <div className="text-[12.5px] text-gray-800">
+              Drafts will be sent without confirmation.
+            </div>
           </div>
           <Switch defaultChecked />
         </div>
@@ -506,6 +530,20 @@ function TabsSection() {
   );
 }
 
+function QuickAccessRailSection() {
+  return (
+    <Section
+      id="quick-access-rail"
+      title="Quick Access Rail"
+      recipe="Weather-backed right rail: weather header, icon tablist, add-todo row, suggestions, and Morning Briefing bottom action."
+    >
+      <div className="h-[640px] w-[348px]">
+        <QuickAccessRail healthOk healthLoading={false} />
+      </div>
+    </Section>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Card                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -525,7 +563,9 @@ function CardSection() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-gray-1000">Gmail</div>
-              <div className="text-[12.5px] text-gray-800 truncate">Read inbox + draft replies on your behalf.</div>
+              <div className="text-[12.5px] text-gray-800 truncate">
+                Read inbox + draft replies on your behalf.
+              </div>
             </div>
           </div>
         </Card>
@@ -538,9 +578,13 @@ function CardSection() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-gray-1000">Morning briefing</div>
-              <div className="text-[12.5px] text-gray-800 truncate">Daily summary of your inbox before 7am.</div>
+              <div className="text-[12.5px] text-gray-800 truncate">
+                Daily summary of your inbox before 7am.
+              </div>
             </div>
-            <Button variant="ghost" size="md">Manage</Button>
+            <Button variant="ghost" size="md">
+              Manage
+            </Button>
           </div>
         </Card>
       </Row>
@@ -720,7 +764,8 @@ function FrostBorderSection() {
       </Row>
       <Row label="panel">
         <div className="frost-border rounded-2xl p-4 bg-[rgb(28,28,28)]/50 backdrop-blur-sm text-sm text-gray-950 min-w-[220px]">
-          Frost panel — used for code blocks and structured agent output. Holds a hairline plus an inset glow.
+          Frost panel: used for code blocks and structured agent output. Holds a hairline plus an
+          inset glow.
         </div>
       </Row>
     </Section>
@@ -867,19 +912,21 @@ function TypographySection() {
         </h1>
       </Row>
       <Row label="lavender">
-        <h1 className="heading-display-lavender text-2xl font-medium">
-          Learn (active tab)
-        </h1>
+        <h1 className="heading-display-lavender text-2xl font-medium">Learn (active tab)</h1>
       </Row>
       <Row label="body">
         <p className="text-sm text-gray-950 max-w-prose">
-          Body copy at 14/20. <strong className="text-gray-1000 font-semibold">Bold prose ramps to gray-1000 (white).</strong>{" "}
+          Body copy at 14/20.{" "}
+          <strong className="text-gray-1000 font-semibold">
+            Bold prose ramps to gray-1000 (white).
+          </strong>{" "}
           Default body color is gray-950 (rgb 237,237,237).
         </p>
       </Row>
       <Row label="muted">
         <p className="text-[13px] text-gray-800">
-          Muted text uses gray-800 (rgb 160,160,160). The 13px variant is the workhorse for chips and meta.
+          Muted text uses gray-800 (rgb 160,160,160). The 13px variant is the workhorse for chips
+          and meta.
         </p>
       </Row>
     </Section>

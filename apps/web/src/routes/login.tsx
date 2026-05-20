@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, KeyRound, Mail } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { cn } from "~/lib/utils";
 
@@ -8,48 +8,95 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+/**
+ * The OTP sign-in flow is a small state machine: which step are we on, are
+ * we waiting on a network call, and was there an error. Grouping these in a
+ * reducer keeps the sendOtp/verify handlers single-statement and makes the
+ * transitions explicit at the dispatch sites.
+ */
+interface FlowState {
+  step: "email" | "otp";
+  loading: boolean;
+  error: string | null;
+}
+
+type FlowAction =
+  | { type: "submitting" }
+  | { type: "code-sent" }
+  | { type: "error"; message: string }
+  | { type: "restart" };
+
+function flowReducer(state: FlowState, action: FlowAction): FlowState {
+  switch (action.type) {
+    case "submitting":
+      return { ...state, loading: true, error: null };
+    case "code-sent":
+      return { step: "otp", loading: false, error: null };
+    case "error":
+      return { ...state, loading: false, error: action.message };
+    case "restart":
+      return { step: "email", loading: false, error: null };
+  }
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
-  const [step, setStep] = useState<"email" | "otp">("email");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [flow, dispatchFlow] = useReducer(flowReducer, {
+    step: "email",
+    loading: false,
+    error: null,
+  });
   const emailRef = useRef<HTMLInputElement | null>(null);
   const otpRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (step === "email") emailRef.current?.focus();
+    if (flow.step === "email") emailRef.current?.focus();
     else otpRef.current?.focus();
-  }, [step]);
+  }, [flow.step]);
 
   const sendOtp = async () => {
-    setLoading(true);
-    setError(null);
+    dispatchFlow({ type: "submitting" });
     try {
-      await authClient.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
-      setStep("otp");
+      const { error: otpError } = await authClient.emailOtp.sendVerificationOtp({
+        email,
+        type: "sign-in",
+      });
+      if (otpError) {
+        dispatchFlow({ type: "error", message: otpError.message ?? "Failed to send code" });
+        return;
+      }
+      dispatchFlow({ type: "code-sent" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send code");
-    } finally {
-      setLoading(false);
+      dispatchFlow({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to send code",
+      });
     }
   };
 
   const verify = async () => {
-    setLoading(true);
-    setError(null);
+    dispatchFlow({ type: "submitting" });
     try {
-      const result = await authClient.signIn.emailOtp({ email, otp });
-      if (result.data) {
+      const { data, error: signInError } = await authClient.signIn.emailOtp({ email, otp });
+      if (signInError) {
+        dispatchFlow({
+          type: "error",
+          message: signInError.message ?? "Invalid or expired code",
+        });
+        return;
+      }
+      if (data) {
         await navigate({ to: "/" });
       } else {
-        setError("Invalid or expired code");
+        dispatchFlow({ type: "error", message: "Invalid or expired code" });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed");
-    } finally {
-      setLoading(false);
+      dispatchFlow({
+        type: "error",
+        message: err instanceof Error ? err.message : "Verification failed",
+      });
     }
   };
 
@@ -71,23 +118,23 @@ function LoginPage() {
           </div>
           <h1 className="font-serif text-3xl tracking-tight">Alfred</h1>
           <p className="text-sm text-muted-foreground">
-            {step === "email"
-              ? "Sign in with your email to continue."
-              : (
-                <>
-                  We sent a 6-digit code to{" "}
-                  <span className="font-medium text-foreground">{email}</span>.
-                </>
-              )}
+            {flow.step === "email" ? (
+              "Sign in with your email to continue."
+            ) : (
+              <>
+                We sent a 6-digit code to{" "}
+                <span className="font-medium text-foreground">{email}</span>.
+              </>
+            )}
           </p>
         </div>
 
         <div className="rounded-xl border bg-card shadow-soft p-5 space-y-4">
-          {step === "email" ? (
+          {flow.step === "email" ? (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (email && !loading) sendOtp();
+                if (email && !flow.loading) sendOtp();
               }}
               className="space-y-3"
             >
@@ -105,7 +152,7 @@ function LoginPage() {
                 />
               </Field>
 
-              <SubmitButton loading={loading} disabled={!email}>
+              <SubmitButton loading={flow.loading} disabled={!email}>
                 Send code <ArrowRight size={14} />
               </SubmitButton>
             </form>
@@ -113,7 +160,7 @@ function LoginPage() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (otp.length >= 6 && !loading) verify();
+                if (otp.length >= 6 && !flow.loading) verify();
               }}
               className="space-y-3"
             >
@@ -132,16 +179,15 @@ function LoginPage() {
                 />
               </Field>
 
-              <SubmitButton loading={loading} disabled={otp.length < 6}>
+              <SubmitButton loading={flow.loading} disabled={otp.length < 6}>
                 Verify & sign in <ArrowRight size={14} />
               </SubmitButton>
 
               <button
                 type="button"
                 onClick={() => {
-                  setStep("email");
+                  dispatchFlow({ type: "restart" });
                   setOtp("");
-                  setError(null);
                 }}
                 className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
@@ -150,8 +196,8 @@ function LoginPage() {
             </form>
           )}
 
-          {error ? (
-            <p className="text-xs text-destructive text-center">{error}</p>
+          {flow.error ? (
+            <p className="text-xs text-destructive text-center">{flow.error}</p>
           ) : null}
         </div>
 
@@ -163,13 +209,7 @@ function LoginPage() {
   );
 }
 
-function Field({
-  icon,
-  children,
-}: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Field({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <label
       className={cn(

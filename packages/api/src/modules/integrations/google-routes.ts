@@ -108,30 +108,27 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
           }),
         },
       )
-      .get(
-        "/credentials",
-        async ({ user }) => {
-          const rows = await db()
-            .select({
-              id: integrationCredentials.id,
-              accountId: integrationCredentials.accountId,
-              accountLabel: integrationCredentials.accountLabel,
-              status: integrationCredentials.status,
-              scopes: integrationCredentials.scopes,
-              expiresAt: integrationCredentials.expiresAt,
-              lastRefreshedAt: integrationCredentials.lastRefreshedAt,
-              createdAt: integrationCredentials.createdAt,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, user.id),
-                eq(integrationCredentials.provider, "google"),
-              ),
-            );
-          return { credentials: rows };
-        },
-      )
+      .get("/credentials", async ({ user }) => {
+        const rows = await db()
+          .select({
+            id: integrationCredentials.id,
+            accountId: integrationCredentials.accountId,
+            accountLabel: integrationCredentials.accountLabel,
+            status: integrationCredentials.status,
+            scopes: integrationCredentials.scopes,
+            expiresAt: integrationCredentials.expiresAt,
+            lastRefreshedAt: integrationCredentials.lastRefreshedAt,
+            createdAt: integrationCredentials.createdAt,
+          })
+          .from(integrationCredentials)
+          .where(
+            and(
+              eq(integrationCredentials.userId, user.id),
+              eq(integrationCredentials.provider, "google"),
+            ),
+          );
+        return { credentials: rows };
+      })
       .post(
         "/:id/watch",
         async ({ params, user }) => {
@@ -332,7 +329,8 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       // Bounce back to the SPA. We don't have an "integrations" page yet;
       // land on the root with a query flag the UI can pick up.
       set.status = 302;
-      set.headers["Location"] = `${serverEnv().CORS_ORIGIN}/?google_connected=${encodeURIComponent(tokens.accountEmail)}`;
+      set.headers["Location"] =
+        `${serverEnv().CORS_ORIGIN}/?google_connected=${encodeURIComponent(tokens.accountEmail)}`;
       return null;
     },
     {

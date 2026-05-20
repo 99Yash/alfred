@@ -19,8 +19,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
+import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
+import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -72,59 +76,91 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkflowsWorkflowRoute = WorkflowsWorkflowRouteImport.update({
+  id: '/$workflow',
+  path: '/$workflow',
+  getParentRoute: () => WorkflowsRoute,
+} as any)
 const SkillsSlugRoute = SkillsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
+} as any)
+const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
+  id: '/$artifact',
+  path: '/$artifact',
+  getParentRoute: () => LibraryRoute,
+} as any)
+const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
+  id: '/$provider',
+  path: '/$provider',
+  getParentRoute: () => IntegrationsRoute,
 } as any)
 const DebugEventsRoute = DebugEventsRouteImport.update({
   id: '/debug/events',
   path: '/debug/events',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
+  id: '/chat/$threadId',
+  path: '/chat/$threadId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
-  '/library': typeof LibraryRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
-  '/library': typeof LibraryRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/integrations': typeof IntegrationsRoute
-  '/library': typeof LibraryRoute
+  '/integrations': typeof IntegrationsRouteWithChildren
+  '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
+  '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
+  '/integrations/$provider': typeof IntegrationsProviderRoute
+  '/library/$artifact': typeof LibraryArtifactRoute
   '/skills/$slug': typeof SkillsSlugRoute
+  '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -139,8 +175,12 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
+    | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -153,8 +193,12 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
+    | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   id:
     | '__root__'
     | '/'
@@ -167,21 +211,26 @@ export interface FileRouteTypes {
     | '/skills'
     | '/styleguide'
     | '/workflows'
+    | '/chat/$threadId'
     | '/debug/events'
+    | '/integrations/$provider'
+    | '/library/$artifact'
     | '/skills/$slug'
+    | '/workflows/$workflow'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  IntegrationsRoute: typeof IntegrationsRoute
-  LibraryRoute: typeof LibraryRoute
+  IntegrationsRoute: typeof IntegrationsRouteWithChildren
+  LibraryRoute: typeof LibraryRouteWithChildren
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
-  WorkflowsRoute: typeof WorkflowsRoute
+  WorkflowsRoute: typeof WorkflowsRouteWithChildren
+  ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
 }
 
@@ -257,12 +306,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workflows/$workflow': {
+      id: '/workflows/$workflow'
+      path: '/$workflow'
+      fullPath: '/workflows/$workflow'
+      preLoaderRoute: typeof WorkflowsWorkflowRouteImport
+      parentRoute: typeof WorkflowsRoute
+    }
     '/skills/$slug': {
       id: '/skills/$slug'
       path: '/$slug'
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/library/$artifact': {
+      id: '/library/$artifact'
+      path: '/$artifact'
+      fullPath: '/library/$artifact'
+      preLoaderRoute: typeof LibraryArtifactRouteImport
+      parentRoute: typeof LibraryRoute
+    }
+    '/integrations/$provider': {
+      id: '/integrations/$provider'
+      path: '/$provider'
+      fullPath: '/integrations/$provider'
+      preLoaderRoute: typeof IntegrationsProviderRouteImport
+      parentRoute: typeof IntegrationsRoute
     }
     '/debug/events': {
       id: '/debug/events'
@@ -271,8 +341,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DebugEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat/$threadId': {
+      id: '/chat/$threadId'
+      path: '/chat/$threadId'
+      fullPath: '/chat/$threadId'
+      preLoaderRoute: typeof ChatThreadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
+
+interface IntegrationsRouteChildren {
+  IntegrationsProviderRoute: typeof IntegrationsProviderRoute
+}
+
+const IntegrationsRouteChildren: IntegrationsRouteChildren = {
+  IntegrationsProviderRoute: IntegrationsProviderRoute,
+}
+
+const IntegrationsRouteWithChildren = IntegrationsRoute._addFileChildren(
+  IntegrationsRouteChildren,
+)
+
+interface LibraryRouteChildren {
+  LibraryArtifactRoute: typeof LibraryArtifactRoute
+}
+
+const LibraryRouteChildren: LibraryRouteChildren = {
+  LibraryArtifactRoute: LibraryArtifactRoute,
+}
+
+const LibraryRouteWithChildren =
+  LibraryRoute._addFileChildren(LibraryRouteChildren)
 
 interface SkillsRouteChildren {
   SkillsSlugRoute: typeof SkillsSlugRoute
@@ -285,17 +385,30 @@ const SkillsRouteChildren: SkillsRouteChildren = {
 const SkillsRouteWithChildren =
   SkillsRoute._addFileChildren(SkillsRouteChildren)
 
+interface WorkflowsRouteChildren {
+  WorkflowsWorkflowRoute: typeof WorkflowsWorkflowRoute
+}
+
+const WorkflowsRouteChildren: WorkflowsRouteChildren = {
+  WorkflowsWorkflowRoute: WorkflowsWorkflowRoute,
+}
+
+const WorkflowsRouteWithChildren = WorkflowsRoute._addFileChildren(
+  WorkflowsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  IntegrationsRoute: IntegrationsRoute,
-  LibraryRoute: LibraryRoute,
+  IntegrationsRoute: IntegrationsRouteWithChildren,
+  LibraryRoute: LibraryRouteWithChildren,
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
-  WorkflowsRoute: WorkflowsRoute,
+  WorkflowsRoute: WorkflowsRouteWithChildren,
+  ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
 }
 export const routeTree = rootRouteImport

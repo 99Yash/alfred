@@ -138,9 +138,7 @@ function renderHtml(args: ComposeBriefingArgs, greeting: string): string {
     if (args.digest.suppressedCounts.fyi > 0) {
       parts.push(`${args.digest.suppressedCounts.fyi} FYI`);
     }
-    tail.push(
-      `<p style="${MUTED_P_STYLE}">Also seen in the last 24h: ${parts.join(", ")}.</p>`,
-    );
+    tail.push(`<p style="${MUTED_P_STYLE}">Also seen in the last 24h: ${parts.join(", ")}.</p>`);
   }
 
   if (args.alfredUrl) {

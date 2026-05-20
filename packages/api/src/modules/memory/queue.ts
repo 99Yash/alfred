@@ -88,9 +88,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
     }
     case "memory.extract.run": {
       const result = await enqueueExtractionForUser(data.userId);
-      console.log(
-        `[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`,
-      );
+      console.log(`[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`);
       return result;
     }
     case "memory.embed_sweep": {

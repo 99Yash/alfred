@@ -1,9 +1,4 @@
-import {
-  notes,
-  rejectedInferences,
-  userFacts,
-  userPreferences,
-} from "@alfred/db/schemas";
+import { notes, rejectedInferences, userFacts, userPreferences } from "@alfred/db/schemas";
 import type {
   FactConfirmArgs,
   FactEditArgs,
