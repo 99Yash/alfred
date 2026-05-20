@@ -131,15 +131,15 @@ export const emailTriageWorkflow: Workflow<State> = {
           } catch (err) {
             // LLM parse / network failure → default category. Better to
             // ship a low-confidence label than block the message entirely.
-            await ctx.log(
-              `classify failed; falling through to default: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
+            // Persist the exception text in `rationale` so the row itself
+            // tells us why classification fell through — ctx.log only goes
+            // to a transient event stream.
+            const errMsg = err instanceof Error ? err.message : String(err);
+            await ctx.log(`classify failed; falling through to default: ${errMsg}`);
             classification = {
               category: DEFAULT_TRIAGE_CATEGORY,
               confidence: 0.5,
-              rationale: "Classifier failed; default applied.",
+              rationale: `Classifier failed; default applied. err=${errMsg.slice(0, 500)}`,
             };
             model = "fallback";
           }
