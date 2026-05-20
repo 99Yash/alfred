@@ -92,7 +92,12 @@ export function auth() {
     },
     advanced: {
       defaultCookieAttributes: {
-        sameSite: "lax",
+        // Web and server live on different *.up.railway.app subdomains, which
+        // sit under a Public Suffix List entry — browsers treat them as
+        // cross-site. Lax cookies are stripped on the cross-site fetches the
+        // web app makes, so the session cookie never reaches the API after
+        // sign-in. None+Secure is required for prod; local dev stays Lax.
+        sameSite: env.NODE_ENV === "production" ? "none" : "lax",
         secure: env.NODE_ENV === "production",
         httpOnly: true,
       },
