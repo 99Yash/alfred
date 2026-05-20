@@ -90,7 +90,7 @@ function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
             variant="pill"
             value={filter}
             onValueChange={setFilter}
-            items={FILTER_TABS.slice(1)}
+            items={FILTER_TABS}
             label="Library secondary filter"
           />
         </div>

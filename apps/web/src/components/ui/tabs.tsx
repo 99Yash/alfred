@@ -113,7 +113,7 @@ function triggerClassName(variant: TabsVariant): string {
       "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium",
       "active:scale-[0.97]",
       "text-gray-800 hover:text-gray-900",
-      "data-[state=active]:bg-white/90 data-[state=active]:text-gray-1000",
+      "data-[state=active]:bg-white/90 data-[state=active]:text-gray-50",
     );
   }
 

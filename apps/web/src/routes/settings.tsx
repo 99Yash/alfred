@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   BadgeDollarSign,
   Bell,
@@ -275,11 +275,13 @@ function UserSection() {
   const [channel, setChannel] = useState<CommunicationChannel>("email");
   const [autoApprove, setAutoApprove] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const navigate = useNavigate();
 
   const onSignOut = async () => {
     setSigningOut(true);
     try {
       await authClient.signOut();
+      await navigate({ to: "/login" });
     } finally {
       setSigningOut(false);
     }

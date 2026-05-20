@@ -1,3 +1,4 @@
+import * as RadixDialog from "@radix-ui/react-dialog";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -89,20 +90,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Close the mobile drawer on route change.
+  // Close the mobile drawer on route change. (Radix Dialog handles Escape +
+  // outside-click + focus trap for the drawer itself.)
   useEffect(() => {
     setMobileNavOpen(false);
   }, [location.pathname]);
-
-  // Close the mobile drawer on Escape.
-  useEffect(() => {
-    if (!mobileNavOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileNavOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [mobileNavOpen]);
 
   // Close the palette on route change so navigation feels clean.
   useEffect(() => {
@@ -133,30 +125,41 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <RightRailContext.Provider value={ctx}>
       <div className="flex min-h-[100dvh]">
-        {/* Mobile hamburger — only visible <md. Sits over content with safe-area padding. */}
-        <button
-          type="button"
-          onClick={() => setMobileNavOpen(true)}
-          className={cn(
-            "md:hidden fixed top-3 left-3 z-30 inline-flex items-center justify-center",
-            "size-9 rounded-md border bg-background/80 backdrop-blur",
-            "text-muted-foreground hover:text-foreground",
-          )}
-          aria-label="Open navigation"
-        >
-          <Menu size={18} />
-        </button>
-
-        {/* Mobile drawer + scrim */}
-        {mobileNavOpen ? (
-          <div className="md:hidden fixed inset-0 z-40">
+        {/* Mobile drawer — Radix Dialog gives us focus trap, scroll lock,
+         * Escape, and outside-click for free. Hamburger trigger lives inside
+         * the root so the open state stays centralized. */}
+        <RadixDialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <RadixDialog.Trigger asChild>
             <button
               type="button"
-              aria-label="Close navigation"
-              onClick={() => setMobileNavOpen(false)}
-              className="absolute inset-0 bg-background/60 backdrop-blur-sm"
+              className={cn(
+                "md:hidden fixed top-3 left-3 z-30 inline-flex items-center justify-center",
+                "size-9 rounded-md border bg-background/80 backdrop-blur",
+                "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label="Open navigation"
+            >
+              <Menu size={18} />
+            </button>
+          </RadixDialog.Trigger>
+          <RadixDialog.Portal>
+            <RadixDialog.Overlay
+              className={cn(
+                "md:hidden fixed inset-0 z-40 bg-background/60 backdrop-blur-sm",
+                "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
+                "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
+              )}
             />
-            <div className="relative h-full w-[18rem] max-w-[85%] bg-card border-r shadow-pop drawer-slide-in">
+            <RadixDialog.Content
+              aria-describedby={undefined}
+              className={cn(
+                "md:hidden fixed inset-y-0 left-0 z-50",
+                "h-full w-[18rem] max-w-[85%]",
+                "bg-card border-r shadow-pop focus:outline-none",
+                "data-[state=open]:drawer-slide-in",
+              )}
+            >
+              <RadixDialog.Title className="sr-only">Navigation</RadixDialog.Title>
               <Sidebar
                 email={session.user.email}
                 collapsed={false}
@@ -165,9 +168,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 showCloseButton
                 onOpenPalette={() => setPaletteOpen(true)}
               />
-            </div>
-          </div>
-        ) : null}
+            </RadixDialog.Content>
+          </RadixDialog.Portal>
+        </RadixDialog.Root>
 
         {/* Desktop sidebar */}
         <aside
