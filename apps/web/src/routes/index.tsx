@@ -1,3 +1,4 @@
+import * as Popover from "@radix-ui/react-popover";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -419,93 +420,119 @@ function Composer() {
 
   return (
     <div className="space-y-3">
-      <DimensionComposerShell
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-        tray={<ConnectedToolsRow onOpen={() => setConnectToolsOpen(true)} />}
-        toolbar={
-          <DimensionComposerToolbar
-            start={
-              <>
-                <DimensionComposerContextMenu items={contextItems}>
-                  <Plus size={15} />
-                </DimensionComposerContextMenu>
-                <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
-                <ComposerStatusPill />
-              </>
-            }
-            end={
-              <>
-                <DimensionModelPicker
-                  value={MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"}
-                  options={modelOptions}
-                  onSelect={setModel}
+      <Popover.Root open={mentionOpen} onOpenChange={setMentionOpen}>
+        <Popover.Anchor asChild>
+          <div>
+            <DimensionComposerShell
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+              tray={<ConnectedToolsRow onOpen={() => setConnectToolsOpen(true)} />}
+              toolbar={
+                <DimensionComposerToolbar
+                  start={
+                    <>
+                      <DimensionComposerContextMenu items={contextItems}>
+                        <Plus size={15} />
+                      </DimensionComposerContextMenu>
+                      <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
+                      <ComposerStatusPill />
+                    </>
+                  }
+                  end={
+                    <>
+                      <DimensionModelPicker
+                        value={
+                          MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"
+                        }
+                        options={modelOptions}
+                        onSelect={setModel}
+                      />
+                      <DimensionComposerOverflowMenu items={overflowItems} />
+                      <DimensionComposerIconButton label="Voice input" disabled>
+                        <Mic size={15} />
+                      </DimensionComposerIconButton>
+                      <DimensionComposerSendButton disabled={!hasContent} />
+                    </>
+                  }
                 />
-                <DimensionComposerOverflowMenu items={overflowItems} />
-                <DimensionComposerIconButton label="Voice input" disabled>
-                  <Mic size={15} />
-                </DimensionComposerIconButton>
-                <DimensionComposerSendButton disabled={!hasContent} />
-              </>
-            }
-          />
-        }
-      >
-        {mentionOpen ? (
-          <MentionMenu
-            items={filteredMentions}
-            selectedIndex={selectedMentionIndex}
-            query={mentionQuery}
-            onSelect={insertMention}
-            onHover={setSelectedMentionIndex}
-          />
-        ) : null}
+              }
+            >
+              <div
+                onKeyDown={(e) => {
+                  if (mentionOpen) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSelectedMentionIndex((i) =>
+                        filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
+                      );
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSelectedMentionIndex((i) =>
+                        filteredMentions.length === 0
+                          ? 0
+                          : (i - 1 + filteredMentions.length) % filteredMentions.length,
+                      );
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      const item = filteredMentions[selectedMentionIndex];
+                      e.preventDefault();
+                      if (item) {
+                        insertMention(item);
+                      }
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setMentionOpen(false);
+                      return;
+                    }
+                  }
 
-        <div
-          onKeyDown={(e) => {
-            if (mentionOpen) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setSelectedMentionIndex((i) =>
-                  filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
-                );
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setSelectedMentionIndex((i) =>
-                  filteredMentions.length === 0
-                    ? 0
-                    : (i - 1 + filteredMentions.length) % filteredMentions.length,
-                );
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                const item = filteredMentions[selectedMentionIndex];
-                e.preventDefault();
-                if (item) {
-                  insertMention(item);
-                }
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setMentionOpen(false);
-                return;
-              }
-            }
-
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-        >
-          <EditorContent editor={editor} />
-        </div>
-      </DimensionComposerShell>
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+              >
+                <EditorContent editor={editor} />
+              </div>
+            </DimensionComposerShell>
+          </div>
+        </Popover.Anchor>
+        <Popover.Portal>
+          <Popover.Content
+            side="top"
+            align="start"
+            sideOffset={8}
+            /* Keep focus inside the TipTap editor — without these, Radix would
+             * pull focus onto the popover on open and back to a sibling on
+             * close, breaking the composer interaction. */
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            /* Open state is driven entirely by `syncMentionState` (the @ token
+             * under the caret) and the manual Escape handler. Radix's outside-
+             * click detector would otherwise close the menu whenever the user
+             * clicks back in the editor, since the editor lives in the Anchor
+             * (not the Content). */
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onFocusOutside={(e) => e.preventDefault()}
+            className="z-20 outline-none"
+          >
+            <MentionMenu
+              items={filteredMentions}
+              selectedIndex={selectedMentionIndex}
+              query={mentionQuery}
+              onSelect={insertMention}
+              onHover={setSelectedMentionIndex}
+            />
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
 
       {reviewPreview ? (
         <RunReviewPreview
@@ -533,28 +560,20 @@ function MentionMenu({
   onSelect: (item: MentionItem) => void;
   onHover: (index: number) => void;
 }) {
-  const listboxRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
-    const selectedItem = items[selectedIndex];
-    if (!selectedItem) return;
-
-    const selectedOption = document.getElementById(mentionOptionId(selectedItem));
-    if (!selectedOption || !listboxRef.current?.contains(selectedOption)) return;
-
-    selectedOption.scrollIntoView({ block: "nearest" });
-  }, [items, selectedIndex]);
+    itemRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, items.length]);
 
   return (
     <div
       className={cn(
-        "absolute left-3 bottom-[calc(100%+0.5rem)] z-20",
         "frost-popover w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl p-2",
         "animate-menu-pop-in origin-bottom-left",
       )}
     >
       <div
-        ref={listboxRef}
         id={MENTION_LISTBOX_ID}
         role="listbox"
         aria-label="Mentionable tools and integrations"
@@ -570,6 +589,9 @@ function MentionMenu({
             {items.map((item, index) => (
               <MentionMenuItem
                 key={item.id}
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
                 item={item}
                 selected={index === selectedIndex}
                 onMouseEnter={() => onHover(index)}
@@ -583,19 +605,18 @@ function MentionMenu({
   );
 }
 
-function MentionMenuItem({
-  item,
-  selected,
-  onMouseEnter,
-  onSelect,
-}: {
+interface MentionMenuItemProps {
   item: MentionItem;
   selected: boolean;
   onMouseEnter: () => void;
   onSelect: () => void;
-}) {
+  ref?: (node: HTMLDivElement | null) => void;
+}
+
+function MentionMenuItem({ item, selected, onMouseEnter, onSelect, ref }: MentionMenuItemProps) {
   return (
     <div
+      ref={ref}
       id={mentionOptionId(item)}
       role="option"
       aria-selected={selected}
