@@ -74,7 +74,7 @@ function ArtifactViewer() {
                 <Link
                   to="/library"
                   aria-label="Close artifact"
-                  className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.05] text-gray-800 transition-colors hover:bg-white/[0.08] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                  className="grid size-8 place-items-center rounded-full bg-white/[0.05] text-gray-800 transition-colors hover:bg-white/[0.08] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
                 >
                   <X size={15} />
                 </Link>
@@ -85,7 +85,7 @@ function ArtifactViewer() {
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-8">
             <div className="mx-auto flex w-full max-w-[460px] flex-col gap-8">
               {artifact.pages.map((page, index) => (
-                <section key={index} aria-label={`Page ${index + 1}`}>
+                <section key={page.title} aria-label={`Page ${index + 1}`}>
                   <div className="mb-2 flex items-center justify-between text-[12px] text-gray-800">
                     <span>Page</span>
                     <span>

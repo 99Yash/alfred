@@ -22,7 +22,15 @@ import {
   Video,
   Workflow,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { ConnectToolsDialog } from "~/components/connect-tools-dialog";
 import {
   DimensionComposerContextMenu,
@@ -33,6 +41,7 @@ import {
   DimensionComposerToolbar,
   DimensionModelPicker,
   type DimensionComposerMenuItem,
+  type DimensionModelOption,
 } from "~/components/dimension-composer-shell";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
@@ -236,35 +245,113 @@ function mentionOptionId(item: MentionItem) {
   return `composer-mention-option-${item.id}`;
 }
 
+/**
+ * Mention menu state. Groups everything that has to change together when the
+ * user types `@` — the menu visibility, the query, the selected option, and
+ * the caret offset where the token begins. Centralising the transitions in a
+ * reducer eliminates the prior chain of useStates + tracking refs.
+ */
+interface MentionState {
+  open: boolean;
+  query: string;
+  selectedIndex: number;
+  start: number | null;
+}
+
+type MentionAction =
+  | { type: "open"; start: number }
+  | { type: "close" }
+  | { type: "set-query"; start: number; query: string }
+  | { type: "set-index"; index: number }
+  | { type: "next"; total: number }
+  | { type: "prev"; total: number };
+
+const INITIAL_MENTION_STATE: MentionState = {
+  open: false,
+  query: "",
+  selectedIndex: 0,
+  start: null,
+};
+
+function mentionReducer(state: MentionState, action: MentionAction): MentionState {
+  switch (action.type) {
+    case "open":
+      return { open: true, query: "", selectedIndex: 0, start: action.start };
+    case "close":
+      return INITIAL_MENTION_STATE;
+    case "set-query":
+      // Query change resets the selected index — the previous selection no
+      // longer aligns with the new filtered list.
+      return {
+        open: true,
+        query: action.query,
+        selectedIndex: state.query === action.query ? state.selectedIndex : 0,
+        start: action.start,
+      };
+    case "set-index":
+      return { ...state, selectedIndex: action.index };
+    case "next":
+      return {
+        ...state,
+        selectedIndex: action.total === 0 ? 0 : (state.selectedIndex + 1) % action.total,
+      };
+    case "prev":
+      return {
+        ...state,
+        selectedIndex:
+          action.total === 0 ? 0 : (state.selectedIndex - 1 + action.total) % action.total,
+      };
+  }
+}
+
+interface ComposerSettings {
+  approvalMode: ApprovalMode;
+  model: string;
+}
+
+type ComposerSettingsAction =
+  | { type: "set-approval-mode"; mode: ApprovalMode }
+  | { type: "set-model"; model: string };
+
+function composerSettingsReducer(
+  state: ComposerSettings,
+  action: ComposerSettingsAction,
+): ComposerSettings {
+  switch (action.type) {
+    case "set-approval-mode":
+      return { ...state, approvalMode: action.mode };
+    case "set-model":
+      return { ...state, model: action.model };
+  }
+}
+
 function Composer() {
   const [value, setValue] = useState("");
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
-  const [model, setModel] = useState("alfred");
+  const [settings, dispatchSettings] = useReducer(composerSettingsReducer, {
+    approvalMode: "manual",
+    model: "alfred",
+  });
   const [connectToolsOpen, setConnectToolsOpen] = useState(false);
   const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  // Caret offset where the active "@" mention token starts. Only used to
-  // compute insertion range inside event handlers, never read during render,
-  // so a ref is correct here (avoids extra renders on every keystroke).
-  const mentionStartRef = useRef<number | null>(null);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-  const [prevMentionQuery, setPrevMentionQuery] = useState(mentionQuery);
-  // Reset the selected index whenever the mention query changes. React's
-  // "adjusting state during render" pattern: React discards this in-progress
-  // render and re-runs before committing, so the chain of effects below
-  // collapses into a single render with the correct selection.
-  if (prevMentionQuery !== mentionQuery) {
-    setPrevMentionQuery(mentionQuery);
-    setSelectedMentionIndex(0);
-  }
+  const [mention, dispatchMention] = useReducer(mentionReducer, INITIAL_MENTION_STATE);
+  const approvalMode = settings.approvalMode;
+  const model = settings.model;
+  const setApprovalMode = useCallback(
+    (mode: ApprovalMode) => dispatchSettings({ type: "set-approval-mode", mode }),
+    [],
+  );
+  const setModel = useCallback(
+    (next: string) => dispatchSettings({ type: "set-model", model: next }),
+    [],
+  );
+
   const hasContent = value.trim().length > 0;
-  const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
+  const filteredMentions = useMemo(() => filterMentions(mention.query), [mention.query]);
   // Clamp during render so we never index past the filtered list.
   const safeMentionIndex =
     filteredMentions.length === 0
       ? 0
-      : Math.min(selectedMentionIndex, filteredMentions.length - 1);
+      : Math.min(mention.selectedIndex, filteredMentions.length - 1);
   const modelOptions = useMemo(
     () =>
       MODEL_OPTIONS.map((option) => ({
@@ -279,16 +366,15 @@ function Composer() {
     const caret = editorCaretTextOffset(editor);
     const token = activeMentionToken(nextValue, caret);
     if (!token) {
-      setMentionOpen(false);
-      mentionStartRef.current = null;
-      setMentionQuery("");
+      dispatchMention({ type: "close" });
       return;
     }
-
-    mentionStartRef.current = token.start;
-    setMentionQuery(token.query);
-    setMentionOpen(true);
+    dispatchMention({ type: "set-query", start: token.start, query: token.query });
   }, []);
+
+  // Latest keydown closure kept in a ref so TipTap's handleKeyDown — which
+  // is registered once at editor init — always sees the current state.
+  const handleEditorKeyDownRef = useRef<(event: KeyboardEvent) => boolean>(() => false);
 
   const editor = useEditor({
     extensions: [
@@ -311,6 +397,7 @@ function Composer() {
         class:
           "tiptap ProseMirror tiptap-minimum-input composer-editor min-h-[50px] max-h-[320px] overflow-y-auto bg-transparent px-3 pb-2 pt-3 text-sm leading-6 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
       },
+      handleKeyDown: (_view, event) => handleEditorKeyDownRef.current(event),
     },
     onSelectionUpdate: ({ editor }) => syncMentionState(editor),
     onUpdate: ({ editor }) => {
@@ -341,9 +428,7 @@ function Composer() {
     });
     editor?.commands.clearContent();
     setValue("");
-    setMentionOpen(false);
-    mentionStartRef.current = null;
-    setMentionQuery("");
+    dispatchMention({ type: "close" });
     queueMicrotask(() => editor?.commands.focus());
   };
 
@@ -351,7 +436,7 @@ function Composer() {
     (item: MentionItem) => {
       if (!editor) return;
       const caret = editorCaretTextOffset(editor);
-      const start = mentionStartRef.current ?? activeMentionToken(value, caret)?.start;
+      const start = mention.start ?? activeMentionToken(value, caret)?.start;
       if (start == null) return;
 
       editor
@@ -363,11 +448,9 @@ function Composer() {
         })
         .insertContent(`@${item.label} `)
         .run();
-      setMentionOpen(false);
-      mentionStartRef.current = null;
-      setMentionQuery("");
+      dispatchMention({ type: "close" });
     },
-    [editor, value],
+    [editor, value, mention.start],
   );
 
   const openMentionMenu = useCallback(() => {
@@ -376,10 +459,7 @@ function Composer() {
     const spacer = caret > 0 && !/\s/.test(value.charAt(caret - 1)) ? " " : "";
 
     editor.chain().focus().insertContent(`${spacer}@`).run();
-    mentionStartRef.current = caret + spacer.length;
-    setMentionQuery("");
-    setMentionOpen(true);
-    setSelectedMentionIndex(0);
+    dispatchMention({ type: "open", start: caret + spacer.length });
   }, [editor, value]);
 
   const updateReviewPreview = useCallback((status: ReviewPreviewStatus) => {
@@ -428,9 +508,53 @@ function Composer() {
     [approvalMode],
   );
 
+  // Keep the keydown closure fresh — TipTap registers the handler once at
+  // editor init, so we route it through a ref that we overwrite each render
+  // with a closure over the current state. Returns true when we handled the
+  // event so TipTap skips its own keymap.
+  handleEditorKeyDownRef.current = (event) => {
+    if (mention.open) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        dispatchMention({ type: "next", total: filteredMentions.length });
+        return true;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        dispatchMention({ type: "prev", total: filteredMentions.length });
+        return true;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const item = filteredMentions[safeMentionIndex];
+        event.preventDefault();
+        if (item) insertMention(item);
+        return true;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dispatchMention({ type: "close" });
+        return true;
+      }
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+      return true;
+    }
+    return false;
+  };
+
+  const onMentionOpenChange = useCallback((open: boolean) => {
+    if (!open) dispatchMention({ type: "close" });
+  }, []);
+  const onMentionHover = useCallback(
+    (index: number) => dispatchMention({ type: "set-index", index }),
+    [],
+  );
+
   return (
     <div className="space-y-3">
-      <Popover.Root open={mentionOpen} onOpenChange={setMentionOpen}>
+      <Popover.Root open={mention.open} onOpenChange={onMentionOpenChange}>
         <Popover.Anchor asChild>
           <div>
             <DimensionComposerShell
@@ -440,108 +564,29 @@ function Composer() {
               }}
               tray={<ConnectedToolsRow onOpen={() => setConnectToolsOpen(true)} />}
               toolbar={
-                <DimensionComposerToolbar
-                  start={
-                    <>
-                      <DimensionComposerContextMenu items={contextItems}>
-                        <Plus size={15} />
-                      </DimensionComposerContextMenu>
-                      <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
-                      <ComposerStatusPill />
-                    </>
-                  }
-                  end={
-                    <>
-                      <DimensionModelPicker
-                        value={
-                          MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"
-                        }
-                        options={modelOptions}
-                        onSelect={setModel}
-                      />
-                      <DimensionComposerOverflowMenu items={overflowItems} />
-                      <DimensionComposerIconButton label="Voice input" disabled>
-                        <Mic size={15} />
-                      </DimensionComposerIconButton>
-                      <DimensionComposerSendButton disabled={!hasContent} />
-                    </>
-                  }
+                <ComposerToolbar
+                  contextItems={contextItems}
+                  overflowItems={overflowItems}
+                  approvalMode={approvalMode}
+                  onApprovalModeChange={setApprovalMode}
+                  model={model}
+                  modelOptions={modelOptions}
+                  onModelChange={setModel}
+                  hasContent={hasContent}
                 />
               }
             >
-              <div
-                onKeyDown={(e) => {
-                  if (mentionOpen) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setSelectedMentionIndex((i) =>
-                        filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
-                      );
-                      return;
-                    }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setSelectedMentionIndex((i) =>
-                        filteredMentions.length === 0
-                          ? 0
-                          : (i - 1 + filteredMentions.length) % filteredMentions.length,
-                      );
-                      return;
-                    }
-                    if (e.key === "Enter" || e.key === "Tab") {
-                      const item = filteredMentions[safeMentionIndex];
-                      e.preventDefault();
-                      if (item) {
-                        insertMention(item);
-                      }
-                      return;
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setMentionOpen(false);
-                      return;
-                    }
-                  }
-
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-              >
-                <EditorContent editor={editor} />
-              </div>
+              <EditorContent editor={editor} />
             </DimensionComposerShell>
           </div>
         </Popover.Anchor>
-        <Popover.Portal>
-          <Popover.Content
-            side="top"
-            align="start"
-            sideOffset={8}
-            /* Keep focus inside the TipTap editor — without these, Radix would
-             * pull focus onto the popover on open and back to a sibling on
-             * close, breaking the composer interaction. */
-            onOpenAutoFocus={(e) => e.preventDefault()}
-            onCloseAutoFocus={(e) => e.preventDefault()}
-            /* Open state is driven entirely by `syncMentionState` (the @ token
-             * under the caret) and the manual Escape handler. Radix's outside-
-             * click detector would otherwise close the menu whenever the user
-             * clicks back in the editor, since the editor lives in the Anchor
-             * (not the Content). */
-            onPointerDownOutside={(e) => e.preventDefault()}
-            onFocusOutside={(e) => e.preventDefault()}
-            className="z-20 outline-none"
-          >
-            <MentionMenu
-              items={filteredMentions}
-              selectedIndex={safeMentionIndex}
-              query={mentionQuery}
-              onSelect={insertMention}
-              onHover={setSelectedMentionIndex}
-            />
-          </Popover.Content>
-        </Popover.Portal>
+        <MentionPopoverContent
+          items={filteredMentions}
+          selectedIndex={safeMentionIndex}
+          query={mention.query}
+          onSelect={insertMention}
+          onHover={onMentionHover}
+        />
       </Popover.Root>
 
       {reviewPreview ? (
@@ -554,6 +599,103 @@ function Composer() {
       ) : null}
       <ConnectToolsDialog open={connectToolsOpen} onOpenChange={setConnectToolsOpen} />
     </div>
+  );
+}
+
+/**
+ * The toolbar's start (context menu + approval toggle + status pill) and end
+ * (model picker + overflow menu + voice button + send) are presentational
+ * compositions of DimensionComposer* primitives. Keeping them out of Composer
+ * keeps the parent focused on state orchestration.
+ */
+function ComposerToolbar({
+  contextItems,
+  overflowItems,
+  approvalMode,
+  onApprovalModeChange,
+  model,
+  modelOptions,
+  onModelChange,
+  hasContent,
+}: {
+  contextItems: DimensionComposerMenuItem[];
+  overflowItems: DimensionComposerMenuItem[];
+  approvalMode: ApprovalMode;
+  onApprovalModeChange: (next: ApprovalMode) => void;
+  model: string;
+  modelOptions: DimensionModelOption[];
+  onModelChange: (id: string) => void;
+  hasContent: boolean;
+}) {
+  return (
+    <DimensionComposerToolbar
+      start={
+        <>
+          <DimensionComposerContextMenu items={contextItems}>
+            <Plus size={15} />
+          </DimensionComposerContextMenu>
+          <ApprovalModeToggle mode={approvalMode} onModeChange={onApprovalModeChange} />
+          <ComposerStatusPill />
+        </>
+      }
+      end={
+        <>
+          <DimensionModelPicker
+            value={MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"}
+            options={modelOptions}
+            onSelect={onModelChange}
+          />
+          <DimensionComposerOverflowMenu items={overflowItems} />
+          <DimensionComposerIconButton label="Voice input" disabled>
+            <Mic size={15} />
+          </DimensionComposerIconButton>
+          <DimensionComposerSendButton disabled={!hasContent} />
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * Portal'd mention menu — kept in its own component so the Composer body
+ * stays focused on state orchestration. The Radix outside-click/auto-focus
+ * suppressions live here because the editor that drives the menu lives in
+ * the Popover.Anchor, not inside the content.
+ */
+function MentionPopoverContent({
+  items,
+  selectedIndex,
+  query,
+  onSelect,
+  onHover,
+}: {
+  items: MentionItem[];
+  selectedIndex: number;
+  query: string;
+  onSelect: (item: MentionItem) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <Popover.Portal>
+      <Popover.Content
+        side="top"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onFocusOutside={(e) => e.preventDefault()}
+        className="z-20 outline-none"
+      >
+        <MentionMenu
+          items={items}
+          selectedIndex={selectedIndex}
+          query={query}
+          onSelect={onSelect}
+          onHover={onHover}
+        />
+      </Popover.Content>
+    </Popover.Portal>
   );
 }
 
@@ -709,7 +851,7 @@ function ComposerStatusPill() {
     >
       <CircleAlert size={15} className="text-red-400" strokeWidth={2.2} />
       <span className="truncate">Review gates active</span>
-      <span className="font-medium text-indigo-300">Configure</span>
+      <span className="font-medium text-purple-300">Configure</span>
     </a>
   );
 }

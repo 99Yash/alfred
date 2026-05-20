@@ -21,12 +21,12 @@ export function ConnectToolsDialog({
 }) {
   const [query, setQuery] = useState("");
   const sections = useMemo(() => {
-    return CATEGORY_ORDER.map((category) => ({
-      category,
-      providers: INTEGRATION_PROVIDERS.filter(
+    return CATEGORY_ORDER.flatMap((category) => {
+      const providers = INTEGRATION_PROVIDERS.filter(
         (provider) => provider.category === category && matchesIntegration(provider, query),
-      ),
-    })).filter((section) => section.providers.length > 0);
+      );
+      return providers.length > 0 ? [{ category, providers }] : [];
+    });
   }, [query]);
   const connectedCount = INTEGRATION_PROVIDERS.filter(
     (provider) => provider.status === "connected",

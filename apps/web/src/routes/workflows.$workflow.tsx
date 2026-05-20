@@ -79,6 +79,7 @@ function WorkflowDetailPage() {
             Share
           </Button>
           <label
+            htmlFor="workflow-auto-approve"
             className={cn(
               "inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03]",
               "h-8 px-3 text-sm text-gray-900 cursor-pointer select-none",
@@ -86,7 +87,11 @@ function WorkflowDetailPage() {
             )}
           >
             <span>Auto approve</span>
-            <Switch checked={autoApprove} onCheckedChange={setAutoApprove} />
+            <Switch
+              id="workflow-auto-approve"
+              checked={autoApprove}
+              onCheckedChange={setAutoApprove}
+            />
           </label>
           <Button size="mdPlus" leading={<Play size={14} />}>
             Activate
@@ -395,7 +400,7 @@ function WorkflowShareDialog({
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={() => onOpenChange(false)} variant="white" size="md">
-              Done
+              Close share dialog
             </Button>
           </div>
         </div>

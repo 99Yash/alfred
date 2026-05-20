@@ -99,7 +99,7 @@ function ConnectedAccounts({ provider }: { provider: IntegrationProvider }) {
           <div>Status</div>
           <div className="sr-only">Actions</div>
         </div>
-        <div className="grid grid-cols-[1fr_0.8fr_0.7fr_auto] items-center gap-4 px-4 py-4 text-[12.5px] text-gray-800">
+        <div className="grid grid-cols-[1fr_0.8fr_0.7fr_auto] items-center gap-4 p-4 text-[12.5px] text-gray-800">
           <div className="min-w-0">
             <p className="truncate text-gray-950">{connected ? "Connected account" : "-"}</p>
             <p className="truncate text-[11.5px]">{connected ? "Workspace" : ""}</p>
