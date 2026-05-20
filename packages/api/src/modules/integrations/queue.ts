@@ -173,10 +173,11 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         await queue.add(
           "gmail.poll_history",
           { kind: "gmail.poll_history", credentialId: c.credentialId, reason: "poll-fallback" },
-          // Dedupe in-flight polls per credential — if a webhook just
-          // fired and a poll is already queued for this id, don't pile on.
-          // BullMQ forbids `:` in custom jobIds, so the separator is `.`.
-          { jobId: `gmail.poll_history.${c.credentialId}` },
+          // TTL-bounded dedup: collapses overlap between the 5-min sweep and
+          // a near-simultaneous webhook push for the same credential, but
+          // releases inside the sweep cadence so the next legitimate sync
+          // can land. See gmail-webhook.ts for the matching dedup key.
+          { deduplication: { id: `gmail.poll_history.${c.credentialId}`, ttl: 30_000 } },
         );
       }
       console.log(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);
