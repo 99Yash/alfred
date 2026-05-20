@@ -52,7 +52,7 @@ function DebugEventsPage() {
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Realtime events</h1>
+        <h1 className="text-2xl font-semibold">Realtime events</h1>
         <p className="text-sm text-muted-foreground">
           Outbox → Redis → SSE. Open this page in two tabs to verify multi-tab fan-out.
         </p>

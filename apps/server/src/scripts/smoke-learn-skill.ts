@@ -167,10 +167,7 @@ async function main() {
   console.log(`[smoke-learn-skill] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "learn-skill run");
-  assert(
-    run.status === "completed",
-    `run status=${run.status} error=${JSON.stringify(run.error)}`,
-  );
+  assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
   const out = run.output as {
     skillId: string;
@@ -212,10 +209,7 @@ async function main() {
   console.log(`[smoke-learn-skill] revision body preview:\n${rev.body.slice(0, 400)}\n...`);
 
   // Skill-run row.
-  const [sr] = await db()
-    .select()
-    .from(skillRuns)
-    .where(eq(skillRuns.agentRunId, runId));
+  const [sr] = await db().select().from(skillRuns).where(eq(skillRuns.agentRunId, runId));
   assert(sr, "skill_runs row missing");
   assert(sr.status === "completed", `skill_runs.status = ${sr.status}`);
   assert(

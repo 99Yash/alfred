@@ -9,17 +9,13 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.8.
  */
 
-import { forwardRef, type HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export const FrostPanel = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  function FrostPanel({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        className={cn("frost-panel rounded-2xl p-3", className)}
-        {...rest}
-      />
-    );
-  },
-);
+export function FrostPanel({
+  className,
+  ref,
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+  return <div ref={ref} className={cn("frost-panel rounded-2xl p-3", className)} {...rest} />;
+}

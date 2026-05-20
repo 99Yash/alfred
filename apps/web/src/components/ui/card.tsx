@@ -9,18 +9,16 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.8.
  */
 
-import { forwardRef, type HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   /** Apply hover/focus background fill — set to true when the card itself is clickable. */
   interactive?: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
-  { className, interactive, ...rest },
-  ref,
-) {
+export function Card({ className, interactive, ref, ...rest }: CardProps) {
   return (
     <div
       ref={ref}
@@ -37,4 +35,4 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
       {...rest}
     />
   );
-});
+}

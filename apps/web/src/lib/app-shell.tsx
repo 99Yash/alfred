@@ -1,8 +1,5 @@
-import {
-  Link,
-  useLocation,
-  useNavigate,
-} from "@tanstack/react-router";
+import * as RadixDialog from "@radix-ui/react-dialog";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   Brain,
@@ -26,10 +23,11 @@ import {
 } from "lucide-react";
 import {
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -75,7 +73,7 @@ interface RightRailContextValue {
 const RightRailContext = createContext<RightRailContextValue | null>(null);
 
 export function useRightRail(node: ReactNode | null) {
-  const ctx = useContext(RightRailContext);
+  const ctx = use(RightRailContext);
   useEffect(() => {
     if (!ctx) return;
     ctx.setContent(node);
@@ -93,25 +91,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Close the mobile drawer on route change.
-  useEffect(() => {
+  // Close the mobile drawer + palette on route change. Tracking the previous
+  // location in a ref (not state — we never read it in render) and resetting
+  // during render replaces the prior useEffects that the linter flagged as
+  // derived-state effects.
+  const prevLocationRef = useRef(location);
+  if (prevLocationRef.current !== location) {
+    prevLocationRef.current = location;
     setMobileNavOpen(false);
-  }, [location.pathname]);
-
-  // Close the mobile drawer on Escape.
-  useEffect(() => {
-    if (!mobileNavOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileNavOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [mobileNavOpen]);
-
-  // Close the palette on route change so navigation feels clean.
-  useEffect(() => {
     setPaletteOpen(false);
-  }, [location.pathname]);
+  }
 
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && location.pathname !== "/login";
@@ -127,45 +116,51 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
-  const ctx = useMemo<RightRailContextValue>(
-    () => ({ setContent: setRightRailNode }),
-    [],
-  );
+  const ctx = useMemo<RightRailContextValue>(() => ({ setContent: setRightRailNode }), []);
 
   // Unauthenticated routes (login, etc.) get bare children — no chrome.
   if (!authed) {
-    return (
-      <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>
-    );
+    return <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>;
   }
 
   return (
     <RightRailContext.Provider value={ctx}>
       <div className="flex min-h-[100dvh]">
-        {/* Mobile hamburger — only visible <md. Sits over content with safe-area padding. */}
-        <button
-          type="button"
-          onClick={() => setMobileNavOpen(true)}
-          className={cn(
-            "md:hidden fixed top-3 left-3 z-30 inline-flex items-center justify-center",
-            "size-9 rounded-md border bg-background/80 backdrop-blur",
-            "text-muted-foreground hover:text-foreground",
-          )}
-          aria-label="Open navigation"
-        >
-          <Menu size={18} />
-        </button>
-
-        {/* Mobile drawer + scrim */}
-        {mobileNavOpen ? (
-          <div className="md:hidden fixed inset-0 z-40">
+        {/* Mobile drawer — Radix Dialog gives us focus trap, scroll lock,
+         * Escape, and outside-click for free. Hamburger trigger lives inside
+         * the root so the open state stays centralized. */}
+        <RadixDialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <RadixDialog.Trigger asChild>
             <button
               type="button"
-              aria-label="Close navigation"
-              onClick={() => setMobileNavOpen(false)}
-              className="absolute inset-0 bg-background/60 backdrop-blur-sm"
+              className={cn(
+                "md:hidden fixed top-3 left-3 z-30 inline-flex items-center justify-center",
+                "size-9 rounded-md border bg-background/80 backdrop-blur",
+                "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label="Open navigation"
+            >
+              <Menu size={18} />
+            </button>
+          </RadixDialog.Trigger>
+          <RadixDialog.Portal>
+            <RadixDialog.Overlay
+              className={cn(
+                "md:hidden fixed inset-0 z-40 bg-background/60 backdrop-blur-sm",
+                "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
+                "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
+              )}
             />
-            <div className="relative h-full w-[18rem] max-w-[85%] bg-card border-r shadow-pop drawer-slide-in">
+            <RadixDialog.Content
+              aria-describedby={undefined}
+              className={cn(
+                "md:hidden fixed inset-y-0 left-0 z-50",
+                "h-full w-[18rem] max-w-[85%]",
+                "bg-card border-r shadow-pop focus:outline-none",
+                "data-[state=open]:drawer-slide-in",
+              )}
+            >
+              <RadixDialog.Title className="sr-only">Navigation</RadixDialog.Title>
               <Sidebar
                 email={session.user.email}
                 collapsed={false}
@@ -174,9 +169,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 showCloseButton
                 onOpenPalette={() => setPaletteOpen(true)}
               />
-            </div>
-          </div>
-        ) : null}
+            </RadixDialog.Content>
+          </RadixDialog.Portal>
+        </RadixDialog.Root>
 
         {/* Desktop sidebar */}
         <aside
@@ -255,7 +250,7 @@ function Sidebar({
   return (
     <div className="flex h-full flex-col">
       {/* Brand / account row */}
-      <div className="flex items-center gap-2 px-3 py-3">
+      <div className="flex items-center gap-2 p-3">
         <div
           className={cn(
             "size-7 shrink-0 rounded-full bg-foreground text-background",
@@ -267,18 +262,12 @@ function Sidebar({
         </div>
         {!collapsed ? (
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium leading-tight truncate">
-              Alfred
-            </p>
+            <p className="text-[13px] font-medium leading-tight truncate">Alfred</p>
             <p className="text-[11px] text-muted-foreground truncate">{email}</p>
           </div>
         ) : null}
         {showCloseButton ? (
-          <IconButton
-            label="Close navigation"
-            onClick={onClose}
-            icon={<X size={16} />}
-          />
+          <IconButton label="Close navigation" onClick={onClose} icon={<X size={16} />} />
         ) : (
           <IconButton
             label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -365,7 +354,7 @@ function Sidebar({
       </nav>
 
       {/* Footer: settings + theme + sign-out */}
-      <div className="border-t px-2 py-2 space-y-0.5">
+      <div className="border-t p-2 space-y-0.5">
         <NavLink
           item={{ to: "/settings", label: "Settings", icon: Settings }}
           collapsed={collapsed}
@@ -385,9 +374,7 @@ function Sidebar({
           {!collapsed ? (
             <>
               <span className="flex-1 text-left capitalize">{theme}</span>
-              <span className="text-[10px] text-muted-foreground/70 capitalize">
-                {resolved}
-              </span>
+              <span className="text-[10px] text-muted-foreground/70 capitalize">{resolved}</span>
             </>
           ) : null}
         </button>
@@ -473,13 +460,7 @@ function IconButton({
   );
 }
 
-function ThemeIcon({
-  theme,
-  resolved,
-}: {
-  theme: Theme;
-  resolved: "light" | "dark";
-}) {
+function ThemeIcon({ theme, resolved }: { theme: Theme; resolved: "light" | "dark" }) {
   if (theme === "system") return <Monitor size={15} className="shrink-0" />;
   return resolved === "dark" ? (
     <Moon size={15} className="shrink-0" />

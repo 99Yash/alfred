@@ -97,10 +97,7 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
 export interface SignalArgs {
   runId: string;
   /** When provided, only fire if the wake condition matches (HIL approvalId or signal name). */
-  match?:
-    | { kind: "hil"; approvalId: string }
-    | { kind: "signal"; name: string }
-    | { kind: "any" };
+  match?: { kind: "hil"; approvalId: string } | { kind: "signal"; name: string } | { kind: "any" };
 }
 
 /**

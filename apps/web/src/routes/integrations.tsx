@@ -1,117 +1,49 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { Plug, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Button } from "~/components/ui/button";
+import { useMemo, useState, type ReactNode } from "react";
 import { Card } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
+import {
+  CATEGORY_ORDER,
+  INTEGRATION_PROVIDERS,
+  matchesIntegration,
+  type IntegrationCategory,
+  type IntegrationProvider,
+} from "~/lib/integrations";
+import { IntegrationIcon } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/integrations")({
-  component: IntegrationsPage,
+  component: IntegrationsRoute,
 });
 
-type Status = "connected" | "available" | "soon";
-
-type Provider = {
-  name: string;
-  description: string;
-  status: Status;
-  brand: IntegrationBrand;
-};
-
 type Section = {
-  title: string;
-  providers: ReadonlyArray<Provider>;
+  title: IntegrationCategory;
+  providers: ReadonlyArray<IntegrationProvider>;
 };
 
-const SECTIONS: ReadonlyArray<Section> = [
-  {
-    title: "Connected",
-    providers: [
-      {
-        name: "Gmail",
-        description: "Inbox triage, draft review, and briefing inputs.",
-        status: "connected",
-        brand: "gmail",
-      },
-      {
-        name: "Google Calendar",
-        description: "Meetings, daily context, and scheduling actions.",
-        status: "connected",
-        brand: "google_calendar",
-      },
-      {
-        name: "Google Drive",
-        description: "Docs and files for research-backed answers.",
-        status: "connected",
-        brand: "google_drive",
-      },
-    ],
-  },
-  {
-    title: "Apps",
-    providers: [
-      {
-        name: "Slack",
-        description: "Text Alfred from a Slack DM.",
-        status: "soon",
-        brand: "slack",
-      },
-    ],
-  },
-  {
-    title: "Productivity",
-    providers: [
-      {
-        name: "Google Docs",
-        description: "Read and edit Google Docs in place.",
-        status: "available",
-        brand: "google_docs",
-      },
-      {
-        name: "Google Sheets",
-        description: "Work with spreadsheets and named ranges.",
-        status: "available",
-        brand: "google_sheets",
-      },
-      {
-        name: "Google Slides",
-        description: "Create and edit Google Slides decks.",
-        status: "available",
-        brand: "google_slides",
-      },
-      {
-        name: "Linear",
-        description: "Manage Linear issues and projects.",
-        status: "soon",
-        brand: "linear",
-      },
-    ],
-  },
-  {
-    title: "Development",
-    providers: [
-      {
-        name: "GitHub",
-        description: "Repositories, pull requests, issues, and release context.",
-        status: "available",
-        brand: "github",
-      },
-    ],
-  },
-];
+const MCP_SECTION = {
+  heading: "Your Integrations",
+  name: "MCP Server",
+  description: "Connect any MCP server to extend Alfred.",
+} as const;
+
+const MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
+
+function IntegrationsRoute() {
+  const hasChild = useChildMatches().length > 0;
+  return hasChild ? <Outlet /> : <IntegrationsPage />;
+}
 
 function IntegrationsPage() {
   const [query, setQuery] = useState("");
 
-  const filtered = useMemo(() => filterSections(SECTIONS, query), [query]);
-  const mcpVisible = matches("MCP Server Connect any MCP server", query);
+  const filtered = useMemo(() => filterSections(query), [query]);
+  const mcpVisible = matches(MCP_HAYSTACK, query);
   const empty = filtered.length === 0 && !mcpVisible;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
-      {/* Spacer so the mobile hamburger doesn't collide with the page title. */}
       <div className="md:hidden h-6" />
 
       <header className="space-y-4 text-center">
@@ -156,84 +88,86 @@ function SectionBlock({ section }: { section: Section }) {
       <h2 className="text-[15px] font-medium text-gray-1000">{section.title}</h2>
       <div className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3">
         {section.providers.map((provider) => (
-          <ProviderRow key={provider.name} provider={provider} />
+          <ProviderRow key={provider.id} provider={provider} />
         ))}
       </div>
     </section>
   );
 }
 
-function ProviderRow({ provider }: { provider: Provider }) {
-  return (
-    <Card
-      interactive
-      className={cn(
-        "flex items-center gap-3 px-3 py-2.5",
-        /* Card defaults text to gray-800 — bump container so name reads at the
-         * intended weight. Per-element overrides below pick up the proper stops. */
-        "text-gray-950",
-      )}
-    >
+function ProviderRow({ provider }: { provider: IntegrationProvider }) {
+  const content = (
+    <>
       <IntegrationIcon
         brand={provider.brand}
         size="md"
-        connected={false}
+        connected={provider.status === "connected"}
         title={provider.name}
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-950">
-          {provider.name}
-        </p>
-        <p className="truncate text-[12.5px] text-gray-800">
-          {provider.description}
-        </p>
+        <p className="truncate text-sm font-medium text-gray-950">{provider.name}</p>
+        <p className="truncate text-[12.5px] text-gray-800">{provider.description}</p>
       </div>
-      <ActionButton status={provider.status} provider={provider.name} />
-    </Card>
+      <ActionPill status={provider.status}>{provider.actionLabel}</ActionPill>
+    </>
+  );
+
+  if (provider.status === "soon") {
+    return (
+      <Card
+        aria-disabled
+        className="flex items-center gap-3 px-3 py-2.5 text-gray-950 opacity-70 cursor-not-allowed"
+      >
+        {content}
+      </Card>
+    );
+  }
+
+  return (
+    <Link
+      to="/integrations/$provider"
+      params={{ provider: provider.id }}
+      className={cn(
+        "group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-gray-950",
+        "transition-[background-color] duration-200",
+        "outline-none hover:bg-[#181818] focus-visible:bg-[#181818] focus-visible:outline-none",
+      )}
+    >
+      {content}
+    </Link>
   );
 }
 
-function ActionButton({
+function ActionPill({
   status,
-  provider,
+  children,
 }: {
-  status: Status;
-  provider: string;
+  status: IntegrationProvider["status"];
+  children: ReactNode;
 }) {
-  if (status === "connected") {
-    return (
-      <Button variant="ghost" size="md" aria-label={`Manage ${provider}`}>
-        Manage
-      </Button>
-    );
-  }
-  if (status === "available") {
-    return (
-      <Button variant="ghost" size="md" aria-label={`Connect ${provider}`}>
-        Connect
-      </Button>
-    );
-  }
   return (
-    <Button
-      variant="ghost"
-      size="md"
-      disabled
-      aria-label={`${provider} coming soon`}
+    <span
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3.5 text-sm font-medium",
+        status === "soon"
+          ? "bg-gray-100 text-gray-700"
+          : "bg-white/[0.05] text-gray-800 group-hover:text-gray-900",
+      )}
     >
-      Coming Soon
-    </Button>
+      {children}
+    </span>
   );
 }
 
 function MCPServerSection() {
   return (
     <section className="space-y-3">
-      <h2 className="text-[15px] font-medium text-gray-1000">
-        Your Integrations
-      </h2>
+      <h2 className="text-[15px] font-medium text-gray-1000">{MCP_SECTION.heading}</h2>
       <div className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3">
-        <Card interactive className="flex items-center gap-3 px-3 py-2.5">
+        <Card
+          aria-disabled
+          className="flex items-center gap-3 px-3 py-2.5 text-gray-950 opacity-70 cursor-not-allowed"
+        >
           <span
             className="frost-icon-tile grid size-10 shrink-0 place-items-center rounded-xl text-gray-900"
             aria-hidden
@@ -241,31 +175,18 @@ function MCPServerSection() {
             <Plug size={18} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-gray-950">
-              MCP Server
-            </p>
-            <p className="truncate text-[12.5px] text-gray-800">
-              Connect any MCP server to extend Alfred.
-            </p>
+            <p className="truncate text-sm font-medium text-gray-950">{MCP_SECTION.name}</p>
+            <p className="truncate text-[12.5px] text-gray-800">{MCP_SECTION.description}</p>
           </div>
-          <Button
-            variant="ghost"
-            size="md"
-            leading={<Plus size={14} />}
-            disabled
-            aria-label="Add MCP server (coming soon)"
-          >
+          <span className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-gray-100 px-3.5 text-sm font-medium text-gray-700">
+            <Plus size={14} />
             Add
-          </Button>
+          </span>
         </Card>
       </div>
     </section>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Filter helpers                                                              */
-/* -------------------------------------------------------------------------- */
 
 function matches(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -273,17 +194,11 @@ function matches(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(q);
 }
 
-function filterSections(
-  sections: ReadonlyArray<Section>,
-  query: string,
-): ReadonlyArray<Section> {
-  if (!query.trim()) return sections;
-  return sections
-    .map((section) => ({
-      ...section,
-      providers: section.providers.filter((p) =>
-        matches(`${p.name} ${p.description}`, query),
-      ),
-    }))
-    .filter((section) => section.providers.length > 0);
+function filterSections(query: string): ReadonlyArray<Section> {
+  return CATEGORY_ORDER.flatMap((category) => {
+    const providers = INTEGRATION_PROVIDERS.filter(
+      (provider) => provider.category === category && matchesIntegration(provider, query),
+    );
+    return providers.length > 0 ? [{ title: category, providers }] : [];
+  });
 }

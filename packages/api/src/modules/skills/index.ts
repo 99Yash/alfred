@@ -23,12 +23,7 @@ export {
 } from "./workflow-input";
 export type { LearnSkillWorkflowInput } from "./workflow-input";
 
-export {
-  MENTION_KINDS,
-  parseMentions,
-  parsedMentionSchema,
-  resolveMentions,
-} from "./mentions";
+export { MENTION_KINDS, parseMentions, parsedMentionSchema, resolveMentions } from "./mentions";
 export type { MentionKind, MentionRegistry, ParsedMention } from "./mentions";
 
 export { collectSkillLearnContext } from "./context";
@@ -37,11 +32,7 @@ export type { SkillLearnContext } from "./context";
 export { distillResultSchema, distillSkill, skillProposalSchema } from "./distill";
 export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal } from "./distill";
 
-export {
-  commitSkillRevision,
-  finalizeSkillRun,
-  recordSkillRun,
-} from "./revisions";
+export { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 export type {
   CommitRevisionArgs,
   CommitRevisionResult,

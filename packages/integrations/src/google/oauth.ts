@@ -163,9 +163,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(
-      `[google.oauth] token exchange failed: ${res.status} ${JSON.stringify(json)}`,
-    );
+    throw new Error(`[google.oauth] token exchange failed: ${res.status} ${JSON.stringify(json)}`);
   }
   const parsed = tokenResponseSchema.parse(json);
   if (!parsed.refresh_token) {

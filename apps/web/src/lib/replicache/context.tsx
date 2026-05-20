@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, use, useEffect, useRef, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { createReplicache, type AlfredReplicache } from "./client";
 
@@ -36,5 +36,5 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 }
 
 export function useReplicache(): AlfredReplicache | null {
-  return useContext(ReplicacheContext).rep;
+  return use(ReplicacheContext).rep;
 }

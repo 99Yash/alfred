@@ -107,7 +107,9 @@ export const skillRevisions = pgTable(
      *     examples?: { input: string; output: string }[]
      *   }
      */
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     /** Pointer to the `agent_runs.id` that produced this revision (null for `manual`). */
     createdByRunId: text("created_by_run_id"),
     rowVersion: integer("row_version").notNull().default(0),

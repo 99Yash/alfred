@@ -42,9 +42,7 @@ export interface StartWorkflowsWorkerOpts {
   concurrency?: number;
 }
 
-export async function startWorkflowsWorker(
-  opts: StartWorkflowsWorkerOpts = {},
-): Promise<void> {
+export async function startWorkflowsWorker(opts: StartWorkflowsWorkerOpts = {}): Promise<void> {
   if (_worker) return;
   _worker = new Worker<WorkflowsJobData>(WORKFLOWS_QUEUE_NAME, processWorkflowsJob, {
     connection: createRedisConnection(),

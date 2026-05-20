@@ -11,6 +11,7 @@ Captures referenced:
 - `screenshots/20-chat-completed-expanded.png` — same Sycamore thread, run-summary expanded
 - `screenshots/20b-chat-all-expanded.png` — every disclosure inside the run-summary expanded too
 - `screenshots/21-chat-code-tables-headings.png` — Railway thread (code blocks, tables, headings, "Related" chips)
+- `chat-tool-rendering-sycamore-2026-05-19.md` — late live Sycamore route capture; confirms the completed research-run tool trace, nested search accordions, citations, composer state, and current absence of the older PDF iframe/artifact panel
 
 ## The two big shapes: streaming vs. completed
 
@@ -225,6 +226,8 @@ Body: a bordered container holding the result rows.
 ```
 
 So a search result is a row with: favicon (12×12) + title (text-[13px]) + domain (font-light, dimmer). The whole row hovers to `bg-white/[0.04]`. Max-height 130px, scrolls if there are more results.
+
+Late live confirmation from the Sycamore route (`/c/sycamore-labs-interview-preparation-thg2ca`, 2026-05-19): the completed run still uses this same structure. The top-level summary button measured `1024 x 20`; nested search triggers measured `672 x 20`; result rows measured `663 x 28`, `rounded 4px`, `padding 6px`, and used Google favicon URLs. The capture has no mounted artifact iframe or PDF preview, so treat the search/thought trace and the artifact panel as separable surfaces. See [`chat-tool-rendering-sycamore-2026-05-19.md`](./chat-tool-rendering-sycamore-2026-05-19.md) and [`html-repros/chat-tool-rendering-2026-05-19.html`](./html-repros/chat-tool-rendering-2026-05-19.html).
 
 ### Action tool card (collapsed by default, custom body when expanded)
 

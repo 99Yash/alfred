@@ -42,9 +42,13 @@ export const integrationCredentials = pgTable(
     tokenType: text("token_type").default("Bearer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** Granted scopes parsed into an array — providers vary on space vs comma separation. */
-    scopes: jsonb("scopes").notNull().default(sql`'[]'::jsonb`),
+    scopes: jsonb("scopes")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */
-    metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     status: text("status").notNull().default("active"),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     ...lifecycle_dates,
@@ -82,7 +86,9 @@ export const ingestionState = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     stream: text("stream").notNull().default("messages"),
-    state: jsonb("state").notNull().default(sql`'{}'::jsonb`),
+    state: jsonb("state")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
     ...lifecycle_dates,

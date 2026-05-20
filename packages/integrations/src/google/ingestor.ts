@@ -540,13 +540,8 @@ export async function findCredentialsNeedingPoll(
       status: integrationCredentials.status,
     })
     .from(ingestionState)
-    .innerJoin(
-      integrationCredentials,
-      eq(integrationCredentials.id, ingestionState.credentialId),
-    )
-    .where(
-      and(eq(ingestionState.provider, "google"), eq(ingestionState.stream, "messages")),
-    );
+    .innerJoin(integrationCredentials, eq(integrationCredentials.id, ingestionState.credentialId))
+    .where(and(eq(ingestionState.provider, "google"), eq(ingestionState.stream, "messages")));
   return rows
     .filter((r) => r.status === "active")
     .filter((r) => !r.lastSyncAt || r.lastSyncAt < before)

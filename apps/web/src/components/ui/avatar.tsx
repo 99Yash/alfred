@@ -10,7 +10,7 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.13.
  */
 
-import { forwardRef, type HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export type AvatarSize = "sm" | "md" | "lg";
@@ -19,6 +19,7 @@ interface AvatarProps extends HTMLAttributes<HTMLSpanElement> {
   /** When provided, the first character is rendered inside the disc. */
   initial?: string;
   size?: AvatarSize;
+  ref?: Ref<HTMLSpanElement>;
 }
 
 const SIZE: Record<AvatarSize, string> = {
@@ -27,10 +28,7 @@ const SIZE: Record<AvatarSize, string> = {
   lg: "size-9 text-sm",
 };
 
-export const Avatar = forwardRef<HTMLSpanElement, AvatarProps>(function Avatar(
-  { className, initial, size = "md", ...rest },
-  ref,
-) {
+export function Avatar({ className, initial, size = "md", ref, ...rest }: AvatarProps) {
   return (
     <span
       ref={ref}
@@ -46,4 +44,4 @@ export const Avatar = forwardRef<HTMLSpanElement, AvatarProps>(function Avatar(
       {initial ? initial.charAt(0).toUpperCase() : null}
     </span>
   );
-});
+}

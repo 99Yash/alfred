@@ -69,9 +69,7 @@ function rowToProfile(r: typeof styleProfiles.$inferSelect): StyleProfileRow {
 }
 
 /** Insert or replace a profile keyed by (user, channel, audience_bucket, recipient_id). */
-export async function upsertStyleProfile(
-  args: UpsertStyleProfileArgs,
-): Promise<StyleProfileRow> {
+export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<StyleProfileRow> {
   const parsed = upsertStyleProfileArgsSchema.parse(args);
   const status = parsed.status ?? "draft";
 

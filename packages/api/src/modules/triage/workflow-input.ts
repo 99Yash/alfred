@@ -12,8 +12,6 @@ export const TRIAGE_WORKFLOW_SLUG = "email-triage";
 export const triageWorkflowInputSchema = z.object({
   documentId: z.string().min(1),
   /** Optional reason metadata — `ingest`, `webhook`, `manual`, `reply`. */
-  reason: z
-    .enum(["ingest", "webhook", "manual", "reply"])
-    .optional(),
+  reason: z.enum(["ingest", "webhook", "manual", "reply"]).optional(),
 });
 export type TriageWorkflowInput = z.infer<typeof triageWorkflowInputSchema>;

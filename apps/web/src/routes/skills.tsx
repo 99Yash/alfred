@@ -33,7 +33,10 @@ function SkillsRoute() {
 }
 
 const listSkills = async (tx: ReadTransaction): Promise<SyncedSkill[]> => {
-  const entries = await tx.scan({ prefix: IDB_KEY.SKILL({}) }).entries().toArray();
+  const entries = await tx
+    .scan({ prefix: IDB_KEY.SKILL({}) })
+    .entries()
+    .toArray();
   return entries.map(([, v]) => v as unknown as SyncedSkill);
 };
 
@@ -82,9 +85,7 @@ function SkillsPage() {
             <Sparkles size={18} />
           </span>
           <p className="text-sm font-medium text-gray-950">Not signed in</p>
-          <p className="text-[12.5px] text-gray-800">
-            Sign in to create and manage skills.
-          </p>
+          <p className="text-[12.5px] text-gray-800">Sign in to create and manage skills.</p>
           <a
             href="/login"
             className="mt-2 text-[12.5px] text-gray-900 underline underline-offset-4 hover:text-gray-1000"
@@ -96,7 +97,7 @@ function SkillsPage() {
     );
   }
 
-  const sorted = [...(skills ?? [])].sort((a, b) =>
+  const sorted = (skills ?? []).toSorted((a, b) =>
     (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt),
   );
 
@@ -114,9 +115,7 @@ function SkillsPage() {
         </Button>
       </div>
 
-      {error ? (
-        <p className="pt-3 text-center text-[12.5px] text-red-400">{error}</p>
-      ) : null}
+      {error ? <p className="pt-3 text-center text-[12.5px] text-red-400">{error}</p> : null}
 
       <div className="mt-12 space-y-3">
         <h2 className="text-[15px] font-medium text-gray-1000">Your skills</h2>
@@ -132,9 +131,8 @@ function SkillsPage() {
             </span>
             <p className="text-sm font-medium text-gray-950">No skills yet</p>
             <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-              A skill is a long-lived prompt Alfred internalizes — preferences,
-              biographical facts, working styles. Click <em>Create Skill</em>{" "}
-              above to author your first.
+              A skill is a long-lived prompt Alfred internalizes: preferences, biographical facts,
+              working styles. Click <em>Create Skill</em> above to author your first.
             </p>
           </Card>
         ) : (
@@ -163,8 +161,7 @@ function SkillsShell({ children }: { children: React.ReactNode }) {
           Skills
         </h1>
         <p className="text-sm text-gray-800">
-          Long-lived prompts Alfred internalizes — preferences, biographical
-          facts, working styles.
+          Long-lived prompts Alfred internalizes: preferences, biographical facts, working styles.
         </p>
       </header>
 
@@ -184,10 +181,7 @@ function SkillRow({ skill }: { skill: SyncedSkill }) {
       params={{ slug: skill.slug }}
       className="block rounded-2xl outline-none focus-visible:outline-none"
     >
-      <Card
-        interactive
-        className="flex items-center gap-3 px-3 py-2.5 text-gray-950"
-      >
+      <Card interactive className="flex items-center gap-3 px-3 py-2.5 text-gray-950">
         <span
           className="frost-icon-tile grid size-10 shrink-0 place-items-center rounded-xl text-gray-900"
           aria-hidden
@@ -195,15 +189,11 @@ function SkillRow({ skill }: { skill: SyncedSkill }) {
           <Sparkles size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-950">
-            {skill.name}
-          </p>
+          <p className="truncate text-sm font-medium text-gray-950">{skill.name}</p>
           <p className="truncate text-[12.5px] text-gray-800 font-mono">
             /{skill.slug}
             {skill.description ? (
-              <span className="ml-2 font-sans not-italic">
-                · {skill.description}
-              </span>
+              <span className="ml-2 font-sans not-italic">· {skill.description}</span>
             ) : null}
           </p>
         </div>

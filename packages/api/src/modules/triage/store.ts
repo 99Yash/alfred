@@ -22,10 +22,7 @@ export interface TriageRow {
 }
 
 export async function getTriage(documentId: string): Promise<TriageRow | null> {
-  const rows = await db()
-    .select()
-    .from(emailTriage)
-    .where(eq(emailTriage.documentId, documentId));
+  const rows = await db().select().from(emailTriage).where(eq(emailTriage.documentId, documentId));
   const row = rows[0];
   if (!row) return null;
   return {
@@ -113,10 +110,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<TriageRow> {
  * Update only the `applied_label_id` on an existing row — used by the
  * label-write step after Gmail's `messages.modify` succeeds.
  */
-export async function setAppliedLabelId(
-  documentId: string,
-  appliedLabelId: string,
-): Promise<void> {
+export async function setAppliedLabelId(documentId: string, appliedLabelId: string): Promise<void> {
   await db()
     .update(emailTriage)
     .set({ appliedLabelId, updatedAt: new Date() })
@@ -154,9 +148,7 @@ export async function loadTriageContext(
   const doc = docRows[0];
   if (!doc) return null;
   if (doc.source !== "gmail") {
-    throw new Error(
-      `[triage] document ${documentId} has source=${doc.source}, expected gmail`,
-    );
+    throw new Error(`[triage] document ${documentId} has source=${doc.source}, expected gmail`);
   }
   if (!doc.accountId) {
     throw new Error(`[triage] document ${documentId} missing accountId`);
@@ -174,9 +166,7 @@ export async function loadTriageContext(
     );
   const cred = credRows[0];
   if (!cred) {
-    throw new Error(
-      `[triage] no google credential for user=${userId} account=${doc.accountId}`,
-    );
+    throw new Error(`[triage] no google credential for user=${userId} account=${doc.accountId}`);
   }
 
   return {

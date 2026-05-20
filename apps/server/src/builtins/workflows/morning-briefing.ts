@@ -159,8 +159,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
               k,
               (items as Array<Record<string, unknown>>).map((i) => ({
                 ...i,
-                authoredAt:
-                  typeof i.authoredAt === "string" ? new Date(i.authoredAt) : null,
+                authoredAt: typeof i.authoredAt === "string" ? new Date(i.authoredAt) : null,
               })),
             ]),
           ) as never,

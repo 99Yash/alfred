@@ -109,16 +109,7 @@ interface RenderArgs {
 }
 
 function renderText({ greetingName, provenance, preview, skillUrl }: RenderArgs): string {
-  const lines = [
-    `Hi ${greetingName},`,
-    "",
-    provenance,
-    "",
-    `What's covered:`,
-    "",
-    preview,
-    "",
-  ];
+  const lines = [`Hi ${greetingName},`, "", provenance, "", `What's covered:`, "", preview, ""];
   if (skillUrl) {
     lines.push(`Review or edit: ${skillUrl}`);
   } else {

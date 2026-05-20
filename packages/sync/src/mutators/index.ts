@@ -7,12 +7,7 @@ import {
   factRejectArgsSchema,
   factRejectClient,
 } from "./facts";
-import {
-  prefDeleteArgsSchema,
-  prefDeleteClient,
-  prefSetArgsSchema,
-  prefSetClient,
-} from "./prefs";
+import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
 
 export * from "./notes";
 export * from "./facts";

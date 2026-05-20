@@ -212,7 +212,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-extract] FAIL", err instanceof Error ? err.stack ?? err.message : err);
+    console.error("[smoke-extract] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
     process.exitCode = 1;
   })
   .finally(async () => {

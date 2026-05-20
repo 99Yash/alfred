@@ -202,9 +202,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
 function requireStep<S>(workflow: Workflow<S>, stepId: string): Step<S> {
   const step = workflow.steps[stepId];
   if (!step) {
-    throw new Error(
-      `[agent] workflow=${workflow.slug} has no step=${stepId}; deploy mismatch?`,
-    );
+    throw new Error(`[agent] workflow=${workflow.slug} has no step=${stepId}; deploy mismatch?`);
   }
   return step;
 }
@@ -222,13 +220,15 @@ async function tryInsertStepRow(
   state: unknown,
 ): Promise<boolean> {
   try {
-    await db().insert(agentSteps).values({
-      runId,
-      stepId,
-      attempt,
-      status: "running",
-      input: state as object,
-    });
+    await db()
+      .insert(agentSteps)
+      .values({
+        runId,
+        stepId,
+        attempt,
+        status: "running",
+        input: state as object,
+      });
     return true;
   } catch (err) {
     // Treat a unique-violation as "already committed" — that's the only
@@ -252,7 +252,7 @@ async function commitStepSuccess(
       .update(agentSteps)
       .set({
         status: result.kind === "interrupt" ? "interrupted" : "completed",
-        output: result.kind === "done" ? (result.output as object | undefined) ?? null : null,
+        output: result.kind === "done" ? ((result.output as object | undefined) ?? null) : null,
         endedAt: now,
       })
       .where(

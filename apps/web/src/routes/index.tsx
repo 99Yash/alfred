@@ -1,31 +1,54 @@
+import * as Popover from "@radix-ui/react-popover";
+import Placeholder from "@tiptap/extension-placeholder";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowRight,
-  ArrowUp,
+  AtSign,
   Check,
-  CheckSquare2,
   CircleAlert,
   ClipboardCheck,
   Clock3,
-  Mail,
+  FileUp,
+  Link2,
   Mic,
-  PartyPopper,
-  Pencil,
   Plus,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  Square,
   Video,
   Workflow,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
+import { ConnectToolsDialog } from "~/components/connect-tools-dialog";
+import {
+  DimensionComposerContextMenu,
+  DimensionComposerIconButton,
+  DimensionComposerOverflowMenu,
+  DimensionComposerSendButton,
+  DimensionComposerShell,
+  DimensionComposerToolbar,
+  DimensionModelPicker,
+  type DimensionComposerMenuItem,
+  type DimensionModelOption,
+} from "~/components/dimension-composer-shell";
+import { QuickAccessRail } from "~/components/quick-access-rail";
+import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { authClient } from "~/lib/auth-client";
 import { useRightRail } from "~/lib/app-shell";
 import { client } from "~/lib/eden";
 import { IntegrationGlyph, IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
-import { ToolButton } from "~/lib/ui";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -52,9 +75,7 @@ function HomePage() {
   // we'd loop the AppShell state on every render.
   const rightRail = useMemo(
     () =>
-      session?.user ? (
-        <QuickAccessRail healthOk={healthOk} healthLoading={healthLoading} />
-      ) : null,
+      session?.user ? <QuickAccessRail healthOk={healthOk} healthLoading={healthLoading} /> : null,
     [session?.user, healthOk, healthLoading],
   );
   useRightRail(rightRail);
@@ -100,6 +121,7 @@ function HomePage() {
           </header>
 
           <Composer />
+          <UpcomingMeeting />
         </div>
       </div>
 
@@ -206,27 +228,187 @@ const MENTION_ITEMS: MentionItem[] = [
 ];
 
 const MENTION_LISTBOX_ID = "composer-mention-listbox";
+const MODEL_OPTIONS = [
+  {
+    id: "alfred",
+    label: "Alfred",
+    description: "Fast default routing for everyday work",
+  },
+  {
+    id: "alfred-pro",
+    label: "Alfred Pro",
+    description: "Deeper reasoning for complex planning",
+  },
+];
 
 function mentionOptionId(item: MentionItem) {
   return `composer-mention-option-${item.id}`;
 }
 
+/**
+ * Mention menu state. Groups everything that has to change together when the
+ * user types `@` — the menu visibility, the query, the selected option, and
+ * the caret offset where the token begins. Centralising the transitions in a
+ * reducer eliminates the prior chain of useStates + tracking refs.
+ */
+interface MentionState {
+  open: boolean;
+  query: string;
+  selectedIndex: number;
+  start: number | null;
+}
+
+type MentionAction =
+  | { type: "open"; start: number }
+  | { type: "close" }
+  | { type: "set-query"; start: number; query: string }
+  | { type: "set-index"; index: number }
+  | { type: "next"; total: number }
+  | { type: "prev"; total: number };
+
+const INITIAL_MENTION_STATE: MentionState = {
+  open: false,
+  query: "",
+  selectedIndex: 0,
+  start: null,
+};
+
+function mentionReducer(state: MentionState, action: MentionAction): MentionState {
+  switch (action.type) {
+    case "open":
+      return { open: true, query: "", selectedIndex: 0, start: action.start };
+    case "close":
+      return INITIAL_MENTION_STATE;
+    case "set-query":
+      // Query change resets the selected index — the previous selection no
+      // longer aligns with the new filtered list.
+      return {
+        open: true,
+        query: action.query,
+        selectedIndex: state.query === action.query ? state.selectedIndex : 0,
+        start: action.start,
+      };
+    case "set-index":
+      return { ...state, selectedIndex: action.index };
+    case "next":
+      return {
+        ...state,
+        selectedIndex: action.total === 0 ? 0 : (state.selectedIndex + 1) % action.total,
+      };
+    case "prev":
+      return {
+        ...state,
+        selectedIndex:
+          action.total === 0 ? 0 : (state.selectedIndex - 1 + action.total) % action.total,
+      };
+  }
+}
+
+interface ComposerSettings {
+  approvalMode: ApprovalMode;
+  model: string;
+}
+
+type ComposerSettingsAction =
+  | { type: "set-approval-mode"; mode: ApprovalMode }
+  | { type: "set-model"; model: string };
+
+function composerSettingsReducer(
+  state: ComposerSettings,
+  action: ComposerSettingsAction,
+): ComposerSettings {
+  switch (action.type) {
+    case "set-approval-mode":
+      return { ...state, approvalMode: action.mode };
+    case "set-model":
+      return { ...state, model: action.model };
+  }
+}
+
 function Composer() {
   const [value, setValue] = useState("");
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("manual");
+  const [settings, dispatchSettings] = useReducer(composerSettingsReducer, {
+    approvalMode: "manual",
+    model: "alfred",
+  });
+  const [connectToolsOpen, setConnectToolsOpen] = useState(false);
   const [reviewPreview, setReviewPreview] = useState<ReviewPreview | null>(null);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionStart, setMentionStart] = useState<number | null>(null);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [mention, dispatchMention] = useReducer(mentionReducer, INITIAL_MENTION_STATE);
+  const approvalMode = settings.approvalMode;
+  const model = settings.model;
+  const setApprovalMode = useCallback(
+    (mode: ApprovalMode) => dispatchSettings({ type: "set-approval-mode", mode }),
+    [],
+  );
+  const setModel = useCallback(
+    (next: string) => dispatchSettings({ type: "set-model", model: next }),
+    [],
+  );
+
   const hasContent = value.trim().length > 0;
-  const filteredMentions = useMemo(() => filterMentions(mentionQuery), [mentionQuery]);
-  const selectedMention = filteredMentions[selectedMentionIndex];
+  const filteredMentions = useMemo(() => filterMentions(mention.query), [mention.query]);
+  // Clamp during render so we never index past the filtered list.
+  const safeMentionIndex =
+    filteredMentions.length === 0
+      ? 0
+      : Math.min(mention.selectedIndex, filteredMentions.length - 1);
+  const modelOptions = useMemo(
+    () =>
+      MODEL_OPTIONS.map((option) => ({
+        ...option,
+        selected: option.id === model,
+      })),
+    [model],
+  );
+
+  const syncMentionState = useCallback((editor: Editor) => {
+    const nextValue = editor.getText();
+    const caret = editorCaretTextOffset(editor);
+    const token = activeMentionToken(nextValue, caret);
+    if (!token) {
+      dispatchMention({ type: "close" });
+      return;
+    }
+    dispatchMention({ type: "set-query", start: token.start, query: token.query });
+  }, []);
+
+  // Latest keydown closure kept in a ref so TipTap's handleKeyDown — which
+  // is registered once at editor init — always sees the current state.
+  const handleEditorKeyDownRef = useRef<(event: KeyboardEvent) => boolean>(() => false);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        blockquote: false,
+        codeBlock: false,
+        heading: false,
+        horizontalRule: false,
+      }),
+      Placeholder.configure({
+        placeholder: "Type and press enter to start chatting...",
+      }),
+    ],
+    content: "",
+    editorProps: {
+      attributes: {
+        "aria-autocomplete": "list",
+        "aria-controls": MENTION_LISTBOX_ID,
+        "aria-label": "Message",
+        class:
+          "tiptap ProseMirror tiptap-minimum-input composer-editor min-h-[50px] max-h-[320px] overflow-y-auto bg-transparent px-3 pb-2 pt-3 text-sm leading-6 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
+      },
+      handleKeyDown: (_view, event) => handleEditorKeyDownRef.current(event),
+    },
+    onSelectionUpdate: ({ editor }) => syncMentionState(editor),
+    onUpdate: ({ editor }) => {
+      setValue(editor.getText());
+      syncMentionState(editor);
+    },
+  });
 
   const send = () => {
-    if (!hasContent) return;
-    const prompt = value.trim();
+    const prompt = editor?.getText().trim() ?? "";
+    if (!prompt) return;
     const mentions = detectMentions(prompt);
 
     setReviewPreview({
@@ -244,211 +426,168 @@ function Composer() {
       approvalMode,
       mentions: mentions.map((item) => item.id),
     });
+    editor?.commands.clearContent();
     setValue("");
-    setMentionOpen(false);
-    setMentionStart(null);
-    setMentionQuery("");
-    queueMicrotask(() => ref.current?.focus());
+    dispatchMention({ type: "close" });
+    queueMicrotask(() => editor?.commands.focus());
   };
-
-  const syncMentionState = useCallback((nextValue: string, caret: number) => {
-    const token = activeMentionToken(nextValue, caret);
-    if (!token) {
-      setMentionOpen(false);
-      setMentionStart(null);
-      setMentionQuery("");
-      return;
-    }
-
-    setMentionStart(token.start);
-    setMentionQuery(token.query);
-    setMentionOpen(true);
-  }, []);
 
   const insertMention = useCallback(
     (item: MentionItem) => {
-      const textarea = ref.current;
-      const caret = textarea?.selectionStart ?? value.length;
-      const start = mentionStart ?? activeMentionToken(value, caret)?.start;
+      if (!editor) return;
+      const caret = editorCaretTextOffset(editor);
+      const start = mention.start ?? activeMentionToken(value, caret)?.start;
       if (start == null) return;
 
-      const next = `${value.slice(0, start)}@${item.label} ${value.slice(caret)}`;
-      const nextCaret = start + item.label.length + 2;
-      setValue(next);
-      setMentionOpen(false);
-      setMentionStart(null);
-      setMentionQuery("");
-
-      requestAnimationFrame(() => {
-        textarea?.focus();
-        textarea?.setSelectionRange(nextCaret, nextCaret);
-      });
+      editor
+        .chain()
+        .focus()
+        .deleteRange({
+          from: textOffsetToPMPos(value, start),
+          to: textOffsetToPMPos(value, caret),
+        })
+        .insertContent(`@${item.label} `)
+        .run();
+      dispatchMention({ type: "close" });
     },
-    [mentionStart, value],
+    [editor, value, mention.start],
   );
 
   const openMentionMenu = useCallback(() => {
-    const textarea = ref.current;
-    const caret = textarea?.selectionStart ?? value.length;
+    if (!editor) return;
+    const caret = editorCaretTextOffset(editor);
     const spacer = caret > 0 && !/\s/.test(value.charAt(caret - 1)) ? " " : "";
-    const next = `${value.slice(0, caret)}${spacer}@${value.slice(caret)}`;
-    const nextCaret = caret + spacer.length + 1;
 
-    setValue(next);
-    setMentionStart(caret + spacer.length);
-    setMentionQuery("");
-    setMentionOpen(true);
-    setSelectedMentionIndex(0);
-
-    requestAnimationFrame(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(nextCaret, nextCaret);
-    });
-  }, [value]);
+    editor.chain().focus().insertContent(`${spacer}@`).run();
+    dispatchMention({ type: "open", start: caret + spacer.length });
+  }, [editor, value]);
 
   const updateReviewPreview = useCallback((status: ReviewPreviewStatus) => {
     setReviewPreview((preview) => (preview ? { ...preview, status } : preview));
   }, []);
 
-  useEffect(() => {
-    setSelectedMentionIndex(0);
-  }, [mentionQuery]);
+  const contextItems: DimensionComposerMenuItem[] = useMemo(
+    () => [
+      {
+        label: "Mention a tool",
+        description: "Search connected apps and sources",
+        icon: <AtSign size={15} />,
+        onSelect: openMentionMenu,
+      },
+      {
+        label: "Connect tools",
+        description: "Bring Gmail, Calendar, Drive, and more",
+        icon: <Link2 size={15} />,
+        onSelect: () => setConnectToolsOpen(true),
+      },
+      {
+        label: "Upload file",
+        description: "Coming with artifact ingestion",
+        icon: <FileUp size={15} />,
+        disabled: true,
+      },
+    ],
+    [openMentionMenu],
+  );
+  const overflowItems: DimensionComposerMenuItem[] = useMemo(
+    () => [
+      {
+        label: approvalMode === "auto" ? "Switch to manual review" : "Switch to auto mode",
+        description:
+          approvalMode === "auto" ? "Ask before durable changes" : "Let Alfred proceed locally",
+        icon: <ShieldCheck size={15} />,
+        onSelect: () => setApprovalMode(approvalMode === "auto" ? "manual" : "auto"),
+      },
+      {
+        label: "Composer settings",
+        description: "Review gates, integrations, preferences",
+        icon: <Settings2 size={15} />,
+        href: "/settings",
+      },
+    ],
+    [approvalMode],
+  );
 
-  useEffect(() => {
-    if (selectedMentionIndex >= filteredMentions.length) {
-      setSelectedMentionIndex(0);
+  // Keep the keydown closure fresh — TipTap registers the handler once at
+  // editor init, so we route it through a ref that we overwrite each render
+  // with a closure over the current state. Returns true when we handled the
+  // event so TipTap skips its own keymap.
+  handleEditorKeyDownRef.current = (event) => {
+    if (mention.open) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        dispatchMention({ type: "next", total: filteredMentions.length });
+        return true;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        dispatchMention({ type: "prev", total: filteredMentions.length });
+        return true;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const item = filteredMentions[safeMentionIndex];
+        event.preventDefault();
+        if (item) insertMention(item);
+        return true;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dispatchMention({ type: "close" });
+        return true;
+      }
     }
-  }, [filteredMentions.length, selectedMentionIndex]);
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+      return true;
+    }
+    return false;
+  };
+
+  const onMentionOpenChange = useCallback((open: boolean) => {
+    if (!open) dispatchMention({ type: "close" });
+  }, []);
+  const onMentionHover = useCallback(
+    (index: number) => dispatchMention({ type: "set-index", index }),
+    [],
+  );
 
   return (
     <div className="space-y-3">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-        className={cn(
-          "relative overflow-visible rounded-2xl bg-[#080808]/95 p-1 shadow-pop",
-          "ring-1 ring-white/10 backdrop-blur-sm",
-          "focus-within:ring-2 focus-within:ring-ring/45",
-          "transition-[box-shadow,background-color]",
-        )}
-      >
-        {mentionOpen ? (
-          <MentionMenu
-            items={filteredMentions}
-            selectedIndex={selectedMentionIndex}
-            query={mentionQuery}
-            onSelect={insertMention}
-            onHover={setSelectedMentionIndex}
-          />
-        ) : null}
-
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => {
-            const nextValue = e.target.value;
-            setValue(nextValue);
-            syncMentionState(nextValue, e.target.selectionStart);
-          }}
-          onClick={(e) => {
-            syncMentionState(value, e.currentTarget.selectionStart);
-          }}
-          onKeyUp={(e) => {
-            if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
-              syncMentionState(value, e.currentTarget.selectionStart);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (mentionOpen) {
-              if (e.key === "ArrowDown") {
+      <Popover.Root open={mention.open} onOpenChange={onMentionOpenChange}>
+        <Popover.Anchor asChild>
+          <div>
+            <DimensionComposerShell
+              onSubmit={(e) => {
                 e.preventDefault();
-                setSelectedMentionIndex((i) =>
-                  filteredMentions.length === 0 ? 0 : (i + 1) % filteredMentions.length,
-                );
-                return;
+                send();
+              }}
+              tray={<ConnectedToolsRow onOpen={() => setConnectToolsOpen(true)} />}
+              toolbar={
+                <ComposerToolbar
+                  contextItems={contextItems}
+                  overflowItems={overflowItems}
+                  approvalMode={approvalMode}
+                  onApprovalModeChange={setApprovalMode}
+                  model={model}
+                  modelOptions={modelOptions}
+                  onModelChange={setModel}
+                  hasContent={hasContent}
+                />
               }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setSelectedMentionIndex((i) =>
-                  filteredMentions.length === 0
-                    ? 0
-                    : (i - 1 + filteredMentions.length) % filteredMentions.length,
-                );
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                const item = filteredMentions[selectedMentionIndex];
-                e.preventDefault();
-                if (item) {
-                  insertMention(item);
-                }
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setMentionOpen(false);
-                return;
-              }
-            }
-
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          rows={3}
-          placeholder="Type and press enter to start chatting..."
-          aria-autocomplete="list"
-          aria-controls={mentionOpen ? MENTION_LISTBOX_ID : undefined}
-          aria-expanded={mentionOpen}
-          aria-activedescendant={
-            mentionOpen && selectedMention ? mentionOptionId(selectedMention) : undefined
-          }
-          className={cn(
-            "composer-editor block w-full resize-none bg-transparent px-3 pt-3 pb-2",
-            "min-h-[50px] max-h-[320px]",
-            "text-sm leading-6 outline-none",
-            "placeholder:text-muted-foreground/65",
-          )}
-        />
-
-        <div className="flex items-center justify-between gap-2 px-1 pb-1">
-          <div className="flex min-w-0 items-center gap-1">
-            <ToolButton label="Add context" onClick={openMentionMenu} className="rounded-full">
-              <Plus size={15} />
-            </ToolButton>
-            <ApprovalModeToggle mode={approvalMode} onModeChange={setApprovalMode} />
-            <ModelPicker value="Alfred" />
-          </div>
-
-          <div className="flex items-center gap-1">
-            <ToolButton label="Voice input" disabled>
-              <Mic size={15} />
-            </ToolButton>
-            <button
-              type="submit"
-              disabled={!hasContent}
-              aria-label="Send"
-              className={cn(
-                "inline-flex size-8 items-center justify-center rounded-full",
-                "transition-[opacity,filter,transform] active:scale-[0.96]",
-                "text-black backdrop-blur-sm",
-                "bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)]",
-                "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4),0_18px_11px_rgba(0,0,0,0.01),0_8px_8px_rgba(0,0,0,0.01),0_2px_4px_rgba(0,0,0,0.02)]",
-                hasContent
-                  ? "hover:brightness-110 active:brightness-105"
-                  : "opacity-50 cursor-not-allowed",
-              )}
             >
-              <ArrowUp size={16} strokeWidth={2.25} />
-            </button>
+              <EditorContent editor={editor} />
+            </DimensionComposerShell>
           </div>
-        </div>
-
-        <ConnectedToolsRow />
-      </form>
+        </Popover.Anchor>
+        <MentionPopoverContent
+          items={filteredMentions}
+          selectedIndex={safeMentionIndex}
+          query={mention.query}
+          onSelect={insertMention}
+          onHover={onMentionHover}
+        />
+      </Popover.Root>
 
       {reviewPreview ? (
         <RunReviewPreview
@@ -458,7 +597,105 @@ function Composer() {
           onDismiss={() => setReviewPreview(null)}
         />
       ) : null}
+      <ConnectToolsDialog open={connectToolsOpen} onOpenChange={setConnectToolsOpen} />
     </div>
+  );
+}
+
+/**
+ * The toolbar's start (context menu + approval toggle + status pill) and end
+ * (model picker + overflow menu + voice button + send) are presentational
+ * compositions of DimensionComposer* primitives. Keeping them out of Composer
+ * keeps the parent focused on state orchestration.
+ */
+function ComposerToolbar({
+  contextItems,
+  overflowItems,
+  approvalMode,
+  onApprovalModeChange,
+  model,
+  modelOptions,
+  onModelChange,
+  hasContent,
+}: {
+  contextItems: DimensionComposerMenuItem[];
+  overflowItems: DimensionComposerMenuItem[];
+  approvalMode: ApprovalMode;
+  onApprovalModeChange: (next: ApprovalMode) => void;
+  model: string;
+  modelOptions: DimensionModelOption[];
+  onModelChange: (id: string) => void;
+  hasContent: boolean;
+}) {
+  return (
+    <DimensionComposerToolbar
+      start={
+        <>
+          <DimensionComposerContextMenu items={contextItems}>
+            <Plus size={15} />
+          </DimensionComposerContextMenu>
+          <ApprovalModeToggle mode={approvalMode} onModeChange={onApprovalModeChange} />
+          <ComposerStatusPill />
+        </>
+      }
+      end={
+        <>
+          <DimensionModelPicker
+            value={MODEL_OPTIONS.find((option) => option.id === model)?.label ?? "Alfred"}
+            options={modelOptions}
+            onSelect={onModelChange}
+          />
+          <DimensionComposerOverflowMenu items={overflowItems} />
+          <DimensionComposerIconButton label="Voice input" disabled>
+            <Mic size={15} />
+          </DimensionComposerIconButton>
+          <DimensionComposerSendButton disabled={!hasContent} />
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * Portal'd mention menu — kept in its own component so the Composer body
+ * stays focused on state orchestration. The Radix outside-click/auto-focus
+ * suppressions live here because the editor that drives the menu lives in
+ * the Popover.Anchor, not inside the content.
+ */
+function MentionPopoverContent({
+  items,
+  selectedIndex,
+  query,
+  onSelect,
+  onHover,
+}: {
+  items: MentionItem[];
+  selectedIndex: number;
+  query: string;
+  onSelect: (item: MentionItem) => void;
+  onHover: (index: number) => void;
+}) {
+  return (
+    <Popover.Portal>
+      <Popover.Content
+        side="top"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onFocusOutside={(e) => e.preventDefault()}
+        className="z-20 outline-none"
+      >
+        <MentionMenu
+          items={items}
+          selectedIndex={selectedIndex}
+          query={query}
+          onSelect={onSelect}
+          onHover={onHover}
+        />
+      </Popover.Content>
+    </Popover.Portal>
   );
 }
 
@@ -475,28 +712,20 @@ function MentionMenu({
   onSelect: (item: MentionItem) => void;
   onHover: (index: number) => void;
 }) {
-  const listboxRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
-    const selectedItem = items[selectedIndex];
-    if (!selectedItem) return;
-
-    const selectedOption = document.getElementById(mentionOptionId(selectedItem));
-    if (!selectedOption || !listboxRef.current?.contains(selectedOption)) return;
-
-    selectedOption.scrollIntoView({ block: "nearest" });
-  }, [items, selectedIndex]);
+    itemRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, items.length]);
 
   return (
     <div
       className={cn(
-        "absolute left-3 bottom-[calc(100%+0.5rem)] z-20",
         "frost-popover w-[19rem] max-w-[calc(100vw-2rem)] rounded-2xl p-2",
         "animate-menu-pop-in origin-bottom-left",
       )}
     >
       <div
-        ref={listboxRef}
         id={MENTION_LISTBOX_ID}
         role="listbox"
         aria-label="Mentionable tools and integrations"
@@ -512,6 +741,9 @@ function MentionMenu({
             {items.map((item, index) => (
               <MentionMenuItem
                 key={item.id}
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
                 item={item}
                 selected={index === selectedIndex}
                 onMouseEnter={() => onHover(index)}
@@ -525,19 +757,18 @@ function MentionMenu({
   );
 }
 
-function MentionMenuItem({
-  item,
-  selected,
-  onMouseEnter,
-  onSelect,
-}: {
+interface MentionMenuItemProps {
   item: MentionItem;
   selected: boolean;
   onMouseEnter: () => void;
   onSelect: () => void;
-}) {
+  ref?: (node: HTMLDivElement | null) => void;
+}
+
+function MentionMenuItem({ item, selected, onMouseEnter, onSelect, ref }: MentionMenuItemProps) {
   return (
     <div
+      ref={ref}
       id={mentionOptionId(item)}
       role="option"
       aria-selected={selected}
@@ -603,6 +834,25 @@ function ApprovalModeToggle({
         )}
       />
     </button>
+  );
+}
+
+function ComposerStatusPill() {
+  return (
+    <a
+      href="/settings"
+      className={cn(
+        "hidden h-8 items-center gap-2 rounded-[10px] px-3 sm:inline-flex",
+        "border border-white/[0.07] bg-[linear-gradient(180deg,rgba(84,22,22,0.72)_0%,rgba(16,16,16,0.86)_100%)]",
+        "text-[13px] text-white/70 outline-none backdrop-blur-sm",
+        "shadow-[inset_0_0_9px_rgba(255,255,255,0.06),0_2px_8px_rgba(0,0,0,0.18)]",
+        "transition-[filter,color] hover:text-white hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white/20",
+      )}
+    >
+      <CircleAlert size={15} className="text-red-400" strokeWidth={2.2} />
+      <span className="truncate">Review gates active</span>
+      <span className="font-medium text-purple-300">Configure</span>
+    </a>
   );
 }
 
@@ -788,40 +1038,6 @@ function ApprovalActionRow({ item, preview }: { item: ApprovalItem; preview: Rev
   );
 }
 
-/**
- * Model-picker chip. Semantic tiers only ("Default" / "Pro") — never provider
- * names. Disabled until m13/m14 land actual model routing.
- */
-function ModelPicker({ value }: { value: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      title="Model picker"
-      className={cn(
-        "inline-flex h-[30px] items-center justify-between gap-2 rounded-lg px-2 py-1",
-        "border border-transparent bg-[linear-gradient(180deg,#0C0C0C_0%,#151515_100%)]",
-        "text-[13px] font-normal text-white/86 backdrop-blur-sm",
-        "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
-        "transition-[filter] hover:brightness-110",
-        "disabled:cursor-not-allowed disabled:opacity-95",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "grid size-4 shrink-0 place-items-center rounded-full",
-          "bg-[radial-gradient(circle_at_30%_30%,#a5a5a5,#1e1e1e_70%)]",
-          "shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(0,0,0,0.4)]",
-        )}
-      >
-        <Sparkles size={9} className="text-white/85" />
-      </span>
-      <span className="leading-none">{value}</span>
-    </button>
-  );
-}
-
 function detectMentions(text: string) {
   const lower = text.toLowerCase();
   return MENTION_ITEMS.filter((item) => lower.includes(`@${item.label.toLowerCase()}`));
@@ -878,7 +1094,7 @@ function approvalStatusFor(item: ApprovalItem, preview: ReviewPreview) {
   return "Review";
 }
 
-function ConnectedToolsRow() {
+function ConnectedToolsRow({ onOpen }: { onOpen: () => void }) {
   const tools: IntegrationBrand[] = [
     "gmail",
     "google_calendar",
@@ -893,16 +1109,17 @@ function ConnectedToolsRow() {
   ];
 
   return (
-    <a
-      href="/integrations"
+    <button
+      type="button"
+      onClick={onOpen}
       className={cn(
-        "group -mt-1 flex h-[46px] items-center justify-between gap-3 rounded-b-2xl",
-        "px-4 pt-3.5 pb-3 text-[13px] text-white/70 outline-none",
+        "group relative mx-auto -mb-px -mt-px flex h-[46px] w-[calc(100%-32px)] items-center justify-between gap-3 rounded-b-2xl",
+        "border-t border-white/[0.055] bg-black/[0.08] px-4 pt-3.5 pb-3 text-[13px] text-white/42 outline-none",
         "transition-colors hover:text-white",
         "focus-visible:ring-2 focus-visible:ring-white/[0.18]",
       )}
     >
-      <span className="min-w-0 truncate font-normal text-white/86 transition-colors group-hover:text-white">
+      <span className="min-w-0 truncate font-normal transition-colors group-hover:text-white/86">
         Connect Your Tools
       </span>
       <span className="flex shrink-0 items-center gap-[3px]">
@@ -912,217 +1129,84 @@ function ConnectedToolsRow() {
             brand={brand}
             size={16}
             variant="plain"
-            className="opacity-90 transition-opacity group-hover:opacity-100"
+            className="opacity-75 transition-opacity group-hover:opacity-100"
           />
         ))}
       </span>
-    </a>
+    </button>
+  );
+}
+
+function UpcomingMeeting() {
+  return (
+    <section className="mx-auto hidden w-full max-w-[656px] pt-7 text-white/90 md:block">
+      <p className="text-[13px] font-semibold uppercase tracking-[0.04em] text-white/58">
+        Upcoming Meeting
+      </p>
+      <div className="mt-4 flex items-center gap-3">
+        <Video size={15} className="shrink-0 text-white/58" />
+        <p className="min-w-0 flex-1 truncate text-base leading-6">
+          Eng standup <span className="px-2 text-white/45">•</span>
+          <span className="text-white/86">10:00 AM - 11:00 AM</span>
+        </p>
+        <a
+          href="/integrations"
+          className={cn(
+            "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4",
+            "bg-white/[0.055] text-sm text-white/90 outline-none",
+            "transition-colors hover:bg-white/[0.085] focus-visible:ring-2 focus-visible:ring-white/20",
+          )}
+        >
+          <IntegrationGlyph brand="google_calendar" size={18} variant="plain" />
+          Join
+        </a>
+      </div>
+    </section>
   );
 }
 
 function SetupNudge() {
-  return (
-    <a
-      href="/integrations"
-      className={cn(
-        "group relative block h-[74px] overflow-hidden rounded-3xl px-4 shadow-pop",
-        "text-white ring-1 ring-white/10 outline-none",
-        "transition-[box-shadow,transform]",
-        "hover:shadow-[0_18px_46px_rgba(0,0,0,0.38)] hover:ring-white/[0.16]",
-        "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
-      )}
-    >
-      <span className="absolute inset-0 bg-[linear-gradient(135deg,#8cc7d3_0%,#425d72_36%,#171717_100%)]" />
-      <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
-      <span className="relative flex h-full items-center justify-between gap-4">
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">Connect tools for live context</span>
-          <span className="mt-0.5 block truncate text-[12px] text-white/70">
-            Bring Gmail, Calendar, Drive, and code sources into Alfred.
-          </span>
-        </span>
-        <span
-          className={cn(
-            "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2",
-            "text-[13px] font-medium text-black backdrop-blur-sm",
-            "bg-[linear-gradient(180deg,rgba(255,255,255,0.85)_0%,#eeeeee_100%)]",
-            "shadow-[inset_0_0_7px_1px_rgba(255,255,255,0.16),0_0_0_1px_rgba(0,0,0,0.08)]",
-            "transition-[filter,box-shadow]",
-            "group-hover:shadow-[inset_0_0_8px_1px_rgba(255,255,255,0.28),0_0_0_1px_rgba(0,0,0,0.08),0_2px_12px_rgba(255,255,255,0.18)]",
-          )}
-        >
-          Open Integrations
-          <ArrowRight size={14} strokeWidth={2.25} />
-        </span>
-      </span>
-    </a>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-type RailMode = "tasks" | "emails" | "meetings";
-
-const RAIL_TABS: Array<{
-  mode: RailMode;
-  label: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-}> = [
-  { mode: "tasks", label: "To Do", icon: CheckSquare2 },
-  { mode: "emails", label: "Emails", icon: Mail },
-  { mode: "meetings", label: "Meetings", icon: Video },
-];
-
-function QuickAccessRail({
-  healthOk,
-  healthLoading,
-}: {
-  healthOk: boolean;
-  healthLoading: boolean;
-}) {
-  const [mode, setMode] = useState<RailMode>("tasks");
-  const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
-      <div className="absolute inset-0 bg-[linear-gradient(155deg,#8cc7d3_0%,#40647d_31%,#1b2528_57%,#101010_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),rgba(0,0,0,0.12)_28%,rgba(0,0,0,0.72)_100%)]" />
-      <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.16),transparent)]" />
-
-      <div className="relative flex min-h-0 flex-1 flex-col p-4">
-        <header className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[13px] font-medium text-white/86">
-              <span className="truncate">Bhubaneswar</span>
-              <span className="tabular">29°</span>
-              <span
-                className={cn(
-                  "ml-0.5 size-1.5 rounded-full",
-                  healthLoading ? "bg-white/50" : healthOk ? "bg-emerald-300" : "bg-red-300",
-                )}
-                title={
-                  healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"
-                }
-              />
-            </div>
-            <h2 className="mt-1 text-2xl font-medium tracking-tight">{active.label}</h2>
-          </div>
-
-          <div className="flex rounded-2xl bg-black/20 p-1 backdrop-blur-sm">
-            {RAIL_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const selected = mode === tab.mode;
-              return (
-                <button
-                  key={tab.mode}
-                  type="button"
-                  aria-label={tab.label}
-                  aria-pressed={selected}
-                  onClick={() => setMode(tab.mode)}
-                  className={cn(
-                    "grid h-9 w-14 place-items-center rounded-[14px]",
-                    "transition-[background-color,color,transform] active:scale-[0.96]",
-                    selected
-                      ? "bg-white/[0.12] text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
-                      : "text-white/50 hover:text-white/90",
-                  )}
-                >
-                  <Icon size={16} />
-                </button>
-              );
-            })}
-          </div>
-        </header>
-
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar pb-1">
-          {mode === "tasks" ? <TasksPanel /> : null}
-          {mode === "emails" ? (
-            <RailEmpty title="All done!" text="No pending email drafts." />
-          ) : null}
-          {mode === "meetings" ? (
-            <RailEmpty title="All done!" text="You have no meetings scheduled for today." />
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TasksPanel() {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
-        <button
-          type="button"
-          className={cn(
-            "px-2 py-0.5 text-sm text-white transition-colors hover:text-white/90",
-            "mix-blend-plus-lighter outline-none",
-          )}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          aria-label="Edit todos"
-          className="grid size-8 place-items-center rounded-xl text-white/70 transition-[background-color,color,transform] hover:bg-white/10 hover:text-white active:scale-[0.96]"
-        >
-          <Pencil size={15} />
-        </button>
-      </div>
-
+    <>
       <button
         type="button"
+        onClick={() => setOpen(true)}
         className={cn(
-          "mt-3 flex h-9 w-full items-center gap-2 rounded-md px-2",
-          "text-left text-sm text-white/50 transition-colors hover:text-white/90",
+          "group relative block h-[74px] w-full overflow-hidden rounded-3xl px-4 text-left shadow-pop",
+          "text-white ring-1 ring-white/10 outline-none",
+          "transition-[box-shadow,transform]",
+          "hover:shadow-[0_18px_46px_rgba(0,0,0,0.38)] hover:ring-white/[0.16]",
+          "focus-visible:ring-2 focus-visible:ring-white/[0.24] active:scale-[0.99]",
         )}
       >
-        <span
-          aria-hidden
-          className="grid size-4 shrink-0 place-items-center rounded-[4px] border border-white/40"
-        >
-          <Square size={10} className="opacity-0" />
+        <WeatherVideoSurface />
+        <span className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.18),rgba(0,0,0,0.54))] transition-opacity group-hover:opacity-90" />
+        <span className="relative flex h-full items-center justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Connect tools for live context</span>
+            <span className="mt-0.5 block truncate text-[12px] text-white/70">
+              Bring Gmail, Calendar, Drive, and code sources into Alfred.
+            </span>
+          </span>
+          <span
+            className={cn(
+              "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2",
+              "text-[13px] font-medium text-black backdrop-blur-sm",
+              "bg-[linear-gradient(180deg,rgba(255,255,255,0.85)_0%,#eeeeee_100%)]",
+              "shadow-[inset_0_0_7px_1px_rgba(255,255,255,0.16),0_0_0_1px_rgba(0,0,0,0.08)]",
+              "transition-[filter,box-shadow]",
+              "group-hover:shadow-[inset_0_0_8px_1px_rgba(255,255,255,0.28),0_0_0_1px_rgba(0,0,0,0.08),0_2px_12px_rgba(255,255,255,0.18)]",
+            )}
+          >
+            Connect
+            <ArrowRight size={14} strokeWidth={2.25} />
+          </span>
         </span>
-        <span>Add new to do</span>
       </button>
-
-      <section className="mt-6">
-        <div className="flex items-center gap-1.5">
-          <ClipboardCheck size={11} className="text-white/60" />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
-            Suggestions
-          </p>
-        </div>
-
-        <div className="mt-10 flex flex-col items-center text-center">
-          <PartyPopper
-            size={40}
-            className="text-white/80 mix-blend-plus-lighter"
-            strokeWidth={1.5}
-          />
-          <p className="mt-3 text-sm font-medium">No Suggestions</p>
-          <p className="mt-1 max-w-[220px] text-[12px] leading-relaxed text-white/60">
-            New suggestions will appear here when available.
-          </p>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function RailEmpty({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="grid min-h-[280px] place-items-center text-center">
-      <div className="flex flex-col items-center">
-        <PartyPopper
-          size={40}
-          className="text-white/80 mix-blend-plus-lighter"
-          strokeWidth={1.5}
-        />
-        <p className="mt-3 text-sm font-medium">{title}</p>
-        <p className="mt-1 text-[12px] text-white/60">{text}</p>
-      </div>
-    </div>
+      <ConnectToolsDialog open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 
@@ -1148,8 +1232,10 @@ function displayName(user: SessionUser | null | undefined): string {
         local
           .replace(/[._-]+/g, " ")
           .split(" ")
-          .map(capitalize)
-          .filter(Boolean)
+          .flatMap((word) => {
+            const capped = capitalize(word);
+            return capped ? [capped] : [];
+          })
           .join(" ") || local
       );
     }
@@ -1182,6 +1268,20 @@ function activeMentionToken(value: string, caret: number): { start: number; quer
   return { start, query };
 }
 
+function editorCaretTextOffset(editor: Editor): number {
+  return editor.state.doc.textBetween(0, editor.state.selection.from, "\n", "\n").length;
+}
+
+// textBetween renders each block boundary as a single "\n" (1 text char), but ProseMirror
+// uses 2 positions per boundary (close + open). Each newline before the offset adds 1 to
+// the PM position; the leading +1 lands inside the first paragraph's content.
+function textOffsetToPMPos(value: string, textOffset: number): number {
+  const slice = value.slice(0, textOffset);
+  let newlines = 0;
+  for (let i = 0; i < slice.length; i++) if (slice.charCodeAt(i) === 10) newlines++;
+  return textOffset + 1 + newlines;
+}
+
 function greetingFor(date: Date): string {
   const hour = date.getHours();
   if (hour < 5) return "Up Late";
@@ -1202,10 +1302,14 @@ function ordinalSuffix(n: number): string {
   const mod100 = n % 100;
   if (mod100 >= 11 && mod100 <= 13) return "th";
   switch (n % 10) {
-    case 1: return "st";
-    case 2: return "nd";
-    case 3: return "rd";
-    default: return "th";
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
   }
 }
 

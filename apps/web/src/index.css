@@ -54,19 +54,19 @@
 
   /* Neutral (16 stops). */
   --gray-0: 0 0 0;
-  --gray-25: 16 16 16;        /* rail bottom, popover surface */
-  --gray-50: 28 28 28;        /* input fill at 50% opacity */
-  --gray-100: 35 35 35;       /* input default border, switch off track */
-  --gray-200: 40 40 40;       /* input hover border */
-  --gray-300: 46 46 46;       /* input focus border */
+  --gray-25: 16 16 16; /* rail bottom, popover surface */
+  --gray-50: 28 28 28; /* input fill at 50% opacity */
+  --gray-100: 35 35 35; /* input default border, switch off track */
+  --gray-200: 40 40 40; /* input hover border */
+  --gray-300: 46 46 46; /* input focus border */
   --gray-400: 52 52 52;
   --gray-500: 62 62 62;
-  --gray-600: 80 80 80;       /* dividers */
-  --gray-700: 112 112 112;    /* disabled text */
-  --gray-800: 160 160 160;    /* muted text */
+  --gray-600: 80 80 80; /* dividers */
+  --gray-700: 112 112 112; /* disabled text */
+  --gray-800: 160 160 160; /* muted text */
   --gray-850: 190 190 190;
-  --gray-900: 209 209 209;    /* hover text uplift */
-  --gray-950: 237 237 237;    /* default body text */
+  --gray-900: 209 209 209; /* hover text uplift */
+  --gray-950: 237 237 237; /* default body text */
   --gray-1000: 255 255 255;
 
   /* Brand purple (11 stops). Primary CTA uses the inline gradient
@@ -76,7 +76,7 @@
   --purple-200: 64 47 164;
   --purple-300: 79 55 203;
   --purple-400: 83 59 229;
-  --purple-500: 107 98 242;   /* focus ring */
+  --purple-500: 107 98 242; /* focus ring */
   --purple-600: 128 129 249;
   --purple-700: 164 172 253;
   --purple-800: 199 205 254;
@@ -85,8 +85,8 @@
 
   /* Frost composition vars. Per-component overrides take precedence
    * (e.g. the Upgrade pill bumps both higher for a louder hairline). */
-  --frost-strength: 1;          /* multiplier on inset white glow opacity */
-  --frost-border-strength: 1;   /* multiplier on hairline gradient opacity */
+  --frost-strength: 1; /* multiplier on inset white glow opacity */
+  --frost-border-strength: 1; /* multiplier on hairline gradient opacity */
 
   /* Motion. Active-press is instant (no transition) per Dimension. */
   --motion-hover: 200ms;
@@ -198,13 +198,10 @@
   --color-purple-950: rgb(var(--purple-950));
 
   --font-sans:
-    "Open Runde", "Inter", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, sans-serif;
-  --font-serif:
-    "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    "Open Runde", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono:
-    ui-monospace, "SF Mono", SFMono-Regular, "Menlo", "Consolas",
-    "Liberation Mono", monospace;
+    ui-monospace, "SF Mono", SFMono-Regular, "Menlo", "Consolas", "Liberation Mono", monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -322,23 +319,61 @@
     animation: menu-pop-in 140ms cubic-bezier(0.2, 0, 0, 1);
   }
 
+  /* Settings section changes: quick fade/slide so tabbed panels do not snap. */
+  @keyframes settings-panel-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.995);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+  .animate-settings-panel-in {
+    animation: settings-panel-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: top center;
+  }
+
   /* Dialog/CommandPalette entrance: overlay fades, content fades + zooms.
    * Used by [data-state] attributes from Radix Dialog. */
   @keyframes dialog-overlay-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   @keyframes dialog-overlay-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
   }
   @keyframes dialog-content-in {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
   }
   @keyframes dialog-content-out {
-    from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+    from {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.96);
+    }
   }
 }
 
@@ -392,11 +427,11 @@
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
-            mask:
+    mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
-            mask-composite: exclude;
+    mask-composite: exclude;
     pointer-events: none;
     transition: opacity var(--motion-hover) var(--motion-easing);
   }
@@ -531,12 +566,129 @@
       #000 calc(100% - 12px),
       transparent 100%
     );
-            mask-image: linear-gradient(
+    mask-image: linear-gradient(
       to bottom,
       transparent 0,
       #000 12px,
       #000 calc(100% - 12px),
       transparent 100%
     );
+  }
+
+  .tiptap-minimum-input {
+    white-space: pre-wrap;
+  }
+
+  .tiptap-minimum-input p {
+    margin: 0;
+  }
+
+  .tiptap-minimum-input p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    color: rgba(255, 255, 255, 0.35);
+    pointer-events: none;
+  }
+
+  .dimension-weather-surface {
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.26) 0%,
+        rgba(255, 255, 255, 0.04) 22%,
+        rgba(9, 22, 40, 0.58) 100%
+      ),
+      radial-gradient(
+        ellipse 74% 26% at 0% 7%,
+        rgba(255, 255, 255, 0.6) 0%,
+        rgba(212, 231, 255, 0.38) 24%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 70% 30% at 60% 0%,
+        rgba(229, 241, 255, 0.33) 0%,
+        rgba(166, 198, 236, 0.22) 33%,
+        transparent 62%
+      ),
+      radial-gradient(
+        ellipse 92% 38% at 18% 55%,
+        rgba(222, 237, 255, 0.2) 0%,
+        rgba(162, 193, 232, 0.13) 34%,
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 110% 42% at 92% 76%,
+        rgba(51, 88, 144, 0.28) 0%,
+        rgba(22, 46, 86, 0.18) 44%,
+        transparent 72%
+      ),
+      linear-gradient(152deg, #86aade 0%, #5d8bcf 33%, #4878bd 63%, #20365f 100%);
+    background-size:
+      100% 100%,
+      155% 155%,
+      150% 150%,
+      170% 150%,
+      160% 150%,
+      100% 100%;
+    animation: dimension-cloud-drift 34s ease-in-out infinite alternate;
+  }
+
+  .dimension-weather-surface::before,
+  .dimension-weather-surface::after {
+    content: "";
+    position: absolute;
+    inset: -18%;
+    pointer-events: none;
+  }
+
+  .dimension-weather-surface::before {
+    background:
+      radial-gradient(ellipse 42% 13% at 20% 22%, rgba(255, 255, 255, 0.36), transparent 70%),
+      radial-gradient(ellipse 48% 16% at 72% 31%, rgba(233, 244, 255, 0.18), transparent 74%),
+      radial-gradient(ellipse 60% 18% at 34% 72%, rgba(215, 233, 255, 0.14), transparent 78%);
+    filter: blur(17px);
+    opacity: 0.8;
+    animation: dimension-cloud-layer 42s ease-in-out infinite alternate;
+  }
+
+  .dimension-weather-surface::after {
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(15, 34, 63, 0.08) 48%,
+      rgba(7, 18, 33, 0.62) 100%
+    );
+    opacity: 0.9;
+  }
+
+  @keyframes dimension-cloud-drift {
+    from {
+      background-position:
+        0 0,
+        4% 2%,
+        78% 0%,
+        8% 64%,
+        96% 84%,
+        0 0;
+    }
+    to {
+      background-position:
+        0 0,
+        14% 0%,
+        58% 9%,
+        24% 58%,
+        86% 76%,
+        0 0;
+    }
+  }
+
+  @keyframes dimension-cloud-layer {
+    from {
+      transform: translate3d(-1.5%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(2.5%, 1.5%, 0) scale(1.04);
+    }
   }
 }
