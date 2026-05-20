@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
@@ -20,15 +20,6 @@ function readStored(): Theme {
   return raw === "light" || raw === "dark" || raw === "system" ? raw : "system";
 }
 
-function systemPrefersDark(): boolean {
-  if (typeof window === "undefined") return true;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function resolve(theme: Theme): ResolvedTheme {
-  return theme === "system" ? (systemPrefersDark() ? "dark" : "light") : theme;
-}
-
 function apply(resolved: ResolvedTheme) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -36,35 +27,48 @@ function apply(resolved: ResolvedTheme) {
   root.style.colorScheme = resolved;
 }
 
+function subscribeSystemDark(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
+}
+
+function getSystemDarkSnapshot(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function getServerSystemDarkSnapshot(): boolean {
+  return true;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => readStored());
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolve(readStored()));
+  const systemDark = useSyncExternalStore(
+    subscribeSystemDark,
+    getSystemDarkSnapshot,
+    getServerSystemDarkSnapshot,
+  );
+
+  const resolved: ResolvedTheme =
+    theme === "system" ? (systemDark ? "dark" : "light") : theme;
 
   useEffect(() => {
     apply(resolved);
   }, [resolved]);
 
   useEffect(() => {
-    setResolved(resolve(theme));
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, theme);
-    }
-  }, [theme]);
-
-  // React to OS theme changes while the user is on "system".
-  useEffect(() => {
-    if (theme !== "system" || typeof window === "undefined") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => setResolved(mql.matches ? "dark" : "light");
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
   const setTheme = useCallback((next: Theme) => setThemeState(next), []);
   const toggle = useCallback(() => {
     setThemeState((prev) => {
-      const r = resolve(prev);
-      return r === "dark" ? "light" : "dark";
+      const current: ResolvedTheme =
+        prev === "system" ? (getSystemDarkSnapshot() ? "dark" : "light") : prev;
+      return current === "dark" ? "light" : "dark";
     });
   }, []);
 
@@ -77,7 +81,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
+  const ctx = use(ThemeContext);
   if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider />");
   return ctx;
 }

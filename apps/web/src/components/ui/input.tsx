@@ -12,7 +12,7 @@
  * Recipe pulled from dimension-design-reference-2026-05-18.md §2.3.
  */
 
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export type InputVariant = "default" | "search";
@@ -23,6 +23,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leading?: ReactNode;
   /** Trailing slot — small icon or kbd hint. */
   trailing?: ReactNode;
+  ref?: Ref<HTMLInputElement>;
 }
 
 const BASE = cn(
@@ -47,10 +48,7 @@ const VARIANT: Record<InputVariant, string> = {
   search: "rounded-full px-4 py-2",
 };
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { className, variant = "default", leading, trailing, ...rest },
-  ref,
-) {
+export function Input({ className, variant = "default", leading, trailing, ref, ...rest }: InputProps) {
   /* Bare input — most usage. */
   if (!leading && !trailing) {
     return <input ref={ref} className={cn(BASE, VARIANT[variant], className)} {...rest} />;
@@ -75,4 +73,4 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       ) : null}
     </div>
   );
-});
+}

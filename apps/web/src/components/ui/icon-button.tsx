@@ -5,7 +5,7 @@
  * Press is a snap `scale-[0.96]`. See dimension-design-reference §2.2.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export type IconButtonSize = "sm" | "md";
@@ -15,6 +15,7 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   label: string;
   size?: IconButtonSize;
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 }
 
 const SIZE: Record<IconButtonSize, string> = {
@@ -22,10 +23,7 @@ const SIZE: Record<IconButtonSize, string> = {
   md: "size-8",
 };
 
-export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, className, size = "md", type, children, ...rest },
-  ref,
-) {
+export function IconButton({ label, className, size = "md", type, children, ref, ...rest }: IconButtonProps) {
   return (
     <button
       ref={ref}
@@ -46,4 +44,4 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       {children}
     </button>
   );
-});
+}

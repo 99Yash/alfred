@@ -73,7 +73,7 @@ function NotesPage() {
     );
   }
 
-  const sorted = [...(notes ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const sorted = (notes ?? []).toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
   const hasContent = text.trim().length > 0;
 
   return (
@@ -157,7 +157,7 @@ function NotesPage() {
               </span>
               <p className="text-sm font-medium text-gray-950">No notes yet</p>
               <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-                Capture something quick — a thought, a task, anything. Newest first; nothing here is
+                Capture something quick: a thought, a task, anything. Newest first; nothing here is
                 sent to Alfred.
               </p>
             </Card>
@@ -197,7 +197,7 @@ function NotesShell({ children }: { children: React.ReactNode }) {
           Notes
         </h1>
         <p className="text-sm text-gray-800">
-          Loose captures. Synced across devices — not (yet) read by Alfred.
+          Loose captures. Synced across devices; not (yet) read by Alfred.
         </p>
       </header>
 
