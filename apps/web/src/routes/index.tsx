@@ -340,7 +340,10 @@ function Composer() {
       editor
         .chain()
         .focus()
-        .deleteRange({ from: start + 1, to: caret + 1 })
+        .deleteRange({
+          from: textOffsetToPMPos(value, start),
+          to: textOffsetToPMPos(value, caret),
+        })
         .insertContent(`@${item.label} `)
         .run();
       setMentionOpen(false);
@@ -1116,6 +1119,16 @@ function activeMentionToken(value: string, caret: number): { start: number; quer
 
 function editorCaretTextOffset(editor: Editor): number {
   return editor.state.doc.textBetween(0, editor.state.selection.from, "\n", "\n").length;
+}
+
+// textBetween renders each block boundary as a single "\n" (1 text char), but ProseMirror
+// uses 2 positions per boundary (close + open). Each newline before the offset adds 1 to
+// the PM position; the leading +1 lands inside the first paragraph's content.
+function textOffsetToPMPos(value: string, textOffset: number): number {
+  const slice = value.slice(0, textOffset);
+  let newlines = 0;
+  for (let i = 0; i < slice.length; i++) if (slice.charCodeAt(i) === 10) newlines++;
+  return textOffset + 1 + newlines;
 }
 
 function greetingFor(date: Date): string {
