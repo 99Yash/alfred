@@ -116,7 +116,8 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       console.log(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
-          `errors=${result.errors} fullResync=${result.fullResync}`,
+          `skipped=${result.skipped} errors=${result.errors} fullResync=${result.fullResync} ` +
+          `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       // Fan triage runs over freshly-inserted docs (ADR-0025 #1). One run
       // per doc — each gets its own Gmail label. We deliberately do NOT
