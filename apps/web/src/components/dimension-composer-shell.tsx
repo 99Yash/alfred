@@ -1,11 +1,11 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { ArrowUp, Check, ChevronDown, Ellipsis, Sparkles } from "lucide-react";
-import {
-  forwardRef,
-  type ButtonHTMLAttributes,
-  type FormEventHandler,
-  type ReactNode,
+import type {
+  ButtonHTMLAttributes,
+  FormEventHandler,
+  ReactNode,
+  Ref,
 } from "react";
 import { cn } from "~/lib/utils";
 
@@ -84,12 +84,17 @@ export function DimensionComposerToolbar({
 type DimensionComposerIconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   label: string;
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 };
 
-export const DimensionComposerIconButton = forwardRef<
-  HTMLButtonElement,
-  DimensionComposerIconButtonProps
->(function DimensionComposerIconButton({ label, disabled, children, className, ...props }, ref) {
+export function DimensionComposerIconButton({
+  label,
+  disabled,
+  children,
+  className,
+  ref,
+  ...props
+}: DimensionComposerIconButtonProps) {
   return (
     <button
       ref={ref}
@@ -108,7 +113,7 @@ export const DimensionComposerIconButton = forwardRef<
       {children}
     </button>
   );
-});
+}
 
 export function DimensionComposerSendButton({ disabled }: { disabled?: boolean }) {
   return (

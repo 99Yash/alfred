@@ -23,7 +23,7 @@ import {
   ThumbsUp,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import {
   DimensionComposerContextMenu,
@@ -422,7 +422,7 @@ function ActiveThoughtRow({ children }: { children: ReactNode }) {
 
 function ActiveToolRow({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex max-w-2xl items-center gap-2 rounded-xl border border-purple-500/25 bg-purple-500/5 px-3 py-2 text-sm leading-5 text-gray-900">
+    <div className="flex max-w-2xl items-center gap-2 rounded-xl border border-purple-500/25 bg-purple-500/5 px-3 py-2 text-sm leading-5 text-white/90">
       <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-purple-500/12 text-purple-600">
         <Search size={16} />
       </span>
@@ -865,6 +865,10 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   const [value, setValue] = useState("");
   const [autoMode, setAutoMode] = useState(true);
   const [model, setModel] = useState("alfred");
+  // Latest submit closure routed through a ref so TipTap's once-registered
+  // handleKeyDown always sees the current state.
+  const submitRef = useRef<() => void>(() => undefined);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -884,6 +888,14 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
         class:
           "tiptap ProseMirror tiptap-minimum-input composer-editor max-h-[240px] min-h-12 overflow-y-auto px-3 pb-2 pt-3 text-sm leading-5 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
       },
+      handleKeyDown: (_view, event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          submitRef.current();
+          return true;
+        }
+        return false;
+      },
     },
     onUpdate: ({ editor }) => setValue(editor.getText()),
   });
@@ -896,6 +908,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
     setValue("");
     queueMicrotask(() => editor?.commands.focus());
   };
+  submitRef.current = submit;
 
   const hasContent = value.trim().length > 0;
   const contextItems: DimensionComposerMenuItem[] = [
@@ -1003,16 +1016,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
         />
       }
     >
-      <div
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-      >
-        <EditorContent editor={editor} />
-      </div>
+      <EditorContent editor={editor} />
     </DimensionComposerShell>
   );
 }
@@ -1156,7 +1160,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                 {isGenerating ? (
                   <section aria-label="Artifact page generating" className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-gray-700">
-                      <span>Creating page...</span>
+                      <span>Creating page…</span>
                       <span>
                         {generatedPages.length + 1} / {SYCAMORE_BRIEF_PAGES.length}
                       </span>

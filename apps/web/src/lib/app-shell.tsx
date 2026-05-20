@@ -27,6 +27,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -90,19 +91,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Close the mobile drawer on route change. (Radix Dialog handles Escape +
-  // outside-click + focus trap for the drawer itself.) TanStack Router's
-  // useLocation() returns a fresh object per navigation, so depending on the
-  // whole reference is correct — and avoids the lint pattern that flags
-  // `location.pathname` as the mutable browser global.
-  useEffect(() => {
+  // Close the mobile drawer + palette on route change. Tracking the previous
+  // location in a ref (not state — we never read it in render) and resetting
+  // during render replaces the prior useEffects that the linter flagged as
+  // derived-state effects.
+  const prevLocationRef = useRef(location);
+  if (prevLocationRef.current !== location) {
+    prevLocationRef.current = location;
     setMobileNavOpen(false);
-  }, [location]);
-
-  // Close the palette on route change so navigation feels clean.
-  useEffect(() => {
     setPaletteOpen(false);
-  }, [location]);
+  }
 
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && location.pathname !== "/login";
