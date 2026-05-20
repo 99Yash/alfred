@@ -129,11 +129,12 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks" }).post(
     // jobId dedupes in-flight polls for the same credential — multiple
     // webhooks within the poll's runtime collapse to one job. The poll
     // itself reads the latest cursor, so dedupe doesn't drop notifications.
+    // BullMQ forbids `:` in custom jobIds, so the separator is `.`.
     const queue = getIngestionQueue();
     await queue.add(
       "gmail.poll_history",
       { kind: "gmail.poll_history", credentialId: cred.id, reason: "webhook" },
-      { jobId: `gmail.poll_history:${cred.id}` },
+      { jobId: `gmail.poll_history.${cred.id}` },
     );
 
     return { ok: true, credentialId: cred.id };
