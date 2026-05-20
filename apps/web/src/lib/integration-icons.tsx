@@ -37,7 +37,7 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
   github: {
     kind: "svg",
     slug: "github",
-    plainColor: "#181717",
+    plainColor: "#f4f4f5",
     frostColor: "#f4f4f5",
   },
   gmail: { kind: "svg", slug: "gmail" },

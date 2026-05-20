@@ -3,13 +3,21 @@ import {
   BadgeDollarSign,
   Bell,
   Gift,
+  ListChecks,
   Mail,
   MessageSquare,
+  Moon,
   PackageCheck,
+  PencilLine,
   Slack,
   Sliders,
   Sparkles,
+  Sun,
+  Sunrise,
+  Sunset,
+  Tag,
   User,
+  Users2,
 } from "lucide-react";
 import { useState, type ComponentType, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
@@ -54,13 +62,13 @@ function SettingsPage() {
       {/* Spacer so the mobile hamburger doesn't collide with the page title. */}
       <div className="md:hidden h-6" />
 
-      <header className="mb-10">
-        <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
+      <header className="mb-8 sm:mb-10">
+        <h1 className="heading-display text-[34px] sm:text-[40px] leading-[40px] sm:leading-[48px] font-medium tracking-tight">
           Settings
         </h1>
       </header>
 
-      <div className="grid gap-8 md:grid-cols-[180px_1fr]">
+      <div className="grid gap-6 sm:gap-8 grid-cols-1 md:grid-cols-[200px_1fr]">
         <SettingsNav active={section} onChange={setSection} />
         <SettingsPanel section={section} />
       </div>
@@ -81,7 +89,7 @@ function SettingsNav({
 }) {
   return (
     <aside aria-label="Settings sections" className="md:sticky md:top-10">
-      <nav className="flex flex-row md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">
+      <nav className="flex flex-col gap-0.5">
         {SECTIONS.map((s) => (
           <SettingsNavRow
             key={s.id}
@@ -111,20 +119,20 @@ function SettingsNavRow({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative inline-flex items-center gap-2 rounded-md",
-        "h-7 w-44 px-2 text-sm font-medium whitespace-nowrap",
+        "group relative inline-flex w-full items-center gap-2.5 rounded-md",
+        "h-8 px-2.5 text-[13.5px] font-medium whitespace-nowrap",
         "transition-[background-color,color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
         "active:scale-[0.98]",
         active
-          ? "bg-white/[0.04] text-gray-1000"
+          ? "bg-white/[0.05] text-gray-1000"
           : "text-gray-800 hover:bg-white/[0.025] hover:text-gray-900",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "absolute left-0 top-1/2 h-3.5 w-[2px] -translate-y-1/2 rounded-full bg-[rgb(var(--purple-400))]",
+          "absolute -left-2 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-[rgb(var(--purple-400))]",
           "transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
           active ? "opacity-100 scale-y-100" : "opacity-0 scale-y-50",
         )}
@@ -132,8 +140,8 @@ function SettingsNavRow({
       <Icon
         size={14}
         className={cn(
-          "shrink-0 transition-[color,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
-          active ? "translate-x-0.5 text-gray-1000" : "text-gray-800 group-hover:text-gray-900",
+          "shrink-0 transition-[color] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+          active ? "text-gray-1000" : "text-gray-800 group-hover:text-gray-900",
         )}
       />
       <span>{section.label}</span>
@@ -250,6 +258,51 @@ function FieldRow({
         {helper ? <p className="text-[12px] text-gray-800">{helper}</p> : null}
       </div>
       <div className="shrink-0 pt-0.5">{control}</div>
+    </div>
+  );
+}
+
+function Cluster({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-4">
+      <h3 className="text-[13px] font-medium text-gray-1000">{title}</h3>
+      <div className="space-y-5">{children}</div>
+    </section>
+  );
+}
+
+function AgentRow({
+  icon: Icon,
+  label,
+  helper,
+  checked,
+  onChange,
+}: {
+  icon: ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  helper: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-6">
+      <div className="flex min-w-0 items-start gap-3">
+        <span
+          className={cn(
+            "mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg",
+            "border border-white/5 bg-[rgb(var(--gray-50)/0.5)] text-gray-900",
+          )}
+        >
+          <Icon size={13} />
+        </span>
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-medium text-gray-1000">{label}</p>
+          <p className="text-[12px] text-gray-800">{helper}</p>
+        </div>
+      </div>
+      <div className="shrink-0 pt-1">
+        <Switch checked={checked} onCheckedChange={onChange} />
+      </div>
     </div>
   );
 }
@@ -402,29 +455,84 @@ function SimpleSection({
 /* Features section                                                            */
 /* -------------------------------------------------------------------------- */
 
+interface BackgroundAgentDef {
+  id: string;
+  label: string;
+  helper: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  defaultOn: boolean;
+}
+
+const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
+  {
+    id: "action-items",
+    label: "Action Items",
+    helper: "Pulls action items from your apps and flags what's urgent.",
+    icon: ListChecks,
+    defaultOn: true,
+  },
+  {
+    id: "evening-recap",
+    label: "Evening Recap",
+    helper: "A daily summary of what got done and what's still open.",
+    icon: Sunset,
+    defaultOn: false,
+  },
+  {
+    id: "morning-briefing",
+    label: "Morning Briefing",
+    helper: "Your schedule, tasks, and key updates — delivered each morning.",
+    icon: Sunrise,
+    defaultOn: true,
+  },
+  {
+    id: "email-tagging",
+    label: "Email Tagging",
+    helper: "Tags every inbound email so you know what needs action.",
+    icon: Tag,
+    defaultOn: true,
+  },
+  {
+    id: "email-auto-drafting",
+    label: "Email Auto-Drafting",
+    helper: "Drafts replies in your tone so you can review and send.",
+    icon: PencilLine,
+    defaultOn: false,
+  },
+  {
+    id: "meeting-prep",
+    label: "Meeting Prep",
+    helper: "Briefs you on attendees, talking points, and past context.",
+    icon: Users2,
+    defaultOn: false,
+  },
+];
+
 function FeaturesSection() {
-  const [briefing, setBriefing] = useState(true);
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(BACKGROUND_AGENTS.map((a) => [a.id, a.defaultOn])),
+  );
 
   return (
     <PanelCard>
       <PanelHeader
         icon={Sparkles}
         title="Features"
-        description="Choose which Alfred surfaces are enabled."
+        description="Enable or disable background agents."
       />
 
-      <FieldRow
-        label="Morning briefing"
-        helper="Inbox-only digest delivered every morning. Wired in milestone 10."
-        control={<Switch checked={briefing} onCheckedChange={setBriefing} />}
-      />
-
-      <FieldRow
-        label="Auto approve"
-        helper="When enabled, low-risk internal changes execute without asking for review."
-        control={<Switch checked={autoApprove} onCheckedChange={setAutoApprove} />}
-      />
+      <Cluster title="Background Agents">
+        {BACKGROUND_AGENTS.map((agent) => (
+          <AgentRow
+            key={agent.id}
+            icon={agent.icon}
+            label={agent.label}
+            helper={agent.helper}
+            checked={enabled[agent.id] ?? false}
+            onChange={(next) => setEnabled((prev) => ({ ...prev, [agent.id]: next }))}
+          />
+        ))}
+      </Cluster>
     </PanelCard>
   );
 }
@@ -434,47 +542,60 @@ function FeaturesSection() {
 /* -------------------------------------------------------------------------- */
 
 const THEME_TABS: ReadonlyArray<TabItem<Theme>> = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+  { value: "system", label: "System", icon: <Sliders size={13} /> },
+  { value: "light", label: "Light", icon: <Sun size={13} /> },
+  { value: "dark", label: "Dark", icon: <Moon size={13} /> },
 ];
 
 function PreferencesSection() {
   const { theme, setTheme } = useTheme();
+  const [productUpdates, setProductUpdates] = useState(true);
 
   return (
     <PanelCard>
       <PanelHeader
         icon={Sliders}
         title="Preferences"
-        description="Tune the surfaces Alfred shows you."
+        description="Customize your app preferences."
       />
 
-      <Field label="Theme" helper="Choose Alfred's appearance. System matches your OS.">
-        <Tabs<Theme>
-          variant="pill"
-          value={theme}
-          onValueChange={setTheme}
-          items={THEME_TABS}
-          label="Theme"
-        />
-      </Field>
+      <Cluster title="Appearance">
+        <Field label="Theme" helper="Choose Alfred's appearance. System matches your OS.">
+          <Tabs<Theme>
+            variant="pill"
+            value={theme}
+            onValueChange={setTheme}
+            items={THEME_TABS}
+            label="Theme"
+          />
+        </Field>
+      </Cluster>
 
-      <Field
-        label="Model"
-        helper="Default model Alfred uses to reason. Picker lands with milestone 13."
-      >
-        <div
-          className={cn(
-            "inline-flex items-center gap-2 rounded-full px-3 h-9",
-            "border border-gray-100 bg-[rgb(var(--gray-50)/0.5)]",
-            "text-sm text-gray-800",
-          )}
+      <Cluster title="Model">
+        <Field
+          label="Default model"
+          helper="Model Alfred uses to reason. Picker lands with milestone 13."
         >
-          <Sparkles size={13} className="text-gray-900" />
-          <span>Alfred (default)</span>
-        </div>
-      </Field>
+          <div
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-3 h-9",
+              "border border-gray-100 bg-[rgb(var(--gray-50)/0.5)]",
+              "text-sm text-gray-800",
+            )}
+          >
+            <Sparkles size={13} className="text-gray-900" />
+            <span>Alfred (default)</span>
+          </div>
+        </Field>
+      </Cluster>
+
+      <Cluster title="Email Preferences">
+        <FieldRow
+          label="Product Updates"
+          helper="Get notified about new features and improvements."
+          control={<Switch checked={productUpdates} onCheckedChange={setProductUpdates} />}
+        />
+      </Cluster>
     </PanelCard>
   );
 }
