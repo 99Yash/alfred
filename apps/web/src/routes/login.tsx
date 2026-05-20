@@ -27,7 +27,14 @@ function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      await authClient.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
+      const { error: otpError } = await authClient.emailOtp.sendVerificationOtp({
+        email,
+        type: "sign-in",
+      });
+      if (otpError) {
+        setError(otpError.message ?? "Failed to send code");
+        return;
+      }
       setStep("otp");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send code");
@@ -40,8 +47,12 @@ function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await authClient.signIn.emailOtp({ email, otp });
-      if (result.data) {
+      const { data, error: signInError } = await authClient.signIn.emailOtp({ email, otp });
+      if (signInError) {
+        setError(signInError.message ?? "Invalid or expired code");
+        return;
+      }
+      if (data) {
         await navigate({ to: "/" });
       } else {
         setError("Invalid or expired code");
