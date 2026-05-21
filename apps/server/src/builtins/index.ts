@@ -1,5 +1,6 @@
 import { registerWorkflow } from "@alfred/api";
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
+import { dailyBriefingWorkflow } from "./workflows/daily-briefing";
 import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
 import { emailTriageWorkflow } from "./workflows/email-triage";
 import { learnSkillWorkflow } from "./workflows/learn-skill";
@@ -17,6 +18,7 @@ export function registerBuiltinWorkflows(): void {
   registerWorkflow(memoryExtractionWorkflow);
   registerWorkflow(emailTriageWorkflow);
   registerWorkflow(morningBriefingWorkflow);
+  registerWorkflow(dailyBriefingWorkflow);
   registerWorkflow(coldStartResearchWorkflow);
   registerWorkflow(learnSkillWorkflow);
   registerWorkflow(skillDocumentationWorkflow);
