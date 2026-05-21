@@ -11,3 +11,4 @@ export * from "./schema/triage.js";
 export * from "./schema/notifications.js";
 export * from "./schema/skills.js";
 export * from "./schema/workflows.js";
+export * from "./schema/briefings.js";
