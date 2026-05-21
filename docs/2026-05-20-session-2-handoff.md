@@ -181,7 +181,7 @@ railway ssh --service server -- "bash -c 'echo $B64 | base64 -d > /tmp/s.js && n
 
 # Redis (BullMQ queue inspection) — public TCP proxy
 node -e "const R=require('/Users/yash/Developer/self/alfred/node_modules/.pnpm/ioredis@5.10.1/node_modules/ioredis'); ..."
-REDIS_PUBLIC_URL='redis://default:BsbfcalQyLqRCfdLvXtVtNRDLflfIhjs@caboose.proxy.rlwy.net:54013'
+REDIS_PUBLIC_URL='<redacted — pull from Railway: railway variables --service Redis-E37o --kv | grep REDIS_PUBLIC_URL>'
 ```
 
 ## PRs landed this session
