@@ -51,12 +51,12 @@ export interface ClassifyEmailArgs {
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
-- action_needed: the user must do something concrete (reply, decide, complete a task, attend to a request).
-- awaiting_reply: someone is waiting on the user's response. Often subset of action_needed; pick this when the only action is "reply."
-- meeting: meeting invites, agenda emails, calendar reminders, room/availability negotiations.
+- action_needed: the user must take a concrete step. Reply, decide, complete a task, click a confirm link, rotate a credential, update a card, verify identity, respond to a code review, fix a broken build. Automated senders count — what matters is whether a human action is required.
+- awaiting_reply: someone is waiting on the user's reply, and replying IS the action. Pick this when the only action is "write back."
+- meeting: meeting invites, agenda emails, calendar reminders, room/availability negotiations, "your meeting starts soon" pings.
 - payment: invoices, receipts, payment failures, billing notices, refunds, statements.
 - newsletter: marketing emails, promotional digests, automated content blasts, unsubscribe-able subscriptions.
-- fyi: informational updates, alerts, status notices, anything the user should be aware of but doesn't need to act on.
+- fyi: passive awareness items the user does NOT need to act on — resolved-incident status posts, product release notes, shipping confirmations without exceptions, "we updated our terms" notices, social activity digests.
 
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
@@ -64,12 +64,20 @@ Rules:
 3. Prefer 'newsletter' over 'fyi' for any marketing / promotional / mass-distribution email.
 4. 'meeting' takes precedence over 'action_needed' when the email is primarily about a meeting (even if it requires a reply).
 5. 'payment' takes precedence over 'fyi' for any financial transaction notice.
-6. Confidence:
-   - 0.9+: the category is unambiguous (newsletter from a clearly promotional sender, payment receipt with amount, etc.).
+6. Automated alerts that demand a remediation step → action_needed, NOT fyi. This covers: secret-scanning / credential-exposure alerts, security or breach notices, account-compromise warnings, expiring-credential reminders, CI/CD failures on the user's own code, GitHub review-requests / @mentions / issue assignments, "verify your email" or "confirm your sign-in" prompts. 'fyi' is reserved for notices the user can safely scroll past in the moment.
+7. Confidence:
+   - 0.9+: the category is unambiguous (newsletter from a clearly promotional sender, payment receipt with amount, secret-scanning alert from GitHub, etc.).
    - 0.7-0.9: clear category but with some overlap.
    - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
    - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
-7. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+8. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+
+Examples (subject → category):
+- "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → action_needed (credential must be rotated).
+- "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed).
+- "Incident resolved: API latency" from status@vercel.com → fyi (resolved; nothing to do).
+- "Your payment failed — update your card" from billing@stripe.com → payment (rule 5).
+- "Sign-in attempt from a new device — was this you?" from security@google.com → action_needed (verification required).
 
 Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "..." }`;
 
