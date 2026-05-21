@@ -8,7 +8,7 @@ import {
   getRelatedProviders,
   type IntegrationProvider,
 } from "~/lib/integrations";
-import { IntegrationIcon } from "~/lib/integration-icons";
+import { IntegrationGlyph, IntegrationIcon } from "~/lib/integration-icons";
 
 export const Route = createFileRoute("/integrations/$provider")({
   component: IntegrationDetailPage,
@@ -54,6 +54,8 @@ function IntegrationDetailPage() {
         <Button size="lg">{connected ? "Add Account" : "Connect"}</Button>
       </header>
 
+      <HeroPreview provider={provider} />
+
       <ConnectedAccounts provider={provider} />
       <TrustNotice provider={provider} />
       <RelatedSetup provider={provider} />
@@ -84,58 +86,155 @@ function BackLink() {
   );
 }
 
+function HeroPreview({ provider }: { provider: IntegrationProvider }) {
+  return (
+    <div
+      aria-hidden
+      className="relative h-[200px] w-full overflow-hidden rounded-2xl border border-white/[0.06]"
+      style={{
+        background:
+          "radial-gradient(120% 90% at 50% 110%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 55%), radial-gradient(80% 60% at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0) 60%), #0a0a0a",
+      }}
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0 opacity-[0.18]"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+          maskImage:
+            "radial-gradient(60% 60% at 50% 50%, black 0%, rgba(0,0,0,0.5) 60%, transparent 100%)",
+        }}
+      />
+      <div className="relative flex h-full items-center justify-center gap-6">
+        <HeroTile brand={provider.brand} variant="side" />
+        <HeroTile brand={provider.brand} variant="center" />
+        <HeroTile brand={provider.brand} variant="side" />
+      </div>
+    </div>
+  );
+}
+
+function HeroTile({
+  brand,
+  variant,
+}: {
+  brand: IntegrationProvider["brand"];
+  variant: "center" | "side";
+}) {
+  const isCenter = variant === "center";
+  return (
+    <div
+      className={
+        isCenter
+          ? "grid size-[120px] place-items-center rounded-[28px] bg-[#0d0d0d] shadow-[0_24px_60px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-white/10"
+          : "grid size-[88px] place-items-center rounded-[22px] bg-[#0d0d0d] shadow-[0_16px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-white/[0.08] opacity-90"
+      }
+    >
+      <IntegrationGlyph brand={brand} size={isCenter ? 56 : 40} />
+    </div>
+  );
+}
+
 function ConnectedAccounts({ provider }: { provider: IntegrationProvider }) {
   const connected = provider.status === "connected";
 
   return (
-    <section aria-labelledby="connected-accounts-title" className="space-y-3">
+    <section aria-labelledby="connected-accounts-title" className="space-y-4">
       <h2 id="connected-accounts-title" className="text-sm font-medium text-gray-1000">
         Connected
       </h2>
-      <div className="overflow-hidden rounded-2xl border border-white/[0.06]">
-        <div className="grid grid-cols-[1fr_0.8fr_0.7fr_auto] gap-4 border-b border-white/[0.06] px-4 py-3 text-sm text-gray-950">
-          <div>Connected</div>
-          <div>Date</div>
-          <div>Status</div>
-          <div className="sr-only">Actions</div>
+      {connected ? (
+        <div className="grid grid-cols-[1.4fr_1fr_1fr_auto] items-center gap-x-4 gap-y-3 px-1">
+          <div className="text-[11.5px] uppercase tracking-[0.04em] text-gray-700">Connected</div>
+          <div className="text-[11.5px] uppercase tracking-[0.04em] text-gray-700">Date</div>
+          <div className="text-[11.5px] uppercase tracking-[0.04em] text-gray-700">Status</div>
+          <div aria-hidden />
+
+          <p className="min-w-0 truncate text-sm text-gray-1000">Connected account</p>
+          <p className="text-sm text-gray-800 tabular-nums">Mar 17, 2026</p>
+          <p className="inline-flex items-center gap-1.5 text-sm text-gray-800">
+            <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+            Active
+          </p>
+          <Button variant="destructive" size="sm">
+            Disconnect
+          </Button>
         </div>
-        <div className="grid grid-cols-[1fr_0.8fr_0.7fr_auto] items-center gap-4 p-4 text-[12.5px] text-gray-800">
-          <div className="min-w-0">
-            <p className="truncate text-gray-950">{connected ? "Connected account" : "-"}</p>
-            <p className="truncate text-[11.5px]">{connected ? "Workspace" : ""}</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4 px-1 text-[11.5px] uppercase tracking-[0.04em] text-gray-700">
+            <div>Connected</div>
+            <div>Date</div>
+            <div>Status</div>
           </div>
-          <div>{connected ? "Mar 17, 2026" : "-"}</div>
-          <div className="inline-flex items-center gap-1.5">
-            {connected ? <span className="size-1.5 rounded-full bg-emerald-400" /> : null}
-            {connected ? "Active" : "Not connected"}
-          </div>
-          <div>
-            {connected ? (
-              <Button variant="destructive" size="sm">
-                Disconnect
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </div>
+          <p className="px-1 text-[12.5px] text-gray-700">No account connected yet.</p>
+        </>
+      )}
     </section>
   );
 }
 
 function TrustNotice({ provider }: { provider: IntegrationProvider }) {
   return (
-    <section className="flex gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+    <section className="relative flex items-start gap-3 overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 pr-32">
       <span
         aria-hidden
         className="frost-icon-tile grid size-9 shrink-0 place-items-center rounded-xl text-gray-900"
       >
         <ShieldCheck size={17} />
       </span>
-      <div>
+      <div className="min-w-0 flex-1">
         <h2 className="text-sm font-medium text-gray-1000">{provider.trust.title}</h2>
         <p className="mt-1 text-[12.5px] leading-5 text-gray-800">{provider.trust.body}</p>
       </div>
+      <TrustDial />
     </section>
+  );
+}
+
+function TrustDial() {
+  return (
+    <svg
+      aria-hidden
+      className="pointer-events-none absolute -right-3 top-1/2 size-28 -translate-y-1/2 opacity-70"
+      viewBox="0 0 96 96"
+      fill="none"
+    >
+      <defs>
+        <radialGradient id="trustDialGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="rgb(120,119,198)" stopOpacity="0.25" />
+          <stop offset="60%" stopColor="rgb(120,119,198)" stopOpacity="0.05" />
+          <stop offset="100%" stopColor="rgb(120,119,198)" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="48" cy="48" r="46" fill="url(#trustDialGlow)" />
+      {Array.from({ length: 36 }).map((_, i) => {
+        const angle = (i / 36) * Math.PI * 2;
+        const inner = 30;
+        const outer = i % 9 === 0 ? 40 : 36;
+        const x1 = 48 + Math.cos(angle) * inner;
+        const y1 = 48 + Math.sin(angle) * inner;
+        const x2 = 48 + Math.cos(angle) * outer;
+        const y2 = 48 + Math.sin(angle) * outer;
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="rgba(255,255,255,0.35)"
+            strokeWidth={i % 9 === 0 ? 1.5 : 0.8}
+            strokeLinecap="round"
+          />
+        );
+      })}
+      <circle cx="48" cy="48" r="24" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+      <circle cx="48" cy="48" r="14" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+      <circle cx="48" cy="48" r="3" fill="rgba(255,255,255,0.6)" />
+    </svg>
   );
 }
 

@@ -277,10 +277,10 @@ type PillTone = "neutral" | "positive" | "warning" | "negative" | "info";
 
 const PILL_TONE: Record<PillTone, string> = {
   neutral: "bg-muted text-muted-foreground",
-  positive: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
-  warning: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300",
-  negative: "bg-destructive/10 text-destructive dark:text-red-300",
-  info: "bg-sky-500/10 text-sky-700 dark:bg-sky-400/10 dark:text-sky-300",
+  positive: "bg-emerald-400/10 text-emerald-300",
+  warning: "bg-amber-400/10 text-amber-300",
+  negative: "bg-destructive/10 text-red-300",
+  info: "bg-sky-400/10 text-sky-300",
 };
 
 export function Pill({

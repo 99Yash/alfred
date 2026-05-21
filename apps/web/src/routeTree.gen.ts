@@ -13,6 +13,7 @@ import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as LoginRouteImport } from './routes/login'
@@ -21,6 +22,8 @@ import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as PreviewOnboardingRouteImport } from './routes/preview.onboarding'
+import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
@@ -44,6 +47,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotesRoute = NotesRouteImport.update({
@@ -86,6 +94,16 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const PreviewOnboardingRoute = PreviewOnboardingRouteImport.update({
+  id: '/preview/onboarding',
+  path: '/preview/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreviewLandingRoute = PreviewLandingRouteImport.update({
+  id: '/preview/landing',
+  path: '/preview/landing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
   id: '/$artifact',
   path: '/$artifact',
@@ -114,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
@@ -122,6 +141,8 @@ export interface FileRoutesByFullPath {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/landing': typeof PreviewLandingRoute
+  '/preview/onboarding': typeof PreviewOnboardingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -132,6 +153,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
@@ -140,6 +162,8 @@ export interface FileRoutesByTo {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/landing': typeof PreviewLandingRoute
+  '/preview/onboarding': typeof PreviewOnboardingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -151,6 +175,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
@@ -159,6 +184,8 @@ export interface FileRoutesById {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/landing': typeof PreviewLandingRoute
+  '/preview/onboarding': typeof PreviewOnboardingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -171,6 +198,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/memory'
     | '/notes'
+    | '/onboarding'
     | '/settings'
     | '/skills'
     | '/styleguide'
@@ -179,6 +207,8 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/landing'
+    | '/preview/onboarding'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
@@ -189,6 +219,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/memory'
     | '/notes'
+    | '/onboarding'
     | '/settings'
     | '/skills'
     | '/styleguide'
@@ -197,6 +228,8 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/landing'
+    | '/preview/onboarding'
     | '/skills/$slug'
     | '/workflows/$workflow'
   id:
@@ -207,6 +240,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/memory'
     | '/notes'
+    | '/onboarding'
     | '/settings'
     | '/skills'
     | '/styleguide'
@@ -215,6 +249,8 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/landing'
+    | '/preview/onboarding'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesById: FileRoutesById
@@ -226,12 +262,15 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
+  OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
+  PreviewLandingRoute: typeof PreviewLandingRoute
+  PreviewOnboardingRoute: typeof PreviewOnboardingRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -262,6 +301,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notes': {
@@ -319,6 +365,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/preview/onboarding': {
+      id: '/preview/onboarding'
+      path: '/preview/onboarding'
+      fullPath: '/preview/onboarding'
+      preLoaderRoute: typeof PreviewOnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preview/landing': {
+      id: '/preview/landing'
+      path: '/preview/landing'
+      fullPath: '/preview/landing'
+      preLoaderRoute: typeof PreviewLandingRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/library/$artifact': {
       id: '/library/$artifact'
@@ -404,12 +464,15 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
+  OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
   WorkflowsRoute: WorkflowsRouteWithChildren,
   ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
+  PreviewLandingRoute: PreviewLandingRoute,
+  PreviewOnboardingRoute: PreviewOnboardingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

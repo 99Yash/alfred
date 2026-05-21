@@ -31,6 +31,7 @@ import {
   useState,
   type ComponentType,
 } from "react";
+import { LandingPage } from "~/components/landing/landing-page";
 import { ConnectToolsDialog } from "~/components/connect-tools-dialog";
 import {
   DimensionComposerContextMenu,
@@ -80,24 +81,10 @@ function HomePage() {
   );
   useRightRail(rightRail);
 
-  // Logged out — show a quiet landing without the full shell chrome.
+  // Logged out — Dimension-grammar marketing landing (single-user, every CTA
+  // points to /login). The full chat shell renders below for signed-in users.
   if (!sessionPending && !session?.user) {
-    return (
-      <div className="min-h-[100dvh] grid place-items-center px-6">
-        <div className="text-center space-y-4">
-          <h1 className="font-serif text-5xl tracking-tight">Alfred</h1>
-          <p className="text-sm text-muted-foreground">
-            Server: {healthLoading ? "checking…" : healthOk ? "online" : "not reachable"}
-          </p>
-          <a
-            href="/login"
-            className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm hover:bg-accent/60 transition-colors"
-          >
-            Sign in
-          </a>
-        </div>
-      </div>
-    );
+    return <LandingPage healthOk={healthOk} healthLoading={healthLoading} />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
@@ -326,11 +326,21 @@ export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
         }
       }
 
-      // Bounce back to the SPA. We don't have an "integrations" page yet;
-      // land on the root with a query flag the UI can pick up.
+      // Bounce back to the SPA. If the user hasn't finished onboarding yet,
+      // pop them back onto step 2 of the flow (popular-integrations grid)
+      // instead of the chat home so the funnel stays linear.
+      const userRow = await db()
+        .select({ onboardedAt: user.onboardedAt })
+        .from(user)
+        .where(eq(user.id, decoded.userId))
+        .limit(1);
+      const stillOnboarding = userRow[0]?.onboardedAt === null;
+      const connectedParam = `google_connected=${encodeURIComponent(tokens.accountEmail)}`;
+      const target = stillOnboarding
+        ? `/onboarding?step=2&${connectedParam}`
+        : `/?${connectedParam}`;
       set.status = 302;
-      set.headers["Location"] =
-        `${serverEnv().CORS_ORIGIN}/?google_connected=${encodeURIComponent(tokens.accountEmail)}`;
+      set.headers["Location"] = `${serverEnv().CORS_ORIGIN}${target}`;
       return null;
     },
     {

@@ -68,3 +68,9 @@ ui-polish-loop.sh
 
 # Local design recon dumps (screenshots, DOM/network captures)
 references/dimension-dev/_live/
+
+# Dimension.dev design archive (snapshot only, never shipped)
+archive/
+
+# Local browser/chrome-devtools screenshots
+apps/web/.screenshots/

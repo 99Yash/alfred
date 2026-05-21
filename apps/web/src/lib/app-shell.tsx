@@ -1,4 +1,5 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -9,15 +10,11 @@ import {
   FileText,
   LogOut,
   Menu,
-  Monitor,
-  Moon,
-  MoonStar,
   Plus,
   Plug,
   Search,
   Settings,
   Sparkles,
-  Sun,
   Workflow,
   X,
 } from "lucide-react";
@@ -34,7 +31,7 @@ import {
 } from "react";
 import { CommandPalette } from "~/components/ui/command-palette";
 import { authClient } from "~/lib/auth-client";
-import { useTheme, type Theme } from "~/lib/theme";
+import { client } from "~/lib/eden";
 import { cn } from "~/lib/utils";
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
@@ -86,10 +83,45 @@ export function useRightRail(node: ReactNode | null) {
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  /* Server-truth onboarding flag (ADR-style: don't trust the client). Only
+   * fetched once we know we're authed; the `enabled` keeps the query off
+   * the login screen. */
+  const sessionUser = session?.user;
+  const onboardingQuery = useQuery({
+    queryKey: ["me", "onboarding"],
+    queryFn: async () => {
+      const res = await client.api.me.onboarding.get();
+      if (res.error) throw new Error("Failed to load onboarding state");
+      return res.data;
+    },
+    enabled: !isPending && !!sessionUser,
+    staleTime: 60_000,
+  });
+
+  /* Gate `/onboarding` access in both directions:
+   *   - new user (routeToOnboarding=true) on any other authed route → /onboarding
+   *   - finished user on /onboarding → /
+   * `pendingNavigation` is computed during render (no derived-state effect). */
+  const routeToOnboarding = onboardingQuery.data?.routeToOnboarding;
+  const onOnboardingRoute = location.pathname.startsWith("/onboarding");
+  const onPreviewRoute = location.pathname.startsWith("/preview/");
+  useEffect(() => {
+    if (!sessionUser) return;
+    if (routeToOnboarding === undefined) return;
+    // `/preview/*` is a design playground — never gate it.
+    if (onPreviewRoute) return;
+    if (routeToOnboarding && !onOnboardingRoute) {
+      void navigate({ to: "/onboarding", search: { step: 1 } });
+    } else if (!routeToOnboarding && onOnboardingRoute) {
+      void navigate({ to: "/" });
+    }
+  }, [routeToOnboarding, onOnboardingRoute, onPreviewRoute, sessionUser, navigate]);
 
   // Close the mobile drawer + palette on route change. Tracking the previous
   // location in a ref (not state — we never read it in render) and resetting
@@ -102,8 +134,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPaletteOpen(false);
   }
 
+  /* Routes that render edge-to-edge (no sidebar, no rail). */
+  const chromeless =
+    location.pathname === "/login" ||
+    location.pathname.startsWith("/onboarding") ||
+    location.pathname.startsWith("/preview/");
+
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
-  const authed = !isPending && !!session?.user && location.pathname !== "/login";
+  const authed = !isPending && !!session?.user && !chromeless;
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
@@ -122,6 +160,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!authed) {
     return <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>;
   }
+
+  // First-load gating: between "session resolved" and "onboarding query
+  // resolved" we don't yet know whether to redirect new users to
+  // /onboarding. Without this guard, the route's component (e.g. HomePage)
+  // paints for a frame before the effect above navigates away. Render the
+  // chrome but blank the main column until we know.
+  const gatingPending = routeToOnboarding === undefined && !onPreviewRoute && !onOnboardingRoute;
+  const mainContent = gatingPending ? null : children;
 
   return (
     <RightRailContext.Provider value={ctx}>
@@ -191,7 +237,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Main column + optional right rail */}
         <main className="flex flex-1 min-w-0">
-          <div className="flex-1 min-w-0 overflow-x-hidden">{children}</div>
+          <div className="flex-1 min-w-0 overflow-x-hidden">{mainContent}</div>
 
           {rightRailNode ? (
             <aside
@@ -230,7 +276,6 @@ function Sidebar({
   showCloseButton,
   onOpenPalette,
 }: SidebarProps) {
-  const { theme, resolved, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const initial = email?.[0]?.toUpperCase() ?? "·";
@@ -239,13 +284,6 @@ function Sidebar({
     await authClient.signOut();
     await navigate({ to: "/login" });
   };
-
-  const cycleTheme = useCallback(() => {
-    const order: Theme[] = ["system", "light", "dark"];
-    const idx = order.indexOf(theme);
-    const next = order[(idx + 1) % order.length] ?? "system";
-    setTheme(next);
-  }, [theme, setTheme]);
 
   return (
     <div className="flex h-full flex-col">
@@ -353,32 +391,13 @@ function Sidebar({
         ))}
       </nav>
 
-      {/* Footer: settings + theme + sign-out */}
+      {/* Footer: settings + sign-out */}
       <div className="border-t p-2 space-y-0.5">
         <NavLink
           item={{ to: "/settings", label: "Settings", icon: Settings }}
           collapsed={collapsed}
           active={isActive(location.pathname, "/settings")}
         />
-        <button
-          type="button"
-          onClick={cycleTheme}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px]",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors",
-            collapsed && "justify-center px-0",
-          )}
-          title={collapsed ? `Theme: ${theme}` : undefined}
-        >
-          <ThemeIcon theme={theme} resolved={resolved} />
-          {!collapsed ? (
-            <>
-              <span className="flex-1 text-left capitalize">{theme}</span>
-              <span className="text-[10px] text-muted-foreground/70 capitalize">{resolved}</span>
-            </>
-          ) : null}
-        </button>
-
         <button
           type="button"
           onClick={signOut}
@@ -460,15 +479,6 @@ function IconButton({
   );
 }
 
-function ThemeIcon({ theme, resolved }: { theme: Theme; resolved: "light" | "dark" }) {
-  if (theme === "system") return <Monitor size={15} className="shrink-0" />;
-  return resolved === "dark" ? (
-    <Moon size={15} className="shrink-0" />
-  ) : (
-    <Sun size={15} className="shrink-0" />
-  );
-}
-
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
   return pathname === to || pathname.startsWith(`${to}/`);
@@ -478,7 +488,7 @@ function isActive(pathname: string, to: string): boolean {
  * App-level command palette
  * Mounted at AppShell scope so ⌘K works on every authed route. Routes can layer
  * their own commands later by reading a context — for now this set covers
- * navigation, theme cycling, and sign-out.
+ * navigation and sign-out.
  * -------------------------------------------------------------------------- */
 
 function AppCommandPalette({
@@ -489,7 +499,6 @@ function AppCommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const { theme, setTheme } = useTheme();
 
   const go = useCallback(
     (to: string) => {
@@ -498,14 +507,6 @@ function AppCommandPalette({
     },
     [navigate, onOpenChange],
   );
-
-  const cycleTheme = useCallback(() => {
-    const order: Theme[] = ["system", "light", "dark"];
-    const idx = order.indexOf(theme);
-    const next = order[(idx + 1) % order.length] ?? "system";
-    setTheme(next);
-    onOpenChange(false);
-  }, [theme, setTheme, onOpenChange]);
 
   const signOut = useCallback(async () => {
     onOpenChange(false);
@@ -530,14 +531,6 @@ function AppCommandPalette({
           shortcut="↵"
         >
           New chat
-        </CommandPalette.Item>
-        <CommandPalette.Item
-          value="action:cycle-theme"
-          keywords={["theme", "dark", "light", "system", "appearance"]}
-          onSelect={cycleTheme}
-          icon={MoonStar}
-        >
-          Cycle theme
         </CommandPalette.Item>
         <CommandPalette.Item
           value="action:sign-out"
