@@ -18,14 +18,18 @@ import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
  */
 
 const CATEGORY_LABEL: Record<PriorityCategory, string> = {
+  urgent: "Urgent",
   action_needed: "Action needed",
+  follow_up: "Follow ups",
   awaiting_reply: "Awaiting your reply",
   meeting: "Meetings",
   payment: "Payments",
 };
 
 const CATEGORY_ORDER: readonly PriorityCategory[] = [
+  "urgent",
   "action_needed",
+  "follow_up",
   "awaiting_reply",
   "meeting",
   "payment",
