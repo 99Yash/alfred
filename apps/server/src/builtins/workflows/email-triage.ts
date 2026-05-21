@@ -214,7 +214,14 @@ export const emailTriageWorkflow: Workflow<State> = {
           credentialId: ctxData.credentialId,
           messageId: ctxData.document.sourceId,
           category,
-          previousLabelId: ctx.state.previousLabelId ?? undefined,
+          // Always strip every other alfred label off the message — not just
+          // the one we previously persisted. `previousLabelId` only knows
+          // about labels this DB wrote; an orphan label can come from a
+          // prior deployment that pointed at the same Gmail account, or
+          // from the user labelling by hand. Stripping all alfred labels
+          // (except the target) self-heals those cases. The bandwidth cost
+          // is ~9 extra label ids in `removeLabelIds` — same round-trip.
+          stripAllAlfredLabels: true,
           threadSiblings: siblings.map((s) => ({
             messageId: s.sourceId,
             labelId: s.appliedLabelId,
