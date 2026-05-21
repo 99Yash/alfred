@@ -29,8 +29,10 @@ export const emailTriage = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     /**
-     * One of: `action_needed | awaiting_reply | meeting | fyi | payment | newsletter`.
-     * Stored as text (not pg enum) so adding a category is a code-only change.
+     * One of `TRIAGE_CATEGORIES` (`urgent | action_needed | follow_up |
+     * awaiting_reply | meeting | fyi | done | payment | newsletter |
+     * marketing`). Stored as text (not pg enum) so adding a category is
+     * a code-only change.
      */
     category: text("category").notNull(),
     /** [0, 1] — surfaced in the UI for low-confidence soft-confirms. */

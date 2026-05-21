@@ -64,7 +64,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   slug: TRIAGE_WORKFLOW_SLUG,
   name: "Email triage",
   description:
-    "Classify an inbound Gmail message into one of six categories and write the corresponding label back (ADR-0025).",
+    "Classify an inbound Gmail message into one of ten categories and write the corresponding label back (ADR-0025).",
   // Fan-out is driven by `gmail.poll_history` per fresh-inserted doc
   // (packages/api/src/modules/integrations/queue.ts). Declared as an
   // event-source trigger so the workflows.tick cron path never touches
