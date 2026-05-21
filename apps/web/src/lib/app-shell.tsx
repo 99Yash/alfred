@@ -166,6 +166,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <RightRailContext.Provider value={ctx}>{children}</RightRailContext.Provider>;
   }
 
+  // First-load gating: between "session resolved" and "onboarding query
+  // resolved" we don't yet know whether to redirect new users to
+  // /onboarding. Without this guard, the route's component (e.g. HomePage)
+  // paints for a frame before the effect above navigates away. Render the
+  // chrome but blank the main column until we know.
+  const gatingPending = routeToOnboarding === undefined && !onPreviewRoute && !onOnboardingRoute;
+  const mainContent = gatingPending ? null : children;
+
   return (
     <RightRailContext.Provider value={ctx}>
       <div className="flex min-h-[100dvh]">
@@ -234,7 +242,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Main column + optional right rail */}
         <main className="flex flex-1 min-w-0">
-          <div className="flex-1 min-w-0 overflow-x-hidden">{children}</div>
+          <div className="flex-1 min-w-0 overflow-x-hidden">{mainContent}</div>
 
           {rightRailNode ? (
             <aside

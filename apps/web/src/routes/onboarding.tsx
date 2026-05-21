@@ -52,12 +52,14 @@ function OnboardingRoute() {
     setFinishing(true);
     try {
       await client.api.me.onboarding.complete.post();
+      // Only navigate on success — otherwise the gating query still reports
+      // routeToOnboarding=true and AppShell bounces us straight back here,
+      // producing a redirect flicker instead of an actionable error state.
+      await queryClient.invalidateQueries({ queryKey: ["me", "onboarding"] });
+      await navigate({ to: "/" });
     } catch (err) {
       console.warn("[onboarding] failed to mark complete:", err);
     } finally {
-      // Bust the gating query so AppShell doesn't bounce us straight back.
-      await queryClient.invalidateQueries({ queryKey: ["me", "onboarding"] });
-      await navigate({ to: "/" });
       setFinishing(false);
     }
   };
