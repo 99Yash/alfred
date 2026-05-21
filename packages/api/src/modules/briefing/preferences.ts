@@ -1,17 +1,19 @@
 import { getPreference } from "../memory/preferences";
 
 /**
- * Briefing time-of-day preferences live under two `user_preferences`
+ * Briefing time-of-day preferences live under three `user_preferences`
  * keys (called out canonically in `packages/db/src/schema/memory.ts`):
  *
  *   `briefing.timezone`       string IANA tz, e.g. "America/New_York"
- *   `briefing.delivery_hour`  integer 0–23 in that tz
+ *   `briefing.delivery_hour`  integer 0–23 in that tz — morning slot
+ *   `briefing.evening_hour`   integer 0–23 in that tz — evening slot
  *
  * The fallback chain is conservative on purpose:
  *
  *   1. The pref row itself, if set to a valid value.
- *   2. UTC + 7am — the documented v1 default; explicit so a user with
- *      no pref row still gets a daily email at a predictable time.
+ *   2. UTC + 7am (morning) / 18 (evening) — documented v1 defaults; explicit
+ *      so a user with no pref row still gets daily emails at predictable
+ *      times.
  *
  * "Captured-at-signup tz" was on the table as an intermediate fallback
  * but the OTP flow doesn't surface the browser's `Intl.DateTimeFormat`
@@ -23,27 +25,34 @@ import { getPreference } from "../memory/preferences";
 
 export const DEFAULT_BRIEFING_TIMEZONE = "UTC";
 export const DEFAULT_BRIEFING_DELIVERY_HOUR = 7;
+export const DEFAULT_BRIEFING_EVENING_HOUR = 18;
 
 export interface BriefingPreferences {
   timezone: string;
+  /** Morning delivery hour (0-23, in `timezone`). Backwards-compatible name. */
   deliveryHour: number;
+  /** Evening delivery hour (0-23, in `timezone`). */
+  eveningHour: number;
   /** True when at least one of the values came from the pref row, not the fallback. */
   hasUserOverride: boolean;
 }
 
 export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
-  const [tzRow, hourRow] = await Promise.all([
+  const [tzRow, hourRow, eveRow] = await Promise.all([
     getPreference(userId, "briefing.timezone"),
     getPreference(userId, "briefing.delivery_hour"),
+    getPreference(userId, "briefing.evening_hour"),
   ]);
 
   const timezone = parseTimezone(tzRow?.value) ?? DEFAULT_BRIEFING_TIMEZONE;
   const deliveryHour = parseDeliveryHour(hourRow?.value) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
+  const eveningHour = parseDeliveryHour(eveRow?.value) ?? DEFAULT_BRIEFING_EVENING_HOUR;
   const hasUserOverride =
     (tzRow !== null && parseTimezone(tzRow.value) !== null) ||
-    (hourRow !== null && parseDeliveryHour(hourRow.value) !== null);
+    (hourRow !== null && parseDeliveryHour(hourRow.value) !== null) ||
+    (eveRow !== null && parseDeliveryHour(eveRow.value) !== null);
 
-  return { timezone, deliveryHour, hasUserOverride };
+  return { timezone, deliveryHour, eveningHour, hasUserOverride };
 }
 
 function parseTimezone(value: unknown): string | null {
