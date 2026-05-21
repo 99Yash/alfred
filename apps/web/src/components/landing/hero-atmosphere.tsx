@@ -43,9 +43,10 @@ export function HeroAtmosphere({
   const evening = bell(progress, 0.6, 0.18);
   const night = saturate(progress, 0.78, 0.95);
 
-  // Sun-halo intensity follows a morning-to-evening arc. It peaks slightly
-  // before midday and fades out by evening so the "sun has set" reads.
-  const sun = saturate(progress, 0.0, 0.55);
+  // Sun-halo intensity: full through morning + midday, then fades through
+  // the evening band so the "sun has set" reads by the time the night
+  // layer takes over.
+  const sun = 1 - saturate(progress, 0.3, 0.6);
   // Rainbow lens-flare reaches its peak in the late-morning window
   // (sun-catches-the-lens moment) and fades by midday. Bell-curve so it
   // both fades in AND back out smoothly. Inverted from the sky-layer

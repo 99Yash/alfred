@@ -151,7 +151,12 @@ function IntegrationTile({ brand, count, delayMs }: TileSpec) {
           "grid place-items-center backdrop-blur-sm",
         )}
       >
-        <IntegrationGlyph brand={brand} size={32} variant="plain" />
+        <IntegrationGlyph
+          brand={brand}
+          size={32}
+          variant="plain"
+          colorOverride={brand === "github" ? "#181717" : undefined}
+        />
       </span>
       <span
         className={cn(

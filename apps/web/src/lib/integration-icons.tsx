@@ -122,11 +122,16 @@ export function IntegrationGlyph({
   brand,
   size = 22,
   variant = "plain",
+  colorOverride,
   className,
 }: {
   brand: IntegrationBrand;
   size?: number;
   variant?: "plain" | "frost";
+  /** Override the brand's plain/frost color — needed when the surrounding
+   * tile isn't the background tone the brand metadata assumes (e.g. the
+   * monochrome GitHub glyph on a white tile). */
+  colorOverride?: string;
   className?: string;
 }) {
   const meta = BRAND_ICONS[brand];
@@ -136,10 +141,17 @@ export function IntegrationGlyph({
 
   if (meta.kind === "lucide") {
     const Icon = meta.icon;
-    return <Icon size={size} className={cn("shrink-0", className)} style={{ color: meta.color }} />;
+    return (
+      <Icon
+        size={size}
+        className={cn("shrink-0", className)}
+        style={{ color: colorOverride ?? meta.color }}
+      />
+    );
   }
 
-  const color = variant === "frost" ? meta.frostColor : meta.plainColor;
+  const color =
+    colorOverride ?? (variant === "frost" ? meta.frostColor : meta.plainColor);
   // BRAND_SVGS is a hand-curated constant in source (see integration-svgs.ts);
   // there is no user-provided HTML path into this value, so the no-danger rule
   // is a false positive here. We use innerHTML to keep the SVG markup
