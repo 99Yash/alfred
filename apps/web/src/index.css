@@ -31,10 +31,11 @@
 }
 
 /* -----------------------------------------------------------------------------
- * Dark variant + theme
- * Tokens live as raw CSS vars on :root / .dark, then @theme inline maps them
- * to Tailwind's color tokens so utilities like bg-background / text-foreground
- * resolve through the swap.
+ * Theme tokens (dark-only — Alfred ships a single Dimension-grammar surface)
+ * Tokens live as raw CSS vars on :root, then @theme inline maps them to
+ * Tailwind's color tokens so utilities like bg-background / text-foreground
+ * resolve through them. The legacy `.dark` selector is kept as a no-op alias
+ * so any stray `dark:` utilities still match.
  * -------------------------------------------------------------------------- */
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -46,10 +47,7 @@
    * Dimension token scales (captured 2026-05-18 from dimension.dev live recon —
    * see references/dimension-dev/dimension-design-reference-2026-05-18.md).
    * RGB triplets stored space-separated so they compose with `rgb(var(--…))`
-   * and `rgb(var(--…) / 0.5)` for opacity. These exist alongside the shadcn
-   * OKLCH tokens below — they're used by the new `components/ui/*` primitives
-   * and any route migrated to the Dimension grammar. Existing routes remain
-   * on the OKLCH tokens until their Stage 2 pass.
+   * and `rgb(var(--…) / 0.5)` for opacity.
    * --------------------------------------------------------------------- */
 
   /* Neutral (16 stops). */
@@ -93,34 +91,8 @@
   --motion-easing: cubic-bezier(0.2, 0, 0, 1);
   --press-scale: 0.96;
 
-  /* Light — warm paper neutrals. Provisional; swap freely. */
-  --background: oklch(0.99 0.003 95);
-  --foreground: oklch(0.18 0.01 270);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.01 270);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.01 270);
-  --primary: oklch(0.22 0.01 270);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.96 0.005 95);
-  --secondary-foreground: oklch(0.22 0.01 270);
-  --muted: oklch(0.965 0.005 95);
-  --muted-foreground: oklch(0.5 0.012 270);
-  --accent: oklch(0.95 0.006 95);
-  --accent-foreground: oklch(0.22 0.01 270);
-  --destructive: oklch(0.58 0.21 27);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.005 95);
-  --input: oklch(0.92 0.005 95);
-  --ring: oklch(0.7 0.02 270);
-
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 4px 12px oklch(0 0 0 / 0.04);
-  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.06), 0 12px 24px oklch(0 0 0 / 0.08);
-}
-
-.dark {
-  /* Dark — Dimension's exact body bg `rgb(12, 12, 12)` (#0c0c0c). All
-   * contrast comes from the foreground; the body stays calm. */
+  /* Semantic surface tokens — Dimension's exact body bg `rgb(12, 12, 12)`
+   * (#0c0c0c). All contrast comes from the foreground; the body stays calm. */
   --background: rgb(12, 12, 12);
   --foreground: oklch(0.96 0.005 95);
   --card: oklch(0.185 0.005 280);
@@ -335,6 +307,31 @@
   .animate-settings-panel-in {
     animation: settings-panel-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
     transform-origin: top center;
+  }
+
+  /* Onboarding feature-carousel auto-advance progress bar — fills the width
+   * of the active pill over CAROUSEL_INTERVAL_MS (kept in sync with the
+   * timer in onboarding.tsx). */
+  @keyframes carousel-progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  .animate-carousel-progress {
+    animation: carousel-progress 3200ms linear forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-settings-panel-in,
+    .animate-carousel-progress,
+    .drawer-slide-in,
+    .animate-toast-in,
+    .animate-menu-pop-in {
+      animation: none !important;
+    }
   }
 
   /* Dialog/CommandPalette entrance: overlay fades, content fades + zooms.
@@ -690,5 +687,401 @@
     to {
       transform: translate3d(2.5%, 1.5%, 0) scale(1.04);
     }
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Landing primitives (added 2026-05-20 after dimension.dev sunset archive).
+   * Pulled from archive/dimension/components.md §5, §7, §10.
+   * -------------------------------------------------------------------------*/
+
+  /* 100rem (1600px) max-width landing container — Dimension's `new-landing-layout`. */
+  .new-landing-layout {
+    margin-inline: auto;
+    max-width: 100rem;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 768px) {
+    .new-landing-layout {
+      padding-inline: 2rem;
+    }
+  }
+
+  /* Neumorphic gradient text — engraved-metal sheen sliding across glyphs.
+   * Two stacked backgrounds + background-clip: text. The shine color changes
+   * per variant; the metal base + animation + text-shadow are shared.
+   * Stagger with inline style="animation-delay: Ns" on each word. */
+  @keyframes gradient-text-slide {
+    0% {
+      background-position:
+        -80% 50%,
+        0 0;
+    }
+    25% {
+      background-position:
+        150% 50%,
+        0 0;
+    }
+    100% {
+      background-position:
+        150% 50%,
+        0 0;
+    }
+  }
+
+  .neumorphic-text {
+    background-size:
+      200% 100%,
+      100% 100%;
+    background-position:
+      150% 50%,
+      0 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradient-text-slide 13s linear infinite;
+    text-shadow:
+      0 1px 2px rgba(255, 255, 255, 0.1),
+      0 0 2.3px rgba(255, 255, 255, 0.25);
+  }
+  .neumorphic-text-default {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        rgb(var(--purple-500) / 0.56) 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-yellow {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #ffcf5290 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-orange {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #f7711f90 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-blue {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #3094ff90 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-green {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #73d60090 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-purple {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #b072c690 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-black {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #00000090 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+
+  /* Dark-text variant of the neumorphic shine — used on the LIGHT footer
+   * background. Base color is a deep gray that fades to a lighter steel,
+   * with a colored sheen sliding across (same animation as the dark
+   * variant). Matches dimension's `animate-neumorphic-gradient-text-default`
+   * on the footer "Dimension/Menu/Socials/Legal" headers. */
+  .neumorphic-text-on-light {
+    background-size:
+      200% 100%,
+      100% 100%;
+    background-position:
+      150% 50%,
+      0 0;
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        rgb(var(--purple-500) / 0.48) 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #2a2a35, #6e6e7e 130%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradient-text-slide 13s linear infinite;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.4);
+  }
+
+  /* Animated gradient stop positions for the integration / frost-icon cards.
+   * Requires CSS @property so percentage values are interpolatable. Without
+   * @property the browser treats custom props as strings and won't animate. */
+  @property --gradient-pos-x {
+    syntax: "<percentage>";
+    initial-value: 30%;
+    inherits: false;
+  }
+  @property --gradient-size-x {
+    syntax: "<percentage>";
+    initial-value: 55%;
+    inherits: false;
+  }
+  @property --gradient-size-y {
+    syntax: "<percentage>";
+    initial-value: 70%;
+    inherits: false;
+  }
+  @property --gradient-pos-x2 {
+    syntax: "<percentage>";
+    initial-value: 75%;
+    inherits: false;
+  }
+  @property --gradient-size-x2 {
+    syntax: "<percentage>";
+    initial-value: 100%;
+    inherits: false;
+  }
+  @property --gradient-size-y2 {
+    syntax: "<percentage>";
+    initial-value: 52%;
+    inherits: false;
+  }
+  @keyframes gradient-frost-icon {
+    0%,
+    100% {
+      --gradient-pos-x: 20%;
+      --gradient-size-x: 40%;
+      --gradient-size-y: 70%;
+      --gradient-pos-x2: 65%;
+      --gradient-size-x2: 100%;
+      --gradient-size-y2: 50%;
+    }
+    50% {
+      --gradient-pos-x: 35%;
+      --gradient-size-x: 50%;
+      --gradient-size-y: 80%;
+      --gradient-pos-x2: 55%;
+      --gradient-size-x2: 110%;
+      --gradient-size-y2: 60%;
+    }
+  }
+  .animate-gradient-highlight {
+    animation: gradient-frost-icon 4s ease-in-out infinite;
+  }
+
+  /* Scroll-reveal helper. Apply `.reveal-on-scroll` to set the resting state
+   * (opacity:0 + translateY). When an IntersectionObserver detects the element
+   * entering the viewport, swap in `.reveal-shown` to play the fade-in.
+   * Wired up in components/landing/fade-in-on-scroll.tsx. */
+  .reveal-on-scroll {
+    opacity: 0;
+    transform: translateY(40px);
+    transition:
+      opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal-shown {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-on-scroll,
+    .reveal-shown {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
+  /* Hero atmospheric backdrop — Dimension's exact three-stop sky gradient
+   * (#4867AF → #9CAFB8 via 62% → #C49577). Base layer that always paints;
+   * the day/evening/night layers below crossfade ON TOP via scroll progress. */
+  .landing-hero-sky {
+    background: linear-gradient(180deg, #4867af 0%, #9cafb8 62%, #c49577 100%);
+  }
+
+  /* Morning — cool dawn blues with a pink horizon. */
+  .landing-sky-morning {
+    background: linear-gradient(180deg, #2c4a82 0%, #6f8fc8 50%, #d8a890 100%);
+  }
+
+  /* Midday — bright clear sky, washed warm at the bottom. */
+  .landing-sky-midday {
+    background: linear-gradient(180deg, #4d7fcb 0%, #a3bcd6 55%, #e6c4a3 100%);
+  }
+
+  /* Evening — peach + violet horizon, hint of indigo at the top. */
+  .landing-sky-evening {
+    background: linear-gradient(180deg, #3d3a72 0%, #7d5a8e 35%, #d27c66 75%, #f3a779 100%);
+  }
+
+  /* Night — deep indigo with a soft star vignette at the top. */
+  .landing-sky-night {
+    background:
+      radial-gradient(ellipse 90% 60% at 70% 20%, rgba(120, 130, 200, 0.18), transparent 60%),
+      linear-gradient(180deg, #0c1029 0%, #1d2348 45%, #2a2452 100%);
+  }
+
+  /* Lens-flare rainbow ring — appears as a chromatic halo (red-orange-yellow-
+   * green-blue spectrum) caught by the camera lens during late morning when
+   * the sun is at a low-ish angle. Heavily blurred so it reads as a smear of
+   * spectral light, not a graphic ring. Sits in screen-blend on top of the
+   * sky. Two stacked elements: an outer rainbow ring + an inner white-hot
+   * core that emerges from it. */
+  .landing-lens-flare-rainbow {
+    width: 22rem;
+    height: 22rem;
+    border-radius: 9999px;
+    /* Conic gradient drawn around the ring; the radial mask cuts a hollow
+     * centre so we get a RING, not a filled disk. */
+    background: conic-gradient(
+      from 220deg,
+      rgba(255, 60, 80, 0.55) 0%,
+      rgba(255, 150, 70, 0.55) 12%,
+      rgba(255, 220, 80, 0.55) 24%,
+      rgba(110, 220, 120, 0.55) 38%,
+      rgba(80, 170, 255, 0.55) 52%,
+      rgba(160, 120, 255, 0.55) 66%,
+      rgba(255, 90, 180, 0.55) 80%,
+      rgba(255, 60, 80, 0.55) 100%
+    );
+    -webkit-mask: radial-gradient(
+      circle at center,
+      transparent 38%,
+      #000 52%,
+      #000 70%,
+      transparent 92%
+    );
+    mask: radial-gradient(
+      circle at center,
+      transparent 38%,
+      #000 52%,
+      #000 70%,
+      transparent 92%
+    );
+    filter: blur(28px) saturate(1.25);
+    transform: rotate(-12deg);
+  }
+
+  /* White-hot core — a small bright disk that sits inside the rainbow ring's
+   * hollow. Adds the "blinding center of the flare" focal point. */
+  .landing-lens-flare-core {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 9rem;
+    height: 9rem;
+    border-radius: 9999px;
+    background: radial-gradient(
+      circle at center,
+      rgba(255, 245, 220, 0.85) 0%,
+      rgba(255, 220, 180, 0.4) 40%,
+      transparent 75%
+    );
+    filter: blur(18px);
+  }
+
+  /* Hide native scrollbar on scroll containers that should feel "edge-to-edge"
+   * (e.g. the landing scroll root). Mirrors dimension's `hide-scrollbar`. */
+  .hide-scrollbar {
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Notification-badge breathing animation used by the morning-briefing
+   * integration tile row — the badges pulse at staggered delays so the row
+   * doesn't read as fully static (dimension's source-of-truth is an MP4). */
+  @keyframes morning-briefing-badge-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow: 0 2px 8px -2px rgba(255, 58, 58, 0.5);
+    }
+    50% {
+      transform: scale(1.08);
+      box-shadow: 0 4px 14px -2px rgba(255, 58, 58, 0.75);
+    }
+  }
+  .morning-briefing-badge-pulse {
+    animation: morning-briefing-badge-pulse 2.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .morning-briefing-badge-pulse {
+      animation: none;
+    }
+  }
+
+  /* Morning Briefing showcase surface — translucent blue panel with a slight
+   * directional gradient + light spec at top-right that mirrors dimension's
+   * hero showcase. Layered radials sit on top of an indigo base so the panel
+   * reads as a single piece of frosted glass on the sky. */
+  .morning-briefing-surface {
+    background:
+      radial-gradient(
+        ellipse 60% 40% at 100% 0%,
+        rgba(255, 255, 255, 0.28),
+        rgba(255, 255, 255, 0.06) 38%,
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 80% 50% at 0% 100%,
+        rgba(72, 103, 175, 0.55),
+        transparent 70%
+      ),
+      linear-gradient(160deg, rgba(72, 103, 175, 0.78) 0%, rgba(58, 88, 156, 0.82) 55%, rgba(64, 96, 168, 0.85) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(4px) saturate(1.05);
+    -webkit-backdrop-filter: blur(4px) saturate(1.05);
   }
 }
