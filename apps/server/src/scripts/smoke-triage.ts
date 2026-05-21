@@ -34,11 +34,13 @@ import {
   enqueueRun,
   getTriage,
   TRIAGE_WORKFLOW_SLUG,
+  upsertTriage,
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
+  applyTriageLabel,
   ensureAlfredLabels,
   getMessage,
   getFreshAccessToken,
@@ -291,20 +293,30 @@ async function main() {
           `older=${older.map((d) => d.id).join(",")}`,
       );
 
-      // Seed: triage every message in the thread so each holds an alfred
-      // label. The sibling-strip behavior only matters when ≥2 messages in
-      // the thread were already labelled.
+      // Seed: directly apply an alfred label to every message in the thread,
+      // bypassing the workflow. Running the workflow here would cascade-
+      // strip earlier siblings as each seed lands (that's the behavior we're
+      // about to test); by the time we re-triage `latest`, only the oldest
+      // seed would remain. Direct seeding gives us the multi-labeled initial
+      // state the strip-step needs to actually do work.
+      const seedCategory: TriageCategory = "fyi";
+      const seedLabelId = labels.byCategory[seedCategory];
       for (const d of threadDocs) {
-        const { runId } = await createRun({
-          userId: cred.userId,
-          workflowSlug: TRIAGE_WORKFLOW_SLUG,
-          input: { documentId: d.id, reason: "manual" },
-          metadata: { source: "smoke-triage", phase: "seed-thread" },
-          trigger: { kind: "manual" },
+        await applyTriageLabel({
+          credentialId: cred.id,
+          messageId: d.sourceId,
+          category: seedCategory,
         });
-        await enqueueRun(runId);
-        const r = await pollRun(runId, `seed ${d.id}`);
-        assert(r.status === "completed", `seed run for ${d.id} status=${r.status}`);
+        await upsertTriage({
+          documentId: d.id,
+          userId: cred.userId,
+          category: seedCategory,
+          confidence: 1,
+          rationale: "smoke-triage:seed",
+          model: "smoke-triage",
+          runId: null,
+          appliedLabelId: seedLabelId,
+        });
       }
 
       // Re-triage the latest message — should strip every older sibling.
