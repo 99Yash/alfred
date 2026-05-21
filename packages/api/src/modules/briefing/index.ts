@@ -34,8 +34,24 @@ export type {
 export { composeBriefing } from "./compose";
 export type { ComposedBriefing, ComposeBriefingArgs } from "./compose";
 
-export { BRIEFING_WORKFLOW_SLUG, briefingWorkflowInputSchema } from "./workflow-input";
-export type { BriefingWorkflowInput } from "./workflow-input";
+export {
+  BRIEFING_WORKFLOW_SLUG,
+  DAILY_BRIEFING_WORKFLOW_SLUG,
+  briefingWorkflowInputSchema,
+  dailyBriefingWorkflowInputSchema,
+} from "./workflow-input";
+export type { BriefingWorkflowInput, DailyBriefingWorkflowInput } from "./workflow-input";
+
+export {
+  listEmailsSinceWatermark,
+  readEmailDocument,
+  listPriorBriefings,
+  fetchLatestWatermark,
+  recordBriefingRun,
+  type EmailListItem,
+  type EmailReadResult,
+  type PriorBriefingSummary,
+} from "./read";
 
 export {
   startBriefingWorker,

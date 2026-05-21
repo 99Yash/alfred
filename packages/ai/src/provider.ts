@@ -1,14 +1,28 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { perplexity } from "@ai-sdk/perplexity";
 import type { LanguageModel } from "ai";
 
+/**
+ * Temporary provider swap (2026-05-21): boss + sub-agent routed through
+ * Google Gemini 2.5 Pro instead of Anthropic Sonnet 4.6 while the
+ * Anthropic workspace spend cap is in effect (resets 2026-06-01). Swap
+ * back by reinstating the `@ai-sdk/anthropic` imports and returning
+ * `anthropic("claude-sonnet-4-6")` here once the cap clears.
+ *
+ * Behavioural notes for the swap window:
+ *   - The briefing agent (and any other AlfredAgent consumers) doesn't
+ *     send Anthropic-specific cache annotations through this path, so
+ *     no rework needed at the call site.
+ *   - Anthropic-specific provider options inside `AlfredAgent`
+ *     (cacheControl etc.) are namespaced under `providerOptions.anthropic`;
+ *     Gemini silently ignores them.
+ */
 export function getBossModel(): LanguageModel {
-  return anthropic("claude-sonnet-4-6");
+  return google("gemini-2.5-pro");
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return anthropic("claude-sonnet-4-6");
+  return google("gemini-2.5-pro");
 }
 
 export function getCheapModel(): LanguageModel {
