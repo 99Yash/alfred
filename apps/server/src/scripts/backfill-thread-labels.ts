@@ -130,19 +130,19 @@ async function main() {
     if (!keep) continue;
 
     // If every sibling already shares the same label, Gmail's thread view
-    // shows one tag — nothing to strip, just clear the DB so the schema
-    // matches reality (older rows shouldn't claim to hold a label they
-    // share with the kept one).
+    // already shows one tag — leave everything alone. We must NOT clear
+    // `applied_label_id` here: it's the only signal the forward fix
+    // (getThreadSiblingsWithLabels) uses to find these messages later.
+    // Clearing it now would orphan the Gmail labels — the next
+    // re-classification on this thread would miss them, and the thread
+    // would resurface with the new label PLUS the still-attached old one.
     const sameLabelEverywhere = drop.every((s) => s.appliedLabelId === keep.appliedLabelId);
     if (sameLabelEverywhere) {
-      if (!dryRun) {
-        await clearAppliedLabelIds(drop.map((s) => s.documentId));
-      }
-      threadsTouched++;
       messagesSkipped += drop.length;
       console.log(
         `[backfill-thread-labels] thread=${group.sourceThreadId} user=${group.userId} ` +
-          `same-label across ${siblings.length} msgs; cleared ${drop.length} duplicate row(s)`,
+          `same-label across ${siblings.length} msgs; leaving DB intact ` +
+          `so forward-fix can strip on next re-classification`,
       );
       continue;
     }
