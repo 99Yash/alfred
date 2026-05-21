@@ -55,7 +55,7 @@ export interface PriorBriefingSummary {
 
 interface ListEmailsSinceArgs {
   userId: string;
-  /** Inclusive lower bound; pass the previous run's `watermark_at`. Null = no lower bound. */
+  /** Exclusive lower bound; pass the previous run's `watermark_at`. Null = no lower bound. */
   sinceIngestedAt: Date | null;
   /** Inclusive upper bound. Defaults to now — the agent should freeze this per run. */
   untilIngestedAt: Date;

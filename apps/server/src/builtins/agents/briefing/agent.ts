@@ -106,9 +106,9 @@ export async function runBriefingAgent(
   return {
     briefing,
     usage: {
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      totalTokens: result.usage.totalTokens,
+      inputTokens: result.totalUsage.inputTokens,
+      outputTokens: result.totalUsage.outputTokens,
+      totalTokens: result.totalUsage.totalTokens,
     },
     modelId: modelIdOf(model),
     steps: result.steps.length,

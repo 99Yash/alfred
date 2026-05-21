@@ -159,13 +159,12 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
         "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyHtml are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets) and read naturally on its own.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
-        const parsed = dumpInputSchema.parse(input);
         dumped = {
-          subject: parsed.subject,
-          bodyText: parsed.bodyText,
-          bodyHtml: parsed.bodyHtml,
-          citedDocumentIds: parsed.citedDocumentIds,
-          rationale: parsed.rationale,
+          subject: input.subject,
+          bodyText: input.bodyText,
+          bodyHtml: input.bodyHtml,
+          citedDocumentIds: input.citedDocumentIds,
+          rationale: input.rationale,
         };
         return { ok: true };
       },
