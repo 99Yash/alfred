@@ -126,14 +126,17 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks" }).post(
       return { ok: true, ignored: "no-credential" };
     }
 
-    // jobId dedupes in-flight polls for the same credential — multiple
-    // webhooks within the poll's runtime collapse to one job. The poll
-    // itself reads the latest cursor, so dedupe doesn't drop notifications.
+    // Deduplicate rapid-fire pushes for the same credential — Pub/Sub can
+    // redeliver and Gmail can publish multiple history changes per second.
+    // The TTL window collapses bursts but releases quickly so a *new* push
+    // arriving 30s later still enqueues a fresh poll. (Static `jobId` doesn't
+    // work here — BullMQ keeps completed jobs around per `removeOnComplete`,
+    // so re-enqueues with the same id become silent no-ops for hours.)
     const queue = getIngestionQueue();
     await queue.add(
       "gmail.poll_history",
       { kind: "gmail.poll_history", credentialId: cred.id, reason: "webhook" },
-      { jobId: `gmail.poll_history:${cred.id}` },
+      { deduplication: { id: `gmail.poll_history.${cred.id}`, ttl: 30_000 } },
     );
 
     return { ok: true, credentialId: cred.id };

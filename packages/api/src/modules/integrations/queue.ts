@@ -116,7 +116,8 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       console.log(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
-          `errors=${result.errors} fullResync=${result.fullResync}`,
+          `skipped=${result.skipped} errors=${result.errors} fullResync=${result.fullResync} ` +
+          `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       // Fan triage runs over freshly-inserted docs (ADR-0025 #1). One run
       // per doc — each gets its own Gmail label. We deliberately do NOT
@@ -173,9 +174,11 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         await queue.add(
           "gmail.poll_history",
           { kind: "gmail.poll_history", credentialId: c.credentialId, reason: "poll-fallback" },
-          // Dedupe in-flight polls per credential — if a webhook just
-          // fired and a poll is already queued for this id, don't pile on.
-          { jobId: `gmail.poll_history:${c.credentialId}` },
+          // TTL-bounded dedup: collapses overlap between the 5-min sweep and
+          // a near-simultaneous webhook push for the same credential, but
+          // releases inside the sweep cadence so the next legitimate sync
+          // can land. See gmail-webhook.ts for the matching dedup key.
+          { deduplication: { id: `gmail.poll_history.${c.credentialId}`, ttl: 30_000 } },
         );
       }
       console.log(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);
