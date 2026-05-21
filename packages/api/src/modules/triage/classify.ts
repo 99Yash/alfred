@@ -3,19 +3,21 @@ import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/goo
 import { z } from "zod";
 
 /**
- * Email triage classifier (ADR-0025 #1).
+ * Email triage classifier (ADR-0025 #1, amended to 10 buckets).
  *
  * Cheap-tier model (Gemini 2.5 Flash by default) classifies a single email
- * into one of six categories. Pure function — the workflow owns persistence
- * and Gmail label-write side effects. Output is Zod-validated by the AI SDK
- * so the model can't return shapes outside the taxonomy.
+ * into one of ten categories matching the user's numbered Gmail labels
+ * (1: urgent through 10: marketing). Pure function — the workflow owns
+ * persistence and Gmail label-write side effects. Output is Zod-validated
+ * by the AI SDK so the model can't return shapes outside the taxonomy.
  *
- * Why a six-bucket taxonomy:
- *  - matches the ADR-0025 taxonomy verbatim;
- *  - small enough that the cheap model classifies reliably without examples;
- *  - large enough to drive distinct downstream behavior (drafting on
- *    `awaiting_reply`, briefing inclusion on `action_needed`, suppression
- *    of `newsletter` from briefings).
+ * The taxonomy widened from 6 → 10 once the user kept the full Dimension
+ * label set (see decisions.md ADR-0025 amendment). The four added buckets
+ * are narrow seams against existing ones — `urgent` against `action_needed`,
+ * `follow_up` against `awaiting_reply`, `done` against `fyi`, `marketing`
+ * against `newsletter`. Each pair is disambiguated by an explicit rule
+ * in the system prompt so the cheap-tier model can still hit acceptable
+ * accuracy on 10 buckets.
  */
 
 export const triageClassificationSchema = z.object({
@@ -51,25 +53,46 @@ export interface ClassifyEmailArgs {
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
-- action_needed: the user must do something concrete (reply, decide, complete a task, attend to a request).
-- awaiting_reply: someone is waiting on the user's response. Often subset of action_needed; pick this when the only action is "reply."
-- meeting: meeting invites, agenda emails, calendar reminders, room/availability negotiations.
-- payment: invoices, receipts, payment failures, billing notices, refunds, statements.
-- newsletter: marketing emails, promotional digests, automated content blasts, unsubscribe-able subscriptions.
-- fyi: informational updates, alerts, status notices, anything the user should be aware of but doesn't need to act on.
+- urgent: action needed within hours, not days. Security alerts, account compromised, sign-in verification, billing failure that breaks access today, deadline today, critical CI/CD blocking ship.
+- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, click a confirm link, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review.
+- follow_up: a soft check-in or nudge on a prior thread — "any update on...?", "circling back", "just following up." The sender already knows the user is aware; they're probing for status.
+- awaiting_reply: someone is asking the user a direct first question, and the only action is to write back. Pick this when no prior thread exists or the message is a fresh ask.
+- meeting: meeting invites, agenda emails, calendar reminders, room/availability negotiations, "your meeting starts soon" pings.
+- fyi: passive awareness items. Resolved-incident status posts, product release notes without action, social activity digests, "we updated our terms" notices, GitHub notifications that don't require review.
+- done: explicit closure or completion notice. Order shipped, payment received, deploy succeeded, ticket resolved, "your request has been processed."
+- payment: invoices, receipts that need attention, payment failures, billing notices, refunds, statements.
+- newsletter: subscription content the user opted into — weekly digests, Substack posts, professional newsletters, automated content publication.
+- marketing: promotional / sales blasts. "20% off this weekend", product launches, cold outbound sales, growth-team nurture sequences.
 
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
-2. Prefer 'awaiting_reply' over 'action_needed' when the action IS the reply (most common).
-3. Prefer 'newsletter' over 'fyi' for any marketing / promotional / mass-distribution email.
-4. 'meeting' takes precedence over 'action_needed' when the email is primarily about a meeting (even if it requires a reply).
-5. 'payment' takes precedence over 'fyi' for any financial transaction notice.
-6. Confidence:
-   - 0.9+: the category is unambiguous (newsletter from a clearly promotional sender, payment receipt with amount, etc.).
-   - 0.7-0.9: clear category but with some overlap.
-   - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
-   - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
-7. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (security, account, billing failure, verification).
+3. Reply-shape: prefer 'awaiting_reply' over 'action_needed' when the action IS the reply.
+4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
+5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop.
+6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound. 'newsletter' is for subscribed content the user opted into.
+7. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' when the email is primarily about a meeting.
+8. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
+9. Automated alerts that demand a remediation step → 'urgent' if same-day (secret-scanning, sign-in verification, account compromise) else 'action_needed' (CI failure on user's code, code-review request, expiring-credential reminder). NOT 'fyi'.
+10. Confidence:
+    - 0.9+: unambiguous (newsletter from a clearly subscribed sender, payment receipt with amount, secret-scanning alert from GitHub).
+    - 0.7-0.9: clear category but with some overlap.
+    - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
+    - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
+11. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+
+Examples (subject → category):
+- "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
+- "Sign-in attempt from a new device — was this you?" from security@google.com → urgent (verification required now).
+- "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
+- "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
+- "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
+- "Your order has shipped — tracking #..." from amazon.com → done (closure notice).
+- "Incident resolved: API latency" from status@vercel.com → done (explicit resolution).
+- "We updated our Privacy Policy" from a service → fyi (informational, no closure).
+- "Your payment failed — update your card" from billing@stripe.com → payment (rule 8) — bump to urgent if access breaks today.
+- "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
+- "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
 
 Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "..." }`;
 

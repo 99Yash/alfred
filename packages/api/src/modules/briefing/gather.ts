@@ -6,23 +6,37 @@ import { and, desc, eq, gte } from "drizzle-orm";
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
  *
- * One bucket per priority category. `newsletter` and `fyi` are excluded
- * from the priority list — they're either promotional (newsletter) or
- * non-actionable status noise (fyi); leaving them out is what makes the
- * briefing a *priority* inbox rather than a flat last-24-hours digest.
+ * One bucket per priority category. `newsletter`, `marketing`, `fyi`,
+ * and `done` are excluded from the priority list — they're either
+ * promotional (newsletter, marketing), non-actionable status noise
+ * (fyi), or closure notices that don't need user attention (done).
+ * Leaving them out is what makes the briefing a *priority* inbox
+ * rather than a flat last-24-hours digest.
  *
  * Counts are surfaced separately so the briefing can still mention
  * "+12 newsletters arrived" without expanding them inline.
+ *
+ * Display order for the priority buckets mirrors the user's own Gmail
+ * label numbering (urgent=1, action_needed=2, follow_up=3, …); urgent
+ * sits first so a same-day-actionable item never gets buried under a
+ * full action_needed list.
  */
 
 const PRIORITY_CATEGORIES = [
+  "urgent",
   "action_needed",
+  "follow_up",
   "awaiting_reply",
   "meeting",
   "payment",
 ] as const satisfies readonly TriageCategory[];
 
-const SUPPRESSED_CATEGORIES = ["newsletter", "fyi"] as const satisfies readonly TriageCategory[];
+const SUPPRESSED_CATEGORIES = [
+  "fyi",
+  "done",
+  "newsletter",
+  "marketing",
+] as const satisfies readonly TriageCategory[];
 
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];
@@ -106,14 +120,18 @@ export async function gatherBriefingDigest(
     .orderBy(desc(documents.authoredAt));
 
   const buckets: Record<PriorityCategory, BriefingItem[]> = {
+    urgent: [],
     action_needed: [],
+    follow_up: [],
     awaiting_reply: [],
     meeting: [],
     payment: [],
   };
   const suppressedCounts: Record<SuppressedCategory, number> = {
-    newsletter: 0,
     fyi: 0,
+    done: 0,
+    newsletter: 0,
+    marketing: 0,
   };
 
   for (const r of rows) {

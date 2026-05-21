@@ -753,7 +753,7 @@ Both flow through `metered()` (`kind=web_search`).
 
 | Feature                    | Description                                                                                                                                            | Default                | Trigger                      | Notes                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------- | -------------------------------------------------------------------------------------------- |
-| **Email triage**           | Auto-classify every inbound email into taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`); write Gmail label back | **ON**                 | Gmail webhook (per ADR-0024) | Cheap-tier classifier (Haiku/Flash). Re-evaluates on reply.                                  |
+| **Email triage**           | Auto-classify every inbound email into a 10-bucket taxonomy (`urgent`, `action_needed`, `follow_up`, `awaiting_reply`, `meeting`, `fyi`, `done`, `payment`, `newsletter`, `marketing`); write Gmail label back | **ON**                 | Gmail webhook (per ADR-0024) | Cheap-tier classifier (Haiku/Flash). Re-evaluates on reply. Taxonomy widened from 6 → 10 (see amendment below).                                  |
 | **Morning briefing**       | Daily 7am email: schedule + priority inbox (driven by triage tags) + relevant updates                                                                  | **ON**                 | Cron `0 7 * * *`             | Sent via Resend (ADR-0020).                                                                  |
 | **Memory extraction**      | Per ADR-0019: end-of-thread + daily cron + event-triggered fact extraction                                                                             | **ON, not toggleable** | Multiple                     | System process, not a user feature.                                                          |
 | **Evening recap**          | Daily evening email: what got done, what's still open, tomorrow preview                                                                                | **ON**                 | Cron `0 18 * * *`            | Closing-loop UX.                                                                             |
@@ -775,6 +775,19 @@ Both flow through `metered()` (`kind=web_search`).
 - **Meeting prep / Action items OFF** = either redundant at v1 or needs more connected data to be useful; can be promoted as defaults once stable.
 
 **Why not match dimension's defaults exactly:** their screenshot showed Morning Briefing OFF, which seems wrong for our use case (it's our killer feature). They may default off because their onboarding configures it later, or to avoid email volume for users who haven't connected calendar yet. We default it ON because alfred has nothing else proactive to offer if you skip it.
+
+**Amendment (2026-05-21) — email triage taxonomy widened from 6 → 10 buckets.**
+
+The original 6-bucket taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`) was chosen for cheap-tier classifier reliability. After PR #21 switched to reusing the user's existing Dimension-style numbered labels (`1: urgent` through `10: marketing`), 4 of those 10 labels stayed unused. The user kept the full label set and asked for triage to cover all of them. New seams:
+
+- `urgent` (`1: urgent`) vs `action_needed`: time-pressure. Hours-not-days consequence (security alert, account compromise, sign-in verification) → `urgent`; concrete-but-not-time-critical action → `action_needed`.
+- `follow_up` (`3: follow up`) vs `awaiting_reply`: sender tone. Soft nudge / "any update?" / "circling back" on an existing thread → `follow_up`; direct first-ask requiring a reply → `awaiting_reply`.
+- `done` (`7: done`) vs `fyi`: closure. "Order shipped" / "deploy succeeded" / "ticket resolved" → `done`; informational without explicit closure → `fyi`.
+- `marketing` (`10: marketing`) vs `newsletter`: opt-in shape. Promotional / sales blast → `marketing`; subscription content the user opted into → `newsletter`.
+
+**Tradeoff.** 10 buckets sits at the upper edge of what a cheap-tier model classifies reliably without examples. Mitigated by explicit per-seam disambiguation rules and worked examples in the system prompt. Lower confidence in tight pairs is expected and is what the `confidence < 0.5` "alfred wasn't sure" UX hook is for.
+
+**Briefing downstream.** The morning briefing's priority/suppressed split (`packages/api/src/modules/briefing/gather.ts`) is updated alongside this amendment: `urgent` lands first in the priority order (so a same-day-actionable item never gets buried), `follow_up` after `awaiting_reply`, and `done`/`marketing` join `fyi`/`newsletter` in the suppressed counts. Display order mirrors the user's Gmail label numbering. Reply-drafting (ADR-0025 #5, still default-OFF) continues to key on `awaiting_reply`; whether to also draft for `follow_up` (softer touch — "thanks for the nudge, here's where we are") is left for when that workflow flips ON.
 
 ---
 
