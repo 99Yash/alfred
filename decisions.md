@@ -787,7 +787,7 @@ The original 6-bucket taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `f
 
 **Tradeoff.** 10 buckets sits at the upper edge of what a cheap-tier model classifies reliably without examples. Mitigated by explicit per-seam disambiguation rules and worked examples in the system prompt. Lower confidence in tight pairs is expected and is what the `confidence < 0.5` "alfred wasn't sure" UX hook is for.
 
-**Open loose end.** The morning briefing's priority/suppressed split (`packages/api/src/modules/briefing/gather.ts`) still only knows about 6 of the 10 categories; messages classified as `urgent`, `follow_up`, `done`, `marketing` are correctly labelled in Gmail but currently fall through the briefing's lists and never surface in the digest. TODO marked in code; revisit when the briefing UX is next touched. Likely landing: `urgent` first in priority order, `follow_up` after `awaiting_reply`, `done` and `marketing` suppressed.
+**Briefing downstream.** The morning briefing's priority/suppressed split (`packages/api/src/modules/briefing/gather.ts`) is updated alongside this amendment: `urgent` lands first in the priority order (so a same-day-actionable item never gets buried), `follow_up` after `awaiting_reply`, and `done`/`marketing` join `fyi`/`newsletter` in the suppressed counts. Display order mirrors the user's Gmail label numbering. Reply-drafting (ADR-0025 #5, still default-OFF) continues to key on `awaiting_reply`; whether to also draft for `follow_up` (softer touch — "thanks for the nudge, here's where we are") is left for when that workflow flips ON.
 
 ---
 
