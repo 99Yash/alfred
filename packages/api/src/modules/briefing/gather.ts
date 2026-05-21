@@ -13,6 +13,13 @@ import { and, desc, eq, gte } from "drizzle-orm";
  *
  * Counts are surfaced separately so the briefing can still mention
  * "+12 newsletters arrived" without expanding them inline.
+ *
+ * TODO(triage-10-buckets): the taxonomy expanded from 6 → 10 categories.
+ * `urgent`, `follow_up`, `done`, and `marketing` are neither priority
+ * nor suppressed here, so they currently fall through both lists and
+ * never surface in the briefing. Decide the right placement when the
+ * briefing UX gets revisited — likely `urgent` first in priority,
+ * `follow_up` after `awaiting_reply`, `done` and `marketing` suppressed.
  */
 
 const PRIORITY_CATEGORIES = [

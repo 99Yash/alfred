@@ -16,22 +16,30 @@ import { createLabel, listLabels, modifyMessageLabels } from "./gmail";
  */
 
 export const TRIAGE_CATEGORIES = [
+  "urgent",
   "action_needed",
+  "follow_up",
   "awaiting_reply",
   "meeting",
   "fyi",
+  "done",
   "payment",
   "newsletter",
+  "marketing",
 ] as const;
 export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
 
 const LABEL_NAMES: Record<TriageCategory, string> = {
+  urgent: "1: urgent",
   action_needed: "2: action needed",
+  follow_up: "3: follow up",
   awaiting_reply: "4: awaiting reply",
   meeting: "5: meeting",
   fyi: "6: fyi",
+  done: "7: done",
   payment: "8: payment",
   newsletter: "9: newsletter",
+  marketing: "10: marketing",
 };
 
 export function labelNameFor(category: TriageCategory): string {
