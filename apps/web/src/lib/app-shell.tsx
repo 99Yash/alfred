@@ -1,4 +1,5 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -34,6 +35,7 @@ import {
 } from "react";
 import { CommandPalette } from "~/components/ui/command-palette";
 import { authClient } from "~/lib/auth-client";
+import { client } from "~/lib/eden";
 import { useTheme, type Theme } from "~/lib/theme";
 import { cn } from "~/lib/utils";
 
@@ -86,10 +88,45 @@ export function useRightRail(node: ReactNode | null) {
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  /* Server-truth onboarding flag (ADR-style: don't trust the client). Only
+   * fetched once we know we're authed; the `enabled` keeps the query off
+   * the login screen. */
+  const sessionUser = session?.user;
+  const onboardingQuery = useQuery({
+    queryKey: ["me", "onboarding"],
+    queryFn: async () => {
+      const res = await client.api.me.onboarding.get();
+      if (res.error) throw new Error("Failed to load onboarding state");
+      return res.data;
+    },
+    enabled: !isPending && !!sessionUser,
+    staleTime: 60_000,
+  });
+
+  /* Gate `/onboarding` access in both directions:
+   *   - new user (routeToOnboarding=true) on any other authed route → /onboarding
+   *   - finished user on /onboarding → /
+   * `pendingNavigation` is computed during render (no derived-state effect). */
+  const routeToOnboarding = onboardingQuery.data?.routeToOnboarding;
+  const onOnboardingRoute = location.pathname.startsWith("/onboarding");
+  const onPreviewRoute = location.pathname.startsWith("/preview/");
+  useEffect(() => {
+    if (!sessionUser) return;
+    if (routeToOnboarding === undefined) return;
+    // `/preview/*` is a design playground — never gate it.
+    if (onPreviewRoute) return;
+    if (routeToOnboarding && !onOnboardingRoute) {
+      void navigate({ to: "/onboarding", search: { step: 1 } });
+    } else if (!routeToOnboarding && onOnboardingRoute) {
+      void navigate({ to: "/" });
+    }
+  }, [routeToOnboarding, onOnboardingRoute, onPreviewRoute, sessionUser, navigate]);
 
   // Close the mobile drawer + palette on route change. Tracking the previous
   // location in a ref (not state — we never read it in render) and resetting
@@ -102,8 +139,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPaletteOpen(false);
   }
 
+  /* Routes that render edge-to-edge (no sidebar, no rail). */
+  const chromeless =
+    location.pathname === "/login" ||
+    location.pathname.startsWith("/onboarding") ||
+    location.pathname.startsWith("/preview/");
+
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
-  const authed = !isPending && !!session?.user && location.pathname !== "/login";
+  const authed = !isPending && !!session?.user && !chromeless;
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
