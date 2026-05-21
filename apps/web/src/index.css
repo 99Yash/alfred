@@ -31,10 +31,11 @@
 }
 
 /* -----------------------------------------------------------------------------
- * Dark variant + theme
- * Tokens live as raw CSS vars on :root / .dark, then @theme inline maps them
- * to Tailwind's color tokens so utilities like bg-background / text-foreground
- * resolve through the swap.
+ * Theme tokens (dark-only — Alfred ships a single Dimension-grammar surface)
+ * Tokens live as raw CSS vars on :root, then @theme inline maps them to
+ * Tailwind's color tokens so utilities like bg-background / text-foreground
+ * resolve through them. The legacy `.dark` selector is kept as a no-op alias
+ * so any stray `dark:` utilities still match.
  * -------------------------------------------------------------------------- */
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -46,10 +47,7 @@
    * Dimension token scales (captured 2026-05-18 from dimension.dev live recon —
    * see references/dimension-dev/dimension-design-reference-2026-05-18.md).
    * RGB triplets stored space-separated so they compose with `rgb(var(--…))`
-   * and `rgb(var(--…) / 0.5)` for opacity. These exist alongside the shadcn
-   * OKLCH tokens below — they're used by the new `components/ui/*` primitives
-   * and any route migrated to the Dimension grammar. Existing routes remain
-   * on the OKLCH tokens until their Stage 2 pass.
+   * and `rgb(var(--…) / 0.5)` for opacity.
    * --------------------------------------------------------------------- */
 
   /* Neutral (16 stops). */
@@ -93,34 +91,8 @@
   --motion-easing: cubic-bezier(0.2, 0, 0, 1);
   --press-scale: 0.96;
 
-  /* Light — warm paper neutrals. Provisional; swap freely. */
-  --background: oklch(0.99 0.003 95);
-  --foreground: oklch(0.18 0.01 270);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.01 270);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.01 270);
-  --primary: oklch(0.22 0.01 270);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.96 0.005 95);
-  --secondary-foreground: oklch(0.22 0.01 270);
-  --muted: oklch(0.965 0.005 95);
-  --muted-foreground: oklch(0.5 0.012 270);
-  --accent: oklch(0.95 0.006 95);
-  --accent-foreground: oklch(0.22 0.01 270);
-  --destructive: oklch(0.58 0.21 27);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.005 95);
-  --input: oklch(0.92 0.005 95);
-  --ring: oklch(0.7 0.02 270);
-
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 4px 12px oklch(0 0 0 / 0.04);
-  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.06), 0 12px 24px oklch(0 0 0 / 0.08);
-}
-
-.dark {
-  /* Dark — Dimension's exact body bg `rgb(12, 12, 12)` (#0c0c0c). All
-   * contrast comes from the foreground; the body stays calm. */
+  /* Semantic surface tokens — Dimension's exact body bg `rgb(12, 12, 12)`
+   * (#0c0c0c). All contrast comes from the foreground; the body stays calm. */
   --background: rgb(12, 12, 12);
   --foreground: oklch(0.96 0.005 95);
   --card: oklch(0.185 0.005 280);

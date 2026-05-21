@@ -390,7 +390,7 @@ function SkillLearnTab({
       <section className="space-y-3">
         <h2 className="text-[15px] font-medium text-gray-1000">Memory Update</h2>
         {currentRevision ? (
-          <article className="prose prose-sm dark:prose-invert max-w-none">
+          <article className="prose prose-sm prose-invert max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentRevision.body}</ReactMarkdown>
           </article>
         ) : (

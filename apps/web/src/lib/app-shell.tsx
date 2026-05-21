@@ -10,15 +10,11 @@ import {
   FileText,
   LogOut,
   Menu,
-  Monitor,
-  Moon,
-  MoonStar,
   Plus,
   Plug,
   Search,
   Settings,
   Sparkles,
-  Sun,
   Workflow,
   X,
 } from "lucide-react";
@@ -36,7 +32,6 @@ import {
 import { CommandPalette } from "~/components/ui/command-palette";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
-import { useTheme, type Theme } from "~/lib/theme";
 import { cn } from "~/lib/utils";
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
@@ -281,7 +276,6 @@ function Sidebar({
   showCloseButton,
   onOpenPalette,
 }: SidebarProps) {
-  const { theme, resolved, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const initial = email?.[0]?.toUpperCase() ?? "·";
@@ -290,13 +284,6 @@ function Sidebar({
     await authClient.signOut();
     await navigate({ to: "/login" });
   };
-
-  const cycleTheme = useCallback(() => {
-    const order: Theme[] = ["system", "light", "dark"];
-    const idx = order.indexOf(theme);
-    const next = order[(idx + 1) % order.length] ?? "system";
-    setTheme(next);
-  }, [theme, setTheme]);
 
   return (
     <div className="flex h-full flex-col">
@@ -404,32 +391,13 @@ function Sidebar({
         ))}
       </nav>
 
-      {/* Footer: settings + theme + sign-out */}
+      {/* Footer: settings + sign-out */}
       <div className="border-t p-2 space-y-0.5">
         <NavLink
           item={{ to: "/settings", label: "Settings", icon: Settings }}
           collapsed={collapsed}
           active={isActive(location.pathname, "/settings")}
         />
-        <button
-          type="button"
-          onClick={cycleTheme}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px]",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors",
-            collapsed && "justify-center px-0",
-          )}
-          title={collapsed ? `Theme: ${theme}` : undefined}
-        >
-          <ThemeIcon theme={theme} resolved={resolved} />
-          {!collapsed ? (
-            <>
-              <span className="flex-1 text-left capitalize">{theme}</span>
-              <span className="text-[10px] text-muted-foreground/70 capitalize">{resolved}</span>
-            </>
-          ) : null}
-        </button>
-
         <button
           type="button"
           onClick={signOut}
@@ -511,15 +479,6 @@ function IconButton({
   );
 }
 
-function ThemeIcon({ theme, resolved }: { theme: Theme; resolved: "light" | "dark" }) {
-  if (theme === "system") return <Monitor size={15} className="shrink-0" />;
-  return resolved === "dark" ? (
-    <Moon size={15} className="shrink-0" />
-  ) : (
-    <Sun size={15} className="shrink-0" />
-  );
-}
-
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
   return pathname === to || pathname.startsWith(`${to}/`);
@@ -529,7 +488,7 @@ function isActive(pathname: string, to: string): boolean {
  * App-level command palette
  * Mounted at AppShell scope so ⌘K works on every authed route. Routes can layer
  * their own commands later by reading a context — for now this set covers
- * navigation, theme cycling, and sign-out.
+ * navigation and sign-out.
  * -------------------------------------------------------------------------- */
 
 function AppCommandPalette({
@@ -540,7 +499,6 @@ function AppCommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const { theme, setTheme } = useTheme();
 
   const go = useCallback(
     (to: string) => {
@@ -549,14 +507,6 @@ function AppCommandPalette({
     },
     [navigate, onOpenChange],
   );
-
-  const cycleTheme = useCallback(() => {
-    const order: Theme[] = ["system", "light", "dark"];
-    const idx = order.indexOf(theme);
-    const next = order[(idx + 1) % order.length] ?? "system";
-    setTheme(next);
-    onOpenChange(false);
-  }, [theme, setTheme, onOpenChange]);
 
   const signOut = useCallback(async () => {
     onOpenChange(false);
@@ -581,14 +531,6 @@ function AppCommandPalette({
           shortcut="↵"
         >
           New chat
-        </CommandPalette.Item>
-        <CommandPalette.Item
-          value="action:cycle-theme"
-          keywords={["theme", "dark", "light", "system", "appearance"]}
-          onSelect={cycleTheme}
-          icon={MoonStar}
-        >
-          Cycle theme
         </CommandPalette.Item>
         <CommandPalette.Item
           value="action:sign-out"

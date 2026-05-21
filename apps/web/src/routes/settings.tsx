@@ -6,13 +6,11 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
-  Moon,
   PackageCheck,
   PencilLine,
   Slack,
   Sliders,
   Sparkles,
-  Sun,
   Sunrise,
   Sunset,
   Tag,
@@ -26,7 +24,6 @@ import { Switch } from "~/components/ui/switch";
 import { Tabs, type TabItem } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { authClient } from "~/lib/auth-client";
-import { useTheme, type Theme } from "~/lib/theme";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/settings")({
@@ -541,14 +538,7 @@ function FeaturesSection() {
 /* Preferences section                                                         */
 /* -------------------------------------------------------------------------- */
 
-const THEME_TABS: ReadonlyArray<TabItem<Theme>> = [
-  { value: "system", label: "System", icon: <Sliders size={13} /> },
-  { value: "light", label: "Light", icon: <Sun size={13} /> },
-  { value: "dark", label: "Dark", icon: <Moon size={13} /> },
-];
-
 function PreferencesSection() {
-  const { theme, setTheme } = useTheme();
   const [productUpdates, setProductUpdates] = useState(true);
 
   return (
@@ -558,18 +548,6 @@ function PreferencesSection() {
         title="Preferences"
         description="Customize your app preferences."
       />
-
-      <Cluster title="Appearance">
-        <Field label="Theme" helper="Choose Alfred's appearance. System matches your OS.">
-          <Tabs<Theme>
-            variant="pill"
-            value={theme}
-            onValueChange={setTheme}
-            items={THEME_TABS}
-            label="Theme"
-          />
-        </Field>
-      </Cluster>
 
       <Cluster title="Model">
         <Field
