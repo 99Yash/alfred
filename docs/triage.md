@@ -11,11 +11,15 @@ The pipeline:
 
 Initial-sync seed: the OAuth callback (`google-routes.ts /callback`) enqueues a `gmail.ingest_recent` job with `maxMessages: 8, triageInsertedDocs: true` so a brand-new account has classified mail to look at immediately. The flag is the opt-in that narrows ADR-0025's "no triage on bulk re-ingest" rule — only callers that explicitly request triage get it. Re-connect is idempotent (dedup index → 0 inserts → 0 triage runs).
 
-Re-classification on reply happens implicitly: every new message in a thread is its own document and gets its own triage run. We never sweep the whole thread.
+Re-classification on reply happens implicitly: every new message in a thread is its own document and gets its own triage run. We never sweep the whole thread for re-classification — only the just-arrived message gets a fresh LLM call.
+
+**Thread-level label collapse.** Gmail's thread view unions labels across every message in a thread, so an older `fyi`/`follow_up` message left next to a newer `done` reply ends up showing both tags. The `apply-label` step queries sibling messages in the same thread (`getThreadSiblingsWithLabels`) and strips their alfred labels before applying the new one — the latest classification wins. Sibling triage rows keep their `category` for audit but have `applied_label_id` cleared.
 
 Label management (`packages/integrations/src/google/labels.ts`):
 
-- `ensureAlfredLabels(credentialId)` idempotently creates the six labels and caches the id map on `integration_credentials.metadata.alfredLabels`. Pass `force: true` to rebuild if a label was deleted out-of-band.
-- `applyTriageLabel({ credentialId, messageId, category, previousLabelId })` adds the chosen label and removes the previous one (when supplied) in a single Gmail round-trip.
+- `ensureAlfredLabels(credentialId)` idempotently creates the ten labels and caches the id map on `integration_credentials.metadata.alfredLabels`. Pass `force: true` to rebuild if a label was deleted out-of-band.
+- `applyTriageLabel({ credentialId, messageId, category, previousLabelId, threadSiblings })` adds the chosen label, removes the previous one on the same message, and (when `threadSiblings` is supplied) strips each sibling's alfred label so the thread collapses to a single tag.
 
 Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts` (requires a connected Google account + at least one ingested email).
+
+Backfill: `pnpm --filter server tsx --env-file=.env src/scripts/backfill-thread-labels.ts [--dry-run]` — one-shot cleanup for threads that accumulated multiple alfred labels under the old per-message-only behavior. Keeps the latest message's label, strips the rest. Idempotent.

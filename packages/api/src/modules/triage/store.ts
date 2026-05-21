@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 
 /**
  * Persistence helpers for the triage table. The workflow owns the LLM call
@@ -115,6 +115,67 @@ export async function setAppliedLabelId(documentId: string, appliedLabelId: stri
     .update(emailTriage)
     .set({ appliedLabelId, updatedAt: new Date() })
     .where(eq(emailTriage.documentId, documentId));
+}
+
+export interface ThreadSibling {
+  documentId: string;
+  /** Gmail message id — for the labels API. */
+  sourceId: string;
+  appliedLabelId: string;
+}
+
+/**
+ * Find other Gmail messages in the same thread that currently hold an alfred
+ * label. Used by the workflow so we can strip them when re-classifying — Gmail
+ * thread view unions labels across messages, so leftover labels on older
+ * messages show up as duplicate tags on the thread.
+ *
+ * Excludes the source document itself (the new message that triggered triage).
+ * Skips docs without `applied_label_id` set: they may be classified but the
+ * label-write step hasn't landed, or the row was cleared by a prior sweep.
+ */
+export async function getThreadSiblingsWithLabels(args: {
+  documentId: string;
+  userId: string;
+  sourceThreadId: string;
+}): Promise<ThreadSibling[]> {
+  const rows = await db()
+    .select({
+      documentId: documents.id,
+      sourceId: documents.sourceId,
+      appliedLabelId: emailTriage.appliedLabelId,
+    })
+    .from(documents)
+    .innerJoin(emailTriage, eq(emailTriage.documentId, documents.id))
+    .where(
+      and(
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail"),
+        eq(documents.sourceThreadId, args.sourceThreadId),
+        ne(documents.id, args.documentId),
+        isNotNull(emailTriage.appliedLabelId),
+      ),
+    );
+  return rows
+    .filter((r): r is ThreadSibling => r.appliedLabelId !== null)
+    .map((r) => ({
+      documentId: r.documentId,
+      sourceId: r.sourceId,
+      appliedLabelId: r.appliedLabelId,
+    }));
+}
+
+/**
+ * Null out `applied_label_id` for the given documents. Called after Gmail
+ * confirms the labels have been stripped, so the DB no longer claims those
+ * messages carry an alfred label. Keeps `category` intact for audit.
+ */
+export async function clearAppliedLabelIds(documentIds: string[]): Promise<void> {
+  if (documentIds.length === 0) return;
+  await db()
+    .update(emailTriage)
+    .set({ appliedLabelId: null, updatedAt: new Date() })
+    .where(inArray(emailTriage.documentId, documentIds));
 }
 
 export interface TriageDocumentContext {

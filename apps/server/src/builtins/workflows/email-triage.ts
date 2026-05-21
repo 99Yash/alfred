@@ -1,6 +1,8 @@
 import {
   classifyEmail,
+  clearAppliedLabelIds,
   DEFAULT_TRIAGE_CATEGORY,
+  getThreadSiblingsWithLabels,
   getTriage,
   loadTriageContext,
   setAppliedLabelId,
@@ -195,17 +197,44 @@ export const emailTriageWorkflow: Workflow<State> = {
           };
         }
 
+        // Gmail aggregates labels at the thread level (a thread shows the
+        // union of every message's labels). If an older message in this
+        // thread still carries its earlier alfred label, the thread ends
+        // up tagged with multiple categories. Strip those siblings here
+        // so the latest classification wins.
+        const siblings = ctxData.document.sourceThreadId
+          ? await getThreadSiblingsWithLabels({
+              documentId: ctx.state.documentId,
+              userId: ctx.userId,
+              sourceThreadId: ctxData.document.sourceThreadId,
+            })
+          : [];
+
         const result = await applyTriageLabel({
           credentialId: ctxData.credentialId,
           messageId: ctxData.document.sourceId,
           category,
           previousLabelId: ctx.state.previousLabelId ?? undefined,
+          threadSiblings: siblings.map((s) => ({
+            messageId: s.sourceId,
+            labelId: s.appliedLabelId,
+          })),
         });
 
         await setAppliedLabelId(ctx.state.documentId, result.appliedLabelId);
+        if (result.strippedSiblings.length) {
+          // Resolve stripped Gmail message ids back to their document ids so
+          // we can clear `applied_label_id` on the corresponding triage rows.
+          const strippedMessageIds = new Set(result.strippedSiblings.map((s) => s.messageId));
+          const strippedDocIds = siblings
+            .filter((s) => strippedMessageIds.has(s.sourceId))
+            .map((s) => s.documentId);
+          await clearAppliedLabelIds(strippedDocIds);
+        }
         await ctx.log(
           `apply-label: doc=${ctx.state.documentId} applied=${category} (${result.appliedLabelId}) ` +
-            `removed=${result.removedLabelIds.length}`,
+            `removed=${result.removedLabelIds.length} ` +
+            `siblingsStripped=${result.strippedSiblings.length}/${siblings.length}`,
         );
 
         return {
@@ -217,6 +246,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             applied: true,
             appliedLabelId: result.appliedLabelId,
             removedLabelIds: result.removedLabelIds,
+            strippedSiblings: result.strippedSiblings.length,
           },
         };
       },

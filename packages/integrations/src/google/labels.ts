@@ -187,11 +187,21 @@ export interface ApplyTriageLabelArgs {
    * different alfred category. Defaults to false (cheaper, common case).
    */
   stripAllAlfredLabels?: boolean;
+  /**
+   * Other Gmail messages in the same thread that currently hold an alfred
+   * label. We strip each one's label so the thread view collapses to a single
+   * alfred tag (Gmail unions labels across messages in a thread). Caller is
+   * responsible for clearing the corresponding `email_triage.applied_label_id`
+   * rows after this returns.
+   */
+  threadSiblings?: ReadonlyArray<{ messageId: string; labelId: string }>;
 }
 
 export interface ApplyTriageLabelResult {
   appliedLabelId: string;
   removedLabelIds: string[];
+  /** Sibling messages whose alfred label was stripped (mirrors `threadSiblings`). */
+  strippedSiblings: Array<{ messageId: string; labelId: string }>;
 }
 
 /**
@@ -199,7 +209,10 @@ export interface ApplyTriageLabelResult {
  * landed (the caller persists it on `email_triage.applied_label_id`).
  *
  * Removes the previously-applied alfred-label first so a re-classification
- * doesn't leave the message tagged with two contradictory categories.
+ * doesn't leave the message tagged with two contradictory categories. When
+ * `threadSiblings` is supplied, also strips each sibling's alfred label so
+ * the thread view in Gmail collapses to a single tag — without this, replies
+ * stack their new label on top of older messages' stale labels.
  */
 export async function applyTriageLabel(
   args: ApplyTriageLabelArgs,
@@ -222,7 +235,34 @@ export async function applyTriageLabel(
     removeLabelIds: removeLabelIds.length ? removeLabelIds : undefined,
   });
 
-  return { appliedLabelId: targetId, removedLabelIds: removeLabelIds };
+  // Strip sibling labels one-by-one. Gmail's batchModify takes a single
+  // add/remove set across N messages, which only helps when every sibling
+  // carries the same label — at single-user scale (typically <10 messages
+  // per thread, often 1) the serial round-trips are cheaper than the
+  // grouping logic.
+  const strippedSiblings: Array<{ messageId: string; labelId: string }> = [];
+  for (const sibling of args.threadSiblings ?? []) {
+    if (sibling.messageId === args.messageId) continue;
+    try {
+      await modifyMessageLabels({
+        accessToken,
+        messageId: sibling.messageId,
+        removeLabelIds: [sibling.labelId],
+      });
+      strippedSiblings.push(sibling);
+    } catch (err) {
+      // A sibling message could have been deleted out of band. Log and
+      // continue — failing the whole label-write because one sibling went
+      // missing would block the just-arrived message from getting tagged.
+      console.warn(
+        `[triage:applyTriageLabel] failed to strip sibling label ` +
+          `messageId=${sibling.messageId} labelId=${sibling.labelId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  return { appliedLabelId: targetId, removedLabelIds: removeLabelIds, strippedSiblings };
 }
 
 /** Map Gmail label name back to a TriageCategory, or undefined if unrelated. */
