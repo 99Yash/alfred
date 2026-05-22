@@ -58,6 +58,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
             wake: {
               kind: "hil",
               approvalId,
+              approvalKind: "step",
               prompt: `Approve echo of "${ctx.state.greeting}"?`,
             },
           };

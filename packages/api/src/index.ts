@@ -43,6 +43,7 @@ export * from "./modules/triage/index.js";
 export * from "./modules/briefing/index.js";
 export * from "./modules/cold-start/index.js";
 export * from "./modules/notifications/index.js";
+export * from "./modules/action-policies/index.js";
 export * from "./modules/skills/index.js";
 export * from "./modules/skill-documentation/index.js";
 export * from "./modules/workflows/index.js";

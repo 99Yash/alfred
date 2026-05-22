@@ -16,6 +16,7 @@
     "db:sync-prices": "tsx --env-file=../../apps/server/.env src/scripts/sync-prices.ts"
   },
   "dependencies": {
+    "@alfred/contracts": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.16.3",
