@@ -139,7 +139,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (result.insertedDocumentIds.length) {
+        // Triage first, embed second — the triage worker picks up the jobs
+        // and starts classifying while we're still waiting on Voyage.
+        // Triage reads the doc row (not chunks), so an in-flight embed is
+        // irrelevant to it. The `gmail.embed_sweep` job backstops any
+        // embed that fails here so we don't lose chunks permanently.
         await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
+        await embedRealtimeInserts(result.insertedDocumentIds);
       }
       return result;
     }
@@ -250,29 +256,56 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
  *
  * `reason` is a small audit string surfaced on the run's metadata so we can
  * tell webhook-driven triages apart from manual smoke runs in the logs.
+ *
+ * Fan-out runs in parallel — N enqueues take one DB+Redis roundtrip rather
+ * than N. The realtime path almost always has N≤3, but a catch-up burst
+ * after a long quiet period can have dozens.
  */
 async function enqueueTriageRuns(
   userId: string,
   documentIds: string[],
   reason: "webhook" | "manual" | "ingest" | "reply",
 ): Promise<void> {
-  for (const documentId of documentIds) {
-    try {
-      const { runId } = await createRun({
-        userId,
-        workflowSlug: TRIAGE_WORKFLOW_SLUG,
-        input: { documentId, reason },
-        metadata: { source: "gmail", documentId },
-        // `eventId` is the document id — naturally per-message and lets
-        // History filter triages by their source doc.
-        trigger: { kind: "event", eventId: documentId, payload: { source: "gmail", reason } },
-      });
-      await enqueueRun(runId);
-    } catch (err) {
-      console.warn(
-        `[ingestion:worker] failed to enqueue triage for doc=${documentId}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
+  await Promise.all(
+    documentIds.map(async (documentId) => {
+      try {
+        const { runId } = await createRun({
+          userId,
+          workflowSlug: TRIAGE_WORKFLOW_SLUG,
+          input: { documentId, reason },
+          metadata: { source: "gmail", documentId },
+          // `eventId` is the document id — naturally per-message and lets
+          // History filter triages by their source doc.
+          trigger: { kind: "event", eventId: documentId, payload: { source: "gmail", reason } },
+        });
+        await enqueueRun(runId);
+      } catch (err) {
+        console.warn(
+          `[ingestion:worker] failed to enqueue triage for doc=${documentId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }),
+  );
+}
+
+/**
+ * Embed freshly-inserted realtime docs in parallel. Best-effort: failures
+ * are logged and left for `gmail.embed_sweep` to retry. Kept off the
+ * triage-enqueue critical path so Voyage latency doesn't compound into
+ * the user-visible tag-latency budget (ADR-0037).
+ */
+async function embedRealtimeInserts(documentIds: string[]): Promise<void> {
+  await Promise.all(
+    documentIds.map(async (documentId) => {
+      try {
+        await embedDocument({ documentId });
+      } catch (err) {
+        console.warn(
+          `[ingestion:worker] gmail.poll_recent embed failed for doc=${documentId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }),
+  );
 }
