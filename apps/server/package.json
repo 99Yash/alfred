@@ -12,6 +12,7 @@
   "dependencies": {
     "@alfred/ai": "workspace:*",
     "@alfred/api": "workspace:*",
+    "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/ingestion": "workspace:*",

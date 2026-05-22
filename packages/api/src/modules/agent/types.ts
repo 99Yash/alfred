@@ -28,13 +28,15 @@ export function isTerminalStatus(s: RunStatus): boolean {
   return s === "completed" || s === "failed" || s === "cancelled";
 }
 
+export type ApprovalKind = "step" | "action_staging";
+
 /**
  * What unfreezes a parked run. The runtime persists this on the run row
  * when a step returns `interrupt`; an external signal (HIL approve,
  * timer expiry, named signal) flips the run back to `runnable`.
  */
 export type WakeCondition =
-  | { kind: "hil"; approvalId: string; prompt?: string }
+  | { kind: "hil"; approvalId: string; approvalKind: ApprovalKind; prompt?: string }
   | { kind: "timer"; wakeAt: string }
   | { kind: "signal"; name: string };
 

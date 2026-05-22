@@ -11,6 +11,7 @@ import {
   closeWorkflowsQueue,
   initEventBridge,
   initReplicachePokeBridge,
+  ensureDefaultActionPolicyForUser,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -50,6 +51,7 @@ registerBuiltinWorkflows();
 // turn 0.
 registerOnUserCreated(async (user) => {
   await seedBuiltinWorkflowsForUser(user.id);
+  await ensureDefaultActionPolicyForUser(user.id);
 });
 await startAgentWorker();
 await startIngestionWorker();

@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { agentRuns, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { requireWorkflow } from "./registry";
-import type { WakeCondition, WorkflowInput } from "./types";
+import type { ApprovalKind, WakeCondition, WorkflowInput } from "./types";
 
 interface PgErrorLike {
   code?: string;
@@ -97,7 +97,10 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
 export interface SignalArgs {
   runId: string;
   /** When provided, only fire if the wake condition matches (HIL approvalId or signal name). */
-  match?: { kind: "hil"; approvalId: string } | { kind: "signal"; name: string } | { kind: "any" };
+  match?:
+    | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind }
+    | { kind: "signal"; name: string }
+    | { kind: "any" };
 }
 
 /**
@@ -125,6 +128,14 @@ export async function signalRun(args: SignalArgs): Promise<boolean> {
       const wake = row.wakeCondition as WakeCondition | null;
       if (!wake || wake.kind !== match.kind) return false;
       if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
+        return false;
+      }
+      if (
+        match.kind === "hil" &&
+        wake.kind === "hil" &&
+        match.approvalKind &&
+        wake.approvalKind !== match.approvalKind
+      ) {
         return false;
       }
       if (match.kind === "signal" && wake.kind === "signal" && wake.name !== match.name) {
