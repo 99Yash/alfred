@@ -12,6 +12,8 @@ import {
   initEventBridge,
   initReplicachePokeBridge,
   ensureDefaultActionPolicyForUser,
+  startPolicyBustSubscriber,
+  stopPolicyBustSubscriber,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -58,6 +60,11 @@ registerOnUserCreated(async (user) => {
   await seedBuiltinWorkflowsForUser(user.id);
   await ensureDefaultActionPolicyForUser(user.id);
 });
+// Subscribe to `policy-bust:u:*` so policy edits on one server instance
+// drop every other instance's cached row before the next dispatch. Must
+// start before the agent worker so the cache is invalidation-aware on
+// the very first turn.
+await startPolicyBustSubscriber();
 await startAgentWorker();
 await startIngestionWorker();
 await startMemoryWorker();
@@ -113,6 +120,7 @@ async function shutdown(signal: string) {
     console.error("Error stopping workers:", err instanceof Error ? err.message : String(err));
   }
   try {
+    await stopPolicyBustSubscriber();
     await closeEventBridge();
     await closeReplicachePokeBridge();
     await closeRedis();
