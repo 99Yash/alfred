@@ -16,6 +16,7 @@ import {
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
   scheduleRepeatableWorkflowsJobs,
+  registerBuiltinTools,
   registerOnUserCreated,
   seedBuiltinWorkflowsForUser,
   startAgentWorker,
@@ -45,6 +46,10 @@ await initReplicachePokeBridge();
 // Register built-in workflows BEFORE the worker starts pulling jobs —
 // otherwise a job picked up first might not find its workflow slug.
 registerBuiltinWorkflows();
+// Register the m13 boss/sub-agent tool slice into the in-process
+// registry. Must happen before the agent worker pulls jobs so any
+// dispatched tool call can resolve `getTool(name)` on the first turn.
+registerBuiltinTools();
 // Register the post-signup hook BEFORE Better Auth's databaseHooks can
 // fire. New users get their builtin `workflows` rows seeded immediately
 // so the settings page + workflows.tick partial index see them from
