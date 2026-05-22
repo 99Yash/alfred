@@ -166,11 +166,18 @@ async function main(): Promise<void> {
   }
   console.log(`[smoke-scratchpad] second snapshot idempotent (${secondCount} rows, same shape)`);
 
-  // Cleanup: scratchpad keys (best-effort), then DB rows.
+  // Cleanup: scratchpad keys (best-effort), then DB rows. SCAN+DEL
+  // instead of KEYS so the script stays safe if it ever points at a
+  // non-trivial Redis.
   const conn = createRedisConnection();
   try {
-    const keys = await conn.keys(`alfred:scratch:${runId}:*`);
-    if (keys.length > 0) await conn.del(...keys);
+    const match = `alfred:scratch:${runId}:*`;
+    let cursor = "0";
+    do {
+      const [next, batch] = await conn.scan(cursor, "MATCH", match, "COUNT", 100);
+      cursor = next;
+      if (batch.length > 0) await conn.del(...batch);
+    } while (cursor !== "0");
   } finally {
     await conn.quit().catch(() => conn.disconnect());
   }
