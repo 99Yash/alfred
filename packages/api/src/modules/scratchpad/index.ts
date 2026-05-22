@@ -166,24 +166,29 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
 
   if (rows.length === 0) return 0;
 
-  await db()
-    .insert(agentRunContext)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [agentRunContext.runId, agentRunContext.key],
-      set: {
-        zone: sqlExcluded("zone"),
-        value: sqlExcluded("value"),
-        writtenBy: sqlExcluded("written_by"),
-        writtenAt: sqlExcluded("written_at"),
-      },
-    });
+  // Chunked upsert. Each row carries 6 parameters; Postgres caps bind
+  // params at 65535 (`$1`..`$65535`), so a single VALUES list maxes out
+  // at ~10,922 rows. 1000 rows / 6000 params per chunk is well under
+  // that ceiling and keeps each statement's planning time bounded for
+  // any future high-fanout sub-agent topology.
+  const CHUNK_SIZE = 1000;
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
+    await db()
+      .insert(agentRunContext)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: [agentRunContext.runId, agentRunContext.key],
+        set: {
+          zone: sql`excluded.zone`,
+          value: sql`excluded.value`,
+          writtenBy: sql`excluded.written_by`,
+          writtenAt: sql`excluded.written_at`,
+        },
+      });
+  }
 
   return rows.length;
-}
-
-function sqlExcluded(column: string) {
-  return sql`excluded.${sql.identifier(column)}`;
 }
 
 function toTarget(args: {
