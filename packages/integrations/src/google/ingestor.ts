@@ -280,6 +280,7 @@ interface UpsertIngestionStateArgs {
 
 async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<void> {
   const now = new Date();
+  const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
   await db()
     .insert(ingestionState)
     .values({
@@ -294,7 +295,33 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
     .onConflictDoUpdate({
       target: [ingestionState.credentialId, ingestionState.stream],
       set: {
-        state: sql`jsonb_set(${ingestionState.state}, '{historyId}', ${JSON.stringify(args.historyId)}::jsonb)`,
+        // Compare-and-advance on historyId at the DB level. Two writers
+        // (realtime `pollGmailRecent` + catch-up `pollGmailHistory`) can race
+        // on this row; the application-level snapshot (`cursorBefore`) is
+        // already stale by the time we write back, so a naive `jsonb_set`
+        // could roll the cursor backward and force a wider re-scan on the
+        // next catch-up. CASE arms (PG short-circuits the WHEN list in
+        // order): keep existing if (a) we observed no new id, (b) cursor
+        // exists and the new id isn't strictly greater. Only when the new
+        // id is null OR strictly higher do we touch state.historyId.
+        // `lastSyncAt`/`updatedAt` still update unconditionally so
+        // findCredentialsNeedingPoll sees the credential as fresh.
+        // (ADR-0037)
+        state: sql`
+          jsonb_set(
+            ${ingestionState.state},
+            '{historyId}',
+            CASE
+              WHEN ${newId}::text IS NULL
+                THEN ${ingestionState.state}->'historyId'
+              WHEN (${ingestionState.state}->>'historyId') IS NULL
+                THEN to_jsonb(${newId}::text)
+              WHEN ${newId}::bigint > (${ingestionState.state}->>'historyId')::bigint
+                THEN to_jsonb(${newId}::text)
+              ELSE ${ingestionState.state}->'historyId'
+            END
+          )
+        `,
         lastSyncAt: now,
         lastFullSyncAt: args.fullSync ? now : ingestionState.lastFullSyncAt,
         updatedAt: now,
@@ -622,9 +649,13 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   });
 
-  // Advance the cursor only if we observed a higher historyId than where we
-  // started. Avoids clobbering on an empty window and avoids rolling backward
-  // if a concurrent `pollGmailHistory` already moved past us.
+  // Skip the DB roundtrip when our in-memory snapshot already shows no
+  // advance — highWaterHistoryId starts as cursorBefore and only moves
+  // forward, so a strict-inequality check here is sound. The DB-level
+  // compare-and-advance in `upsertIngestionState` is the actual guard
+  // against a concurrent `pollGmailHistory` rolling the cursor backward;
+  // this branch is just an optimization to avoid a wasted UPDATE on the
+  // common no-op case (webhook fires for a label change with no new mail).
   if (highWaterHistoryId && highWaterHistoryId !== cursorBefore) {
     await upsertIngestionState({
       credentialId: cred.credentialId,
@@ -668,9 +699,11 @@ async function filterKnownGmailIds(
 
 /**
  * Bounded-concurrency map. Spawns up to `concurrency` workers that pull
- * from a shared index. Errors thrown by `fn` propagate — per-task
- * try/catch is the caller's job (we want the loop to keep draining when
- * one message fails).
+ * from a shared index. Per-task try/catch is the caller's job: if `fn`
+ * throws, `Promise.all` rejects with the first error but the other
+ * already-running workers keep going to completion (no cancellation).
+ * The sole caller wraps each task body in try/catch so the loop drains
+ * even when individual messages fail.
  */
 async function mapConcurrent<T>(
   items: T[],

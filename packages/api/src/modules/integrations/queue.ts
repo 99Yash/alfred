@@ -257,9 +257,10 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
  * `reason` is a small audit string surfaced on the run's metadata so we can
  * tell webhook-driven triages apart from manual smoke runs in the logs.
  *
- * Fan-out runs in parallel — N enqueues take one DB+Redis roundtrip rather
- * than N. The realtime path almost always has N≤3, but a catch-up burst
- * after a long quiet period can have dozens.
+ * Fan-out runs in parallel — N enqueues still cost N DB INSERTs + N Redis
+ * ZADDs, but they're issued concurrently so wall-clock time is bounded by
+ * the slowest one rather than the sum. The realtime path almost always
+ * has N≤3, but a catch-up burst after a long quiet period can have dozens.
  */
 async function enqueueTriageRuns(
   userId: string,
