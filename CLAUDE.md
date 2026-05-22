@@ -21,6 +21,7 @@ packages/
 ├── api/             # Elysia app (routes + middleware) + Eden App type export
 ├── auth/            # Better Auth config — emailOTP + one-email allowlist
 ├── config/          # Shared tsconfig.base.json
+├── contracts/       # Zero-dep shared types + consts (tool registry, runtime keys) — safe in apps/web
 ├── db/              # Drizzle schema, pool, helpers
 ├── env/             # Zod-validated env vars — serverEnv() / CLIENT_DEFAULTS
 ├── sync/            # Replicache mutator stubs (wired in milestone 3)
@@ -49,6 +50,7 @@ All packages are `@alfred/*`. Never import `@milkpod/*`.
 Allowed in `apps/web`:
 
 - `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
+- `import { ... } from '@alfred/contracts'` — zero Node deps (pure types + const exports), safe at runtime.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
 
