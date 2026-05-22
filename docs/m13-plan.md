@@ -390,9 +390,9 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 
 ## Status board (update inline as work lands)
 
-- [ ] **Phase 1** — Foundations: contracts package, migrations, signup hook
-- [ ] **Phase 2** — Runtime primitives: scratchpad helpers, tool registry, initial tool slice
-- [ ] **Phase 3** — Dispatcher (the spine) — open ADR items resolved
+- [x] **Phase 1** — Foundations: contracts package, migrations, signup hook
+- [x] **Phase 2** — Runtime primitives: scratchpad helpers, tool registry, initial tool slice
+- [x] **Phase 3** — Dispatcher (the spine) — open ADR items resolved
 - [ ] **Phase 4** — Agent bridge: `AlfredAgent` loop + `load_integration` + m12 stub deleted
 - [ ] **Phase 5** — HIL surface: SSE + Replicache + `/approvals` page + decision API + email debounce
 - [ ] **Phase 6** — Sub-agents: spawn + zone enforcement + scratchpad tools + fail-back

@@ -1,0 +1,417 @@
+/**
+ * Tool dispatcher (m13 Phase 3 / ADR-0034).
+ *
+ * Every tool call the boss (or a sub-agent) makes flows through
+ * `dispatchToolCall`. Responsibilities:
+ *
+ *   1. Resolve the tool registry entry and validate the proposed input.
+ *   2. Stable-hash the input (`hashToolInput`) for retry suppression and
+ *      duplicate detection.
+ *   3. Consult `user_action_policies` (in-process cache, bust via Redis
+ *      Pub/Sub) to decide autonomy vs. gated.
+ *   4. INSERT `action_stagings` row, idempotent on
+ *      `(run_id, tool_call_id)`. The row is the canonical audit + UI
+ *      surface for every tool call regardless of mode.
+ *   5. Autonomy: execute the tool, update the row with the result, hand
+ *      the result back to the caller.
+ *   6. Gated: return a `staged` outcome carrying a `WakeCondition`
+ *      whose `approvalId` is the staging row id. The agent loop turns
+ *      that into a `StepResult.interrupt` so the executor parks the
+ *      run; the resume path (the same step re-runs after approval) hits
+ *      this function again with the same `tool_call_id` and finds an
+ *      `approved` (or `rejected` / `expired`) row to act on.
+ *
+ * The dispatcher is also the retry-suppression gate (Phase 3c). When a
+ * model re-proposes a tool call with byte-identical input to one the
+ * user already rejected, we synthesize `rejected_by_user` immediately —
+ * no second staging row, no second email — and the boss learns by
+ * receiving the result.
+ *
+ * The function is single-pass: it handles both the initial dispatch and
+ * the post-approval resume by branching on the existing row's status.
+ * Callers don't need a separate "resume" entry point.
+ */
+
+import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
+import { hashToolInput, integrationFromToolName } from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { actionStagings } from "@alfred/db/schemas";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { resolvePolicyMode } from "../action-policies/resolve";
+import type { WakeCondition } from "../agent/types";
+import { getTool, type ToolExecuteContext } from "../tools/registry";
+
+export interface DispatchArgs {
+  runId: string;
+  /** Logical executor step that owns this call — audit only. */
+  stepId: string;
+  /** Stable id from the model's tool call (deduplicates same call across step re-attempts). */
+  toolCallId: string;
+  toolName: ToolName;
+  input: unknown;
+  userId: string;
+  /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
+  caller?: ToolExecuteContext["caller"];
+}
+
+interface RejectedToolResult {
+  status: "rejected_by_user";
+  toolName: ToolName;
+  proposedInput: unknown;
+  reason: string;
+  /** Hint to the boss: same input verbatim will be auto-rejected again. */
+  retryPolicy: "do_not_retry_identical";
+}
+
+interface InvalidInputToolResult {
+  status: "invalid_input";
+  toolName: ToolName;
+  message: string;
+  issues?: unknown;
+}
+
+interface UnknownToolResult {
+  status: "unknown_tool";
+  toolName: ToolName;
+  message: string;
+}
+
+export type DispatchResult =
+  | {
+      kind: "executed";
+      stagingId: string;
+      toolResult: unknown;
+      /** True when the user edited the input before approving — the boss
+       *  may want to surface that to the model so future suggestions
+       *  account for the correction. */
+      editedByUser: boolean;
+    }
+  | {
+      kind: "failed";
+      stagingId: string;
+      error: { message: string };
+    }
+  | {
+      kind: "rejected";
+      /** `null` only on retry-suppression — no new row written. */
+      stagingId: string | null;
+      result: RejectedToolResult;
+    }
+  | {
+      kind: "staged";
+      stagingId: string;
+      wake: Extract<WakeCondition, { kind: "hil" }>;
+    }
+  | {
+      kind: "invalid_input";
+      result: InvalidInputToolResult;
+    }
+  | {
+      kind: "unknown_tool";
+      result: UnknownToolResult;
+    };
+
+interface StagingRow {
+  id: string;
+  runId: string;
+  status: string;
+  proposedInput: unknown;
+  decidedInput: unknown;
+  rejectReason: string | null;
+  executeResult: unknown;
+  executeError: unknown;
+}
+
+const STAGING_COLUMNS = {
+  id: actionStagings.id,
+  runId: actionStagings.runId,
+  status: actionStagings.status,
+  proposedInput: actionStagings.proposedInput,
+  decidedInput: actionStagings.decidedInput,
+  rejectReason: actionStagings.rejectReason,
+  executeResult: actionStagings.executeResult,
+  executeError: actionStagings.executeError,
+} as const;
+
+export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
+  const tool = getTool(args.toolName);
+  if (!tool) {
+    return {
+      kind: "unknown_tool",
+      result: {
+        status: "unknown_tool",
+        toolName: args.toolName,
+        message: `Tool '${args.toolName}' is not registered`,
+      },
+    };
+  }
+
+  const parsed = tool.inputSchema.safeParse(args.input);
+  if (!parsed.success) {
+    return {
+      kind: "invalid_input",
+      result: {
+        status: "invalid_input",
+        toolName: args.toolName,
+        message: parsed.error.message,
+        issues: parsed.error.issues,
+      },
+    };
+  }
+  const input = parsed.data as unknown;
+  const proposedInputHash = hashToolInput(args.toolName, input);
+
+  // Retry suppression — Phase 3c. A prior `rejected` row for this run +
+  // tool + input hash means the user has already said no to this exact
+  // proposal; synthesize the same rejection without writing a new row
+  // or firing a new notification. Limited to the same run because
+  // ADR-0034 scopes the partial index that way.
+  const priorReject = await db()
+    .select({
+      reason: actionStagings.rejectReason,
+      decidedAt: actionStagings.decidedAt,
+    })
+    .from(actionStagings)
+    .where(
+      and(
+        eq(actionStagings.runId, args.runId),
+        eq(actionStagings.toolName, args.toolName),
+        eq(actionStagings.proposedInputHash, proposedInputHash),
+        eq(actionStagings.status, "rejected"),
+      ),
+    )
+    .orderBy(desc(actionStagings.decidedAt))
+    .limit(1);
+
+  if (priorReject[0]) {
+    return {
+      kind: "rejected",
+      stagingId: null,
+      result: synthesizeRejection({
+        toolName: args.toolName,
+        proposedInput: input,
+        reason: priorReject[0].reason ?? "rejected by user",
+      }),
+    };
+  }
+
+  const integration: IntegrationSlug = integrationFromToolName(args.toolName);
+  const riskTier: ToolRiskTier = tool.riskTier;
+  const policyMode = await resolvePolicyMode(args.userId, args.toolName);
+  const requiresApproval = policyMode === "gated";
+
+  // INSERT first, fall back to SELECT on conflict. Drizzle returns the
+  // inserted row(s) or an empty array on a no-op conflict. Either way
+  // the next branch reads the current state.
+  const inserted = await db()
+    .insert(actionStagings)
+    .values({
+      userId: args.userId,
+      runId: args.runId,
+      stepId: args.stepId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      integration,
+      riskTier,
+      proposedInput: input as object,
+      proposedInputHash,
+      requiresApproval,
+      status: "pending",
+    })
+    .onConflictDoNothing({
+      target: [actionStagings.runId, actionStagings.toolCallId],
+    })
+    .returning(STAGING_COLUMNS);
+
+  let row: StagingRow | undefined = inserted[0];
+  if (!row) {
+    const existing = await db()
+      .select(STAGING_COLUMNS)
+      .from(actionStagings)
+      .where(
+        and(eq(actionStagings.runId, args.runId), eq(actionStagings.toolCallId, args.toolCallId)),
+      )
+      .limit(1);
+    row = existing[0];
+    if (!row) {
+      throw new Error(
+        `[dispatch] action_stagings row vanished between insert and read (run=${args.runId}, toolCallId=${args.toolCallId})`,
+      );
+    }
+  }
+
+  const ctx: ToolExecuteContext = {
+    runId: args.runId,
+    stepId: args.stepId,
+    toolCallId: args.toolCallId,
+    userId: args.userId,
+    caller: args.caller ?? "boss",
+  };
+
+  switch (row.status) {
+    case "pending":
+      if (requiresApproval) {
+        // Park. The executor will emit `approval.requested` when it
+        // commits the interrupt (see executor.ts), so we don't fire
+        // anything from here. Phase 5 layers the dedicated
+        // `staging_pending` SSE event + BullMQ delayed email on top.
+        return {
+          kind: "staged",
+          stagingId: row.id,
+          wake: {
+            kind: "hil",
+            approvalId: row.id,
+            approvalKind: "action_staging",
+            prompt: `Approve ${args.toolName}`,
+          },
+        };
+      }
+      return executeAndCommit(row, tool, input, ctx, /* editedByUser */ false);
+
+    case "approved": {
+      // Resume after user approval — execute with the decided input if
+      // they edited it, otherwise with the originally-proposed input.
+      const editedByUser = row.decidedInput !== null && row.decidedInput !== undefined;
+      const useInput = editedByUser ? row.decidedInput : input;
+      // The tool schema validated the proposed input; the decided input
+      // came from the user via the approval API and may have a
+      // different shape. Re-validate so an edited payload that violates
+      // the schema becomes a failed row rather than a thrown executor.
+      const reparsed = tool.inputSchema.safeParse(useInput);
+      if (!reparsed.success) {
+        const now = new Date();
+        await db()
+          .update(actionStagings)
+          .set({
+            status: "failed",
+            executeError: { message: reparsed.error.message, issues: reparsed.error.issues },
+            executedAt: now,
+            rowVersion: sql`${actionStagings.rowVersion} + 1`,
+          })
+          .where(eq(actionStagings.id, row.id));
+        return {
+          kind: "failed",
+          stagingId: row.id,
+          error: { message: reparsed.error.message },
+        };
+      }
+      return executeAndCommit(row, tool, reparsed.data as unknown, ctx, editedByUser);
+    }
+
+    case "rejected":
+      return {
+        kind: "rejected",
+        stagingId: row.id,
+        result: synthesizeRejection({
+          toolName: args.toolName,
+          proposedInput: input,
+          reason: row.rejectReason ?? "rejected by user",
+        }),
+      };
+
+    case "expired":
+      return {
+        kind: "rejected",
+        stagingId: row.id,
+        result: synthesizeRejection({
+          toolName: args.toolName,
+          proposedInput: input,
+          reason: "auto-expired",
+        }),
+      };
+
+    case "executed":
+      // Idempotent re-dispatch. The model proposed the same tool call
+      // again (step re-attempt) and the row already carries the
+      // result — hand it straight back without re-executing.
+      return {
+        kind: "executed",
+        stagingId: row.id,
+        toolResult: row.executeResult,
+        editedByUser:
+          row.decidedInput !== null && row.decidedInput !== undefined,
+      };
+
+    case "failed":
+      return {
+        kind: "failed",
+        stagingId: row.id,
+        error: extractStoredError(row.executeError),
+      };
+
+    default:
+      // Unknown statuses surface as a failure rather than throwing —
+      // the agent loop turns them into a tool result the boss can
+      // reason about.
+      return {
+        kind: "failed",
+        stagingId: row.id,
+        error: { message: `dispatcher saw unexpected staging status '${row.status}'` },
+      };
+  }
+}
+
+async function executeAndCommit(
+  row: StagingRow,
+  tool: ReturnType<typeof getTool> & object,
+  input: unknown,
+  ctx: ToolExecuteContext,
+  editedByUser: boolean,
+): Promise<DispatchResult> {
+  let result: unknown;
+  let error: { message: string } | undefined;
+  try {
+    result = await tool.execute(input, ctx);
+  } catch (err) {
+    error = { message: err instanceof Error ? err.message : String(err) };
+  }
+  const now = new Date();
+  if (error) {
+    await db()
+      .update(actionStagings)
+      .set({
+        status: "failed",
+        executeError: error,
+        executedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(eq(actionStagings.id, row.id));
+    return { kind: "failed", stagingId: row.id, error };
+  }
+  await db()
+    .update(actionStagings)
+    .set({
+      status: "executed",
+      // Wrap in an object so `null` results round-trip as
+      // `{ value: null }` rather than getting confused with "no result".
+      executeResult: result === undefined ? null : (result as object),
+      executedAt: now,
+      rowVersion: sql`${actionStagings.rowVersion} + 1`,
+    })
+    .where(eq(actionStagings.id, row.id));
+  return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
+}
+
+interface SynthesizeRejectionArgs {
+  toolName: ToolName;
+  proposedInput: unknown;
+  reason: string;
+}
+
+function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult {
+  return {
+    status: "rejected_by_user",
+    toolName: args.toolName,
+    proposedInput: args.proposedInput,
+    reason: args.reason,
+    retryPolicy: "do_not_retry_identical",
+  };
+}
+
+function extractStoredError(stored: unknown): { message: string } {
+  if (stored && typeof stored === "object" && "message" in stored) {
+    const message = (stored as { message: unknown }).message;
+    return { message: typeof message === "string" ? message : JSON.stringify(message) };
+  }
+  return { message: stored ? JSON.stringify(stored) : "unknown failure" };
+}
