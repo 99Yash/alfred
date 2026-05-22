@@ -38,7 +38,16 @@ export type IngestionJobData =
        */
       triageInsertedDocs?: boolean;
     }
-  | { kind: "gmail.poll_history"; credentialId: string; reason?: "webhook" | "poll-fallback" }
+  | {
+      kind: "gmail.poll_history";
+      credentialId: string;
+      reason?: "webhook" | "poll-fallback";
+      /**
+       * Marks the second pass scheduled by the empty-page retry below. Suppresses
+       * recursive retries: at most one retry per real webhook. ADR-0037.
+       */
+      isRetry?: boolean;
+    }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
   | { kind: "gmail.embed_sweep" };
@@ -129,6 +138,43 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // so the audit log tells the two paths apart.
         const triageReason = data.reason === "poll-fallback" ? "ingest" : "webhook";
         await enqueueTriageRuns(result.userId, result.insertedDocumentIds, triageReason);
+      }
+
+      // Gmail's history index lags pub/sub by 0–3 min in the wild: a fresh
+      // pub/sub fires, but the history.list page from the matching cursor
+      // returns label/system events with no `messagesAdded` yet. The cursor
+      // still advances, so we'd otherwise wait for either another pub/sub
+      // (when the index catches up) or the 5-min poll-fallback — making p95
+      // triage-tag latency 1–3 min instead of seconds. One delayed retry of
+      // the same credential closes the gap for ~all observed cases. Bypasses
+      // the per-credential dedup window deliberately: pollGmailHistory is
+      // idempotent against its cursor, so a redundant concurrent webhook is
+      // cheap. ADR-0037.
+      const cursorAdvanced =
+        result.cursorBefore != null &&
+        result.cursorAfter != null &&
+        result.cursorBefore !== result.cursorAfter;
+      const shouldRetry =
+        data.reason === "webhook" &&
+        !data.isRetry &&
+        !result.fullResync &&
+        cursorAdvanced &&
+        result.inserted === 0 &&
+        result.skipped === 0;
+      if (shouldRetry) {
+        await getIngestionQueue().add(
+          "gmail.poll_history",
+          {
+            kind: "gmail.poll_history",
+            credentialId: data.credentialId,
+            reason: "webhook",
+            isRetry: true,
+          },
+          { delay: 20_000 },
+        );
+        console.log(
+          `[ingestion:worker] gmail.poll_history retry-scheduled credential=${data.credentialId} delay=20s reason=empty-page-cursor-advance`,
+        );
       }
       return result;
     }
