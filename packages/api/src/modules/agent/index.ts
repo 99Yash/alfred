@@ -112,7 +112,14 @@ export const agent = new Elysia({ prefix: "/api/agent" })
               if (!body.match.approvalId) {
                 return status(400, { message: "match.kind='hil' requires approvalId" });
               }
-              match = { kind: "hil", approvalId: body.match.approvalId };
+              match = {
+                kind: "hil",
+                approvalId: body.match.approvalId,
+                approvalKind:
+                  body.match.approvalKind === "step" || body.match.approvalKind === "action_staging"
+                    ? body.match.approvalKind
+                    : undefined,
+              };
             } else if (kind === "signal") {
               if (!body.match.name) {
                 return status(400, { message: "match.kind='signal' requires name" });
@@ -138,6 +145,7 @@ export const agent = new Elysia({ prefix: "/api/agent" })
               t.Object({
                 kind: t.String({ minLength: 1, maxLength: 16 }),
                 approvalId: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
+                approvalKind: t.Optional(t.String({ minLength: 1, maxLength: 32 })),
                 name: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
               }),
             ),

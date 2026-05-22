@@ -143,6 +143,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -362,6 +365,9 @@ importers:
       '@alfred/auth':
         specifier: workspace:*
         version: link:../auth
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
@@ -454,8 +460,24 @@ importers:
 
   packages/config: {}
 
+  packages/contracts:
+    dependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+    devDependencies:
+      '@alfred/config':
+        specifier: workspace:*
+        version: link:../config
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.15.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(typescript@5.9.3)
+
   packages/db:
     dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2

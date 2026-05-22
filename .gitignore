@@ -74,3 +74,4 @@ archive/
 
 # Local browser/chrome-devtools screenshots
 apps/web/.screenshots/
+.tmp-screens/
