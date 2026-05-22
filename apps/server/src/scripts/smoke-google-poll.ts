@@ -131,7 +131,7 @@ Pub/Sub setup (manual, one-time):
   5. Install the watch:
        curl -X POST -b cookies.txt http://localhost:3001/api/integrations/google/<credentialId>/watch
   6. Send yourself an email and watch the worker logs for
-       gmail.poll_history reason=webhook
+       gmail.poll_recent ... inserted=1
 `);
 }
 
