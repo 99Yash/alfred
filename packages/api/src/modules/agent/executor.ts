@@ -347,7 +347,9 @@ async function commitStepSuccess(
         payload: {
           runId: run.id,
           approvalId: result.wake.approvalId,
-          approvalKind: result.wake.approvalKind,
+          // Default to "step" for the legacy approval kind — pre-m13 steps
+          // returning HIL wakes didn't carry this field.
+          approvalKind: result.wake.approvalKind ?? "step",
           prompt: result.wake.prompt ?? "Approval requested",
         },
       });
