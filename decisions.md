@@ -1673,6 +1673,62 @@ No circuit breakers, no fallbacks. Redis is a hard dependency at the same level 
 
 ---
 
+## ADR-0037 — Gmail realtime ingestion path: short-term empty-page retry; long-term switch to `messages.list`
+
+**Decision.** Two-part plan for triage-tag latency.
+
+- **Short term (shipped):** when a `gmail.poll_history` job triggered by `reason=webhook` returns `inserted=0` AND `skipped=0` AND the history cursor advanced, schedule one retry of the same credential at +20s, marked `isRetry=true` to prevent further recursion. Bypasses the per-credential 30s dedup (ADR-0032) deliberately — `pollGmailHistory` is idempotent against its cursor, so a redundant concurrent webhook is cheap.
+- **Long term (deferred, this ADR):** rebuild the webhook path on `users.messages.list?q=newer_than:5m` + per-id `messages.get`, deduped against `documents.source_id`. The `users.history.list` path stays on the 5-min poll-fallback and the initial-sync seed, where it earns its keep.
+
+**Why this is its own ADR.** ADR-0024 chose the watch+history.list pattern (the Gmail-canonical realtime shape) and ADR-0032 added burst dedup over it. Neither questioned the implicit assumption that pub/sub-notified history pages would *contain* the just-arrived message. They don't, reliably. The 2026-05-22 latency study (`email_triage` joined to `documents` over the prior 24h, n=29) showed avg `ingestion_lag_s` = 30.7s but p90 = 117.8s, p95 = 197.3s, max = 222.2s — entirely driven by webhook history pages returning label/system events with no `messagesAdded` and the cursor advancing anyway. The user-perceived case: a GitHub `Sudo email verification code` took 195s to ingest and 4.5s to classify; the classifier was never the bottleneck.
+
+**Why retry first, redesign later.**
+
+- The retry is ~30 lines in one file; the redesign is a parallel ingest path with its own tests, dedup story, and edge cases (spam/trash visibility under `messages.list`, search-index lag of its own kind, paging semantics under burst).
+- The retry already moves p95 from ~200s into the ~25s band, which is enough to stop the user noticing it intermittently.
+- The redesign is what lands p95 under 10s, which is the actual product target.
+- Shipping the retry first means the redesign isn't on a critical-bug path — it can be planned, smoke-tested, and reviewed without latency anxiety.
+
+**Why `messages.list` is the right realtime primitive.**
+
+- `users.history.list` is a change-log API with its own indexing pipeline. Pub/Sub fires from one pipeline; history is populated from another. The two are eventually consistent, with the gap measured in seconds-to-minutes for the very write that triggered the push.
+- `users.messages.list` queries Gmail's search index — the same surface the web UI's search box hits. Empirically that index updates within seconds of a message arriving and is what Gmail's own client treats as "live."
+- A `q=newer_than:5m` window returns ≤ tens of ids in single-user steady state; we already have a unique index on `(user_id, source, source_id)` to dedupe.
+
+**Shape of the redesigned realtime path.**
+
+```
+On pub/sub webhook:
+  1. messages.list?q=newer_than:5m -in:chats  (single API call, ~5 quota units)
+  2. for each id NOT in documents.source_id for this credential:
+        messages.get(id) → persistMessage → enqueueTriage
+  3. advance the history cursor to the pub/sub `historyId`
+     (so the poll-fallback doesn't reprocess)
+
+5-min poll-fallback (unchanged):
+  history.list from cursor — authoritative delta over the longer window.
+  Catches anything the realtime path missed (>5min outage, bursts > maxResults).
+
+Initial-sync seed (unchanged):
+  history.list with fullResync semantics. ADR-0024 #3.
+```
+
+**Why we don't replace `history.list` entirely.**
+
+- `history.list` is the right shape for catch-up after downtime — a 12-hour outage's worth of deltas is one paged call, not a 12-hour-wide `newer_than` window.
+- The poll-fallback was always the backstop; that role doesn't change.
+- Initial-sync needs a defined cursor to start from. `messages.list` would work but has no comparable "from this id forward" semantic.
+
+**Trade-offs being accepted.**
+
+- One additional Gmail API call per webhook (messages.list ≈ 5 quota units). At 100 webhooks/day this is 500 units against a 1B/day quota — non-issue.
+- A 5-minute search-index window misses the edge case of >tens of messages arriving in 5 minutes for a single credential; at single-user scale this is essentially never, and the poll-fallback catches it within 5 min if it does.
+- We're trusting Gmail's search index. `messages.list` skips spam/trash by default — needs explicit `in:anywhere` or `-in:chats` filtering to match `history.list` behavior. Verify against an edge-case message set before shipping.
+
+**Trace back to the symptom.** 2026-05-22 ~10:24 IST: user reports a GitHub Sudo verification code took ~3 min to be tagged. Logs show the webhook fired at 04:54:06 UTC with `inserted=0 skipped=0` and the cursor advancing 73 ticks (label/system events only); the same message was finally ingested at 04:57:34 UTC on a subsequent webhook and tagged 4.5s later. Median tag latency for the same user in the prior 24h: 8.5s. The retry mitigates; this ADR commits to the structural fix.
+
+---
+
 ## Open / deferred
 
 Items intentionally not decided yet. Each is a future ADR when its time comes.
