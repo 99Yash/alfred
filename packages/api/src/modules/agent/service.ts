@@ -130,13 +130,13 @@ export async function signalRun(args: SignalArgs): Promise<boolean> {
       if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
         return false;
       }
-      if (
-        match.kind === "hil" &&
-        wake.kind === "hil" &&
-        match.approvalKind &&
-        wake.approvalKind !== match.approvalKind
-      ) {
-        return false;
+      if (match.kind === "hil" && wake.kind === "hil" && match.approvalKind) {
+        // Treat a missing `approvalKind` on the wake as "step" — pre-m13
+        // HIL wakes predate the field, and the only kind that existed
+        // then was the implicit step approval. Symmetric with the
+        // executor's interrupt-commit default (see executor.ts).
+        const wakeKind = wake.approvalKind ?? "step";
+        if (wakeKind !== match.approvalKind) return false;
       }
       if (match.kind === "signal" && wake.kind === "signal" && wake.name !== match.name) {
         return false;
