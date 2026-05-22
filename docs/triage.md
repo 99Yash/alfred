@@ -4,8 +4,8 @@ Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of
 
 The pipeline:
 
-1. `gmail.poll_history` (BullMQ) inserts a fresh `documents` row.
-2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`).
+1. A Gmail ingestion job inserts a fresh `documents` row. The realtime path is `gmail.poll_recent` (pub/sub → `messages.list?q=newer_than:5m`, ADR-0037); the catch-up path is `gmail.poll_history` (5-min sweep → `history.list` from the stored cursor). Both call into the same `persistMessage` helper so dedup behaves identically.
+2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`). The realtime case enqueues triage *before* awaiting embedding so the classifier worker overlaps with Voyage.
 3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `classify` (cheap-tier LLM via `@alfred/ai`'s `metered.object()`) → `apply-label` (`messages.modify`).
 4. Result lands in `email_triage` (one row per document; PK = `document_id`); the chosen `Alfred/`\* label id is persisted on `applied_label_id`.
 

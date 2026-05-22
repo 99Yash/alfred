@@ -20,6 +20,7 @@ export {
   ingestRecentGmail,
   listGoogleCredentials,
   pollGmailHistory,
+  pollGmailRecent,
   findCredentialsNeedingPoll,
 } from "./ingestor";
 export type {
@@ -27,6 +28,8 @@ export type {
   IngestRecentResult,
   PollHistoryArgs,
   PollHistoryResult,
+  PollRecentArgs,
+  PollRecentResult,
 } from "./ingestor";
 export {
   installGmailWatch,
