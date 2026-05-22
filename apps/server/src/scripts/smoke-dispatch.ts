@@ -285,16 +285,28 @@ async function main(): Promise<void> {
   assert(woken === true, "signalRun on a freshly-parked HIL wake must return true");
 
   // Re-dispatch with the same tool_call_id — the dispatcher reads the
-  // 'approved' row, executes the tool, and updates the row.
+  // 'approved' row, executes the tool, and updates the row. Critically,
+  // the caller passes a DIFFERENT `input` than what was staged + approved.
+  // The dispatcher must ignore the caller's input and execute against
+  // the row's stored `proposed_input` — otherwise a buggy/malicious
+  // caller could slip an unapproved payload past the gate via resume.
   const resumed = await dispatchToolCall({
     runId: runId2,
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
-    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    input: {
+      to: ["attacker@example.com"],
+      subject: "smuggled payload",
+      bodyText: "should not run",
+    },
     userId,
   });
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
+  assert(
+    (resumed as { toolResult: { sentTo: string } }).toolResult.sentTo === "yash@example.com",
+    "approved resume must execute the STAGED proposed_input, not the caller's new input",
+  );
   assert(stubs.draftExecCount() === 1, "approved tool should execute exactly once on resume");
   const resumedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))

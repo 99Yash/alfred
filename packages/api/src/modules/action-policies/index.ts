@@ -2,10 +2,10 @@ import type { IntegrationRules } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
-
-export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "./resolve";
 
 export {
+  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
   getResolvedPolicy,
   resolvePolicyMode,
   resolveApprovalNotifyDelayMs,

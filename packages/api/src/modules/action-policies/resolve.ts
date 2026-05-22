@@ -32,7 +32,14 @@ import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "../../queue/connection";
-import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "./index";
+
+/**
+ * Default delay between staging a gated action and sending the user a
+ * fallback approval email (5 min). Lives here — alongside the resolver
+ * that consults it — so `index.ts`'s signup-seed helper can pull it via
+ * a one-way import without forming a circular module dependency.
+ */
+export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
 
 export interface ResolvedPolicy {
   userId: string;
@@ -160,9 +167,13 @@ function getPublisher(): IORedis {
  * via `createRedisConnection()` so `closeRedis()` at shutdown drains it.
  */
 export async function publishPolicyBust(userId: string): Promise<void> {
-  // Best-effort: a missed bust just means a single stale read until the
-  // 5s session cache (or process restart) covers it. Don't surface a
-  // Redis blip as a user-facing failure on the mutation itself.
+  // Best-effort: don't surface a Redis blip as a user-facing failure on
+  // the policy mutation itself. The trade-off is real — the in-process
+  // policy cache has NO TTL, so a dropped bust leaves stale data on
+  // every other server instance until the next successful bust for
+  // that user or a process restart. For single-user Alfred this is
+  // acceptable; for a multi-tenant fork, add a TTL (e.g. 60s) to the
+  // cache entries as a safety net.
   try {
     await getPublisher().publish(bustChannel(userId), "1");
   } catch (err) {
@@ -185,10 +196,8 @@ let subscriberStarted = false;
  */
 export async function startPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) return;
-  subscriberStarted = true;
 
   const conn = createRedisConnection();
-  subscriber = conn;
   conn.on("pmessage", (_pattern, channel, _message) => {
     if (!channel.startsWith(POLICY_BUST_CHANNEL_PREFIX)) return;
     const userId = channel.slice(POLICY_BUST_CHANNEL_PREFIX.length);
@@ -200,7 +209,29 @@ export async function startPolicyBustSubscriber(): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   });
-  await conn.psubscribe(POLICY_BUST_PATTERN);
+
+  try {
+    await conn.psubscribe(POLICY_BUST_PATTERN);
+  } catch (err) {
+    // Don't latch `subscriberStarted` on a failed boot — a transient
+    // Redis outage would otherwise leave policy invalidation
+    // permanently disabled until the process restarts. Close the
+    // half-initialized connection and rethrow so the caller (server
+    // bootstrap) can decide whether to crash or retry.
+    try {
+      await conn.quit();
+    } catch {
+      conn.disconnect();
+    }
+    throw err;
+  }
+
+  // Commit the started flag + retained reference only after the
+  // subscription is live. Order matters: a second concurrent caller
+  // mid-await above must see `subscriberStarted === false` and try
+  // again rather than no-op into a non-started state.
+  subscriber = conn;
+  subscriberStarted = true;
 }
 
 /**
