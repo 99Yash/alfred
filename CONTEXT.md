@@ -81,6 +81,32 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Hybrid workflow.** Explicit DAG with embedded `agent_run(brief)` nodes — deterministic outer, LLM-decided inner. Forward-compatible; not v1.
 
+## Privacy posture
+
+**Content-at-rest posture.** No app-layer encryption on user content. Three layers stand in: (1) vendor at-rest crypto on Railway managed Postgres/Redis/object storage, (2) log redaction via Pino + Sentry `beforeSend` for known sensitive paths (`*.content`, `*.extracted_text`, `*.body`, `memory_facts.value`, `attachment_pages.*`), (3) `documents.raw` is not persisted — re-extraction means re-fetch from the provider. Revisit when a real second-hand party touches the data (contractor, analytics pipeline, real backup-export workflow, compliance regime). ADR-0038.
+
+**Embedding-inversion gap.** `chunks.embedding` is plaintext by design — encrypting kills pgvector indexing. Published inversion attacks can reconstruct text from vectors + the embedding model alone. Documented and accepted; the only defense is "trust your embedding provider," which is contractual. ADR-0038.
+
+**`SENSITIVE_LOG_PATHS`.** Single const in `@alfred/contracts` listing redacted field paths. Pino, Sentry, and any future logger pull from this one source so the redaction set never drifts across log surfaces.
+
+## Attachments
+
+**Attachment.** A non-text payload arriving alongside a document — PDF, image, spreadsheet. Modeled as its own row in `attachments` (sibling to `documents`, not a row in it), linked back via `parent_document_id`. Carries identity (mime type, filename, size, page count), extraction status, and binary location. Drives a distinct ingestion path because its content shape (typed segments, pages, figures) doesn't fit `documents`'s "flat text body" assumption.
+
+**Attachment page.** One row per page of an attachment in `attachment_pages`. The citation anchor — when the agent surfaces "from receipt.pdf, page 4," it's referencing one of these. Holds the page's concatenated `extracted_text` (for "summarize this page" without rejoining chunks) and an `asset_inventory` jsonb. Page = 1 for standalone image attachments.
+
+**Typed segment / segment `kind`.** Each chunk derived from an attachment carries a `kind`: `text | table | figure_caption | heading | footnote | list`. Drives chunking rules (tables never split mid-row; headings become standalone chunks AND populate `parent_section` on subsequent siblings) and powers retrieval queries that want a specific element type ("find the table on page 3").
+
+**Asset inventory.** Per-page jsonb on `attachment_pages`: `{ tableCount, figureCount, footnoteCount, hasImages, hasLinks, headings: string[] }`. Counted at extraction time. Lets retrieval answer "what attachments have charts" or "which page has the financial breakdown" without re-reading every chunk.
+
+**Doc extraction.** The pipeline that turns a binary attachment (PDF or image) into typed segments + page inventory. Implemented as a Claude call with `document`/`image` content type, prompt-shaped to emit the canonical segment JSON. Metered as `attribution.kind = 'doc_extraction'` so cost rollups bucket it apart from LLM turns / web search / embeddings. Per ADR-0021's vendor alignment and the cost calculus at single-user scale. ADR-0039.
+
+**`doc-extraction-runs` queue.** Dedicated BullMQ queue for attachment extraction, isolated from `ingestion-runs` so Anthropic latency/cost doesn't bleed into Gmail polling. Jobs: `attachment.extract { attachmentId }` (primary) + `doc-extraction.sweep` (hourly repeatable for stuck/failed rows). Worker concurrency 5, 3 attempts, 30s exponential backoff. Terminal failure flips `attachments.extraction_status='failed'` with `last_error` populated — the row IS the dead letter. ADR-0039.
+
+**Attachment cost gates.** Four gates bound extraction spend: (1) MIME allowlist at enqueue (`pdf|png|jpeg|heic|webp`), (2) 20MB size cap at enqueue, (3) 50-page truncation at extraction time (`truncated_at_page` flagged), (4) $5/day per-user soft cap via env `ALFRED_DOC_EXTRACTION_DAILY_BUDGET_USD` — over-budget jobs `moveToDelayed(nextMidnight())`, not lost. Skipped attachments create a row with `extraction_status='skipped'` + `skipped_reason` so the UI can show them honestly. ADR-0039.
+
+**Attachment binary lifecycle.** Binaries land in the Railway bucket on ingest and stay forever — independent of Gmail message retention. Gmail deletion does not cascade to the bucket or the chunks. A future explicit "forget this" UI handles real deletion intent. Inverse of ADR-0038's `documents.raw` posture: there Gmail is the durable copy; here the bucket is, because Gmail attachment availability is bounded by message lifetime. ADR-0039.
+
 ## m12 scope (locked 2026-05-11)
 
 **Authoring + dispatch only. Execution deferred to m13.**
