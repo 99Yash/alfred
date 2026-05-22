@@ -65,11 +65,13 @@ export const emailTriageWorkflow: Workflow<State> = {
   name: "Email triage",
   description:
     "Classify an inbound Gmail message into one of ten categories and write the corresponding label back (ADR-0025).",
-  // Fan-out is driven by `gmail.poll_history` per fresh-inserted doc
-  // (packages/api/src/modules/integrations/queue.ts). Declared as an
-  // event-source trigger so the workflows.tick cron path never touches
-  // it.
-  trigger: { kind: "event", source: "gmail.poll_history" },
+  // Fan-out is driven by the Gmail ingestion path per fresh-inserted doc
+  // (packages/api/src/modules/integrations/queue.ts). Realtime traffic
+  // arrives via `gmail.poll_recent` (pub/sub → messages.list, ADR-0037);
+  // anything missed shows up on the 5-min `gmail.poll_history` catch-up
+  // sweep. Declared as an event-source trigger so the workflows.tick
+  // cron path never touches it.
+  trigger: { kind: "event", source: "gmail.ingest" },
   initialStep: "classify",
   stateSchema,
 

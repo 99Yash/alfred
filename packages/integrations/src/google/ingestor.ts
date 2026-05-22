@@ -497,6 +497,146 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   };
 }
 
+// ---------------------------------------------------------------------------
+// Realtime sync via users.messages.list (ADR-0037)
+// ---------------------------------------------------------------------------
+
+export interface PollRecentArgs {
+  credentialId: string;
+  /** Search window passed to `newer_than:<window>`. Default `5m`. */
+  window?: string;
+  /** Soft cap on messages considered in one call. Default 50. */
+  maxMessages?: number;
+}
+
+export interface PollRecentResult {
+  /** Messages returned by `messages.list`. */
+  listed: number;
+  /** Freshly persisted documents. */
+  inserted: number;
+  /** Messages we already had (dedupe hit on `(userId, source, sourceId)`). */
+  skipped: number;
+  errors: number;
+  chunksWritten: number;
+  embedFailures: number;
+  cursorBefore: string | null;
+  cursorAfter: string | null;
+  insertedDocumentIds: string[];
+  userId: string;
+}
+
+/**
+ * Realtime fetch driven by pub/sub. Uses Gmail's search index
+ * (`users.messages.list`) instead of the change-log API
+ * (`users.history.list`) — the search index updates within seconds of
+ * a message arriving, where the history index can lag pub/sub by
+ * minutes (ADR-0037).
+ *
+ * Contract:
+ *  - Lists messages with `newer_than:<window>` (default 5m), capped.
+ *  - Fetches + persists each via the same `persistMessage` path as the
+ *    bulk + delta ingestors, so dedupe + embed behave identically.
+ *  - Advances the history cursor to the max observed `historyId`, but
+ *    only forward — never rolls it back. `pollGmailHistory` (poll-
+ *    fallback) reads the same cursor and stays consistent.
+ *
+ * `history.list` remains the right shape for catch-up after extended
+ * downtime; this function does not replace it. The 5-min poll-fallback
+ * (which calls `pollGmailHistory`) is the safety net for any window
+ * this path misses (bursts > maxMessages, search-index quirks, etc).
+ */
+export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentResult> {
+  const cred = await loadCredentialOrThrow(args.credentialId);
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const cursorBefore = await loadHistoryCursor(args.credentialId);
+
+  const windowExpr = args.window ?? "5m";
+  const cap = args.maxMessages ?? 50;
+
+  const refs: { id: string; threadId: string }[] = [];
+  let pageToken: string | undefined;
+  while (refs.length < cap) {
+    const page = await listMessages({
+      accessToken,
+      q: `newer_than:${windowExpr}`,
+      maxResults: Math.min(100, cap - refs.length),
+      pageToken,
+    });
+    refs.push(...page.messages);
+    if (!page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
+
+  let inserted = 0;
+  let skipped = 0;
+  let errors = 0;
+  let chunksWritten = 0;
+  let embedFailures = 0;
+  let highWaterHistoryId: string | null = cursorBefore;
+  const insertedDocumentIds: string[] = [];
+
+  for (const ref of refs) {
+    try {
+      const message = await getMessage({ accessToken, id: ref.id, format: "full" });
+      const result = await persistMessage(cred.userId, cred.accountId, message);
+      if (result.outcome === "inserted") {
+        inserted++;
+        insertedDocumentIds.push(result.documentId);
+        try {
+          const embed = await embedDocument({ documentId: result.documentId });
+          chunksWritten += embed.chunksWritten;
+        } catch (err) {
+          embedFailures++;
+          console.warn(
+            `[gmail.ingestor] poll-recent embed failed for doc=${result.documentId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      } else {
+        skipped++;
+      }
+      if (
+        message.historyId &&
+        (!highWaterHistoryId ||
+          compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
+      ) {
+        highWaterHistoryId = message.historyId;
+      }
+    } catch (err) {
+      errors++;
+      console.warn(
+        `[gmail.ingestor] poll-recent fetch failed for message=${ref.id}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // Advance the cursor only if we observed a higher historyId than where we
+  // started. Avoids clobbering on an empty window and avoids rolling backward
+  // if a concurrent `pollGmailHistory` already moved past us.
+  if (highWaterHistoryId && highWaterHistoryId !== cursorBefore) {
+    await upsertIngestionState({
+      credentialId: cred.credentialId,
+      userId: cred.userId,
+      historyId: highWaterHistoryId,
+      fullSync: false,
+    });
+  }
+
+  return {
+    listed: refs.length,
+    inserted,
+    skipped,
+    errors,
+    chunksWritten,
+    embedFailures,
+    cursorBefore,
+    cursorAfter: highWaterHistoryId,
+    insertedDocumentIds,
+    userId: cred.userId,
+  };
+}
+
 /** Return added message ids from a history entry. We dedupe upstream via Set. */
 function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
   const out: string[] = [];

@@ -5,6 +5,7 @@ import {
   ingestRecentGmail,
   installGmailWatch,
   pollGmailHistory,
+  pollGmailRecent,
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
@@ -17,7 +18,8 @@ import { TRIAGE_WORKFLOW_SLUG } from "../triage/workflow-input";
  * Ingestion queue. Each provider gets its own job kind so a stuck
  * Slack-shaped job doesn't block Gmail throughput. Job kinds:
  *  - gmail.ingest_recent  (m7a) — bulk recent-window ingest
- *  - gmail.poll_history   (m7c) — incremental history.list delta sync
+ *  - gmail.poll_recent    (ADR-0037) — pub/sub realtime path; messages.list search index
+ *  - gmail.poll_history   (m7c) — history.list catch-up; demoted to poll-fallback only
  *  - gmail.watch_renew    (m7c) — replace watch channels nearing expiry
  *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for stale cursors
  *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
@@ -39,14 +41,17 @@ export type IngestionJobData =
       triageInsertedDocs?: boolean;
     }
   | {
+      kind: "gmail.poll_recent";
+      credentialId: string;
+    }
+  | {
       kind: "gmail.poll_history";
       credentialId: string;
-      reason?: "webhook" | "poll-fallback";
       /**
-       * Marks the second pass scheduled by the empty-page retry below. Suppresses
-       * recursive retries: at most one retry per real webhook. ADR-0037.
+       * `webhook` is retained for the rare manual replay or backfill case;
+       * realtime traffic flows through `gmail.poll_recent` after ADR-0037.
        */
-      isRetry?: boolean;
+      reason?: "webhook" | "poll-fallback";
     }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
@@ -120,6 +125,24 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       }
       return result;
     }
+    case "gmail.poll_recent": {
+      // Pub/sub-driven realtime path (ADR-0037). Lists messages from Gmail's
+      // search index (`newer_than:5m`), dedupes against `documents.source_id`,
+      // and fans triage on inserts. We don't touch history.list here — that
+      // path's index lags pub/sub and was the source of 1–3 min tag-latency
+      // tails. Catch-up for anything missed lives on `gmail.poll_history`
+      // via the 5-min sweep below.
+      const result = await pollGmailRecent({ credentialId: data.credentialId });
+      console.log(
+        `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
+          `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
+          `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
+      );
+      if (result.insertedDocumentIds.length) {
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
+      }
+      return result;
+    }
     case "gmail.poll_history": {
       const result = await pollGmailHistory({ credentialId: data.credentialId });
       console.log(
@@ -128,53 +151,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `skipped=${result.skipped} errors=${result.errors} fullResync=${result.fullResync} ` +
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
-      // Fan triage runs over freshly-inserted docs (ADR-0025 #1). One run
-      // per doc — each gets its own Gmail label. We deliberately do NOT
-      // triage the bulk re-ingest path: fullResync pulls in 30+ days of
-      // backlog, and labels on month-old emails add noise without value.
+      // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job
+      // covers the steady state; anything it misses (bursts > maxMessages,
+      // a webhook lost in flight, a >5min outage) shows up here as a
+      // `messagesAdded` history entry. We still fan triage so a missed
+      // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
-        // Webhook polls are real-time triggers; sweep-driven polls are an
-        // ingestion fallback when pubsub is silent — record them distinctly
-        // so the audit log tells the two paths apart.
-        const triageReason = data.reason === "poll-fallback" ? "ingest" : "webhook";
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, triageReason);
-      }
-
-      // Gmail's history index lags pub/sub by 0–3 min in the wild: a fresh
-      // pub/sub fires, but the history.list page from the matching cursor
-      // returns label/system events with no `messagesAdded` yet. The cursor
-      // still advances, so we'd otherwise wait for either another pub/sub
-      // (when the index catches up) or the 5-min poll-fallback — making p95
-      // triage-tag latency 1–3 min instead of seconds. One delayed retry of
-      // the same credential closes the gap for ~all observed cases. Bypasses
-      // the per-credential dedup window deliberately: pollGmailHistory is
-      // idempotent against its cursor, so a redundant concurrent webhook is
-      // cheap. ADR-0037.
-      const cursorAdvanced =
-        result.cursorBefore != null &&
-        result.cursorAfter != null &&
-        result.cursorBefore !== result.cursorAfter;
-      const shouldRetry =
-        data.reason === "webhook" &&
-        !data.isRetry &&
-        !result.fullResync &&
-        cursorAdvanced &&
-        result.inserted === 0 &&
-        result.skipped === 0;
-      if (shouldRetry) {
-        await getIngestionQueue().add(
-          "gmail.poll_history",
-          {
-            kind: "gmail.poll_history",
-            credentialId: data.credentialId,
-            reason: "webhook",
-            isRetry: true,
-          },
-          { delay: 20_000 },
-        );
-        console.log(
-          `[ingestion:worker] gmail.poll_history retry-scheduled credential=${data.credentialId} delay=20s reason=empty-page-cursor-advance`,
-        );
+        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
       }
       return result;
     }

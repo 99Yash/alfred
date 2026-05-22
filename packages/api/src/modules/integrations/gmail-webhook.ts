@@ -132,11 +132,15 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks" }).post(
     // arriving 30s later still enqueues a fresh poll. (Static `jobId` doesn't
     // work here — BullMQ keeps completed jobs around per `removeOnComplete`,
     // so re-enqueues with the same id become silent no-ops for hours.)
+    //
+    // Routes to `gmail.poll_recent` (ADR-0037) — Gmail's search index is the
+    // realtime-consistent surface; history.list lags pub/sub and is now
+    // demoted to the 5-min catch-up sweep.
     const queue = getIngestionQueue();
     await queue.add(
-      "gmail.poll_history",
-      { kind: "gmail.poll_history", credentialId: cred.id, reason: "webhook" },
-      { deduplication: { id: `gmail.poll_history.${cred.id}`, ttl: 30_000 } },
+      "gmail.poll_recent",
+      { kind: "gmail.poll_recent", credentialId: cred.id },
+      { deduplication: { id: `gmail.poll_recent.${cred.id}`, ttl: 30_000 } },
     );
 
     return { ok: true, credentialId: cred.id };
