@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { embedDocument } from "@alfred/ingestion";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getFreshAccessToken } from "./credentials";
 import {
@@ -507,6 +507,12 @@ export interface PollRecentArgs {
   window?: string;
   /** Soft cap on messages considered in one call. Default 50. */
   maxMessages?: number;
+  /**
+   * Bounded concurrency for the per-message `getMessage` + `persistMessage`
+   * phase. Default 5. Gmail's per-user QPS comfortably absorbs this and a
+   * 1-message webhook short-circuits to serial anyway.
+   */
+  concurrency?: number;
 }
 
 export interface PollRecentResult {
@@ -517,8 +523,6 @@ export interface PollRecentResult {
   /** Messages we already had (dedupe hit on `(userId, source, sourceId)`). */
   skipped: number;
   errors: number;
-  chunksWritten: number;
-  embedFailures: number;
   cursorBefore: string | null;
   cursorAfter: string | null;
   insertedDocumentIds: string[];
@@ -534,11 +538,17 @@ export interface PollRecentResult {
  *
  * Contract:
  *  - Lists messages with `newer_than:<window>` (default 5m), capped.
- *  - Fetches + persists each via the same `persistMessage` path as the
- *    bulk + delta ingestors, so dedupe + embed behave identically.
+ *  - One indexed SELECT drops ids we already have BEFORE we spend a
+ *    `messages.get` roundtrip on them.
+ *  - Fetches + persists the remainder concurrently via the same
+ *    `persistMessage` path as the bulk + delta ingestors, so dedupe
+ *    behaves identically.
  *  - Advances the history cursor to the max observed `historyId`, but
  *    only forward — never rolls it back. `pollGmailHistory` (poll-
  *    fallback) reads the same cursor and stays consistent.
+ *  - **Does not embed.** The caller (`queue.ts`) enqueues triage on the
+ *    inserted ids first, then runs `embedDocument` best-effort; this
+ *    keeps Voyage latency off the user-visible tag-latency path.
  *
  * `history.list` remains the right shape for catch-up after extended
  * downtime; this function does not replace it. The 5-min poll-fallback
@@ -546,12 +556,19 @@ export interface PollRecentResult {
  * this path misses (bursts > maxMessages, search-index quirks, etc).
  */
 export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentResult> {
-  const cred = await loadCredentialOrThrow(args.credentialId);
-  const accessToken = await getFreshAccessToken(args.credentialId);
-  const cursorBefore = await loadHistoryCursor(args.credentialId);
+  // Header loads are independent (cred row, token refresh, cursor row).
+  // Running them serially added ~40-60ms to every webhook for no reason;
+  // any contention is harmless — both cred reads are SELECTs on the same
+  // pk and the cursor lives in a different table.
+  const [cred, accessToken, cursorBefore] = await Promise.all([
+    loadCredentialOrThrow(args.credentialId),
+    getFreshAccessToken(args.credentialId),
+    loadHistoryCursor(args.credentialId),
+  ]);
 
   const windowExpr = args.window ?? "5m";
   const cap = args.maxMessages ?? 50;
+  const concurrency = args.concurrency ?? 5;
 
   const refs: { id: string; threadId: string }[] = [];
   let pageToken: string | undefined;
@@ -567,32 +584,26 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     pageToken = page.nextPageToken;
   }
 
+  // Drop refs we've already persisted. One indexed lookup beats N
+  // `messages.get` roundtrips — typical webhook returns 1-3 ids and
+  // the catch-up sweep often beat us to a subset.
+  const unknownRefs = refs.length ? await filterKnownGmailIds(cred.userId, refs) : [];
+  let skipped = refs.length - unknownRefs.length;
   let inserted = 0;
-  let skipped = 0;
   let errors = 0;
-  let chunksWritten = 0;
-  let embedFailures = 0;
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
 
-  for (const ref of refs) {
+  await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
       const message = await getMessage({ accessToken, id: ref.id, format: "full" });
       const result = await persistMessage(cred.userId, cred.accountId, message);
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        try {
-          const embed = await embedDocument({ documentId: result.documentId });
-          chunksWritten += embed.chunksWritten;
-        } catch (err) {
-          embedFailures++;
-          console.warn(
-            `[gmail.ingestor] poll-recent embed failed for doc=${result.documentId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
       } else {
+        // A race against pollGmailHistory or a duplicate webhook fired
+        // between the pre-filter SELECT and the insert. Rare but fine.
         skipped++;
       }
       if (
@@ -609,7 +620,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         err instanceof Error ? err.message : String(err),
       );
     }
-  }
+  });
 
   // Advance the cursor only if we observed a higher historyId than where we
   // started. Avoids clobbering on an empty window and avoids rolling backward
@@ -628,13 +639,58 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     inserted,
     skipped,
     errors,
-    chunksWritten,
-    embedFailures,
     cursorBefore,
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
     userId: cred.userId,
   };
+}
+
+/** Drop refs whose Gmail id already maps to a `documents` row for this user. */
+async function filterKnownGmailIds(
+  userId: string,
+  refs: { id: string; threadId: string }[],
+): Promise<{ id: string; threadId: string }[]> {
+  const ids = refs.map((r) => r.id);
+  const existing = await db()
+    .select({ sourceId: documents.sourceId })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail"),
+        inArray(documents.sourceId, ids),
+      ),
+    );
+  const known = new Set(existing.map((r) => r.sourceId));
+  return refs.filter((r) => !known.has(r.id));
+}
+
+/**
+ * Bounded-concurrency map. Spawns up to `concurrency` workers that pull
+ * from a shared index. Errors thrown by `fn` propagate — per-task
+ * try/catch is the caller's job (we want the loop to keep draining when
+ * one message fails).
+ */
+async function mapConcurrent<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  if (!items.length) return;
+  const workers = Math.min(Math.max(1, concurrency), items.length);
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (true) {
+        const idx = i++;
+        if (idx >= items.length) return;
+        // `idx < items.length` guarantees presence; the non-null is for
+        // `noUncheckedIndexedAccess`, not a runtime claim.
+        await fn(items[idx] as T);
+      }
+    }),
+  );
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */
