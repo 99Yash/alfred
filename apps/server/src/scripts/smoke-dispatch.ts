@@ -223,6 +223,32 @@ async function main(): Promise<void> {
   assert(gatedRow.riskTier === "high", "gated row should snapshot risk_tier='high'");
   console.log("[smoke-dispatch] 2. gated: row=pending, wake=action_staging ✓");
 
+  // Policy toggle should NOT unstick a pending row. Flip the user to
+  // autonomy and re-dispatch the same tool_call_id — the row was staged
+  // under the gated policy and must stay parked until the user explicitly
+  // approves. Otherwise a settings toggle would silently auto-execute
+  // every in-flight gated call.
+  await setIntegrationMode(userId, "gmail", "autonomy");
+  const stillStaged = await dispatchToolCall({
+    runId: runId2,
+    stepId: "turn-1",
+    toolCallId: "tc_draft_gated",
+    toolName: "gmail.send_draft",
+    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    userId,
+  });
+  assert(
+    stillStaged.kind === "staged",
+    `pending row must remain staged after policy flip, got '${stillStaged.kind}'`,
+  );
+  assert(stubs.draftExecCount() === 0, "policy flip must not trigger execute on pending row");
+  console.log("[smoke-dispatch] 2. gated: policy gated→autonomy keeps pending row staged ✓");
+
+  // Restore gated for the approval path below — the locked-in
+  // requires_approval=true on the row is what matters now, not the
+  // live policy.
+  await setIntegrationMode(userId, "gmail", "gated");
+
   // Simulate the executor parking the run on this wake — the dispatcher
   // returned the wake but didn't write it; the agent loop (Phase 4)
   // bubbles it up to a StepResult.interrupt which the executor commits.
