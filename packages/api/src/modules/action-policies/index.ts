@@ -5,6 +5,18 @@ import { sql } from "drizzle-orm";
 
 export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
 
+export {
+  getResolvedPolicy,
+  resolvePolicyMode,
+  resolveApprovalNotifyDelayMs,
+  bustPolicyCache,
+  clearPolicyCacheForTests,
+  publishPolicyBust,
+  startPolicyBustSubscriber,
+  stopPolicyBustSubscriber,
+  type ResolvedPolicy,
+} from "./resolve";
+
 const DEFAULT_INTEGRATION_RULES = {
   system: { mode: "autonomy" },
 } satisfies IntegrationRules;

@@ -3,7 +3,7 @@ import { authMacro } from "../../middleware/auth";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
 import { listWorkflows, registerWorkflow } from "./registry";
-import { createRun, getRun, isUniqueViolation, signalRun, type SignalArgs } from "./service";
+import { cancelRun, createRun, getRun, isUniqueViolation, signalRun, type SignalArgs } from "./service";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
 export {
@@ -13,6 +13,7 @@ export {
   getRun,
   isUniqueViolation,
   signalRun,
+  cancelRun,
   enqueueRun,
   getAgentQueue,
   runOnce,

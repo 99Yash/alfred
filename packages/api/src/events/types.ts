@@ -36,7 +36,9 @@ export const approvalRequestedSchema = z.object({
  * Lifecycle phases of a durable agent run. `started` fires once per run;
  * `step_started` / `step_completed` fire per attempt; `interrupted` fires
  * when a step parks the run on a wake condition; `completed` / `failed`
- * are terminal.
+ * / `cancelled` are terminal. `cancelled` is fired by `cancelRun` (the
+ * approvals "Reject and end run" path) — distinct from `failed` so the
+ * UI can show "you cancelled" instead of "we hit an error".
  */
 export const agentRunSchema = z.object({
   runId: z.string().min(1).max(120),
@@ -48,6 +50,7 @@ export const agentRunSchema = z.object({
     "resumed",
     "completed",
     "failed",
+    "cancelled",
   ]),
   step: z.string().min(1).max(120).optional(),
   attempt: z.number().int().nonnegative().optional(),

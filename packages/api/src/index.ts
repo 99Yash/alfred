@@ -27,6 +27,7 @@ export {
   createRun,
   isUniqueViolation,
   signalRun,
+  cancelRun,
   enqueueRun,
   getAgentQueue,
 } from "./modules/agent/index.js";
@@ -46,6 +47,7 @@ export * from "./modules/notifications/index.js";
 export * from "./modules/action-policies/index.js";
 export * from "./modules/scratchpad/index.js";
 export * from "./modules/tools/index.js";
+export * from "./modules/dispatch/index.js";
 export * from "./modules/skills/index.js";
 export * from "./modules/skill-documentation/index.js";
 export * from "./modules/workflows/index.js";

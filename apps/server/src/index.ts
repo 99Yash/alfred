@@ -12,6 +12,7 @@ import {
   initEventBridge,
   initReplicachePokeBridge,
   ensureDefaultActionPolicyForUser,
+  startPolicyBustSubscriber,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -58,6 +59,11 @@ registerOnUserCreated(async (user) => {
   await seedBuiltinWorkflowsForUser(user.id);
   await ensureDefaultActionPolicyForUser(user.id);
 });
+// Subscribe to `policy-bust:u:*` so policy edits on one server instance
+// drop every other instance's cached row before the next dispatch. Must
+// start before the agent worker so the cache is invalidation-aware on
+// the very first turn.
+await startPolicyBustSubscriber();
 await startAgentWorker();
 await startIngestionWorker();
 await startMemoryWorker();

@@ -1,8 +1,9 @@
 import { db } from "@alfred/db";
 import { agentRuns, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import { publishEvent } from "../../events/publish";
 import { requireWorkflow } from "./registry";
-import type { ApprovalKind, WakeCondition, WorkflowInput } from "./types";
+import { isTerminalStatus, type ApprovalKind, type RunStatus, type WakeCondition, type WorkflowInput } from "./types";
 
 interface PgErrorLike {
   code?: string;
@@ -153,6 +154,78 @@ export async function signalRun(args: SignalArgs): Promise<boolean> {
       })
       .where(eq(agentRuns.id, args.runId));
     return true;
+  });
+}
+
+export interface CancelRunArgs {
+  runId: string;
+  /** Short human/programmatic reason — surfaced in `agent_runs.error.reason`. */
+  reason: string;
+}
+
+export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
+
+/**
+ * Stop a run from any non-terminal state. Used by the approvals
+ * "Reject and end run" action (Phase 5) and any future flow that needs
+ * to abandon a parked or in-flight run. Idempotent: calling on an
+ * already-terminal row is a no-op and reports `already_terminal`. The
+ * caller (HTTP handler) typically treats `not_found` and
+ * `already_terminal` as equivalent 4xx responses but they're distinct
+ * here for observability.
+ *
+ * Atomicity: status flip + outbox event commit inside one tx so a
+ * rolled-back update can't leak a phantom `cancelled` event downstream.
+ */
+export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
+  return await db().transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: agentRuns.id,
+        userId: agentRuns.userId,
+        status: agentRuns.status,
+        currentStep: agentRuns.currentStep,
+        attempt: agentRuns.attempt,
+      })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, args.runId))
+      .for("update");
+    const row = rows[0];
+    if (!row) return "not_found";
+
+    if (isTerminalStatus(row.status as RunStatus)) {
+      return "already_terminal";
+    }
+
+    const now = new Date();
+    await tx
+      .update(agentRuns)
+      .set({
+        status: "cancelled",
+        // Null the wake so a stale signal (e.g. a delayed approval
+        // landing after cancellation) can't match — signalRun guards on
+        // status='waiting' but defence-in-depth is cheap here.
+        wakeCondition: null,
+        error: { reason: args.reason, cancelledAt: now.toISOString() },
+        endedAt: now,
+        lastCheckpointAt: now,
+        updatedAt: now,
+      })
+      .where(eq(agentRuns.id, args.runId));
+
+    await publishEvent({
+      tx,
+      userId: row.userId,
+      kind: "agent.run",
+      payload: {
+        runId: row.id,
+        phase: "cancelled",
+        step: row.currentStep,
+        attempt: row.attempt,
+        error: args.reason,
+      },
+    });
+    return "cancelled";
   });
 }
 
