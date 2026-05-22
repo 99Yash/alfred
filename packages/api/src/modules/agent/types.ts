@@ -34,9 +34,13 @@ export type ApprovalKind = "step" | "action_staging";
  * What unfreezes a parked run. The runtime persists this on the run row
  * when a step returns `interrupt`; an external signal (HIL approve,
  * timer expiry, named signal) flips the run back to `runnable`.
+ *
+ * `approvalKind` is optional because pre-m13 rows in `agent_runs.wake_condition`
+ * predate the field — DB-loaded conditions may not carry it. New writers
+ * always populate it; readers must treat it as best-effort.
  */
 export type WakeCondition =
-  | { kind: "hil"; approvalId: string; approvalKind: ApprovalKind; prompt?: string }
+  | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind; prompt?: string }
   | { kind: "timer"; wakeAt: string }
   | { kind: "signal"; name: string };
 
