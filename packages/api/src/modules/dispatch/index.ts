@@ -116,6 +116,7 @@ interface StagingRow {
   runId: string;
   status: string;
   requiresApproval: boolean;
+  toolName: ToolName;
   proposedInput: unknown;
   decidedInput: unknown;
   rejectReason: string | null;
@@ -128,6 +129,7 @@ const STAGING_COLUMNS = {
   runId: actionStagings.runId,
   status: actionStagings.status,
   requiresApproval: actionStagings.requiresApproval,
+  toolName: actionStagings.toolName,
   proposedInput: actionStagings.proposedInput,
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
@@ -240,6 +242,18 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         `[dispatch] action_stagings row vanished between insert and read (run=${args.runId}, toolCallId=${args.toolCallId})`,
       );
     }
+    // Defensive: the (run_id, tool_call_id) unique index says one tool
+    // call id maps to one row. If a caller re-dispatches the same id
+    // with a different `toolName`, the model emitted two tools under
+    // the same call id — that's a programming/model bug, not a
+    // dispatcher policy decision. Fail loud rather than silently
+    // executing the new tool while updating the original row's audit
+    // trail.
+    if (row.toolName !== args.toolName) {
+      throw new Error(
+        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${args.toolName}')`,
+      );
+    }
   }
 
   const ctx: ToolExecuteContext = {
@@ -281,13 +295,19 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
     case "approved": {
       // Resume after user approval — execute with the decided input if
-      // they edited it, otherwise with the originally-proposed input.
+      // they edited it, otherwise with the originally-proposed input
+      // STORED on the row. Never use `args.input` here: the user
+      // approved the row's `proposed_input`, not whatever the caller
+      // re-supplied on this dispatch. A caller that re-dispatches with
+      // a mutated payload should not be able to slip an unapproved
+      // input past the gate via the resume path.
       const editedByUser = row.decidedInput !== null && row.decidedInput !== undefined;
-      const useInput = editedByUser ? row.decidedInput : input;
-      // The tool schema validated the proposed input; the decided input
-      // came from the user via the approval API and may have a
-      // different shape. Re-validate so an edited payload that violates
-      // the schema becomes a failed row rather than a thrown executor.
+      const useInput = editedByUser ? row.decidedInput : row.proposedInput;
+      // Re-validate so an edited payload that violates the schema
+      // becomes a failed row rather than a thrown executor. The
+      // originally-proposed input was already validated on insert; the
+      // decided input came from the user via the approval API and may
+      // not have been validated there.
       const reparsed = tool.inputSchema.safeParse(useInput);
       if (!reparsed.success) {
         const now = new Date();
