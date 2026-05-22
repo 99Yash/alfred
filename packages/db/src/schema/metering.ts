@@ -82,6 +82,8 @@ export const modelPrices = pgTable(
     cachedInputPerMtok: numeric("cached_input_per_mtok", { precision: 12, scale: 6 }),
     /** Cost per call for fixed-fee endpoints (Perplexity, transcription). NULL when token-based. */
     perCallUsd: numeric("per_call_usd", { precision: 12, scale: 6 }),
+    /** Model context window in tokens, populated from models.dev capability metadata when available. */
+    contextWindow: integer("context_window"),
     /** Free-form provenance: source URL, models.dev id, etc. */
     metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

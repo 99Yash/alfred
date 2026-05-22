@@ -3,6 +3,7 @@ export * from "./schema/replicache.js";
 export * from "./schema/notes.js";
 export * from "./schema/events.js";
 export * from "./schema/agent.js";
+export * from "./schema/action-policies.js";
 export * from "./schema/metering.js";
 export * from "./schema/integrations.js";
 export * from "./schema/documents.js";

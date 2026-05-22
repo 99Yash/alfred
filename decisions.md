@@ -28,7 +28,7 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 | Style                 | Dedicated table, channel × audience-bucket keyed                                                                  |
 | Deploy safety         | Durable-resume with idempotent steps                                                                              |
 | Cost metering         | `metered()` helper + flat log + DB-backed price table                                                             |
-| Orchestration         | Boss + namespaced scratchpad: sub-agents auto-write `scratch.{sub_id}.*`, boss promotes to `shared.*`             |
+| Orchestration         | Boss + namespaced scratchpad (sub-agents auto-write `scratch.{sub_id}.*`, boss promotes to `shared.*`); Redis primary + Postgres snapshot at terminal step (ADR-0036) |
 | Skills                | Markdown docs with optional frontmatter; activated via `@skill:slug`                                              |
 | Workflows             | Trigger + brief + optional explicit step DAG; mostly brief-only                                                   |
 | MCP                   | Client-side only (consume external MCP servers); server-side deferred                                             |
@@ -425,7 +425,7 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 
 **Capability tagging, not hardcoded models.** Each sub-agent kind specifies required capabilities (`{ minContextWindow, supportsToolCalls, costTier }`), dispatcher resolves to a concrete model from `model_prices` + credential availability. Anthropic + Google initially; OpenAI when keys are available; dispatcher silently skips unavailable providers.
 
-**Source for model registry / pricing seed.** `models.dev` provides public model pricing + capabilities; `pnpm db:sync-prices` pulls + upserts into `model_prices` with today's `valid_from`.
+**Source for model registry / pricing seed.** `models.dev` provides public model pricing + capabilities; `pnpm --filter @alfred/db db:sync-prices` pulls + upserts into `model_prices` with today's `valid_from`.
 
 **Alternatives.**
 
@@ -437,6 +437,10 @@ Per-run, TTL ~7 days (post-completion) for audit/replay. Lives in Postgres next 
 - (c) Hierarchical (rejected — unbounded depth/cost/latency; re-plan is the right primitive).
 - (d) Workflow-graph only (rejected — loses the agent's value of choosing what to do at runtime; see ADR-0017 for how deterministic workflows still fit).
 - (e) Actor model (rejected — cron + skills cover the persistent-agent pattern at our scale).
+
+**Amendment (2026-05-22) — store layer moved to Redis (ADR-0036).**
+
+The "no Redis for this layer" line is superseded. Live scratchpad reads/writes now go to Redis during a run; the executor's terminal step writes a per-key snapshot to `agent_run_context` for durable audit/replay. The rest of this ADR's pattern (namespaced scratchpad, boss-promotes-to-shared, single-writer-per-zone, 1-level depth cap, sub-agents don't compact) is unchanged. See ADR-0036 for the durability composition and crash-resume story.
 
 ---
 
@@ -1195,6 +1199,480 @@ The dedup id format is `gmail.poll_history.{credentialId}` with `.` separator (B
 
 ---
 
+## ADR-0034 — Human-in-the-loop approval taxonomy + action staging
+
+**Decision.** A per-user **action policy** (`user_action_policies`) drives a per-tool-call gate check inside the dispatcher. The dispatcher classifies every tool call against the policy *before* invoking `execute`. Gated calls write an **action staging row** (`action_stagings`) and park the run with the existing HIL wake primitive, using the staging id as the wake approval id (`wakeCondition.kind='hil'`, `approvalId=stagingId`) plus an action-staging discriminator. The user decides in-app (approve / approve-with-edits / reject-with-reason); a debounced BullMQ delayed job emits an email notification only if the user hasn't decided within the threshold. On resume, the dispatcher invokes `execute` with the (possibly edited) input — or, on reject, synthesizes a structured rejection tool-result with retry-suppression enforced inside the dispatcher.
+
+Three orthogonal pieces compose into this:
+
+1. **Policy storage** — `user_action_policies` (one row per user; jsonb integration rules; const-narrowed mode union from `@alfred/contracts`).
+2. **Execution gate** — pre-execute interrupt via existing `wakeCondition.kind='hil'` (ADR-0006).
+3. **Notification debounce** — staging row → SSE poke immediately + BullMQ delayed job (default 5min) → email only if still `pending`.
+
+**Why each piece.**
+
+- **Per-user policy, not per-tool defaults.** A central registry of "gmail.send_draft is always high-risk" is brittle as the registry grows; the policy lives where decisions live (with the user). Tool registration declares a `riskTier` (`no_risk | low | medium | high`) purely as a UX hint — drives the integration-card summary, staging badges, and email subject prefix. The dispatcher never reads `riskTier` for gating decisions.
+- **Pre-execute interrupt over synthetic pending result.** Hooks directly into ADR-0006's `interrupt()` and ADR-0014's idempotent-resume model. Boss-turn loop integrity stays clean: the boss reasons about tools and results, not approval state. A synthetic-pending alternative would force a fourth `TurnResult` case onto `AlfredAgent` (ADR-0026) and double tool-call cost on every gated action.
+- **Single staging table for gated AND autonomy tool calls.** Audit-log uniformity beats saving the insert. One query for "everything Alfred did," one bus for "agent did X" SSE pokes, one shape for the History tab. Autonomy rows transit `pending → executed` in milliseconds; gated rows park.
+- **Debounced email.** Most decisions happen in-app while the user is active; firing an email immediately on every staging row would spam the inbox. The BullMQ delayed-job pattern reuses infrastructure we already have (`queue.add`, `queue.removeJobs`, ADR-0020's `notify()` fan-out). One Redis write per staging, one removal on in-app decision.
+- **In-process cache + Pub/Sub bust for the policy.** Single-row PK lookups, ~50ns local. Multi-instance coherency rides ADR-0005's Pub/Sub bus on a `policy-bust:u:<userId>` channel — same shape as Replicache pokes, no new infra. Redis is NOT the policy store; the store is Postgres. Redis carries the invalidation signal only.
+
+**Schema sketch.**
+
+```sql
+user_action_policies
+  user_id            text primary key references users(id)
+  default_mode       text not null default 'gated'       -- 'autonomy' | 'gated'
+  integration_rules  jsonb not null default '{}'         -- IntegrationRules
+  approval_notify_delay_ms integer not null default 300000
+  updated_at         timestamptz default now()
+
+action_stagings
+  id                 text primary key                    -- 'as_<nanoid>'
+  user_id            text not null references users(id)
+  run_id             text not null references agent_runs(id)
+  step_id            text not null
+  tool_call_id       text not null                       -- AI SDK tool-call id from the LLM
+  tool_name          text not null                       -- ToolName ('${IntegrationSlug}.${ActionSlug}')
+  integration        text not null                       -- denormalized for queries
+  risk_tier          text not null                       -- ToolRiskTier snapshot for UI/email copy
+  proposed_input     jsonb not null
+  proposed_input_hash text not null                      -- canonical hash for retry suppression
+  requires_approval  boolean not null
+  status             text not null                       -- pending|approved|rejected|expired|executed|failed
+  decided_input      jsonb                               -- if user edited, the final input
+  decided_at         timestamptz
+  reject_reason      text
+  executed_at        timestamptz
+  execute_result     jsonb
+  execute_error      jsonb
+  expires_at         timestamptz                         -- per-tool default at staging time
+  notify_after_at    timestamptz                         -- email-debounce scheduled fire time
+  notified_at        timestamptz                         -- audit: did the email actually fire
+  row_version        integer not null default 1           -- Replicache-visible pending approval rows
+  created_at         timestamptz default now()
+  updated_at         timestamptz default now()
+
+  unique (run_id, tool_call_id)                          -- crash-resume idempotency
+  index (user_id, status) WHERE status = 'pending'
+  index (run_id)
+  index (run_id, tool_name, proposed_input_hash) WHERE status = 'rejected'
+```
+
+**TypeScript shape** (canonical types live in `@alfred/contracts` — a new tiny package, zero Node deps, importable from `packages/db`, `packages/api`, `apps/web`; see CONTEXT.md):
+
+```ts
+export const POLICY_MODES = ['autonomy', 'gated'] as const;
+export type PolicyMode = (typeof POLICY_MODES)[number];
+
+export const INTEGRATION_SLUGS = ['system', 'gmail', 'calendar', 'drive', /* ... */] as const;
+export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
+
+// Per-integration action lists feed a derived ToolName template-literal type:
+export const SYSTEM_ACTIONS = [
+  'load_integration',
+  'spawn_sub_agent',
+  'read_scratch',
+  'write_scratch',
+  'promote',
+] as const;
+export const GMAIL_ACTIONS = ['send_draft', 'read_message', 'search', /* ... */] as const;
+export const CALENDAR_ACTIONS = ['create_event', 'list_events', /* ... */] as const;
+export const INTEGRATION_ACTIONS = {
+  system: SYSTEM_ACTIONS,
+  gmail: GMAIL_ACTIONS,
+  calendar: CALENDAR_ACTIONS,
+  /* ... */
+} as const;
+
+export type ToolName = {
+  [K in IntegrationSlug]: `${K}.${(typeof INTEGRATION_ACTIONS)[K][number]}`;
+}[IntegrationSlug];
+
+export const TOOL_RISK_TIERS = ['no_risk', 'low', 'medium', 'high'] as const;
+export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
+
+export type IntegrationRule = {
+  mode: PolicyMode;
+  toolOverrides?: Partial<Record<ToolName, PolicyMode>>;
+};
+export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>;
+```
+
+The Drizzle schema column uses `.$type<IntegrationRules>()` so the jsonb is compile-time typed at every read/write site.
+
+Internal `system.*` tools are typed and audited through the same `ToolName` surface, but the default user policy seeds `system: { mode: 'autonomy' }`. They are not governed by `riskTier`; `riskTier` remains a UX hint for cards, summaries, and email copy. Retry suppression uses a canonical `hashToolInput(toolName, input)` helper from `@alfred/contracts`; the hash is stored on `action_stagings.proposed_input_hash` so rejection lookup is deterministic and indexed.
+
+**Dispatch flow.**
+
+```
+boss-turn proposes tool call → dispatcher receives { toolName, input, runId, toolCallId }
+  ↓
+1. validate input against tool's zod schema
+     → if invalid, synthesize validation-error tool-result; no staging
+  ↓
+2. check retry suppression
+     proposedInputHash = hashToolInput(toolName, proposedInput)
+     SELECT recent rejected row WHERE run_id=? AND tool_name=? AND proposed_input_hash=?
+     → if found, synthesize rejected_by_user tool-result without re-staging or re-emailing
+  ↓
+3. resolve policy mode
+     toolOverrides[toolName] ?? integration_rules[integration].mode ?? default_mode
+  ↓
+4. INSERT into action_stagings (status='pending', proposed_input_hash, risk_tier,
+                                requires_approval=(mode==='gated'))
+     ON CONFLICT (run_id, tool_call_id) DO NOTHING        -- crash-resume idempotency
+  ↓
+5a. requires_approval=false:
+      invoke tool.execute(proposed_input)
+        → UPDATE row (status='executed' | 'failed', execute_result/execute_error, executed_at=now())
+        → return tool-result to boss
+
+5b. requires_approval=true:
+      emit SSE poke (kind='staging_pending', { stagingId, toolName, integration, riskTier })
+      enqueue BullMQ delayed job (jobId=`staging-notify:${stagingId}`,
+                                  delay=user_action_policies.approval_notify_delay_ms)
+      call interrupt({ kind: 'hil', approvalId: stagingId, approvalKind: 'action_staging' })
+        → run parks; boss-turn step yields with wakeCondition
+```
+
+On resume (via `signalRun({ runId, match: { kind: 'hil', approvalId: stagingId } })`):
+
+```
+load action_stagings row by stagingId
+  ↓
+case status:
+  'approved' →
+    invoke tool.execute(decided_input ?? proposed_input)
+    UPDATE row (status='executed' | 'failed', execute_result/execute_error, executed_at=now())
+    synthesize tool-result
+      if decided_input != proposed_input → append meta.editedByUser=true
+    return to boss
+
+  'rejected' →
+    synthesize { status: 'rejected_by_user', toolName, proposedInput, reason,
+                 retryPolicy: 'do_not_retry_identical' }
+    return to boss
+
+  'expired'  →
+    synthesize same shape as rejected, reason='auto-expired'
+    return to boss
+```
+
+**UX surface.**
+
+- **Policy editor** lives on the per-integration settings card. Radio: `Full autonomy` / `Gated` (the third tier `Per-tool config` is forward-compat in the schema but deferred from the v1 UI). Co-locates "what does this integration do?" with "how much do I trust it?"
+- **Approvals page** at `/approvals`: Replicache-synced list of `status='pending'` rows, sorted by `created_at` desc, with a nav badge counter. Per-tool card components for high-stakes tools (gmail send, calendar create) live in a web-only registry keyed by `ToolName`; the web app must not import runtime values from `@alfred/api`. Generic JSON renderer fallback for tools without a custom card. Each card carries (a) tool name + risk-tier badge, (b) provenance link to the run + workflow, (c) editable proposed_input fields, (d) **Approve** / **Approve with edits** / **Reject (with required reason)** / **Reject and end run** buttons, (e) a banner with the most recent prior rejection of the same `(user_id, tool_name)` within N days if one exists.
+- **Email** (debounced, default 5min): subject `[<risk_tier>] Alfred wants to <humanized tool name>`, body with key fields + a deep link to the in-app card. One email per staging row at v1; coalescing across a short window is a deferred optimization with no schema impact.
+- **Default mode at signup**: `gated`. Conservative-by-default; asymmetric-risk argument — a wrong gate costs one click, a wrong send costs a relationship.
+
+**Coexistence with `workflows.hil_gates`.**
+
+`workflows.hil_gates` (ADR-0017) gates entire *steps* in explicit-DAG workflows; this ADR gates per-*tool-call* across both brief-only and DAG workflows. They coexist:
+
+- A step listed in `workflows.hil_gates` parks via `wakeCondition.kind='hil'` referencing a step id. No staging row; the wake-payload marks this as a step-level approval.
+- A tool call gated by user policy parks via `wakeCondition.kind='hil'` with `approvalId=stagingId` and `approvalKind='action_staging'`.
+- Same primitive, two reference shapes; the runtime resolves by inspecting the wake-condition discriminator.
+
+A workflow can hit both gates serially: step-level approval ("yes, do this phase") followed by tool-level approval inside the step ("yes, with these specific params"). Two pauses, distinct semantics, audit trail intact. m9/m10/m11 builtins don't populate `hil_gates` today, so there's nothing live to migrate.
+
+**Audit log.**
+
+`action_stagings` is the audit log. Every tool call (gated or autonomy) creates a row. Pending gated rows are Replicache-visible and therefore carry `row_version`; every approve/reject/expire/execute transition that changes a synced field increments it so `/approvals` removes resolved rows cleanly. Cross-join with `api_call_log` (ADR-0015) by `run_id` for per-action cost. "Show all actions Alfred took today" = `SELECT * FROM action_stagings WHERE user_id=? AND created_at > today ORDER BY created_at DESC`. No separate audit table.
+
+**Out-of-scope, forward-compat slots.**
+
+- **Per-parameter risk rules.** "Emails to my PA aren't risky; emails to my boss are." The right primitive is per-recipient/per-pattern predicates on the policy. v1 stays at per-tool resolution; the schema's `toolOverrides` value can widen from `PolicyMode` to `{ mode, predicates }` later without breaking change.
+- **Agent self-modification of policy.** A `set_action_policy(integration, mode, toolOverrides?)` tool the boss can call (and which is itself `riskTier: 'high'` so changes are user-approved). Lets the user say "trust gmail entirely" in chat; boss stages the policy change; user approves; cache busts. Clean primitive when we get there.
+- **Coalescing email notifications** across a short window (e.g. 60s). Additive: a `coalesce_window_seconds` setting + a worker tweak. No schema change required.
+- **Presence-aware debounce threshold.** Longer threshold if the user is actively reviewing other staged actions. Additive lookup on `lastActiveAt`.
+- **Custom lint rule** auditing `riskTier` classifications at PR time (anything called `delete_*`, `send_*`, `post_*`, `archive_*` must be `high` unless explicitly waived). Useful when the tool registry exceeds ~30 tools; v1 trusts the author.
+- **Per-tool override UI** (the third Dimension tier). Schema is forward-compat; the dispatcher already reads `toolOverrides` if present; only the UI to edit it is deferred.
+
+**Alternatives.**
+
+- (a) **Synthetic `pending_approval` tool-result** (instead of pre-execute interrupt). Rejected — forces a fourth `TurnResult` case onto `AlfredAgent`, adds round-trips for the boss to reason about pending state, fights ADR-0006/0014's checkpoint model.
+- (b) **Plan-then-execute two-tool dance** (`plan_send_email` returns id; user approves externally; boss calls `execute_pending(id)`). Rejected — doubles tool-call cost on every gated action; no audit/visibility gain over the staging-table approach.
+- (c) **Per-tool staging tables** (ADR-0014's `SlackPost`-style). Rejected — approval UI has to UNION across N tables; one generic table is simpler and supports the SSE poke pattern.
+- (d) **Stage in `agent_run_context.scratch.staging.*`.** Rejected — scratchpad has 7-day TTL and is per-run; cross-run "all pending approvals" query becomes impossible.
+- (e) **Reuse `events_outbox`** for staging. Rejected — outbox is broadcast/fan-out, not decision-bearing state. Wrong primitive.
+- (f) **Hardcoded per-tool risk gates** (system always requires approval for `riskTier='high'` regardless of policy). Rejected — paternalism. User owns the policy. ADR-0001's single-user framing makes "system protects future-you from current-you" hostile, not helpful.
+- (g) **Email-reply-based approval.** Rejected by ADR-0019 ("Email-reply parsing deferred"). Email is the notification surface; the in-app card is the decision surface.
+- (h) **Always cache the policy in Redis.** Rejected — in-process Map is ~20,000× faster than Redis GET; Redis adds latency without benefit at the read path. Redis carries the Pub/Sub bust signal only.
+
+**Open.**
+
+- Initial sub-set of integrations + per-action lists that ship with `@alfred/contracts` at first cut. Intent: every integration that ships a `liveTool` registers its slug + actions in contracts; backfill Gmail as part of m13a.
+- Whether the `policy-bust:u:<userId>` channel rides alongside ADR-0005's existing kinds or as a sibling Redis Pub/Sub channel. v1 plan: sibling channel; revisit if outbox kinds prove the right home.
+- Threshold default (5min) is a UX guess. Worth dialing once we have real usage signal; the column + settings field already exist.
+
+---
+
+## ADR-0035 — Transcript compaction: cheap-tier handoff summary at 60% threshold
+
+**Decision.** When a boss run's transcript token-count exceeds 60% of the resolved model's context window, the executor inserts a dedicated `compact-transcript` step between `dispatch-tools` and the next `boss-turn`. The step calls a cheap-tier compactor (`getCheapModel()`) to produce a structured XML **run handoff** that replaces older messages while preserving the system message, tool definitions, and the in-flight tail (most recent assistant message + its tool calls + their results). The handoff captures `goal`, `user_directives`, `decisions`, `actions_completed`, `actions_rejected`, `actions_failed`, `sub_agent_findings`, `pending_followups`, `key_entities`. Sub-agents do not compact — they fail back to the boss for re-decomposition (ADR-0026).
+
+**Why.**
+
+- **Quality, not headroom.** Long-context quality degrades materially before the hard limit (200K-window models around 120-150K; 1M-window models around 400-600K — empirically observed across both Claude and Gemini families). Compacting at 60% keeps the working window in the high-quality region rather than chasing token-counting efficiency. Cost differential of more frequent cheap-tier calls is negligible at single-user scale; quality difference is not.
+- **No verbatim "last N" preservation.** A 30K-token tool result in the recent tail would defeat compaction's purpose. The minimum the boss needs to continue mid-step is system + tools + the immediately-prior assistant message and its tool results — the in-flight tail. Everything older compresses into the handoff.
+- **XML over JSON for the handoff.** Anthropic explicitly recommends XML for nested-structure prompts; the model parses sections more reliably; less syntax noise per token on tool-call records. Schema is fixed (compactor's job is to fill slots), not free-form (which would lose structure across compactions).
+- **Cheap-tier compactor, structurally bounded.** `getCheapModel()` (Haiku 4.5 / Gemini 2.5 Flash via the ADR-0016 dispatcher); output capped at 2000 tokens. Each `<action>` becomes one short line — IDs and outcomes kept, narrative dropped.
+- **Distinct executor step, not inline.** Compaction is state management, not a tool call. Putting it in the executor between `dispatch-tools` and `boss-turn` makes it a real checkpoint (durable-resume compatible) and keeps `AlfredAgent.turn` free of compaction concerns. Also preserves ADR-0015's "one LLM round-trip = one `api_call_log` row" — the compactor is its own metered call with `attribution.role='compactor'`.
+
+**Run handoff schema.**
+
+```xml
+<run_summary>
+  <goal>One-line restatement of what this run is trying to accomplish.</goal>
+
+  <user_directives>
+    <!-- Mid-run intent statements that bound the agent's future behavior:
+         scope grants, integration trust changes, redirections.
+         Verbatim, not paraphrased. Pragmatic, not epistemic. -->
+    <directive>e.g. "User said 'trust gmail entirely for this conversation' at turn 3."</directive>
+  </user_directives>
+
+  <decisions>
+    <!-- Facts, preferences, or constraints learned during the run. Epistemic. -->
+    <decision>e.g. "Alice is the engineering manager (confirmed via signature in thread #42)."</decision>
+  </decisions>
+
+  <actions_completed>
+    <action tool="gmail.search" key_output="found 3 threads from alice@..." />
+  </actions_completed>
+
+  <actions_rejected>
+    <action tool="gmail.send_draft" reason="user said 'already replied to this thread'" />
+  </actions_rejected>
+
+  <actions_failed>
+    <action tool="..." error="..." />
+  </actions_failed>
+
+  <sub_agent_findings>
+    <finding sub_id="sub_a" key_output="..." />
+  </sub_agent_findings>
+
+  <pending_followups>What the boss said it would do next.</pending_followups>
+
+  <key_entities>
+    <entity name="Alice" id="alice@..." context="manager; brought up in 3 threads" />
+  </key_entities>
+</run_summary>
+```
+
+**`<user_directives>` is the load-bearing slot.** Without it, mid-run policy changes ("just trust gmail for the rest of this conversation") evaporate after the next compaction and the boss starts re-asking for approval. ADR-0034's forward-compat `set_action_policy` tool will eventually persist these to `user_action_policies` properly; until then, the handoff carries the directive forward within the run. The distinction between `<user_directives>` (pragmatic — what the user wants) and `<decisions>` (epistemic — what's true) matters because the boss reasons differently about each: directives bound behavior, decisions bound belief.
+
+**Executor flow.**
+
+```
+boss-turn (proposes tools)
+  → dispatch-tools (results land in transcript)
+    → executor measures tokenCount(transcript)
+       if tokenCount > compactionThresholdTokens(model.contextWindow):
+         → compact-transcript
+            ├── identify in-flight tail (walk backward to last boss-turn boundary)
+            ├── invoke cheap-tier compactor with prior transcript
+            ├── compactor emits <run_summary>
+            └── rewrite state.transcript to [system, tools, <summary>, in-flight tail]
+       → boss-turn (consumes results / summary)
+```
+
+In-flight tail identification rule: walk the transcript backward from the end; preserve verbatim until hitting a `boss-turn` step boundary. Everything before is fed to the compactor; everything after stays as-is. Deterministic, bounded by one iteration's worth of messages.
+
+**Compactor invocation contract.**
+
+```ts
+const result = await meteredGenerateText({
+  model: getCheapModel(),
+  attribution: { kind: 'llm', role: 'compactor' },     // per m13 plan
+  maxOutputTokens: 2000,
+  system: COMPACTOR_SYSTEM_PROMPT,
+  messages: priorTranscriptToCompact,
+});
+state.transcript = [
+  systemMessage,
+  ...toolDefinitions,
+  { role: 'system', content: `<run_summary>${result.text}</run_summary>` },
+  ...inFlightTail,
+];
+```
+
+`COMPACTOR_SYSTEM_PROMPT` (sketch, subject to prompt-engineering pass): "Summarize the transcript below into the schema. Maximum 2000 tokens. Drop verbatim text; keep IDs, decisions, user directives, every approved/rejected/failed action with its outcome, every sub-agent finding. **Preserve mid-run user intent statements verbatim under `<user_directives>`; do not paraphrase.** Each `<action>` is one short line."
+
+**Cache interaction.**
+
+ADR-0026's two ephemeral `cacheControl` breakpoints sit on the system message and the last tool definition; both survive compaction. After compaction, place a **third** ephemeral breakpoint immediately after the `<run_summary>` system note. Anthropic allows up to 4 breakpoints per request (ADR-0026 footnote explicitly called out compaction as the trigger to use the third).
+
+- Immediate next turn after compaction = cache miss on the message-history portion. Expected; the alternative is context-overflow failure.
+- Subsequent turns hit the new stable prefix (system + tools + `<summary>`). Each new turn appends to the in-flight tail, hitting the cache up through the summary breakpoint.
+- Next compaction invalidates the third breakpoint; cycle continues.
+
+**Implementation notes.**
+
+- **`model_prices.context_window`** column added. Seeded from `models.dev` by `pnpm --filter @alfred/db db:sync-prices` (ADR-0016). The executor resolves `model.contextWindow` from this column rather than hardcoding per-SKU.
+- **Token counting** uses AI SDK's tokenizer (or `@anthropic-ai/tokenizer` for Anthropic models). Approximation within ~5% is acceptable for threshold purposes — we have 5% slack on either side of the 60% boundary.
+- **Threshold constant** lives in `@alfred/contracts`:
+  ```ts
+  export const COMPACTION_THRESHOLD_PCT = 0.60;
+  export const compactionThresholdTokens = (modelContextWindow: number) =>
+    Math.floor(modelContextWindow * COMPACTION_THRESHOLD_PCT);
+  ```
+
+**Fault behavior.** Compactor call failure → run fails with `reason='compactor_failed'`, retryable. Explicit failure beats degraded behavior (running with overflowing context = hallucination or silent truncation). Retry on next executor wake gives the cheap-tier model another shot; persistent failure surfaces as a real bug rather than silent quality degradation.
+
+**Sub-agents do not compact.** Per ADR-0026, a sub-agent approaching its context window is evidence the brief was too broad; the right answer is failing back to the boss for re-decomposition, not soldiering on with a degraded view. No compactor invocation inside a sub-agent run. The boss's own "compaction" of sub-agent output happens at the scratchpad/`promote` boundary per ADR-0016 — that's a different mechanism (synthesis at the agent-tree edge) than transcript compaction (in-flight reduction within a single agent's context).
+
+**Alternatives.**
+
+- (a) **In-run compaction at 80% threshold (Dimension's value).** Rejected — long-context quality degrades materially earlier; 60% keeps the working window in the high-quality region. Empirical, not theoretical.
+- (b) **Preserve "last N message pairs" verbatim alongside the summary.** Rejected — a 30K-token tool result in the recent tail defeats compaction. The in-flight tail is bounded by one iteration's worth of work; "last N pairs" is unbounded.
+- (c) **JSON schema for the handoff.** Rejected — Anthropic recommends XML for nested-structure prompts; XML parses more reliably across long structured sections; less syntax noise per token on tool-call records.
+- (d) **Inline compaction inside `AlfredAgent.turn`.** Rejected — conflates LLM concerns with state management; breaks durable-resume; violates ADR-0015's "one LLM round-trip = one `api_call_log` row" (compaction would silently happen inside a single charge-and-log boundary).
+- (e) **Cost-triggered compaction** (e.g. compact when run spend exceeds $X). Rejected for v1 — orthogonal concern (budget enforcement, not quality preservation). The `model_prices.context_window` column gives us the hook for a richer trigger later if needed.
+- (f) **Post-run conversation summary** (Dimension's platform-specific thresholds). Deferred — no long-lived chat surface yet at Alfred v1; revisit when the composer (post-m13) ships substantial user conversations worth preserving across runs.
+
+**Open.**
+
+- The compactor system prompt is sketched, not engineered. A real prompt pass with long runs to test against lands with m13a.
+- 2000-token output cap is a v1 guess. Worth dialing once real runs accumulate.
+- Whether the boss's own system prompt should include explicit guidance to restate received user intent as future-compaction-friendly directives ("when the user expresses an intent that bounds your future behavior, restate it succinctly so it survives compaction"). Leaning yes; lands with the boss system prompt design in m13a.
+
+---
+
+## ADR-0036 — Redis as scratchpad primary; Postgres as terminal snapshot
+
+**Decision.** During a boss run, all scratchpad reads and writes go to Redis (`alfred:scratch:{runId}:{zone}.{path}` keys, 30-day TTL at insert). On terminal state — success, failure, or cancellation — the executor's terminal step copies the full Redis-side scratchpad into the `agent_run_context` table as per-key rows (one INSERT per key, idempotent via `ON CONFLICT (run_id, key) DO UPDATE`). Live writes pay Redis latency (~1ms on Railway's private network); audit/replay/cross-run queries hit Postgres. Mid-run Redis loss recovers via idempotent step re-execution per ADR-0014 — same shape as any other transient failure.
+
+**Supersedes part of ADR-0016.** ADR-0016 said *"no Redis for this layer: at single-user scale, Postgres handles per-run K/V trivially."* That was correct at decision time; m13's design pressure surfaced two issues: (a) sub-agent fan-out wants fast inter-agent reads for the boss's synthesis pass (Dimension's "sub-millisecond reads"), and (b) per-key Postgres writes cost a network round-trip per scratch op where Redis costs a fraction. ADR-0036 keeps ADR-0016's *pattern* unchanged (namespaced scratchpad, boss-promotes-to-shared, single-writer-per-zone, no sub-sub-agents, sub-agents don't compact) and changes only the *store layer*.
+
+**Why this composition.**
+
+- **Speed where it matters.** Live inter-agent reads during a run hit Redis. The hot path — sub-agents writing findings + the boss reading them — runs at private-network latency.
+- **Durability where it matters.** Audit queries ("everything Alice was mentioned in last week") hit Postgres. Cross-run reads use the same store the runtime checkpoints to. No "which store is canonical" ambiguity outside the run lifetime.
+- **Composes with the durable runtime.** ADR-0014's idempotent steps are the recovery primitive for mid-run Redis loss. No new recovery semantics required — a lost scratch entry re-executes its producing step on the next executor wake.
+- **Single source of truth at every moment.** During the run: Redis. After terminal step: Postgres. Clean transition.
+- **No data migration cost.** `agent_run_context` schema is unchanged. m13 builds the Redis-primary path from day one; no parallel-write phase.
+
+**Key shape.**
+
+```
+alfred:scratch:{runId}:shared.{path}             -- e.g. alfred:scratch:run_abc:shared.alice_email
+alfred:scratch:{runId}:scratch.{subId}.{path}    -- e.g. alfred:scratch:run_abc:scratch.sub_a.findings
+```
+
+The `alfred:scratch:` prefix namespaces against the existing Redis use (BullMQ queues, ADR-0005 Pub/Sub, session-cache, ADR-0034's `policy-bust:u:{userId}` channel). Two distinct builders in `@alfred/contracts`, not one variadic helper — so call sites cannot accidentally target the wrong zone:
+
+```ts
+export const sharedKey = (runId: string, path: string) =>
+  `alfred:scratch:${runId}:shared.${path}` as const;
+export const subAgentKey = (runId: string, subId: string, path: string) =>
+  `alfred:scratch:${runId}:scratch.${subId}.${path}` as const;
+```
+
+**Value envelope.**
+
+```ts
+export type ScratchEntry<T = unknown> = {
+  value: T;
+  zone: 'shared' | 'scratch';
+  writtenBy: string;        // 'boss' or `${subId}`
+  writtenAt: number;        // epoch ms
+};
+```
+
+Stored as JSON-serialized via `SET key value EX 2592000`. The generic at the call site (`read_scratch<TFindings>(key)`) lets callers narrow the value type. Per-zone single-writer is enforced at the dispatcher (a child run's `write_scratch` tool can only target its own `scratch.{subId}.*` keys; the boss's tool only targets `shared.*`) — not at the type system.
+
+**TTL: 30 days at insert.**
+
+- Live runs can pause for HIL hours or days (ADR-0014's durable-resume); a short TTL would expire mid-pause.
+- "Delete on terminal step" was rejected — terminal-step cleanup needs idempotency against crash-retry; not deleting at all sidesteps that class of bug entirely.
+- 30 days > (longest realistic HIL pause + 7-day post-completion audit hot window) with margin.
+- Memory pressure at single-user scale is a non-concern: hundreds of runs/day × kilobytes of scratch = single-digit MB total.
+
+**Snapshot to Postgres at terminal step.**
+
+Schema unchanged from ADR-0016:
+
+```sql
+agent_run_context
+  run_id      text references agent_runs(id)
+  key         text
+  value       jsonb
+  zone        text                -- 'shared' | 'scratch'
+  written_by  text                -- 'boss' or '{sub_id}'
+  written_at  timestamptz
+  primary key (run_id, key)
+```
+
+Terminal-step semantics (pseudocode):
+
+```ts
+await db.transaction(async (tx) => {
+  const keys = await redisClient.scan(`alfred:scratch:${runId}:*`);
+  for (const key of keys) {
+    const raw = await redisClient.get(key);
+    if (!raw) continue;
+    const entry: ScratchEntry = JSON.parse(raw);
+    const subKey = key.replace(`alfred:scratch:${runId}:`, '');
+    await tx
+      .insert(agentRunContext)
+      .values({
+        runId,
+        key: subKey,
+        value: entry.value,
+        zone: entry.zone,
+        writtenBy: entry.writtenBy,
+        writtenAt: new Date(entry.writtenAt),
+      })
+      .onConflictDoUpdate({
+        target: [agentRunContext.runId, agentRunContext.key],
+        set: { value: sql`excluded.value`, /* etc */ },
+      });
+  }
+});
+```
+
+`ON CONFLICT DO UPDATE` makes the snapshot idempotent against terminal-step retry (a crash between "scan Redis" and "transaction commit" replays cleanly).
+
+**Atomicity.**
+
+- Single-key writes are atomic by Redis semantics.
+- Compound writes (a sub-agent writing `findings.x` and `summary` in one logical batch) are caller's responsibility — use MULTI/EXEC if atomicity matters. Most cases are single-key.
+- `promote(scratchKey)` (ADR-0016's primitive — copy `scratch.{subId}.foo` to `shared.foo`) is implemented as read-then-write; not atomic. Single-writer-per-zone (only the boss writes `shared.*`, only `sub_a` writes `scratch.sub_a.*`) makes this race-free in practice.
+
+**Failure modes.**
+
+- **Redis unavailable** → scratchpad ops throw `RedisUnavailableError` → step fails → durable-resume retries on the next executor wake. Same shape as Postgres-down.
+- **Network partition** → same as Redis-down.
+- **Stale Redis reads** → not possible under our access pattern (single-writer per zone enforced at the dispatcher).
+- **Terminal-step snapshot fails** → the run's terminal state is still set, but the Postgres mirror is incomplete; a follow-up `snapshot-retry` sub-step re-attempts on the next executor wake. Pure idempotent retry; no impact on user-facing state.
+
+No circuit breakers, no fallbacks. Redis is a hard dependency at the same level as Postgres.
+
+**Migration.**
+
+- No data migration. `agent_run_context` schema is unchanged.
+- Existing builtin workflows (m9/m10/m11) don't write to the scratchpad — they're explicit-DAG step workflows, not boss-agent runs.
+- m13 builds the Redis-primary path from day one; no dual-write phase.
+
+**Alternatives.**
+
+- (a) **Pure ephemeral (Redis only, no Postgres mirror).** Rejected — post-completion audit becomes a 7-day TTL race. The single snapshot at terminal step is cheap and preserves the cross-run query surface.
+- (b) **Dual-write to both stores on every scratch op.** Rejected — doubles write cost on the hot path for marginal gain. Dual-write is correct when both stores are *concurrently* live; for per-run intermediate state with a clean terminal handoff, it's twice the work for no benefit.
+- (c) **One jsonb blob per run** (single `data jsonb` column instead of per-key rows). Rejected — saves nothing material, gives up SQL ergonomics for cross-run queries.
+- (d) **Postgres unchanged from ADR-0016 (no Redis).** Rejected on empirical grounds — m13's sub-agent fan-out + boss-synthesis pattern wants sub-ms inter-agent reads; Postgres at 1-3ms per op multiplied across a boss read pass over N sub-agent findings adds material latency to the user-facing boss turn.
+- (e) **Keep Redis keys live indefinitely (no TTL).** Rejected — leak risk on abandoned runs; 30-day TTL gives natural eviction without orchestration-layer cleanup.
+- (f) **Delete Redis keys at terminal step.** Rejected — couples cleanup to terminal-step idempotency in a way that introduces a real failure class (partial-delete + retry = inconsistent state). Letting TTL handle eviction is simpler and equivalent in outcome at our scale.
+
+**Open.**
+
+- Whether the boss's synthesis read pass should `SCAN` for `scratch.{subId}.*` keys per run, or maintain a per-sub_id index list in Redis. v1: SCAN with pattern (`SCAN MATCH alfred:scratch:{runId}:scratch.*`) — at single-user scale, scratch counts per run are in the low tens. Revisit if profiling shows SCAN dominating.
+- Whether the snapshot step should store a Redis SCAN cursor or completion marker so a retried snapshot doesn't re-read already-landed keys. v1: `ON CONFLICT DO UPDATE` makes re-reads safe; explicit cursor is an optimization that only matters at thousands of scratch entries.
+
+---
+
 ## Open / deferred
 
 Items intentionally not decided yet. Each is a future ADR when its time comes.
@@ -1232,7 +1710,7 @@ The decisions are now self-contained enough to start building. Proposed mileston
 3. **Replicache MVP** ✅ _done 2026-04-28_ — `packages/sync` with `noteCreate` mutator + zod arg schemas; server-side push/pull/CVR/poke at `/api/replicache/*`; per-user Redis Pub/Sub poke channel + SSE; refcounted subscribe; multi-device sync verified.
 4. **Realtime stack** ✅ _done 2026-04-29_ — `events_outbox` table + AFTER INSERT trigger firing `pg_notify('events_outbox_new')`; LISTEN/NOTIFY-driven relay (`packages/api/src/events/outbox-relay.ts`) with `FOR UPDATE SKIP LOCKED` drain, publish-then-mark for at-least-once delivery, 5s backstop poll, reconnect-on-end. Generic `/api/events` SSE with `Last-Event-ID` and `?since=` replay, watermark-and-buffer to prevent replay/live duplication. `publishEvent({ tx, userId, kind, payload })` validates against per-kind zod schemas at insert time. Replicache pokes intentionally kept on a separate, lower-latency direct-emit bus (ADR-0005 lists pokes as one event type but the contract — idempotent hints, not durable state — argues against forcing them through outbox). End-to-end verified in browser: live SSE, multi-tab fan-out, replay-after-disconnect.
 5. **Durable agent runtime** ✅ _done 2026-04-30_ — `agent_runs` checkpoint table + step function + BullMQ worker (`packages/api/src/modules/agent/{executor,worker,queue,service,registry}.ts`); idempotent step pattern with `(run_id, step_id, attempt_id)` keys (ADR-0006 + ADR-0014). `echo-with-approval` builtin workflow + `smoke-agent` / `smoke-agent-resume` scripts cover the resume-from-checkpoint path.
-6. **Cost metering** ✅ _done 2026-04-30_ — `metered()` helper + `metered.text/object/embed` wrappers in `packages/ai/src/metering/`, `api_call_log` + `model_prices` tables, `pnpm sync-prices` script seeded from `models.dev` (ADR-0015). Langfuse trace export wired alongside (ADR-0023). `smoke-metered` / `smoke-metered-fail` cover happy-path + failure logging.
+6. **Cost metering** ✅ _done 2026-04-30_ — `metered()` helper + `metered.text/object/embed` wrappers in `packages/ai/src/metering/`, `api_call_log` + `model_prices` tables, `pnpm --filter @alfred/db db:sync-prices` script seeded from `models.dev` (ADR-0015). Langfuse trace export wired alongside (ADR-0023). `smoke-metered` / `smoke-metered-fail` cover happy-path + failure logging.
 7. **First integration end-to-end (Gmail)** ✅ _done 2026-05-01_ — OAuth, ingestion job, live tools, webhook + polling, schema for `documents`/`chunks` with pgvector (ADRs 0010, 0024). Sub-tasks:
    - **7a** ✅ OAuth (gmail.readonly + send + modify scopes) + credentials table + `gmail.ingest_recent` BullMQ job that lists+fetches recent messages and writes raw `documents`.
    - **7b** ✅ Voyage embeddings + chunker (`packages/ingestion/{chunker,embed-document,search}.ts`) + `chunks` table with pgvector cosine + hybrid search helper.
@@ -1248,6 +1726,6 @@ The decisions are now self-contained enough to start building. Proposed mileston
     - **12d** Cron dispatch (ADR-0027): generic `workflows.tick` running every minute + `cron-parser` matcher. `manual` trigger ships as a "Run now" button → direct `createRun`. `event` / `on_signal` dispatchers deferred to m13.
     - **12e** Settings page: unified active↔paused toggle for builtins + user-authored. Closes the m9 deferral.
     - **Execution stub**: `createRun` for `is_builtin=false` workflows lands as `failed` with reason `user_authored_brief_execution_pending_m13`. History tab on the workflow detail page shows those rows honestly. m13 replaces the stub with the real `AlfredAgent` loop.
-13. **Boss + sub-agent orchestration** — replaces m12's execution stub. Builds the tool registry + tool dispatcher + `load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026).
+13. **Boss + sub-agent orchestration** — replaces m12's execution stub. Builds the tool registry + tool dispatcher + `load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026). Lands HIL approval (ADR-0034) alongside — every tool call routes through the dispatcher, and gated calls park on `wakeCondition.kind='hil'` referencing an `action_stagings` row.
 14. **MCP client** — connect external MCP servers, register their tools (ADR-0018).
 15. **Observability polish** — review Sentry/PostHog/Langfuse instrumentation; add agent-trace UI surface in alfred itself (ADR-0023).

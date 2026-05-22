@@ -28,6 +28,7 @@ export const toolCallSchema = z.object({
 export const approvalRequestedSchema = z.object({
   runId: z.string().min(1).max(120),
   approvalId: z.string().min(1).max(120),
+  approvalKind: z.enum(["step", "action_staging"]),
   prompt: z.string().min(1).max(4_000),
 });
 

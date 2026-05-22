@@ -24,6 +24,10 @@ const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
 interface ModelsDevModel {
   id: string;
   cost?: { input?: number; output?: number; cache_read?: number };
+  limit?: { context?: number; output?: number };
+  modalities?: { input?: string[]; output?: string[] };
+  reasoning?: boolean;
+  tool_call?: boolean;
 }
 
 interface ModelsDevProvider {
@@ -40,6 +44,8 @@ const STATIC_PRICES: Array<{
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   perCallUsd: number | null;
+  contextWindow: number | null;
+  metadata?: Record<string, unknown>;
 }> = [
   // Voyage embeddings (https://www.voyageai.com/pricing/, retrieved 2026-04-30).
   // Voyage charges per input token only; output tokens not applicable.
@@ -50,6 +56,7 @@ const STATIC_PRICES: Array<{
     outputPerMtok: 0,
     cachedInputPerMtok: null,
     perCallUsd: null,
+    contextWindow: null,
   },
   {
     provider: "voyage",
@@ -58,6 +65,7 @@ const STATIC_PRICES: Array<{
     outputPerMtok: 0,
     cachedInputPerMtok: null,
     perCallUsd: null,
+    contextWindow: null,
   },
   {
     provider: "voyage",
@@ -66,6 +74,7 @@ const STATIC_PRICES: Array<{
     outputPerMtok: 0,
     cachedInputPerMtok: null,
     perCallUsd: null,
+    contextWindow: null,
   },
 ];
 
@@ -76,7 +85,9 @@ interface PriceRow {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   perCallUsd: number | null;
+  contextWindow: number | null;
   source: string;
+  metadata?: Record<string, unknown>;
 }
 
 async function fetchCatalog(): Promise<ModelsDevCatalog> {
@@ -101,7 +112,16 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
         outputPerMtok: cost.output,
         cachedInputPerMtok: cost.cache_read ?? null,
         perCallUsd: null,
+        contextWindow: m.limit?.context ?? null,
         source: "models.dev",
+        metadata: {
+          capabilities: {
+            reasoning: m.reasoning ?? false,
+            toolCall: m.tool_call ?? false,
+          },
+          limit: m.limit ?? null,
+          modalities: m.modalities ?? null,
+        },
       });
     }
   }
@@ -114,25 +134,28 @@ function pricesEqual(
     outputPerMtok: number;
     cachedInputPerMtok: number | null;
     perCallUsd: number | null;
+    contextWindow: number | null;
   },
   b: {
     inputPerMtok: number;
     outputPerMtok: number;
     cachedInputPerMtok: number | null;
     perCallUsd: number | null;
+    contextWindow: number | null;
   },
 ): boolean {
   return (
     a.inputPerMtok === b.inputPerMtok &&
     a.outputPerMtok === b.outputPerMtok &&
     a.cachedInputPerMtok === b.cachedInputPerMtok &&
-    a.perCallUsd === b.perCallUsd
+    a.perCallUsd === b.perCallUsd &&
+    a.contextWindow === b.contextWindow
   );
 }
 
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
   const existing = await db().execute(sql`
-    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd
+    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window
     FROM model_prices
     WHERE provider = ${row.provider} AND model = ${row.model}
     ORDER BY valid_from DESC
@@ -145,6 +168,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
         output_per_mtok: string;
         cached_input_per_mtok: string | null;
         per_call_usd: string | null;
+        context_window: number | null;
       }
     | undefined;
 
@@ -156,6 +180,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
         cachedInputPerMtok:
           latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
         perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
+        contextWindow: latest.context_window,
       },
       row,
     );
@@ -171,7 +196,8 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
       outputPerMtok: row.outputPerMtok.toString(),
       cachedInputPerMtok: row.cachedInputPerMtok != null ? row.cachedInputPerMtok.toString() : null,
       perCallUsd: row.perCallUsd != null ? row.perCallUsd.toString() : null,
-      metadata: { source: row.source },
+      contextWindow: row.contextWindow,
+      metadata: { source: row.source, ...row.metadata },
     });
   return "inserted";
 }

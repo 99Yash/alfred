@@ -347,6 +347,7 @@ async function commitStepSuccess(
         payload: {
           runId: run.id,
           approvalId: result.wake.approvalId,
+          approvalKind: result.wake.approvalKind,
           prompt: result.wake.prompt ?? "Approval requested",
         },
       });
