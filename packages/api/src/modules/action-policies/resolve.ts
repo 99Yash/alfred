@@ -141,22 +141,30 @@ export function clearPolicyCacheForTests(): void {
   cache.clear();
 }
 
+let publisher: IORedis | undefined;
+
+function getPublisher(): IORedis {
+  if (!publisher) publisher = createRedisConnection();
+  return publisher;
+}
+
 /**
  * Publish a bust message so every server instance drops its cached row
  * for `userId`. Call this after every successful UPDATE to
- * `user_action_policies` (Phase 8 editor). The publisher creates a
- * one-shot connection because the caller is a normal request handler
- * (not a long-lived subscriber); PUBLISH does not require a dedicated
- * connection like SUBSCRIBE does.
+ * `user_action_policies` (Phase 8 editor).
+ *
+ * Uses a single shared publisher connection across the process — PUBLISH
+ * is non-blocking and doesn't conflict with itself the way SUBSCRIBE
+ * commands do, so one connection is enough. Lazy-initialized so tests
+ * and CLI scripts that never publish don't open a Redis socket. Tracked
+ * via `createRedisConnection()` so `closeRedis()` at shutdown drains it.
  */
 export async function publishPolicyBust(userId: string): Promise<void> {
   // Best-effort: a missed bust just means a single stale read until the
   // 5s session cache (or process restart) covers it. Don't surface a
   // Redis blip as a user-facing failure on the mutation itself.
-  let publisher: IORedis | undefined;
   try {
-    publisher = createRedisConnection();
-    await publisher.publish(bustChannel(userId), "1");
+    await getPublisher().publish(bustChannel(userId), "1");
   } catch (err) {
     console.error("[action-policies] publishPolicyBust failed", {
       userId,
@@ -195,16 +203,29 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   await conn.psubscribe(POLICY_BUST_PATTERN);
 }
 
-/** Stop the subscriber. Test-only / shutdown helper; `closeRedis()` also closes it. */
+/**
+ * Stop the subscriber and drop the shared publisher reference. Idempotent —
+ * called from the server's shutdown path before `closeRedis()` so the
+ * symmetry with every other start/stop pair holds. `closeRedis()` will
+ * still close the tracked connections; this just clears module state so
+ * a subsequent restart in the same process (tests, long-running CLIs)
+ * starts from a clean slate.
+ */
 export async function stopPolicyBustSubscriber(): Promise<void> {
-  if (!subscriberStarted) return;
-  subscriberStarted = false;
-  if (subscriber) {
-    try {
-      await subscriber.punsubscribe(POLICY_BUST_PATTERN);
-    } catch {
-      // ignore
+  if (subscriberStarted) {
+    subscriberStarted = false;
+    if (subscriber) {
+      try {
+        await subscriber.punsubscribe(POLICY_BUST_PATTERN);
+      } catch {
+        // ignore — connection may already be closing
+      }
+      subscriber = undefined;
     }
-    subscriber = undefined;
   }
+  // Drop the shared publisher ref too. `closeRedis()` (called next in
+  // shutdown) closes the underlying socket; we just clear the cached
+  // handle so any re-init after shutdown opens a fresh connection
+  // instead of trying to use a closed one.
+  publisher = undefined;
 }

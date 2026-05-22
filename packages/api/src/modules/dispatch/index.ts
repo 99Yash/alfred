@@ -115,6 +115,7 @@ interface StagingRow {
   id: string;
   runId: string;
   status: string;
+  requiresApproval: boolean;
   proposedInput: unknown;
   decidedInput: unknown;
   rejectReason: string | null;
@@ -126,6 +127,7 @@ const STAGING_COLUMNS = {
   id: actionStagings.id,
   runId: actionStagings.runId,
   status: actionStagings.status,
+  requiresApproval: actionStagings.requiresApproval,
   proposedInput: actionStagings.proposedInput,
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
@@ -250,7 +252,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
   switch (row.status) {
     case "pending":
-      if (requiresApproval) {
+      // Honor the `requires_approval` recorded on the row, NOT the
+      // freshly-resolved policy. If the user changed their integration
+      // mode after the row was inserted (e.g. gated → autonomy), the
+      // pending row should still respect the decision that was active
+      // when it was staged — otherwise a policy toggle would silently
+      // auto-execute every in-flight gated call. Policy changes apply
+      // to the next dispatched tool call; once staged, a row's gate
+      // sticks. Mirrors the plan's intent that `requires_approval` is
+      // the locked-in decision per ADR-0034.
+      if (row.requiresApproval) {
         // Park. The executor will emit `approval.requested` when it
         // commits the interrupt (see executor.ts), so we don't fire
         // anything from here. Phase 5 layers the dedicated
@@ -378,13 +389,19 @@ async function executeAndCommit(
       .where(eq(actionStagings.id, row.id));
     return { kind: "failed", stagingId: row.id, error };
   }
+  // A tool legitimately returning `null` or `undefined` is stored as
+  // SQL NULL in `execute_result`. The `status='executed'` field is the
+  // discriminator for "execution happened" — readers should never infer
+  // "no result yet" from a null payload. The single-threaded-per-run
+  // executor model (one worker holds the lease) is what guarantees no
+  // other process can interleave a status flip between the
+  // `tool.execute` above and this UPDATE; if that invariant ever
+  // changes, add `AND status IN ('pending', 'approved')` here.
   await db()
     .update(actionStagings)
     .set({
       status: "executed",
-      // Wrap in an object so `null` results round-trip as
-      // `{ value: null }` rather than getting confused with "no result".
-      executeResult: result === undefined ? null : (result as object),
+      executeResult: (result === undefined ? null : result) as object | null,
       executedAt: now,
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })

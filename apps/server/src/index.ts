@@ -13,6 +13,7 @@ import {
   initReplicachePokeBridge,
   ensureDefaultActionPolicyForUser,
   startPolicyBustSubscriber,
+  stopPolicyBustSubscriber,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -119,6 +120,7 @@ async function shutdown(signal: string) {
     console.error("Error stopping workers:", err instanceof Error ? err.message : String(err));
   }
   try {
+    await stopPolicyBustSubscriber();
     await closeEventBridge();
     await closeReplicachePokeBridge();
     await closeRedis();
