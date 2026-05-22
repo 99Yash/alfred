@@ -2,8 +2,20 @@ import type { IntegrationRules } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "./resolve";
 
-export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
+export {
+  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+  getResolvedPolicy,
+  resolvePolicyMode,
+  resolveApprovalNotifyDelayMs,
+  bustPolicyCache,
+  clearPolicyCacheForTests,
+  publishPolicyBust,
+  startPolicyBustSubscriber,
+  stopPolicyBustSubscriber,
+  type ResolvedPolicy,
+} from "./resolve";
 
 const DEFAULT_INTEGRATION_RULES = {
   system: { mode: "autonomy" },
