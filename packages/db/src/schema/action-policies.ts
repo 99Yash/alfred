@@ -5,6 +5,7 @@ import type {
   ToolName,
   ToolRiskTier,
 } from "@alfred/contracts";
+import type { ActionStagingStatus } from "@alfred/schemas";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -56,7 +57,7 @@ export const actionStagings = pgTable(
     proposedInput: jsonb("proposed_input").notNull(),
     proposedInputHash: text("proposed_input_hash").notNull(),
     requiresApproval: boolean("requires_approval").notNull(),
-    status: text("status").notNull().default("pending"),
+    status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
     decidedInput: jsonb("decided_input"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     rejectReason: text("reject_reason"),

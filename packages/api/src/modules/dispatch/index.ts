@@ -36,6 +36,7 @@ import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts"
 import { hashToolInput, integrationFromToolName, isToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
+import { actionStagingStatusSchema, type ActionStagingStatus } from "@alfred/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
@@ -121,7 +122,7 @@ export type DispatchResult =
 interface StagingRow {
   id: string;
   runId: string;
-  status: string;
+  status: ActionStagingStatus;
   requiresApproval: boolean;
   toolName: ToolName;
   proposedInput: unknown;
@@ -147,6 +148,10 @@ const STAGING_COLUMNS = {
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
 } as const;
+
+function parseStagingRow(row: StagingRow): StagingRow {
+  return { ...row, status: actionStagingStatusSchema.parse(row.status) };
+}
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
   if (!isToolName(args.toolName)) {
@@ -294,7 +299,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     .returning(STAGING_COLUMNS);
 
   const insertedNew = inserted[0] !== undefined;
-  let row: StagingRow | undefined = inserted[0];
+  let row: StagingRow | undefined = inserted[0] ? parseStagingRow(inserted[0]) : undefined;
   if (!row) {
     const existing = await db()
       .select(STAGING_COLUMNS)
@@ -303,7 +308,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         and(eq(actionStagings.runId, args.runId), eq(actionStagings.toolCallId, args.toolCallId)),
       )
       .limit(1);
-    row = existing[0];
+    row = existing[0] ? parseStagingRow(existing[0]) : undefined;
     if (!row) {
       throw new Error(
         `[dispatch] action_stagings row vanished between insert and read (run=${args.runId}, toolCallId=${args.toolCallId})`,

@@ -1,4 +1,5 @@
 import { INTEGRATION_SLUGS, TOOL_RISK_TIERS, isToolName, type ToolName } from "@alfred/contracts";
+import { runStatusSchema } from "@alfred/schemas";
 import { z } from "zod";
 
 export const isoDateTimeStringSchema = z
@@ -86,7 +87,7 @@ export const syncedSkillRunSchema = z.object({
   userId: z.string(),
   kind: z.string(),
   agentRunId: z.string(),
-  status: z.string(),
+  status: runStatusSchema,
   producedRevisionId: z.string().nullable(),
   rowVersion: z.number(),
   startedAt: isoDateTimeStringSchema,

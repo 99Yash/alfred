@@ -4,7 +4,13 @@ import { memoryChunks } from "@alfred/db/schemas";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { type MemoryChunkKind, type MemorySource, memorySourceSchema } from "./types";
+import {
+  jsonRecordSchema,
+  type MemoryChunkKind,
+  type MemorySource,
+  memoryChunkKindSchema,
+  memorySourceSchema,
+} from "./types";
 
 export const writeMemoryChunkArgsSchema = z.object({
   userId: z.string().min(1),
@@ -32,11 +38,11 @@ function rowToChunk(
   return {
     id: r.id,
     userId: r.userId,
-    kind: r.kind as MemoryChunkKind,
+    kind: memoryChunkKindSchema.parse(r.kind),
     content: r.content,
     contentHash: r.contentHash,
-    source: r.source as MemorySource,
-    metadata: r.metadata as Record<string, unknown>,
+    source: memorySourceSchema.parse(r.source),
+    metadata: jsonRecordSchema.parse(r.metadata),
     hasEmbedding: r.embedding != null,
   };
 }
@@ -178,9 +184,9 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     .filter((r) => r.distance != null)
     .map((r) => ({
       chunkId: r.chunkId,
-      kind: r.kind as MemoryChunkKind,
+      kind: memoryChunkKindSchema.parse(r.kind),
       preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
       similarity: 1 - Number(r.distance),
-      source: r.source as MemorySource,
+      source: memorySourceSchema.parse(r.source),
     }));
 }

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
+    "@alfred/schemas": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

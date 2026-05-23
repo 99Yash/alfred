@@ -1,4 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { agentRunTriggerSchema, type AgentRunTrigger } from "@alfred/schemas";
 import { sql } from "drizzle-orm";
 import {
   bigserial,
@@ -10,12 +11,14 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { z } from "zod";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
+export { agentRunTriggerSchema };
+export type { AgentRunTrigger };
+
 /**
- * Trigger that caused this `agent_runs` row to be inserted (ADR-0027).
+ * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
  *
  * Mirrors `workflows.trigger`'s shape at the union level but carries the
  * concrete firing context: a cron tick stamps `scheduledFor`, an event
@@ -28,22 +31,6 @@ import { user } from "./auth";
  * migrate to populating this column directly; `metadata` is reserved for
  * diagnostic breadcrumbs (e.g. which webhook delivery id fanned out).
  */
-export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    /** Scheduled instant as ISO-8601; distinct from `started_at` (wall-clock). */
-    scheduledFor: z.string(),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    /** Caller-supplied stable id; the event source's natural per-occurrence key. */
-    eventId: z.string(),
-    payload: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("on_signal"), signalName: z.string() }),
-]);
-export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
 /**
  * One row per durable agent run.

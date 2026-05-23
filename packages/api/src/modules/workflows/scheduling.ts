@@ -1,4 +1,4 @@
-import type { WorkflowTrigger } from "@alfred/db/schemas";
+import type { WorkflowTrigger } from "@alfred/schemas";
 import { CronExpressionParser } from "cron-parser";
 import { getPreference } from "../memory/preferences";
 import { isValidTimezone } from "../briefing/preferences";
