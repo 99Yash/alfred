@@ -17,6 +17,12 @@ import type { z } from "zod";
 
 export interface ToolExecuteContext {
   runId: string;
+  /**
+   * Scratchpad namespace for this call. Boss calls use their own run id;
+   * sub-agent calls keep `runId` as the child audit row but write/read the
+   * parent run's scratchpad.
+   */
+  scratchpadRunId: string;
   /** Id of the executor step that originated the call (audit only). */
   stepId: string;
   /** Stable id from the model's tool call — used as the staging row's tool_call_id. */

@@ -1,5 +1,6 @@
-import { INTEGRATION_SLUGS } from "@alfred/contracts";
+import { INTEGRATION_SLUGS, isLoadableIntegrationSlug } from "@alfred/contracts";
 import { z } from "zod";
+import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
@@ -54,6 +55,37 @@ export const systemTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "system",
+    action: "spawn_sub_agent",
+    riskTier: "no_risk",
+    description: "Spawn one focused sub-agent run with an isolated brief.",
+    inputSchema: spawnSubAgentInputSchema,
+    execute: async (input, ctx) => {
+      const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
+      const requestedAllowed = input.allowedIntegrations;
+      if (
+        workflowAllowed.length > 0 &&
+        requestedAllowed.some((slug) => !workflowAllowed.includes(slug))
+      ) {
+        return {
+          ok: false,
+          status: "not_allowed",
+          reason: "workflow_allowed_integrations_cap",
+          allowedIntegrations: workflowAllowed,
+        };
+      }
+
+      return await spawnSubAgent({
+        parentRunId: ctx.runId,
+        parentToolCallId: ctx.toolCallId,
+        userId: ctx.userId,
+        subId: input.subId,
+        brief: input.brief,
+        allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
     action: "read_scratch",
     riskTier: "no_risk",
     description: "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
@@ -62,9 +94,9 @@ export const systemTools: readonly RegisteredTool[] = [
       const target = parseScratchToolKey(input.key);
       const entry =
         target.zone === "shared"
-          ? await readScratch({ runId: ctx.runId, zone: "shared", path: target.path })
+          ? await readScratch({ runId: ctx.scratchpadRunId, zone: "shared", path: target.path })
           : await readScratch({
-              runId: ctx.runId,
+              runId: ctx.scratchpadRunId,
               zone: "scratch",
               subId: target.subId,
               path: target.path,
@@ -85,7 +117,7 @@ export const systemTools: readonly RegisteredTool[] = [
       const writtenBy = ctx.caller === "boss" ? "boss" : ctx.caller.subId;
       if (target.zone === "shared") {
         await writeScratch({
-          runId: ctx.runId,
+          runId: ctx.scratchpadRunId,
           zone: "shared",
           path: target.path,
           value: input.value,
@@ -93,7 +125,7 @@ export const systemTools: readonly RegisteredTool[] = [
         });
       } else {
         await writeScratch({
-          runId: ctx.runId,
+          runId: ctx.scratchpadRunId,
           zone: "scratch",
           subId: target.subId,
           path: target.path,
@@ -118,7 +150,7 @@ export const systemTools: readonly RegisteredTool[] = [
       }
 
       const entry = await promoteScratch({
-        runId: ctx.runId,
+        runId: ctx.scratchpadRunId,
         fromSubId: from.subId,
         fromPath: from.path,
         toSharedPath: to.path,

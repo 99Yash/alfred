@@ -125,7 +125,10 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
   if (resolved.userAuthoredRow) {
     const row = resolved.userAuthoredRow;
     brief = brief ?? row.brief ?? undefined;
-    metadata = { ...metadata, allowedIntegrations: row.allowedIntegrations };
+    const metadataAllowedIntegrations = Array.isArray(metadata.allowedIntegrations)
+      ? metadata.allowedIntegrations
+      : row.allowedIntegrations;
+    metadata = { ...metadata, allowedIntegrations: metadataAllowedIntegrations };
   }
 
   const workflowInput = {
