@@ -220,6 +220,16 @@
   --vs-shadow-elevated-hover:
     0 1px 1px rgba(0, 0, 0, 0.12),
     0 0 0 1px rgba(0, 0, 0, 0.1);
+
+  /* Brand accent — the CTA color. Separate from the -hue scale because
+   * the -4 of any hue is tuned for icons/dots (mid-saturation), not for
+   * a button that has to dominate the page. Accent is a saturated brand
+   * purple between dimension's #5d44df and visitors.now's #918df6. */
+  --vs-accent-from: #6b62f2;
+  --vs-accent-to: #4f37cb;
+  --vs-accent-fg: #ffffff;
+  --vs-accent-ring: rgba(107, 98, 242, 0.45);
+  --vs-accent-glow: rgba(107, 98, 242, 0.35);
 }
 
 /* -----------------------------------------------------------------------------
@@ -320,6 +330,13 @@
     --vs-shadow-elevated-hover:
       0 0 0 1px rgba(255, 255, 255, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    /* Accent — slightly brighter in dark for adequate luminance against near-black */
+    --vs-accent-from: #7e75f5;
+    --vs-accent-to: #5d44df;
+    --vs-accent-fg: #ffffff;
+    --vs-accent-ring: rgba(126, 117, 245, 0.55);
+    --vs-accent-glow: rgba(126, 117, 245, 0.45);
   }
 }
 
@@ -401,6 +418,12 @@
   --vs-shadow-elevated-hover:
     0 0 0 1px rgba(255, 255, 255, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --vs-accent-from: #7e75f5;
+  --vs-accent-to: #5d44df;
+  --vs-accent-fg: #ffffff;
+  --vs-accent-ring: rgba(126, 117, 245, 0.55);
+  --vs-accent-glow: rgba(126, 117, 245, 0.45);
 }
 
 @theme inline {
