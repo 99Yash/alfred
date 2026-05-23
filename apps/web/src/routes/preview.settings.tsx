@@ -2,18 +2,24 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   BadgeDollarSign,
   Bell,
+  Bot,
+  FileText,
   Gift,
   ListChecks,
+  LogOut,
   Mail,
   MessageSquare,
   PackageCheck,
   PencilLine,
+  Radio,
+  ShieldCheck,
   Slack,
   Sliders,
   Sparkles,
   Sunrise,
   Sunset,
   Tag,
+  Trash2,
   User,
   Users2,
 } from "lucide-react";
@@ -87,7 +93,7 @@ function PreviewSettingsBody() {
       </div>
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-2 mb-10 vs-card-in">
-          <h1 className="text-[36px] leading-[44px] font-medium text-vs-fg-4">Settings</h1>
+          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Settings</h1>
           <p className="text-sm text-vs-fg-3">Manage your account.</p>
         </header>
 
@@ -152,7 +158,7 @@ function SidebarRow({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group inline-flex w-full items-center gap-2.5 rounded-full",
+        "group inline-flex w-full items-center gap-2.5 rounded-xl",
         "h-9 px-3 text-sm font-medium whitespace-nowrap",
         "transition-[background-color,color] duration-150",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
@@ -213,9 +219,25 @@ function SectionPanel({ section }: { section: SectionId }) {
 /* SettingCard — the standard atomic surface                                   */
 /* -------------------------------------------------------------------------- */
 
+type CardTone = "purple" | "amber" | "sky" | "green" | "pink" | "orange" | "red" | "neutral";
+
+const CARD_TILE: Record<CardTone, string> = {
+  purple: "bg-vs-purple-1 text-vs-purple-4",
+  amber: "bg-vs-amber-1 text-vs-amber-4",
+  sky: "bg-vs-sky-1 text-vs-sky-4",
+  green: "bg-vs-green-1 text-vs-green-4",
+  pink: "bg-vs-pink-1 text-vs-pink-4",
+  orange: "bg-vs-orange-1 text-vs-orange-4",
+  red: "bg-vs-red-1 text-vs-red-4",
+  neutral: "bg-vs-bg-2 text-vs-fg-3",
+};
+
 interface SettingCardProps {
   title: string;
   description?: string;
+  /** Optional hue-tinted icon tile next to the title. */
+  icon?: ComponentType<{ size?: number; className?: string }>;
+  tone?: CardTone;
   /** Optional footer caption (left side, below the divider). */
   footer?: ReactNode;
   /** Optional footer action (right side, below the divider). */
@@ -225,14 +247,38 @@ interface SettingCardProps {
   children?: ReactNode;
 }
 
-function SettingCard({ title, description, footer, action, noDivider, children }: SettingCardProps) {
+function SettingCard({
+  title,
+  description,
+  icon: Icon,
+  tone = "neutral",
+  footer,
+  action,
+  noDivider,
+  children,
+}: SettingCardProps) {
   return (
     <VsCard padded={false}>
-      <div className="p-5 pb-3 space-y-1">
-        <p className="text-sm font-medium text-vs-fg-4">{title}</p>
-        {description ? <p className="text-xs text-vs-fg-3">{description}</p> : null}
+      <div className="flex items-start gap-3 p-5 pb-3">
+        {Icon ? (
+          <span
+            aria-hidden
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-xl mt-0.5",
+              CARD_TILE[tone],
+            )}
+          >
+            <Icon size={14} />
+          </span>
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-sm font-medium text-vs-fg-4">{title}</p>
+          {description ? <p className="text-xs text-vs-fg-3">{description}</p> : null}
+        </div>
       </div>
-      {children ? <div className="px-5 pb-3">{children}</div> : null}
+      {children ? (
+        <div className={cn("pb-3", Icon ? "px-5 pl-[60px]" : "px-5")}>{children}</div>
+      ) : null}
       {footer || action ? (
         <div
           className={cn(
@@ -286,6 +332,8 @@ function UserSection() {
       <SettingCard
         title="Username"
         description="What should we call you?"
+        icon={User}
+        tone="purple"
         footer="Profile editing arrives with the m13 settings backend."
         action={
           <VsButton size="sm" disabled>
@@ -305,6 +353,8 @@ function UserSection() {
       <SettingCard
         title="Email"
         description="Manage the email you use to sign into Alfred."
+        icon={Mail}
+        tone="sky"
         footer="Used to identify your account."
       >
         <VsInput value={email} readOnly aria-label="Email" className="!h-10 !rounded-2xl" />
@@ -313,6 +363,8 @@ function UserSection() {
       <SettingCard
         title="Preferred mode of communication"
         description="Choose how Alfred should reach you with briefings and approvals."
+        icon={Radio}
+        tone="amber"
       >
         <VsSegmented<CommunicationChannel>
           value={channel}
@@ -325,6 +377,8 @@ function UserSection() {
       <SettingCard
         title="Auto approve"
         description="Skip the approval prompt for low-risk actions Alfred takes on your behalf."
+        icon={ShieldCheck}
+        tone="green"
         noDivider
         action={<VsSwitch checked={autoApprove} onCheckedChange={setAutoApprove} />}
       />
@@ -332,6 +386,8 @@ function UserSection() {
       <SettingCard
         title="Background"
         description="Tell Alfred about yourself — used to ground every response."
+        icon={FileText}
+        tone="pink"
         footer="Background editing arrives with the m13 settings backend."
       >
         <VsTextarea
@@ -345,6 +401,8 @@ function UserSection() {
       <SettingCard
         title="Logout from this account"
         description="Sign out on this device."
+        icon={LogOut}
+        tone="orange"
         noDivider
         action={
           <VsButton
@@ -362,6 +420,8 @@ function UserSection() {
       <SettingCard
         title="Delete account"
         description="Permanently delete your account and data."
+        icon={Trash2}
+        tone="red"
         footer="Proceed with caution. This action cannot be undone."
         action={
           <VsButton
@@ -472,8 +532,10 @@ function PreferencesSection() {
       <SettingCard
         title="Default model"
         description="Model Alfred uses to reason. Picker lands with milestone 13."
+        icon={Bot}
+        tone="purple"
       >
-        <div className="inline-flex items-center gap-2 rounded-full px-3 h-9 bg-vs-bg-2 text-sm text-vs-fg-3">
+        <div className="inline-flex items-center gap-2 rounded-xl px-3 h-9 bg-vs-bg-2 text-sm text-vs-fg-3">
           <Sparkles size={13} className="text-vs-fg-2" />
           <span>Alfred (default)</span>
         </div>
@@ -482,6 +544,8 @@ function PreferencesSection() {
       <SettingCard
         title="Product updates"
         description="Get notified about new features and improvements."
+        icon={Bell}
+        tone="amber"
         noDivider
         action={<VsSwitch checked={productUpdates} onCheckedChange={setProductUpdates} />}
       />

@@ -65,7 +65,7 @@ function PreviewIntegrationsBody() {
       </div>
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
-          <h1 className="text-[36px] leading-[44px] font-medium text-vs-fg-4">Integrations</h1>
+          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Integrations</h1>
           <p className="text-sm text-vs-fg-3">
             Connect the tools Alfred can read, write, and act on.
           </p>
@@ -207,7 +207,7 @@ type Section = {
 function SectionBlock({ section, index }: { section: Section; index: number }) {
   return (
     <section className="space-y-3 vs-card-in" style={{ animationDelay: `${180 + index * 60}ms` }}>
-      <h2 className="text-xs uppercase tracking-wider text-vs-fg-2 font-medium px-1">
+      <h2 className="text-xs uppercase tracking-tight text-vs-fg-2 font-medium px-1">
         {section.title}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -306,7 +306,7 @@ function ActionPill({
   return (
     <span
       className={cn(
-        "inline-flex h-7 shrink-0 items-center justify-center rounded-full px-2.5 text-xs font-medium",
+        "inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2.5 text-xs font-medium",
         status === "connected" && "bg-vs-green-1 text-vs-green-4",
         status === "available" && "bg-vs-bg-2 text-vs-fg-3",
         status === "soon" && "bg-vs-bg-2 text-vs-fg-2",
@@ -335,7 +335,7 @@ function MCPServerSection() {
       className="space-y-3 vs-card-in"
       style={{ animationDelay: `${480}ms` }}
     >
-      <h2 className="text-xs uppercase tracking-wider text-vs-fg-2 font-medium px-1">
+      <h2 className="text-xs uppercase tracking-tight text-vs-fg-2 font-medium px-1">
         {MCP_SECTION.heading}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -354,7 +354,7 @@ function MCPServerSection() {
             <p className="truncate text-sm font-medium text-vs-fg-4">{MCP_SECTION.name}</p>
             <p className="truncate text-xs text-vs-fg-3">{MCP_SECTION.description}</p>
           </div>
-          <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-full bg-vs-bg-2 px-2.5 text-xs font-medium text-vs-fg-2">
+          <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg bg-vs-bg-2 px-2.5 text-xs font-medium text-vs-fg-2">
             <Plus size={12} />
             Add
           </span>

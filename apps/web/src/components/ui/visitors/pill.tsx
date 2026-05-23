@@ -52,7 +52,7 @@ export function VsPill({
       type={type ?? "button"}
       className={cn(
         "inline-flex items-center justify-center gap-1.5",
-        "h-8 px-2.5 text-sm font-medium rounded-full whitespace-nowrap",
+        "h-8 px-2.5 text-sm font-medium rounded-lg whitespace-nowrap",
         "transition-[box-shadow,background-color,transform]",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         "vs-press",

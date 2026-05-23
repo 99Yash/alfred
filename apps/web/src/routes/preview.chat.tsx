@@ -1,0 +1,971 @@
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  ArrowUp,
+  AtSign,
+  BookOpen,
+  Brain,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  ChevronsLeft,
+  Ellipsis,
+  Inbox,
+  Mail,
+  Mic,
+  NotebookPen,
+  Paperclip,
+  Pin,
+  Plug,
+  Plus,
+  Search,
+  Settings2,
+  Share2,
+  ShieldCheck,
+  Sparkles,
+  SquarePen,
+  Tag,
+  Users2,
+  Workflow,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
+import {
+  VsPill,
+  VsThemed,
+  VsThemeProvider,
+  VsThemeToggle,
+} from "~/components/ui/visitors";
+import { cn } from "~/lib/utils";
+
+/**
+ * Visitors-now-grammar app shell for the upcoming chat UI.
+ *
+ * Layout
+ * - Fixed 264px left rail: brand · new-chat CTA · search · thread groups · user.
+ * - Main column: frost-blurred top bar with thread title + actions, scrollable
+ *   conversation, composer pinned to bottom.
+ *
+ * Everything visitors-feel: rounded-full pills for nav rows, `vs-elevated`
+ * surfaces, the masked frost backdrop on chrome, and active:scale-99 press.
+ * Theme-aware via VsThemeProvider — toggle lives in the top bar.
+ *
+ * Mounted at /preview/chat regardless of auth state. Content below the chrome
+ * is placeholder so the shell can be reviewed in isolation before /chat lands.
+ */
+export const Route = createFileRoute("/preview/chat")({
+  component: PreviewChatPage,
+});
+
+type ThreadGroup = "today" | "yesterday" | "earlier";
+
+interface ThreadEntry {
+  id: string;
+  title: string;
+  preview: string;
+  pinned?: boolean;
+  unread?: boolean;
+}
+
+const THREADS: Record<ThreadGroup, ThreadEntry[]> = {
+  today: [
+    {
+      id: "morning-brief",
+      title: "Morning briefing — Friday",
+      preview: "Three threads to look at, calendar starts at 10.",
+      pinned: true,
+    },
+    {
+      id: "sycamore-recap",
+      title: "Sycamore investor update",
+      preview: "Pull last three sends and summarize the asks.",
+    },
+    {
+      id: "calendar-block",
+      title: "Block focus time tomorrow",
+      preview: "Two free 90-min windows on the calendar.",
+      unread: true,
+    },
+  ],
+  yesterday: [
+    {
+      id: "triage-rules",
+      title: "Tune triage label rules",
+      preview: "Move newsletters off the inbox tab.",
+    },
+    {
+      id: "vesting-q",
+      title: "Vesting cliff question",
+      preview: "Draft response to Maya's email.",
+    },
+  ],
+  earlier: [
+    {
+      id: "weekly-recap",
+      title: "Weekly recap — week 21",
+      preview: "Highlights, blockers, decisions made.",
+    },
+    {
+      id: "cold-start",
+      title: "Cold-start research notes",
+      preview: "Pull facts from initial Sonar pass.",
+    },
+    {
+      id: "memory-cleanup",
+      title: "Memory cleanup pass",
+      preview: "Remove stale auth-flow notes.",
+    },
+  ],
+};
+
+function PreviewChatPage() {
+  return (
+    <VsThemeProvider>
+      <PreviewChatBody />
+    </VsThemeProvider>
+  );
+}
+
+function PreviewChatBody() {
+  const [activeThread, setActiveThread] = useState<string>("morning-brief");
+  const [composer, setComposer] = useState("");
+
+  const activeEntry = findThread(activeThread);
+
+  return (
+    <VsThemed className="min-h-dvh bg-vs-background">
+      <div className="flex h-dvh w-full overflow-hidden">
+        <Sidebar activeThread={activeThread} onSelectThread={setActiveThread} />
+
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          <ThreadTopBar title={activeEntry?.title ?? "New chat"} />
+
+          <ConversationScroll>
+            <ConversationPlaceholder entry={activeEntry} />
+          </ConversationScroll>
+
+          <ComposerDock value={composer} onChange={setComposer} />
+        </div>
+      </div>
+    </VsThemed>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sidebar                                                                     */
+/* -------------------------------------------------------------------------- */
+
+interface SidebarProps {
+  activeThread: string;
+  onSelectThread: (id: string) => void;
+}
+
+function Sidebar({ activeThread, onSelectThread }: SidebarProps) {
+  return (
+    <aside
+      aria-label="Workspace navigation"
+      className={cn(
+        "relative shrink-0 w-[264px] h-full",
+        "border-r border-vs-bg-3/60",
+        "bg-vs-bg-1/40",
+        "flex flex-col",
+      )}
+    >
+      {/* Brand row */}
+      <div className="px-3 pt-3 pb-2 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          className={cn(
+            "group inline-flex items-center gap-2 rounded-xl h-9 pl-1 pr-2.5 text-sm font-medium",
+            "text-vs-fg-4 hover:bg-vs-bg-a2 transition-colors vs-press",
+            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          )}
+        >
+          <span
+            aria-hidden
+            className="size-7 rounded-full bg-vs-fg-4 inline-flex items-center justify-center"
+          >
+            <Sparkles size={13} className="text-vs-bg-1" />
+          </span>
+          <span>Alfred</span>
+          <ChevronUpDown />
+        </button>
+
+        <button
+          type="button"
+          aria-label="Collapse sidebar"
+          className={cn(
+            "size-8 inline-flex items-center justify-center rounded-lg",
+            "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          )}
+        >
+          <ChevronsLeft size={15} />
+        </button>
+      </div>
+
+      {/* Workspace nav. New chat + Search are at the top of the same group
+       * as the cross-route nav, matching dimension's sidebar IA — no
+       * separate primary CTA. The kbd hints carry the "this is the
+       * main action" signal instead of a colored fill. */}
+      <div className="px-2 pt-1 pb-2 space-y-0.5">
+        <NavRow icon={SquarePen} label="New chat" kbd="⌘N" />
+        <NavRow icon={Search} label="Search" kbd="⌘K" />
+        <NavRow icon={Plug} label="Integrations" />
+        <NavRow icon={Workflow} label="Workflows" />
+        <NavRow icon={Wrench} label="Skills" />
+        <NavRow icon={BookOpen} label="Library" />
+        <NavRow icon={ShieldCheck} label="Approvals" badge="2" />
+      </div>
+
+      {/* PERSONAL */}
+      <SidebarHeading>Personal</SidebarHeading>
+      <div className="px-2 pb-2 space-y-0.5">
+        <NavRow icon={Brain} label="Memory" />
+        <NavRow icon={NotebookPen} label="Notes" />
+      </div>
+
+      {/* Chats (scrolls). No section heading — the per-group day labels
+       * (TODAY / YESTERDAY / EARLIER) carry enough meaning on their own. */}
+      <nav
+        aria-label="Chats"
+        className={cn(
+          "flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 vs-scrollbar",
+          "[scrollbar-width:thin]",
+        )}
+      >
+        <ThreadGroupBlock label="Today" entries={THREADS.today} activeId={activeThread} onSelect={onSelectThread} />
+        <ThreadGroupBlock label="Yesterday" entries={THREADS.yesterday} activeId={activeThread} onSelect={onSelectThread} />
+        <ThreadGroupBlock label="Earlier" entries={THREADS.earlier} activeId={activeThread} onSelect={onSelectThread} />
+      </nav>
+
+      <UserRow />
+    </aside>
+  );
+}
+
+function SidebarHeading({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-5 pt-3 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+      {children}
+    </div>
+  );
+}
+
+function NavRow({
+  icon: Icon,
+  label,
+  kbd,
+  badge,
+  active = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  kbd?: string;
+  badge?: string;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
+        "transition-[background-color,color] duration-150 vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        active
+          ? "bg-vs-bg-2 text-vs-fg-4"
+          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+      )}
+    >
+      <Icon
+        size={14}
+        aria-hidden
+        className={cn(
+          "shrink-0 transition-colors",
+          active ? "text-vs-fg-4" : "text-vs-fg-2 group-hover:text-vs-fg-4",
+        )}
+      />
+      <span className="flex-1 min-w-0 truncate text-sm font-medium">{label}</span>
+      {badge ? (
+        <span
+          className={cn(
+            "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full",
+            "text-[10.5px] font-medium tabular-nums",
+            "bg-vs-purple-1 text-vs-purple-4",
+          )}
+        >
+          {badge}
+        </span>
+      ) : null}
+      {kbd ? <KbdHint>{kbd}</KbdHint> : null}
+    </button>
+  );
+}
+
+function KbdHint({ children }: { children: ReactNode }) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
+        "text-[10.5px] leading-none font-medium tabular-nums",
+        "bg-vs-bg-a2 text-vs-fg-2 font-sans",
+      )}
+    >
+      {children}
+    </kbd>
+  );
+}
+
+function ThreadGroupBlock({
+  label,
+  entries,
+  activeId,
+  onSelect,
+}: {
+  label: string;
+  entries: ThreadEntry[];
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="mb-3">
+      <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
+        {label}
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {entries.map((entry) => (
+          <ThreadRow
+            key={entry.id}
+            entry={entry}
+            active={entry.id === activeId}
+            onSelect={() => onSelect(entry.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ThreadRow({
+  entry,
+  active,
+  onSelect,
+}: {
+  entry: ThreadEntry;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2",
+        "transition-[background-color,color] duration-150 vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        active
+          ? "bg-vs-bg-2 text-vs-fg-4"
+          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+      )}
+    >
+      {entry.pinned ? (
+        <Pin size={12} aria-hidden className="shrink-0 text-vs-fg-2 group-hover:text-vs-fg-3" />
+      ) : entry.unread ? (
+        <span
+          aria-hidden
+          className="size-1.5 shrink-0 rounded-full bg-vs-purple-4"
+        />
+      ) : (
+        <span aria-hidden className="size-1.5 shrink-0" />
+      )}
+      <span className="flex-1 min-w-0 truncate text-sm font-medium">{entry.title}</span>
+    </button>
+  );
+}
+
+function UserRow() {
+  return (
+    <div className="px-3 py-2 border-t border-vs-bg-3/60">
+      <button
+        type="button"
+        className={cn(
+          "w-full inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2",
+          "hover:bg-vs-bg-a2 transition-colors vs-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )}
+      >
+        <span
+          aria-hidden
+          className="size-8 shrink-0 rounded-full bg-vs-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
+        >
+          Y
+        </span>
+        <span className="flex-1 min-w-0 text-left">
+          <span className="block text-sm font-medium text-vs-fg-4 truncate">Yash</span>
+          <span className="block text-[11px] text-vs-fg-2 truncate">dev.6@oliv.ai</span>
+        </span>
+        <Settings2 size={14} aria-hidden className="text-vs-fg-2" />
+      </button>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Top bar                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function ThreadTopBar({ title }: { title: string }) {
+  return (
+    <div
+      className={cn(
+        "vs-frost-header sticky top-0 z-30",
+        "h-[58px] px-4 flex items-center justify-between gap-3",
+      )}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <h1 className="text-sm font-medium tracking-tight text-vs-fg-4 truncate max-w-[42ch]">{title}</h1>
+        <VsPill className="h-7 px-2 text-[12px]" tone="purple" variant="accent">
+          Boss agent
+        </VsPill>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <IconButton label="Share thread">
+          <Share2 size={14} />
+        </IconButton>
+        <IconButton label="Thread settings">
+          <Ellipsis size={14} />
+        </IconButton>
+        <span aria-hidden className="mx-1 h-5 w-px bg-vs-bg-3" />
+        <VsThemeToggle />
+      </div>
+    </div>
+  );
+}
+
+function IconButton({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn(
+        "size-8 inline-flex items-center justify-center rounded-lg",
+        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Conversation area                                                           */
+/* -------------------------------------------------------------------------- */
+
+function ConversationScroll({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative flex-1 min-h-0 overflow-y-auto vs-scrollbar">
+      <div className="mx-auto w-full max-w-3xl px-6 pt-10 pb-8">{children}</div>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none sticky bottom-0 left-0 right-0 h-10",
+          "bg-gradient-to-t from-vs-background to-transparent",
+        )}
+      />
+    </div>
+  );
+}
+
+function ConversationPlaceholder({ entry }: { entry: ThreadEntry | undefined }) {
+  if (!entry) {
+    return <EmptyConversation />;
+  }
+  return (
+    <div className="space-y-8 vs-card-in">
+      <UserTurn text={entry.preview} />
+      <AssistantTurn />
+      <UserTurn text="Skip the calendar bit — just the email summary, ranked by who's waiting on me." />
+      <AssistantTurn followUp />
+    </div>
+  );
+}
+
+function EmptyConversation() {
+  return (
+    <div className="flex flex-col items-center justify-center text-center pt-24 vs-card-in">
+      <span
+        aria-hidden
+        className="size-12 rounded-full inline-flex items-center justify-center bg-vs-purple-1 text-vs-purple-4 mb-3"
+      >
+        <Sparkles size={18} />
+      </span>
+      <h2 className="text-base font-medium tracking-tight text-vs-fg-4">Ask Alfred anything</h2>
+      <p className="mt-1 max-w-sm text-sm text-vs-fg-3">
+        Search your mail, summarize a thread, draft a reply, or kick off a workflow.
+      </p>
+    </div>
+  );
+}
+
+function UserTurn({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end">
+      <div
+        className={cn(
+          "max-w-[80%] rounded-2xl rounded-tr-md px-4 py-2.5 text-sm",
+          "bg-vs-bg-2 text-vs-fg-4",
+        )}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <span
+        aria-hidden
+        className="mt-0.5 size-7 shrink-0 rounded-full bg-vs-purple-1 text-vs-purple-4 inline-flex items-center justify-center"
+      >
+        <Sparkles size={13} />
+      </span>
+      <div className="flex-1 min-w-0 space-y-4 text-sm text-vs-fg-3 leading-relaxed">
+        {followUp ? (
+          <>
+            <RunGroup title="Sorted inbox by who's waiting" itemCount={5}>
+              <ThoughtRow duration="2s">
+                The user wants just emails ranked by reply urgency — skipping the calendar pull.
+              </ThoughtRow>
+              <SearchRow
+                icon={Mail}
+                tone="sky"
+                label="Filtered Gmail"
+                detail="from:* in:inbox -label:later"
+                count="7 threads"
+              />
+              <ToolRow
+                icon={Users2}
+                tone="purple"
+                label="Resolved senders"
+                detail="3 of 7 are recurring contacts"
+              />
+              <ThoughtRow duration="1s">
+                Ranked by latest-reply-from-me age — older threads first.
+              </ThoughtRow>
+              <ToolRow
+                icon={Tag}
+                tone="green"
+                label="Tagged 3 as Reply today"
+                done
+              />
+            </RunGroup>
+            <p>
+              <span className="text-vs-fg-4 font-medium">Three to answer.</span> Maya's vesting
+              question (waiting 2 days), the Sycamore investor recap (their ask is on the cliff
+              date), and a vendor renewal from Linear.
+            </p>
+            <p>The newsletters and three notifications have been auto-archived to Later.</p>
+            <SourcesRow
+              items={[
+                { icon: Inbox, label: "Inbox", count: 7, tone: "sky" },
+                { icon: Users2, label: "Contacts", count: 3, tone: "purple" },
+              ]}
+            />
+          </>
+        ) : (
+          <>
+            <RunGroup title="Reviewed your morning" itemCount={6}>
+              <ThoughtRow duration="2s">
+                Pulling unread Gmail threads since yesterday and Friday's calendar blocks.
+              </ThoughtRow>
+              <SearchRow
+                icon={Mail}
+                tone="sky"
+                label="Searched Gmail"
+                detail="is:unread newer_than:1d"
+                count="8 threads"
+              />
+              <ToolRow
+                icon={BookOpen}
+                tone="purple"
+                label="Read 3 threads"
+                detail="Maya, Sycamore, Linear"
+              />
+              <ThoughtRow duration="1s">
+                Now the calendar — three blocks today plus a tentative.
+              </ThoughtRow>
+              <SearchRow
+                icon={Calendar}
+                tone="amber"
+                label="Listed today's events"
+                detail="2026-05-23 · primary calendar"
+                count="3 events"
+              />
+              <ToolRow
+                icon={Brain}
+                tone="pink"
+                label="Recalled context"
+                detail="2 memory hits about Sycamore"
+                done
+              />
+            </RunGroup>
+            <p>
+              Here's your morning. You have{" "}
+              <span className="text-vs-fg-4 font-medium">8 unread</span> threads, three of which
+              need a reply today. Calendar starts at{" "}
+              <span className="text-vs-fg-4 font-medium">10:00</span> with the eng sync.
+            </p>
+            <SourcesRow
+              items={[
+                { icon: Inbox, label: "Inbox", count: 8, tone: "sky" },
+                { icon: Calendar, label: "Calendar", count: 3, tone: "amber" },
+                { icon: Brain, label: "Memory", count: 2, tone: "pink" },
+              ]}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tool-call primitives — compact inline tree.                                */
+/*                                                                            */
+/* No surface card around the group: the run lives directly in the assistant  */
+/* turn's text flow so it stays visually quiet, like a typed-out trace rather */
+/* than a separate object. Chevron + title + steps count on the header line;  */
+/* a thin vertical hairline guides the eye down the nested rows. Each row     */
+/* carries a small `size-6 rounded-md` hue-tinted icon tile + label + optional */
+/* right-aligned detail/count/check.                                          */
+/* -------------------------------------------------------------------------- */
+
+type ToolTone = "sky" | "amber" | "purple" | "green" | "pink" | "orange";
+
+const TOOL_TONE: Record<ToolTone, string> = {
+  sky: "bg-vs-sky-1 text-vs-sky-4",
+  amber: "bg-vs-amber-1 text-vs-amber-4",
+  purple: "bg-vs-purple-1 text-vs-purple-4",
+  green: "bg-vs-green-1 text-vs-green-4",
+  pink: "bg-vs-pink-1 text-vs-pink-4",
+  orange: "bg-vs-orange-1 text-vs-orange-4",
+};
+
+function RunGroup({
+  title,
+  itemCount,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  itemCount?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="-mx-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "group/run flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left",
+          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )}
+      >
+        <ChevronRight
+          size={14}
+          aria-hidden
+          className={cn(
+            "shrink-0 text-vs-fg-2 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+        <span className="text-sm font-medium text-vs-fg-4">{title}</span>
+        {typeof itemCount === "number" ? (
+          <span className="ml-auto text-xs text-vs-fg-2 tabular-nums">
+            {itemCount} {itemCount === 1 ? "step" : "steps"}
+          </span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div className="relative ml-[7px] mt-1.5 pl-5 pb-1">
+          <span
+            aria-hidden
+            className="absolute left-0 top-1.5 bottom-2.5 w-px bg-vs-bg-3"
+          />
+          <div className="space-y-1.5">{children}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ToolRow({
+  icon: Icon,
+  tone,
+  label,
+  detail,
+  count,
+  done = false,
+}: {
+  icon: LucideIcon;
+  tone: ToolTone;
+  label: string;
+  detail?: string;
+  count?: string;
+  done?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 text-sm leading-5">
+      <span
+        aria-hidden
+        className={cn(
+          "size-6 shrink-0 inline-flex items-center justify-center rounded-md",
+          TOOL_TONE[tone],
+        )}
+      >
+        <Icon size={12} />
+      </span>
+      <span className="min-w-0 truncate text-vs-fg-4 font-medium">{label}</span>
+      {detail ? (
+        <span className="hidden sm:inline truncate text-xs text-vs-fg-2 max-w-[28ch]">
+          {detail}
+        </span>
+      ) : null}
+      <span className="ml-auto flex items-center gap-1.5 shrink-0">
+        {count ? (
+          <span className="text-xs text-vs-fg-3 tabular-nums">{count}</span>
+        ) : null}
+        {done ? (
+          <CheckCircle2 size={13} aria-hidden className="text-vs-green-4" />
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function SearchRow(props: Omit<React.ComponentProps<typeof ToolRow>, "done">) {
+  return <ToolRow {...props} done />;
+}
+
+function ThoughtRow({
+  duration,
+  children,
+  defaultOpen = false,
+}: {
+  duration: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "group/th flex items-center gap-2 text-sm leading-5",
+          "outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )}
+      >
+        <span
+          aria-hidden
+          className="size-6 shrink-0 inline-flex items-center justify-center rounded-md bg-vs-bg-2 text-vs-fg-3"
+        >
+          <Sparkles size={12} />
+        </span>
+        <span className="text-vs-fg-3">
+          Thought for <span className="text-vs-fg-4 font-medium">{duration}</span>
+        </span>
+        <ChevronRight
+          size={12}
+          aria-hidden
+          className={cn(
+            "shrink-0 text-vs-fg-2 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open ? (
+        <p className="ml-8 mt-1.5 max-w-[64ch] text-xs leading-5 text-vs-fg-3">{children}</p>
+      ) : null}
+    </div>
+  );
+}
+
+interface SourceItem {
+  icon: LucideIcon;
+  label: string;
+  count: number;
+  tone: ToolTone;
+}
+
+function SourcesRow({ items }: { items: SourceItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+      <span className="text-[11px] uppercase tracking-tight text-vs-fg-2 mr-1">Sources</span>
+      {items.map((item) => (
+        <SourcePill
+          key={item.label}
+          icon={<item.icon size={11} />}
+          label={item.label}
+          count={item.count}
+          tone={item.tone}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SourcePill({
+  icon,
+  label,
+  count,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  count: number;
+  tone: ToolTone;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg h-6 px-2 text-[11px] font-medium",
+        TOOL_TONE[tone],
+      )}
+    >
+      {icon}
+      {label}
+      <span className="text-vs-fg-2 tabular-nums">{count}</span>
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Composer                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function ComposerDock({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const canSend = value.trim().length > 0;
+  return (
+    <div className="shrink-0 pb-5 pt-1">
+      <div className="mx-auto w-full max-w-3xl px-6">
+        <div className={cn("rounded-3xl bg-vs-bg-1 p-2 vs-elevated")}>
+          <textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Ask Alfred…"
+            rows={2}
+            className={cn(
+              "block w-full resize-none bg-transparent px-2.5 pt-2 text-sm text-vs-fg-4 placeholder:text-vs-fg-2",
+              "outline-none focus-visible:outline-none",
+            )}
+          />
+
+          <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
+            <div className="flex items-center gap-1.5">
+              <ComposerIcon label="Attach file">
+                <Paperclip size={14} />
+              </ComposerIcon>
+              <ComposerIcon label="Mention source">
+                <AtSign size={14} />
+              </ComposerIcon>
+              <VsPill className="h-7 px-2.5 text-[12px]" leading={<Plus size={12} />} chevron>
+                Add tool
+              </VsPill>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <ComposerIcon label="Dictate">
+                <Mic size={14} />
+              </ComposerIcon>
+              <button
+                type="button"
+                disabled={!canSend}
+                aria-label="Send message"
+                className={cn(
+                  "size-8 inline-flex items-center justify-center rounded-lg",
+                  "vs-press transition-[box-shadow,transform,filter]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+                  canSend
+                    ? cn(
+                        "text-[var(--vs-accent-fg)]",
+                        "bg-[image:var(--vs-cta-bg)]",
+                        "shadow-[var(--vs-button-primary-shadow)]",
+                        "hover:brightness-[1.06]",
+                      )
+                    : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
+                )}
+              >
+                <ArrowUp size={15} strokeWidth={2.25} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <p className="mt-2 text-center text-[11px] text-vs-fg-2">
+          Alfred can call tools across Gmail, Calendar, and your memory.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ComposerIcon({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn(
+        "size-8 inline-flex items-center justify-center rounded-lg",
+        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Helpers + tiny icons                                                        */
+/* -------------------------------------------------------------------------- */
+
+function findThread(id: string): ThreadEntry | undefined {
+  for (const group of Object.values(THREADS)) {
+    const hit = group.find((t) => t.id === id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+function ChevronUpDown() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+      className="shrink-0 text-vs-fg-2"
+    >
+      <path
+        d="M3.5 5L6 2.5L8.5 5M3.5 7L6 9.5L8.5 7"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

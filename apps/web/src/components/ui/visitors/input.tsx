@@ -19,7 +19,7 @@ export function VsInput({ className, readOnly, ref, ...rest }: VsInputProps) {
       ref={ref}
       readOnly={readOnly}
       className={cn(
-        "w-full h-9 px-3 text-sm rounded-full",
+        "w-full h-9 px-3 text-sm rounded-xl",
         "outline-none transition-shadow",
         "focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         "placeholder:text-vs-fg-2",

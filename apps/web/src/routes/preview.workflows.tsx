@@ -33,7 +33,7 @@ function PreviewWorkflowsPage() {
         </div>
         <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
           <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
-            <h1 className="text-[36px] leading-[44px] font-medium text-vs-fg-4">Workflows</h1>
+            <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Workflows</h1>
             <p className="text-sm text-vs-fg-3">
               Create scheduled or trigger-based work Alfred runs on its own.
             </p>
@@ -51,7 +51,7 @@ function PreviewWorkflowsPage() {
           </header>
 
           <section className="mt-12 space-y-3">
-            <h2 className="text-xs uppercase tracking-wider text-vs-fg-2 font-medium px-1">Built-ins</h2>
+            <h2 className="text-xs uppercase tracking-tight text-vs-fg-2 font-medium px-1">Built-ins</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {BUILTIN_WORKFLOWS.map((workflow, i) => (
                 <WorkflowCard key={workflow.id} workflow={workflow} index={i} />
@@ -60,7 +60,7 @@ function PreviewWorkflowsPage() {
           </section>
 
           <section className="mt-12 space-y-3">
-            <h2 className="text-xs uppercase tracking-wider text-vs-fg-2 font-medium px-1">Your workflows</h2>
+            <h2 className="text-xs uppercase tracking-tight text-vs-fg-2 font-medium px-1">Your workflows</h2>
             <VsCard
               padded={false}
               className="vs-card-in flex flex-col items-center justify-center gap-2 px-6 py-12 text-center"
@@ -159,7 +159,7 @@ function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index
           <p className="line-clamp-2 text-sm font-medium text-vs-fg-4">{workflow.name}</p>
           <p className="mt-1 line-clamp-3 text-xs leading-5 text-vs-fg-3">{workflow.description}</p>
         </div>
-        <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-full bg-vs-bg-2 px-2 py-0.5 text-[11px] text-vs-fg-3 tabular-nums">
+        <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-md bg-vs-bg-2 px-2 py-0.5 text-[11px] text-vs-fg-3 tabular-nums">
           <Clock3 size={11} />
           {workflow.cadence}
         </span>
@@ -230,7 +230,7 @@ function TriageHero({ accent }: { accent: string }) {
           <span
             key={chip.label}
             className={cn(
-              "inline-flex items-center h-7 px-2.5 rounded-full text-[11px] font-medium",
+              "inline-flex items-center h-7 px-2.5 rounded-lg text-[11px] font-medium",
               "shadow-[var(--vs-shadow-elevated)]",
               chip.tone,
               chip.classNames,
