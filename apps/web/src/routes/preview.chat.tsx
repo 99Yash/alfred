@@ -1044,7 +1044,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
           <>
             <RunGroup title="Sorted inbox by who's waiting" itemCount={5}>
               <ThoughtRow duration="2s">
-                The user wants just emails ranked by reply urgency — skipping the calendar pull.
+                The user wants just emails ranked by reply urgency, skipping the calendar pull.
               </ThoughtRow>
               <SearchRow
                 icon={Mail}
@@ -1060,7 +1060,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 detail="3 of 7 are recurring contacts"
               />
               <ThoughtRow duration="1s">
-                Ranked by latest-reply-from-me age — older threads first.
+                Ranked by latest-reply-from-me age: older threads first.
               </ThoughtRow>
               <ToolRow
                 icon={Tag}
@@ -1102,7 +1102,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 detail="Maya, Sycamore, Linear"
               />
               <ThoughtRow duration="1s">
-                Now the calendar — three blocks today plus a tentative.
+                Now the calendar: three blocks today plus a tentative.
               </ThoughtRow>
               <SearchRow
                 icon={Calendar}

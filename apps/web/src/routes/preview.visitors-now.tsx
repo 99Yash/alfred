@@ -148,7 +148,7 @@ function VsThemedPreview() {
             <VsCardHeader title="Experience Score" trailing={PERFORMANCE_PILL} />
             <div className="flex items-center gap-3">
               <span className="size-12 rounded-full border border-vs-bg-3 inline-flex items-center justify-center text-vs-fg-2">
-                —
+                …
               </span>
               <div>
                 <div className="text-sm font-medium text-vs-fg-4">Collecting</div>
