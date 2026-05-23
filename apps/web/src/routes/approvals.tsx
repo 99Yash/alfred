@@ -171,7 +171,10 @@ function ApprovalCard({ approval }: { approval: SyncedActionStaging }) {
   };
 
   return (
-    <Card className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 text-gray-950 sm:p-5">
+    <Card
+      id={`approval-${approval.id}`}
+      className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 text-gray-950 sm:p-5"
+    >
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">

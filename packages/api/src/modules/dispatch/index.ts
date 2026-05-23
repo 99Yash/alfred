@@ -38,8 +38,9 @@ import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { resolvePolicyMode } from "../action-policies/resolve";
+import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
+import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
 
 export interface DispatchArgs {
@@ -125,6 +126,8 @@ interface StagingRow {
   rejectReason: string | null;
   executeResult: unknown;
   executeError: unknown;
+  notifyAfterAt: Date | null;
+  notifiedAt: Date | null;
 }
 
 const STAGING_COLUMNS = {
@@ -138,6 +141,8 @@ const STAGING_COLUMNS = {
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
   executeError: actionStagings.executeError,
+  notifyAfterAt: actionStagings.notifyAfterAt,
+  notifiedAt: actionStagings.notifiedAt,
 } as const;
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
@@ -207,6 +212,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const policyMode =
     integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, args.toolName);
   const requiresApproval = policyMode === "gated";
+  const approvalNotifyDelayMs = requiresApproval
+    ? await resolveApprovalNotifyDelayMs(args.userId)
+    : null;
+  const notifyAfterAt =
+    approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
 
   // INSERT first, fall back to SELECT on conflict. Drizzle returns the
   // inserted row(s) or an empty array on a no-op conflict. Either way
@@ -225,6 +235,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       proposedInputHash,
       requiresApproval,
       status: "pending",
+      notifyAfterAt,
     })
     .onConflictDoNothing({
       target: [actionStagings.runId, actionStagings.toolCallId],
@@ -286,6 +297,17 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         // durable approvals queue. Emit the poke only for a newly-created
         // row so crash/resume re-dispatches don't spam connected clients.
         if (insertedNew) emitReplicachePokes([args.userId], row.id);
+        if (!row.notifiedAt) {
+          const delayMs =
+            row.notifyAfterAt instanceof Date
+              ? row.notifyAfterAt.getTime() - Date.now()
+              : (approvalNotifyDelayMs ?? 0);
+          await scheduleApprovalNotificationJob({
+            stagingId: row.id,
+            userId: args.userId,
+            delayMs,
+          });
+        }
         return {
           kind: "staged",
           stagingId: row.id,
