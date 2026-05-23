@@ -157,13 +157,10 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
     return "raced";
   }
 
-  // `createRun` → `requireWorkflow` looks the slug up in the in-memory
-  // builtin registry. When m12a's CRUD lands and active cron rows can
-  // be user-authored, an unregistered slug will throw here — the CAS
-  // above will have already advanced, so the throw turns into a
-  // silently lost run (counted as `failed`). The m13 execution stub
-  // is supposed to catch this inside `createRun` and produce a
-  // `failed` row instead of throwing.
+  // `createRun` handles both registered built-ins and user-authored
+  // brief-only rows. Registry misses fall through to the sentinel
+  // workflow, then `createRun` validates the workflow row still exists
+  // for this user before inserting the run.
   const { runId } = await createRun({
     userId: row.userId,
     workflowSlug: row.slug,

@@ -13,6 +13,7 @@ export const INTEGRATION_SLUGS = [
   "imessage",
 ] as const;
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
+export type LoadableIntegrationSlug = Exclude<IntegrationSlug, "system">;
 
 export const SYSTEM_ACTIONS = [
   "load_integration",
@@ -63,6 +64,14 @@ export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {
   return toolName.slice(0, toolName.indexOf(".")) as IntegrationSlug;
+}
+
+export function isIntegrationSlug(value: string): value is IntegrationSlug {
+  return (INTEGRATION_SLUGS as readonly string[]).includes(value);
+}
+
+export function isLoadableIntegrationSlug(value: string): value is LoadableIntegrationSlug {
+  return value !== "system" && isIntegrationSlug(value);
 }
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {

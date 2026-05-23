@@ -1,5 +1,4 @@
 import type { Workflow } from "./types";
-
 /**
  * In-memory workflow registry. The executor looks up `(workflowSlug)` here
  * when claiming a run; built-ins register at server boot. Decoupling

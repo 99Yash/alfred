@@ -1,9 +1,17 @@
 import { db } from "@alfred/db";
-import { agentRuns, type AgentRunTrigger } from "@alfred/db/schemas";
+import { agentRuns, workflows, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { requireWorkflow } from "./registry";
-import { isTerminalStatus, type ApprovalKind, type RunStatus, type WakeCondition, type WorkflowInput } from "./types";
+import { getWorkflow } from "./registry";
+import {
+  isTerminalStatus,
+  type ApprovalKind,
+  type RunStatus,
+  type WakeCondition,
+  type Workflow,
+  type WorkflowInput,
+} from "./types";
+import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 
 interface PgErrorLike {
   code?: string;
@@ -45,6 +53,51 @@ export interface CreateRunResult {
   runId: string;
 }
 
+interface UserAuthoredWorkflowRow {
+  brief: string | null;
+  allowedIntegrations: string[];
+  isBuiltin: boolean;
+}
+
+interface ResolvedWorkflowForRun {
+  workflow: Workflow<unknown>;
+  workflowSlug: string;
+  userAuthoredRow?: UserAuthoredWorkflowRow;
+}
+
+export async function resolveWorkflowForRun(args: {
+  userId: string;
+  workflowSlug: string;
+}): Promise<ResolvedWorkflowForRun> {
+  const registered = getWorkflow(args.workflowSlug);
+  if (registered) return { workflow: registered, workflowSlug: registered.slug };
+
+  const rows = await db()
+    .select({
+      brief: workflows.brief,
+      allowedIntegrations: workflows.allowedIntegrations,
+      isBuiltin: workflows.isBuiltin,
+    })
+    .from(workflows)
+    .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`[agent] no workflow registered or authored for slug=${args.workflowSlug}`);
+  }
+  if (row.isBuiltin) {
+    throw new Error(
+      `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
+    );
+  }
+
+  return {
+    workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
+    workflowSlug: args.workflowSlug,
+    userAuthoredRow: row,
+  };
+}
+
 /**
  * Persist a new run row in `pending` state. The caller (an HTTP route or
  * a cron trigger) is responsible for enqueueing the BullMQ job afterwards
@@ -60,30 +113,48 @@ export interface CreateRunResult {
  * endpoint).
  */
 export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
-  const workflow = requireWorkflow(args.workflowSlug);
-  const initialState = workflow.initialState({
-    brief: args.brief,
-    input: args.input,
-    metadata: args.metadata,
+  const resolved = await resolveWorkflowForRun({
+    userId: args.userId,
+    workflowSlug: args.workflowSlug,
   });
+  const workflow = resolved.workflow;
+  const workflowSlug = resolved.workflowSlug;
+  let brief = args.brief;
+  let metadata = args.metadata ?? {};
+
+  if (resolved.userAuthoredRow) {
+    const row = resolved.userAuthoredRow;
+    brief = brief ?? row.brief ?? undefined;
+    metadata = { ...metadata, allowedIntegrations: row.allowedIntegrations };
+  }
+
+  const workflowInput = {
+    brief,
+    input: args.input,
+    metadata,
+  };
+
+  const initialState = workflow.initialState(workflowInput);
+  const transcript = workflow.initialTranscript?.(workflowInput) ?? [];
 
   const dedupKey =
     workflow.dedupKey?.({
       userId: args.userId,
-      brief: args.brief,
+      brief,
       input: args.input,
-      metadata: args.metadata,
+      metadata,
     }) ?? null;
 
   const inserted = await db()
     .insert(agentRuns)
     .values({
       userId: args.userId,
-      workflowSlug: workflow.slug,
-      brief: args.brief,
+      workflowSlug,
+      brief,
       state: (initialState as object) ?? {},
+      transcript,
       currentStep: workflow.initialStep,
-      metadata: (args.metadata as object) ?? {},
+      metadata: metadata as object,
       trigger: args.trigger,
       status: "pending",
       dedupKey,

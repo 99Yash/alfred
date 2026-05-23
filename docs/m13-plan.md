@@ -1,6 +1,6 @@
 # m13 — Boss + sub-agent orchestration (implementation plan)
 
-m13 replaces m12's `user_authored_brief_execution_pending_m13` stub with the full boss-agent runtime. It lands three new ADRs in one milestone: **0034** (HIL approval + action staging), **0035** (transcript compaction at 60%), **0036** (Redis-primary scratchpad with Postgres terminal snapshot), on top of **0016** (sub-agent fan-out) and **0026** (`AlfredAgent` per-turn driver).
+m13 fills the user-authored workflow execution gap left after the planned m12 `user_authored_brief_execution_pending_m13` stub was scoped out, then ships the full boss-agent runtime. It lands three new ADRs in one milestone: **0034** (HIL approval + action staging), **0035** (transcript compaction at 60%), **0036** (Redis-primary scratchpad with Postgres terminal snapshot), on top of **0016** (sub-agent fan-out) and **0026** (`AlfredAgent` per-turn driver).
 
 This is a phased plan. Each phase is "land before the next phase starts"; sub-steps inside a phase are parallel-safe.
 
@@ -89,7 +89,7 @@ Connection uses `createRedisConnection()` from the existing queue connection fac
 
 ### 2b. Tool registry shape
 
-`liveTool({ name, integration, action, riskTier, inputSchema, execute })` returns a registry entry. `name` is derived: `${integration}.${action}`, typed as `ToolName`.
+`liveTool({ integration, action, riskTier, description, inputSchema, execute })` returns a registry entry. `name` is derived: `${integration}.${action}`, typed as `ToolName`.
 
 Internal tools use the same registry under the `system.*` namespace but resolve to autonomy through the default system policy. Do not use `riskTier` as a gating shortcut; it remains a UX hint only.
 
@@ -100,7 +100,7 @@ Implement the initial slice — enough to exercise both autonomy and gated paths
 - `calendar.list_events` — `riskTier: 'no_risk'`
 - `calendar.create_event` — `riskTier: 'medium'`
 
-Tools are registered at server boot inside an integration's module (`packages/api/src/modules/gmail/tools.ts`, etc.). The registry exposes `getTool(toolName)` and `listToolsForIntegration(slug)`.
+Tools are registered at server boot inside integration-owned modules under `packages/api/src/modules/tools/`. The registry exposes `getTool(toolName)` and `listToolsForIntegration(slug)`.
 
 ### Phase 2 acceptance
 
@@ -169,27 +169,46 @@ Add `cancelRun(runId, { reason })` beside `createRun` / `signalRun` in `packages
 
 ## Phase 4 — Agent bridge
 
-Goal: replace m12's `user_authored_brief_execution_pending_m13` stub. A brief-only workflow executes via a real `AlfredAgent` loop driving the dispatcher.
+Goal: replace the current registry-miss behavior for user-authored workflows with a real `AlfredAgent` loop driving the dispatcher. **Detailed design locked in [ADR-0040](../decisions.md); this section captures the implementation slice.**
 
-### 4a. Executor wiring
+> Note: the "m12 stub" was scoped out before m12 shipped — pre-m13 `createRun` called `requireWorkflow` and threw on miss. Phase 4 doesn't delete a stub branch; it adds a checked resolver for run creation/execution that falls back to the sentinel workflow only after validating the user-authored workflow row exists and `is_builtin=false`.
 
-Compose the executor step shape `boss-turn → dispatch-tools → (compact-transcript?) → boss-turn`, all durable-resume compatible. One `AlfredAgent.turn()` call = one `api_call_log` row (ADR-0015 invariant). Tool calls returned by `turn()` go through `dispatchToolCall`; results feed back into the next turn's `messages`.
+### 4a. Schema + contracts
 
-### 4b. `load_integration(slug)` tool
+- **`agent_runs.transcript jsonb`** — new column typed `AgentTranscriptMessage[]` from `@alfred/contracts`, default `'[]'`, not null. One migration via `pnpm db:generate` → `db:migrate`. `@alfred/api` casts/converts this structural stored type to AI SDK `ModelMessage[]` only at the `AlfredAgent.turn()` boundary, so `@alfred/db` does not gain an `ai` dependency.
+- **`@alfred/contracts` additions** — `parseIntegrationMentions(brief, allowedIntegrations)` (strict-seed parser) and the zero-dep `AgentTranscriptMessage` structural type.
+- **Executor transcript plumbing** — load `agent_runs.transcript` with the leased run, expose it to step bodies, and let `StepResult` carry an optional replacement transcript that `commitStepSuccess` persists atomically with `state` / `current_step`. Built-ins that omit it leave the column unchanged.
+- **System-tool context** — let `dispatch-tools` pass `state.allowedIntegrations` into `ToolExecuteContext` for `system.load_integration`, so the pure tool can return allowed/not-allowed without reading or mutating run state.
+- **`RegisteredTool.description: string` required.** Backfill `gmail.search`, `gmail.send_draft`, `calendar.list_events`, `calendar.create_event`. Add `system.load_integration`.
 
-Built-in tool the boss can call to grow the active toolset mid-run. Appends `slug` to `agent_runs.state.activeIntegrations`, capped by `workflows.allowed_integrations`. Subsequent turns include the new integration's tools in the `tools` parameter of `AlfredAgent.turn()`.
+### 4b. Sentinel workflow + executor steps
 
-Seeded from `@`-mentions in the brief at run start; grown via this tool when the agent decides it needs more.
+- **`userAuthoredBriefWorkflow`** at `packages/api/src/modules/agent/workflows/user-authored-brief.ts`. Slug `__user-authored-brief__`, never registered into the in-memory registry; the DB-backed resolver returns it on registry miss only for verified user-authored rows. `initialState({ brief, metadata })` parses `@`-mentions, sets `state.activeIntegrations`, `state.allowedIntegrations`, `state.pendingToolCalls`, `state.inFlightTailStart`, and `state.turnCount`; `initialTranscript({ brief })` seeds `agent_runs.transcript = [{ role: 'user', content: brief }]`.
+- **`createRun` / executor existence check + slug preservation** — when the registry misses and falls through to the sentinel, validate `workflows (userId, slug)` exists AND `is_builtin=false` before serving the run. Typos and deleted builtins throw. Insert `agent_runs.workflow_slug = args.workflowSlug`, not `workflow.slug`, so the row still joins to the user-authored workflow instead of `__user-authored-brief__`.
+- **Two named steps:**
+  - `boss-turn` instantiates `AlfredAgent` (system = preamble, tools = `resolveSdkTools(state.activeIntegrations)`, model = `getBossModel()`), runs one `turn()` with the leased transcript, sets `state.inFlightTailStart` to the pre-append transcript length, increments `state.turnCount`, and returns `next: 'dispatch-tools'` / `done` / `stopped`-mapped plus the transcript with assistant messages appended.
+  - `dispatch-tools` consumes `state.pendingToolCalls` from the front, calls `dispatchToolCall` for each, appends tool-result messages to the transcript column, applies system-tool effects (`system.load_integration` → `state.activeIntegrations` append). After each non-staged result, remove that call from `pendingToolCalls`; the first `kind: 'staged'` short-circuits with `interrupt`, preserving the transcript produced so far and leaving the staged/current call plus remaining calls for resume.
+- **Turn cap** — 30. Exceeded → fail the run with `error.message = 'turn_limit_exceeded'`.
 
-### 4c. Replace the stub
+### 4c. `system.load_integration` tool + dispatcher autonomy override
 
-Remove the `failed: user_authored_brief_execution_pending_m13` branch in the m12 `createRun` path for `is_builtin=false` workflows. The History tab on workflow detail pages now shows real runs.
+- Register `system.load_integration` via `liveTool` with an API-local zod schema derived from `INTEGRATION_SLUGS` that rejects `system`, pure `execute` returning `{ ok: true, slug }` or `{ ok: false, status: 'not_allowed', slug }` based on the allowlist passed in context.
+- **Dispatcher autonomy override** in `dispatchToolCall`: `if (integration === 'system') policyMode = 'autonomy'` ahead of `resolvePolicyMode`. Audit row still lands.
+- State mutation lives in the `dispatch-tools` step body (the small switch on `toolName`), never inside the tool's `execute`.
+
+### 4d. Boss system prompt
+
+Preamble lives beside the sentinel workflow in `packages/api/src/modules/agent/workflows/user-authored-brief.ts` until a second boss workflow needs it factored out. Shape: Anthropic 10-section template (sections 1, 2, 4, 5, 8, 9 in cache-stable `system`; brief flows as first user message). User-stable preamble; no run ids, timestamps, or `activeIntegrations` narration in the system block.
+
+### 4e. Smoke
+
+`packages/api/src/modules/agent/smoke-brief-execution.ts` — auto-approves any pending `action_stagings` via direct DB update + `signalRun()`, exercising both autonomous and gated-resume paths. Brief: `"@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning."` Asserts: status=completed, ≥ 2 ping-pong step rows each, `system.load_integration` + `gmail.*` + `calendar.*` executed stagings, `state.activeIntegrations` grew, `api_call_log` count = `boss-turn` count, output text non-empty.
 
 ### Phase 4 acceptance
 
 - A user-authored brief-only workflow with `@gmail` in the brief executes end-to-end against a real Gmail account, producing one or more `agent_runs` rows that reach `status='completed'`.
-- `load_integration('calendar')` mid-run adds `calendar.*` tools to the next turn's tool list.
-- m12 stub branch is deleted (not commented out).
+- `system.load_integration('calendar')` mid-run adds `calendar.*` tools to the next turn's tool list.
+- Registry misses fall back to the sentinel only through the checked run resolver; `requireWorkflow` remains strict for registered-code lookup; deleted-builtin slugs throw loud.
 
 ---
 
@@ -283,13 +302,13 @@ Goal: long boss runs maintain quality by compressing older transcript into a str
 
 ### 7a. Token counting + threshold check
 
-After every `dispatch-tools` step, the executor calls `tokenCount(state.transcript)` (AI SDK tokenizer; `@anthropic-ai/tokenizer` for Anthropic models — within ~5% is fine). If the count exceeds `compactionThresholdTokens(model.contextWindow)`, schedule a `compact-transcript` step before the next `boss-turn`.
+After every `dispatch-tools` step, the executor calls `tokenCount(agent_runs.transcript)` (AI SDK tokenizer; `@anthropic-ai/tokenizer` for Anthropic models — within ~5% is fine). If the count exceeds `compactionThresholdTokens(model.contextWindow)`, schedule a `compact-transcript` step before the next `boss-turn`.
 
 `model.contextWindow` reads from the new `model_prices.context_window` column.
 
 ### 7b. In-flight tail identification
 
-Walk `state.transcript` backward from the end. Preserve verbatim until hitting a `boss-turn` step boundary. Everything before is fed to the compactor; everything after stays as-is.
+Use `state.inFlightTailStart`, captured by the last `boss-turn`, as the boundary. Preserve `agent_runs.transcript.slice(state.inFlightTailStart)` verbatim. Everything before is fed to the compactor; everything after stays as-is.
 
 ### 7c. Compactor invocation
 
@@ -301,9 +320,7 @@ const result = await meteredGenerateText({
   system: COMPACTOR_SYSTEM_PROMPT,
   messages: priorTranscriptToCompact,
 });
-state.transcript = [
-  systemMessage,
-  ...toolDefinitions,
+nextTranscript = [
   { role: 'system', content: `<run_summary>${result.text}</run_summary>` },
   ...inFlightTail,
 ];
@@ -327,7 +344,7 @@ Budget real time. ADR-0035 marks the prompt as "sketched, not engineered" — ru
 
 ### Phase 7 acceptance
 
-- A run with a manually inflated transcript hits the threshold, runs `compact-transcript`, and continues with the new transcript shape `[system, tools, <run_summary>, in-flight tail]`.
+- A run with a manually inflated transcript hits the threshold, runs `compact-transcript`, and continues with the new `agent_runs.transcript` shape `[<run_summary>, in-flight tail]`. The stable boss system prompt and tool definitions remain outside the transcript as `AlfredAgent.turn()` inputs.
 - `<user_directives>` content is preserved verbatim (not paraphrased) across a compaction.
 - One `api_call_log` row per compaction with `attribution.role='compactor'`.
 - Compactor failure surfaces as a real run failure (not silent quality loss).
@@ -393,7 +410,7 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 - [x] **Phase 1** — Foundations: contracts package, migrations, signup hook
 - [x] **Phase 2** — Runtime primitives: scratchpad helpers, tool registry, initial tool slice
 - [x] **Phase 3** — Dispatcher (the spine) — open ADR items resolved
-- [ ] **Phase 4** — Agent bridge: `AlfredAgent` loop + `load_integration` + m12 stub deleted
+- [ ] **Phase 4** — Agent bridge: ping-pong `boss-turn` ↔ `dispatch-tools` steps + sentinel `userAuthoredBriefWorkflow` + `agent_runs.transcript` jsonb + `system.load_integration` + strict `@`-mention seed (ADR-0040)
 - [ ] **Phase 5** — HIL surface: SSE + Replicache + `/approvals` page + decision API + email debounce
 - [ ] **Phase 6** — Sub-agents: spawn + zone enforcement + scratchpad tools + fail-back
 - [ ] **Phase 7** — Compaction: token counter, in-flight tail, compactor call, cache breakpoint, prompt pass
