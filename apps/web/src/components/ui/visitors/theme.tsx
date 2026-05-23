@@ -25,8 +25,8 @@
 
 import {
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -96,7 +96,7 @@ export function VsThemeProvider({ children }: { children: ReactNode }) {
 }
 
 export function useVsTheme(): VsThemeContextValue {
-  const ctx = useContext(VsThemeContext);
+  const ctx = use(VsThemeContext);
   if (!ctx) {
     throw new Error("useVsTheme must be called inside a <VsThemeProvider>.");
   }

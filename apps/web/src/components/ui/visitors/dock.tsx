@@ -33,7 +33,7 @@ interface VsDockProps {
 
 export function VsDock({ items, activeId, className }: VsDockProps) {
   return (
-    <div
+    <nav
       className={cn(
         "fixed bottom-3 left-1/2 -translate-x-1/2 z-50",
         "flex items-center gap-1 p-1",
@@ -41,7 +41,6 @@ export function VsDock({ items, activeId, className }: VsDockProps) {
         "shadow-[0_8px_24px_rgba(0,0,0,0.18),0_2px_6px_rgba(0,0,0,0.12)]",
         className,
       )}
-      role="navigation"
       aria-label="Project navigation"
     >
       {items.map((it) => {
@@ -76,6 +75,6 @@ export function VsDock({ items, activeId, className }: VsDockProps) {
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

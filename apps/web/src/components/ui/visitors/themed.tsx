@@ -6,7 +6,7 @@
  * @media block in index.css resolve it from prefers-color-scheme.
  */
 
-import { useContext, type HTMLAttributes } from "react";
+import { use, type HTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 import { VsThemeContext } from "./theme";
 
@@ -16,7 +16,7 @@ export function VsThemed({
   children,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { as?: "div" | "main" | "section" | "article" }) {
-  const ctx = useContext(VsThemeContext);
+  const ctx = use(VsThemeContext);
   // If no provider is mounted, fall back to .vs with no attribute — which
   // means "track system preference" via the @media block.
   const dataTheme = ctx?.mode === "dark" || ctx?.mode === "light" ? ctx.mode : undefined;

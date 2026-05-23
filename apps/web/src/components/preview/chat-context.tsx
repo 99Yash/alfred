@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 
 /**
  * Chat state shared between the `/preview` layout (owner) and the
@@ -21,7 +21,7 @@ export interface ChatContextValue {
 export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function useChatContext(): ChatContextValue {
-  const ctx = useContext(ChatContext);
+  const ctx = use(ChatContext);
   if (!ctx) {
     throw new Error("useChatContext must be used inside the /preview layout");
   }
