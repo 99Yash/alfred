@@ -27,6 +27,7 @@ import { Route as PreviewWorkflowsRouteImport } from './routes/preview.workflows
 import { Route as PreviewVisitorsNowRouteImport } from './routes/preview.visitors-now'
 import { Route as PreviewOnboardingRouteImport } from './routes/preview.onboarding'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
+import { Route as PreviewIntegrationsRouteImport } from './routes/preview.integrations'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
@@ -122,6 +123,11 @@ const PreviewLandingRoute = PreviewLandingRouteImport.update({
   path: '/preview/landing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewIntegrationsRoute = PreviewIntegrationsRouteImport.update({
+  id: '/preview/integrations',
+  path: '/preview/integrations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
   id: '/$artifact',
   path: '/$artifact',
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
@@ -209,6 +217,7 @@ export interface FileRoutesById {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
+  '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
@@ -259,6 +269,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
@@ -306,6 +318,7 @@ export interface RootRouteChildren {
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
+  PreviewIntegrationsRoute: typeof PreviewIntegrationsRoute
   PreviewLandingRoute: typeof PreviewLandingRoute
   PreviewOnboardingRoute: typeof PreviewOnboardingRoute
   PreviewVisitorsNowRoute: typeof PreviewVisitorsNowRoute
@@ -440,6 +453,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewLandingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/integrations': {
+      id: '/preview/integrations'
+      path: '/preview/integrations'
+      fullPath: '/preview/integrations'
+      preLoaderRoute: typeof PreviewIntegrationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library/$artifact': {
       id: '/library/$artifact'
       path: '/$artifact'
@@ -532,6 +552,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowsRoute: WorkflowsRouteWithChildren,
   ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
+  PreviewIntegrationsRoute: PreviewIntegrationsRoute,
   PreviewLandingRoute: PreviewLandingRoute,
   PreviewOnboardingRoute: PreviewOnboardingRoute,
   PreviewVisitorsNowRoute: PreviewVisitorsNowRoute,
