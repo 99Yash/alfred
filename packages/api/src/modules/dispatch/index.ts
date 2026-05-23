@@ -84,7 +84,7 @@ interface UnknownToolResult {
 export type DispatchResult =
   | {
       kind: "executed";
-      stagingId: string;
+      stagingId: string | null;
       toolResult: unknown;
       /** True when the user edited the input before approving — the boss
        *  may want to surface that to the model so future suggestions
@@ -93,7 +93,7 @@ export type DispatchResult =
     }
   | {
       kind: "failed";
-      stagingId: string;
+      stagingId: string | null;
       error: { message: string };
     }
   | {
@@ -185,6 +185,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
   const input = parsed.data as unknown;
   const caller = args.caller ?? "boss";
+  const ctx: ToolExecuteContext = {
+    runId: args.runId,
+    stepId: args.stepId,
+    toolCallId: args.toolCallId,
+    userId: args.userId,
+    caller,
+    allowedIntegrations: args.allowedIntegrations,
+  };
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
   if (scratchAccessError) {
     return {
@@ -195,6 +203,9 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         message: scratchAccessError,
       },
     };
+  }
+  if (isScratchFastPathTool(toolName)) {
+    return executeFastPath(tool, input, ctx);
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
@@ -297,15 +308,6 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       );
     }
   }
-  const ctx: ToolExecuteContext = {
-    runId: args.runId,
-    stepId: args.stepId,
-    toolCallId: args.toolCallId,
-    userId: args.userId,
-    caller,
-    allowedIntegrations: args.allowedIntegrations,
-  };
-
   switch (row.status) {
     case "pending":
       // Honor the `requires_approval` recorded on the row, NOT the
@@ -485,6 +487,23 @@ async function executeAndCommit(
   return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
 }
 
+async function executeFastPath(
+  tool: ReturnType<typeof getTool> & object,
+  input: unknown,
+  ctx: ToolExecuteContext,
+): Promise<DispatchResult> {
+  try {
+    const result = await tool.execute(input, ctx);
+    return { kind: "executed", stagingId: null, toolResult: result, editedByUser: false };
+  } catch (err) {
+    return {
+      kind: "failed",
+      stagingId: null,
+      error: { message: err instanceof Error ? err.message : String(err) },
+    };
+  }
+}
+
 interface SynthesizeRejectionArgs {
   toolName: ToolName;
   proposedInput: unknown;
@@ -548,6 +567,14 @@ function validateScratchToolAccess(args: {
   }
 
   return null;
+}
+
+function isScratchFastPathTool(toolName: ToolName): boolean {
+  return (
+    toolName === "system.read_scratch" ||
+    toolName === "system.write_scratch" ||
+    toolName === "system.promote"
+  );
 }
 
 function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
