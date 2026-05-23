@@ -64,7 +64,7 @@ export const eventPayloadSchemas = {
 export type EventKind = keyof typeof eventPayloadSchemas;
 export type EventPayload<K extends EventKind> = z.infer<(typeof eventPayloadSchemas)[K]>;
 
-export const EVENT_KINDS = Object.keys(eventPayloadSchemas) as EventKind[];
+export const EVENT_KINDS = Object.freeze(Object.keys(eventPayloadSchemas) as EventKind[]);
 
 export const eventFrameSchema = z.object({
   id: z.number().int().positive(),
