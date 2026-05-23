@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { factValueSchema } from "@alfred/sync";
 import { z } from "zod";
 
 /**
@@ -13,17 +14,6 @@ import { z } from "zod";
  *
  * Cheap-tier model per ADR-0016 (`getCheapModel()` → Gemini 2.5 Flash).
  */
-
-// Permissive value shape — extracted facts can be strings, numbers,
-// booleans, arrays, or simple objects. The Zod schema is enforced by
-// `meteredGenerateObject`; the model can't return shapes outside this.
-const factValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.array(z.unknown()),
-  z.record(z.string(), z.unknown()),
-]);
 
 export const factProposalSchema = z.object({
   /**

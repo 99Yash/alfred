@@ -198,6 +198,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       '@alfred/sync':
         specifier: workspace:*
         version: link:../../packages/sync
@@ -380,6 +383,9 @@ importers:
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations
+      '@alfred/schemas':
+        specifier: workspace:*
+        version: link:../schemas
       '@alfred/sync':
         specifier: workspace:*
         version: link:../sync
@@ -568,6 +574,22 @@ importers:
       jose:
         specifier: ^6.2.2
         version: 6.2.2
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@alfred/config':
+        specifier: workspace:*
+        version: link:../config
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.15.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(typescript@5.9.3)
+
+  packages/schemas:
+    dependencies:
       typescript:
         specifier: ^5
         version: 5.9.3
