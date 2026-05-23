@@ -63,11 +63,34 @@ export interface IntegrationRule {
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>;
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {
-  return toolName.slice(0, toolName.indexOf(".")) as IntegrationSlug;
+  const integration = toolName.slice(0, toolName.indexOf("."));
+  if (isIntegrationSlug(integration)) return integration;
+  throw new Error(`Unknown integration in tool name '${toolName}'`);
+}
+
+export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I> & string>(
+  integration: I,
+  action: A,
+): ToolName {
+  const name = `${integration}.${action}`;
+  if (isToolName(name)) return name;
+  throw new Error(`Unknown tool name '${name}'`);
 }
 
 export function isIntegrationSlug(value: string): value is IntegrationSlug {
   return (INTEGRATION_SLUGS as readonly string[]).includes(value);
+}
+
+export function isToolName(value: string): value is ToolName {
+  const separator = value.indexOf(".");
+  if (separator <= 0 || separator !== value.lastIndexOf(".")) return false;
+
+  const integration = value.slice(0, separator);
+  if (!isIntegrationSlug(integration)) return false;
+
+  const action = value.slice(separator + 1);
+  const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+  return actions.includes(action);
 }
 
 export function isLoadableIntegrationSlug(value: string): value is LoadableIntegrationSlug {

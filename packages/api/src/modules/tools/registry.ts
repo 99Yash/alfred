@@ -12,7 +12,7 @@
  */
 
 import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
-import { INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
+import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
 
 export interface ToolExecuteContext {
@@ -76,7 +76,7 @@ export function liveTool<
   A extends ActionSlug<I> & string,
   S extends z.ZodTypeAny,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
-  const name = `${args.integration}.${args.action}` as ToolName;
+  const name = buildToolName(args.integration, args.action);
   return {
     name,
     integration: args.integration,

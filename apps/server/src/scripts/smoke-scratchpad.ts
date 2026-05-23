@@ -10,8 +10,7 @@
  *   3. snapshotScratchToPostgres lands rows in `agent_run_context` and
  *      is idempotent on retry (second call upserts the same shape).
  *
- * The compile-time guards (`getTool('gmail.fake_action' as ToolName)` is
- * a TS error) are verified by `pnpm check-types`; the file
+ * The compile-time guards for invalid tool names are verified by `pnpm check-types`; the file
  * `smoke-tools-types.ts` ships an `@ts-expect-error` assertion that
  * fails compilation if `ToolName` ever stops narrowing properly.
  */
