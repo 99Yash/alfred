@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { Clock3, Plus, Sparkles, type LucideIcon } from "lucide-react";
 import { VsButton, VsCard } from "~/components/ui/visitors";
 import { BUILTIN_WORKFLOWS, type WorkflowDefinition } from "~/lib/workflows";
@@ -21,8 +21,13 @@ import { cn } from "~/lib/utils";
  *   /preview/workflows    → visitors-now grammar (theme-aware, hero previews)
  */
 export const Route = createFileRoute("/preview/workflows")({
-  component: PreviewWorkflowsPage,
+  component: PreviewWorkflowsRoute,
 });
+
+function PreviewWorkflowsRoute() {
+  const hasChild = useChildMatches().length > 0;
+  return hasChild ? <Outlet /> : <PreviewWorkflowsPage />;
+}
 
 function PreviewWorkflowsPage() {
   return (
@@ -113,7 +118,7 @@ function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index
   const tint = TINT[workflow.tint];
   return (
     <Link
-      to="/workflows/$workflow"
+      to="/preview/workflows/$workflow"
       params={{ workflow: workflow.id }}
       className={cn(
         "vs-card-in vs-hover-lift vs-press",

@@ -26,16 +26,25 @@ import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workf
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as PreviewWorkflowsRouteImport } from './routes/preview.workflows'
 import { Route as PreviewVisitorsNowRouteImport } from './routes/preview.visitors-now'
+import { Route as PreviewSkillsRouteImport } from './routes/preview.skills'
 import { Route as PreviewSettingsRouteImport } from './routes/preview.settings'
 import { Route as PreviewOnboardingRouteImport } from './routes/preview.onboarding'
+import { Route as PreviewNotesRouteImport } from './routes/preview.notes'
+import { Route as PreviewMemoryRouteImport } from './routes/preview.memory'
+import { Route as PreviewLibraryRouteImport } from './routes/preview.library'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
 import { Route as PreviewIntegrationsRouteImport } from './routes/preview.integrations'
 import { Route as PreviewChatRouteImport } from './routes/preview.chat'
+import { Route as PreviewApprovalsRouteImport } from './routes/preview.approvals'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
+import { Route as PreviewWorkflowsWorkflowRouteImport } from './routes/preview.workflows.$workflow'
+import { Route as PreviewSkillsSlugRouteImport } from './routes/preview.skills.$slug'
+import { Route as PreviewLibraryArtifactRouteImport } from './routes/preview.library.$artifact'
 import { Route as PreviewIntegrationsProviderRouteImport } from './routes/preview.integrations.$provider'
+import { Route as PreviewChatThreadIdRouteImport } from './routes/preview.chat.$threadId'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -122,6 +131,11 @@ const PreviewVisitorsNowRoute = PreviewVisitorsNowRouteImport.update({
   path: '/visitors-now',
   getParentRoute: () => PreviewRoute,
 } as any)
+const PreviewSkillsRoute = PreviewSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => PreviewRoute,
+} as any)
 const PreviewSettingsRoute = PreviewSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -130,6 +144,21 @@ const PreviewSettingsRoute = PreviewSettingsRouteImport.update({
 const PreviewOnboardingRoute = PreviewOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => PreviewRoute,
+} as any)
+const PreviewNotesRoute = PreviewNotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => PreviewRoute,
+} as any)
+const PreviewMemoryRoute = PreviewMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => PreviewRoute,
+} as any)
+const PreviewLibraryRoute = PreviewLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => PreviewRoute,
 } as any)
 const PreviewLandingRoute = PreviewLandingRouteImport.update({
@@ -145,6 +174,11 @@ const PreviewIntegrationsRoute = PreviewIntegrationsRouteImport.update({
 const PreviewChatRoute = PreviewChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => PreviewRoute,
+} as any)
+const PreviewApprovalsRoute = PreviewApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
   getParentRoute: () => PreviewRoute,
 } as any)
 const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
@@ -167,12 +201,33 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/chat/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewWorkflowsWorkflowRoute =
+  PreviewWorkflowsWorkflowRouteImport.update({
+    id: '/$workflow',
+    path: '/$workflow',
+    getParentRoute: () => PreviewWorkflowsRoute,
+  } as any)
+const PreviewSkillsSlugRoute = PreviewSkillsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => PreviewSkillsRoute,
+} as any)
+const PreviewLibraryArtifactRoute = PreviewLibraryArtifactRouteImport.update({
+  id: '/$artifact',
+  path: '/$artifact',
+  getParentRoute: () => PreviewLibraryRoute,
+} as any)
 const PreviewIntegrationsProviderRoute =
   PreviewIntegrationsProviderRouteImport.update({
     id: '/$provider',
     path: '/$provider',
     getParentRoute: () => PreviewIntegrationsRoute,
   } as any)
+const PreviewChatThreadIdRoute = PreviewChatThreadIdRouteImport.update({
+  id: '/$threadId',
+  path: '/$threadId',
+  getParentRoute: () => PreviewChatRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -192,16 +247,25 @@ export interface FileRoutesByFullPath {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
-  '/preview/chat': typeof PreviewChatRoute
+  '/preview/approvals': typeof PreviewApprovalsRoute
+  '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/library': typeof PreviewLibraryRouteWithChildren
+  '/preview/memory': typeof PreviewMemoryRoute
+  '/preview/notes': typeof PreviewNotesRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
+  '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
-  '/preview/workflows': typeof PreviewWorkflowsRoute
+  '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
   '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
+  '/preview/library/$artifact': typeof PreviewLibraryArtifactRoute
+  '/preview/skills/$slug': typeof PreviewSkillsSlugRoute
+  '/preview/workflows/$workflow': typeof PreviewWorkflowsWorkflowRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -221,16 +285,25 @@ export interface FileRoutesByTo {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
-  '/preview/chat': typeof PreviewChatRoute
+  '/preview/approvals': typeof PreviewApprovalsRoute
+  '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/library': typeof PreviewLibraryRouteWithChildren
+  '/preview/memory': typeof PreviewMemoryRoute
+  '/preview/notes': typeof PreviewNotesRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
+  '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
-  '/preview/workflows': typeof PreviewWorkflowsRoute
+  '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
   '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
+  '/preview/library/$artifact': typeof PreviewLibraryArtifactRoute
+  '/preview/skills/$slug': typeof PreviewSkillsSlugRoute
+  '/preview/workflows/$workflow': typeof PreviewWorkflowsWorkflowRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -251,16 +324,25 @@ export interface FileRoutesById {
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
-  '/preview/chat': typeof PreviewChatRoute
+  '/preview/approvals': typeof PreviewApprovalsRoute
+  '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/library': typeof PreviewLibraryRouteWithChildren
+  '/preview/memory': typeof PreviewMemoryRoute
+  '/preview/notes': typeof PreviewNotesRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
+  '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
-  '/preview/workflows': typeof PreviewWorkflowsRoute
+  '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
   '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
+  '/preview/library/$artifact': typeof PreviewLibraryArtifactRoute
+  '/preview/skills/$slug': typeof PreviewSkillsSlugRoute
+  '/preview/workflows/$workflow': typeof PreviewWorkflowsWorkflowRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -282,16 +364,25 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/approvals'
     | '/preview/chat'
     | '/preview/integrations'
     | '/preview/landing'
+    | '/preview/library'
+    | '/preview/memory'
+    | '/preview/notes'
     | '/preview/onboarding'
     | '/preview/settings'
+    | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/chat/$threadId'
     | '/preview/integrations/$provider'
+    | '/preview/library/$artifact'
+    | '/preview/skills/$slug'
+    | '/preview/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -311,16 +402,25 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/approvals'
     | '/preview/chat'
     | '/preview/integrations'
     | '/preview/landing'
+    | '/preview/library'
+    | '/preview/memory'
+    | '/preview/notes'
     | '/preview/onboarding'
     | '/preview/settings'
+    | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/chat/$threadId'
     | '/preview/integrations/$provider'
+    | '/preview/library/$artifact'
+    | '/preview/skills/$slug'
+    | '/preview/workflows/$workflow'
   id:
     | '__root__'
     | '/'
@@ -340,16 +440,25 @@ export interface FileRouteTypes {
     | '/debug/events'
     | '/integrations/$provider'
     | '/library/$artifact'
+    | '/preview/approvals'
     | '/preview/chat'
     | '/preview/integrations'
     | '/preview/landing'
+    | '/preview/library'
+    | '/preview/memory'
+    | '/preview/notes'
     | '/preview/onboarding'
     | '/preview/settings'
+    | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/chat/$threadId'
     | '/preview/integrations/$provider'
+    | '/preview/library/$artifact'
+    | '/preview/skills/$slug'
+    | '/preview/workflows/$workflow'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -491,6 +600,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewVisitorsNowRouteImport
       parentRoute: typeof PreviewRoute
     }
+    '/preview/skills': {
+      id: '/preview/skills'
+      path: '/skills'
+      fullPath: '/preview/skills'
+      preLoaderRoute: typeof PreviewSkillsRouteImport
+      parentRoute: typeof PreviewRoute
+    }
     '/preview/settings': {
       id: '/preview/settings'
       path: '/settings'
@@ -503,6 +619,27 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/preview/onboarding'
       preLoaderRoute: typeof PreviewOnboardingRouteImport
+      parentRoute: typeof PreviewRoute
+    }
+    '/preview/notes': {
+      id: '/preview/notes'
+      path: '/notes'
+      fullPath: '/preview/notes'
+      preLoaderRoute: typeof PreviewNotesRouteImport
+      parentRoute: typeof PreviewRoute
+    }
+    '/preview/memory': {
+      id: '/preview/memory'
+      path: '/memory'
+      fullPath: '/preview/memory'
+      preLoaderRoute: typeof PreviewMemoryRouteImport
+      parentRoute: typeof PreviewRoute
+    }
+    '/preview/library': {
+      id: '/preview/library'
+      path: '/library'
+      fullPath: '/preview/library'
+      preLoaderRoute: typeof PreviewLibraryRouteImport
       parentRoute: typeof PreviewRoute
     }
     '/preview/landing': {
@@ -524,6 +661,13 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/preview/chat'
       preLoaderRoute: typeof PreviewChatRouteImport
+      parentRoute: typeof PreviewRoute
+    }
+    '/preview/approvals': {
+      id: '/preview/approvals'
+      path: '/approvals'
+      fullPath: '/preview/approvals'
+      preLoaderRoute: typeof PreviewApprovalsRouteImport
       parentRoute: typeof PreviewRoute
     }
     '/library/$artifact': {
@@ -554,12 +698,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/workflows/$workflow': {
+      id: '/preview/workflows/$workflow'
+      path: '/$workflow'
+      fullPath: '/preview/workflows/$workflow'
+      preLoaderRoute: typeof PreviewWorkflowsWorkflowRouteImport
+      parentRoute: typeof PreviewWorkflowsRoute
+    }
+    '/preview/skills/$slug': {
+      id: '/preview/skills/$slug'
+      path: '/$slug'
+      fullPath: '/preview/skills/$slug'
+      preLoaderRoute: typeof PreviewSkillsSlugRouteImport
+      parentRoute: typeof PreviewSkillsRoute
+    }
+    '/preview/library/$artifact': {
+      id: '/preview/library/$artifact'
+      path: '/$artifact'
+      fullPath: '/preview/library/$artifact'
+      preLoaderRoute: typeof PreviewLibraryArtifactRouteImport
+      parentRoute: typeof PreviewLibraryRoute
+    }
     '/preview/integrations/$provider': {
       id: '/preview/integrations/$provider'
       path: '/$provider'
       fullPath: '/preview/integrations/$provider'
       preLoaderRoute: typeof PreviewIntegrationsProviderRouteImport
       parentRoute: typeof PreviewIntegrationsRoute
+    }
+    '/preview/chat/$threadId': {
+      id: '/preview/chat/$threadId'
+      path: '/$threadId'
+      fullPath: '/preview/chat/$threadId'
+      preLoaderRoute: typeof PreviewChatThreadIdRouteImport
+      parentRoute: typeof PreviewChatRoute
     }
   }
 }
@@ -587,6 +759,18 @@ const LibraryRouteChildren: LibraryRouteChildren = {
 const LibraryRouteWithChildren =
   LibraryRoute._addFileChildren(LibraryRouteChildren)
 
+interface PreviewChatRouteChildren {
+  PreviewChatThreadIdRoute: typeof PreviewChatThreadIdRoute
+}
+
+const PreviewChatRouteChildren: PreviewChatRouteChildren = {
+  PreviewChatThreadIdRoute: PreviewChatThreadIdRoute,
+}
+
+const PreviewChatRouteWithChildren = PreviewChatRoute._addFileChildren(
+  PreviewChatRouteChildren,
+)
+
 interface PreviewIntegrationsRouteChildren {
   PreviewIntegrationsProviderRoute: typeof PreviewIntegrationsProviderRoute
 }
@@ -598,24 +782,69 @@ const PreviewIntegrationsRouteChildren: PreviewIntegrationsRouteChildren = {
 const PreviewIntegrationsRouteWithChildren =
   PreviewIntegrationsRoute._addFileChildren(PreviewIntegrationsRouteChildren)
 
+interface PreviewLibraryRouteChildren {
+  PreviewLibraryArtifactRoute: typeof PreviewLibraryArtifactRoute
+}
+
+const PreviewLibraryRouteChildren: PreviewLibraryRouteChildren = {
+  PreviewLibraryArtifactRoute: PreviewLibraryArtifactRoute,
+}
+
+const PreviewLibraryRouteWithChildren = PreviewLibraryRoute._addFileChildren(
+  PreviewLibraryRouteChildren,
+)
+
+interface PreviewSkillsRouteChildren {
+  PreviewSkillsSlugRoute: typeof PreviewSkillsSlugRoute
+}
+
+const PreviewSkillsRouteChildren: PreviewSkillsRouteChildren = {
+  PreviewSkillsSlugRoute: PreviewSkillsSlugRoute,
+}
+
+const PreviewSkillsRouteWithChildren = PreviewSkillsRoute._addFileChildren(
+  PreviewSkillsRouteChildren,
+)
+
+interface PreviewWorkflowsRouteChildren {
+  PreviewWorkflowsWorkflowRoute: typeof PreviewWorkflowsWorkflowRoute
+}
+
+const PreviewWorkflowsRouteChildren: PreviewWorkflowsRouteChildren = {
+  PreviewWorkflowsWorkflowRoute: PreviewWorkflowsWorkflowRoute,
+}
+
+const PreviewWorkflowsRouteWithChildren =
+  PreviewWorkflowsRoute._addFileChildren(PreviewWorkflowsRouteChildren)
+
 interface PreviewRouteChildren {
-  PreviewChatRoute: typeof PreviewChatRoute
+  PreviewApprovalsRoute: typeof PreviewApprovalsRoute
+  PreviewChatRoute: typeof PreviewChatRouteWithChildren
   PreviewIntegrationsRoute: typeof PreviewIntegrationsRouteWithChildren
   PreviewLandingRoute: typeof PreviewLandingRoute
+  PreviewLibraryRoute: typeof PreviewLibraryRouteWithChildren
+  PreviewMemoryRoute: typeof PreviewMemoryRoute
+  PreviewNotesRoute: typeof PreviewNotesRoute
   PreviewOnboardingRoute: typeof PreviewOnboardingRoute
   PreviewSettingsRoute: typeof PreviewSettingsRoute
+  PreviewSkillsRoute: typeof PreviewSkillsRouteWithChildren
   PreviewVisitorsNowRoute: typeof PreviewVisitorsNowRoute
-  PreviewWorkflowsRoute: typeof PreviewWorkflowsRoute
+  PreviewWorkflowsRoute: typeof PreviewWorkflowsRouteWithChildren
 }
 
 const PreviewRouteChildren: PreviewRouteChildren = {
-  PreviewChatRoute: PreviewChatRoute,
+  PreviewApprovalsRoute: PreviewApprovalsRoute,
+  PreviewChatRoute: PreviewChatRouteWithChildren,
   PreviewIntegrationsRoute: PreviewIntegrationsRouteWithChildren,
   PreviewLandingRoute: PreviewLandingRoute,
+  PreviewLibraryRoute: PreviewLibraryRouteWithChildren,
+  PreviewMemoryRoute: PreviewMemoryRoute,
+  PreviewNotesRoute: PreviewNotesRoute,
   PreviewOnboardingRoute: PreviewOnboardingRoute,
   PreviewSettingsRoute: PreviewSettingsRoute,
+  PreviewSkillsRoute: PreviewSkillsRouteWithChildren,
   PreviewVisitorsNowRoute: PreviewVisitorsNowRoute,
-  PreviewWorkflowsRoute: PreviewWorkflowsRoute,
+  PreviewWorkflowsRoute: PreviewWorkflowsRouteWithChildren,
 }
 
 const PreviewRouteWithChildren =

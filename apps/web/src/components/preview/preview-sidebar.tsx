@@ -38,10 +38,8 @@ import { cn } from "~/lib/utils";
 export interface PreviewSidebarProps {
   /** Open the cmd-K palette. */
   onOpenSearch: () => void;
-  /** Active thread id on the chat page (optional — no chat → no highlight). */
+  /** Active thread id (drives the highlight on chat rows). Empty string → no highlight. */
   activeThread?: string;
-  /** Callback when a thread row is clicked on the chat page. */
-  onSelectThread?: (id: string) => void;
 }
 
 type ThreadGroup = "today" | "yesterday" | "earlier";
@@ -73,18 +71,17 @@ const THREADS: Record<ThreadGroup, ThreadEntry[]> = {
 export function PreviewSidebar({
   onOpenSearch,
   activeThread,
-  onSelectThread,
 }: PreviewSidebarProps) {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const isChat = path === "/preview/chat";
+  const isChat = path === "/preview/chat" || path.startsWith("/preview/chat/");
 
   return (
     <aside
       aria-label="Workspace navigation"
       className={cn(
-        "relative shrink-0 w-[264px] h-full",
-        "border-r border-vs-bg-3/60",
-        "bg-vs-bg-1/40",
+        "relative shrink-0 w-[264px] h-full overflow-hidden",
+        "rounded-2xl bg-vs-bg-1",
+        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         "flex flex-col",
       )}
     >
@@ -118,15 +115,41 @@ export function PreviewSidebar({
           to="/preview/workflows"
           active={path.startsWith("/preview/workflows")}
         />
-        <NavRow icon={Wrench} label="Skills" />
-        <NavRow icon={BookOpen} label="Library" />
-        <NavRow icon={ShieldCheck} label="Approvals" badge="2" />
+        <NavLink
+          icon={Wrench}
+          label="Skills"
+          to="/preview/skills"
+          active={path.startsWith("/preview/skills")}
+        />
+        <NavLink
+          icon={BookOpen}
+          label="Library"
+          to="/preview/library"
+          active={path.startsWith("/preview/library")}
+        />
+        <NavLink
+          icon={ShieldCheck}
+          label="Approvals"
+          to="/preview/approvals"
+          badge="2"
+          active={path.startsWith("/preview/approvals")}
+        />
       </div>
 
       <SidebarHeading>Personal</SidebarHeading>
       <div className="px-2 pb-2 space-y-0.5">
-        <NavRow icon={Brain} label="Memory" />
-        <NavRow icon={NotebookPen} label="Notes" />
+        <NavLink
+          icon={Brain}
+          label="Memory"
+          to="/preview/memory"
+          active={path.startsWith("/preview/memory")}
+        />
+        <NavLink
+          icon={NotebookPen}
+          label="Notes"
+          to="/preview/notes"
+          active={path.startsWith("/preview/notes")}
+        />
       </div>
 
       <nav
@@ -140,21 +163,18 @@ export function PreviewSidebar({
           label="Today"
           entries={THREADS.today}
           activeId={activeThread}
-          onSelect={onSelectThread}
           chatActive={isChat}
         />
         <ThreadGroupBlock
           label="Yesterday"
           entries={THREADS.yesterday}
           activeId={activeThread}
-          onSelect={onSelectThread}
           chatActive={isChat}
         />
         <ThreadGroupBlock
           label="Earlier"
           entries={THREADS.earlier}
           activeId={activeThread}
-          onSelect={onSelectThread}
           chatActive={isChat}
         />
       </nav>
@@ -216,14 +236,6 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
   );
 }
 
-function NavRow(props: BaseNavProps) {
-  return (
-    <button type="button" aria-current={props.active ? "page" : undefined} className={navRowClass(props.active)}>
-      <NavInner {...props} />
-    </button>
-  );
-}
-
 function NavButton({ onClick, ...props }: BaseNavProps & { onClick: () => void }) {
   return (
     <button
@@ -267,13 +279,11 @@ function ThreadGroupBlock({
   label,
   entries,
   activeId,
-  onSelect,
   chatActive,
 }: {
   label: string;
   entries: ReadonlyArray<ThreadEntry>;
   activeId?: string;
-  onSelect?: (id: string) => void;
   chatActive: boolean;
 }) {
   return (
@@ -287,10 +297,6 @@ function ThreadGroupBlock({
             key={entry.id}
             entry={entry}
             active={chatActive && entry.id === activeId}
-            chatActive={chatActive}
-            onSelect={() => {
-              if (chatActive && onSelect) onSelect(entry.id);
-            }}
           />
         ))}
       </div>
@@ -301,31 +307,24 @@ function ThreadGroupBlock({
 function ThreadRow({
   entry,
   active,
-  chatActive,
-  onSelect,
 }: {
   entry: ThreadEntry;
   active: boolean;
-  chatActive: boolean;
-  onSelect: () => void;
 }) {
-  // On non-chat pages, clicking a thread row should jump back to chat with
-  // that thread loaded. The shared sidebar can't toggle parent state across
-  // routes, so we render a real Link that navigates to /preview/chat.
-  // (The threadId selection on chat is local state, so we don't actually
-  // pass it through the URL yet — clicking from a non-chat page lands on
-  // the default thread.)
-  const baseClass = cn(
-    "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2",
-    "transition-[background-color,color] duration-150 vs-press",
-    "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-    active
-      ? "bg-vs-bg-2 text-vs-fg-4"
-      : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
-  );
-
-  const content = (
-    <>
+  return (
+    <Link
+      to="/preview/chat/$threadId"
+      params={{ threadId: entry.id }}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2",
+        "transition-[background-color,color] duration-150 vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        active
+          ? "bg-vs-bg-2 text-vs-fg-4"
+          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+      )}
+    >
       {entry.pinned ? (
         <Pin size={12} aria-hidden className="shrink-0 text-vs-fg-2 group-hover:text-vs-fg-3" />
       ) : entry.unread ? (
@@ -334,25 +333,6 @@ function ThreadRow({
         <span aria-hidden className="size-1.5 shrink-0" />
       )}
       <span className="flex-1 min-w-0 truncate text-sm font-medium">{entry.title}</span>
-    </>
-  );
-
-  if (chatActive) {
-    return (
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-current={active ? "page" : undefined}
-        className={baseClass}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <Link to="/preview/chat" className={baseClass}>
-      {content}
     </Link>
   );
 }
