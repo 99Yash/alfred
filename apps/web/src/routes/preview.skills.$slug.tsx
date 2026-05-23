@@ -126,7 +126,11 @@ function PreviewSkillDetailPage() {
         label="Skill detail sections"
       />
 
-      {tab === "learn" ? <LearnTab skill={skill} /> : <HistoryTab skill={skill} />}
+      {tab === "learn" ? (
+        <LearnTab skill={skill} initialPrompt={skill.prompt} key={skill.slug} />
+      ) : (
+        <HistoryTab skill={skill} />
+      )}
     </DetailShell>
   );
 }
@@ -156,8 +160,14 @@ function BackLink() {
   );
 }
 
-function LearnTab({ skill }: { skill: PreviewSkill }) {
-  const [prompt, setPrompt] = useState(skill.prompt);
+function LearnTab({
+  skill,
+  initialPrompt,
+}: {
+  skill: PreviewSkill;
+  initialPrompt: string;
+}) {
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [learning, setLearning] = useState(false);
 
   const onRelearn = () => {
