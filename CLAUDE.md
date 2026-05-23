@@ -24,6 +24,7 @@ packages/
 ├── contracts/       # Zero-dep shared types + consts (tool registry, runtime keys) — safe in apps/web
 ├── db/              # Drizzle schema, pool, helpers
 ├── env/             # Zod-validated env vars — serverEnv() / CLIENT_DEFAULTS
+├── schemas/         # Browser-safe shared Zod schemas + inferred types
 ├── sync/            # Replicache mutator stubs (wired in milestone 3)
 ├── integrations/    # Per-provider shells (Gmail, Calendar, …) — milestone 7
 └── ingestion/       # Shared chunker/embedder/dedup helpers — milestone 7
@@ -51,6 +52,8 @@ Allowed in `apps/web`:
 
 - `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
 - `import { ... } from '@alfred/contracts'` — zero Node deps (pure types + const exports), safe at runtime.
+- `import { ... } from '@alfred/schemas'` — browser-safe Zod schemas and inferred types.
+- `import { ... } from '@alfred/sync'` — Replicache keys, mutators, and synced read-model schemas.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
 
@@ -151,7 +154,7 @@ Per-feature operational details live alongside the code orientation here:
 When adding a new synced entity:
 
 1. Add an entry to `IDB_KEY` in `packages/sync/src/keys.ts` — one function that returns the prefix when called with `{}` and a single-row key when called with `{ id }`. The slug here drives every generic dispatcher downstream.
-2. Define the read shape in `packages/sync/src/types.ts` (must include `rowVersion: number`).
+2. Define the read schema in `packages/sync/src/schemas.ts` and export its inferred type through `packages/sync/src/types.ts` (must include `rowVersion: number`).
 3. Add `<entity><Action>Client` mutator + zod arg schema in `packages/sync/src/mutators/<entity>.ts`, register both in `mutators/index.ts` (`clientMutators` + `mutatorArgsSchemas`).
 4. Add the matching server-side mutator in `packages/api/src/modules/replicache/server-mutators.ts` — write against the supplied `tx` (so it commits inside the push handler's outer transaction) and bump `row_version`. Pokes fire generically from the push handler after commit.
 5. Add a fetcher to `ENTITY_FETCHERS` in `packages/api/src/modules/replicache/pull.ts` returning `{ id, rowVersion, serialized }` per row. The CVR snapshot shape (`Partial<Record<IDBKeys, ClientViewMap>>`) is generic — no `cvr.ts` change needed.

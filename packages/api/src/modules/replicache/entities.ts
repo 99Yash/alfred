@@ -10,6 +10,8 @@ import {
 } from "@alfred/db/schemas";
 import {
   IDB_KEY_NAMES,
+  jsonRecordSchema,
+  memorySourceSchema,
   type IDBKeys,
   type SyncedActionStaging,
   type SyncedEntity,
@@ -207,7 +209,7 @@ function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
     value: f.value,
     confidence: f.confidence,
     status: f.status,
-    source: f.source as SyncedFact["source"],
+    source: memorySourceSchema.parse(f.source),
     validFrom: toRequiredIso(f.validFrom, "userFacts.validFrom"),
     validUntil: toIso(f.validUntil),
     supersedesId: f.supersedesId,
@@ -222,7 +224,7 @@ function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPref
     key: p.key,
     userId: p.userId,
     value: p.value,
-    source: p.source as SyncedPreference["source"],
+    source: memorySourceSchema.parse(p.source),
     rowVersion: p.rowVersion,
   };
 }
@@ -251,7 +253,7 @@ function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSk
     userId: r.userId,
     kind: r.kind,
     body: r.body,
-    metadata: r.metadata as SyncedSkillRevision["metadata"],
+    metadata: jsonRecordSchema.parse(r.metadata),
     createdByRunId: r.createdByRunId,
     rowVersion: r.rowVersion,
     createdAt: toRequiredIso(r.createdAt, "skillRevisions.createdAt"),
