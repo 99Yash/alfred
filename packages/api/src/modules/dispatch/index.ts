@@ -41,6 +41,7 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
+import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
 
 export interface DispatchArgs {
@@ -183,6 +184,19 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
   const input = parsed.data as unknown;
+  const caller = args.caller ?? "boss";
+  const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
+  if (scratchAccessError) {
+    return {
+      kind: "invalid_input",
+      result: {
+        status: "invalid_input",
+        toolName,
+        message: scratchAccessError,
+      },
+    };
+  }
+
   const proposedInputHash = hashToolInput(toolName, input);
 
   // Retry suppression — Phase 3c. A prior `rejected` row for this run +
@@ -288,7 +302,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
-    caller: args.caller ?? "boss",
+    caller,
     allowedIntegrations: args.allowedIntegrations,
   };
 
@@ -493,4 +507,60 @@ function extractStoredError(stored: unknown): { message: string } {
     return { message: typeof message === "string" ? message : JSON.stringify(message) };
   }
   return { message: stored ? JSON.stringify(stored) : "unknown failure" };
+}
+
+function validateScratchToolAccess(args: {
+  toolName: ToolName;
+  input: unknown;
+  caller: ToolExecuteContext["caller"];
+}): string | null {
+  if (args.toolName === "system.read_scratch") {
+    const key = readStringProp(args.input, "key");
+    const target = parseScratchAccessKey(key);
+    if (typeof target === "string") return target;
+    if (args.caller !== "boss" && target.zone === "scratch" && target.subId !== args.caller.subId) {
+      return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.subId}'`;
+    }
+    return null;
+  }
+
+  if (args.toolName === "system.write_scratch") {
+    const key = readStringProp(args.input, "key");
+    const target = parseScratchAccessKey(key);
+    if (typeof target === "string") return target;
+    if (args.caller === "boss") {
+      return target.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
+    }
+    return target.zone === "scratch" && target.subId === args.caller.subId
+      ? null
+      : `Sub-agent '${args.caller.subId}' can only write scratch.${args.caller.subId}.<path> keys`;
+  }
+
+  if (args.toolName === "system.promote") {
+    if (args.caller !== "boss") return "system.promote can only be called by the boss";
+    const from = parseScratchAccessKey(readStringProp(args.input, "fromKey"));
+    if (typeof from === "string") return from;
+    const to = parseScratchAccessKey(readStringProp(args.input, "toKey"));
+    if (typeof to === "string") return to;
+    if (from.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
+    if (to.zone !== "shared") return "system.promote toKey must be shared.<path>";
+    return null;
+  }
+
+  return null;
+}
+
+function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
+  if (key === null) return "Scratch key must be a string";
+  try {
+    return parseScratchToolKey(key);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+function readStringProp(input: unknown, prop: string): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const value = (input as Record<string, unknown>)[prop];
+  return typeof value === "string" ? value : null;
 }
