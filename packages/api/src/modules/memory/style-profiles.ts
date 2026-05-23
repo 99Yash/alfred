@@ -3,10 +3,10 @@ import { styleProfiles } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  STYLE_AUDIENCE_BUCKETS,
-  STYLE_CHANNELS,
   type StyleAudienceBucket,
   type StyleChannel,
+  styleAudienceBucketSchema,
+  styleChannelSchema,
 } from "./types";
 
 /**
@@ -17,8 +17,11 @@ import {
  * (m9 reply drafting, ADR-0025 #5 OFF-by-default).
  */
 
-const channelSchema = z.enum(STYLE_CHANNELS);
-const audienceBucketSchema = z.enum(STYLE_AUDIENCE_BUCKETS);
+const channelSchema = styleChannelSchema;
+const audienceBucketSchema = styleAudienceBucketSchema;
+const styleProfileStatusSchema = z.enum(["draft", "active", "superseded"]);
+const stringArraySchema = z.array(z.string());
+const unknownArraySchema = z.array(z.unknown());
 
 export const upsertStyleProfileArgsSchema = z.object({
   userId: z.string().min(1),
@@ -30,7 +33,7 @@ export const upsertStyleProfileArgsSchema = z.object({
   sourceMsgIds: z.array(z.string()).optional(),
   generatedFromCount: z.number().int().nonnegative().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  status: z.enum(["draft", "active", "superseded"]).optional(),
+  status: styleProfileStatusSchema.optional(),
 });
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
@@ -54,16 +57,16 @@ function rowToProfile(r: typeof styleProfiles.$inferSelect): StyleProfileRow {
   return {
     id: r.id,
     userId: r.userId,
-    channel: r.channel as StyleChannel,
-    audienceBucket: r.audienceBucket as StyleAudienceBucket,
+    channel: styleChannelSchema.parse(r.channel),
+    audienceBucket: styleAudienceBucketSchema.parse(r.audienceBucket),
     recipientId: r.recipientId,
     profileDoc: r.profileDoc,
-    examples: (r.examples as unknown[]) ?? [],
-    sourceMsgIds: (r.sourceMsgIds as string[]) ?? [],
+    examples: unknownArraySchema.parse(r.examples ?? []),
+    sourceMsgIds: stringArraySchema.parse(r.sourceMsgIds ?? []),
     generatedAt: r.generatedAt,
     generatedFromCount: r.generatedFromCount,
     confidence: r.confidence,
-    status: r.status as "draft" | "active" | "superseded",
+    status: styleProfileStatusSchema.parse(r.status),
     rowVersion: r.rowVersion,
   };
 }

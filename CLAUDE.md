@@ -62,6 +62,8 @@ Forbidden in `apps/web`:
 - Any non-type import of `@alfred/api`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
 - Any import of `@alfred/ai` (contains server-only AI SDK providers).
 
+`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
+
 Path alias `~/` maps to `src/` in both apps.
 
 ## TypeScript conventions
@@ -79,7 +81,7 @@ Key patterns in this repo:
 
 ```ts
 // Auth guard via macro (packages/api/src/middleware/auth.ts)
-app.use(authMacro).get('/protected', ({ user }) => user, { auth: true });
+app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
 
 // Global error handler (packages/api/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.
