@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Check, Pencil, Sparkles, X } from "lucide-react";
+import { Brain, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
-import { VsButton, VsCard } from "~/components/ui/visitors";
-import { cn } from "~/lib/utils";
+import { VsCard } from "~/components/ui/visitors";
+import type { LocalFact } from "./-preview-memory/helpers";
+import { ProposedFactCard } from "./-preview-memory/proposed-fact-card";
+import { SectionHeading } from "./-preview-memory/section-heading";
 
 /**
  * Visitors-now-grammar port of /memory.
@@ -16,22 +18,6 @@ import { cn } from "~/lib/utils";
 export const Route = createFileRoute("/preview/memory")({
   component: PreviewMemoryPage,
 });
-
-const CONFIRM_LEADING = <Check size={12} />;
-const EDIT_LEADING = <Pencil size={12} />;
-const REJECT_LEADING = <X size={12} />;
-
-type FactStatus = "proposed" | "confirmed";
-
-interface LocalFact {
-  id: string;
-  key: string;
-  value: string;
-  status: FactStatus;
-  confidence: number;
-  source: string;
-  createdAt: string;
-}
 
 const SEED_FACTS: LocalFact[] = [
   {
@@ -225,84 +211,5 @@ function PreviewMemoryPage() {
         </div>
       </main>
     </div>
-  );
-}
-
-function SectionHeading({
-  title,
-  count,
-  hint,
-}: {
-  title: string;
-  count?: number;
-  hint?: string;
-}) {
-  return (
-    <div className="space-y-1 px-1">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-[15px] font-medium text-vs-fg-4">{title}</h2>
-        {typeof count === "number" ? (
-          <span className="text-xs text-vs-fg-2 tabular-nums">{count}</span>
-        ) : null}
-      </div>
-      {hint ? <p className="text-xs text-vs-fg-3">{hint}</p> : null}
-    </div>
-  );
-}
-
-function ProposedFactCard({
-  fact,
-  onConfirm,
-  onReject,
-}: {
-  fact: LocalFact;
-  onConfirm: () => void;
-  onReject: () => void;
-}) {
-  return (
-    <VsCard className="space-y-2.5 px-4 py-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <code className="font-mono text-[12px] text-vs-fg-4 break-all">{fact.key}</code>
-        <ConfidenceChip confidence={fact.confidence} />
-      </div>
-      <div className="rounded-md bg-vs-bg-2 px-3 py-2 font-mono text-[12px] whitespace-pre-wrap break-words text-vs-fg-4">
-        {fact.value}
-      </div>
-      <div className="text-[11px] text-vs-fg-3 tabular-nums">
-        {fact.source} · {new Date(fact.createdAt).toLocaleString()}
-      </div>
-      <div className="flex flex-wrap gap-1.5 pt-0.5">
-        <VsButton variant="primary" size="sm" onClick={onConfirm} leading={CONFIRM_LEADING}>
-          Confirm
-        </VsButton>
-        <VsButton variant="ghost" size="sm" leading={EDIT_LEADING}>
-          Edit
-        </VsButton>
-        <VsButton variant="ghost" size="sm" onClick={onReject} leading={REJECT_LEADING}>
-          Reject
-        </VsButton>
-      </div>
-    </VsCard>
-  );
-}
-
-function ConfidenceChip({ confidence }: { confidence: number }) {
-  const tone =
-    confidence >= 0.75
-      ? cn("bg-vs-green-1 text-vs-green-4")
-      : confidence >= 0.5
-        ? cn("bg-vs-amber-1 text-vs-amber-4")
-        : cn("bg-vs-red-1 text-vs-red-4");
-  const pct = (confidence * 100).toFixed(0);
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums",
-        tone,
-      )}
-    >
-      <span aria-hidden className="size-1.5 rounded-full bg-current" />
-      {pct}%
-    </span>
   );
 }
