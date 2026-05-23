@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChatContext } from "~/components/preview/chat-context";
 import { PreviewSidebar } from "~/components/preview/preview-sidebar";
 import { SearchPalette } from "~/components/preview/search-palette";
@@ -47,8 +47,13 @@ function PreviewLayout() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  const chatContextValue = useMemo(
+    () => ({ activeThread, setActiveThread }),
+    [activeThread],
+  );
+
   return (
-    <ChatContext.Provider value={{ activeThread, setActiveThread }}>
+    <ChatContext.Provider value={chatContextValue}>
       <VsThemeProvider>
         <VsThemed className="min-h-dvh bg-vs-background-subtle">
           <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
