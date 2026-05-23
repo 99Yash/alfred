@@ -42,11 +42,11 @@ function PreviewArtifactViewer() {
 
   if (!artifact) {
     return (
-      <div
-        role="dialog"
+      <dialog
+        open
         aria-modal="true"
         aria-label="Artifact not found"
-        className="fixed inset-0 z-[60] flex items-center justify-center vs-fade-in"
+        className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-center justify-center border-0 bg-transparent p-0 vs-fade-in"
       >
         <button
           type="button"
@@ -68,16 +68,16 @@ function PreviewArtifactViewer() {
             Back to Library
           </Link>
         </div>
-      </div>
+      </dialog>
     );
   }
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-label={artifact.title}
-      className="fixed inset-0 z-[60] flex flex-col vs-fade-in"
+      className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none flex-col border-0 bg-transparent p-0 vs-fade-in"
     >
       <button
         type="button"
@@ -161,6 +161,6 @@ function PreviewArtifactViewer() {
       <div className="pointer-events-none absolute bottom-4 right-5 text-[11.5px] text-vs-fg-2">
         Esc to exit
       </div>
-    </div>
+    </dialog>
   );
 }

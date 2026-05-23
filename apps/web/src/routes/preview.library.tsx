@@ -239,7 +239,7 @@ function TypeFilterPopover({
           <div className="mb-1 px-2 pb-1 pt-1 text-[11px] uppercase tracking-tight text-vs-fg-2">
             Filter types
           </div>
-          <div role="listbox" aria-label="Artifact types" className="space-y-0.5">
+          <div aria-label="Artifact types" className="space-y-0.5">
             {TYPE_OPTIONS.map((type) => {
               const checked =
                 type.value === "all" ? selectedTypes.size === 0 : selectedTypes.has(type.value);
@@ -247,8 +247,7 @@ function TypeFilterPopover({
                 <button
                   key={type.value}
                   type="button"
-                  role="option"
-                  aria-selected={checked}
+                  aria-pressed={checked}
                   onClick={() => toggleType(type.value)}
                   className={cn(
                     "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm",
