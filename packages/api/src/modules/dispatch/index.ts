@@ -33,12 +33,15 @@
  */
 
 import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
-import { hashToolInput, integrationFromToolName } from "@alfred/contracts";
+import { hashToolInput, integrationFromToolName, isToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { resolvePolicyMode } from "../action-policies/resolve";
+import { emitReplicachePokes } from "../../events/replicache-events";
+import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
+import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
+import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
 
 export interface DispatchArgs {
@@ -47,11 +50,13 @@ export interface DispatchArgs {
   stepId: string;
   /** Stable id from the model's tool call (deduplicates same call across step re-attempts). */
   toolCallId: string;
-  toolName: ToolName;
+  toolName: string;
   input: unknown;
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
   caller?: ToolExecuteContext["caller"];
+  /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
+  scratchpadRunId?: string;
   /** Workflow integration cap, used by system tools such as `system.load_integration`. */
   allowedIntegrations?: readonly string[];
 }
@@ -74,14 +79,14 @@ interface InvalidInputToolResult {
 
 interface UnknownToolResult {
   status: "unknown_tool";
-  toolName: ToolName;
+  toolName: string;
   message: string;
 }
 
 export type DispatchResult =
   | {
       kind: "executed";
-      stagingId: string;
+      stagingId: string | null;
       toolResult: unknown;
       /** True when the user edited the input before approving — the boss
        *  may want to surface that to the model so future suggestions
@@ -90,7 +95,7 @@ export type DispatchResult =
     }
   | {
       kind: "failed";
-      stagingId: string;
+      stagingId: string | null;
       error: { message: string };
     }
   | {
@@ -124,6 +129,8 @@ interface StagingRow {
   rejectReason: string | null;
   executeResult: unknown;
   executeError: unknown;
+  notifyAfterAt: Date | null;
+  notifiedAt: Date | null;
 }
 
 const STAGING_COLUMNS = {
@@ -137,17 +144,31 @@ const STAGING_COLUMNS = {
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
   executeError: actionStagings.executeError,
+  notifyAfterAt: actionStagings.notifyAfterAt,
+  notifiedAt: actionStagings.notifiedAt,
 } as const;
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
-  const tool = getTool(args.toolName);
-  if (!tool) {
+  if (!isToolName(args.toolName)) {
     return {
       kind: "unknown_tool",
       result: {
         status: "unknown_tool",
         toolName: args.toolName,
-        message: `Tool '${args.toolName}' is not registered`,
+        message: `Tool '${args.toolName}' is not declared`,
+      },
+    };
+  }
+
+  const toolName = args.toolName;
+  const tool = getTool(toolName);
+  if (!tool) {
+    return {
+      kind: "unknown_tool",
+      result: {
+        status: "unknown_tool",
+        toolName,
+        message: `Tool '${toolName}' is not registered`,
       },
     };
   }
@@ -158,14 +179,50 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       kind: "invalid_input",
       result: {
         status: "invalid_input",
-        toolName: args.toolName,
+        toolName,
         message: parsed.error.message,
         issues: parsed.error.issues,
       },
     };
   }
   const input = parsed.data as unknown;
-  const proposedInputHash = hashToolInput(args.toolName, input);
+  const caller = args.caller ?? "boss";
+  const ctx: ToolExecuteContext = {
+    runId: args.runId,
+    scratchpadRunId: args.scratchpadRunId ?? args.runId,
+    stepId: args.stepId,
+    toolCallId: args.toolCallId,
+    userId: args.userId,
+    caller,
+    allowedIntegrations: args.allowedIntegrations,
+  };
+  const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
+  if (scratchAccessError) {
+    return {
+      kind: "invalid_input",
+      result: {
+        status: "invalid_input",
+        toolName,
+        message: scratchAccessError,
+      },
+    };
+  }
+  const systemAccessError = validateSystemToolAccess({ toolName, caller });
+  if (systemAccessError) {
+    return {
+      kind: "invalid_input",
+      result: {
+        status: "invalid_input",
+        toolName,
+        message: systemAccessError,
+      },
+    };
+  }
+  if (isScratchFastPathTool(toolName)) {
+    return executeFastPath(tool, input, ctx);
+  }
+
+  const proposedInputHash = hashToolInput(toolName, input);
 
   // Retry suppression — Phase 3c. A prior `rejected` row for this run +
   // tool + input hash means the user has already said no to this exact
@@ -181,7 +238,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     .where(
       and(
         eq(actionStagings.runId, args.runId),
-        eq(actionStagings.toolName, args.toolName),
+        eq(actionStagings.toolName, toolName),
         eq(actionStagings.proposedInputHash, proposedInputHash),
         eq(actionStagings.status, "rejected"),
       ),
@@ -194,18 +251,23 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       kind: "rejected",
       stagingId: null,
       result: synthesizeRejection({
-        toolName: args.toolName,
+        toolName,
         proposedInput: input,
         reason: priorReject[0].reason ?? "rejected by user",
       }),
     };
   }
 
-  const integration: IntegrationSlug = integrationFromToolName(args.toolName);
+  const integration: IntegrationSlug = integrationFromToolName(toolName);
   const riskTier: ToolRiskTier = tool.riskTier;
   const policyMode =
-    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, args.toolName);
+    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = policyMode === "gated";
+  const approvalNotifyDelayMs = requiresApproval
+    ? await resolveApprovalNotifyDelayMs(args.userId)
+    : null;
+  const notifyAfterAt =
+    approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
 
   // INSERT first, fall back to SELECT on conflict. Drizzle returns the
   // inserted row(s) or an empty array on a no-op conflict. Either way
@@ -217,19 +279,21 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       runId: args.runId,
       stepId: args.stepId,
       toolCallId: args.toolCallId,
-      toolName: args.toolName,
+      toolName,
       integration,
       riskTier,
       proposedInput: input as object,
       proposedInputHash,
       requiresApproval,
       status: "pending",
+      notifyAfterAt,
     })
     .onConflictDoNothing({
       target: [actionStagings.runId, actionStagings.toolCallId],
     })
     .returning(STAGING_COLUMNS);
 
+  const insertedNew = inserted[0] !== undefined;
   let row: StagingRow | undefined = inserted[0];
   if (!row) {
     const existing = await db()
@@ -252,22 +316,12 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     // dispatcher policy decision. Fail loud rather than silently
     // executing the new tool while updating the original row's audit
     // trail.
-    if (row.toolName !== args.toolName) {
+    if (row.toolName !== toolName) {
       throw new Error(
-        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${args.toolName}')`,
+        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
       );
     }
   }
-
-  const ctx: ToolExecuteContext = {
-    runId: args.runId,
-    stepId: args.stepId,
-    toolCallId: args.toolCallId,
-    userId: args.userId,
-    caller: args.caller ?? "boss",
-    allowedIntegrations: args.allowedIntegrations,
-  };
-
   switch (row.status) {
     case "pending":
       // Honor the `requires_approval` recorded on the row, NOT the
@@ -280,10 +334,22 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       // sticks. Mirrors the plan's intent that `requires_approval` is
       // the locked-in decision per ADR-0034.
       if (row.requiresApproval) {
-        // Park. The executor will emit `approval.requested` when it
-        // commits the interrupt (see executor.ts), so we don't fire
-        // anything from here. Phase 5 layers the dedicated
-        // `staging_pending` SSE event + BullMQ delayed email on top.
+        // Park. The executor emits the transient `approval.requested`
+        // event when it commits the interrupt; Replicache carries the
+        // durable approvals queue. Emit the poke only for a newly-created
+        // row so crash/resume re-dispatches don't spam connected clients.
+        if (insertedNew) emitReplicachePokes([args.userId], row.id);
+        if (!row.notifiedAt) {
+          const delayMs =
+            row.notifyAfterAt instanceof Date
+              ? row.notifyAfterAt.getTime() - Date.now()
+              : (approvalNotifyDelayMs ?? 0);
+          await scheduleApprovalNotificationJob({
+            stagingId: row.id,
+            userId: args.userId,
+            delayMs,
+          });
+        }
         return {
           kind: "staged",
           stagingId: row.id,
@@ -291,7 +357,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
             kind: "hil",
             approvalId: row.id,
             approvalKind: "action_staging",
-            prompt: `Approve ${args.toolName}`,
+            prompt: `Approve ${toolName}`,
           },
         };
       }
@@ -324,6 +390,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
             rowVersion: sql`${actionStagings.rowVersion} + 1`,
           })
           .where(eq(actionStagings.id, row.id));
+        if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
         return {
           kind: "failed",
           stagingId: row.id,
@@ -338,7 +405,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
-          toolName: args.toolName,
+          toolName,
           proposedInput: input,
           reason: row.rejectReason ?? "rejected by user",
         }),
@@ -349,7 +416,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
-          toolName: args.toolName,
+          toolName,
           proposedInput: input,
           reason: "auto-expired",
         }),
@@ -410,6 +477,7 @@ async function executeAndCommit(
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
       })
       .where(eq(actionStagings.id, row.id));
+    if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
     return { kind: "failed", stagingId: row.id, error };
   }
   // A tool legitimately returning `null` or `undefined` is stored as
@@ -429,7 +497,25 @@ async function executeAndCommit(
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })
     .where(eq(actionStagings.id, row.id));
+  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
   return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
+}
+
+async function executeFastPath(
+  tool: ReturnType<typeof getTool> & object,
+  input: unknown,
+  ctx: ToolExecuteContext,
+): Promise<DispatchResult> {
+  try {
+    const result = await tool.execute(input, ctx);
+    return { kind: "executed", stagingId: null, toolResult: result, editedByUser: false };
+  } catch (err) {
+    return {
+      kind: "failed",
+      stagingId: null,
+      error: { message: err instanceof Error ? err.message : String(err) },
+    };
+  }
 }
 
 interface SynthesizeRejectionArgs {
@@ -454,4 +540,78 @@ function extractStoredError(stored: unknown): { message: string } {
     return { message: typeof message === "string" ? message : JSON.stringify(message) };
   }
   return { message: stored ? JSON.stringify(stored) : "unknown failure" };
+}
+
+function validateScratchToolAccess(args: {
+  toolName: ToolName;
+  input: unknown;
+  caller: ToolExecuteContext["caller"];
+}): string | null {
+  if (args.toolName === "system.read_scratch") {
+    const key = readStringProp(args.input, "key");
+    const target = parseScratchAccessKey(key);
+    if (typeof target === "string") return target;
+    if (args.caller !== "boss" && target.zone === "scratch" && target.subId !== args.caller.subId) {
+      return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.subId}'`;
+    }
+    return null;
+  }
+
+  if (args.toolName === "system.write_scratch") {
+    const key = readStringProp(args.input, "key");
+    const target = parseScratchAccessKey(key);
+    if (typeof target === "string") return target;
+    if (args.caller === "boss") {
+      return target.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
+    }
+    return target.zone === "scratch" && target.subId === args.caller.subId
+      ? null
+      : `Sub-agent '${args.caller.subId}' can only write scratch.${args.caller.subId}.<path> keys`;
+  }
+
+  if (args.toolName === "system.promote") {
+    if (args.caller !== "boss") return "system.promote can only be called by the boss";
+    const from = parseScratchAccessKey(readStringProp(args.input, "fromKey"));
+    if (typeof from === "string") return from;
+    const to = parseScratchAccessKey(readStringProp(args.input, "toKey"));
+    if (typeof to === "string") return to;
+    if (from.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
+    if (to.zone !== "shared") return "system.promote toKey must be shared.<path>";
+    return null;
+  }
+
+  return null;
+}
+
+function isScratchFastPathTool(toolName: ToolName): boolean {
+  return (
+    toolName === "system.read_scratch" ||
+    toolName === "system.write_scratch" ||
+    toolName === "system.promote"
+  );
+}
+
+function validateSystemToolAccess(args: {
+  toolName: ToolName;
+  caller: ToolExecuteContext["caller"];
+}): string | null {
+  if (args.toolName === "system.spawn_sub_agent" && args.caller !== "boss") {
+    return "system.spawn_sub_agent can only be called by the boss";
+  }
+  return null;
+}
+
+function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
+  if (key === null) return "Scratch key must be a string";
+  try {
+    return parseScratchToolKey(key);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+function readStringProp(input: unknown, prop: string): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const value = (input as Record<string, unknown>)[prop];
+  return typeof value === "string" ? value : null;
 }

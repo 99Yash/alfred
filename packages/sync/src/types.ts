@@ -1,3 +1,5 @@
+import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
+
 export interface SyncedNote {
   id: string;
   userId: string;
@@ -69,6 +71,33 @@ export interface SyncedSkillRun {
   rowVersion: number;
   startedAt: string;
   endedAt: string | null;
+}
+
+/** Pending action approval surfaced in the `/approvals` queue. */
+export interface SyncedActionStaging {
+  id: string;
+  userId: string;
+  runId: string;
+  workflowSlug: string;
+  stepId: string;
+  toolCallId: string;
+  toolName: ToolName;
+  integration: IntegrationSlug;
+  riskTier: ToolRiskTier;
+  proposedInput: unknown;
+  requiresApproval: boolean;
+  status: "pending";
+  expiresAt: string | null;
+  notifyAfterAt: string | null;
+  notifiedAt: string | null;
+  recentRejection: {
+    runId: string;
+    reason: string | null;
+    decidedAt: string;
+  } | null;
+  rowVersion: number;
+  createdAt: string;
+  updatedAt: string | null;
 }
 
 /** What the client gets per `user_facts` row. */

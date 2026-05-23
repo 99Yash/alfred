@@ -3,7 +3,16 @@ import { authMacro } from "../../middleware/auth";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
 import { listWorkflows, registerWorkflow } from "./registry";
-import { cancelRun, createRun, getRun, isUniqueViolation, signalRun, type SignalArgs } from "./service";
+import {
+  cancelRun,
+  cancelRunInTx,
+  createRun,
+  getRun,
+  isUniqueViolation,
+  signalRun,
+  signalRunInTx,
+  type SignalArgs,
+} from "./service";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
 export {
@@ -13,7 +22,9 @@ export {
   getRun,
   isUniqueViolation,
   signalRun,
+  signalRunInTx,
   cancelRun,
+  cancelRunInTx,
   enqueueRun,
   getAgentQueue,
   runOnce,
@@ -30,6 +41,7 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./types";
+export type { CancelOutcome, CancelRunArgs, SignalArgs, SignalOutcome } from "./service";
 
 export const agent = new Elysia({ prefix: "/api/agent" })
   .use(authMacro)
