@@ -15,7 +15,9 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
+import { readSubAgentMetadata, subAgentMetadataSchema } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
@@ -33,6 +35,7 @@ const briefRunStateSchema = z.object({
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   pendingToolCalls: z.array(pendingToolCallSchema),
+  subAgent: subAgentMetadataSchema.nullable(),
   inFlightTailStart: z.number().int().min(0),
   turnCount: z.number().int().min(0),
 });
@@ -42,8 +45,16 @@ const BOSS_SYSTEM_PROMPT = [
   "You are Alfred, the user's personal assistant agent.",
   "Be concise and practical. Briefly state the next action before calling tools.",
   "Use integration tools for external data and actions. Use system.load_integration when another allowed integration is needed.",
+  "Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
   "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
   "End the run with one user-facing summary message and no tool calls.",
+].join("\n\n");
+
+const SUB_AGENT_SYSTEM_PROMPT = [
+  "You are a focused Alfred sub-agent working from a narrow brief.",
+  "Do not spawn other agents. Use tools only when they directly serve the brief.",
+  "Write useful findings to scratch.<yourSubId>.summary or a more specific scratch.<yourSubId>.<path> key.",
+  "End with a concise summary of what you found and any limits or uncertainty.",
 ].join("\n\n");
 
 const bossTurnStep: Step<BriefRunState> = {
@@ -58,10 +69,11 @@ const bossTurnStep: Step<BriefRunState> = {
       turnCount: ctx.state.turnCount + 1,
     };
     const transcript = [...ctx.transcript];
+    const subAgent = state.subAgent;
     const agent = new AlfredAgent({
-      id: "boss",
-      system: BOSS_SYSTEM_PROMPT,
-      tools: () => resolveSdkTools(state.activeIntegrations),
+      id: subAgent ? subAgent.subId : "boss",
+      system: subAgent ? SUB_AGENT_SYSTEM_PROMPT : BOSS_SYSTEM_PROMPT,
+      tools: () => resolveSdkTools(state.activeIntegrations, subAgent !== null),
       model: getBossModel(),
       attribution: {
         kind: "llm",
@@ -83,11 +95,18 @@ const bossTurnStep: Step<BriefRunState> = {
     state.inFlightTailStart = transcript.length;
 
     if (result.kind === "final") {
+      const output = subAgent
+        ? await writeSubAgentSummary({
+            parentRunId: subAgent.parentRunId,
+            subId: subAgent.subId,
+            text: result.text,
+          })
+        : { text: result.text };
       return {
         kind: "done",
         state,
         transcript: nextTranscript,
-        output: { text: result.text },
+        output,
       };
     }
 
@@ -137,6 +156,8 @@ const dispatchToolsStep: Step<BriefRunState> = {
         toolName: call.toolName,
         input: call.input,
         userId: ctx.userId,
+        caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
+        scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
         allowedIntegrations: state.allowedIntegrations,
       });
 
@@ -175,6 +196,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       activeIntegrations: parseIntegrationMentions(input.brief, allowedIntegrations),
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
+      subAgent: readSubAgentMetadata(input.metadata),
       inFlightTailStart: 0,
       turnCount: 0,
     };
@@ -190,12 +212,18 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   stateSchema: briefRunStateSchema,
 };
 
-function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
+function resolveSdkTools(activeIntegrations: readonly string[], isSubAgent: boolean): ToolSet {
   const out: Partial<Record<ToolName, Tool>> = {};
   const slugs = uniqueIntegrations(["system", ...activeIntegrations]);
   for (const slug of slugs) {
     if (!isIntegrationSlug(slug)) continue;
     for (const registered of listToolsForIntegration(slug)) {
+      if (
+        isSubAgent &&
+        (registered.name === "system.spawn_sub_agent" || registered.name === "system.promote")
+      ) {
+        continue;
+      }
       out[registered.name] = tool({
         description: registered.description,
         inputSchema: registered.inputSchema,
@@ -203,6 +231,23 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
     }
   }
   return out as ToolSet;
+}
+
+async function writeSubAgentSummary(args: {
+  parentRunId: string;
+  subId: string;
+  text: string;
+}): Promise<{ text: string; scratchKey: string }> {
+  const scratchKey = `scratch.${args.subId}.summary`;
+  await writeScratch({
+    runId: args.parentRunId,
+    zone: "scratch",
+    subId: args.subId,
+    path: "summary",
+    value: { text: args.text },
+    writtenBy: args.subId,
+  });
+  return { text: args.text, scratchKey };
 }
 
 function applySystemToolEffect(

@@ -1,8 +1,7 @@
 export const POLICY_MODES = ["autonomy", "gated"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
-export const INTEGRATION_SLUGS = [
-  "system",
+export const LOADABLE_INTEGRATION_SLUGS = [
   "gmail",
   "calendar",
   "drive",
@@ -12,8 +11,10 @@ export const INTEGRATION_SLUGS = [
   "github",
   "imessage",
 ] as const;
+export type LoadableIntegrationSlug = (typeof LOADABLE_INTEGRATION_SLUGS)[number];
+
+export const INTEGRATION_SLUGS = ["system", ...LOADABLE_INTEGRATION_SLUGS] as const;
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
-export type LoadableIntegrationSlug = Exclude<IntegrationSlug, "system">;
 
 export const SYSTEM_ACTIONS = [
   "load_integration",
@@ -94,7 +95,7 @@ export function isToolName(value: string): value is ToolName {
 }
 
 export function isLoadableIntegrationSlug(value: string): value is LoadableIntegrationSlug {
-  return value !== "system" && isIntegrationSlug(value);
+  return (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(value);
 }
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {

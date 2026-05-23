@@ -55,6 +55,8 @@ export interface DispatchArgs {
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
   caller?: ToolExecuteContext["caller"];
+  /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
+  scratchpadRunId?: string;
   /** Workflow integration cap, used by system tools such as `system.load_integration`. */
   allowedIntegrations?: readonly string[];
 }
@@ -187,6 +189,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const caller = args.caller ?? "boss";
   const ctx: ToolExecuteContext = {
     runId: args.runId,
+    scratchpadRunId: args.scratchpadRunId ?? args.runId,
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
@@ -201,6 +204,17 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         status: "invalid_input",
         toolName,
         message: scratchAccessError,
+      },
+    };
+  }
+  const systemAccessError = validateSystemToolAccess({ toolName, caller });
+  if (systemAccessError) {
+    return {
+      kind: "invalid_input",
+      result: {
+        status: "invalid_input",
+        toolName,
+        message: systemAccessError,
       },
     };
   }
@@ -575,6 +589,16 @@ function isScratchFastPathTool(toolName: ToolName): boolean {
     toolName === "system.write_scratch" ||
     toolName === "system.promote"
   );
+}
+
+function validateSystemToolAccess(args: {
+  toolName: ToolName;
+  caller: ToolExecuteContext["caller"];
+}): string | null {
+  if (args.toolName === "system.spawn_sub_agent" && args.caller !== "boss") {
+    return "system.spawn_sub_agent can only be called by the boss";
+  }
+  return null;
 }
 
 function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
