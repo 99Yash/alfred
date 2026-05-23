@@ -34,6 +34,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "list_events",
     riskTier: "no_risk",
+    description: "List Google Calendar events in an optional time window.",
     inputSchema: calendarListEventsInput,
     execute: async () => {
       throw new Error(`calendar.list_events execute pending: ${PENDING}`);
@@ -43,6 +44,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "create_event",
     riskTier: "medium",
+    description: "Create a Google Calendar event after the user approves the details.",
     inputSchema: calendarCreateEventInput,
     execute: async () => {
       throw new Error(`calendar.create_event execute pending: ${PENDING}`);

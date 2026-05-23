@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "transcript" jsonb DEFAULT '[]'::jsonb NOT NULL;

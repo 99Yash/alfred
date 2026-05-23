@@ -11,12 +11,7 @@
  * subject prefixes; they never silently change whether a call is gated.
  */
 
-import type {
-  ActionSlug,
-  IntegrationSlug,
-  ToolName,
-  ToolRiskTier,
-} from "@alfred/contracts";
+import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
 import { INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
 
@@ -33,6 +28,12 @@ export interface ToolExecuteContext {
    * care; the scratchpad zone gate (Phase 6) does.
    */
   caller: "boss" | { subId: string };
+  /**
+   * Workflow-level integration cap. Empty or undefined means unrestricted.
+   * Internal system tools such as `system.load_integration` use this to
+   * validate without reading or mutating run state.
+   */
+  allowedIntegrations?: readonly string[];
 }
 
 export interface LiveToolArgs<
@@ -43,6 +44,7 @@ export interface LiveToolArgs<
   integration: I;
   action: A;
   riskTier: ToolRiskTier;
+  description: string;
   inputSchema: S;
   /**
    * Pure side-effect: the dispatcher validates input against
@@ -58,6 +60,7 @@ export interface RegisteredTool {
   integration: IntegrationSlug;
   action: string;
   riskTier: ToolRiskTier;
+  description: string;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
 }
@@ -79,6 +82,7 @@ export function liveTool<
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
+    description: args.description,
     inputSchema: args.inputSchema,
     execute: async (input, ctx) => {
       const parsed = args.inputSchema.parse(input);

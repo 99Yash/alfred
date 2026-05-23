@@ -64,6 +64,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "search",
     riskTier: "no_risk",
+    description: "Search Gmail messages using Gmail query operators and return message ids.",
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const credentialId = await pickGoogleCredentialId(ctx.userId);
@@ -83,6 +84,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "send_draft",
     riskTier: "high",
+    description: "Prepare or send a Gmail draft after the user approves the proposed message.",
     inputSchema: gmailSendDraftInput,
     execute: async () => {
       // Wiring lands in Phase 4 alongside the agent bridge. Until then,

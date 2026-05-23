@@ -1,3 +1,4 @@
+import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   bigserial,
@@ -77,6 +78,10 @@ export const agentRuns = pgTable(
     state: jsonb("state")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    transcript: jsonb("transcript")
+      .$type<AgentTranscriptMessage[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     currentStep: text("current_step").notNull(),
     attempt: integer("attempt").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),

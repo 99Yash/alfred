@@ -52,6 +52,8 @@ export interface DispatchArgs {
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
   caller?: ToolExecuteContext["caller"];
+  /** Workflow integration cap, used by system tools such as `system.load_integration`. */
+  allowedIntegrations?: readonly string[];
 }
 
 interface RejectedToolResult {
@@ -201,7 +203,8 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
   const integration: IntegrationSlug = integrationFromToolName(args.toolName);
   const riskTier: ToolRiskTier = tool.riskTier;
-  const policyMode = await resolvePolicyMode(args.userId, args.toolName);
+  const policyMode =
+    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, args.toolName);
   const requiresApproval = policyMode === "gated";
 
   // INSERT first, fall back to SELECT on conflict. Drizzle returns the
@@ -262,6 +265,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     toolCallId: args.toolCallId,
     userId: args.userId,
     caller: args.caller ?? "boss",
+    allowedIntegrations: args.allowedIntegrations,
   };
 
   switch (row.status) {
@@ -359,8 +363,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         kind: "executed",
         stagingId: row.id,
         toolResult: row.executeResult,
-        editedByUser:
-          row.decidedInput !== null && row.decidedInput !== undefined,
+        editedByUser: row.decidedInput !== null && row.decidedInput !== undefined,
       };
 
     case "failed":

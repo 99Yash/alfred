@@ -12,7 +12,7 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Workflow (row).** A row in the `workflows` table. Holds trigger spec, brief, optional steps DAG, status, allowed-integrations, HIL gates. Source of truth for the *settings UI* and the *trigger dispatcher* — not for execution shape.
 
-**Workflow (code).** A `Workflow<S>` object passed to `registerWorkflow()` at server boot. Source of truth for *execution* (steps, initialState, dedupKey). Built-ins live as both a row AND a code object; user-authored live as a row only — and need a generic code-side workflow that interprets the brief at runtime.
+**Workflow (code).** A `Workflow<S>` object passed to `registerWorkflow()` at server boot. Source of truth for *execution* (steps, initialState, dedupKey). Built-ins live as both a row AND a code object; user-authored live as a row only — registry misses route through a single shared `userAuthoredBriefWorkflow` sentinel after `createRun` verifies `workflows (userId, slug)` exists and `is_builtin=false`. The requested slug, not the sentinel slug, stays the join key on `agent_runs.workflow_slug`; execution shape is shared.
 
 **Run.** One execution of a workflow. Stored as one row in `agent_runs`. Joins back to the workflow via `agent_runs.workflow_slug`. There is no separate `workflow_runs` table — `agent_runs` covers status, timing, cost attribution.
 
@@ -43,7 +43,7 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 ## Compaction
 
-**Transcript compaction.** Distinct executor step inserted between `dispatch-tools` and the next `boss-turn` when token-count crosses `compactionThresholdTokens(model.contextWindow)` (60% of context window). Compactor is `getCheapModel()`; output capped at 2000 tokens. Preserves system message, tool definitions, and the in-flight tail (last assistant message + its tool calls + results) verbatim; everything older compresses into the run handoff. Sub-agents do not compact (fail back to the boss for re-decomposition per ADR-0026). ADR-0035.
+**Transcript compaction.** Distinct executor step inserted between `dispatch-tools` and the next `boss-turn` when token-count crosses `compactionThresholdTokens(model.contextWindow)` (60% of context window). Compactor is `getCheapModel()`; output capped at 2000 tokens. The stable boss system prompt and tool definitions stay outside `agent_runs.transcript` as `AlfredAgent.turn()` inputs; the compactor preserves the in-flight tail (last assistant message + its tool calls + results) verbatim and compresses everything older into the run handoff. Sub-agents do not compact (fail back to the boss for re-decomposition per ADR-0026). ADR-0035.
 
 **Run handoff.** Structured XML `<run_summary>` emitted by the compactor, replacing older transcript content. Sections: `goal`, `user_directives`, `decisions`, `actions_completed`, `actions_rejected`, `actions_failed`, `sub_agent_findings`, `pending_followups`, `key_entities`. A third ephemeral `cacheControl` breakpoint goes after the `<run_summary>` so subsequent turns hit a stable cached prefix until the next compaction. ADR-0035.
 
@@ -55,7 +55,7 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **`shared.*` vs `scratch.{subId}.*`.** Two namespaces inside the run scratchpad. `scratch.{subId}.*` is sub-agent advisory state (unvalidated; the sub-agent owns it). `shared.*` is boss-promoted canonical state (validated; only the boss writes). Sub-agents read both but write only their own zone. Cross-pollination across sub-agents flows through `shared.*` — the boss is the gate. ADR-0016 + ADR-0036.
 
-**Active integrations.** `agent_runs.state.activeIntegrations: string[]` — the toolset the agent can currently call. Seeded from `@`-mentions in the brief, grown by `load_integration(slug)` tool calls, capped by `workflows.allowed_integrations`. ADR-0026.
+**Active integrations.** `agent_runs.state.activeIntegrations: string[]` — the toolset the agent can currently call. **Strict seed** at run start: parsed `@<slug>` mentions in the brief, intersected with `workflows.allowed_integrations` (if non-empty). No fallback to "all connected integrations" — an empty seed is legitimate, and the boss grows the set via `system.load_integration(slug)` calls. Cap is always `workflows.allowed_integrations`. ADR-0026 amendment + ADR-0040.
 
 **Builtin vs user-authored.** `workflows.is_builtin = true` for alfred-curated workflows seeded from the repo (immutable except `status`); `false` for user-authored (full CRUD). Same table, same toggle UX.
 
@@ -73,9 +73,13 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Per-turn LLM driver.** `AlfredAgent` (ADR-0026, `packages/ai/src/agent.ts`). One `turn()` call = one LLM round-trip = one `api_call_log` row. Composes with the durable runtime; not yet wired into any agent_run.
 
+**Brief-only execution shape.** Two named executor steps that ping-pong: `boss-turn` runs exactly one `AlfredAgent.turn()` (preserves ADR-0015's one-turn-one-`api_call_log` invariant); `dispatch-tools` calls `dispatchToolCall` for each returned tool call, appends results to the transcript, and either returns `next: 'boss-turn'` or `interrupt` if any call staged for HIL. Compaction (Phase 7) slots in as a third named step. The shared code-side `Workflow<S>` handles every user-authored brief — the slug on `agent_runs.workflow_slug` distinguishes runs, not their execution shape.
+
+**System-tool dispatch contract.** `system.*` tools (`load_integration`, `spawn_sub_agent`, `read_scratch`, `write_scratch`, `promote`) are registered with the same `liveTool` factory as integration tools, but the dispatcher applies a **structural autonomy override**: `if (integration === 'system') policyMode = 'autonomy'`, ahead of the `user_action_policies` lookup. State-changing system tools (`load_integration`, `spawn_sub_agent`) take the full dispatcher path and land an `action_stagings` row for audit + crash-resume idempotency. Chatty no-op-side-effect system tools (scratchpad ops) get a fast-path that skips staging (Phase 6c). `execute` for system tools is **pure** — it validates and returns a structured result; mutation of `agent_runs.state` (e.g. appending to `activeIntegrations`) happens in the `dispatch-tools` step body, which interprets system tool results before the executor's atomic state commit. No tool reaches into runtime internals.
+
 ## Authoring shapes
 
-**Brief-only workflow.** `steps = null`, `brief != null`. Intended runtime: a single `AlfredAgent`-driven loop that uses the brief as system prompt and tools from `allowedIntegrations`. **m12 stores these but does not execute them** — Activate flips status to `active`, the cron tick still fires, but the resulting run lands as `failed` with reason `user_authored_brief_execution_pending_m13`. m13 fills in tool dispatch + `load_integration` + `AlfredAgent`→runtime bridge.
+**Brief-only workflow.** `steps = null`, `brief != null`. Runtime: a single `AlfredAgent`-driven loop with a stable boss system prompt, the workflow brief as the first user transcript message, and tools seeded/grown from `allowedIntegrations`. m12 stored and dispatched these but did not execute them — the planned stub was scoped out before ship, so pre-m13 code threw on registry miss. m13 adds the sentinel workflow + tool dispatch + `system.load_integration` + `AlfredAgent`→runtime bridge.
 
 **Explicit-DAG workflow.** `steps != null`. Runtime executes deterministically; node kinds: `run_skill | tool_call | llm_call | agent_run | condition | parallel | loop | hil_approve`. The Zod schema exists; runtime support for these node kinds is partial (only `agent_run` is implicit via the executor; the rest are unbuilt).
 
@@ -114,5 +118,5 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 - 12a/12b/12c **CRUD + UI + Replicache sync** for skills and user-authored workflows. Brief-only authoring (no DAG editor). Schema column `workflows.steps` stays for forward-compat; API rejects writes to it.
 - 12d **Trigger dispatch**: ship `cron` (UI + generic `workflows.tick` dispatcher) and `manual` ("Run now" button). `event` and `on_signal` segments render disabled in UI with a "lands with m13" tooltip; no dispatcher built. (ADR-0027.)
 - 12e **Settings page**: unified active↔paused toggle for builtins + user-authored. Closes the m9 deferral.
-- **Brief-only execution stub**: when the dispatcher fires a `createRun` for a workflow with `is_builtin=false`, the run lands as `failed` with reason `user_authored_brief_execution_pending_m13`. History tab on the workflow detail page shows those rows honestly.
-- m13 then builds the tool dispatcher + tool registry + `load_integration` + `AlfredAgent`→runtime bridge + sub-agents in one pass, replaces the stub, and lights up the History/Approvals tabs.
+- **Brief-only execution gap**: the originally planned m12 failed-run stub was scoped out before ship. Pre-m13, a user-authored workflow dispatch reached `createRun`, missed the in-memory registry, and threw before inserting a run row.
+- m13 then builds the tool dispatcher + tool registry + `system.load_integration` + `AlfredAgent`→runtime bridge + sub-agents in one pass, fills the sentinel fallback, and lights up the History/Approvals tabs.

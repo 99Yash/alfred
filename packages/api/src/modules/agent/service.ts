@@ -1,9 +1,15 @@
 import { db } from "@alfred/db";
-import { agentRuns, type AgentRunTrigger } from "@alfred/db/schemas";
+import { agentRuns, workflows, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { requireWorkflow } from "./registry";
-import { isTerminalStatus, type ApprovalKind, type RunStatus, type WakeCondition, type WorkflowInput } from "./types";
+import { isSentinelWorkflow, requireWorkflow } from "./registry";
+import {
+  isTerminalStatus,
+  type ApprovalKind,
+  type RunStatus,
+  type WakeCondition,
+  type WorkflowInput,
+} from "./types";
 
 interface PgErrorLike {
   code?: string;
@@ -61,29 +67,61 @@ export interface CreateRunResult {
  */
 export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
   const workflow = requireWorkflow(args.workflowSlug);
-  const initialState = workflow.initialState({
-    brief: args.brief,
+  let workflowSlug = workflow.slug;
+  let brief = args.brief;
+  let metadata = args.metadata ?? {};
+
+  if (isSentinelWorkflow(workflow)) {
+    const rows = await db()
+      .select({
+        brief: workflows.brief,
+        allowedIntegrations: workflows.allowedIntegrations,
+        isBuiltin: workflows.isBuiltin,
+      })
+      .from(workflows)
+      .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`[agent] no workflow registered or authored for slug=${args.workflowSlug}`);
+    }
+    if (row.isBuiltin) {
+      throw new Error(
+        `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
+      );
+    }
+    workflowSlug = args.workflowSlug;
+    brief = brief ?? row.brief ?? undefined;
+    metadata = { ...metadata, allowedIntegrations: row.allowedIntegrations };
+  }
+
+  const workflowInput = {
+    brief,
     input: args.input,
-    metadata: args.metadata,
-  });
+    metadata,
+  };
+
+  const initialState = workflow.initialState(workflowInput);
+  const transcript = workflow.initialTranscript?.(workflowInput) ?? [];
 
   const dedupKey =
     workflow.dedupKey?.({
       userId: args.userId,
-      brief: args.brief,
+      brief,
       input: args.input,
-      metadata: args.metadata,
+      metadata,
     }) ?? null;
 
   const inserted = await db()
     .insert(agentRuns)
     .values({
       userId: args.userId,
-      workflowSlug: workflow.slug,
-      brief: args.brief,
+      workflowSlug,
+      brief,
       state: (initialState as object) ?? {},
+      transcript,
       currentStep: workflow.initialStep,
-      metadata: (args.metadata as object) ?? {},
+      metadata: metadata as object,
       trigger: args.trigger,
       status: "pending",
       dedupKey,

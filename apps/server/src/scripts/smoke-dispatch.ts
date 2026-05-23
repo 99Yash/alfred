@@ -124,6 +124,7 @@ function buildStubs(): Stubs {
           integration: "gmail",
           action: "search",
           riskTier: "no_risk",
+          description: "Smoke-test Gmail search tool.",
           inputSchema: gmailSearchInput,
           execute: async (input) => {
             searchExec += 1;
@@ -134,6 +135,7 @@ function buildStubs(): Stubs {
           integration: "gmail",
           action: "send_draft",
           riskTier: "high",
+          description: "Smoke-test Gmail draft send tool.",
           inputSchema: gmailSendDraftInput,
           execute: async (input) => {
             draftExec += 1;

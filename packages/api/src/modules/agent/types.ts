@@ -1,3 +1,4 @@
+import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { WorkflowTrigger } from "@alfred/db/schemas";
 import type { z } from "zod";
 
@@ -64,9 +65,9 @@ export interface StagedAction {
  *  - `interrupt` parks the run until the wake condition fires
  */
 export type StepResult<S> =
-  | { kind: "next"; state: S; nextStep: string }
-  | { kind: "done"; state: S; output?: unknown }
-  | { kind: "interrupt"; state: S; wake: WakeCondition };
+  | { kind: "next"; state: S; nextStep: string; transcript?: AgentTranscriptMessage[] }
+  | { kind: "done"; state: S; output?: unknown; transcript?: AgentTranscriptMessage[] }
+  | { kind: "interrupt"; state: S; wake: WakeCondition; transcript?: AgentTranscriptMessage[] };
 
 /** Context handed to a step body. Steps mutate via the return value, not by reaching out. */
 export interface StepContext<S> {
@@ -76,6 +77,7 @@ export interface StepContext<S> {
   idempotencyKey: string;
   attempt: number;
   state: S;
+  transcript: AgentTranscriptMessage[];
   /**
    * Stage an outbound effect committed atomically with this step's result.
    * Re-running the same attempt is a no-op because the (kind,
@@ -132,6 +134,8 @@ export interface Workflow<S = unknown> {
   allowedIntegrations?: string[];
   /** Build the run's initial state from the caller's input. Throw to refuse the run. */
   initialState(input: WorkflowInput): S;
+  /** Optional initial transcript persisted beside `state`. Omitted by non-agent builtins. */
+  initialTranscript?(input: WorkflowInput): AgentTranscriptMessage[];
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;
