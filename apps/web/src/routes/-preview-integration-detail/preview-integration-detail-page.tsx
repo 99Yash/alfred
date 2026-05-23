@@ -1,11 +1,11 @@
+import { useParams } from "@tanstack/react-router";
 import { BackLink } from "~/components/preview/integrations/back-link";
 import { NotFound } from "~/components/preview/integrations/not-found";
 import { ProviderDetail } from "~/components/preview/integrations/provider-detail";
 import { getIntegrationProvider } from "~/lib/integrations";
-import { Route } from "~/routes/preview.integrations.$provider";
 
 export function PreviewIntegrationDetailPage() {
-  const { provider: providerId } = Route.useParams();
+  const { provider: providerId } = useParams({ from: "/preview/integrations/$provider" });
   const provider = getIntegrationProvider(providerId);
 
   return (

@@ -1,3 +1,4 @@
+import { useParams } from "@tanstack/react-router";
 import { MoreHorizontal, Play, Share2 } from "lucide-react";
 import { useState } from "react";
 import {
@@ -6,7 +7,6 @@ import {
   VsSegmented,
   VsSwitch,
 } from "~/components/ui/visitors";
-import { Route } from "~/routes/preview.workflows.$workflow";
 import { getWorkflow } from "~/lib/workflows";
 import { cn } from "~/lib/utils";
 import { ApprovalsTab } from "./approvals-tab";
@@ -28,7 +28,7 @@ const SHARE_LEADING = <Share2 size={14} />;
 const ACTIVATE_LEADING = <Play size={14} />;
 
 export function PreviewWorkflowDetailPage() {
-  const { workflow: workflowId } = Route.useParams();
+  const { workflow: workflowId } = useParams({ from: "/preview/workflows/$workflow" });
   const workflow = getWorkflow(workflowId);
   const [tab, setTab] = useState<WorkflowTab>("plan");
   const [shareOpen, setShareOpen] = useState(false);
