@@ -12,6 +12,13 @@ import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
   memorySourceSchema,
+  syncedActionStagingSchema,
+  syncedFactSchema,
+  syncedNoteSchema,
+  syncedPreferenceSchema,
+  syncedSkillRevisionSchema,
+  syncedSkillRunSchema,
+  syncedSkillSchema,
   type IDBKeys,
   type SyncedActionStaging,
   type SyncedEntity,
@@ -23,6 +30,7 @@ import {
   type SyncedSkillRun,
 } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { ZodError } from "zod";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
@@ -42,6 +50,34 @@ type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
+function toEntityRow(args: {
+  slug: IDBKeys;
+  id: string;
+  rowVersion: number;
+  serialize: () => SyncedEntity;
+}): EntityRow[] {
+  try {
+    return [
+      {
+        id: args.id,
+        rowVersion: args.rowVersion,
+        serialized: args.serialize(),
+      },
+    ];
+  } catch (err) {
+    if (!isRecoverableSerializationError(err)) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${message}`);
+    return [];
+  }
+}
+
+function isRecoverableSerializationError(err: unknown): boolean {
+  return (
+    err instanceof ZodError || (err instanceof Error && err.message.startsWith("[replicache]"))
+  );
+}
+
 /**
  * Per-entity read model for Replicache pull.
  *
@@ -56,11 +92,14 @@ const ENTITY_FETCHERS = {
       .from(notes)
       .where(eq(notes.userId, userId))
       .orderBy(asc(notes.id));
-    return rows.map((n: typeof notes.$inferSelect) => ({
-      id: n.id,
-      rowVersion: n.rowVersion,
-      serialized: serializeNote(n),
-    }));
+    return rows.flatMap((n: typeof notes.$inferSelect) =>
+      toEntityRow({
+        slug: "NOTE",
+        id: n.id,
+        rowVersion: n.rowVersion,
+        serialize: () => serializeNote(n),
+      }),
+    );
   },
 
   // Only `proposed` + `confirmed` reach the client; rejected / edited /
@@ -73,11 +112,14 @@ const ENTITY_FETCHERS = {
         and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
       )
       .orderBy(asc(userFacts.id));
-    return rows.map((f: typeof userFacts.$inferSelect) => ({
-      id: f.id,
-      rowVersion: f.rowVersion,
-      serialized: serializeFact(f),
-    }));
+    return rows.flatMap((f: typeof userFacts.$inferSelect) =>
+      toEntityRow({
+        slug: "FACT",
+        id: f.id,
+        rowVersion: f.rowVersion,
+        serialize: () => serializeFact(f),
+      }),
+    );
   },
 
   // Preferences are keyed by `(user_id, key)`; the IDB id is the pref key
@@ -88,11 +130,14 @@ const ENTITY_FETCHERS = {
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
       .orderBy(asc(userPreferences.key));
-    return rows.map((p: typeof userPreferences.$inferSelect) => ({
-      id: p.key,
-      rowVersion: p.rowVersion,
-      serialized: serializePreference(p),
-    }));
+    return rows.flatMap((p: typeof userPreferences.$inferSelect) =>
+      toEntityRow({
+        slug: "PREFERENCE",
+        id: p.key,
+        rowVersion: p.rowVersion,
+        serialize: () => serializePreference(p),
+      }),
+    );
   },
 
   SKILL: async (tx, userId) => {
@@ -101,11 +146,14 @@ const ENTITY_FETCHERS = {
       .from(skills)
       .where(eq(skills.userId, userId))
       .orderBy(asc(skills.id));
-    return rows.map((s: typeof skills.$inferSelect) => ({
-      id: s.id,
-      rowVersion: s.rowVersion,
-      serialized: serializeSkill(s),
-    }));
+    return rows.flatMap((s: typeof skills.$inferSelect) =>
+      toEntityRow({
+        slug: "SKILL",
+        id: s.id,
+        rowVersion: s.rowVersion,
+        serialize: () => serializeSkill(s),
+      }),
+    );
   },
 
   SKILL_REVISION: async (tx, userId) => {
@@ -114,11 +162,14 @@ const ENTITY_FETCHERS = {
       .from(skillRevisions)
       .where(eq(skillRevisions.userId, userId))
       .orderBy(asc(skillRevisions.id));
-    return rows.map((r: typeof skillRevisions.$inferSelect) => ({
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialized: serializeSkillRevision(r),
-    }));
+    return rows.flatMap((r: typeof skillRevisions.$inferSelect) =>
+      toEntityRow({
+        slug: "SKILL_REVISION",
+        id: r.id,
+        rowVersion: r.rowVersion,
+        serialize: () => serializeSkillRevision(r),
+      }),
+    );
   },
 
   SKILL_RUN: async (tx, userId) => {
@@ -127,11 +178,14 @@ const ENTITY_FETCHERS = {
       .from(skillRuns)
       .where(eq(skillRuns.userId, userId))
       .orderBy(asc(skillRuns.id));
-    return rows.map((r: typeof skillRuns.$inferSelect) => ({
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialized: serializeSkillRun(r),
-    }));
+    return rows.flatMap((r: typeof skillRuns.$inferSelect) =>
+      toEntityRow({
+        slug: "SKILL_RUN",
+        id: r.id,
+        rowVersion: r.rowVersion,
+        serialize: () => serializeSkillRun(r),
+      }),
+    );
   },
 
   // The approvals surface only syncs rows that still require a user
@@ -156,15 +210,20 @@ const ENTITY_FETCHERS = {
 
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
 
-    return rows.map((r: { staging: typeof actionStagings.$inferSelect; workflowSlug: string }) => ({
-      id: r.staging.id,
-      rowVersion: r.staging.rowVersion,
-      serialized: serializeActionStaging(
-        r.staging,
-        r.workflowSlug,
-        recentRejections.get(r.staging.toolName) ?? null,
-      ),
-    }));
+    return rows.flatMap(
+      (r: { staging: typeof actionStagings.$inferSelect; workflowSlug: string }) =>
+        toEntityRow({
+          slug: "ACTION_STAGING",
+          id: r.staging.id,
+          rowVersion: r.staging.rowVersion,
+          serialize: () =>
+            serializeActionStaging(
+              r.staging,
+              r.workflowSlug,
+              recentRejections.get(r.staging.toolName) ?? null,
+            ),
+        }),
+    );
   },
 } satisfies Record<IDBKeys, EntityFetcher>;
 
@@ -189,20 +248,20 @@ function serializeNote(n: {
   rowVersion: number;
   createdAt: Date;
 }): SyncedNote {
-  return {
+  return syncedNoteSchema.parse({
     id: n.id,
     userId: n.userId,
     text: n.text,
     createdAt: toRequiredIso(n.createdAt, "notes.createdAt"),
     rowVersion: n.rowVersion,
-  };
+  });
 }
 
 function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
   if (f.status !== "proposed" && f.status !== "confirmed") {
     throw new Error(`[replicache] cannot sync fact with status '${f.status}'`);
   }
-  return {
+  return syncedFactSchema.parse({
     id: f.id,
     userId: f.userId,
     key: f.key,
@@ -216,21 +275,21 @@ function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
     rowVersion: f.rowVersion,
     createdAt: toRequiredIso(f.createdAt, "userFacts.createdAt"),
     updatedAt: toIso(f.updatedAt),
-  };
+  });
 }
 
 function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPreference {
-  return {
+  return syncedPreferenceSchema.parse({
     key: p.key,
     userId: p.userId,
     value: p.value,
     source: memorySourceSchema.parse(p.source),
     rowVersion: p.rowVersion,
-  };
+  });
 }
 
 function serializeSkill(s: typeof skills.$inferSelect): SyncedSkill {
-  return {
+  return syncedSkillSchema.parse({
     id: s.id,
     userId: s.userId,
     slug: s.slug,
@@ -243,11 +302,11 @@ function serializeSkill(s: typeof skills.$inferSelect): SyncedSkill {
     rowVersion: s.rowVersion,
     createdAt: toRequiredIso(s.createdAt, "skills.createdAt"),
     updatedAt: toIso(s.updatedAt),
-  };
+  });
 }
 
 function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSkillRevision {
-  return {
+  return syncedSkillRevisionSchema.parse({
     id: r.id,
     skillId: r.skillId,
     userId: r.userId,
@@ -257,11 +316,11 @@ function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSk
     createdByRunId: r.createdByRunId,
     rowVersion: r.rowVersion,
     createdAt: toRequiredIso(r.createdAt, "skillRevisions.createdAt"),
-  };
+  });
 }
 
 function serializeSkillRun(r: typeof skillRuns.$inferSelect): SyncedSkillRun {
-  return {
+  return syncedSkillRunSchema.parse({
     id: r.id,
     skillId: r.skillId,
     userId: r.userId,
@@ -272,7 +331,7 @@ function serializeSkillRun(r: typeof skillRuns.$inferSelect): SyncedSkillRun {
     rowVersion: r.rowVersion,
     startedAt: toRequiredIso(r.startedAt, "skillRuns.startedAt"),
     endedAt: toIso(r.endedAt),
-  };
+  });
 }
 
 interface RecentRejection {
@@ -330,7 +389,7 @@ function serializeActionStaging(
   if (s.status !== "pending") {
     throw new Error(`[replicache] cannot sync action staging with status '${s.status}'`);
   }
-  return {
+  return syncedActionStagingSchema.parse({
     id: s.id,
     userId: s.userId,
     runId: s.runId,
@@ -356,5 +415,5 @@ function serializeActionStaging(
     rowVersion: s.rowVersion,
     createdAt: toRequiredIso(s.createdAt, "actionStagings.createdAt"),
     updatedAt: toIso(s.updatedAt),
-  };
+  });
 }

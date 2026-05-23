@@ -1,5 +1,6 @@
 import {
   EVENT_KINDS,
+  eventPayloadSchemas,
   isKnownEventKind,
   type EventFrame,
   type EventKind,
@@ -44,14 +45,14 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
   const source = new EventSource(url.toString(), { withCredentials: true });
 
   const handle = (kind: EventKind) => (msg: MessageEvent) => {
-    let payload: unknown;
     try {
       const parsed = JSON.parse(msg.data) as { payload?: unknown; createdAt?: string };
-      payload = parsed.payload;
+      const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
+      if (!payloadResult.success) return;
       const id = Number(msg.lastEventId);
       if (!Number.isFinite(id) || id <= 0) return;
       const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : "";
-      opts.onFrame({ id, kind, payload, createdAt });
+      opts.onFrame({ id, kind, payload: payloadResult.data, createdAt });
     } catch {
       // Drop malformed frames silently.
     }

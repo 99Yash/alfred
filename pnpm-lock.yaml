@@ -484,6 +484,9 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@alfred/schemas':
+        specifier: workspace:*
+        version: link:../schemas
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -609,6 +612,9 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@alfred/schemas':
+        specifier: workspace:*
+        version: link:../schemas
       typescript:
         specifier: ^5
         version: 5.9.3

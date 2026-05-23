@@ -4,6 +4,7 @@ import {
   type SyncedSkillRevision,
   type SyncedSkillRun,
 } from "@alfred/sync";
+import { isTerminalStatus, runStatusSchema } from "@alfred/schemas";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Clock, Command, Loader2, MoreHorizontal, RotateCw, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
@@ -24,8 +25,6 @@ import { RunStatusPill } from "~/lib/skills-ui";
 export const Route = createFileRoute("/skills/$slug")({
   component: SkillDetailPage,
 });
-
-const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 const STEP_LABELS: Record<string, string> = {
   gather: "Gathering context",
@@ -59,6 +58,11 @@ type RunUiAction =
   | { type: "clear-phase" };
 
 const INITIAL_RUN_UI: RunUiState = { submitting: false, error: null, livePhase: null };
+
+function isTerminalRunStatus(status: string): boolean {
+  const parsed = runStatusSchema.safeParse(status);
+  return parsed.success && isTerminalStatus(parsed.data);
+}
 
 function runUiReducer(state: RunUiState, action: RunUiAction): RunUiState {
   switch (action.type) {
@@ -119,7 +123,7 @@ function SkillDetailPage() {
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }, [allRuns, skill]);
   const activeRun = useMemo(
-    () => skillRuns.find((r) => !TERMINAL_RUN_STATUSES.has(r.status)) ?? null,
+    () => skillRuns.find((r) => !isTerminalRunStatus(r.status)) ?? null,
     [skillRuns],
   );
 

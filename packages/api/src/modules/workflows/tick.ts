@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
-import { workflows, type WorkflowTrigger } from "@alfred/db/schemas";
+import { workflows } from "@alfred/db/schemas";
+import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";
@@ -105,7 +106,25 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     .orderBy(workflows.nextRunAt)
     .limit(BATCH);
 
-  return rows.flatMap((r) => (r.nextRunAt ? [{ ...r, nextRunAt: r.nextRunAt }] : []));
+  const due: DueRow[] = [];
+  for (const row of rows) {
+    if (!row.nextRunAt) continue;
+
+    const trigger = workflowTriggerSchema.safeParse(row.trigger);
+    if (!trigger.success) {
+      console.warn(
+        `[workflows:tick] invalid trigger for workflow=${row.slug} (${row.id}); pausing partial-index entry: ${trigger.error.message}`,
+      );
+      await db()
+        .update(workflows)
+        .set({ nextRunAt: null, updatedAt: new Date() })
+        .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, row.nextRunAt)));
+      continue;
+    }
+
+    due.push({ ...row, trigger: trigger.data, nextRunAt: row.nextRunAt });
+  }
+  return due;
 }
 
 async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid"> {
