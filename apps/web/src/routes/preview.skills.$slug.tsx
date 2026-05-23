@@ -50,6 +50,8 @@ const TABS = [
   { value: "history" as const, label: "History" },
 ];
 
+const SHARE_LEADING = <Share2 size={14} />;
+
 function PreviewSkillDetailPage() {
   const { slug } = Route.useParams();
   const skill = findPreviewSkill(slug);
@@ -94,7 +96,7 @@ function PreviewSkillDetailPage() {
           <VsButton variant="ghost" size="md" aria-label="More skill actions">
             <MoreHorizontal size={16} />
           </VsButton>
-          <VsButton variant="ghost" size="md" leading={<Share2 size={14} />}>
+          <VsButton variant="ghost" size="md" leading={SHARE_LEADING}>
             Share
           </VsButton>
         </div>

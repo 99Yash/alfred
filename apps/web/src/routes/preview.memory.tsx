@@ -17,6 +17,10 @@ export const Route = createFileRoute("/preview/memory")({
   component: PreviewMemoryPage,
 });
 
+const CONFIRM_LEADING = <Check size={12} />;
+const EDIT_LEADING = <Pencil size={12} />;
+const REJECT_LEADING = <X size={12} />;
+
 type FactStatus = "proposed" | "confirmed";
 
 interface LocalFact {
@@ -266,13 +270,13 @@ function ProposedFactCard({
         {fact.source} · {new Date(fact.createdAt).toLocaleString()}
       </div>
       <div className="flex flex-wrap gap-1.5 pt-0.5">
-        <VsButton variant="primary" size="sm" onClick={onConfirm} leading={<Check size={12} />}>
+        <VsButton variant="primary" size="sm" onClick={onConfirm} leading={CONFIRM_LEADING}>
           Confirm
         </VsButton>
-        <VsButton variant="ghost" size="sm" leading={<Pencil size={12} />}>
+        <VsButton variant="ghost" size="sm" leading={EDIT_LEADING}>
           Edit
         </VsButton>
-        <VsButton variant="ghost" size="sm" onClick={onReject} leading={<X size={12} />}>
+        <VsButton variant="ghost" size="sm" onClick={onReject} leading={REJECT_LEADING}>
           Reject
         </VsButton>
       </div>

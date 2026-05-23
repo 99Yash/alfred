@@ -40,6 +40,9 @@ type FlowAction =
   | { type: "error"; message: string }
   | { type: "restart" };
 
+const GOOGLE_LEADING = <GoogleMark />;
+const ARROW_RIGHT_TRAILING = <ArrowRight size={14} />;
+
 function flowReducer(state: FlowState, action: FlowAction): FlowState {
   switch (action.type) {
     case "submitting":
@@ -167,7 +170,7 @@ function AuthPanel() {
               variant="primary"
               size="lg"
               onClick={handleGoogle}
-              leading={<GoogleMark />}
+              leading={GOOGLE_LEADING}
               className="w-full"
             >
               Continue with Google
@@ -234,7 +237,7 @@ function AuthPanel() {
             size="lg"
             loading={flow.loading}
             disabled={flow.step === "email" ? !email : otp.length < 6}
-            trailing={!flow.loading ? <ArrowRight size={14} /> : undefined}
+            trailing={!flow.loading ? ARROW_RIGHT_TRAILING : undefined}
             className="w-full"
           >
             {flow.loading

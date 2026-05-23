@@ -1360,6 +1360,8 @@ function SourcePill({
 /* Composer                                                                    */
 /* -------------------------------------------------------------------------- */
 
+const ADD_TOOL_LEADING = <Plus size={12} />;
+
 function ComposerDock({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const canSend = value.trim().length > 0;
   return (
@@ -1385,7 +1387,7 @@ function ComposerDock({ value, onChange }: { value: string; onChange: (v: string
               <ComposerIcon label="Mention source">
                 <AtSign size={14} />
               </ComposerIcon>
-              <VsPill className="h-7 px-2.5 text-[12px]" leading={<Plus size={12} />} chevron>
+              <VsPill className="h-7 px-2.5 text-[12px]" leading={ADD_TOOL_LEADING} chevron>
                 Add tool
               </VsPill>
             </div>
