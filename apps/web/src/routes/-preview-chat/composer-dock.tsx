@@ -1,0 +1,88 @@
+import { ArrowUp, AtSign, Mic, Paperclip, Plus } from "lucide-react";
+import type { ReactNode } from "react";
+import { VsPill } from "~/components/ui/visitors";
+import { cn } from "~/lib/utils";
+
+const ADD_TOOL_LEADING = <Plus size={12} />;
+
+export function ComposerDock({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const canSend = value.trim().length > 0;
+  return (
+    <div className="shrink-0 pb-5 pt-1">
+      <div className="mx-auto w-full max-w-3xl px-6">
+        <div className={cn("rounded-3xl bg-vs-bg-1 p-2 vs-elevated")}>
+          <textarea
+            aria-label="Ask Alfred"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Ask Alfred…"
+            rows={2}
+            className={cn(
+              "block w-full resize-none bg-transparent px-2.5 pt-2 text-sm text-vs-fg-4 placeholder:text-vs-fg-2",
+              "outline-none focus-visible:outline-none",
+            )}
+          />
+
+          <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
+            <div className="flex items-center gap-1.5">
+              <ComposerIcon label="Attach file">
+                <Paperclip size={14} />
+              </ComposerIcon>
+              <ComposerIcon label="Mention source">
+                <AtSign size={14} />
+              </ComposerIcon>
+              <VsPill className="h-7 px-2.5 text-[12px]" leading={ADD_TOOL_LEADING} chevron>
+                Add tool
+              </VsPill>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <ComposerIcon label="Dictate">
+                <Mic size={14} />
+              </ComposerIcon>
+              <button
+                type="button"
+                disabled={!canSend}
+                aria-label="Send message"
+                className={cn(
+                  "size-8 inline-flex items-center justify-center rounded-lg",
+                  "vs-press transition-[box-shadow,transform,filter]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+                  canSend
+                    ? cn(
+                        "text-[var(--vs-accent-fg)]",
+                        "bg-[image:var(--vs-cta-bg)]",
+                        "shadow-[var(--vs-button-primary-shadow)]",
+                        "hover:brightness-[1.06]",
+                      )
+                    : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
+                )}
+              >
+                <ArrowUp size={15} strokeWidth={2.25} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <p className="mt-2 text-center text-[11px] text-vs-fg-2">
+          Alfred can call tools across Gmail, Calendar, and your memory.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ComposerIcon({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn(
+        "size-8 inline-flex items-center justify-center rounded-lg",
+        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+      )}
+    >
+      {children}
+    </button>
+  );
+}

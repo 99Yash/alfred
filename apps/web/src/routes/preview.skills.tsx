@@ -1,5 +1,5 @@
-import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
-import { PreviewSkillsPage } from "~/components/preview/skills/skills-page";
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
 
 /**
  * Visitors-now-grammar port of /skills.
@@ -14,8 +14,3 @@ import { PreviewSkillsPage } from "~/components/preview/skills/skills-page";
 export const Route = createFileRoute("/preview/skills")({
   component: PreviewSkillsRoute,
 });
-
-function PreviewSkillsRoute() {
-  const hasChild = useChildMatches().length > 0;
-  return hasChild ? <Outlet /> : <PreviewSkillsPage />;
-}

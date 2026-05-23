@@ -1,5 +1,5 @@
-import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
-import { PreviewLibraryPage } from "./-preview-library/preview-library-page";
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewLibraryRoute } from "./-preview-library/preview-library-route";
 
 /**
  * Visitors-now-grammar port of /library.
@@ -18,13 +18,3 @@ import { PreviewLibraryPage } from "./-preview-library/preview-library-page";
 export const Route = createFileRoute("/preview/library")({
   component: PreviewLibraryRoute,
 });
-
-function PreviewLibraryRoute() {
-  const hasChild = useChildMatches().length > 0;
-  return (
-    <>
-      <PreviewLibraryPage dimmed={hasChild} />
-      {hasChild ? <Outlet /> : null}
-    </>
-  );
-}

@@ -1,7 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { useChatContext } from "~/components/preview/chat-context";
-import { PreviewChatPage } from "./preview.chat";
+import { PreviewChatThreadRoute } from "./-preview-chat-thread/preview-chat-thread-route";
 
 /**
  * Deep-link variant of `/preview/chat`.
@@ -19,16 +17,3 @@ import { PreviewChatPage } from "./preview.chat";
 export const Route = createFileRoute("/preview/chat/$threadId")({
   component: PreviewChatThreadRoute,
 });
-
-function PreviewChatThreadRoute() {
-  const { threadId } = Route.useParams();
-  const { activeThread, setActiveThread } = useChatContext();
-
-  useEffect(() => {
-    if (threadId !== activeThread) {
-      setActiveThread(threadId);
-    }
-  }, [threadId, activeThread, setActiveThread]);
-
-  return <PreviewChatPage />;
-}

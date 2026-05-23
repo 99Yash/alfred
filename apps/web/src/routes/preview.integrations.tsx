@@ -1,5 +1,5 @@
-import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
-import { PreviewIntegrationsPage } from "./-preview-integrations/preview-integrations-page";
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewIntegrationsRoute } from "./-preview-integrations/preview-integrations-route";
 
 /**
  * Visitors-now-grammar port of /integrations.
@@ -20,11 +20,3 @@ import { PreviewIntegrationsPage } from "./-preview-integrations/preview-integra
 export const Route = createFileRoute("/preview/integrations")({
   component: PreviewIntegrationsRoute,
 });
-
-function PreviewIntegrationsRoute() {
-  // Defer to the child route when one is matched (e.g. /preview/integrations/$provider).
-  // Without this, TanStack's flat-routes nesting renders the list as the
-  // shared parent layout even on the detail URL. Mirrors `integrations.tsx`.
-  const hasChild = useChildMatches().length > 0;
-  return hasChild ? <Outlet /> : <PreviewIntegrationsPage />;
-}

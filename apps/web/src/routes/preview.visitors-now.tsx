@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { VsThemeProvider } from "~/components/ui/visitors";
-import { VsThemedPreview } from "./-preview-visitors-now/vs-themed-preview";
+import { VisitorsNowPreview } from "./-preview-visitors-now/visitors-now-preview";
 
 /**
  * Preview of the visitors-now-grammar primitives. Recreates the
@@ -12,11 +11,3 @@ import { VsThemedPreview } from "./-preview-visitors-now/vs-themed-preview";
 export const Route = createFileRoute("/preview/visitors-now")({
   component: VisitorsNowPreview,
 });
-
-function VisitorsNowPreview() {
-  return (
-    <VsThemeProvider>
-      <VsThemedPreview />
-    </VsThemeProvider>
-  );
-}
