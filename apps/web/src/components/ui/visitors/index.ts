@@ -22,5 +22,13 @@ export { VsHeader } from "./header";
 
 export { VsInput } from "./input";
 
+export { VsSwitch } from "./switch";
+
+export { VsTextarea } from "./textarea";
+export type { VsTextareaVariant } from "./textarea";
+
+export { VsSegmented } from "./segmented";
+export type { VsSegmentedItem } from "./segmented";
+
 export { VsThemeProvider, useVsTheme, VsThemed, VsThemeToggle } from "./theme";
 export type { VsThemeMode } from "./theme";

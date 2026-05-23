@@ -25,6 +25,7 @@ import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workf
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
 import { Route as PreviewWorkflowsRouteImport } from './routes/preview.workflows'
 import { Route as PreviewVisitorsNowRouteImport } from './routes/preview.visitors-now'
+import { Route as PreviewSettingsRouteImport } from './routes/preview.settings'
 import { Route as PreviewOnboardingRouteImport } from './routes/preview.onboarding'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
 import { Route as PreviewIntegrationsRouteImport } from './routes/preview.integrations'
@@ -113,6 +114,11 @@ const PreviewVisitorsNowRoute = PreviewVisitorsNowRouteImport.update({
   path: '/preview/visitors-now',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewSettingsRoute = PreviewSettingsRouteImport.update({
+  id: '/preview/settings',
+  path: '/preview/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewOnboardingRoute = PreviewOnboardingRouteImport.update({
   id: '/preview/onboarding',
   path: '/preview/onboarding',
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
+  '/preview/settings': typeof PreviewSettingsRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
@@ -194,6 +201,7 @@ export interface FileRoutesByTo {
   '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
+  '/preview/settings': typeof PreviewSettingsRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
@@ -220,6 +228,7 @@ export interface FileRoutesById {
   '/preview/integrations': typeof PreviewIntegrationsRoute
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
+  '/preview/settings': typeof PreviewSettingsRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
+    | '/preview/settings'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
@@ -272,6 +282,7 @@ export interface FileRouteTypes {
     | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
+    | '/preview/settings'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
@@ -297,6 +308,7 @@ export interface FileRouteTypes {
     | '/preview/integrations'
     | '/preview/landing'
     | '/preview/onboarding'
+    | '/preview/settings'
     | '/preview/visitors-now'
     | '/preview/workflows'
     | '/skills/$slug'
@@ -321,6 +333,7 @@ export interface RootRouteChildren {
   PreviewIntegrationsRoute: typeof PreviewIntegrationsRoute
   PreviewLandingRoute: typeof PreviewLandingRoute
   PreviewOnboardingRoute: typeof PreviewOnboardingRoute
+  PreviewSettingsRoute: typeof PreviewSettingsRoute
   PreviewVisitorsNowRoute: typeof PreviewVisitorsNowRoute
   PreviewWorkflowsRoute: typeof PreviewWorkflowsRoute
 }
@@ -439,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewVisitorsNowRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/settings': {
+      id: '/preview/settings'
+      path: '/preview/settings'
+      fullPath: '/preview/settings'
+      preLoaderRoute: typeof PreviewSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/preview/onboarding': {
       id: '/preview/onboarding'
       path: '/preview/onboarding'
@@ -555,6 +575,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewIntegrationsRoute: PreviewIntegrationsRoute,
   PreviewLandingRoute: PreviewLandingRoute,
   PreviewOnboardingRoute: PreviewOnboardingRoute,
+  PreviewSettingsRoute: PreviewSettingsRoute,
   PreviewVisitorsNowRoute: PreviewVisitorsNowRoute,
   PreviewWorkflowsRoute: PreviewWorkflowsRoute,
 }
