@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Download, Maximize2, Share2, X } from "lucide-react";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { VsButton } from "~/components/ui/visitors";
 import { getArtifact } from "~/lib/library-artifacts";
@@ -27,9 +27,9 @@ function PreviewArtifactViewer() {
   const navigate = useNavigate();
   const artifact = getArtifact(artifactId);
 
-  const close = () => {
+  const close = useCallback(() => {
     void navigate({ to: "/preview/library" });
-  };
+  }, [navigate]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -37,8 +37,7 @@ function PreviewArtifactViewer() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [close]);
 
   if (!artifact) {
     return (
