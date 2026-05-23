@@ -1,5 +1,11 @@
 import { db } from "@alfred/db";
-import { actionStagings, agentRuns, workflows, type AgentRunTrigger } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, workflows } from "@alfred/db/schemas";
+import {
+  agentRunTriggerSchema,
+  runStatusSchema,
+  wakeConditionSchema,
+  type AgentRunTrigger,
+} from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { getWorkflow } from "./registry";
@@ -113,6 +119,7 @@ export async function resolveWorkflowForRun(args: {
  * endpoint).
  */
 export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
+  const trigger = agentRunTriggerSchema.parse(args.trigger);
   const resolved = await resolveWorkflowForRun({
     userId: args.userId,
     workflowSlug: args.workflowSlug,
@@ -158,7 +165,7 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
       transcript,
       currentStep: workflow.initialStep,
       metadata: metadata as object,
-      trigger: args.trigger,
+      trigger,
       status: "pending",
       dedupKey,
     })
@@ -214,12 +221,13 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     .for("update");
   const row = rows[0];
   if (!row) return "not_found";
-  if (row.status !== "waiting") {
-    return isTerminalStatus(row.status as RunStatus) ? "already_terminal" : "not_waiting";
+  const status = runStatusSchema.parse(row.status);
+  if (status !== "waiting") {
+    return isTerminalStatus(status) ? "already_terminal" : "not_waiting";
   }
 
   if (match.kind !== "any") {
-    const wake = row.wakeCondition as WakeCondition | null;
+    const wake = wakeConditionSchema.nullable().parse(row.wakeCondition);
     if (!wake || wake.kind !== match.kind) return "wake_mismatch";
     if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
       return "wake_mismatch";
@@ -292,8 +300,9 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
     .for("update");
   const row = rows[0];
   if (!row) return "not_found";
+  const status = runStatusSchema.parse(row.status);
 
-  if (isTerminalStatus(row.status as RunStatus)) {
+  if (isTerminalStatus(status)) {
     return "already_terminal";
   }
 
@@ -349,14 +358,14 @@ export interface RunSummary {
   id: string;
   userId: string;
   workflowSlug: string;
-  status: string;
+  status: RunStatus;
   currentStep: string;
   attempt: number;
   brief: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
   lastCheckpointAt: Date | null;
-  wakeCondition: unknown;
+  wakeCondition: WakeCondition | null;
   output: unknown;
   error: unknown;
 }
@@ -372,14 +381,14 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
     id: row.id,
     userId: row.userId,
     workflowSlug: row.workflowSlug,
-    status: row.status,
+    status: runStatusSchema.parse(row.status),
     currentStep: row.currentStep,
     attempt: row.attempt,
     brief: row.brief,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     lastCheckpointAt: row.lastCheckpointAt,
-    wakeCondition: row.wakeCondition,
+    wakeCondition: wakeConditionSchema.nullable().parse(row.wakeCondition),
     output: row.output,
     error: row.error,
   };

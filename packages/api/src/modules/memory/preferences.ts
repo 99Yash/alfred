@@ -28,7 +28,7 @@ function rowToPref(r: typeof userPreferences.$inferSelect): PreferenceRow {
     userId: r.userId,
     key: r.key,
     value: r.value,
-    source: r.source as MemorySource,
+    source: memorySourceSchema.parse(r.source),
     rowVersion: r.rowVersion,
   };
 }

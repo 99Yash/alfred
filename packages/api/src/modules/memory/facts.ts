@@ -9,6 +9,7 @@ import {
   AUTO_CONFIRM_THRESHOLD,
   type FactStatus,
   type MemorySource,
+  factStatusSchema,
   memorySourceSchema,
 } from "./types";
 
@@ -89,8 +90,8 @@ function rowToFact(r: typeof userFacts.$inferSelect): FactRow {
     key: r.key,
     value: r.value,
     confidence: r.confidence,
-    status: r.status as FactStatus,
-    source: r.source as MemorySource,
+    status: factStatusSchema.parse(r.status),
+    source: memorySourceSchema.parse(r.source),
     validFrom: r.validFrom,
     validUntil: r.validUntil,
     supersedesId: r.supersedesId,

@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
-import { workflows, type WorkflowTrigger } from "@alfred/db/schemas";
+import { workflows } from "@alfred/db/schemas";
+import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";
@@ -105,7 +106,11 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     .orderBy(workflows.nextRunAt)
     .limit(BATCH);
 
-  return rows.flatMap((r) => (r.nextRunAt ? [{ ...r, nextRunAt: r.nextRunAt }] : []));
+  return rows.flatMap((r) =>
+    r.nextRunAt
+      ? [{ ...r, trigger: workflowTriggerSchema.parse(r.trigger), nextRunAt: r.nextRunAt }]
+      : [],
+  );
 }
 
 async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid"> {

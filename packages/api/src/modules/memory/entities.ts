@@ -2,7 +2,9 @@ import { db } from "@alfred/db";
 import { entities, entityRelations } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { type EntityKind } from "./types";
+import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
+
+const aliasesSchema = z.array(z.string());
 
 export const upsertEntityArgsSchema = z.object({
   userId: z.string().min(1),
@@ -37,10 +39,10 @@ function rowToEntity(r: typeof entities.$inferSelect): EntityRow {
   return {
     id: r.id,
     userId: r.userId,
-    kind: r.kind as EntityKind,
+    kind: entityKindSchema.parse(r.kind),
     canonicalName: r.canonicalName,
-    aliases: (r.aliases as string[]) ?? [],
-    metadata: r.metadata as Record<string, unknown>,
+    aliases: aliasesSchema.parse(r.aliases ?? []),
+    metadata: jsonRecordSchema.parse(r.metadata),
     rowVersion: r.rowVersion,
   };
 }
@@ -86,8 +88,10 @@ export async function upsertEntity(args: UpsertEntityArgs): Promise<EntityRow> {
       return rowToEntity(row);
     }
 
-    const mergedAliases = Array.from(new Set([...(existing.aliases as string[]), ...aliases]));
-    const mergedMetadata = { ...(existing.metadata as Record<string, unknown>), ...metadata };
+    const mergedAliases = Array.from(
+      new Set([...aliasesSchema.parse(existing.aliases), ...aliases]),
+    );
+    const mergedMetadata = { ...jsonRecordSchema.parse(existing.metadata), ...metadata };
     const [row] = await tx
       .update(entities)
       .set({

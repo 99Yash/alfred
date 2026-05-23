@@ -1,5 +1,12 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { WorkflowTrigger } from "@alfred/db/schemas";
+import {
+  RUN_STATUSES,
+  isTerminalStatus,
+  type ApprovalKind,
+  type RunStatus,
+  type WakeCondition,
+  type WorkflowTrigger,
+} from "@alfred/schemas";
 import type { z } from "zod";
 
 /**
@@ -13,37 +20,8 @@ import type { z } from "zod";
  *   failed     terminal error
  *   cancelled  user-initiated stop
  */
-export const RUN_STATUSES = [
-  "pending",
-  "runnable",
-  "running",
-  "waiting",
-  "completed",
-  "failed",
-  "cancelled",
-] as const;
-export type RunStatus = (typeof RUN_STATUSES)[number];
-
-/** A run is finished — the worker should never touch it again. */
-export function isTerminalStatus(s: RunStatus): boolean {
-  return s === "completed" || s === "failed" || s === "cancelled";
-}
-
-export type ApprovalKind = "step" | "action_staging";
-
-/**
- * What unfreezes a parked run. The runtime persists this on the run row
- * when a step returns `interrupt`; an external signal (HIL approve,
- * timer expiry, named signal) flips the run back to `runnable`.
- *
- * `approvalKind` is optional because pre-m13 rows in `agent_runs.wake_condition`
- * predate the field — DB-loaded conditions may not carry it. New writers
- * always populate it; readers must treat it as best-effort.
- */
-export type WakeCondition =
-  | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind; prompt?: string }
-  | { kind: "timer"; wakeAt: string }
-  | { kind: "signal"; name: string };
+export { RUN_STATUSES, isTerminalStatus };
+export type { ApprovalKind, RunStatus, WakeCondition };
 
 /** Outbound effect staged inside a step's commit — fired by the dispatcher worker (m7+). */
 export interface StagedAction {

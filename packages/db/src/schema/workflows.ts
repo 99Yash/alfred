@@ -1,95 +1,20 @@
+import {
+  workflowHilGatesSchema,
+  workflowStepSchema,
+  workflowStepsSchema,
+  workflowTriggerSchema,
+  type WorkflowHilGates,
+  type WorkflowStep,
+  type WorkflowSteps,
+  type WorkflowTrigger,
+} from "@alfred/schemas";
 import { sql } from "drizzle-orm";
 import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { z } from "zod";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
-/**
- * Workflow trigger — discriminated by `kind`. See `workflows.trigger`.
- */
-export const workflowTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    schedule: z.string(),
-    timezone: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    source: z.string(),
-    filter: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("on_signal"), name: z.string() }),
-]);
-export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>;
-
-/**
- * Workflow step — discriminated by `kind` per ADR-0017. See `workflows.steps`.
- */
-export const workflowStepSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("run_skill"),
-    id: z.string(),
-    skillSlug: z.string(),
-    input: z.record(z.string(), z.unknown()).optional(),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("tool_call"),
-    id: z.string(),
-    tool: z.string(),
-    input: z.record(z.string(), z.unknown()).optional(),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("llm_call"),
-    id: z.string(),
-    prompt: z.string(),
-    model: z.string().optional(),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("agent_run"),
-    id: z.string(),
-    workflowSlug: z.string(),
-    input: z.record(z.string(), z.unknown()).optional(),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("condition"),
-    id: z.string(),
-    expr: z.string(),
-    onTrue: z.string(),
-    onFalse: z.string(),
-  }),
-  z.object({
-    kind: z.literal("parallel"),
-    id: z.string(),
-    branches: z.array(z.string()),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("loop"),
-    id: z.string(),
-    over: z.string(),
-    body: z.string(),
-    next: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("hil_approve"),
-    id: z.string(),
-    prompt: z.string().optional(),
-    next: z.string().optional(),
-  }),
-]);
-export type WorkflowStep = z.infer<typeof workflowStepSchema>;
-
-export const workflowStepsSchema = z.array(workflowStepSchema);
-export type WorkflowSteps = z.infer<typeof workflowStepsSchema>;
-
-/** Step ids that require HIL approval (see `workflows.hil_gates`). */
-export const workflowHilGatesSchema = z.array(z.string());
-export type WorkflowHilGates = z.infer<typeof workflowHilGatesSchema>;
+export { workflowHilGatesSchema, workflowStepSchema, workflowStepsSchema, workflowTriggerSchema };
+export type { WorkflowHilGates, WorkflowStep, WorkflowSteps, WorkflowTrigger };
 
 /**
  * Workflows (ADR-0017).

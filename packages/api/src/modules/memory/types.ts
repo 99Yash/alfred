@@ -1,12 +1,15 @@
+import { jsonRecordSchema, memorySourceSchema } from "@alfred/sync";
+import { z } from "zod";
+
 /**
  * Where a fact / preference / chunk came from. Provenance discipline
  * (ADR-0019): every inferred row cites a specific origin so the user
  * can ask "why do you think that?" and get a non-hallucinated answer.
  */
-export { memorySourceSchema } from "@alfred/sync";
 export type { MemorySource } from "@alfred/sync";
 
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
+export const factStatusSchema = z.enum(FACT_STATUSES);
 export type FactStatus = (typeof FACT_STATUSES)[number];
 
 /**
@@ -24,6 +27,7 @@ export const STYLE_CHANNELS = [
   "twitter",
   "generic",
 ] as const;
+export const styleChannelSchema = z.enum(STYLE_CHANNELS);
 export type StyleChannel = (typeof STYLE_CHANNELS)[number];
 
 export const STYLE_AUDIENCE_BUCKETS = [
@@ -36,6 +40,7 @@ export const STYLE_AUDIENCE_BUCKETS = [
   "public",
   "generic",
 ] as const;
+export const styleAudienceBucketSchema = z.enum(STYLE_AUDIENCE_BUCKETS);
 export type StyleAudienceBucket = (typeof STYLE_AUDIENCE_BUCKETS)[number];
 
 export const ENTITY_KINDS = [
@@ -46,6 +51,7 @@ export const ENTITY_KINDS = [
   "location",
   "other",
 ] as const;
+export const entityKindSchema = z.enum(ENTITY_KINDS);
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const MEMORY_CHUNK_KINDS = [
@@ -54,4 +60,7 @@ export const MEMORY_CHUNK_KINDS = [
   "cold_start_research",
   "manual",
 ] as const;
+export const memoryChunkKindSchema = z.enum(MEMORY_CHUNK_KINDS);
 export type MemoryChunkKind = (typeof MEMORY_CHUNK_KINDS)[number];
+
+export { jsonRecordSchema, memorySourceSchema };

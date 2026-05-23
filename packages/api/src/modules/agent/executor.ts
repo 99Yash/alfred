@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { runStatusSchema } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
@@ -31,7 +32,7 @@ interface RunRow {
   id: string;
   userId: string;
   workflowSlug: string;
-  status: string;
+  status: RunStatus;
   state: unknown;
   transcript: AgentTranscriptMessage[];
   currentStep: string;
@@ -143,8 +144,9 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
       | undefined;
     if (!row) return null;
 
-    if (isTerminalStatus(row.status as RunStatus)) return null;
-    if (row.status === "waiting") return null; // signal will flip to runnable first
+    const status = runStatusSchema.parse(row.status);
+    if (isTerminalStatus(status)) return null;
+    if (status === "waiting") return null; // signal will flip to runnable first
 
     // A `running` row is normally held by another worker. But if its
     // heartbeat (`last_checkpoint_at`) is older than the lease window,
@@ -153,7 +155,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
     // attempt) doesn't collide on the next insert. The orphan step row
     // is marked failed for audit visibility.
     let isStaleRunning = false;
-    if (row.status === "running") {
+    if (status === "running") {
       const staleMs = typeof row.staleMs === "string" ? Number(row.staleMs) : row.staleMs;
       if (staleMs == null || staleMs >= STALE_RUN_LEASE_MS) {
         isStaleRunning = true;
@@ -187,13 +189,13 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
       .set({
         status: "running",
         attempt,
-        startedAt: row.status === "pending" ? new Date() : undefined,
+        startedAt: status === "pending" ? new Date() : undefined,
         lastCheckpointAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(agentRuns.id, runId));
 
-    if (row.status === "pending") {
+    if (status === "pending") {
       await publishEvent({
         tx,
         userId: row.userId,
@@ -202,7 +204,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
       });
     }
 
-    return { run: { ...row, attempt }, attempt };
+    return { run: { ...row, status, attempt }, attempt };
   });
 }
 
