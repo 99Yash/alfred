@@ -26,7 +26,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { VsPill, VsSegmented } from "~/components/ui/visitors";
 import { cn } from "~/lib/utils";
 import { useChatContext } from "~/components/preview/chat-context";
@@ -126,9 +126,9 @@ function PreviewChatPage() {
 
   // When the viewport crosses the rail breakpoint, snap the rail to that
   // mode's sensible default: wide screens show it, narrow screens hide it.
-  const [prevMode, setPrevMode] = useState(railMode);
-  if (prevMode !== railMode) {
-    setPrevMode(railMode);
+  const prevModeRef = useRef(railMode);
+  if (prevModeRef.current !== railMode) {
+    prevModeRef.current = railMode;
     setRailOpen(railMode === "inline");
   }
 
