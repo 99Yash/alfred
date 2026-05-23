@@ -8,6 +8,7 @@ import { createUntrackedRedisConnection } from "./queue/connection.js";
 import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
 import { agent } from "./modules/agent/index.js";
+import { approvalsRoutes } from "./modules/approvals/index.js";
 import { integrations } from "./modules/integrations/index.js";
 import { onboardingRoutes } from "./modules/onboarding/index.js";
 import { skillsRoutes } from "./modules/skills/index.js";
@@ -51,6 +52,7 @@ export * from "./modules/dispatch/index.js";
 export * from "./modules/skills/index.js";
 export * from "./modules/skill-documentation/index.js";
 export * from "./modules/workflows/index.js";
+export * from "./modules/approvals/index.js";
 export type {
   Workflow,
   WorkflowInput,
@@ -66,6 +68,7 @@ export const app = new Elysia({ name: "api" })
   .use(replicache)
   .use(events)
   .use(agent)
+  .use(approvalsRoutes)
   .use(integrations)
   .use(onboardingRoutes)
   .use(skillsRoutes)

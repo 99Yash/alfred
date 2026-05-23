@@ -1,3 +1,4 @@
+import { IDB_KEY } from "@alfred/sync";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -6,6 +7,7 @@ import {
   Brain,
   ChevronsLeft,
   ChevronsRight,
+  ClipboardCheck,
   Command,
   FileText,
   LogOut,
@@ -29,9 +31,11 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import type { ReadTransaction } from "replicache";
 import { CommandPalette } from "~/components/ui/command-palette";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
+import { useSubscribe } from "~/lib/replicache/hooks";
 import { cn } from "~/lib/utils";
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
@@ -48,6 +52,7 @@ const SECTION_NAV: ReadonlyArray<NavItem> = [
   { to: "/integrations", label: "Integrations", icon: Plug },
   { to: "/workflows", label: "Workflows", icon: Workflow },
   { to: "/skills", label: "Skills", icon: Sparkles },
+  { to: "/approvals", label: "Approvals", icon: ClipboardCheck },
   { to: "/library", label: "Library", icon: Archive },
 ];
 
@@ -55,6 +60,14 @@ const PERSONAL_NAV: ReadonlyArray<NavItem> = [
   { to: "/memory", label: "Memory", icon: Brain },
   { to: "/notes", label: "Notes", icon: FileText },
 ];
+
+const countPendingApprovals = async (tx: ReadTransaction): Promise<number> => {
+  const approvals = await tx
+    .scan({ prefix: IDB_KEY.ACTION_STAGING({}) })
+    .keys()
+    .toArray();
+  return approvals.length;
+};
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -278,6 +291,7 @@ function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const pendingApprovalCount = useSubscribe(countPendingApprovals) ?? 0;
   const initial = email?.[0]?.toUpperCase() ?? "·";
 
   const signOut = async () => {
@@ -373,6 +387,7 @@ function Sidebar({
             item={item}
             collapsed={collapsed}
             active={isActive(location.pathname, item.to)}
+            badgeCount={item.to === "/approvals" ? pendingApprovalCount : undefined}
           />
         ))}
 
@@ -420,12 +435,15 @@ function NavLink({
   item,
   collapsed,
   active,
+  badgeCount,
 }: {
   item: NavItem;
   collapsed: boolean;
   active: boolean;
+  badgeCount?: number;
 }) {
   const Icon = item.icon;
+  const showBadge = typeof badgeCount === "number" && badgeCount > 0;
   return (
     <Link
       to={item.to}
@@ -439,10 +457,20 @@ function NavLink({
       )}
       title={collapsed ? item.label : undefined}
     >
-      <Icon size={15} className="shrink-0" />
+      <span className="relative inline-flex shrink-0">
+        <Icon size={15} />
+        {collapsed && showBadge ? (
+          <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-amber-300" />
+        ) : null}
+      </span>
       {!collapsed ? (
         <>
           <span className="flex-1 truncate">{item.label}</span>
+          {showBadge ? (
+            <span className="inline-flex min-w-5 justify-center rounded-full bg-amber-400/10 px-1.5 text-[10px] font-medium text-amber-300 tabular">
+              {badgeCount > 99 ? "99+" : badgeCount}
+            </span>
+          ) : null}
           {item.shortcut ? (
             <kbd className="hidden xl:inline-flex text-[10px] text-muted-foreground/70 tabular">
               {item.shortcut}

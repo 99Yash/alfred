@@ -90,6 +90,11 @@ export interface SyncedActionStaging {
   expiresAt: string | null;
   notifyAfterAt: string | null;
   notifiedAt: string | null;
+  recentRejection: {
+    runId: string;
+    reason: string | null;
+    decidedAt: string;
+  } | null;
   rowVersion: number;
   createdAt: string;
   updatedAt: string | null;

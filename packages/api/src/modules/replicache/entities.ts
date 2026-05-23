@@ -9,7 +9,7 @@ import {
   userPreferences,
 } from "@alfred/db/schemas";
 import { IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
@@ -26,6 +26,8 @@ export interface EntityRow {
 type DbTx = any;
 
 type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
+
+const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
  * Per-entity read model for Replicache pull.
@@ -138,10 +140,17 @@ const ENTITY_FETCHERS = {
         ),
       )
       .orderBy(asc(actionStagings.id));
+
+    const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
+
     return rows.map((r: { staging: typeof actionStagings.$inferSelect; workflowSlug: string }) => ({
       id: r.staging.id,
       rowVersion: r.staging.rowVersion,
-      serialized: serializeActionStaging(r.staging, r.workflowSlug),
+      serialized: serializeActionStaging(
+        r.staging,
+        r.workflowSlug,
+        recentRejections.get(r.staging.toolName) ?? null,
+      ),
     }));
   },
 } satisfies Record<IDBKeys, EntityFetcher>;
@@ -244,9 +253,57 @@ function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unk
   };
 }
 
+interface RecentRejection {
+  runId: string;
+  reason: string | null;
+  decidedAt: Date;
+}
+
+async function loadRecentRejectionsByTool(
+  tx: DbTx,
+  userId: string,
+  pendingRows: Array<{ staging: typeof actionStagings.$inferSelect }>,
+): Promise<Map<string, RecentRejection>> {
+  if (pendingRows.length === 0) return new Map();
+
+  const toolNames = Array.from(new Set(pendingRows.map((r) => r.staging.toolName)));
+  const cutoff = new Date(Date.now() - RECENT_REJECTION_WINDOW_MS);
+
+  const rows = await tx
+    .select({
+      toolName: actionStagings.toolName,
+      runId: actionStagings.runId,
+      reason: actionStagings.rejectReason,
+      decidedAt: actionStagings.decidedAt,
+    })
+    .from(actionStagings)
+    .where(
+      and(
+        eq(actionStagings.userId, userId),
+        eq(actionStagings.status, "rejected"),
+        inArray(actionStagings.toolName, toolNames),
+        isNotNull(actionStagings.decidedAt),
+        gte(actionStagings.decidedAt, cutoff),
+      ),
+    )
+    .orderBy(desc(actionStagings.decidedAt));
+
+  const byTool = new Map<string, RecentRejection>();
+  for (const row of rows) {
+    if (byTool.has(row.toolName) || !(row.decidedAt instanceof Date)) continue;
+    byTool.set(row.toolName, {
+      runId: row.runId,
+      reason: row.reason,
+      decidedAt: row.decidedAt,
+    });
+  }
+  return byTool;
+}
+
 function serializeActionStaging(
   s: typeof actionStagings.$inferSelect,
   workflowSlug: string,
+  recentRejection: RecentRejection | null,
 ): Record<string, unknown> {
   return {
     id: s.id,
@@ -264,6 +321,13 @@ function serializeActionStaging(
     expiresAt: toIso(s.expiresAt),
     notifyAfterAt: toIso(s.notifyAfterAt),
     notifiedAt: toIso(s.notifiedAt),
+    recentRejection: recentRejection
+      ? {
+          runId: recentRejection.runId,
+          reason: recentRejection.reason,
+          decidedAt: toIso(recentRejection.decidedAt),
+        }
+      : null,
     rowVersion: s.rowVersion,
     createdAt: toIso(s.createdAt),
     updatedAt: toIso(s.updatedAt),

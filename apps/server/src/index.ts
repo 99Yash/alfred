@@ -1,6 +1,7 @@
 import {
   app,
   closeAgentQueue,
+  closeApprovalNotificationQueue,
   closeBriefingQueue,
   closeConnections,
   closeEventBridge,
@@ -107,6 +108,7 @@ async function shutdown(signal: string) {
     // shutdown drains the active step.
     await stopAgentWorker();
     await closeAgentQueue();
+    await closeApprovalNotificationQueue();
     await stopIngestionWorker();
     await closeIngestionQueue();
     await stopMemoryWorker();
