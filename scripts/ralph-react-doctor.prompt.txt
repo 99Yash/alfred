@@ -1,0 +1,27 @@
+You are fixing one rule family of react-doctor violations in apps/web.
+
+Rule: {{RULE}}
+Category: {{CATEGORY}}
+Occurrences: {{COUNT}}
+Typical message: {{MESSAGE}}
+Typical fix hint: {{HELP}}
+
+Violations (path is relative to apps/web/):
+{{VIOLATIONS}}
+
+Constraints:
+1. Read each file before editing it. Do not guess shapes.
+2. Fix only this rule family this pass. Ignore unrelated issues you notice.
+3. Do NOT modify react-doctor config. Do NOT add eslint-disable / suppression comments. Fix root causes.
+4. For `no-multi-comp`: secondary components live under apps/web/src/components/preview/<area>/. Check that directory before creating new files; reuse what already exists. Each new file should default-export the component and be imported back into the route.
+5. After all edits, from the repo root run:
+       pnpm check-types
+   It must pass. If it fails, fix the type errors. If you cannot make it pass without inventing types, `git checkout -- .` to revert and exit without committing.
+6. If check-types passes, stage only files you touched and commit (no push):
+       git add <files>
+       git commit -m "fix(react-doctor): {{RULE}} — {{COUNT}} fixes"
+   Use a HEREDOC if the message needs more than one line.
+7. Do not run git push. Do not run db:push. Do not touch CLAUDE.md, decisions.md, or anything outside apps/web/src/.
+8. If you finish, print a one-line summary of what changed.
+
+Begin.
