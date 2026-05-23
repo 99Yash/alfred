@@ -17,9 +17,13 @@ interface VsPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leading?: ReactNode;
   /** Show a chevron-down on the right edge. Set true when the pill opens a menu. */
   chevron?: boolean;
-  /** Default visual: muted bg. `accent` is a colored variant (use with tone). */
+  /**
+   * Default visual: muted bg. `accent` is the colored variant — left as a
+   * prop for explicit call sites, but it's also inferred automatically when
+   * `tone` is set, so callers only need to set one of the two.
+   */
   variant?: "default" | "accent";
-  /** Used with variant="accent" — picks the hue family. */
+  /** Picks the hue family. Setting this implies the accent variant. */
   tone?: "green" | "red" | "amber" | "purple" | "sky" | "blue" | "pink";
   ref?: Ref<HTMLButtonElement>;
 }
@@ -38,14 +42,17 @@ export function VsPill({
   className,
   leading,
   chevron,
-  variant = "default",
+  variant,
   tone,
   type,
   children,
   ref,
   ...rest
 }: VsPillProps) {
-  const isAccent = variant === "accent" && tone;
+  // A pill is "accented" whenever a tone is provided, or the caller
+  // explicitly sets variant="accent". Passing `tone` alone is the common
+  // case — every caller wants the hue, so we shouldn't require both.
+  const isAccent = !!tone || variant === "accent";
   return (
     <button
       ref={ref}
@@ -56,8 +63,8 @@ export function VsPill({
         "transition-[box-shadow,background-color,transform]",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         "vs-press",
-        isAccent
-          ? TONE[tone!]
+        isAccent && tone
+          ? TONE[tone]
           : cn("bg-vs-bg-1 text-vs-fg-4", "vs-elevated"),
         className,
       )}

@@ -59,7 +59,9 @@ function PreviewLayout() {
             <Outlet />
           </div>
 
-          <SearchPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+          {paletteOpen ? (
+            <SearchPalette onClose={() => setPaletteOpen(false)} />
+          ) : null}
         </VsThemed>
       </VsThemeProvider>
     </ChatContext.Provider>
