@@ -1,0 +1,73 @@
+import { Link } from "@tanstack/react-router";
+import { Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { VsInput } from "~/components/ui/visitors";
+import { INTEGRATION_PROVIDERS } from "~/lib/integrations";
+import type { IntegrationBrand } from "~/lib/integration-icons";
+import { FeaturedHero } from "./featured-hero";
+import { filterSections, matches, MCP_HAYSTACK } from "./helpers";
+import { MCPServerSection } from "./mcp-server-section";
+import { SectionBlock } from "./section-block";
+
+export function PreviewIntegrationsBody() {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => filterSections(query), [query]);
+  const mcpVisible = matches(MCP_HAYSTACK, query);
+  const empty = filtered.length === 0 && !mcpVisible;
+
+  const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(() => {
+    const brands: IntegrationBrand[] = [];
+    for (const p of INTEGRATION_PROVIDERS) {
+      if (p.status === "connected") brands.push(p.brand);
+    }
+    return brands;
+  }, []);
+
+  return (
+    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
+      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+        <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
+          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Integrations</h1>
+          <p className="text-sm text-vs-fg-3">
+            Connect the tools Alfred can read, write, and act on.
+          </p>
+        </header>
+
+        <FeaturedHero brands={connectedBrands} />
+
+        <div className="flex justify-center mt-8 vs-card-in" style={{ animationDelay: "120ms" }}>
+          <VsInput
+            placeholder="Search for integration"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="max-w-[640px] !h-[44px] !rounded-2xl !pl-10"
+            aria-label="Search integrations"
+          />
+          <Search
+            size={14}
+            className="absolute -ml-[600px] mt-[15px] text-vs-fg-2 pointer-events-none hidden md:block"
+          />
+        </div>
+
+        <div className="mt-12 space-y-12">
+          {filtered.map((section, sIdx) => (
+            <SectionBlock key={section.title} section={section} index={sIdx} />
+          ))}
+          {mcpVisible ? <MCPServerSection /> : null}
+          {empty ? (
+            <p className="text-center text-sm text-vs-fg-3">
+              No integrations match &ldquo;{query}&rdquo;.
+            </p>
+          ) : null}
+        </div>
+
+        <footer className="mt-16 flex items-center justify-center text-xs text-vs-fg-2 gap-2">
+          <span>Comparing against</span>
+          <Link to="/integrations" className="font-medium text-vs-fg-3 hover:text-vs-fg-4">
+            /integrations
+          </Link>
+        </footer>
+      </main>
+    </div>
+  );
+}
