@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { cancelRun, enqueueRun, signalRun } from "../agent";
+import { cancelRunInTx, enqueueRun, signalRunInTx } from "../agent";
 import { removeApprovalNotificationJob } from "./notification-queue";
 
 type Decision = "approve" | "reject" | "cancel_run";
@@ -13,6 +13,7 @@ interface DecisionOutcome {
   runId: string;
   decision: Decision;
   status: "approved" | "rejected";
+  shouldEnqueue: boolean;
 }
 
 /**
@@ -65,6 +66,18 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
 
           const now = new Date();
           if (decision === "approve") {
+            const signalOutcome = await signalRunInTx(tx, {
+              runId: row.runId,
+              match: {
+                kind: "hil",
+                approvalId: params.stagingId,
+                approvalKind: "action_staging",
+              },
+            });
+            if (signalOutcome === "not_found") return { conflict: "Run not found" };
+            if (signalOutcome === "wake_mismatch") {
+              return { conflict: "Run is not waiting for this approval" };
+            }
             await tx
               .update(actionStagings)
               .set({
@@ -75,7 +88,35 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
                 rowVersion: sql`${actionStagings.rowVersion} + 1`,
               })
               .where(eq(actionStagings.id, row.id));
-            return { runId: row.runId, decision, status: "approved" };
+            return {
+              runId: row.runId,
+              decision,
+              status: "approved",
+              shouldEnqueue: signalOutcome === "woken",
+            };
+          }
+
+          let shouldEnqueue = false;
+          if (decision === "cancel_run") {
+            const cancelOutcome = await cancelRunInTx(tx, {
+              runId: row.runId,
+              reason: "cancelled_by_user",
+            });
+            if (cancelOutcome === "not_found") return { conflict: "Run not found" };
+          } else {
+            const signalOutcome = await signalRunInTx(tx, {
+              runId: row.runId,
+              match: {
+                kind: "hil",
+                approvalId: params.stagingId,
+                approvalKind: "action_staging",
+              },
+            });
+            if (signalOutcome === "not_found") return { conflict: "Run not found" };
+            if (signalOutcome === "wake_mismatch") {
+              return { conflict: "Run is not waiting for this approval" };
+            }
+            shouldEnqueue = signalOutcome === "woken";
           }
 
           await tx
@@ -87,7 +128,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
               rowVersion: sql`${actionStagings.rowVersion} + 1`,
             })
             .where(eq(actionStagings.id, row.id));
-          return { runId: row.runId, decision, status: "rejected" };
+          return { runId: row.runId, decision, status: "rejected", shouldEnqueue };
         });
 
         if ("notFound" in outcome) return status(404, { message: "Approval not found" });
@@ -96,21 +137,21 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
         emitReplicachePokes([user.id], params.stagingId);
         await removeApprovalNotificationJob(params.stagingId);
 
-        if (outcome.decision === "cancel_run") {
-          await cancelRun({ runId: outcome.runId, reason: "cancelled_by_user" });
-        } else {
-          const woken = await signalRun({
-            runId: outcome.runId,
-            match: {
-              kind: "hil",
-              approvalId: params.stagingId,
-              approvalKind: "action_staging",
-            },
-          });
-          if (woken) await enqueueRun(outcome.runId);
+        let enqueued = false;
+        if (outcome.shouldEnqueue) {
+          try {
+            await enqueueRun(outcome.runId);
+            enqueued = true;
+          } catch (err) {
+            console.warn(
+              "[approvals] failed to enqueue woken run; resume sweep will retry",
+              outcome.runId,
+              err instanceof Error ? err.message : String(err),
+            );
+          }
         }
 
-        return { ok: true, runId: outcome.runId, status: outcome.status };
+        return { ok: true, runId: outcome.runId, status: outcome.status, enqueued };
       },
       {
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),

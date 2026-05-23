@@ -175,57 +175,68 @@ export interface SignalArgs {
     | { kind: "any" };
 }
 
+export type SignalOutcome = "woken" | "not_found" | "not_waiting" | "wake_mismatch";
+
+// Typed loosely so callers can share the helper from inside their own
+// outer transaction without coupling this module to one concrete Drizzle
+// transaction instantiation.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AgentTx = any;
+
 /**
  * Move a `waiting` run back to `runnable` if its wake condition matches.
  * Returns true if the run was woken, false if it was not waiting or the
  * match failed (the caller can treat both as "no-op, already moved on").
  */
 export async function signalRun(args: SignalArgs): Promise<boolean> {
+  const outcome = await db().transaction((tx) => signalRunInTx(tx, args));
+  return outcome === "woken";
+}
+
+export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
   const match = args.match ?? { kind: "any" };
-  return await db().transaction(async (tx) => {
-    const rows = await tx
-      .select({
-        id: agentRuns.id,
-        status: agentRuns.status,
-        wakeCondition: agentRuns.wakeCondition,
-      })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, args.runId))
-      .for("update");
-    const row = rows[0];
-    if (!row) return false;
-    if (row.status !== "waiting") return false;
+  const rows = await tx
+    .select({
+      id: agentRuns.id,
+      status: agentRuns.status,
+      wakeCondition: agentRuns.wakeCondition,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, args.runId))
+    .for("update");
+  const row = rows[0];
+  if (!row) return "not_found";
+  if (row.status !== "waiting") return "not_waiting";
 
-    if (match.kind !== "any") {
-      const wake = row.wakeCondition as WakeCondition | null;
-      if (!wake || wake.kind !== match.kind) return false;
-      if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
-        return false;
-      }
-      if (match.kind === "hil" && wake.kind === "hil" && match.approvalKind) {
-        // Treat a missing `approvalKind` on the wake as "step" — pre-m13
-        // HIL wakes predate the field, and the only kind that existed
-        // then was the implicit step approval. Symmetric with the
-        // executor's interrupt-commit default (see executor.ts).
-        const wakeKind = wake.approvalKind ?? "step";
-        if (wakeKind !== match.approvalKind) return false;
-      }
-      if (match.kind === "signal" && wake.kind === "signal" && wake.name !== match.name) {
-        return false;
-      }
+  if (match.kind !== "any") {
+    const wake = row.wakeCondition as WakeCondition | null;
+    if (!wake || wake.kind !== match.kind) return "wake_mismatch";
+    if (match.kind === "hil" && wake.kind === "hil" && wake.approvalId !== match.approvalId) {
+      return "wake_mismatch";
     }
+    if (match.kind === "hil" && wake.kind === "hil" && match.approvalKind) {
+      // Treat a missing `approvalKind` on the wake as "step" — pre-m13
+      // HIL wakes predate the field, and the only kind that existed
+      // then was the implicit step approval. Symmetric with the
+      // executor's interrupt-commit default (see executor.ts).
+      const wakeKind = wake.approvalKind ?? "step";
+      if (wakeKind !== match.approvalKind) return "wake_mismatch";
+    }
+    if (match.kind === "signal" && wake.kind === "signal" && wake.name !== match.name) {
+      return "wake_mismatch";
+    }
+  }
 
-    await tx
-      .update(agentRuns)
-      .set({
-        status: "runnable",
-        wakeCondition: null,
-        lastCheckpointAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(agentRuns.id, args.runId));
-    return true;
-  });
+  await tx
+    .update(agentRuns)
+    .set({
+      status: "runnable",
+      wakeCondition: null,
+      lastCheckpointAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(agentRuns.id, args.runId));
+  return "woken";
 }
 
 export interface CancelRunArgs {
@@ -249,55 +260,57 @@ export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
  * rolled-back update can't leak a phantom `cancelled` event downstream.
  */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
-  return await db().transaction(async (tx) => {
-    const rows = await tx
-      .select({
-        id: agentRuns.id,
-        userId: agentRuns.userId,
-        status: agentRuns.status,
-        currentStep: agentRuns.currentStep,
-        attempt: agentRuns.attempt,
-      })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, args.runId))
-      .for("update");
-    const row = rows[0];
-    if (!row) return "not_found";
+  return await db().transaction((tx) => cancelRunInTx(tx, args));
+}
 
-    if (isTerminalStatus(row.status as RunStatus)) {
-      return "already_terminal";
-    }
+export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelOutcome> {
+  const rows = await tx
+    .select({
+      id: agentRuns.id,
+      userId: agentRuns.userId,
+      status: agentRuns.status,
+      currentStep: agentRuns.currentStep,
+      attempt: agentRuns.attempt,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, args.runId))
+    .for("update");
+  const row = rows[0];
+  if (!row) return "not_found";
 
-    const now = new Date();
-    await tx
-      .update(agentRuns)
-      .set({
-        status: "cancelled",
-        // Null the wake so a stale signal (e.g. a delayed approval
-        // landing after cancellation) can't match — signalRun guards on
-        // status='waiting' but defence-in-depth is cheap here.
-        wakeCondition: null,
-        error: { reason: args.reason, cancelledAt: now.toISOString() },
-        endedAt: now,
-        lastCheckpointAt: now,
-        updatedAt: now,
-      })
-      .where(eq(agentRuns.id, args.runId));
+  if (isTerminalStatus(row.status as RunStatus)) {
+    return "already_terminal";
+  }
 
-    await publishEvent({
-      tx,
-      userId: row.userId,
-      kind: "agent.run",
-      payload: {
-        runId: row.id,
-        phase: "cancelled",
-        step: row.currentStep,
-        attempt: row.attempt,
-        error: args.reason,
-      },
-    });
-    return "cancelled";
+  const now = new Date();
+  await tx
+    .update(agentRuns)
+    .set({
+      status: "cancelled",
+      // Null the wake so a stale signal (e.g. a delayed approval
+      // landing after cancellation) can't match — signalRun guards on
+      // status='waiting' but defence-in-depth is cheap here.
+      wakeCondition: null,
+      error: { reason: args.reason, cancelledAt: now.toISOString() },
+      endedAt: now,
+      lastCheckpointAt: now,
+      updatedAt: now,
+    })
+    .where(eq(agentRuns.id, args.runId));
+
+  await publishEvent({
+    tx,
+    userId: row.userId,
+    kind: "agent.run",
+    payload: {
+      runId: row.id,
+      phase: "cancelled",
+      step: row.currentStep,
+      attempt: row.attempt,
+      error: args.reason,
+    },
   });
+  return "cancelled";
 }
 
 export interface RunSummary {
