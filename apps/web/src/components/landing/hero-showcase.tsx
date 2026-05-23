@@ -50,7 +50,14 @@ const AUTO_ADVANCE_MS = 2000;
  */
 export function HeroShowcase({ className }: { className?: string }) {
   const [tab, setTab] = useState<ShowcaseTab>("briefing");
-  const [paused, setPaused] = useState(false);
+  // Split into two independent signals — hover and visibility — and derive
+  // pause from their OR. A single shared boolean lets each writer overwrite
+  // the other (e.g. an IntersectionObserver tick during hover, or a
+  // mouseleave fired while off-screen), so the auto-cycle either resumed
+  // for an invisible panel or stayed paused after the cursor left.
+  const [isHovered, setIsHovered] = useState(false);
+  const [isOffScreen, setIsOffScreen] = useState(false);
+  const paused = isHovered || isOffScreen;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-advance every AUTO_ADVANCE_MS, suspended when paused (hover) or
@@ -77,7 +84,7 @@ export function HeroShowcase({ className }: { className?: string }) {
     const el = containerRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(
-      ([entry]) => setPaused(!entry?.isIntersecting),
+      ([entry]) => setIsOffScreen(!entry?.isIntersecting),
       { threshold: 0.2 },
     );
     obs.observe(el);
@@ -88,8 +95,8 @@ export function HeroShowcase({ className }: { className?: string }) {
     <div
       ref={containerRef}
       className={cn("relative w-full", className)}
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <AuroraGlow />
 
