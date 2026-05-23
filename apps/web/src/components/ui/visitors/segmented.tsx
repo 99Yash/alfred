@@ -43,7 +43,7 @@ export function VsSegmented<T extends string = string>({
       <TabsPrimitive.List
         aria-label={label}
         className={cn(
-          "inline-flex items-center gap-1 p-1 rounded-full",
+          "inline-flex items-center gap-1 p-1 rounded-xl",
           "bg-vs-bg-2 ring-1 ring-vs-bg-3",
           className,
         )}
@@ -54,7 +54,7 @@ export function VsSegmented<T extends string = string>({
             value={item.value}
             disabled={item.disabled}
             className={cn(
-              "inline-flex items-center gap-1.5 h-7 px-3 rounded-full",
+              "inline-flex items-center gap-1.5 h-7 px-3 rounded-lg",
               "text-xs font-medium whitespace-nowrap",
               "transition-all duration-150",
               "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-bg-2",

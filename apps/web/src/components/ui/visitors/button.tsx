@@ -51,7 +51,10 @@ const SIZE: Record<VsButtonSize, string> = {
 const VARIANT: Record<VsButtonVariant, string> = {
   primary: cn(
     "text-[var(--vs-accent-fg)]",
-    "bg-[linear-gradient(180deg,var(--vs-accent-from)_0%,var(--vs-accent-to)_100%)]",
+    /* fill resolves through --vs-cta-bg which is theme-aware:
+     * light = saturated brand gradient, dark = dimension-style ink chip
+     * with a faint accent-tinted top. */
+    "bg-[image:var(--vs-cta-bg)]",
     /* shadow resolves through --vs-button-primary-shadow which is theme-aware:
      * light mode adds an accent-tinted bloom; dark mode drops it and uses
      * an inset top/bottom bevel + a tight black drop for the "embedded" feel. */
@@ -104,7 +107,7 @@ export function VsButton({
       data-loading={loading || undefined}
       className={cn(
         "relative inline-flex items-center justify-center isolate",
-        "rounded-full font-medium whitespace-nowrap select-none",
+        "rounded-xl font-medium whitespace-nowrap select-none",
         "transition-[filter,background-color,box-shadow,transform]",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         "vs-press",

@@ -149,7 +149,7 @@ export function VsThemeToggle({ className }: { className?: string }) {
       title={label}
       onClick={() => setMode(next)}
       className={cn(
-        "vs-press inline-flex items-center justify-center size-8 rounded-full",
+        "vs-press inline-flex items-center justify-center size-8 rounded-lg",
         "bg-vs-bg-1 text-vs-fg-3 hover:text-vs-fg-4",
         "shadow-[var(--vs-shadow-elevated)] hover:shadow-[var(--vs-shadow-elevated-hover)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",

@@ -231,6 +231,13 @@
   --vs-accent-ring: rgba(107, 98, 242, 0.45);
   --vs-accent-glow: rgba(107, 98, 242, 0.35);
 
+  /* Primary CTA background. Light mode = the saturated brand gradient
+   * (works on white — the bloom reads as "alive"). Dark mode overrides
+   * this to a dimension-inspired ink chip — accent-tinted top highlight
+   * delivered via the shadow stack, not via the fill, so dark mode reads
+   * as "polished onyx" rather than "loud purple on near-black". */
+  --vs-cta-bg: linear-gradient(180deg, var(--vs-accent-from) 0%, var(--vs-accent-to) 100%);
+
   /* Primary CTA shadow stack — theme-aware. Light mode lifts the button
    * with an accent-tinted bloom (works on white where the bloom reads as
    * "alive"). The dark-mode override below kills the bloom and leans on
@@ -345,26 +352,33 @@
       0 0 0 1px rgba(255, 255, 255, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
-    /* Accent — slightly brighter in dark for adequate luminance against near-black */
+    /* Accent — kept available for the focus ring, .switch checked-state,
+     * and any explicitly-purple surface. The dark CTA itself does NOT
+     * use this gradient (see --vs-cta-bg below). */
     --vs-accent-from: #7e75f5;
     --vs-accent-to: #5d44df;
     --vs-accent-fg: #ffffff;
     --vs-accent-ring: rgba(126, 117, 245, 0.55);
     --vs-accent-glow: rgba(126, 117, 245, 0.30);
 
-    /* Dark mode: no outer accent bloom (it reads as a leak on near-black).
-     * Replace with a stronger inset top highlight + an inset bottom
-     * darken (for that "embedded button" feel) + a tight black drop. */
+    /* Dimension's "Get Started" CTA recipe — polished obsidian. Pure dark
+     * gradient (no accent purple in the fill, which read muddy in V1), a
+     * strong inset-top white highlight for the milled edge, a hairline
+     * white inset that reads as a 1px border, and a layered drop for
+     * elevation. The accent identity comes back via the focus ring
+     * (--vs-purple-2), not the resting fill. */
+    --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+
     --vs-button-primary-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
-      0 1px 2px rgba(0, 0, 0, 0.45),
-      0 4px 10px rgba(0, 0, 0, 0.35);
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.6),
+      0 8px 22px rgba(0, 0, 0, 0.45);
     --vs-button-primary-shadow-hover:
-      inset 0 1px 0 rgba(255, 255, 255, 0.32),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
-      0 2px 4px rgba(0, 0, 0, 0.50),
-      0 6px 14px rgba(0, 0, 0, 0.40);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.7),
+      0 12px 28px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -453,16 +467,18 @@
   --vs-accent-ring: rgba(126, 117, 245, 0.55);
   --vs-accent-glow: rgba(126, 117, 245, 0.30);
 
+  --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+
   --vs-button-primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.45),
-    0 4px 10px rgba(0, 0, 0, 0.35);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 8px 22px rgba(0, 0, 0, 0.45);
   --vs-button-primary-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
-    0 2px 4px rgba(0, 0, 0, 0.50),
-    0 6px 14px rgba(0, 0, 0, 0.40);
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.7),
+    0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -1528,6 +1544,42 @@
   .vs textarea,
   .vs [contenteditable="true"] {
     cursor: text;
+  }
+
+  /* Make the native scrollbar (and form controls) follow the .vs theme.
+   * The default is `color-scheme: light`, which leaves scrollbars white-on-
+   * grey even on near-black surfaces. Explicit attribute overrides win;
+   * system mode falls through to `light dark` so the OS picks. */
+  .vs[data-vs-theme="dark"] {
+    color-scheme: dark;
+  }
+  .vs[data-vs-theme="light"] {
+    color-scheme: light;
+  }
+  .vs:not([data-vs-theme="dark"]):not([data-vs-theme="light"]) {
+    color-scheme: light dark;
+  }
+
+  /* `vs-scrollbar` — opt-in thin scrollbar that picks up the theme via
+   * the tokens. Use on any scroll container that should feel polished
+   * rather than relying on the browser default. */
+  .vs .vs-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--vs-bg-4) transparent;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--vs-bg-4);
+    border-radius: 9999px;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--vs-fg-1);
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-track {
+    background-color: transparent;
   }
 
   /* `vs-elevated` — the two-shadow stack that gives every interactive
