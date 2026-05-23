@@ -12,11 +12,17 @@
  */
 
 import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
-import { INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
+import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
 
 export interface ToolExecuteContext {
   runId: string;
+  /**
+   * Scratchpad namespace for this call. Boss calls use their own run id;
+   * sub-agent calls keep `runId` as the child audit row but write/read the
+   * parent run's scratchpad.
+   */
+  scratchpadRunId: string;
   /** Id of the executor step that originated the call (audit only). */
   stepId: string;
   /** Stable id from the model's tool call — used as the staging row's tool_call_id. */
@@ -76,7 +82,7 @@ export function liveTool<
   A extends ActionSlug<I> & string,
   S extends z.ZodTypeAny,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
-  const name = `${args.integration}.${args.action}` as ToolName;
+  const name = buildToolName(args.integration, args.action);
   return {
     name,
     integration: args.integration,

@@ -11,13 +11,14 @@
  *
  * Bullets exercised:
  *   1. Autonomy path: gmail.search-shape stub → row executed → result returned.
+ *      Unknown tool names return a recoverable tool result without staging.
  *   2. Gated path: gmail.send_draft-shape stub → row pending + HIL wake;
  *      approve via direct DB update + signalRun; re-dispatch same
  *      tool_call_id → row executed, no second tool execution.
  *   3. Retry suppression: reject a gated call; re-dispatch the same
  *      tool_name + input under a NEW tool_call_id → synthesized
  *      `rejected_by_user` result, no second row, no second notify path.
- *   4. cancelRun: idempotent transitions (pending → cancelled → no-op).
+ *   4. cancelRun: idempotent transitions + pending approval cleanup.
  */
 
 import {
@@ -194,6 +195,25 @@ async function main(): Promise<void> {
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
   assert(stubs.searchExecCount() === 1, `idempotent re-dispatch should not re-execute, got ${stubs.searchExecCount()}`);
   console.log("[smoke-dispatch] 1. autonomy: idempotent re-dispatch returns cached result ✓");
+
+  const unknownTool = await dispatchToolCall({
+    runId: runId1,
+    stepId: "turn-1",
+    toolCallId: "tc_unknown_tool",
+    toolName: "gmail.hallucinated_action",
+    input: { q: "in:inbox" },
+    userId,
+  });
+  assert(
+    unknownTool.kind === "unknown_tool",
+    `unknown tool expected 'unknown_tool', got '${unknownTool.kind}'`,
+  );
+  const unknownRows = await db()
+    .select()
+    .from(actionStagings)
+    .where(and(eq(actionStagings.runId, runId1), eq(actionStagings.toolCallId, "tc_unknown_tool")));
+  assert(unknownRows.length === 0, "unknown tool should not write a staging row");
+  console.log("[smoke-dispatch] 1. unknown tool: recoverable result, no row ✓");
 
   // ─── 2. Gated path ───────────────────────────────────────────────────
   await setIntegrationMode(userId, "gmail", "gated");
@@ -372,6 +392,34 @@ async function main(): Promise<void> {
 
   // ─── 4. cancelRun idempotency ────────────────────────────────────────
   const runId4 = await createSmokeRun(userId, "cancel-turn");
+  await db().insert(actionStagings).values([
+    {
+      userId,
+      runId: runId4,
+      stepId: "turn-1",
+      toolCallId: "tc_cancel_1",
+      toolName: "gmail.send_draft",
+      integration: "gmail",
+      riskTier: "high",
+      proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
+      proposedInputHash: "smoke-cancel-1",
+      requiresApproval: true,
+      status: "pending",
+    },
+    {
+      userId,
+      runId: runId4,
+      stepId: "turn-1",
+      toolCallId: "tc_cancel_2",
+      toolName: "gmail.send_draft",
+      integration: "gmail",
+      riskTier: "high",
+      proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
+      proposedInputHash: "smoke-cancel-2",
+      requiresApproval: true,
+      status: "pending",
+    },
+  ]);
   const first = await cancelRun({ runId: runId4, reason: "smoke" });
   assert(first === "cancelled", `cancelRun first call expected 'cancelled', got '${first}'`);
   const cancelledRow = (
@@ -382,6 +430,14 @@ async function main(): Promise<void> {
   assert(
     (cancelledRow.error as { reason: string } | null)?.reason === "smoke",
     "cancelled row should record the reason",
+  );
+  const cancelledStagings = await db()
+    .select()
+    .from(actionStagings)
+    .where(eq(actionStagings.runId, runId4));
+  assert(
+    cancelledStagings.every((row) => row.status === "rejected" && row.rejectReason === "smoke"),
+    "cancelRun should reject pending approval staging rows for the run",
   );
   const second = await cancelRun({ runId: runId4, reason: "smoke" });
   assert(second === "already_terminal", `cancelRun second call expected 'already_terminal', got '${second}'`);

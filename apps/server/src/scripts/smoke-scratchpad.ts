@@ -7,11 +7,11 @@
  *   1. writeScratch + readScratch round-trip on a real local Redis.
  *   2. promoteScratch copies a sub-agent value into the boss-owned
  *      `shared.*` zone.
- *   3. snapshotScratchToPostgres lands rows in `agent_run_context` and
+ *   3. dispatcher scratch tools enforce boss/sub-agent zones.
+ *   4. snapshotScratchToPostgres lands rows in `agent_run_context` and
  *      is idempotent on retry (second call upserts the same shape).
  *
- * The compile-time guards (`getTool('gmail.fake_action' as ToolName)` is
- * a TS error) are verified by `pnpm check-types`; the file
+ * The compile-time guards for invalid tool names are verified by `pnpm check-types`; the file
  * `smoke-tools-types.ts` ships an `@ts-expect-error` assertion that
  * fails compilation if `ToolName` ever stops narrowing properly.
  */
@@ -19,6 +19,7 @@
 import {
   closeConnections,
   closeRedis,
+  dispatchToolCall,
   promoteScratch,
   readScratch,
   registerBuiltinTools,
@@ -28,6 +29,7 @@ import {
 } from "@alfred/api";
 import { db } from "@alfred/db";
 import {
+  actionStagings,
   agentRunContext,
   agentRuns,
   user as userTable,
@@ -132,17 +134,146 @@ async function main(): Promise<void> {
   }
   console.log("[smoke-scratchpad] promote ok (scratch.subA.findings → shared.findings)");
 
-  // 3. Snapshot to Postgres + idempotency check.
+  // 3. Dispatcher-enforced scratchpad tools.
+  const bossWrite = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_boss_write_shared",
+    toolName: "system.write_scratch",
+    input: { key: "shared.dispatch", value: { ok: true } },
+    userId,
+    caller: "boss",
+  });
+  if (bossWrite.kind !== "executed") {
+    throw new Error(`[smoke-scratchpad] boss shared write expected executed, got ${bossWrite.kind}`);
+  }
+  const dispatchShared = await readScratch<{ ok: boolean }>({
+    runId,
+    zone: "shared",
+    path: "dispatch",
+  });
+  if (dispatchShared?.value.ok !== true || dispatchShared.writtenBy !== "boss") {
+    throw new Error("[smoke-scratchpad] boss shared write did not land");
+  }
+
+  const subWrite = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_sub_write_own",
+    toolName: "system.write_scratch",
+    input: { key: "scratch.subA.dispatch", value: "sub-owned" },
+    userId,
+    caller: { subId: "subA" },
+  });
+  if (subWrite.kind !== "executed") {
+    throw new Error(`[smoke-scratchpad] sub own write expected executed, got ${subWrite.kind}`);
+  }
+  const dispatchSub = await readScratch<string>({
+    runId,
+    zone: "scratch",
+    subId: "subA",
+    path: "dispatch",
+  });
+  if (dispatchSub?.value !== "sub-owned" || dispatchSub.writtenBy !== "subA") {
+    throw new Error("[smoke-scratchpad] sub-agent own scratch write did not land");
+  }
+
+  const subSharedWrite = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_sub_write_shared_blocked",
+    toolName: "system.write_scratch",
+    input: { key: "shared.blocked", value: "no" },
+    userId,
+    caller: { subId: "subA" },
+  });
+  if (subSharedWrite.kind !== "invalid_input") {
+    throw new Error(
+      `[smoke-scratchpad] sub shared write expected invalid_input, got ${subSharedWrite.kind}`,
+    );
+  }
+
+  const bossScratchWrite = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_boss_write_scratch_blocked",
+    toolName: "system.write_scratch",
+    input: { key: "scratch.subA.blocked", value: "no" },
+    userId,
+    caller: "boss",
+  });
+  if (bossScratchWrite.kind !== "invalid_input") {
+    throw new Error(
+      `[smoke-scratchpad] boss scratch write expected invalid_input, got ${bossScratchWrite.kind}`,
+    );
+  }
+
+  const subOtherRead = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_sub_read_other_blocked",
+    toolName: "system.read_scratch",
+    input: { key: "scratch.subB.findings" },
+    userId,
+    caller: { subId: "subA" },
+  });
+  if (subOtherRead.kind !== "invalid_input") {
+    throw new Error(
+      `[smoke-scratchpad] sub other read expected invalid_input, got ${subOtherRead.kind}`,
+    );
+  }
+
+  const promotedByDispatch = await dispatchToolCall({
+    runId,
+    stepId: "scratch-tools",
+    toolCallId: "tc_boss_promote",
+    toolName: "system.promote",
+    input: { fromKey: "scratch.subA.dispatch", toKey: "shared.dispatch_promoted" },
+    userId,
+    caller: "boss",
+  });
+  if (promotedByDispatch.kind !== "executed") {
+    throw new Error(
+      `[smoke-scratchpad] boss promote expected executed, got ${promotedByDispatch.kind}`,
+    );
+  }
+  const dispatchPromoted = await readScratch<string>({
+    runId,
+    zone: "shared",
+    path: "dispatch_promoted",
+  });
+  if (dispatchPromoted?.value !== "sub-owned") {
+    throw new Error("[smoke-scratchpad] dispatcher promote did not copy the sub-agent value");
+  }
+  const scratchToolRows = await db()
+    .select()
+    .from(actionStagings)
+    .where(and(eq(actionStagings.runId, runId), eq(actionStagings.stepId, "scratch-tools")));
+  if (scratchToolRows.length !== 0) {
+    throw new Error(
+      `[smoke-scratchpad] scratch tools should skip action_stagings, got ${scratchToolRows.length}`,
+    );
+  }
+  console.log("[smoke-scratchpad] dispatcher scratch tools + zone enforcement ok");
+
+  // 4. Snapshot to Postgres + idempotency check.
   const firstCount = await snapshotScratchToPostgres(runId);
-  if (firstCount !== 3) {
-    throw new Error(`[smoke-scratchpad] expected 3 snapshot rows, got ${firstCount}`);
+  if (firstCount !== 6) {
+    throw new Error(`[smoke-scratchpad] expected 6 snapshot rows, got ${firstCount}`);
   }
   const firstRows = await db()
     .select()
     .from(agentRunContext)
     .where(eq(agentRunContext.runId, runId));
   const firstKeys = new Set(firstRows.map((r) => r.key));
-  for (const expected of ["scratch.subA.findings", "shared.goal", "shared.findings"]) {
+  for (const expected of [
+    "scratch.subA.findings",
+    "scratch.subA.dispatch",
+    "shared.goal",
+    "shared.findings",
+    "shared.dispatch",
+    "shared.dispatch_promoted",
+  ]) {
     if (!firstKeys.has(expected)) {
       throw new Error(`[smoke-scratchpad] missing snapshot key: ${expected}`);
     }
@@ -184,6 +315,7 @@ async function main(): Promise<void> {
   await db()
     .delete(agentRunContext)
     .where(eq(agentRunContext.runId, runId));
+  await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
   await db()
     .delete(agentRuns)
     .where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));

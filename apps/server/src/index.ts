@@ -1,6 +1,7 @@
 import {
   app,
   closeAgentQueue,
+  closeApprovalNotificationQueue,
   closeBriefingQueue,
   closeConnections,
   closeEventBridge,
@@ -22,11 +23,13 @@ import {
   registerOnUserCreated,
   seedBuiltinWorkflowsForUser,
   startAgentWorker,
+  startApprovalNotificationWorker,
   startBriefingWorker,
   startIngestionWorker,
   startMemoryWorker,
   startWorkflowsWorker,
   stopAgentWorker,
+  stopApprovalNotificationWorker,
   stopBriefingWorker,
   stopIngestionWorker,
   stopMemoryWorker,
@@ -70,6 +73,7 @@ await startIngestionWorker();
 await startMemoryWorker();
 await startBriefingWorker();
 await startWorkflowsWorker();
+await startApprovalNotificationWorker();
 // Register the m7c repeatable jobs (poll-sweep, watch-renew, embed-sweep).
 // Idempotent: rerunning on every boot upserts the same scheduler ids.
 await scheduleRepeatableIngestionJobs();
@@ -107,6 +111,8 @@ async function shutdown(signal: string) {
     // shutdown drains the active step.
     await stopAgentWorker();
     await closeAgentQueue();
+    await stopApprovalNotificationWorker();
+    await closeApprovalNotificationQueue();
     await stopIngestionWorker();
     await closeIngestionQueue();
     await stopMemoryWorker();
