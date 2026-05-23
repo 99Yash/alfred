@@ -115,6 +115,370 @@
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 4px 12px oklch(0 0 0 / 0.4);
   --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.5), 0 12px 24px oklch(0 0 0 / 0.55);
+
+  /* -------------------------------------------------------------------------
+   * Visitors-now token scales (captured 2026-05-23 from visitors.now live
+   * recon — see archive/visitors-now/design-notes.md).
+   *
+   * Light-surface design system. Lives behind a `vs-` prefix so utilities
+   * (bg-vs-bg-2, text-vs-fg-4, ring-vs-purple-2) cannot collide with the
+   * existing dimension grammar. Wrap any route or subtree in `.vs` to
+   * enable the global behaviors (cursor:default, tracking:-0.02em,
+   * background:white, default text:fg-3). Untouched routes keep the
+   * dimension dark surface.
+   *
+   * 4-stop scale per hue: -1 = lightest tint, -2 = soft / borders / focus,
+   * -3 = icon / chart, -4 = saturated accent. Each hue also exposes -a1..a4
+   * alpha variants of the -4 stop.
+   * --------------------------------------------------------------------- */
+
+  /* Surfaces */
+  --vs-background: #ffffff;
+  --vs-background-subtle: #fafafa;
+  --vs-bg-1: #ffffff;
+  --vs-bg-2: #f5f5f5;
+  --vs-bg-3: #f0f0f0;
+  --vs-bg-4: #e8e8e8;
+  --vs-bg-a1: rgba(0, 0, 0, 0.03);
+  --vs-bg-a2: rgba(0, 0, 0, 0.05);
+  --vs-bg-a3: rgba(0, 0, 0, 0.08);
+  --vs-bg-a4: rgba(0, 0, 0, 0.12);
+
+  /* Foreground (text). `--vs-fg-4` (#181925) is the brand ink — never #000. */
+  --vs-fg-1: #b3b3b3;
+  --vs-fg-2: #999999;
+  --vs-fg-3: #666666;
+  --vs-fg-4: #181925;
+  --vs-fg-a1: rgba(0, 0, 0, 0.3);
+  --vs-fg-a2: rgba(0, 0, 0, 0.4);
+  --vs-fg-a3: rgba(0, 0, 0, 0.6);
+  --vs-fg-a4: rgba(24, 25, 37, 0.88);
+
+  /* Hue scale — 10 hues × 4 stops + 4 alpha variants of the -4 stop. */
+  --vs-gray-1: #f7f7f7;
+  --vs-gray-2: #e0e0e0;
+  --vs-gray-3: #cccccc;
+  --vs-gray-4: #b3b3b3;
+
+  --vs-blue-1: #f0fbff;
+  --vs-blue-2: #c2f1ff;
+  --vs-blue-3: #4cd5ff;
+  --vs-blue-4: #00c4ff;
+
+  --vs-red-1: #fff3f0;
+  --vs-red-2: #ffe2db;
+  --vs-red-3: #ffd5cc;
+  --vs-red-4: #ff2f00;
+
+  --vs-green-1: #effbf2;
+  --vs-green-2: #c2efcd;
+  --vs-green-3: #71da8b;
+  --vs-green-4: #33c758;
+
+  --vs-amber-1: #fff8eb;
+  --vs-amber-2: #ffeac2;
+  --vs-amber-3: #ffc65c;
+  --vs-amber-4: #ffa600;
+
+  --vs-purple-1: #f1f1fe;
+  --vs-purple-2: #dad9fc;
+  --vs-purple-3: #b5b3f9;
+  --vs-purple-4: #918df6;
+
+  --vs-sky-1: #ebf2ff;
+  --vs-sky-2: #bed5fe;
+  --vs-sky-3: #689ffd;
+  --vs-sky-4: #2c78fc;
+
+  --vs-yellow-1: #fffdeb;
+  --vs-yellow-2: #fff6b3;
+  --vs-yellow-3: #ffec5c;
+  --vs-yellow-4: #f5d90a;
+
+  --vs-pink-1: #fff0f9;
+  --vs-pink-2: #ffc2e9;
+  --vs-pink-3: #f075c3;
+  --vs-pink-4: #d6409f;
+
+  --vs-orange-1: #fff6f0;
+  --vs-orange-2: #ffdac2;
+  --vs-orange-3: #ffa366;
+  --vs-orange-4: #f76808;
+
+  /* Radius scale — visitors-now lives at the extremes (small + 16px + full). */
+  --vs-radius-1: 0.125rem;
+  --vs-radius-2: 0.25rem;
+  --vs-radius-3: 0.375rem;
+  --vs-radius-4: 0.5rem;
+  --vs-radius-5: 0.75rem;
+  --vs-radius-6: 1rem;
+
+  /* Shadow stack used everywhere — drop + hairline-as-border, all in one box-shadow */
+  --vs-shadow-elevated:
+    0 1px 1px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  --vs-shadow-elevated-hover:
+    0 1px 1px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.1);
+
+  /* Brand accent — the CTA color. Separate from the -hue scale because
+   * the -4 of any hue is tuned for icons/dots (mid-saturation), not for
+   * a button that has to dominate the page. Accent is a saturated brand
+   * purple between dimension's #5d44df and visitors.now's #918df6. */
+  --vs-accent-from: #6b62f2;
+  --vs-accent-to: #4f37cb;
+  --vs-accent-fg: #ffffff;
+  --vs-accent-ring: rgba(107, 98, 242, 0.45);
+  --vs-accent-glow: rgba(107, 98, 242, 0.35);
+
+  /* Primary CTA background. Light mode = the saturated brand gradient
+   * (works on white — the bloom reads as "alive"). Dark mode overrides
+   * this to a dimension-inspired ink chip — accent-tinted top highlight
+   * delivered via the shadow stack, not via the fill, so dark mode reads
+   * as "polished onyx" rather than "loud purple on near-black". */
+  --vs-cta-bg: linear-gradient(180deg, var(--vs-accent-from) 0%, var(--vs-accent-to) 100%);
+
+  /* Primary CTA shadow stack — theme-aware. Light mode lifts the button
+   * with an accent-tinted bloom (works on white where the bloom reads as
+   * "alive"). The dark-mode override below kills the bloom and leans on
+   * the inset highlight + a tight black drop instead — accent halos
+   * over near-black read as muddy/leaky. */
+  --vs-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 8px 24px var(--vs-accent-glow);
+  --vs-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 4px rgba(0, 0, 0, 0.22),
+    0 12px 32px var(--vs-accent-glow);
+}
+
+/* -----------------------------------------------------------------------------
+ * Visitors-now dark-mode tokens.
+ *
+ * Three resolution rules, in order:
+ *   1. `.vs[data-vs-theme="dark"]`  → forced dark (manual override)
+ *   2. `.vs[data-vs-theme="light"]` → forced light (manual override, uses :root)
+ *   3. `.vs` with no attribute      → tracks `prefers-color-scheme`
+ *
+ * Dark is the default mood for Alfred per design: dimension was 100% dark,
+ * visitors.now is 100% light, so the compromise is "respect system, default
+ * dark when the user has no preference." See archive/visitors-now/design-notes.md.
+ *
+ * Hue scale flips in dark mode: -1 becomes an alpha tint of the accent over
+ * near-black (so e.g. `bg-vs-purple-1` reads as a faintly-purple raised
+ * surface in dark mode the same way it reads as a faintly-purple tint in
+ * light mode). -3 / -4 brighten slightly for contrast on dark.
+ * -------------------------------------------------------------------------- */
+/* System-preference fallback — applies only when no explicit data-vs-theme
+ * is set on the .vs element. The explicit override block (.vs[data-vs-theme="dark"])
+ * below this rule always wins. */
+@media (prefers-color-scheme: dark) {
+  .vs:not([data-vs-theme="light"]) {
+    --vs-background: #0a0a0a;
+    --vs-background-subtle: #060606;
+    --vs-bg-1: #0a0a0a;
+    --vs-bg-2: #141414;
+    --vs-bg-3: #1c1c1c;
+    --vs-bg-4: #242424;
+    --vs-bg-a1: rgba(255, 255, 255, 0.04);
+    --vs-bg-a2: rgba(255, 255, 255, 0.06);
+    --vs-bg-a3: rgba(255, 255, 255, 0.09);
+    --vs-bg-a4: rgba(255, 255, 255, 0.14);
+
+    --vs-fg-1: #5a5a5a;
+    --vs-fg-2: #888888;
+    --vs-fg-3: #b5b5b5;
+    --vs-fg-4: #ededed;
+    --vs-fg-a1: rgba(255, 255, 255, 0.3);
+    --vs-fg-a2: rgba(255, 255, 255, 0.5);
+    --vs-fg-a3: rgba(255, 255, 255, 0.7);
+    --vs-fg-a4: rgba(237, 237, 237, 0.92);
+
+    --vs-gray-1: #181818;
+    --vs-gray-2: #303030;
+    --vs-gray-3: #505050;
+    --vs-gray-4: #808080;
+
+    --vs-blue-1: rgba(76, 213, 255, 0.08);
+    --vs-blue-2: rgba(76, 213, 255, 0.16);
+    --vs-blue-3: #4cd5ff;
+    --vs-blue-4: #7ee0ff;
+
+    --vs-red-1: rgba(255, 99, 71, 0.08);
+    --vs-red-2: rgba(255, 99, 71, 0.16);
+    --vs-red-3: #ff6347;
+    --vs-red-4: #ff8470;
+
+    --vs-green-1: rgba(113, 218, 139, 0.08);
+    --vs-green-2: rgba(113, 218, 139, 0.16);
+    --vs-green-3: #71da8b;
+    --vs-green-4: #9ce6ad;
+
+    --vs-amber-1: rgba(255, 198, 92, 0.08);
+    --vs-amber-2: rgba(255, 198, 92, 0.16);
+    --vs-amber-3: #ffc65c;
+    --vs-amber-4: #ffd58a;
+
+    --vs-purple-1: rgba(181, 179, 249, 0.08);
+    --vs-purple-2: rgba(181, 179, 249, 0.18);
+    --vs-purple-3: #b5b3f9;
+    --vs-purple-4: #cbcafb;
+
+    --vs-sky-1: rgba(104, 159, 253, 0.08);
+    --vs-sky-2: rgba(104, 159, 253, 0.18);
+    --vs-sky-3: #689ffd;
+    --vs-sky-4: #92baff;
+
+    --vs-yellow-1: rgba(255, 236, 92, 0.08);
+    --vs-yellow-2: rgba(255, 236, 92, 0.16);
+    --vs-yellow-3: #ffec5c;
+    --vs-yellow-4: #fff394;
+
+    --vs-pink-1: rgba(240, 117, 195, 0.08);
+    --vs-pink-2: rgba(240, 117, 195, 0.16);
+    --vs-pink-3: #f075c3;
+    --vs-pink-4: #f8a7d6;
+
+    --vs-orange-1: rgba(255, 163, 102, 0.08);
+    --vs-orange-2: rgba(255, 163, 102, 0.16);
+    --vs-orange-3: #ffa366;
+    --vs-orange-4: #ffc191;
+
+    --vs-shadow-elevated:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --vs-shadow-elevated-hover:
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    /* Accent — kept available for the focus ring, .switch checked-state,
+     * and any explicitly-purple surface. The dark CTA itself does NOT
+     * use this gradient (see --vs-cta-bg below). */
+    --vs-accent-from: #7e75f5;
+    --vs-accent-to: #5d44df;
+    --vs-accent-fg: #ffffff;
+    --vs-accent-ring: rgba(126, 117, 245, 0.55);
+    --vs-accent-glow: rgba(126, 117, 245, 0.30);
+
+    /* Dimension's "Get Started" CTA recipe — polished obsidian. Pure dark
+     * gradient (no accent purple in the fill, which read muddy in V1), a
+     * strong inset-top white highlight for the milled edge, a hairline
+     * white inset that reads as a 1px border, and a layered drop for
+     * elevation. The accent identity comes back via the focus ring
+     * (--vs-purple-2), not the resting fill. */
+    --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+
+    --vs-button-primary-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.6),
+      0 8px 22px rgba(0, 0, 0, 0.45);
+    --vs-button-primary-shadow-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.7),
+      0 12px 28px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Explicit override — always wins, works without system preference. */
+.vs[data-vs-theme="dark"] {
+  --vs-background: #0a0a0a;
+  --vs-background-subtle: #060606;
+  --vs-bg-1: #0a0a0a;
+  --vs-bg-2: #141414;
+  --vs-bg-3: #1c1c1c;
+  --vs-bg-4: #242424;
+  --vs-bg-a1: rgba(255, 255, 255, 0.04);
+  --vs-bg-a2: rgba(255, 255, 255, 0.06);
+  --vs-bg-a3: rgba(255, 255, 255, 0.09);
+  --vs-bg-a4: rgba(255, 255, 255, 0.14);
+
+  --vs-fg-1: #5a5a5a;
+  --vs-fg-2: #888888;
+  --vs-fg-3: #b5b5b5;
+  --vs-fg-4: #ededed;
+  --vs-fg-a1: rgba(255, 255, 255, 0.3);
+  --vs-fg-a2: rgba(255, 255, 255, 0.5);
+  --vs-fg-a3: rgba(255, 255, 255, 0.7);
+  --vs-fg-a4: rgba(237, 237, 237, 0.92);
+
+  --vs-gray-1: #181818;
+  --vs-gray-2: #303030;
+  --vs-gray-3: #505050;
+  --vs-gray-4: #808080;
+
+  --vs-blue-1: rgba(76, 213, 255, 0.08);
+  --vs-blue-2: rgba(76, 213, 255, 0.16);
+  --vs-blue-3: #4cd5ff;
+  --vs-blue-4: #7ee0ff;
+
+  --vs-red-1: rgba(255, 99, 71, 0.08);
+  --vs-red-2: rgba(255, 99, 71, 0.16);
+  --vs-red-3: #ff6347;
+  --vs-red-4: #ff8470;
+
+  --vs-green-1: rgba(113, 218, 139, 0.08);
+  --vs-green-2: rgba(113, 218, 139, 0.16);
+  --vs-green-3: #71da8b;
+  --vs-green-4: #9ce6ad;
+
+  --vs-amber-1: rgba(255, 198, 92, 0.08);
+  --vs-amber-2: rgba(255, 198, 92, 0.16);
+  --vs-amber-3: #ffc65c;
+  --vs-amber-4: #ffd58a;
+
+  --vs-purple-1: rgba(181, 179, 249, 0.08);
+  --vs-purple-2: rgba(181, 179, 249, 0.18);
+  --vs-purple-3: #b5b3f9;
+  --vs-purple-4: #cbcafb;
+
+  --vs-sky-1: rgba(104, 159, 253, 0.08);
+  --vs-sky-2: rgba(104, 159, 253, 0.18);
+  --vs-sky-3: #689ffd;
+  --vs-sky-4: #92baff;
+
+  --vs-yellow-1: rgba(255, 236, 92, 0.08);
+  --vs-yellow-2: rgba(255, 236, 92, 0.16);
+  --vs-yellow-3: #ffec5c;
+  --vs-yellow-4: #fff394;
+
+  --vs-pink-1: rgba(240, 117, 195, 0.08);
+  --vs-pink-2: rgba(240, 117, 195, 0.16);
+  --vs-pink-3: #f075c3;
+  --vs-pink-4: #f8a7d6;
+
+  --vs-orange-1: rgba(255, 163, 102, 0.08);
+  --vs-orange-2: rgba(255, 163, 102, 0.16);
+  --vs-orange-3: #ffa366;
+  --vs-orange-4: #ffc191;
+
+  --vs-shadow-elevated:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --vs-shadow-elevated-hover:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --vs-accent-from: #7e75f5;
+  --vs-accent-to: #5d44df;
+  --vs-accent-fg: #ffffff;
+  --vs-accent-ring: rgba(126, 117, 245, 0.55);
+  --vs-accent-glow: rgba(126, 117, 245, 0.30);
+
+  --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+
+  --vs-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 8px 22px rgba(0, 0, 0, 0.45);
+  --vs-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.7),
+    0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -182,6 +546,89 @@
 
   --shadow-soft: var(--shadow-soft);
   --shadow-pop: var(--shadow-pop);
+
+  /* Visitors-now palette — emits utilities like bg-vs-bg-2, text-vs-fg-4,
+   * ring-vs-purple-2, border-vs-gray-2. Kept on a separate namespace so
+   * Dimension grammar (bg-gray-50, text-gray-950, ring-purple-500) is
+   * untouched. */
+  --color-vs-background: var(--vs-background);
+  --color-vs-background-subtle: var(--vs-background-subtle);
+
+  --color-vs-bg-1: var(--vs-bg-1);
+  --color-vs-bg-2: var(--vs-bg-2);
+  --color-vs-bg-3: var(--vs-bg-3);
+  --color-vs-bg-4: var(--vs-bg-4);
+  --color-vs-bg-a1: var(--vs-bg-a1);
+  --color-vs-bg-a2: var(--vs-bg-a2);
+  --color-vs-bg-a3: var(--vs-bg-a3);
+  --color-vs-bg-a4: var(--vs-bg-a4);
+
+  --color-vs-fg-1: var(--vs-fg-1);
+  --color-vs-fg-2: var(--vs-fg-2);
+  --color-vs-fg-3: var(--vs-fg-3);
+  --color-vs-fg-4: var(--vs-fg-4);
+  --color-vs-fg-a1: var(--vs-fg-a1);
+  --color-vs-fg-a2: var(--vs-fg-a2);
+  --color-vs-fg-a3: var(--vs-fg-a3);
+  --color-vs-fg-a4: var(--vs-fg-a4);
+
+  --color-vs-gray-1: var(--vs-gray-1);
+  --color-vs-gray-2: var(--vs-gray-2);
+  --color-vs-gray-3: var(--vs-gray-3);
+  --color-vs-gray-4: var(--vs-gray-4);
+
+  --color-vs-blue-1: var(--vs-blue-1);
+  --color-vs-blue-2: var(--vs-blue-2);
+  --color-vs-blue-3: var(--vs-blue-3);
+  --color-vs-blue-4: var(--vs-blue-4);
+
+  --color-vs-red-1: var(--vs-red-1);
+  --color-vs-red-2: var(--vs-red-2);
+  --color-vs-red-3: var(--vs-red-3);
+  --color-vs-red-4: var(--vs-red-4);
+
+  --color-vs-green-1: var(--vs-green-1);
+  --color-vs-green-2: var(--vs-green-2);
+  --color-vs-green-3: var(--vs-green-3);
+  --color-vs-green-4: var(--vs-green-4);
+
+  --color-vs-amber-1: var(--vs-amber-1);
+  --color-vs-amber-2: var(--vs-amber-2);
+  --color-vs-amber-3: var(--vs-amber-3);
+  --color-vs-amber-4: var(--vs-amber-4);
+
+  --color-vs-purple-1: var(--vs-purple-1);
+  --color-vs-purple-2: var(--vs-purple-2);
+  --color-vs-purple-3: var(--vs-purple-3);
+  --color-vs-purple-4: var(--vs-purple-4);
+
+  --color-vs-sky-1: var(--vs-sky-1);
+  --color-vs-sky-2: var(--vs-sky-2);
+  --color-vs-sky-3: var(--vs-sky-3);
+  --color-vs-sky-4: var(--vs-sky-4);
+
+  --color-vs-yellow-1: var(--vs-yellow-1);
+  --color-vs-yellow-2: var(--vs-yellow-2);
+  --color-vs-yellow-3: var(--vs-yellow-3);
+  --color-vs-yellow-4: var(--vs-yellow-4);
+
+  --color-vs-pink-1: var(--vs-pink-1);
+  --color-vs-pink-2: var(--vs-pink-2);
+  --color-vs-pink-3: var(--vs-pink-3);
+  --color-vs-pink-4: var(--vs-pink-4);
+
+  --color-vs-orange-1: var(--vs-orange-1);
+  --color-vs-orange-2: var(--vs-orange-2);
+  --color-vs-orange-3: var(--vs-orange-3);
+  --color-vs-orange-4: var(--vs-orange-4);
+
+  /* Radius utilities — rounded-vs-1 .. rounded-vs-6 */
+  --radius-vs-1: var(--vs-radius-1);
+  --radius-vs-2: var(--vs-radius-2);
+  --radius-vs-3: var(--vs-radius-3);
+  --radius-vs-4: var(--vs-radius-4);
+  --radius-vs-5: var(--vs-radius-5);
+  --radius-vs-6: var(--vs-radius-6);
 }
 
 @layer base {
@@ -1064,6 +1511,183 @@
    * directional gradient + light spec at top-right that mirrors dimension's
    * hero showcase. Layered radials sit on top of an indigo base so the panel
    * reads as a single piece of frosted glass on the sky. */
+  /* ---------------------------------------------------------------------------
+   * Visitors-now grammar (added 2026-05-23)
+   * See archive/visitors-now/design-notes.md.
+   *
+   * Wrap any route, page, or subtree in `.vs` to opt in: flips the
+   * background to white, the default text to `--vs-fg-3`, sets the
+   * Linear-style `cursor: default`, and applies the global -0.02em
+   * tracking that the visitors.now site uses on `<body>`.
+   *
+   * Existing dimension-grammar routes are untouched; they live outside
+   * any `.vs` ancestor.
+   * -------------------------------------------------------------------------*/
+  .vs {
+    background-color: var(--vs-background);
+    color: var(--vs-fg-3);
+    letter-spacing: -0.02em;
+    cursor: default;
+  }
+  .vs h1,
+  .vs h2,
+  .vs h3,
+  .vs h4 {
+    color: var(--vs-fg-4);
+  }
+  .vs a,
+  .vs button,
+  .vs [role="button"] {
+    cursor: pointer;
+  }
+  .vs input,
+  .vs textarea,
+  .vs [contenteditable="true"] {
+    cursor: text;
+  }
+
+  /* Make the native scrollbar (and form controls) follow the .vs theme.
+   * The default is `color-scheme: light`, which leaves scrollbars white-on-
+   * grey even on near-black surfaces. Explicit attribute overrides win;
+   * system mode falls through to `light dark` so the OS picks. */
+  .vs[data-vs-theme="dark"] {
+    color-scheme: dark;
+  }
+  .vs[data-vs-theme="light"] {
+    color-scheme: light;
+  }
+  .vs:not([data-vs-theme="dark"]):not([data-vs-theme="light"]) {
+    color-scheme: light dark;
+  }
+
+  /* `vs-scrollbar` — opt-in thin scrollbar that picks up the theme via
+   * the tokens. Use on any scroll container that should feel polished
+   * rather than relying on the browser default. */
+  .vs .vs-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--vs-bg-4) transparent;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--vs-bg-4);
+    border-radius: 9999px;
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--vs-fg-1);
+  }
+  .vs .vs-scrollbar::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+
+  /* `vs-elevated` — the two-shadow stack that gives every interactive
+   * surface (button, input, pill, card) its hairline + 1px drop in one
+   * declaration. Hover bumps both opacities slightly. */
+  .vs-elevated {
+    box-shadow: var(--vs-shadow-elevated);
+    transition: box-shadow 150ms ease-out;
+  }
+  .vs-elevated:hover {
+    box-shadow: var(--vs-shadow-elevated-hover);
+  }
+
+  /* `vs-frost-header` — masked backdrop-blur that fades to no-blur at the
+   * very top. Page background shows through the top edge, blur kicks in
+   * over content lower down. Use on any sticky header. */
+  .vs-frost-header {
+    position: relative;
+  }
+  .vs-frost-header::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -1rem 0;
+    background-color: color-mix(in srgb, var(--vs-background) 80%, transparent);
+    backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-mask: linear-gradient(to top, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 50%);
+    mask: linear-gradient(to top, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 50%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Active-press microinteraction used across primitives. Subtle — 1%,
+   * not 5% — just enough to feel responsive. */
+  .vs-press:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+
+  /* Card entrance — fade + 6px rise + slight blur. Use with inline
+   * style="animation-delay: <n>ms" on each card for a stagger effect. */
+  @keyframes vs-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+  .vs-card-in {
+    animation: vs-card-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Overlay entrance — plain fade. Used by modal scrims and popover
+   * frames that mount instantly when an open state flips true. */
+  @keyframes vs-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .vs-fade-in {
+    animation: vs-fade-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Hover-lift — 2px rise + shadow bump. The transform is on a
+   * `transition-transform` so it interpolates smoothly. Use on cards
+   * that benefit from a "comes towards you" hover affordance. */
+  .vs-hover-lift {
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .vs-hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* Hero-stack child reveal — when a parent gets `:hover`, immediate
+   * stack siblings fan out a touch and rotate microscopically. Used by
+   * the workflow card hero previews. */
+  .vs-stack {
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .vs-hover-lift:hover .vs-stack-back {
+    transform: translate(-6px, -2px) rotate(-2deg);
+  }
+  .vs-hover-lift:hover .vs-stack-mid {
+    transform: translateY(-1px);
+  }
+  .vs-hover-lift:hover .vs-stack-front {
+    transform: translate(6px, -2px) rotate(2deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vs-card-in,
+    .vs-fade-in,
+    .vs-hover-lift,
+    .vs-stack {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
+  }
+
   .morning-briefing-surface {
     background:
       radial-gradient(

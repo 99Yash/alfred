@@ -1,0 +1,14 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
+
+/**
+ * Visitors-now-grammar port of /notes.
+ *
+ * Composer at the top + reverse-chronological list. Replicache wiring is
+ * intentionally stubbed — notes live in component state so the page can
+ * be reviewed in isolation. The Save button + Enter-to-save both push
+ * into the local list.
+ */
+export const Route = createFileRoute("/preview/notes")({
+  component: PreviewNotesPage,
+});
