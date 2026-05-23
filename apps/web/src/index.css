@@ -230,6 +230,20 @@
   --vs-accent-fg: #ffffff;
   --vs-accent-ring: rgba(107, 98, 242, 0.45);
   --vs-accent-glow: rgba(107, 98, 242, 0.35);
+
+  /* Primary CTA shadow stack — theme-aware. Light mode lifts the button
+   * with an accent-tinted bloom (works on white where the bloom reads as
+   * "alive"). The dark-mode override below kills the bloom and leans on
+   * the inset highlight + a tight black drop instead — accent halos
+   * over near-black read as muddy/leaky. */
+  --vs-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 8px 24px var(--vs-accent-glow);
+  --vs-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 4px rgba(0, 0, 0, 0.22),
+    0 12px 32px var(--vs-accent-glow);
 }
 
 /* -----------------------------------------------------------------------------
@@ -336,7 +350,21 @@
     --vs-accent-to: #5d44df;
     --vs-accent-fg: #ffffff;
     --vs-accent-ring: rgba(126, 117, 245, 0.55);
-    --vs-accent-glow: rgba(126, 117, 245, 0.45);
+    --vs-accent-glow: rgba(126, 117, 245, 0.30);
+
+    /* Dark mode: no outer accent bloom (it reads as a leak on near-black).
+     * Replace with a stronger inset top highlight + an inset bottom
+     * darken (for that "embedded button" feel) + a tight black drop. */
+    --vs-button-primary-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.45),
+      0 4px 10px rgba(0, 0, 0, 0.35);
+    --vs-button-primary-shadow-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+      0 2px 4px rgba(0, 0, 0, 0.50),
+      0 6px 14px rgba(0, 0, 0, 0.40);
   }
 }
 
@@ -423,7 +451,18 @@
   --vs-accent-to: #5d44df;
   --vs-accent-fg: #ffffff;
   --vs-accent-ring: rgba(126, 117, 245, 0.55);
-  --vs-accent-glow: rgba(126, 117, 245, 0.45);
+  --vs-accent-glow: rgba(126, 117, 245, 0.30);
+
+  --vs-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 4px 10px rgba(0, 0, 0, 0.35);
+  --vs-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 2px 4px rgba(0, 0, 0, 0.50),
+    0 6px 14px rgba(0, 0, 0, 0.40);
 }
 
 @theme inline {

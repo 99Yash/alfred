@@ -52,13 +52,15 @@ const VARIANT: Record<VsButtonVariant, string> = {
   primary: cn(
     "text-[var(--vs-accent-fg)]",
     "bg-[linear-gradient(180deg,var(--vs-accent-from)_0%,var(--vs-accent-to)_100%)]",
-    "shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_var(--vs-accent-glow)]",
+    /* shadow resolves through --vs-button-primary-shadow which is theme-aware:
+     * light mode adds an accent-tinted bloom; dark mode drops it and uses
+     * an inset top/bottom bevel + a tight black drop for the "embedded" feel. */
+    "shadow-[var(--vs-button-primary-shadow)]",
     "hover:brightness-[1.06]",
-    "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_var(--vs-accent-glow)]",
+    "hover:shadow-[var(--vs-button-primary-shadow-hover)]",
     "active:brightness-[0.96]",
-    "disabled:cursor-not-allowed",
-    "disabled:hover:brightness-100 disabled:hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_var(--vs-accent-glow)]",
-    "disabled:opacity-[0.85]",
+    "disabled:cursor-not-allowed disabled:opacity-[0.85]",
+    "disabled:hover:brightness-100 disabled:hover:shadow-[var(--vs-button-primary-shadow)]",
   ),
   white: cn(
     "bg-vs-fg-4 text-vs-bg-1",
