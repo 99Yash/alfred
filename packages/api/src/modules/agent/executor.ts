@@ -3,8 +3,7 @@ import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { requireWorkflow } from "./registry";
-import { STALE_RUN_LEASE_MS } from "./service";
+import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
 import {
   isTerminalStatus,
   type RunStatus,
@@ -65,7 +64,12 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   let workflow: Workflow<unknown>;
   let step: Step<unknown>;
   try {
-    workflow = requireWorkflow(run.workflowSlug);
+    workflow = (
+      await resolveWorkflowForRun({
+        userId: run.userId,
+        workflowSlug: run.workflowSlug,
+      })
+    ).workflow;
     step = requireStep(workflow, stepId);
   } catch (err) {
     const error = errorMessage(err);

@@ -171,7 +171,7 @@ Add `cancelRun(runId, { reason })` beside `createRun` / `signalRun` in `packages
 
 Goal: replace the current registry-miss behavior for user-authored workflows with a real `AlfredAgent` loop driving the dispatcher. **Detailed design locked in [ADR-0040](../decisions.md); this section captures the implementation slice.**
 
-> Note: the "m12 stub" was scoped out before m12 shipped — `createRun` today calls `requireWorkflow` and throws on miss. Phase 4 doesn't delete a stub branch; it teaches `requireWorkflow` to fall back to the sentinel workflow described below, and adds an existence check in `createRun` so typos / deleted builtins still fail loud.
+> Note: the "m12 stub" was scoped out before m12 shipped — pre-m13 `createRun` called `requireWorkflow` and threw on miss. Phase 4 doesn't delete a stub branch; it adds a checked resolver for run creation/execution that falls back to the sentinel workflow only after validating the user-authored workflow row exists and `is_builtin=false`.
 
 ### 4a. Schema + contracts
 
@@ -183,8 +183,8 @@ Goal: replace the current registry-miss behavior for user-authored workflows wit
 
 ### 4b. Sentinel workflow + executor steps
 
-- **`userAuthoredBriefWorkflow`** at `packages/api/src/modules/agent/workflows/user-authored-brief.ts`. Slug `__user-authored-brief__`, never registered into the in-memory registry; `requireWorkflow(slug)` returns it on miss. `initialState({ brief, metadata })` parses `@`-mentions, sets `state.activeIntegrations`, `state.allowedIntegrations`, `state.pendingToolCalls`, `state.inFlightTailStart`, and `state.turnCount`; `initialTranscript({ brief })` seeds `agent_runs.transcript = [{ role: 'user', content: brief }]`.
-- **`createRun` existence check + slug preservation** — when the registry misses and falls through to the sentinel, validate `workflows (userId, slug)` exists AND `is_builtin=false` before serving the run. Typos and deleted builtins throw. Insert `agent_runs.workflow_slug = args.workflowSlug`, not `workflow.slug`, so the row still joins to the user-authored workflow instead of `__user-authored-brief__`.
+- **`userAuthoredBriefWorkflow`** at `packages/api/src/modules/agent/workflows/user-authored-brief.ts`. Slug `__user-authored-brief__`, never registered into the in-memory registry; the DB-backed resolver returns it on registry miss only for verified user-authored rows. `initialState({ brief, metadata })` parses `@`-mentions, sets `state.activeIntegrations`, `state.allowedIntegrations`, `state.pendingToolCalls`, `state.inFlightTailStart`, and `state.turnCount`; `initialTranscript({ brief })` seeds `agent_runs.transcript = [{ role: 'user', content: brief }]`.
+- **`createRun` / executor existence check + slug preservation** — when the registry misses and falls through to the sentinel, validate `workflows (userId, slug)` exists AND `is_builtin=false` before serving the run. Typos and deleted builtins throw. Insert `agent_runs.workflow_slug = args.workflowSlug`, not `workflow.slug`, so the row still joins to the user-authored workflow instead of `__user-authored-brief__`.
 - **Two named steps:**
   - `boss-turn` instantiates `AlfredAgent` (system = preamble, tools = `resolveSdkTools(state.activeIntegrations)`, model = `getBossModel()`), runs one `turn()` with the leased transcript, sets `state.inFlightTailStart` to the pre-append transcript length, increments `state.turnCount`, and returns `next: 'dispatch-tools'` / `done` / `stopped`-mapped plus the transcript with assistant messages appended.
   - `dispatch-tools` consumes `state.pendingToolCalls` from the front, calls `dispatchToolCall` for each, appends tool-result messages to the transcript column, applies system-tool effects (`system.load_integration` → `state.activeIntegrations` append). After each non-staged result, remove that call from `pendingToolCalls`; the first `kind: 'staged'` short-circuits with `interrupt`, preserving the transcript produced so far and leaving the staged/current call plus remaining calls for resume.
@@ -208,7 +208,7 @@ Preamble lives beside the sentinel workflow in `packages/api/src/modules/agent/w
 
 - A user-authored brief-only workflow with `@gmail` in the brief executes end-to-end against a real Gmail account, producing one or more `agent_runs` rows that reach `status='completed'`.
 - `system.load_integration('calendar')` mid-run adds `calendar.*` tools to the next turn's tool list.
-- `requireWorkflow` falls back to the sentinel; `createRun` existence-checks user-authored slugs; deleted-builtin slugs throw loud.
+- Registry misses fall back to the sentinel only through the checked run resolver; `requireWorkflow` remains strict for registered-code lookup; deleted-builtin slugs throw loud.
 
 ---
 
