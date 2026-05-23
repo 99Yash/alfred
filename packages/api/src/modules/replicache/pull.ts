@@ -1,17 +1,9 @@
 import { db } from "@alfred/db";
-import {
-  notes,
-  replicacheClient,
-  replicacheClientGroup,
-  skillRevisions,
-  skillRuns,
-  skills,
-  userFacts,
-  userPreferences,
-} from "@alfred/db/schemas";
-import { IDB_KEY, IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
+import { IDB_KEY, type IDBKeys } from "@alfred/sync";
+import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
+import { SYNC_ENTITIES } from "./entities";
 import type { ReplicacheModel } from "./model";
 
 export type PatchOp =
@@ -25,209 +17,6 @@ export interface PullResponse {
   cookie: ReplicacheModel.PullCookie;
   lastMutationIDChanges: Record<string, number>;
   patch: PatchOp[];
-}
-
-/**
- * One row's contribution to the patch: its row_version (drives CVR diff)
- * and its serialized form (the value Replicache writes to the client store).
- */
-interface EntityRow {
-  id: string;
-  rowVersion: number;
-  serialized: Record<string, unknown>;
-}
-
-/**
- * Per-entity fetcher. Each entry maps an `IDBKeys` slug to:
- *  - the SQL query that returns the user's currently-synced rows for that entity
- *  - the row → `EntityRow` projection
- *
- * The pull dispatcher iterates this table to produce patches generically;
- * adding a new entity is one entry here + one entry in `IDB_KEY`.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DbTx = any;
-
-const ENTITY_FETCHERS: Record<IDBKeys, (tx: DbTx, userId: string) => Promise<EntityRow[]>> = {
-  NOTE: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(notes)
-      .where(eq(notes.userId, userId))
-      .orderBy(asc(notes.id));
-    return rows.map((n: typeof notes.$inferSelect) => ({
-      id: n.id,
-      rowVersion: n.rowVersion,
-      serialized: serializeNote(n),
-    }));
-  },
-
-  // Only `proposed` + `confirmed` reach the client — rejected / edited /
-  // superseded rows stay server-side as audit history. A status transition
-  // out of this window naturally looks like a delete to the client (the
-  // card disappears), which matches the correction-loop UX.
-  FACT: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(userFacts)
-      .where(
-        and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
-      )
-      .orderBy(asc(userFacts.id));
-    return rows.map((f: typeof userFacts.$inferSelect) => ({
-      id: f.id,
-      rowVersion: f.rowVersion,
-      serialized: serializeFact(f),
-    }));
-  },
-
-  // Preferences are keyed by `(user_id, key)`; the IDB id is the pref
-  // key (not the row id) so the optimistic upsert on the client can
-  // address the row without a lookup. Same shape on both sides.
-  PREFERENCE: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .orderBy(asc(userPreferences.key));
-    return rows.map((p: typeof userPreferences.$inferSelect) => ({
-      id: p.key,
-      rowVersion: p.rowVersion,
-      serialized: serializePreference(p),
-    }));
-  },
-
-  SKILL: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(skills)
-      .where(eq(skills.userId, userId))
-      .orderBy(asc(skills.id));
-    return rows.map((s: typeof skills.$inferSelect) => ({
-      id: s.id,
-      rowVersion: s.rowVersion,
-      serialized: serializeSkill(s),
-    }));
-  },
-
-  SKILL_REVISION: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(skillRevisions)
-      .where(eq(skillRevisions.userId, userId))
-      .orderBy(asc(skillRevisions.id));
-    return rows.map((r: typeof skillRevisions.$inferSelect) => ({
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialized: serializeSkillRevision(r),
-    }));
-  },
-
-  SKILL_RUN: async (tx, userId) => {
-    const rows = await tx
-      .select()
-      .from(skillRuns)
-      .where(eq(skillRuns.userId, userId))
-      .orderBy(asc(skillRuns.id));
-    return rows.map((r: typeof skillRuns.$inferSelect) => ({
-      id: r.id,
-      rowVersion: r.rowVersion,
-      serialized: serializeSkillRun(r),
-    }));
-  },
-};
-
-const toIso = (d: Date | null | undefined): string | null =>
-  d instanceof Date ? d.toISOString() : (d ?? null);
-
-function serializeNote(n: {
-  id: string;
-  userId: string;
-  text: string;
-  rowVersion: number;
-  createdAt: Date;
-}): Record<string, unknown> {
-  return {
-    id: n.id,
-    userId: n.userId,
-    text: n.text,
-    createdAt: toIso(n.createdAt),
-    rowVersion: n.rowVersion,
-  };
-}
-
-function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown> {
-  return {
-    id: f.id,
-    userId: f.userId,
-    key: f.key,
-    value: f.value,
-    confidence: f.confidence,
-    status: f.status,
-    source: f.source,
-    validFrom: toIso(f.validFrom),
-    validUntil: toIso(f.validUntil),
-    supersedesId: f.supersedesId,
-    rowVersion: f.rowVersion,
-    createdAt: toIso(f.createdAt),
-    updatedAt: toIso(f.updatedAt),
-  };
-}
-
-function serializePreference(p: typeof userPreferences.$inferSelect): Record<string, unknown> {
-  return {
-    key: p.key,
-    userId: p.userId,
-    value: p.value,
-    source: p.source,
-    rowVersion: p.rowVersion,
-  };
-}
-
-function serializeSkill(s: typeof skills.$inferSelect): Record<string, unknown> {
-  return {
-    id: s.id,
-    userId: s.userId,
-    slug: s.slug,
-    name: s.name,
-    description: s.description,
-    currentRevisionId: s.currentRevisionId,
-    status: s.status,
-    isBuiltin: s.isBuiltin,
-    lastInvokedAt: toIso(s.lastInvokedAt),
-    rowVersion: s.rowVersion,
-    createdAt: toIso(s.createdAt),
-    updatedAt: toIso(s.updatedAt),
-  };
-}
-
-function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): Record<string, unknown> {
-  return {
-    id: r.id,
-    skillId: r.skillId,
-    userId: r.userId,
-    kind: r.kind,
-    body: r.body,
-    metadata: r.metadata,
-    createdByRunId: r.createdByRunId,
-    rowVersion: r.rowVersion,
-    createdAt: toIso(r.createdAt),
-  };
-}
-
-function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unknown> {
-  return {
-    id: r.id,
-    skillId: r.skillId,
-    userId: r.userId,
-    kind: r.kind,
-    agentRunId: r.agentRunId,
-    status: r.status,
-    producedRevisionId: r.producedRevisionId,
-    rowVersion: r.rowVersion,
-    startedAt: toIso(r.startedAt),
-    endedAt: toIso(r.endedAt),
-  };
 }
 
 /**
@@ -293,11 +82,11 @@ export async function handlePull(
     const patch: PatchOp[] = [];
     if (isColdSync) patch.push({ op: "clear" });
 
-    // Generic per-entity diff loop — driven entirely by IDB_KEY_NAMES so a
-    // new entity adds one line to the registry + one fetcher above.
+    // Generic per-entity diff loop. `SYNC_ENTITIES` is compile-tied to
+    // `IDB_KEY`, so a new client-visible entity cannot skip server pull.
     const nextEntities: Partial<Record<IDBKeys, ClientViewMap>> = {};
-    for (const slug of IDB_KEY_NAMES) {
-      const rows = await ENTITY_FETCHERS[slug](tx, userId);
+    for (const { slug, fetchRows } of SYNC_ENTITIES) {
+      const rows = await fetchRows(tx, userId);
       const nextMap: ClientViewMap = {};
       const prevMap = prevSnapshot.entities?.[slug] ?? {};
 

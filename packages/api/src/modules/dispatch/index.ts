@@ -37,6 +37,7 @@ import { hashToolInput, integrationFromToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
@@ -230,6 +231,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     })
     .returning(STAGING_COLUMNS);
 
+  const insertedNew = inserted[0] !== undefined;
   let row: StagingRow | undefined = inserted[0];
   if (!row) {
     const existing = await db()
@@ -258,7 +260,6 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       );
     }
   }
-
   const ctx: ToolExecuteContext = {
     runId: args.runId,
     stepId: args.stepId,
@@ -280,10 +281,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       // sticks. Mirrors the plan's intent that `requires_approval` is
       // the locked-in decision per ADR-0034.
       if (row.requiresApproval) {
-        // Park. The executor will emit `approval.requested` when it
-        // commits the interrupt (see executor.ts), so we don't fire
-        // anything from here. Phase 5 layers the dedicated
-        // `staging_pending` SSE event + BullMQ delayed email on top.
+        // Park. The executor emits the transient `approval.requested`
+        // event when it commits the interrupt; Replicache carries the
+        // durable approvals queue. Emit the poke only for a newly-created
+        // row so crash/resume re-dispatches don't spam connected clients.
+        if (insertedNew) emitReplicachePokes([args.userId], row.id);
         return {
           kind: "staged",
           stagingId: row.id,
@@ -324,6 +326,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
             rowVersion: sql`${actionStagings.rowVersion} + 1`,
           })
           .where(eq(actionStagings.id, row.id));
+        if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
         return {
           kind: "failed",
           stagingId: row.id,
@@ -410,6 +413,7 @@ async function executeAndCommit(
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
       })
       .where(eq(actionStagings.id, row.id));
+    if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
     return { kind: "failed", stagingId: row.id, error };
   }
   // A tool legitimately returning `null` or `undefined` is stored as
@@ -429,6 +433,7 @@ async function executeAndCommit(
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })
     .where(eq(actionStagings.id, row.id));
+  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
   return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
 }
 
