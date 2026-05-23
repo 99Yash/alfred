@@ -453,11 +453,11 @@ function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
   if (!open) return null;
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-label="Share workflow"
-      className="fixed inset-0 z-[60] flex items-start justify-center pt-[14vh] vs-fade-in"
+      className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-start justify-center border-0 bg-transparent p-0 pt-[14vh] vs-fade-in"
     >
       <button
         type="button"
@@ -514,6 +514,6 @@ function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
