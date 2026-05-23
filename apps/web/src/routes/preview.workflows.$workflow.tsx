@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import {
   VsButton,
   VsCard,
@@ -441,14 +441,15 @@ interface ShareDialogProps {
 }
 
 function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
+  const onCloseEvent = useEffectEvent(onClose);
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseEvent();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
