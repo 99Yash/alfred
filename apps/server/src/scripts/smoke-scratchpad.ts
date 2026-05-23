@@ -245,6 +245,15 @@ async function main(): Promise<void> {
   if (dispatchPromoted?.value !== "sub-owned") {
     throw new Error("[smoke-scratchpad] dispatcher promote did not copy the sub-agent value");
   }
+  const scratchToolRows = await db()
+    .select()
+    .from(actionStagings)
+    .where(and(eq(actionStagings.runId, runId), eq(actionStagings.stepId, "scratch-tools")));
+  if (scratchToolRows.length !== 0) {
+    throw new Error(
+      `[smoke-scratchpad] scratch tools should skip action_stagings, got ${scratchToolRows.length}`,
+    );
+  }
   console.log("[smoke-scratchpad] dispatcher scratch tools + zone enforcement ok");
 
   // 4. Snapshot to Postgres + idempotency check.
