@@ -24,6 +24,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as PreviewLoginRouteImport } from './routes/preview_.login'
 import { Route as PreviewWorkflowsRouteImport } from './routes/preview.workflows'
 import { Route as PreviewVisitorsNowRouteImport } from './routes/preview.visitors-now'
 import { Route as PreviewSkillsRouteImport } from './routes/preview.skills'
@@ -120,6 +121,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
+} as any)
+const PreviewLoginRoute = PreviewLoginRouteImport.update({
+  id: '/preview_/login',
+  path: '/preview/login',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const PreviewWorkflowsRoute = PreviewWorkflowsRouteImport.update({
   id: '/workflows',
@@ -259,6 +265,7 @@ export interface FileRoutesByFullPath {
   '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
+  '/preview/login': typeof PreviewLoginRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -297,6 +304,7 @@ export interface FileRoutesByTo {
   '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
+  '/preview/login': typeof PreviewLoginRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -336,6 +344,7 @@ export interface FileRoutesById {
   '/preview/skills': typeof PreviewSkillsRouteWithChildren
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
   '/preview/workflows': typeof PreviewWorkflowsRouteWithChildren
+  '/preview_/login': typeof PreviewLoginRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -376,6 +385,7 @@ export interface FileRouteTypes {
     | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
+    | '/preview/login'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -414,6 +424,7 @@ export interface FileRouteTypes {
     | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
+    | '/preview/login'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -452,6 +463,7 @@ export interface FileRouteTypes {
     | '/preview/skills'
     | '/preview/visitors-now'
     | '/preview/workflows'
+    | '/preview_/login'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -477,6 +489,7 @@ export interface RootRouteChildren {
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
+  PreviewLoginRoute: typeof PreviewLoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -585,6 +598,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/preview_/login': {
+      id: '/preview_/login'
+      path: '/preview/login'
+      fullPath: '/preview/login'
+      preLoaderRoute: typeof PreviewLoginRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/preview/workflows': {
       id: '/preview/workflows'
@@ -889,6 +909,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowsRoute: WorkflowsRouteWithChildren,
   ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
+  PreviewLoginRoute: PreviewLoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
