@@ -204,11 +204,13 @@ function PreviewMemoryPage() {
                         {fact.value}
                       </span>
                       <button
+                        type="button"
                         className="text-[11.5px] text-vs-fg-3 transition-colors hover:text-vs-fg-4"
                       >
                         edit
                       </button>
                       <button
+                        type="button"
                         onClick={() => rejectFact(fact.id)}
                         className="text-[11.5px] text-vs-fg-3 transition-colors hover:text-vs-red-4"
                       >
