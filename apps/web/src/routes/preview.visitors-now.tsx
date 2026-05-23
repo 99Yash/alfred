@@ -178,14 +178,14 @@ function VsThemedPreview() {
         <div className="mt-8 grid grid-cols-[180px_1fr] gap-8">
           <nav className="flex flex-col gap-1 text-sm text-vs-fg-3">
             {["General", "Usage", "Team", "Integrations", "Security", "API"].map((label, i) => (
-              <a
+              <button
                 key={label}
-                href="#"
+                type="button"
                 aria-current={i === 0 ? "page" : undefined}
-                className="px-3 h-9 rounded-full inline-flex items-center hover:bg-vs-bg-a2 hover:text-vs-fg-4 [&[aria-current=page]]:bg-vs-bg-2 [&[aria-current=page]]:text-vs-fg-4"
+                className="px-3 h-9 rounded-full inline-flex items-center text-left hover:bg-vs-bg-a2 hover:text-vs-fg-4 [&[aria-current=page]]:bg-vs-bg-2 [&[aria-current=page]]:text-vs-fg-4"
               >
                 {label}
-              </a>
+              </button>
             ))}
           </nav>
 
