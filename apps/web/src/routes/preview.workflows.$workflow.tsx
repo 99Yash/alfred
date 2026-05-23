@@ -47,6 +47,10 @@ const TABS = [
   { value: "approvals" as const, label: "Approvals" },
 ];
 
+const SHARE_LEADING = <Share2 size={14} />;
+const ACTIVATE_LEADING = <Play size={14} />;
+const COPY_LEADING = <Copy size={13} />;
+
 function PreviewWorkflowDetailPage() {
   const { workflow: workflowId } = Route.useParams();
   const workflow = getWorkflow(workflowId);
@@ -88,7 +92,7 @@ function PreviewWorkflowDetailPage() {
           <VsButton
             variant="ghost"
             size="md"
-            leading={<Share2 size={14} />}
+            leading={SHARE_LEADING}
             onClick={() => setShareOpen(true)}
           >
             Share
@@ -109,7 +113,7 @@ function PreviewWorkflowDetailPage() {
               onCheckedChange={setAutoApprove}
             />
           </label>
-          <VsButton variant="primary" size="lg" leading={<Play size={14} />}>
+          <VsButton variant="primary" size="lg" leading={ACTIVATE_LEADING}>
             Activate
           </VsButton>
         </div>
@@ -498,7 +502,7 @@ function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
               <p className="min-w-0 flex-1 truncate text-[12.5px] text-vs-fg-3">
                 alfred.local/workflows/{workflow.id}
               </p>
-              <VsButton variant="ghost" size="sm" leading={<Copy size={13} />}>
+              <VsButton variant="ghost" size="sm" leading={COPY_LEADING}>
                 Copy
               </VsButton>
             </div>

@@ -24,6 +24,8 @@ export const Route = createFileRoute("/preview/workflows")({
   component: PreviewWorkflowsRoute,
 });
 
+const CREATE_LEADING = <Plus size={14} />;
+
 function PreviewWorkflowsRoute() {
   const hasChild = useChildMatches().length > 0;
   return hasChild ? <Outlet /> : <PreviewWorkflowsPage />;
@@ -42,7 +44,7 @@ function PreviewWorkflowsPage() {
               <VsButton
                 variant="primary"
                 size="lg"
-                leading={<Plus size={14} />}
+                leading={CREATE_LEADING}
                 disabled
                 title="User-authored workflows arrive in m12"
               >

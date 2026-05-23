@@ -33,6 +33,48 @@ function VisitorsNowPreview() {
   );
 }
 
+const HEADER_PILL_LEADING = (
+  <span className="size-4 rounded bg-vs-purple-3" aria-hidden />
+);
+
+const HEADER_START = (
+  <div className="flex items-center gap-2">
+    <span className="size-7 rounded-full bg-vs-fg-4" aria-hidden />
+    <VsPill chevron leading={HEADER_PILL_LEADING}>
+      Alfred
+    </VsPill>
+  </div>
+);
+
+const HEADER_END = (
+  <button
+    type="button"
+    className="size-8 rounded-full bg-vs-pink-4 text-white text-sm font-medium vs-press"
+    aria-label="Account menu"
+  >
+    Y
+  </button>
+);
+
+const REALTIME_PILL = <VsPill>Realtime</VsPill>;
+const PERFORMANCE_PILL = <VsPill>Performance</VsPill>;
+
+const PAGES_HEADER_TRAILING = (
+  <>
+    <span className="font-medium text-vs-fg-4">Top</span>
+    <span>Entered</span>
+    <span>Exited</span>
+  </>
+);
+
+const SOURCES_HEADER_TRAILING = (
+  <>
+    <span className="font-medium text-vs-fg-4">Referrer</span>
+    <span>Links</span>
+    <span>Campaign</span>
+  </>
+);
+
 function VsThemedPreview() {
   const [active, setActive] = useState<string>("dashboard");
   return (
@@ -40,25 +82,7 @@ function VsThemedPreview() {
       <div className="fixed top-3 right-3 z-50">
         <VsThemeToggle />
       </div>
-      <VsHeader
-        start={
-          <div className="flex items-center gap-2">
-            <span className="size-7 rounded-full bg-vs-fg-4" aria-hidden />
-            <VsPill chevron leading={<span className="size-4 rounded bg-vs-purple-3" aria-hidden />}>
-              Alfred
-            </VsPill>
-          </div>
-        }
-        end={
-          <button
-            type="button"
-            className="size-8 rounded-full bg-vs-pink-4 text-white text-sm font-medium vs-press"
-            aria-label="Account menu"
-          >
-            Y
-          </button>
-        }
-      />
+      <VsHeader start={HEADER_START} end={HEADER_END} />
 
       <main className="mx-auto max-w-[720px] px-4 pt-[88px] pb-24">
         {/* Period selector + filter */}
@@ -103,7 +127,7 @@ function VsThemedPreview() {
         {/* Card grid */}
         <div className="grid grid-cols-2 gap-4">
           <VsCard>
-            <VsCardHeader title="1 person in the last 30m" trailing={<VsPill>Realtime</VsPill>} />
+            <VsCardHeader title="1 person in the last 30m" trailing={REALTIME_PILL} />
             <div className="flex items-end gap-1 h-12 mt-2">
               {Array.from({ length: 40 }).map((_, i) => (
                 <span
@@ -121,7 +145,7 @@ function VsThemedPreview() {
           </VsCard>
 
           <VsCard>
-            <VsCardHeader title="Experience Score" trailing={<VsPill>Performance</VsPill>} />
+            <VsCardHeader title="Experience Score" trailing={PERFORMANCE_PILL} />
             <div className="flex items-center gap-3">
               <span className="size-12 rounded-full border border-vs-bg-3 inline-flex items-center justify-center text-vs-fg-2">
                 —
@@ -134,30 +158,12 @@ function VsThemedPreview() {
           </VsCard>
 
           <VsCard>
-            <VsCardHeader
-              title="Pages"
-              trailing={
-                <>
-                  <span className="font-medium text-vs-fg-4">Top</span>
-                  <span>Entered</span>
-                  <span>Exited</span>
-                </>
-              }
-            />
+            <VsCardHeader title="Pages" trailing={PAGES_HEADER_TRAILING} />
             <EmptyState icon={<BookIcon />} caption="No pages found" />
           </VsCard>
 
           <VsCard>
-            <VsCardHeader
-              title="Sources"
-              trailing={
-                <>
-                  <span className="font-medium text-vs-fg-4">Referrer</span>
-                  <span>Links</span>
-                  <span>Campaign</span>
-                </>
-              }
-            />
+            <VsCardHeader title="Sources" trailing={SOURCES_HEADER_TRAILING} />
             <div className="rounded-lg bg-vs-bg-2 px-3 h-9 flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 text-vs-fg-4">
                 <ArrowIcon />
