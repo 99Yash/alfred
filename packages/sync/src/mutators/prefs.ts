@@ -1,6 +1,7 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { memorySourceSchema, preferenceValueSchema } from "../schemas";
 import type { SyncedPreference } from "../types";
 
 /**
@@ -12,22 +13,11 @@ import type { SyncedPreference } from "../types";
  * pull rebases over the canonical row.
  */
 
-const prefValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.null(),
-  z.array(z.unknown()),
-  z.record(z.string(), z.unknown()),
-]);
-
-const prefSourceSchema = z.record(z.string(), z.unknown());
-
 export const prefSetArgsSchema = z.object({
   key: z.string().min(1).max(200),
-  value: prefValueSchema,
+  value: preferenceValueSchema,
   /** Optional provenance override; defaults to `{ kind: 'user' }` server-side. */
-  source: prefSourceSchema.optional(),
+  source: memorySourceSchema.optional(),
 });
 export type PrefSetArgs = z.infer<typeof prefSetArgsSchema>;
 

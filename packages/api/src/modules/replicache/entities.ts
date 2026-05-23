@@ -8,7 +8,18 @@ import {
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
-import { IDB_KEY_NAMES, type IDBKeys } from "@alfred/sync";
+import {
+  IDB_KEY_NAMES,
+  type IDBKeys,
+  type SyncedActionStaging,
+  type SyncedEntity,
+  type SyncedFact,
+  type SyncedNote,
+  type SyncedPreference,
+  type SyncedSkill,
+  type SyncedSkillRevision,
+  type SyncedSkillRun,
+} from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 
 /**
@@ -18,7 +29,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 export interface EntityRow {
   id: string;
   rowVersion: number;
-  serialized: Record<string, unknown>;
+  serialized: SyncedEntity;
 }
 
 // Typed loosely so this accepts either the pool or a Drizzle tx handle.
@@ -163,23 +174,32 @@ export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
 const toIso = (d: Date | null | undefined): string | null =>
   d instanceof Date ? d.toISOString() : (d ?? null);
 
+function toRequiredIso(d: Date | null | undefined, field: string): string {
+  const value = toIso(d);
+  if (value === null) throw new Error(`[replicache] ${field} must not be null`);
+  return value;
+}
+
 function serializeNote(n: {
   id: string;
   userId: string;
   text: string;
   rowVersion: number;
   createdAt: Date;
-}): Record<string, unknown> {
+}): SyncedNote {
   return {
     id: n.id,
     userId: n.userId,
     text: n.text,
-    createdAt: toIso(n.createdAt),
+    createdAt: toRequiredIso(n.createdAt, "notes.createdAt"),
     rowVersion: n.rowVersion,
   };
 }
 
-function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown> {
+function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
+  if (f.status !== "proposed" && f.status !== "confirmed") {
+    throw new Error(`[replicache] cannot sync fact with status '${f.status}'`);
+  }
   return {
     id: f.id,
     userId: f.userId,
@@ -187,27 +207,27 @@ function serializeFact(f: typeof userFacts.$inferSelect): Record<string, unknown
     value: f.value,
     confidence: f.confidence,
     status: f.status,
-    source: f.source,
-    validFrom: toIso(f.validFrom),
+    source: f.source as SyncedFact["source"],
+    validFrom: toRequiredIso(f.validFrom, "userFacts.validFrom"),
     validUntil: toIso(f.validUntil),
     supersedesId: f.supersedesId,
     rowVersion: f.rowVersion,
-    createdAt: toIso(f.createdAt),
+    createdAt: toRequiredIso(f.createdAt, "userFacts.createdAt"),
     updatedAt: toIso(f.updatedAt),
   };
 }
 
-function serializePreference(p: typeof userPreferences.$inferSelect): Record<string, unknown> {
+function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPreference {
   return {
     key: p.key,
     userId: p.userId,
     value: p.value,
-    source: p.source,
+    source: p.source as SyncedPreference["source"],
     rowVersion: p.rowVersion,
   };
 }
 
-function serializeSkill(s: typeof skills.$inferSelect): Record<string, unknown> {
+function serializeSkill(s: typeof skills.$inferSelect): SyncedSkill {
   return {
     id: s.id,
     userId: s.userId,
@@ -219,26 +239,26 @@ function serializeSkill(s: typeof skills.$inferSelect): Record<string, unknown> 
     isBuiltin: s.isBuiltin,
     lastInvokedAt: toIso(s.lastInvokedAt),
     rowVersion: s.rowVersion,
-    createdAt: toIso(s.createdAt),
+    createdAt: toRequiredIso(s.createdAt, "skills.createdAt"),
     updatedAt: toIso(s.updatedAt),
   };
 }
 
-function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): Record<string, unknown> {
+function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSkillRevision {
   return {
     id: r.id,
     skillId: r.skillId,
     userId: r.userId,
     kind: r.kind,
     body: r.body,
-    metadata: r.metadata,
+    metadata: r.metadata as SyncedSkillRevision["metadata"],
     createdByRunId: r.createdByRunId,
     rowVersion: r.rowVersion,
-    createdAt: toIso(r.createdAt),
+    createdAt: toRequiredIso(r.createdAt, "skillRevisions.createdAt"),
   };
 }
 
-function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unknown> {
+function serializeSkillRun(r: typeof skillRuns.$inferSelect): SyncedSkillRun {
   return {
     id: r.id,
     skillId: r.skillId,
@@ -248,7 +268,7 @@ function serializeSkillRun(r: typeof skillRuns.$inferSelect): Record<string, unk
     status: r.status,
     producedRevisionId: r.producedRevisionId,
     rowVersion: r.rowVersion,
-    startedAt: toIso(r.startedAt),
+    startedAt: toRequiredIso(r.startedAt, "skillRuns.startedAt"),
     endedAt: toIso(r.endedAt),
   };
 }
@@ -304,7 +324,10 @@ function serializeActionStaging(
   s: typeof actionStagings.$inferSelect,
   workflowSlug: string,
   recentRejection: RecentRejection | null,
-): Record<string, unknown> {
+): SyncedActionStaging {
+  if (s.status !== "pending") {
+    throw new Error(`[replicache] cannot sync action staging with status '${s.status}'`);
+  }
   return {
     id: s.id,
     userId: s.userId,
@@ -325,11 +348,11 @@ function serializeActionStaging(
       ? {
           runId: recentRejection.runId,
           reason: recentRejection.reason,
-          decidedAt: toIso(recentRejection.decidedAt),
+          decidedAt: toRequiredIso(recentRejection.decidedAt, "actionStagings.decidedAt"),
         }
       : null,
     rowVersion: s.rowVersion,
-    createdAt: toIso(s.createdAt),
+    createdAt: toRequiredIso(s.createdAt, "actionStagings.createdAt"),
     updatedAt: toIso(s.updatedAt),
   };
 }
