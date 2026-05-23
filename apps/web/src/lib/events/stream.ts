@@ -1,4 +1,9 @@
-import type { EventKind, EventFrame } from "@alfred/api";
+import {
+  EVENT_KINDS,
+  isKnownEventKind,
+  type EventFrame,
+  type EventKind,
+} from "@alfred/schemas/events";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -19,16 +24,8 @@ export interface OpenEventStreamOptions {
   onError?: (err: Event) => void;
 }
 
-const KNOWN_KINDS = new Set<EventKind>([
-  "agent.progress",
-  "agent.run",
-  "tool.call",
-  "approval.requested",
-  "memory.fact_learned",
-]);
-
 function isKnownKind(value: string): value is EventKind {
-  return KNOWN_KINDS.has(value as EventKind);
+  return isKnownEventKind(value);
 }
 
 /**
@@ -60,7 +57,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
     }
   };
 
-  for (const kind of KNOWN_KINDS) {
+  for (const kind of EVENT_KINDS) {
     source.addEventListener(kind, handle(kind));
   }
   source.onerror = (err) => {

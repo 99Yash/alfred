@@ -3,6 +3,7 @@ import {
   listFactsByStatus,
   proposeFact,
   type FactProposal,
+  factProposalSchema,
   type Workflow,
   writeMemoryChunk,
 } from "@alfred/api";
@@ -42,25 +43,10 @@ import { z } from "zod";
 // state schema
 // ---------------------------------------------------------------------------
 
-const factValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.array(z.unknown()),
-  z.record(z.string(), z.unknown()),
-]);
-
-const proposalSchema = z.object({
-  key: z.string().min(1).max(200),
-  value: factValueSchema,
-  confidence: z.number().min(0).max(1),
-  rationale: z.string().min(1).max(500),
-});
-
 const stateSchema = z.object({
   mode: z.enum(["auto", "manual"]),
   /** Doc-id keyed proposals — populated only in manual mode. */
-  manualProposals: z.record(z.string(), z.array(proposalSchema)).optional(),
+  manualProposals: z.record(z.string(), z.array(factProposalSchema)).optional(),
   sinceDays: z.number().int().positive(),
   maxDocs: z.number().int().positive(),
   /** Populated by pick-documents step. */
@@ -80,7 +66,7 @@ type State = z.infer<typeof stateSchema>;
 
 const inputSchema = z.object({
   mode: z.enum(["auto", "manual"]).default("auto"),
-  manualProposals: z.record(z.string(), z.array(proposalSchema)).optional(),
+  manualProposals: z.record(z.string(), z.array(factProposalSchema)).optional(),
   sinceDays: z.number().int().positive().default(7),
   maxDocs: z.number().int().positive().max(100).default(20),
 });

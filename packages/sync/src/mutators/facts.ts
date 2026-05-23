@@ -1,6 +1,7 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { factValueSchema, memorySourceSchema } from "../schemas";
 import type { SyncedFact } from "../types";
 
 /**
@@ -18,8 +19,6 @@ import type { SyncedFact } from "../types";
  * no-ops on the client and lets the server's authoritative pull take over.
  */
 
-const factSourceSchema = z.record(z.string(), z.unknown());
-
 export const factConfirmArgsSchema = z.object({
   factId: z.string().min(1).max(100),
 });
@@ -32,14 +31,6 @@ export const factRejectArgsSchema = z.object({
 });
 export type FactRejectArgs = z.infer<typeof factRejectArgsSchema>;
 
-const factValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.array(z.unknown()),
-  z.record(z.string(), z.unknown()),
-]);
-
 export const factEditArgsSchema = z.object({
   factId: z.string().min(1).max(100),
   /**
@@ -50,7 +41,7 @@ export const factEditArgsSchema = z.object({
   newFactId: z.string().min(1).max(100),
   newValue: factValueSchema,
   /** Optional source override; defaults to `{ kind: 'user' }` server-side. */
-  source: factSourceSchema.optional(),
+  source: memorySourceSchema.optional(),
 });
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
