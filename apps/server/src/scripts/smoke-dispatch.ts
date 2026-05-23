@@ -11,6 +11,7 @@
  *
  * Bullets exercised:
  *   1. Autonomy path: gmail.search-shape stub → row executed → result returned.
+ *      Unknown tool names return a recoverable tool result without staging.
  *   2. Gated path: gmail.send_draft-shape stub → row pending + HIL wake;
  *      approve via direct DB update + signalRun; re-dispatch same
  *      tool_call_id → row executed, no second tool execution.
@@ -194,6 +195,25 @@ async function main(): Promise<void> {
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
   assert(stubs.searchExecCount() === 1, `idempotent re-dispatch should not re-execute, got ${stubs.searchExecCount()}`);
   console.log("[smoke-dispatch] 1. autonomy: idempotent re-dispatch returns cached result ✓");
+
+  const unknownTool = await dispatchToolCall({
+    runId: runId1,
+    stepId: "turn-1",
+    toolCallId: "tc_unknown_tool",
+    toolName: "gmail.hallucinated_action",
+    input: { q: "in:inbox" },
+    userId,
+  });
+  assert(
+    unknownTool.kind === "unknown_tool",
+    `unknown tool expected 'unknown_tool', got '${unknownTool.kind}'`,
+  );
+  const unknownRows = await db()
+    .select()
+    .from(actionStagings)
+    .where(and(eq(actionStagings.runId, runId1), eq(actionStagings.toolCallId, "tc_unknown_tool")));
+  assert(unknownRows.length === 0, "unknown tool should not write a staging row");
+  console.log("[smoke-dispatch] 1. unknown tool: recoverable result, no row ✓");
 
   // ─── 2. Gated path ───────────────────────────────────────────────────
   await setIntegrationMode(userId, "gmail", "gated");

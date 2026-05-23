@@ -9,7 +9,6 @@ import {
 import {
   parseIntegrationMentions,
   isIntegrationSlug,
-  isToolName,
   type AgentTranscriptMessage,
   type IntegrationSlug,
   type ToolName,
@@ -23,22 +22,15 @@ export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
 
 const TURN_CAP_MAX = 30;
 
-const integrationSlugSchema = z
-  .string()
-  .min(1)
-  .refine(isIntegrationSlug, { message: "Unknown integration slug" });
-
-const toolNameSchema = z.string().min(1).refine(isToolName, { message: "Unknown tool name" });
-
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
-  toolName: toolNameSchema,
+  toolName: z.string().min(1),
   input: z.unknown(),
 });
 type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z.object({
-  activeIntegrations: z.array(integrationSlugSchema),
+  activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   pendingToolCalls: z.array(pendingToolCallSchema),
   inFlightTailStart: z.number().int().min(0),
@@ -102,7 +94,7 @@ const bossTurnStep: Step<BriefRunState> = {
     if (result.kind === "tool-calls") {
       state.pendingToolCalls = result.toolCalls.map((call) => ({
         toolCallId: call.toolCallId,
-        toolName: toolNameSchema.parse(call.toolName),
+        toolName: call.toolName,
         input: call.input,
       }));
       return {
@@ -198,10 +190,11 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   stateSchema: briefRunStateSchema,
 };
 
-function resolveSdkTools(activeIntegrations: readonly IntegrationSlug[]): ToolSet {
+function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
   const out: Partial<Record<ToolName, Tool>> = {};
   const slugs = uniqueIntegrations(["system", ...activeIntegrations]);
   for (const slug of slugs) {
+    if (!isIntegrationSlug(slug)) continue;
     for (const registered of listToolsForIntegration(slug)) {
       out[registered.name] = tool({
         description: registered.description,
@@ -214,7 +207,7 @@ function resolveSdkTools(activeIntegrations: readonly IntegrationSlug[]): ToolSe
 
 function applySystemToolEffect(
   state: BriefRunState,
-  toolName: ToolName,
+  toolName: string,
   result: DispatchResult,
 ): void {
   if (toolName !== "system.load_integration" || result.kind !== "executed") return;
@@ -230,7 +223,8 @@ function isSuccessfulLoadIntegrationResult(
     typeof value === "object" &&
     value !== null &&
     (value as { ok?: unknown }).ok === true &&
-    typeof (value as { slug?: unknown }).slug === "string"
+    typeof (value as { slug?: unknown }).slug === "string" &&
+    isIntegrationSlug((value as { slug: string }).slug)
   );
 }
 
@@ -283,7 +277,7 @@ function appendModelMessages(
   return [...transcript, ...(messages as AgentTranscriptMessage[])];
 }
 
-function uniqueIntegrations(values: readonly IntegrationSlug[]): IntegrationSlug[] {
+function uniqueIntegrations(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
