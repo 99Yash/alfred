@@ -11,6 +11,7 @@ import {
   type MemorySource,
   factStatusSchema,
   memorySourceSchema,
+  parseMemorySourceOrDefault,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ function rowToFact(r: typeof userFacts.$inferSelect): FactRow {
     value: r.value,
     confidence: r.confidence,
     status: factStatusSchema.parse(r.status),
-    source: memorySourceSchema.parse(r.source),
+    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `user_facts:${r.id}`),
     validFrom: r.validFrom,
     validUntil: r.validUntil,
     supersedesId: r.supersedesId,

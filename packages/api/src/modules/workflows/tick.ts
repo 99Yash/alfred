@@ -106,11 +106,25 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     .orderBy(workflows.nextRunAt)
     .limit(BATCH);
 
-  return rows.flatMap((r) =>
-    r.nextRunAt
-      ? [{ ...r, trigger: workflowTriggerSchema.parse(r.trigger), nextRunAt: r.nextRunAt }]
-      : [],
-  );
+  const due: DueRow[] = [];
+  for (const row of rows) {
+    if (!row.nextRunAt) continue;
+
+    const trigger = workflowTriggerSchema.safeParse(row.trigger);
+    if (!trigger.success) {
+      console.warn(
+        `[workflows:tick] invalid trigger for workflow=${row.slug} (${row.id}); pausing partial-index entry: ${trigger.error.message}`,
+      );
+      await db()
+        .update(workflows)
+        .set({ nextRunAt: null, updatedAt: new Date() })
+        .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, row.nextRunAt)));
+      continue;
+    }
+
+    due.push({ ...row, trigger: trigger.data, nextRunAt: row.nextRunAt });
+  }
+  return due;
 }
 
 async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid"> {

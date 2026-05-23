@@ -33,7 +33,7 @@ export const upsertStyleProfileArgsSchema = z.object({
   sourceMsgIds: z.array(z.string()).optional(),
   generatedFromCount: z.number().int().nonnegative().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  status: z.enum(["draft", "active", "superseded"]).optional(),
+  status: styleProfileStatusSchema.optional(),
 });
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 

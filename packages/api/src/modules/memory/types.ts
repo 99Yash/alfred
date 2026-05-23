@@ -1,5 +1,6 @@
 import { jsonRecordSchema, memorySourceSchema } from "@alfred/sync";
 import { z } from "zod";
+import type { MemorySource } from "@alfred/sync";
 
 /**
  * Where a fact / preference / chunk came from. Provenance discipline
@@ -7,6 +8,19 @@ import { z } from "zod";
  * can ask "why do you think that?" and get a non-hallucinated answer.
  */
 export type { MemorySource } from "@alfred/sync";
+
+export function parseMemorySourceOrDefault(
+  value: unknown,
+  fallback: MemorySource,
+  context: string,
+): MemorySource {
+  const parsed = memorySourceSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  console.warn(
+    `[memory] using fallback source for ${context}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+  );
+  return fallback;
+}
 
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
 export const factStatusSchema = z.enum(FACT_STATUSES);

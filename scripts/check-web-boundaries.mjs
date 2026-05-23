@@ -37,14 +37,24 @@ function lineNumber(source, index) {
 function findViolations(file) {
   const source = readFileSync(file, "utf8");
   const violations = [];
-  const staticImport =
-    /\bimport\s+(?!type\b)[\s\S]*?\bfrom\s*["']([^"']+)["']|(?:\bexport\s+(?!type\b)[\s\S]*?\bfrom\s*["']([^"']+)["'])/g;
+  const staticImport = /\b(import|export)\s+([\s\S]*?)\s+from\s*["']([^"']+)["']/g;
   const sideEffectImport = /\bimport\s*["']([^"']+)["']/g;
   const dynamicImport = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
 
-  for (const pattern of [staticImport, sideEffectImport, dynamicImport]) {
+  for (const match of source.matchAll(staticImport)) {
+    const clause = match[2] ?? "";
+    const specifier = match[3] ?? "";
+    const pkg = packageName(specifier);
+    if (!pkg || !FORBIDDEN_RUNTIME_PACKAGES.has(pkg) || !hasRuntimeBinding(clause)) continue;
+    violations.push({
+      line: lineNumber(source, match.index ?? 0),
+      specifier,
+    });
+  }
+
+  for (const pattern of [sideEffectImport, dynamicImport]) {
     for (const match of source.matchAll(pattern)) {
-      const specifier = match[1] ?? match[2];
+      const specifier = match[1] ?? "";
       const pkg = packageName(specifier);
       if (!pkg || !FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) continue;
       violations.push({
@@ -54,6 +64,20 @@ function findViolations(file) {
     }
   }
   return violations;
+}
+
+function hasRuntimeBinding(clause) {
+  const trimmed = clause.trim();
+  if (trimmed.startsWith("type ")) return false;
+
+  const namedOnly = trimmed.match(/^\{([\s\S]*)\}$/);
+  if (!namedOnly) return true;
+
+  const specifiers = namedOnly[1]
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return specifiers.some((specifier) => !specifier.startsWith("type "));
 }
 
 const violations = [];
