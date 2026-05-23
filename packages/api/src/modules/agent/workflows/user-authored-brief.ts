@@ -8,6 +8,8 @@ import {
 } from "@alfred/ai";
 import {
   parseIntegrationMentions,
+  isIntegrationSlug,
+  isToolName,
   type AgentTranscriptMessage,
   type IntegrationSlug,
   type ToolName,
@@ -21,15 +23,22 @@ export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
 
 const TURN_CAP_MAX = 30;
 
+const integrationSlugSchema = z
+  .string()
+  .min(1)
+  .refine(isIntegrationSlug, { message: "Unknown integration slug" });
+
+const toolNameSchema = z.string().min(1).refine(isToolName, { message: "Unknown tool name" });
+
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
-  toolName: z.string().min(1) as z.ZodType<ToolName>,
+  toolName: toolNameSchema,
   input: z.unknown(),
 });
 type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z.object({
-  activeIntegrations: z.array(z.string() as z.ZodType<IntegrationSlug>),
+  activeIntegrations: z.array(integrationSlugSchema),
   allowedIntegrations: z.array(z.string()),
   pendingToolCalls: z.array(pendingToolCallSchema),
   inFlightTailStart: z.number().int().min(0),
@@ -93,7 +102,7 @@ const bossTurnStep: Step<BriefRunState> = {
     if (result.kind === "tool-calls") {
       state.pendingToolCalls = result.toolCalls.map((call) => ({
         toolCallId: call.toolCallId,
-        toolName: call.toolName as ToolName,
+        toolName: toolNameSchema.parse(call.toolName),
         input: call.input,
       }));
       return {
