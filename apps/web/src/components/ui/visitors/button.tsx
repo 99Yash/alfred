@@ -37,17 +37,33 @@ const SIZE: Record<VsButtonSize, string> = {
   lg: "h-9 px-3 text-sm gap-2",
 };
 
+/* Recipes
+ * - primary: gradient on the brand accent token, white text, a 1px white
+ *   inset highlight (the "lift"), and an accent-tinted drop glow. Hover
+ *   brightens + grows the glow; active darkens. Disabled keeps the
+ *   gradient identity (so it still reads as "the CTA, just not yet
+ *   clickable") but softens the glow and disables hover.
+ * - white: ink button. Background flips with theme — black on white in
+ *   light mode, white on black in dark mode — for max neutral contrast.
+ * - ghost: invisible at rest.
+ * - destructive: same recipe as primary on the red-4 token.
+ */
 const VARIANT: Record<VsButtonVariant, string> = {
   primary: cn(
-    "bg-vs-purple-4 text-white",
-    "hover:brightness-[1.04] active:brightness-[0.97]",
-    "shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]",
-    "hover:shadow-[0_1px_1px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.1)]",
-    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "text-[var(--vs-accent-fg)]",
+    "bg-[linear-gradient(180deg,var(--vs-accent-from)_0%,var(--vs-accent-to)_100%)]",
+    "shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_var(--vs-accent-glow)]",
+    "hover:brightness-[1.06]",
+    "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_var(--vs-accent-glow)]",
+    "active:brightness-[0.96]",
+    "disabled:cursor-not-allowed",
+    "disabled:hover:brightness-100 disabled:hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_var(--vs-accent-glow)]",
+    "disabled:opacity-[0.85]",
   ),
   white: cn(
-    "bg-vs-bg-1 text-vs-fg-4",
-    "vs-elevated",
+    "bg-vs-fg-4 text-vs-bg-1",
+    "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.10)]",
+    "hover:brightness-[1.05] active:brightness-[0.95]",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ),
   ghost: cn(
@@ -57,9 +73,10 @@ const VARIANT: Record<VsButtonVariant, string> = {
   ),
   destructive: cn(
     "bg-vs-red-4 text-white",
-    "hover:brightness-[1.04] active:brightness-[0.97]",
-    "shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]",
-    "hover:shadow-[0_1px_1px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.1)]",
+    "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
+    "hover:brightness-[1.05]",
+    "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_rgba(255,47,0,0.42)]",
+    "active:brightness-[0.96]",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ),
 };
