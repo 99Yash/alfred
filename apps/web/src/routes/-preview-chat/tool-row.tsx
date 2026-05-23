@@ -35,12 +35,8 @@ export function ToolRow({
         </span>
       ) : null}
       <span className="ml-auto flex items-center gap-1.5 shrink-0">
-        {count ? (
-          <span className="text-xs text-vs-fg-3 tabular-nums">{count}</span>
-        ) : null}
-        {done ? (
-          <CheckCircle2 size={13} aria-hidden className="text-vs-green-4" />
-        ) : null}
+        {count ? <span className="text-xs text-vs-fg-3 tabular-nums">{count}</span> : null}
+        {done ? <CheckCircle2 size={13} aria-hidden className="text-vs-green-4" /> : null}
       </span>
     </div>
   );

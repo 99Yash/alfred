@@ -28,10 +28,7 @@ const WORKFLOW_SLUG = "smoke-sub-agents";
 const SUB_AGENT_BRIEF = "Find the important recent Gmail threads and summarize them.";
 
 async function findOrCreateSmokeUser(): Promise<string> {
-  const existing = await db()
-    .select()
-    .from(userTable)
-    .where(eq(userTable.email, SMOKE_USER_EMAIL));
+  const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
   if (existing[0]) return existing[0].id;
   const inserted = await db()
     .insert(userTable)
@@ -51,16 +48,18 @@ async function resetSmokeRows(userId: string): Promise<void> {
 }
 
 async function createSmokeWorkflow(userId: string): Promise<void> {
-  await db().insert(workflows).values({
-    userId,
-    slug: WORKFLOW_SLUG,
-    name: "Smoke sub-agents",
-    brief: "Use @gmail only when needed.",
-    trigger: { kind: "manual" },
-    allowedIntegrations: ["gmail"],
-    status: "active",
-    isBuiltin: false,
-  });
+  await db()
+    .insert(workflows)
+    .values({
+      userId,
+      slug: WORKFLOW_SLUG,
+      name: "Smoke sub-agents",
+      brief: "Use @gmail only when needed.",
+      trigger: { kind: "manual" },
+      allowedIntegrations: ["gmail"],
+      status: "active",
+      isBuiltin: false,
+    });
 }
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -207,9 +206,16 @@ async function main(): Promise<void> {
   const stagedRows = await db()
     .select()
     .from(actionStagings)
-    .where(and(eq(actionStagings.runId, parent.runId), eq(actionStagings.toolName, "system.spawn_sub_agent")));
+    .where(
+      and(
+        eq(actionStagings.runId, parent.runId),
+        eq(actionStagings.toolName, "system.spawn_sub_agent"),
+      ),
+    );
   if (stagedRows.length !== 1 || stagedRows[0]?.status !== "executed") {
-    throw new Error("[smoke-sub-agents] spawn should leave exactly one executed action_stagings row");
+    throw new Error(
+      "[smoke-sub-agents] spawn should leave exactly one executed action_stagings row",
+    );
   }
 
   await resetSmokeRows(userId);

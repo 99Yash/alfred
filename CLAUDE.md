@@ -19,7 +19,7 @@ apps/
 packages/
 ├── ai/              # AI SDK provider config, model dispatcher, embeddings stub
 ├── api/             # Elysia app (routes + middleware) + Eden App type export
-├── auth/            # Better Auth config — emailOTP + one-email allowlist
+├── auth/            # Better Auth config — Google social provider + one-email allowlist
 ├── config/          # Shared tsconfig.base.json
 ├── contracts/       # Zero-dep shared types + consts (tool registry, runtime keys) — safe in apps/web
 ├── db/              # Drizzle schema, pool, helpers
@@ -36,7 +36,7 @@ All packages are `@alfred/*`. Never import `@milkpod/*`.
 
 **Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client with the `emailOTPClient()` plugin. It talks to the Better Auth endpoints mounted on the Elysia server (`/api/auth/*`).
+**Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
 
@@ -113,11 +113,13 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 ## Auth
 
-`packages/auth/src/index.ts` exports `auth()` — the full Better Auth instance with emailOTP and the one-email allowlist hook. Mount it on the Elysia server via `.mount(auth().handler)`.
+`packages/auth/src/index.ts` exports `auth()` — the full Better Auth instance with Google as the sole social provider and the one-email allowlist hook. Mount it on the Elysia server via `.mount(auth().handler)`. Google is the only sign-in method; there is no email/OTP path.
 
-The allowlist rejects any signup where `user.email !== ALFRED_ALLOWED_EMAIL`. It throws, which Better Auth converts to a 422.
+The allowlist rejects any signup where `user.email !== ALFRED_ALLOWED_EMAIL`. It throws, which Better Auth converts to a 422. The hook runs for Google signups too — only the allowlisted Google account can sign in.
 
-`packages/auth/src/session.ts` exports `sessionAuth()` — a lightweight instance for session-only verification (no emailOTP plugin, no Resend dependency). Used by `session-cache.ts`.
+`packages/auth/src/session.ts` exports `sessionAuth()` — a lightweight instance for session-only verification (no social providers, no plugins). Used by `session-cache.ts`.
+
+**GCP setup:** `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are the same OAuth client used by the Gmail/Calendar integration flow at `/api/integrations/google/callback`. Better Auth derives its own callback URL: `${BETTER_AUTH_URL}/api/auth/callback/google`. Both URIs must be listed in the OAuth client's authorized redirect URIs in GCP Console.
 
 ## AI SDK
 

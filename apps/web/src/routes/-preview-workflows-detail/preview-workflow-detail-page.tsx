@@ -1,12 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import { MoreHorizontal, Play, Share2 } from "lucide-react";
 import { useState } from "react";
-import {
-  VsButton,
-  VsCard,
-  VsSegmented,
-  VsSwitch,
-} from "~/components/ui/visitors";
+import { VsButton, VsCard, VsSegmented, VsSwitch } from "~/components/ui/visitors";
 import { getWorkflow } from "~/lib/workflows";
 import { cn } from "~/lib/utils";
 import { ApprovalsTab } from "./approvals-tab";
@@ -28,7 +23,7 @@ const SHARE_LEADING = <Share2 size={14} />;
 const ACTIVATE_LEADING = <Play size={14} />;
 
 export function PreviewWorkflowDetailPage() {
-  const { workflow: workflowId } = useParams({ from: "/preview/workflows/$workflow" });
+  const { workflow: workflowId } = useParams({ from: "/workflows/$workflow" });
   const workflow = getWorkflow(workflowId);
   const [tab, setTab] = useState<WorkflowTab>("plan");
   const [shareOpen, setShareOpen] = useState(false);
@@ -57,9 +52,7 @@ export function PreviewWorkflowDetailPage() {
           <h1 className="text-[32px] leading-[38px] font-medium tracking-tight text-vs-fg-4">
             {workflow.name}
           </h1>
-          <p className="mt-1 max-w-xl text-sm leading-5 text-vs-fg-3">
-            {workflow.description}
-          </p>
+          <p className="mt-1 max-w-xl text-sm leading-5 text-vs-fg-3">{workflow.description}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <VsButton variant="ghost" size="md" aria-label="More workflow actions">
@@ -106,11 +99,7 @@ export function PreviewWorkflowDetailPage() {
       {tab === "history" ? <HistoryTab workflow={workflow} /> : null}
       {tab === "approvals" ? <ApprovalsTab workflow={workflow} /> : null}
 
-      <ShareDialog
-        workflow={workflow}
-        open={shareOpen}
-        onClose={() => setShareOpen(false)}
-      />
+      <ShareDialog workflow={workflow} open={shareOpen} onClose={() => setShareOpen(false)} />
     </DetailShell>
   );
 }

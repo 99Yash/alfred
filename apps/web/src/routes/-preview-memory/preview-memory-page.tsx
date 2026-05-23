@@ -145,7 +145,9 @@ export function PreviewMemoryPage() {
               title="Confirmed"
               count={confirmed.length}
               hint={
-                confirmed.length === 0 ? undefined : "Acts as background context on every Alfred run."
+                confirmed.length === 0
+                  ? undefined
+                  : "Acts as background context on every Alfred run."
               }
             />
             {confirmed.length === 0 ? (

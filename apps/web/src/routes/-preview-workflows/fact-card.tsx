@@ -18,7 +18,10 @@ export function FactCard({
         className,
       )}
     >
-      <span className={cn("block h-1.5 w-[70%] rounded-full", highlight ? accent : "bg-vs-fg-2/40")} style={highlight ? { backgroundColor: "currentColor" } : undefined} />
+      <span
+        className={cn("block h-1.5 w-[70%] rounded-full", highlight ? accent : "bg-vs-fg-2/40")}
+        style={highlight ? { backgroundColor: "currentColor" } : undefined}
+      />
       <span className="block h-1 w-[40%] rounded-full bg-vs-fg-2/25" />
     </div>
   );

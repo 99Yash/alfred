@@ -2,7 +2,13 @@ import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons
 import { cn } from "~/lib/utils";
 import { MONOCHROME_BRANDS } from "./helpers";
 
-export function ProviderTile({ brand, connected }: { brand: IntegrationBrand; connected: boolean }) {
+export function ProviderTile({
+  brand,
+  connected,
+}: {
+  brand: IntegrationBrand;
+  connected: boolean;
+}) {
   const isMono = MONOCHROME_BRANDS.has(brand);
   return (
     <span
@@ -13,7 +19,11 @@ export function ProviderTile({ brand, connected }: { brand: IntegrationBrand; co
         isMono && "text-vs-fg-4",
       )}
     >
-      <IntegrationGlyph brand={brand} size={22} colorOverride={isMono ? "var(--vs-fg-4)" : undefined} />
+      <IntegrationGlyph
+        brand={brand}
+        size={22}
+        colorOverride={isMono ? "var(--vs-fg-4)" : undefined}
+      />
       {connected ? (
         <span
           className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-vs-green-4 ring-2 ring-vs-background"

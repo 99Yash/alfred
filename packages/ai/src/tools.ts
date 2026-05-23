@@ -9,10 +9,4 @@
  * `AlfredAgent` (durable per-turn) from this package.
  */
 export { stepCountIs, tool } from "ai";
-export type {
-  LanguageModel,
-  ModelMessage,
-  Tool,
-  ToolSet,
-  TypedToolCall,
-} from "ai";
+export type { LanguageModel, ModelMessage, Tool, ToolSet, TypedToolCall } from "ai";

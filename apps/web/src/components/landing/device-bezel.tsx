@@ -14,13 +14,7 @@ import { cn } from "~/lib/utils";
  * Pass any mockup as children — the inner panel sets `overflow-hidden` so
  * rounded children clip cleanly to the bezel.
  */
-export function DeviceBezel({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DeviceBezel({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(

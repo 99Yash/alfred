@@ -18,9 +18,18 @@ export function EmailRow({
         className,
       )}
     >
-      <span className={cn("size-1.5 rounded-full", highlight ? accent : "bg-vs-fg-2")} aria-hidden style={highlight ? { backgroundColor: "currentColor" } : undefined} />
+      <span
+        className={cn("size-1.5 rounded-full", highlight ? accent : "bg-vs-fg-2")}
+        aria-hidden
+        style={highlight ? { backgroundColor: "currentColor" } : undefined}
+      />
       <span className="flex-1">
-        <span className={cn("block h-1.5 w-[60%] rounded-full", highlight ? "bg-vs-fg-3" : "bg-vs-fg-2/40")} />
+        <span
+          className={cn(
+            "block h-1.5 w-[60%] rounded-full",
+            highlight ? "bg-vs-fg-3" : "bg-vs-fg-2/40",
+          )}
+        />
         <span className="block h-1 w-[40%] rounded-full bg-vs-fg-2/25 mt-1" />
       </span>
     </div>

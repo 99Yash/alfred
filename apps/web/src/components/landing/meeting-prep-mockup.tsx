@@ -80,15 +80,11 @@ function GuestSpotlight() {
           "shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_6px_18px_-8px_rgba(0,0,0,0.45)]",
         )}
       >
-        <span className="text-[20px] font-semibold leading-none text-white">
-          A
-        </span>
+        <span className="text-[20px] font-semibold leading-none text-white">A</span>
       </span>
       <div className="min-w-0">
         <p className="flex items-baseline gap-2">
-          <span className="text-[17px] font-semibold leading-tight text-white">
-            Anika Sharma
-          </span>
+          <span className="text-[17px] font-semibold leading-tight text-white">Anika Sharma</span>
           <span className="text-[12.5px] font-medium uppercase tracking-[0.14em] text-white/55">
             Design Lead
           </span>

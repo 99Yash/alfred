@@ -83,10 +83,9 @@ export function HeroShowcase({ className }: { className?: string }) {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setIsOffScreen(!entry?.isIntersecting),
-      { threshold: 0.2 },
-    );
+    const obs = new IntersectionObserver(([entry]) => setIsOffScreen(!entry?.isIntersecting), {
+      threshold: 0.2,
+    });
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
@@ -108,9 +107,7 @@ export function HeroShowcase({ className }: { className?: string }) {
             <div className="relative grid">
               {TAB_VALUES.map((value) => (
                 <Slot key={value} active={tab === value}>
-                  {value === "briefing" && (
-                    <MorningBriefingPanel className="rounded-none ring-0" />
-                  )}
+                  {value === "briefing" && <MorningBriefingPanel className="rounded-none ring-0" />}
                   {value === "inbox" && <InboxMockup />}
                   {value === "meetings" && <MeetingPrepMockup />}
                 </Slot>
@@ -136,17 +133,13 @@ function Slot({ active, children }: { active: boolean; children: ReactNode }) {
       aria-hidden={!active}
       className={cn(
         "[grid-area:1/1] transition-[opacity,transform,filter] duration-500 ease-out",
-        active
-          ? "opacity-100 z-10"
-          : "opacity-0 pointer-events-none blur-[2px]",
+        active ? "opacity-100 z-10" : "opacity-0 pointer-events-none blur-[2px]",
       )}
       // Inline transform so Tailwind v4's transform-variable composition
       // doesn't fight with the `transition-all` shorthand. Outgoing mockup
       // lifts 10px while scaling down a touch; active sits at rest.
       style={{
-        transform: active
-          ? "translateY(0) scale(1)"
-          : "translateY(10px) scale(0.985)",
+        transform: active ? "translateY(0) scale(1)" : "translateY(10px) scale(0.985)",
       }}
     >
       {children}

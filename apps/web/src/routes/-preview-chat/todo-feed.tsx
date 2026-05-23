@@ -1,21 +1,36 @@
 import { Calendar, Check, Mail } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { TODOS, type TodoItem } from "./helpers";
+import type { TodoItem } from "./helpers";
 import { RailAddRow } from "./rail-add-row";
 import { RailSection } from "./rail-section";
 import { SuggestionRow } from "./suggestion-row";
 
-export function TodoFeed() {
-  const open = TODOS.filter((t) => !t.done);
-  const done = TODOS.filter((t) => t.done);
+export interface SuggestionInput {
+  label: string;
+  detail: string;
+}
+
+export function TodoFeed({
+  items,
+  suggestions = [],
+}: {
+  items: ReadonlyArray<TodoItem>;
+  suggestions?: ReadonlyArray<SuggestionInput>;
+}) {
+  const open = items.filter((t) => !t.done);
+  const done = items.filter((t) => t.done);
 
   return (
     <div className="vs-card-in space-y-4 px-1 pt-1">
-      <ul className="space-y-0.5">
-        {open.map((todo) => (
-          <TodoRow key={todo.id} todo={todo} />
-        ))}
-      </ul>
+      {open.length ? (
+        <ul className="space-y-0.5">
+          {open.map((todo) => (
+            <TodoRow key={todo.id} todo={todo} />
+          ))}
+        </ul>
+      ) : (
+        <EmptyHint>Nothing on your list yet. Add one below or let Alfred surface tasks from your inbox.</EmptyHint>
+      )}
 
       <RailAddRow placeholder="Add a to-do…" />
 
@@ -32,17 +47,20 @@ export function TodoFeed() {
         </div>
       ) : null}
 
-      <RailSection title="Suggestions">
-        <SuggestionRow
-          label="Draft reply to Sycamore"
-          detail="Pull last 3 sends · summarize asks"
-        />
-        <SuggestionRow
-          label="Tag newsletters as Later"
-          detail="12 threads from this morning"
-        />
-      </RailSection>
+      {suggestions.length ? (
+        <RailSection title="Suggestions">
+          {suggestions.map((s) => (
+            <SuggestionRow key={s.label} label={s.label} detail={s.detail} />
+          ))}
+        </RailSection>
+      ) : null}
     </div>
+  );
+}
+
+function EmptyHint({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-2 py-3 text-[12px] leading-5 text-vs-fg-2">{children}</p>
   );
 }
 

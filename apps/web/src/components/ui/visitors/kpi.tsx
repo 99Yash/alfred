@@ -43,12 +43,23 @@ const DELTA: Record<NonNullable<VsKpiProps["deltaTone"]>, string> = {
   neutral: "text-vs-fg-2",
 };
 
-export function VsKpi({ label, value, dot, delta, deltaTone = "green", className, ref, ...rest }: VsKpiProps) {
+export function VsKpi({
+  label,
+  value,
+  dot,
+  delta,
+  deltaTone = "green",
+  className,
+  ref,
+  ...rest
+}: VsKpiProps) {
   return (
     <div ref={ref} className={cn("flex flex-col gap-0.5", className)} {...rest}>
       <div className="flex items-center gap-1.5 text-xs text-vs-fg-2 font-medium">
         <span>{label}</span>
-        {dot ? <span className={cn("inline-block size-1.5 rounded-full", DOT_BG[dot])} aria-hidden /> : null}
+        {dot ? (
+          <span className={cn("inline-block size-1.5 rounded-full", DOT_BG[dot])} aria-hidden />
+        ) : null}
       </div>
       <div className="text-sm/4 font-medium text-vs-fg-4 tabular-nums">{value}</div>
       {delta ? (

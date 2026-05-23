@@ -1,13 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-export function Kbd({
-  children,
-  inline,
-}: {
-  children: ReactNode;
-  inline?: boolean;
-}) {
+export function Kbd({ children, inline }: { children: ReactNode; inline?: boolean }) {
   return (
     <kbd
       className={cn(

@@ -14,8 +14,7 @@ const WHEN_TABS = [
 ];
 
 export function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
-  const initialMode: WhenMode =
-    workflow.trigger.type === "Schedule" ? "schedule" : "triggers";
+  const initialMode: WhenMode = workflow.trigger.type === "Schedule" ? "schedule" : "triggers";
   const [mode, setMode] = useState<WhenMode>(initialMode);
 
   return (
@@ -39,10 +38,7 @@ export function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
       </VsCard>
 
       <VsCard>
-        <label
-          className="text-sm font-medium text-vs-fg-4"
-          htmlFor="vs-workflow-prompt"
-        >
+        <label className="text-sm font-medium text-vs-fg-4" htmlFor="vs-workflow-prompt">
           Prompt
         </label>
         <VsTextarea
@@ -60,12 +56,10 @@ export function PlanTab({ workflow }: { workflow: WorkflowDefinition }) {
             <Link2 size={16} />
           </WorkflowIcon>
           <div>
-            <p className="text-sm font-medium text-vs-fg-4">
-              Using Integrations
-            </p>
+            <p className="text-sm font-medium text-vs-fg-4">Using Integrations</p>
             <p className="mt-1 text-xs leading-5 text-vs-fg-3">
-              {workflow.integrations.join(", ")}. You can mention integrations
-              using @ in the prompt when editing custom workflows.
+              {workflow.integrations.join(", ")}. You can mention integrations using @ in the prompt
+              when editing custom workflows.
             </p>
           </div>
         </div>

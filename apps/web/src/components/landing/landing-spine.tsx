@@ -53,13 +53,7 @@ export function LandingSpine() {
  *
  * Children render to the right of the marker (the section eyebrow text).
  */
-export function SpineMarker({
-  index,
-  children,
-}: {
-  index: number;
-  children?: ReactNode;
-}) {
+export function SpineMarker({ index, children }: { index: number; children?: ReactNode }) {
   return (
     <div
       className={cn(
@@ -105,8 +99,7 @@ function useWindowScrollProgress(): number {
   useEffect(() => {
     const tick = () => {
       rafRef.current = null;
-      const max =
-        (document.documentElement.scrollHeight || 0) - window.innerHeight;
+      const max = (document.documentElement.scrollHeight || 0) - window.innerHeight;
       if (max <= 0) {
         setProgress(0);
         return;

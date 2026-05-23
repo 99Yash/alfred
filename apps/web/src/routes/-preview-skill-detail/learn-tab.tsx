@@ -7,13 +7,7 @@ import { EmptyMemoryCard } from "./empty-memory-card";
 import { Kbd } from "./kbd";
 import { MemoryCard } from "./memory-card";
 
-export function LearnTab({
-  skill,
-  initialPrompt,
-}: {
-  skill: PreviewSkill;
-  initialPrompt: string;
-}) {
+export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initialPrompt: string }) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [learning, setLearning] = useState(false);
 

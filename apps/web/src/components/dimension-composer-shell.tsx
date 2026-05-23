@@ -1,12 +1,7 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { ArrowUp, Check, ChevronDown, Ellipsis, Sparkles } from "lucide-react";
-import type {
-  ButtonHTMLAttributes,
-  FormEventHandler,
-  ReactNode,
-  Ref,
-} from "react";
+import type { ButtonHTMLAttributes, FormEventHandler, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export type DimensionComposerMenuItem = {

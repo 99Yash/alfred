@@ -7,8 +7,16 @@ export function TriageHero({ accent }: { accent: string }) {
         {[
           { label: "Inbox", tone: "bg-vs-bg-2 text-vs-fg-3" },
           { label: "Action", tone: cn("bg-vs-bg-1", accent), classNames: "vs-stack vs-stack-mid" },
-          { label: "Newsletter", tone: "bg-vs-bg-2 text-vs-fg-3", classNames: "vs-stack vs-stack-back" },
-          { label: "Receipt", tone: "bg-vs-bg-2 text-vs-fg-3", classNames: "vs-stack vs-stack-front" },
+          {
+            label: "Newsletter",
+            tone: "bg-vs-bg-2 text-vs-fg-3",
+            classNames: "vs-stack vs-stack-back",
+          },
+          {
+            label: "Receipt",
+            tone: "bg-vs-bg-2 text-vs-fg-3",
+            classNames: "vs-stack vs-stack-front",
+          },
         ].map((chip, i) => (
           <span
             key={chip.label}

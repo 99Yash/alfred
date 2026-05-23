@@ -53,8 +53,7 @@ export function PreviewApprovalsPage() {
     [approvals],
   );
 
-  const removeApproval = (id: string) =>
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
+  const removeApproval = (id: string) => setApprovals((prev) => prev.filter((a) => a.id !== id));
 
   return (
     <ApprovalsShell count={sorted.length}>

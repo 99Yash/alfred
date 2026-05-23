@@ -38,11 +38,7 @@ export function LandingPage({
       <div className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
         <LandingSpine />
 
-        <Hero
-          onGetStarted={goToLogin}
-          healthOk={healthOk}
-          healthLoading={healthLoading}
-        />
+        <Hero onGetStarted={goToLogin} healthOk={healthOk} healthLoading={healthLoading} />
 
         <FadeInOnScroll className="mt-32 sm:mt-44">
           <div id="benefits">
@@ -103,10 +99,7 @@ function Hero({
     <section className="relative space-y-5 pt-32 text-center lg:pt-44">
       <FadeInOnScroll>
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <EyebrowChip
-            icon={<Sparkles className="size-3.5" strokeWidth={2} />}
-            accent="indigo"
-          >
+          <EyebrowChip icon={<Sparkles className="size-3.5" strokeWidth={2} />} accent="indigo">
             Personal AI assistant
           </EyebrowChip>
           <EyebrowChip
@@ -115,23 +108,13 @@ function Hero({
                 aria-hidden
                 className={cn(
                   "size-1.5 rounded-full",
-                  healthLoading
-                    ? "bg-neutral-400"
-                    : healthOk
-                      ? "bg-emerald-400"
-                      : "bg-amber-400",
+                  healthLoading ? "bg-neutral-400" : healthOk ? "bg-emerald-400" : "bg-amber-400",
                 )}
               />
             }
-            accent={
-              healthLoading ? "neutral" : healthOk ? "emerald" : "amber"
-            }
+            accent={healthLoading ? "neutral" : healthOk ? "emerald" : "amber"}
           >
-            {healthLoading
-              ? "Checking server…"
-              : healthOk
-                ? "Server online"
-                : "Server unreachable"}
+            {healthLoading ? "Checking server…" : healthOk ? "Server online" : "Server unreachable"}
           </EyebrowChip>
         </div>
       </FadeInOnScroll>
@@ -149,9 +132,8 @@ function Hero({
 
       <FadeInOnScroll delay={140}>
         <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
-          Alfred connects to your email, calendar, and tools to triage your
-          inbox, brief you each morning, and prepare you for every meeting —
-          quietly, in the background.
+          Alfred connects to your email, calendar, and tools to triage your inbox, brief you each
+          morning, and prepare you for every meeting — quietly, in the background.
         </p>
       </FadeInOnScroll>
 

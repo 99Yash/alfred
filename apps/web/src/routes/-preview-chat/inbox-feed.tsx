@@ -1,8 +1,18 @@
 import { cn } from "~/lib/utils";
-import { INBOX, TOOL_TONE, type InboxItem } from "./helpers";
+import { TOOL_TONE, type InboxItem } from "./helpers";
 
-export function InboxFeed() {
-  const unread = INBOX.filter((i) => i.unread).length;
+export function InboxFeed({ items }: { items: ReadonlyArray<InboxItem> }) {
+  if (!items.length) {
+    return (
+      <div className="vs-card-in px-2 py-4">
+        <p className="text-[12px] leading-5 text-vs-fg-2">
+          Connect Gmail to see your latest unread threads here.
+        </p>
+      </div>
+    );
+  }
+
+  const unread = items.filter((i) => i.unread).length;
   return (
     <div className="vs-card-in space-y-2">
       <div className="px-1 flex items-center justify-between">
@@ -17,7 +27,7 @@ export function InboxFeed() {
         </button>
       </div>
       <ul className="space-y-0.5">
-        {INBOX.map((item) => (
+        {items.map((item) => (
           <InboxRow key={item.id} item={item} />
         ))}
       </ul>
@@ -72,9 +82,7 @@ function InboxRow({ item }: { item: InboxItem }) {
           >
             {item.subject}
           </span>
-          <span className="block truncate text-[11px] leading-4 text-vs-fg-2">
-            {item.preview}
-          </span>
+          <span className="block truncate text-[11px] leading-4 text-vs-fg-2">{item.preview}</span>
         </span>
       </button>
     </li>

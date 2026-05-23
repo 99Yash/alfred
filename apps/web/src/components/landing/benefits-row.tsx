@@ -34,12 +34,7 @@ const BENEFITS: ReadonlyArray<Benefit> = [
  */
 export function BenefitsRow({ className }: { className?: string }) {
   return (
-    <section
-      className={cn(
-        "relative mx-auto w-full max-w-4xl",
-        className,
-      )}
-    >
+    <section className={cn("relative mx-auto w-full max-w-4xl", className)}>
       <ul className="grid grid-cols-1 gap-10 sm:grid-cols-3 sm:gap-6">
         {BENEFITS.map((b, idx) => (
           <FadeInOnScroll key={b.lead} delay={idx * 80} as="li">

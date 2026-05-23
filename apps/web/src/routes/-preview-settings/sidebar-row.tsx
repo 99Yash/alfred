@@ -22,9 +22,7 @@ export function SidebarRow({
         "transition-[background-color,color] duration-150",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
         "vs-press",
-        active
-          ? "bg-vs-bg-2 text-vs-fg-4"
-          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+        active ? "bg-vs-bg-2 text-vs-fg-4" : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
       )}
     >
       <Icon

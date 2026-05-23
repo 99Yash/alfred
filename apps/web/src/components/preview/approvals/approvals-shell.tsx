@@ -16,9 +16,7 @@ export function ApprovalsShell({ count, children }: { count: number; children: R
             <h1 className="text-[36px] leading-[42px] font-medium tracking-tight text-vs-fg-4">
               Approvals
             </h1>
-            <p className="mt-2 text-sm text-vs-fg-3">
-              Gated workflow actions waiting for review.
-            </p>
+            <p className="mt-2 text-sm text-vs-fg-3">Gated workflow actions waiting for review.</p>
           </div>
           <VsPill tone={count > 0 ? "amber" : undefined}>{count} pending</VsPill>
         </header>

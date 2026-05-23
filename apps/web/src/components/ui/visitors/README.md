@@ -21,16 +21,16 @@ Everything outside a `.vs` ancestor is unaffected.
 
 ## Primitives
 
-| Primitive       | What it is                                                                                          |
-| --------------- | --------------------------------------------------------------------------------------------------- |
-| `VsButton`      | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.   |
-| `VsCard`        | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props. |
-| `VsCardHeader`  | Title-left, trailing-right row. Used as the first child of a `VsCard`.                              |
-| `VsPill`        | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                |
-| `VsKpi`         | Label / value / delta stack. No card chrome.                                                        |
-| `VsDock`        | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                  |
-| `VsHeader`      | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                       |
-| `VsInput`       | Pill input. `readOnly` flips to the muted `bg-vs-bg-2` token-display variant.                       |
+| Primitive      | What it is                                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------------- |
+| `VsButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.   |
+| `VsCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props. |
+| `VsCardHeader` | Title-left, trailing-right row. Used as the first child of a `VsCard`.                              |
+| `VsPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                |
+| `VsKpi`        | Label / value / delta stack. No card chrome.                                                        |
+| `VsDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                  |
+| `VsHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                       |
+| `VsInput`      | Pill input. `readOnly` flips to the muted `bg-vs-bg-2` token-display variant.                       |
 
 ## Tokens
 
@@ -52,12 +52,12 @@ rounded-vs-{1..6}      0.125rem → 1rem radius scale
 
 ## Utilities
 
-| Class             | What it does                                                                       |
-| ----------------- | ---------------------------------------------------------------------------------- |
-| `.vs`             | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.              |
-| `.vs-elevated`    | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                     |
-| `.vs-frost-header`| Masked backdrop-blur for fixed headers — fades to no-blur at the very top.         |
-| `.vs-press`       | `active:scale(0.99)` press microinteraction. Used on every interactive primitive.  |
+| Class              | What it does                                                                      |
+| ------------------ | --------------------------------------------------------------------------------- |
+| `.vs`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.            |
+| `.vs-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                    |
+| `.vs-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.        |
+| `.vs-press`        | `active:scale(0.99)` press microinteraction. Used on every interactive primitive. |
 
 ## Preview
 

@@ -20,7 +20,9 @@ export function ThreadTopBar({
       )}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <h1 className="text-sm font-medium tracking-tight text-vs-fg-4 truncate max-w-[42ch]">{title}</h1>
+        <h1 className="text-sm font-medium tracking-tight text-vs-fg-4 truncate max-w-[42ch]">
+          {title}
+        </h1>
         <VsPill className="h-7 px-2 text-[12px]" tone="purple" variant="accent">
           Boss agent
         </VsPill>
