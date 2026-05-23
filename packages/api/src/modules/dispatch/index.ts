@@ -33,7 +33,7 @@
  */
 
 import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
-import { hashToolInput, integrationFromToolName } from "@alfred/contracts";
+import { hashToolInput, integrationFromToolName, isToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -49,7 +49,7 @@ export interface DispatchArgs {
   stepId: string;
   /** Stable id from the model's tool call (deduplicates same call across step re-attempts). */
   toolCallId: string;
-  toolName: ToolName;
+  toolName: string;
   input: unknown;
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
@@ -76,7 +76,7 @@ interface InvalidInputToolResult {
 
 interface UnknownToolResult {
   status: "unknown_tool";
-  toolName: ToolName;
+  toolName: string;
   message: string;
 }
 
@@ -146,14 +146,26 @@ const STAGING_COLUMNS = {
 } as const;
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
-  const tool = getTool(args.toolName);
-  if (!tool) {
+  if (!isToolName(args.toolName)) {
     return {
       kind: "unknown_tool",
       result: {
         status: "unknown_tool",
         toolName: args.toolName,
-        message: `Tool '${args.toolName}' is not registered`,
+        message: `Tool '${args.toolName}' is not declared`,
+      },
+    };
+  }
+
+  const toolName = args.toolName;
+  const tool = getTool(toolName);
+  if (!tool) {
+    return {
+      kind: "unknown_tool",
+      result: {
+        status: "unknown_tool",
+        toolName,
+        message: `Tool '${toolName}' is not registered`,
       },
     };
   }
@@ -164,14 +176,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       kind: "invalid_input",
       result: {
         status: "invalid_input",
-        toolName: args.toolName,
+        toolName,
         message: parsed.error.message,
         issues: parsed.error.issues,
       },
     };
   }
   const input = parsed.data as unknown;
-  const proposedInputHash = hashToolInput(args.toolName, input);
+  const proposedInputHash = hashToolInput(toolName, input);
 
   // Retry suppression — Phase 3c. A prior `rejected` row for this run +
   // tool + input hash means the user has already said no to this exact
@@ -187,7 +199,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     .where(
       and(
         eq(actionStagings.runId, args.runId),
-        eq(actionStagings.toolName, args.toolName),
+        eq(actionStagings.toolName, toolName),
         eq(actionStagings.proposedInputHash, proposedInputHash),
         eq(actionStagings.status, "rejected"),
       ),
@@ -200,17 +212,17 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       kind: "rejected",
       stagingId: null,
       result: synthesizeRejection({
-        toolName: args.toolName,
+        toolName,
         proposedInput: input,
         reason: priorReject[0].reason ?? "rejected by user",
       }),
     };
   }
 
-  const integration: IntegrationSlug = integrationFromToolName(args.toolName);
+  const integration: IntegrationSlug = integrationFromToolName(toolName);
   const riskTier: ToolRiskTier = tool.riskTier;
   const policyMode =
-    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, args.toolName);
+    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = policyMode === "gated";
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
@@ -228,7 +240,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       runId: args.runId,
       stepId: args.stepId,
       toolCallId: args.toolCallId,
-      toolName: args.toolName,
+      toolName,
       integration,
       riskTier,
       proposedInput: input as object,
@@ -265,9 +277,9 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     // dispatcher policy decision. Fail loud rather than silently
     // executing the new tool while updating the original row's audit
     // trail.
-    if (row.toolName !== args.toolName) {
+    if (row.toolName !== toolName) {
       throw new Error(
-        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${args.toolName}')`,
+        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
       );
     }
   }
@@ -315,7 +327,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
             kind: "hil",
             approvalId: row.id,
             approvalKind: "action_staging",
-            prompt: `Approve ${args.toolName}`,
+            prompt: `Approve ${toolName}`,
           },
         };
       }
@@ -363,7 +375,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
-          toolName: args.toolName,
+          toolName,
           proposedInput: input,
           reason: row.rejectReason ?? "rejected by user",
         }),
@@ -374,7 +386,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
-          toolName: args.toolName,
+          toolName,
           proposedInput: input,
           reason: "auto-expired",
         }),
