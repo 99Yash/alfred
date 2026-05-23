@@ -1369,6 +1369,7 @@ function ComposerDock({ value, onChange }: { value: string; onChange: (v: string
       <div className="mx-auto w-full max-w-3xl px-6">
         <div className={cn("rounded-3xl bg-vs-bg-1 p-2 vs-elevated")}>
           <textarea
+            aria-label="Ask Alfred"
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Ask Alfred…"

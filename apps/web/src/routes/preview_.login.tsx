@@ -204,6 +204,7 @@ function AuthPanel() {
             <Field icon={<Mail size={15} />}>
               <input
                 ref={emailRef}
+                aria-label="Email address"
                 type="email"
                 value={email}
                 inputMode="email"
@@ -218,6 +219,7 @@ function AuthPanel() {
             <Field icon={<KeyRound size={15} />}>
               <input
                 ref={otpRef}
+                aria-label="One-time code"
                 type="text"
                 value={otp}
                 inputMode="numeric"
