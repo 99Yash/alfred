@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { userPreferences } from "@alfred/db/schemas";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { type MemorySource, memorySourceSchema } from "./types";
+import { type MemorySource, memorySourceSchema, parseMemorySourceOrDefault } from "./types";
 
 export const setPreferenceArgsSchema = z.object({
   userId: z.string().min(1),
@@ -28,7 +28,7 @@ function rowToPref(r: typeof userPreferences.$inferSelect): PreferenceRow {
     userId: r.userId,
     key: r.key,
     value: r.value,
-    source: memorySourceSchema.parse(r.source),
+    source: parseMemorySourceOrDefault(r.source, { kind: "user" }, `user_preferences:${r.id}`),
     rowVersion: r.rowVersion,
   };
 }

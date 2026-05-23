@@ -10,6 +10,7 @@ import {
   type MemorySource,
   memoryChunkKindSchema,
   memorySourceSchema,
+  parseMemorySourceOrDefault,
 } from "./types";
 
 export const writeMemoryChunkArgsSchema = z.object({
@@ -41,7 +42,7 @@ function rowToChunk(
     kind: memoryChunkKindSchema.parse(r.kind),
     content: r.content,
     contentHash: r.contentHash,
-    source: memorySourceSchema.parse(r.source),
+    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.id}`),
     metadata: jsonRecordSchema.parse(r.metadata),
     hasEmbedding: r.embedding != null,
   };
@@ -187,6 +188,6 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
       kind: memoryChunkKindSchema.parse(r.kind),
       preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
       similarity: 1 - Number(r.distance),
-      source: memorySourceSchema.parse(r.source),
+      source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.chunkId}`),
     }));
 }
