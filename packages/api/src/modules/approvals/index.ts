@@ -4,5 +4,9 @@ export {
   closeApprovalNotificationQueue,
   getApprovalNotificationQueue,
   removeApprovalNotificationJob,
+  scheduleApprovalNotificationJob,
+  startApprovalNotificationWorker,
+  stopApprovalNotificationWorker,
   type ApprovalNotificationJobData,
+  type StartApprovalNotificationWorkerOpts,
 } from "./notification-queue";
