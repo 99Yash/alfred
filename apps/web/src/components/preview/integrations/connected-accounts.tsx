@@ -54,7 +54,7 @@ export function ConnectedAccounts({
             </div>
           </div>
         ) : (
-          <div className="px-4 py-4 text-[12.5px] text-vs-fg-2">No account connected yet.</div>
+          <div className="p-4 text-[12.5px] text-vs-fg-2">No account connected yet.</div>
         )}
       </VsCard>
     </section>
