@@ -1,12 +1,32 @@
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 import { z } from "zod";
+import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { liveTool, type RegisteredTool } from "./registry";
+import { parseScratchToolKey } from "./scratch-key";
 
 const loadIntegrationInput = z
   .object({
     slug: z.enum(INTEGRATION_SLUGS).refine((slug) => slug !== "system", {
       message: "system is always loaded and cannot be loaded as an integration",
     }),
+  })
+  .strict();
+
+const scratchKey = z.string().min(1).max(240);
+
+const readScratchInput = z.object({ key: scratchKey }).strict();
+
+const writeScratchInput = z
+  .object({
+    key: scratchKey,
+    value: z.unknown(),
+  })
+  .strict();
+
+const promoteScratchInput = z
+  .object({
+    fromKey: scratchKey,
+    toKey: scratchKey,
   })
   .strict();
 
@@ -30,6 +50,81 @@ export const systemTools: readonly RegisteredTool[] = [
       }
 
       return { ok: true, slug: input.slug };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "read_scratch",
+    riskTier: "no_risk",
+    description: "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    inputSchema: readScratchInput,
+    execute: async (input, ctx) => {
+      const target = parseScratchToolKey(input.key);
+      const entry =
+        target.zone === "shared"
+          ? await readScratch({ runId: ctx.runId, zone: "shared", path: target.path })
+          : await readScratch({
+              runId: ctx.runId,
+              zone: "scratch",
+              subId: target.subId,
+              path: target.path,
+            });
+
+      if (!entry) return { ok: true, key: input.key, found: false };
+      return { ok: true, key: input.key, found: true, entry };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "write_scratch",
+    riskTier: "no_risk",
+    description: "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    inputSchema: writeScratchInput,
+    execute: async (input, ctx) => {
+      const target = parseScratchToolKey(input.key);
+      const writtenBy = ctx.caller === "boss" ? "boss" : ctx.caller.subId;
+      if (target.zone === "shared") {
+        await writeScratch({
+          runId: ctx.runId,
+          zone: "shared",
+          path: target.path,
+          value: input.value,
+          writtenBy,
+        });
+      } else {
+        await writeScratch({
+          runId: ctx.runId,
+          zone: "scratch",
+          subId: target.subId,
+          path: target.path,
+          value: input.value,
+          writtenBy,
+        });
+      }
+      return { ok: true, key: input.key, writtenBy };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "promote",
+    riskTier: "no_risk",
+    description: "Copy a sub-agent scratch value into the boss-owned shared scratchpad.",
+    inputSchema: promoteScratchInput,
+    execute: async (input, ctx) => {
+      const from = parseScratchToolKey(input.fromKey);
+      const to = parseScratchToolKey(input.toKey);
+      if (from.zone !== "scratch" || to.zone !== "shared") {
+        throw new Error("system.promote requires fromKey=scratch.<subId>.<path> and toKey=shared.<path>");
+      }
+
+      const entry = await promoteScratch({
+        runId: ctx.runId,
+        fromSubId: from.subId,
+        fromPath: from.path,
+        toSharedPath: to.path,
+      });
+      if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
+      return { ok: true, promoted: true, fromKey: input.fromKey, toKey: input.toKey, entry };
     },
   }),
 ];
