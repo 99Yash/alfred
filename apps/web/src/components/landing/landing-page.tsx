@@ -111,9 +111,21 @@ function Hero({
           </EyebrowChip>
           <EyebrowChip
             icon={
-              <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+              <span
+                aria-hidden
+                className={cn(
+                  "size-1.5 rounded-full",
+                  healthLoading
+                    ? "bg-neutral-400"
+                    : healthOk
+                      ? "bg-emerald-400"
+                      : "bg-amber-400",
+                )}
+              />
             }
-            accent="emerald"
+            accent={
+              healthLoading ? "neutral" : healthOk ? "emerald" : "amber"
+            }
           >
             {healthLoading
               ? "Checking server…"
@@ -176,7 +188,7 @@ function EyebrowChip({
 }: {
   children: ReactNode;
   icon?: ReactNode;
-  accent?: "neutral" | "emerald" | "indigo";
+  accent?: "neutral" | "emerald" | "indigo" | "amber";
 }) {
   return (
     <span
@@ -186,6 +198,7 @@ function EyebrowChip({
         "border",
         accent === "emerald" && "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-300",
         accent === "indigo" && "border-indigo-400/25 bg-indigo-400/[0.07] text-indigo-200",
+        accent === "amber" && "border-amber-400/25 bg-amber-400/[0.07] text-amber-200",
         accent === "neutral" && "border-neutral-800 bg-neutral-900/60 text-neutral-300",
       )}
     >
