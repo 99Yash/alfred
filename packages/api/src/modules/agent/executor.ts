@@ -1,9 +1,9 @@
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
+import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { requireWorkflow } from "./registry";
-import { STALE_RUN_LEASE_MS } from "./service";
+import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
 import {
   isTerminalStatus,
   type RunStatus,
@@ -33,6 +33,7 @@ interface RunRow {
   workflowSlug: string;
   status: string;
   state: unknown;
+  transcript: AgentTranscriptMessage[];
   currentStep: string;
   attempt: number;
   metadata: unknown;
@@ -63,7 +64,12 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   let workflow: Workflow<unknown>;
   let step: Step<unknown>;
   try {
-    workflow = requireWorkflow(run.workflowSlug);
+    workflow = (
+      await resolveWorkflowForRun({
+        userId: run.userId,
+        workflowSlug: run.workflowSlug,
+      })
+    ).workflow;
     step = requireStep(workflow, stepId);
   } catch (err) {
     const error = errorMessage(err);
@@ -94,6 +100,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
     idempotencyKey,
     attempt,
     state: run.state,
+    transcript: run.transcript,
     stageAction(action) {
       staged.push(action);
     },
@@ -123,7 +130,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
-             state, current_step AS "currentStep", attempt, metadata,
+             state, transcript, current_step AS "currentStep", attempt, metadata,
              EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs
       WHERE id = ${runId}
@@ -292,6 +299,7 @@ async function commitStepSuccess(
           status: "runnable",
           lastCheckpointAt: now,
           updatedAt: now,
+          ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
         })
         .where(eq(agentRuns.id, run.id));
 
@@ -314,6 +322,7 @@ async function commitStepSuccess(
           endedAt: now,
           lastCheckpointAt: now,
           updatedAt: now,
+          ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
         })
         .where(eq(agentRuns.id, run.id));
 
@@ -336,6 +345,7 @@ async function commitStepSuccess(
         attempt: attempt + 1, // next attempt of the same step on resume
         lastCheckpointAt: now,
         updatedAt: now,
+        ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
       })
       .where(eq(agentRuns.id, run.id));
 

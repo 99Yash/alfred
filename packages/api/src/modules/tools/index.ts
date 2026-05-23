@@ -10,6 +10,7 @@
 import { calendarTools } from "./calendar";
 import { gmailTools } from "./gmail";
 import { registerTools } from "./registry";
+import { systemTools } from "./system";
 
 export {
   liveTool,
@@ -24,6 +25,7 @@ export {
 } from "./registry";
 
 export function registerBuiltinTools(): void {
+  registerTools(systemTools);
   registerTools(gmailTools);
   registerTools(calendarTools);
 }
