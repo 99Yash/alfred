@@ -17,7 +17,7 @@
  *   3. Retry suppression: reject a gated call; re-dispatch the same
  *      tool_name + input under a NEW tool_call_id → synthesized
  *      `rejected_by_user` result, no second row, no second notify path.
- *   4. cancelRun: idempotent transitions (pending → cancelled → no-op).
+ *   4. cancelRun: idempotent transitions + pending approval cleanup.
  */
 
 import {
@@ -372,6 +372,34 @@ async function main(): Promise<void> {
 
   // ─── 4. cancelRun idempotency ────────────────────────────────────────
   const runId4 = await createSmokeRun(userId, "cancel-turn");
+  await db().insert(actionStagings).values([
+    {
+      userId,
+      runId: runId4,
+      stepId: "turn-1",
+      toolCallId: "tc_cancel_1",
+      toolName: "gmail.send_draft",
+      integration: "gmail",
+      riskTier: "high",
+      proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
+      proposedInputHash: "smoke-cancel-1",
+      requiresApproval: true,
+      status: "pending",
+    },
+    {
+      userId,
+      runId: runId4,
+      stepId: "turn-1",
+      toolCallId: "tc_cancel_2",
+      toolName: "gmail.send_draft",
+      integration: "gmail",
+      riskTier: "high",
+      proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
+      proposedInputHash: "smoke-cancel-2",
+      requiresApproval: true,
+      status: "pending",
+    },
+  ]);
   const first = await cancelRun({ runId: runId4, reason: "smoke" });
   assert(first === "cancelled", `cancelRun first call expected 'cancelled', got '${first}'`);
   const cancelledRow = (
@@ -382,6 +410,14 @@ async function main(): Promise<void> {
   assert(
     (cancelledRow.error as { reason: string } | null)?.reason === "smoke",
     "cancelled row should record the reason",
+  );
+  const cancelledStagings = await db()
+    .select()
+    .from(actionStagings)
+    .where(eq(actionStagings.runId, runId4));
+  assert(
+    cancelledStagings.every((row) => row.status === "rejected" && row.rejectReason === "smoke"),
+    "cancelRun should reject pending approval staging rows for the run",
   );
   const second = await cancelRun({ runId: runId4, reason: "smoke" });
   assert(second === "already_terminal", `cancelRun second call expected 'already_terminal', got '${second}'`);

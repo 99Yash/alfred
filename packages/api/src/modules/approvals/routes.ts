@@ -4,7 +4,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { cancelRunInTx, enqueueRun, signalRunInTx } from "../agent";
+import {
+  cancelRunInTx,
+  enqueueRun,
+  signalRunInTx,
+  type CancelOutcome,
+  type SignalOutcome,
+} from "../agent";
 import { removeApprovalNotificationJob } from "./notification-queue";
 
 type Decision = "approve" | "reject" | "cancel_run";
@@ -74,10 +80,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
                 approvalKind: "action_staging",
               },
             });
-            if (signalOutcome === "not_found") return { conflict: "Run not found" };
-            if (signalOutcome === "wake_mismatch") {
-              return { conflict: "Run is not waiting for this approval" };
-            }
+            const conflict = signalOutcomeConflict(signalOutcome);
+            if (conflict) return { conflict };
             await tx
               .update(actionStagings)
               .set({
@@ -101,8 +105,11 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
             const cancelOutcome = await cancelRunInTx(tx, {
               runId: row.runId,
               reason: "cancelled_by_user",
+              pendingApprovalRejectReason: reason,
             });
-            if (cancelOutcome === "not_found") return { conflict: "Run not found" };
+            const conflict = cancelOutcomeConflict(cancelOutcome);
+            if (conflict) return { conflict };
+            return { runId: row.runId, decision, status: "rejected", shouldEnqueue };
           } else {
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
@@ -112,10 +119,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
                 approvalKind: "action_staging",
               },
             });
-            if (signalOutcome === "not_found") return { conflict: "Run not found" };
-            if (signalOutcome === "wake_mismatch") {
-              return { conflict: "Run is not waiting for this approval" };
-            }
+            const conflict = signalOutcomeConflict(signalOutcome);
+            if (conflict) return { conflict };
             shouldEnqueue = signalOutcome === "woken";
           }
 
@@ -166,5 +171,18 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
 
 function parseDecision(value: string): Decision | null {
   if (value === "approve" || value === "reject" || value === "cancel_run") return value;
+  return null;
+}
+
+function signalOutcomeConflict(outcome: SignalOutcome): string | null {
+  if (outcome === "not_found") return "Run not found";
+  if (outcome === "wake_mismatch") return "Run is not waiting for this approval";
+  if (outcome === "already_terminal") return "Run has already finished";
+  return null;
+}
+
+function cancelOutcomeConflict(outcome: CancelOutcome): string | null {
+  if (outcome === "not_found") return "Run not found";
+  if (outcome === "already_terminal") return "Run has already finished";
   return null;
 }

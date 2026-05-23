@@ -41,6 +41,7 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./types";
+export type { CancelOutcome, CancelRunArgs, SignalArgs, SignalOutcome } from "./service";
 
 export const agent = new Elysia({ prefix: "/api/agent" })
   .use(authMacro)

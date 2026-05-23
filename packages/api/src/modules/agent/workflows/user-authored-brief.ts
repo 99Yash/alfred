@@ -21,25 +21,12 @@ export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
 
 const TURN_CAP_MAX = 30;
 
-interface PendingToolCall {
-  toolCallId: string;
-  toolName: ToolName;
-  input: unknown;
-}
-
-interface BriefRunState {
-  activeIntegrations: IntegrationSlug[];
-  allowedIntegrations: string[];
-  pendingToolCalls: PendingToolCall[];
-  inFlightTailStart: number;
-  turnCount: number;
-}
-
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1) as z.ZodType<ToolName>,
   input: z.unknown(),
 });
+type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z.object({
   activeIntegrations: z.array(z.string() as z.ZodType<IntegrationSlug>),
@@ -47,7 +34,8 @@ const briefRunStateSchema = z.object({
   pendingToolCalls: z.array(pendingToolCallSchema),
   inFlightTailStart: z.number().int().min(0),
   turnCount: z.number().int().min(0),
-}) satisfies z.ZodType<BriefRunState>;
+});
+type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
 const BOSS_SYSTEM_PROMPT = [
   "You are Alfred, the user's personal assistant agent.",
