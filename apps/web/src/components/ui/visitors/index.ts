@@ -30,5 +30,7 @@ export type { VsTextareaVariant } from "./textarea";
 export { VsSegmented } from "./segmented";
 export type { VsSegmentedItem } from "./segmented";
 
-export { VsThemeProvider, useVsTheme, VsThemed, VsThemeToggle } from "./theme";
+export { VsThemeProvider, useVsTheme } from "./theme";
 export type { VsThemeMode } from "./theme";
+export { VsThemed } from "./themed";
+export { VsThemeToggle } from "./theme-toggle";

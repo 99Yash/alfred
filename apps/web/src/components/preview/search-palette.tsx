@@ -31,12 +31,15 @@ import { cn } from "~/lib/utils";
  *   • up/down arrows — move highlight (wraps)
  *   • enter — invoke highlighted item
  *
+ * The component is only mounted while open — the parent renders it
+ * conditionally — so internal state is fresh on each open without
+ * needing to reset on a prop change.
+ *
  * Mock thread list lives here for now — the real one will come from
  * Replicache when chat thread sync ships.
  */
 
 export interface SearchPaletteProps {
-  open: boolean;
   onClose: () => void;
 }
 
@@ -151,15 +154,21 @@ const RECENT_THREADS: ReadonlyArray<ThreadEntry> = [
   { id: "cold-start", title: "Cold-start research notes", when: "Earlier" },
 ];
 
-const THREAD_ITEMS: ReadonlyArray<CommandItem> = RECENT_THREADS.map((t) => ({
-  id: `thread-${t.id}`,
-  kind: "thread" as const,
-  label: t.title,
-  hint: t.when,
-  icon: MessageSquare,
-  to: "/preview/chat",
-  keywords: `${t.title} ${t.when}`,
-}));
+const THREAD_ITEMS: ReadonlyArray<CommandItem> = (() => {
+  const out: CommandItem[] = [];
+  for (const t of RECENT_THREADS) {
+    out.push({
+      id: `thread-${t.id}`,
+      kind: "thread",
+      label: t.title,
+      hint: t.when,
+      icon: MessageSquare,
+      to: "/preview/chat",
+      keywords: `${t.title} ${t.when}`,
+    });
+  }
+  return out;
+})();
 
 const ALL_ITEMS: ReadonlyArray<CommandItem> = [...COMMANDS, ...THREAD_ITEMS];
 
@@ -174,46 +183,53 @@ function matchScore(item: CommandItem, query: string): number {
   return 0;
 }
 
-export function SearchPalette({ open, onClose }: SearchPaletteProps) {
+export function SearchPalette({ onClose }: SearchPaletteProps) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  // Reset query + focus the input each time the palette is opened.
+  // Focus the input on mount. The parent only renders this component
+  // while the palette is open, so this fires exactly once per open.
   useEffect(() => {
-    if (open) {
-      setQuery("");
-      setHighlight(0);
-      // Defer one frame so the input is in the DOM before focusing.
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [open]);
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
 
+  // Filter + score in one pass to avoid the .map().filter() chain.
   const results = useMemo(() => {
-    const ranked = ALL_ITEMS.map((item) => ({ item, score: matchScore(item, query) })).filter(
-      (r) => r.score > 0,
-    );
-    if (query.trim()) {
-      ranked.sort((a, b) => b.score - a.score);
+    const ranked: { item: CommandItem; score: number }[] = [];
+    for (const item of ALL_ITEMS) {
+      const score = matchScore(item, query);
+      if (score > 0) ranked.push({ item, score });
     }
+    if (query.trim()) ranked.sort((a, b) => b.score - a.score);
     return ranked.map((r) => r.item);
   }, [query]);
 
-  // Clamp highlight to results.length whenever results shrink.
-  useEffect(() => {
-    if (highlight >= results.length) setHighlight(Math.max(0, results.length - 1));
-  }, [results.length, highlight]);
-
-  // Group results for rendering. Commands first, threads second.
+  // Group results into commands + threads in a single pass so the visual
+  // order is built once and shared by rendering and keyboard nav.
   const grouped = useMemo(() => {
-    const commands = results.filter((r) => r.kind === "command");
-    const threads = results.filter((r) => r.kind === "thread");
+    const commands: CommandItem[] = [];
+    const threads: CommandItem[] = [];
+    for (const item of results) {
+      if (item.kind === "command") commands.push(item);
+      else threads.push(item);
+    }
     return { commands, threads };
   }, [results]);
 
-  if (!open) return null;
+  // Flat array in render order. Arrow keys walk this so the highlight
+  // matches the visual sequence (commands first, then threads).
+  const visualOrder = useMemo(
+    () => [...grouped.commands, ...grouped.threads],
+    [grouped],
+  );
+
+  // Clamp the highlight during render — no useEffect needed.
+  const activeIndex =
+    visualOrder.length === 0 ? 0 : Math.min(highlight, visualOrder.length - 1);
 
   const invoke = (item: CommandItem) => {
     onClose();
@@ -232,28 +248,35 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlight((h) => (results.length === 0 ? 0 : (h + 1) % results.length));
+      if (visualOrder.length === 0) return;
+      setHighlight((activeIndex + 1) % visualOrder.length);
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlight((h) => (results.length === 0 ? 0 : (h - 1 + results.length) % results.length));
+      if (visualOrder.length === 0) return;
+      setHighlight((activeIndex - 1 + visualOrder.length) % visualOrder.length);
       return;
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const item = results[highlight];
+      const item = visualOrder[activeIndex];
       if (item) invoke(item);
     }
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      open
       aria-label="Search palette"
-      className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh] vs-fade-in"
-      onKeyDown={onKeyDown}
+      className={cn(
+        // Override UA defaults: dialog ships with its own border, padding,
+        // max-width/height and centered positioning — we want a full-bleed
+        // overlay so the backdrop button covers the viewport.
+        "fixed inset-0 z-[60] m-0 max-w-none max-h-none w-full h-full",
+        "bg-transparent text-inherit border-0 p-0",
+        "flex items-start justify-center pt-[12vh] vs-fade-in",
+      )}
     >
       <button
         type="button"
@@ -275,7 +298,11 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlight(0);
+            }}
+            onKeyDown={onKeyDown}
             placeholder="Search chats and actions…"
             className={cn(
               "flex-1 min-w-0 bg-transparent text-sm text-vs-fg-4 placeholder:text-vs-fg-2",
@@ -298,18 +325,18 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
           ref={listRef}
           className="max-h-[52vh] overflow-y-auto vs-scrollbar [scrollbar-width:thin] pb-2"
         >
-          {results.length === 0 ? (
+          {visualOrder.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-vs-fg-2">No matches.</div>
           ) : (
             <>
               {grouped.commands.length ? (
                 <Group label="Actions">
-                  {grouped.commands.map((item) => (
+                  {grouped.commands.map((item, i) => (
                     <PaletteRow
                       key={item.id}
                       item={item}
-                      active={results.indexOf(item) === highlight}
-                      onMouseEnter={() => setHighlight(results.indexOf(item))}
+                      active={i === activeIndex}
+                      onMouseEnter={() => setHighlight(i)}
                       onClick={() => invoke(item)}
                     />
                   ))}
@@ -317,15 +344,18 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
               ) : null}
               {grouped.threads.length ? (
                 <Group label="Recent chats">
-                  {grouped.threads.map((item) => (
-                    <PaletteRow
-                      key={item.id}
-                      item={item}
-                      active={results.indexOf(item) === highlight}
-                      onMouseEnter={() => setHighlight(results.indexOf(item))}
-                      onClick={() => invoke(item)}
-                    />
-                  ))}
+                  {grouped.threads.map((item, i) => {
+                    const flatIndex = grouped.commands.length + i;
+                    return (
+                      <PaletteRow
+                        key={item.id}
+                        item={item}
+                        active={flatIndex === activeIndex}
+                        onMouseEnter={() => setHighlight(flatIndex)}
+                        onClick={() => invoke(item)}
+                      />
+                    );
+                  })}
                 </Group>
               ) : null}
             </>
@@ -351,10 +381,10 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
               <span>Select</span>
             </span>
           </div>
-          <span className="text-[11px] text-vs-fg-2">{results.length} result{results.length === 1 ? "" : "s"}</span>
+          <span className="text-[11px] text-vs-fg-2">{visualOrder.length} result{visualOrder.length === 1 ? "" : "s"}</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
