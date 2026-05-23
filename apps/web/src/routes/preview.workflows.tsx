@@ -1,5 +1,5 @@
-import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
-import { PreviewWorkflowsPage } from "./-preview-workflows/preview-workflows-page";
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-route";
 
 /**
  * Visitors-now-grammar port of /workflows.
@@ -20,8 +20,3 @@ import { PreviewWorkflowsPage } from "./-preview-workflows/preview-workflows-pag
 export const Route = createFileRoute("/preview/workflows")({
   component: PreviewWorkflowsRoute,
 });
-
-function PreviewWorkflowsRoute() {
-  const hasChild = useChildMatches().length > 0;
-  return hasChild ? <Outlet /> : <PreviewWorkflowsPage />;
-}

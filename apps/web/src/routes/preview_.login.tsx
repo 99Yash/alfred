@@ -1,11 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  VsThemed,
-  VsThemeProvider,
-  VsThemeToggle,
-} from "~/components/ui/visitors";
-import { AuthPanel } from "./-preview-login/auth-panel";
-import { ShowcasePanel } from "./-preview-login/showcase-panel";
+import { PreviewLoginPage } from "./-preview-login/preview-login-page";
 
 /**
  * Visitors-now-grammar port of `/login`. Mirrors the visitors.now sign-in
@@ -24,19 +18,3 @@ import { ShowcasePanel } from "./-preview-login/showcase-panel";
 export const Route = createFileRoute("/preview_/login")({
   component: PreviewLoginPage,
 });
-
-function PreviewLoginPage() {
-  return (
-    <VsThemeProvider>
-      <VsThemed className="relative min-h-dvh bg-vs-background-subtle">
-        <div className="absolute top-3 right-3 z-50">
-          <VsThemeToggle />
-        </div>
-        <div className="grid min-h-dvh lg:grid-cols-2">
-          <AuthPanel />
-          <ShowcasePanel />
-        </div>
-      </VsThemed>
-    </VsThemeProvider>
-  );
-}
