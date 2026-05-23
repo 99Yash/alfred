@@ -9,6 +9,9 @@ import {
   VsInput,
   VsKpi,
   VsPill,
+  VsThemed,
+  VsThemeProvider,
+  VsThemeToggle,
 } from "~/components/ui/visitors";
 
 /**
@@ -23,9 +26,20 @@ export const Route = createFileRoute("/preview/visitors-now")({
 });
 
 function VisitorsNowPreview() {
+  return (
+    <VsThemeProvider>
+      <VsThemedPreview />
+    </VsThemeProvider>
+  );
+}
+
+function VsThemedPreview() {
   const [active, setActive] = useState<string>("dashboard");
   return (
-    <div className="vs min-h-dvh">
+    <VsThemed className="min-h-dvh">
+      <div className="fixed top-3 right-3 z-50">
+        <VsThemeToggle />
+      </div>
       <VsHeader
         start={
           <div className="flex items-center gap-2">
@@ -219,7 +233,7 @@ function VisitorsNowPreview() {
         ]}
         activeId={active}
       />
-    </div>
+    </VsThemed>
   );
 }
 

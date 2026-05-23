@@ -222,6 +222,187 @@
     0 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
+/* -----------------------------------------------------------------------------
+ * Visitors-now dark-mode tokens.
+ *
+ * Three resolution rules, in order:
+ *   1. `.vs[data-vs-theme="dark"]`  → forced dark (manual override)
+ *   2. `.vs[data-vs-theme="light"]` → forced light (manual override, uses :root)
+ *   3. `.vs` with no attribute      → tracks `prefers-color-scheme`
+ *
+ * Dark is the default mood for Alfred per design: dimension was 100% dark,
+ * visitors.now is 100% light, so the compromise is "respect system, default
+ * dark when the user has no preference." See archive/visitors-now/design-notes.md.
+ *
+ * Hue scale flips in dark mode: -1 becomes an alpha tint of the accent over
+ * near-black (so e.g. `bg-vs-purple-1` reads as a faintly-purple raised
+ * surface in dark mode the same way it reads as a faintly-purple tint in
+ * light mode). -3 / -4 brighten slightly for contrast on dark.
+ * -------------------------------------------------------------------------- */
+/* System-preference fallback — applies only when no explicit data-vs-theme
+ * is set on the .vs element. The explicit override block (.vs[data-vs-theme="dark"])
+ * below this rule always wins. */
+@media (prefers-color-scheme: dark) {
+  .vs:not([data-vs-theme="light"]) {
+    --vs-background: #0a0a0a;
+    --vs-background-subtle: #060606;
+    --vs-bg-1: #0a0a0a;
+    --vs-bg-2: #141414;
+    --vs-bg-3: #1c1c1c;
+    --vs-bg-4: #242424;
+    --vs-bg-a1: rgba(255, 255, 255, 0.04);
+    --vs-bg-a2: rgba(255, 255, 255, 0.06);
+    --vs-bg-a3: rgba(255, 255, 255, 0.09);
+    --vs-bg-a4: rgba(255, 255, 255, 0.14);
+
+    --vs-fg-1: #5a5a5a;
+    --vs-fg-2: #888888;
+    --vs-fg-3: #b5b5b5;
+    --vs-fg-4: #ededed;
+    --vs-fg-a1: rgba(255, 255, 255, 0.3);
+    --vs-fg-a2: rgba(255, 255, 255, 0.5);
+    --vs-fg-a3: rgba(255, 255, 255, 0.7);
+    --vs-fg-a4: rgba(237, 237, 237, 0.92);
+
+    --vs-gray-1: #181818;
+    --vs-gray-2: #303030;
+    --vs-gray-3: #505050;
+    --vs-gray-4: #808080;
+
+    --vs-blue-1: rgba(76, 213, 255, 0.08);
+    --vs-blue-2: rgba(76, 213, 255, 0.16);
+    --vs-blue-3: #4cd5ff;
+    --vs-blue-4: #7ee0ff;
+
+    --vs-red-1: rgba(255, 99, 71, 0.08);
+    --vs-red-2: rgba(255, 99, 71, 0.16);
+    --vs-red-3: #ff6347;
+    --vs-red-4: #ff8470;
+
+    --vs-green-1: rgba(113, 218, 139, 0.08);
+    --vs-green-2: rgba(113, 218, 139, 0.16);
+    --vs-green-3: #71da8b;
+    --vs-green-4: #9ce6ad;
+
+    --vs-amber-1: rgba(255, 198, 92, 0.08);
+    --vs-amber-2: rgba(255, 198, 92, 0.16);
+    --vs-amber-3: #ffc65c;
+    --vs-amber-4: #ffd58a;
+
+    --vs-purple-1: rgba(181, 179, 249, 0.08);
+    --vs-purple-2: rgba(181, 179, 249, 0.18);
+    --vs-purple-3: #b5b3f9;
+    --vs-purple-4: #cbcafb;
+
+    --vs-sky-1: rgba(104, 159, 253, 0.08);
+    --vs-sky-2: rgba(104, 159, 253, 0.18);
+    --vs-sky-3: #689ffd;
+    --vs-sky-4: #92baff;
+
+    --vs-yellow-1: rgba(255, 236, 92, 0.08);
+    --vs-yellow-2: rgba(255, 236, 92, 0.16);
+    --vs-yellow-3: #ffec5c;
+    --vs-yellow-4: #fff394;
+
+    --vs-pink-1: rgba(240, 117, 195, 0.08);
+    --vs-pink-2: rgba(240, 117, 195, 0.16);
+    --vs-pink-3: #f075c3;
+    --vs-pink-4: #f8a7d6;
+
+    --vs-orange-1: rgba(255, 163, 102, 0.08);
+    --vs-orange-2: rgba(255, 163, 102, 0.16);
+    --vs-orange-3: #ffa366;
+    --vs-orange-4: #ffc191;
+
+    --vs-shadow-elevated:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --vs-shadow-elevated-hover:
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* Explicit override — always wins, works without system preference. */
+.vs[data-vs-theme="dark"] {
+  --vs-background: #0a0a0a;
+  --vs-background-subtle: #060606;
+  --vs-bg-1: #0a0a0a;
+  --vs-bg-2: #141414;
+  --vs-bg-3: #1c1c1c;
+  --vs-bg-4: #242424;
+  --vs-bg-a1: rgba(255, 255, 255, 0.04);
+  --vs-bg-a2: rgba(255, 255, 255, 0.06);
+  --vs-bg-a3: rgba(255, 255, 255, 0.09);
+  --vs-bg-a4: rgba(255, 255, 255, 0.14);
+
+  --vs-fg-1: #5a5a5a;
+  --vs-fg-2: #888888;
+  --vs-fg-3: #b5b5b5;
+  --vs-fg-4: #ededed;
+  --vs-fg-a1: rgba(255, 255, 255, 0.3);
+  --vs-fg-a2: rgba(255, 255, 255, 0.5);
+  --vs-fg-a3: rgba(255, 255, 255, 0.7);
+  --vs-fg-a4: rgba(237, 237, 237, 0.92);
+
+  --vs-gray-1: #181818;
+  --vs-gray-2: #303030;
+  --vs-gray-3: #505050;
+  --vs-gray-4: #808080;
+
+  --vs-blue-1: rgba(76, 213, 255, 0.08);
+  --vs-blue-2: rgba(76, 213, 255, 0.16);
+  --vs-blue-3: #4cd5ff;
+  --vs-blue-4: #7ee0ff;
+
+  --vs-red-1: rgba(255, 99, 71, 0.08);
+  --vs-red-2: rgba(255, 99, 71, 0.16);
+  --vs-red-3: #ff6347;
+  --vs-red-4: #ff8470;
+
+  --vs-green-1: rgba(113, 218, 139, 0.08);
+  --vs-green-2: rgba(113, 218, 139, 0.16);
+  --vs-green-3: #71da8b;
+  --vs-green-4: #9ce6ad;
+
+  --vs-amber-1: rgba(255, 198, 92, 0.08);
+  --vs-amber-2: rgba(255, 198, 92, 0.16);
+  --vs-amber-3: #ffc65c;
+  --vs-amber-4: #ffd58a;
+
+  --vs-purple-1: rgba(181, 179, 249, 0.08);
+  --vs-purple-2: rgba(181, 179, 249, 0.18);
+  --vs-purple-3: #b5b3f9;
+  --vs-purple-4: #cbcafb;
+
+  --vs-sky-1: rgba(104, 159, 253, 0.08);
+  --vs-sky-2: rgba(104, 159, 253, 0.18);
+  --vs-sky-3: #689ffd;
+  --vs-sky-4: #92baff;
+
+  --vs-yellow-1: rgba(255, 236, 92, 0.08);
+  --vs-yellow-2: rgba(255, 236, 92, 0.16);
+  --vs-yellow-3: #ffec5c;
+  --vs-yellow-4: #fff394;
+
+  --vs-pink-1: rgba(240, 117, 195, 0.08);
+  --vs-pink-2: rgba(240, 117, 195, 0.16);
+  --vs-pink-3: #f075c3;
+  --vs-pink-4: #f8a7d6;
+
+  --vs-orange-1: rgba(255, 163, 102, 0.08);
+  --vs-orange-2: rgba(255, 163, 102, 0.16);
+  --vs-orange-3: #ffa366;
+  --vs-orange-4: #ffc191;
+
+  --vs-shadow-elevated:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --vs-shadow-elevated-hover:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -1321,6 +1502,61 @@
    * not 5% — just enough to feel responsive. */
   .vs-press:active:not(:disabled) {
     transform: scale(0.99);
+  }
+
+  /* Card entrance — fade + 6px rise + slight blur. Use with inline
+   * style="animation-delay: <n>ms" on each card for a stagger effect. */
+  @keyframes vs-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+  .vs-card-in {
+    animation: vs-card-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Hover-lift — 2px rise + shadow bump. The transform is on a
+   * `transition-transform` so it interpolates smoothly. Use on cards
+   * that benefit from a "comes towards you" hover affordance. */
+  .vs-hover-lift {
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .vs-hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* Hero-stack child reveal — when a parent gets `:hover`, immediate
+   * stack siblings fan out a touch and rotate microscopically. Used by
+   * the workflow card hero previews. */
+  .vs-stack {
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .vs-hover-lift:hover .vs-stack-back {
+    transform: translate(-6px, -2px) rotate(-2deg);
+  }
+  .vs-hover-lift:hover .vs-stack-mid {
+    transform: translateY(-1px);
+  }
+  .vs-hover-lift:hover .vs-stack-front {
+    transform: translate(6px, -2px) rotate(2deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vs-card-in,
+    .vs-hover-lift,
+    .vs-stack {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
   }
 
   .morning-briefing-surface {

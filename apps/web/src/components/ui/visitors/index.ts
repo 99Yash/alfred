@@ -21,3 +21,6 @@ export type { VsDockItem } from "./dock";
 export { VsHeader } from "./header";
 
 export { VsInput } from "./input";
+
+export { VsThemeProvider, useVsTheme, VsThemed, VsThemeToggle } from "./theme";
+export type { VsThemeMode } from "./theme";
