@@ -295,7 +295,7 @@ function ShowcasePanel() {
           </h2>
           <p className="text-[13px] text-vs-fg-2">
             Alfred reads your email, surfaces what matters, and writes the
-            drafts you'd write anyway — quietly, every morning.
+            drafts you'd write anyway, quietly, every morning.
           </p>
         </div>
 
@@ -324,7 +324,7 @@ function ShowcasePanel() {
               </span>
             </div>
             <p className="text-[13px] text-vs-fg-4 leading-relaxed">
-              <span className="font-medium">3 things</span> need you today —
+              <span className="font-medium">3 things</span> need you today:
               Sycamore's term sheet, a recruiter intro to Avery, and the design
               review you moved off Thursday.
             </p>
@@ -360,7 +360,7 @@ function BriefRow({ hue, lead, body }: { hue: "purple" | "sky" | "amber"; lead: 
       <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />
       <span className="text-vs-fg-3 leading-snug">
         <span className="text-vs-fg-4 font-medium">{lead}</span>
-        <span className="text-vs-fg-2"> — </span>
+        <span className="text-vs-fg-2">: </span>
         {body}
       </span>
     </li>
