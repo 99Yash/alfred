@@ -3,16 +3,18 @@ import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, sql } from "drizzle-orm";
 import { Queue, Worker, type Job } from "bullmq";
+import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
 import { notify } from "../notifications";
 
 export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 
-export interface ApprovalNotificationJobData {
-  stagingId: string;
-  userId: string;
-}
+export const approvalNotificationJobDataSchema = z.object({
+  stagingId: z.string().min(1),
+  userId: z.string().min(1),
+});
+export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
 
 let _queue: Queue<ApprovalNotificationJobData> | undefined;
 let _worker: Worker<ApprovalNotificationJobData> | undefined;
@@ -113,7 +115,7 @@ export async function closeApprovalNotificationQueue(): Promise<void> {
 async function processApprovalNotificationJob(
   job: Job<ApprovalNotificationJobData>,
 ): Promise<unknown> {
-  const { stagingId, userId } = job.data;
+  const { stagingId, userId } = approvalNotificationJobDataSchema.parse(job.data);
   const rows = await db()
     .select({
       id: actionStagings.id,

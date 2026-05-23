@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { agentRuns, workflows, type AgentRunTrigger } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, workflows, type AgentRunTrigger } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { getWorkflow } from "./registry";
@@ -175,7 +175,12 @@ export interface SignalArgs {
     | { kind: "any" };
 }
 
-export type SignalOutcome = "woken" | "not_found" | "not_waiting" | "wake_mismatch";
+export type SignalOutcome =
+  | "woken"
+  | "not_found"
+  | "not_waiting"
+  | "already_terminal"
+  | "wake_mismatch";
 
 // Typed loosely so callers can share the helper from inside their own
 // outer transaction without coupling this module to one concrete Drizzle
@@ -206,7 +211,9 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     .for("update");
   const row = rows[0];
   if (!row) return "not_found";
-  if (row.status !== "waiting") return "not_waiting";
+  if (row.status !== "waiting") {
+    return isTerminalStatus(row.status as RunStatus) ? "already_terminal" : "not_waiting";
+  }
 
   if (match.kind !== "any") {
     const wake = row.wakeCondition as WakeCondition | null;
@@ -243,6 +250,11 @@ export interface CancelRunArgs {
   runId: string;
   /** Short human/programmatic reason — surfaced in `agent_runs.error.reason`. */
   reason: string;
+  /**
+   * User-facing reason copied onto pending approval rows cancelled with
+   * the run. Defaults to `reason` for programmatic callers.
+   */
+  pendingApprovalRejectReason?: string;
 }
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
@@ -297,6 +309,23 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       updatedAt: now,
     })
     .where(eq(agentRuns.id, args.runId));
+
+  await tx
+    .update(actionStagings)
+    .set({
+      status: "rejected",
+      rejectReason: args.pendingApprovalRejectReason ?? args.reason,
+      decidedAt: now,
+      rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(actionStagings.runId, args.runId),
+        eq(actionStagings.status, "pending"),
+        eq(actionStagings.requiresApproval, true),
+      ),
+    );
 
   await publishEvent({
     tx,
