@@ -1,4 +1,8 @@
 import type { Workflow } from "./types";
+import {
+  USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+  userAuthoredBriefWorkflow,
+} from "./workflows/user-authored-brief";
 
 /**
  * In-memory workflow registry. The executor looks up `(workflowSlug)` here
@@ -21,10 +25,11 @@ export function getWorkflow(slug: string): Workflow<unknown> | undefined {
 
 export function requireWorkflow(slug: string): Workflow<unknown> {
   const wf = registry.get(slug);
-  if (!wf) {
-    throw new Error(`[agent] no workflow registered for slug=${slug}`);
-  }
-  return wf;
+  return wf ?? (userAuthoredBriefWorkflow as Workflow<unknown>);
+}
+
+export function isSentinelWorkflow(workflow: Workflow<unknown>): boolean {
+  return workflow.slug === USER_AUTHORED_BRIEF_WORKFLOW_SLUG;
 }
 
 export function listWorkflows(): Workflow<unknown>[] {
