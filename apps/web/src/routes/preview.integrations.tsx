@@ -1,13 +1,7 @@
 import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { Plug, Plus, Search } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import {
-  VsCard,
-  VsInput,
-  VsThemed,
-  VsThemeProvider,
-  VsThemeToggle,
-} from "~/components/ui/visitors";
+import { VsCard, VsInput } from "~/components/ui/visitors";
 import {
   CATEGORY_ORDER,
   INTEGRATION_PROVIDERS,
@@ -47,11 +41,8 @@ function PreviewIntegrationsRoute() {
 }
 
 function PreviewIntegrationsPage() {
-  return (
-    <VsThemeProvider>
-      <PreviewIntegrationsBody />
-    </VsThemeProvider>
-  );
+  // Theme provider is owned by the parent layout (`routes/preview.tsx`).
+  return <PreviewIntegrationsBody />;
 }
 
 function PreviewIntegrationsBody() {
@@ -67,10 +58,7 @@ function PreviewIntegrationsBody() {
   );
 
   return (
-    <VsThemed className="min-h-dvh">
-      <div className="fixed top-4 right-4 z-50">
-        <VsThemeToggle />
-      </div>
+    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
           <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Integrations</h1>
@@ -114,7 +102,7 @@ function PreviewIntegrationsBody() {
           </Link>
         </footer>
       </main>
-    </VsThemed>
+    </div>
   );
 }
 

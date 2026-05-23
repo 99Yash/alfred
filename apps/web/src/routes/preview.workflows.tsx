@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Clock3, Plus, Sparkles, type LucideIcon } from "lucide-react";
-import { VsButton, VsCard, VsThemed, VsThemeProvider, VsThemeToggle } from "~/components/ui/visitors";
+import { VsButton, VsCard } from "~/components/ui/visitors";
 import { BUILTIN_WORKFLOWS, type WorkflowDefinition } from "~/lib/workflows";
 import { cn } from "~/lib/utils";
 
@@ -26,12 +26,8 @@ export const Route = createFileRoute("/preview/workflows")({
 
 function PreviewWorkflowsPage() {
   return (
-    <VsThemeProvider>
-      <VsThemed className="min-h-dvh">
-        <div className="fixed top-4 right-4 z-50">
-          <VsThemeToggle />
-        </div>
-        <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
+      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
           <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
             <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Workflows</h1>
             <p className="text-sm text-vs-fg-3">
@@ -87,8 +83,7 @@ function PreviewWorkflowsPage() {
             </Link>
           </footer>
         </main>
-      </VsThemed>
-    </VsThemeProvider>
+    </div>
   );
 }
 
