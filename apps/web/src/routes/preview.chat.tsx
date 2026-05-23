@@ -926,32 +926,16 @@ function Sidebar({ activeThread, onSelectThread }: SidebarProps) {
         "flex flex-col",
       )}
     >
-      {/* Brand row */}
-      <div className="px-3 pt-3 pb-2 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          className={cn(
-            "group inline-flex items-center gap-2 rounded-xl h-9 pl-1 pr-2.5 text-sm font-medium",
-            "text-vs-fg-4 hover:bg-vs-bg-a2 transition-colors vs-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-          )}
-        >
-          <span
-            aria-hidden
-            className="size-7 rounded-full bg-vs-fg-4 inline-flex items-center justify-center"
-          >
-            <Sparkles size={13} className="text-vs-bg-1" />
-          </span>
-          <span>Alfred</span>
-          <ChevronUpDown />
-        </button>
-
+      {/* Slim chrome row. No workspace switcher — single-user app, the
+       * brand belongs on the URL bar, not the sidebar. Just the collapse
+       * arrow tucked into the corner. */}
+      <div className="px-2 pt-2.5 pb-1 flex items-center justify-end">
         <button
           type="button"
           aria-label="Collapse sidebar"
           className={cn(
             "size-8 inline-flex items-center justify-center rounded-lg",
-            "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+            "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
             "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
           )}
         >
@@ -1732,25 +1716,4 @@ function findThread(id: string): ThreadEntry | undefined {
     if (hit) return hit;
   }
   return undefined;
-}
-
-function ChevronUpDown() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden
-      className="shrink-0 text-vs-fg-2"
-    >
-      <path
-        d="M3.5 5L6 2.5L8.5 5M3.5 7L6 9.5L8.5 7"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
