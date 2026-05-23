@@ -23,6 +23,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as PreviewWorkflowsRouteImport } from './routes/preview.workflows'
 import { Route as PreviewVisitorsNowRouteImport } from './routes/preview.visitors-now'
 import { Route as PreviewOnboardingRouteImport } from './routes/preview.onboarding'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
@@ -101,6 +102,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const PreviewWorkflowsRoute = PreviewWorkflowsRouteImport.update({
+  id: '/preview/workflows',
+  path: '/preview/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewVisitorsNowRoute = PreviewVisitorsNowRouteImport.update({
   id: '/preview/visitors-now',
   path: '/preview/visitors-now',
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
+  '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
+  '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -204,6 +212,7 @@ export interface FileRoutesById {
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/visitors-now': typeof PreviewVisitorsNowRoute
+  '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
 }
@@ -229,6 +238,7 @@ export interface FileRouteTypes {
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
+    | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesByTo: FileRoutesByTo
@@ -252,6 +262,7 @@ export interface FileRouteTypes {
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
+    | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
   id:
@@ -275,6 +286,7 @@ export interface FileRouteTypes {
     | '/preview/landing'
     | '/preview/onboarding'
     | '/preview/visitors-now'
+    | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
   fileRoutesById: FileRoutesById
@@ -297,6 +309,7 @@ export interface RootRouteChildren {
   PreviewLandingRoute: typeof PreviewLandingRoute
   PreviewOnboardingRoute: typeof PreviewOnboardingRoute
   PreviewVisitorsNowRoute: typeof PreviewVisitorsNowRoute
+  PreviewWorkflowsRoute: typeof PreviewWorkflowsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -398,6 +411,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/preview/workflows': {
+      id: '/preview/workflows'
+      path: '/preview/workflows'
+      fullPath: '/preview/workflows'
+      preLoaderRoute: typeof PreviewWorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/preview/visitors-now': {
       id: '/preview/visitors-now'
@@ -515,6 +535,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewLandingRoute: PreviewLandingRoute,
   PreviewOnboardingRoute: PreviewOnboardingRoute,
   PreviewVisitorsNowRoute: PreviewVisitorsNowRoute,
+  PreviewWorkflowsRoute: PreviewWorkflowsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
