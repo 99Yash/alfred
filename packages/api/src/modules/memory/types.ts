@@ -1,31 +1,10 @@
-import { z } from "zod";
-
 /**
  * Where a fact / preference / chunk came from. Provenance discipline
  * (ADR-0019): every inferred row cites a specific origin so the user
  * can ask "why do you think that?" and get a non-hallucinated answer.
  */
-export const memorySourceSchema = z.object({
-  kind: z.enum([
-    /** Pulled from an ingested document (email, slack message, doc). */
-    "document",
-    /** Pulled from a specific chunk within a document. */
-    "chunk",
-    /** Output of a tool call (e.g. Gmail profile lookup). */
-    "tool_call",
-    /** Cold-start research at signup. */
-    "cold_start",
-    /** User typed it directly (settings page, in-app card, chat correction). */
-    "user",
-    /** Inferred by an agent run; the run id is the citation. */
-    "agent",
-  ]),
-  /** The originating row id — `doc_xxx`, `chk_xxx`, `run_xxx`, etc. NULL for `user` / unsourced. */
-  id: z.string().optional(),
-  /** Free-form rider — model name, tool slug, run step id, … */
-  meta: z.record(z.string(), z.unknown()).optional(),
-});
-export type MemorySource = z.infer<typeof memorySourceSchema>;
+export { memorySourceSchema } from "@alfred/sync";
+export type { MemorySource } from "@alfred/sync";
 
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
 export type FactStatus = (typeof FACT_STATUSES)[number];
