@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import { Plug, Plus, Search } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -35,8 +35,16 @@ import { cn } from "~/lib/utils";
  *   /preview/integrations   → visitors-now grammar (theme-aware, hero, soft chips)
  */
 export const Route = createFileRoute("/preview/integrations")({
-  component: PreviewIntegrationsPage,
+  component: PreviewIntegrationsRoute,
 });
+
+function PreviewIntegrationsRoute() {
+  // Defer to the child route when one is matched (e.g. /preview/integrations/$provider).
+  // Without this, TanStack's flat-routes nesting renders the list as the
+  // shared parent layout even on the detail URL. Mirrors `integrations.tsx`.
+  const hasChild = useChildMatches().length > 0;
+  return hasChild ? <Outlet /> : <PreviewIntegrationsPage />;
+}
 
 function PreviewIntegrationsPage() {
   return (
@@ -252,7 +260,7 @@ function ProviderRow({ provider, index }: { provider: IntegrationProvider; index
 
   return (
     <Link
-      to="/integrations/$provider"
+      to="/preview/integrations/$provider"
       params={{ provider: provider.id }}
       className={cn(
         cardClassName,

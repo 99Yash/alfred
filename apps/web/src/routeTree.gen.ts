@@ -34,6 +34,7 @@ import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
+import { Route as PreviewIntegrationsProviderRouteImport } from './routes/preview.integrations.$provider'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -160,6 +161,12 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/chat/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewIntegrationsProviderRoute =
+  PreviewIntegrationsProviderRouteImport.update({
+    id: '/$provider',
+    path: '/$provider',
+    getParentRoute: () => PreviewIntegrationsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -179,7 +186,7 @@ export interface FileRoutesByFullPath {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRoute
-  '/preview/integrations': typeof PreviewIntegrationsRoute
+  '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByFullPath {
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -206,7 +214,7 @@ export interface FileRoutesByTo {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRoute
-  '/preview/integrations': typeof PreviewIntegrationsRoute
+  '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
@@ -214,6 +222,7 @@ export interface FileRoutesByTo {
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -234,7 +243,7 @@ export interface FileRoutesById {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRoute
-  '/preview/integrations': typeof PreviewIntegrationsRoute
+  '/preview/integrations': typeof PreviewIntegrationsRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
   '/preview/onboarding': typeof PreviewOnboardingRoute
   '/preview/settings': typeof PreviewSettingsRoute
@@ -242,6 +251,7 @@ export interface FileRoutesById {
   '/preview/workflows': typeof PreviewWorkflowsRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
+  '/preview/integrations/$provider': typeof PreviewIntegrationsProviderRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/integrations/$provider'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -298,6 +309,7 @@ export interface FileRouteTypes {
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/integrations/$provider'
   id:
     | '__root__'
     | '/'
@@ -325,6 +337,7 @@ export interface FileRouteTypes {
     | '/preview/workflows'
     | '/skills/$slug'
     | '/workflows/$workflow'
+    | '/preview/integrations/$provider'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -343,7 +356,7 @@ export interface RootRouteChildren {
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   DebugEventsRoute: typeof DebugEventsRoute
   PreviewChatRoute: typeof PreviewChatRoute
-  PreviewIntegrationsRoute: typeof PreviewIntegrationsRoute
+  PreviewIntegrationsRoute: typeof PreviewIntegrationsRouteWithChildren
   PreviewLandingRoute: typeof PreviewLandingRoute
   PreviewOnboardingRoute: typeof PreviewOnboardingRoute
   PreviewSettingsRoute: typeof PreviewSettingsRoute
@@ -528,6 +541,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/integrations/$provider': {
+      id: '/preview/integrations/$provider'
+      path: '/$provider'
+      fullPath: '/preview/integrations/$provider'
+      preLoaderRoute: typeof PreviewIntegrationsProviderRouteImport
+      parentRoute: typeof PreviewIntegrationsRoute
+    }
   }
 }
 
@@ -577,6 +597,17 @@ const WorkflowsRouteWithChildren = WorkflowsRoute._addFileChildren(
   WorkflowsRouteChildren,
 )
 
+interface PreviewIntegrationsRouteChildren {
+  PreviewIntegrationsProviderRoute: typeof PreviewIntegrationsProviderRoute
+}
+
+const PreviewIntegrationsRouteChildren: PreviewIntegrationsRouteChildren = {
+  PreviewIntegrationsProviderRoute: PreviewIntegrationsProviderRoute,
+}
+
+const PreviewIntegrationsRouteWithChildren =
+  PreviewIntegrationsRoute._addFileChildren(PreviewIntegrationsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
@@ -593,7 +624,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatThreadIdRoute: ChatThreadIdRoute,
   DebugEventsRoute: DebugEventsRoute,
   PreviewChatRoute: PreviewChatRoute,
-  PreviewIntegrationsRoute: PreviewIntegrationsRoute,
+  PreviewIntegrationsRoute: PreviewIntegrationsRouteWithChildren,
   PreviewLandingRoute: PreviewLandingRoute,
   PreviewOnboardingRoute: PreviewOnboardingRoute,
   PreviewSettingsRoute: PreviewSettingsRoute,
