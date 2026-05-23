@@ -51,11 +51,13 @@ function PreviewIntegrationsBody() {
   const mcpVisible = matches(MCP_HAYSTACK, query);
   const empty = filtered.length === 0 && !mcpVisible;
 
-  const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(
-    () =>
-      INTEGRATION_PROVIDERS.filter((p) => p.status === "connected").map((p) => p.brand),
-    [],
-  );
+  const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(() => {
+    const brands: IntegrationBrand[] = [];
+    for (const p of INTEGRATION_PROVIDERS) {
+      if (p.status === "connected") brands.push(p.brand);
+    }
+    return brands;
+  }, []);
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
