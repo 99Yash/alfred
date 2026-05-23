@@ -1,12 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import { Clock, MoreHorizontal, Share2 } from "lucide-react";
 import { useState } from "react";
-import {
-  VsButton,
-  VsCard,
-  VsPill,
-  VsSegmented,
-} from "~/components/ui/visitors";
+import { VsButton, VsCard, VsPill, VsSegmented } from "~/components/ui/visitors";
 import { findPreviewSkill } from "~/lib/preview-skills";
 import { BackLink } from "./back-link";
 import { DetailShell } from "./detail-shell";
@@ -23,7 +18,7 @@ const TABS = [
 const SHARE_LEADING = <Share2 size={14} />;
 
 export function PreviewSkillDetailPage() {
-  const { slug } = useParams({ from: "/preview/skills/$slug" });
+  const { slug } = useParams({ from: "/skills/$slug" });
   const skill = findPreviewSkill(slug);
   const [tab, setTab] = useState<DetailTab>("learn");
 

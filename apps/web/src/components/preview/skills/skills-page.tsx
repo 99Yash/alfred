@@ -17,8 +17,7 @@ export function PreviewSkillsPage() {
             Skills
           </h1>
           <p className="text-sm text-vs-fg-3">
-            Long-lived prompts Alfred internalizes: preferences, biographical facts,
-            working styles.
+            Long-lived prompts Alfred internalizes: preferences, biographical facts, working styles.
           </p>
           <div className="pt-3 flex justify-center">
             <VsButton variant="primary" size="lg" leading={CREATE_SKILL_LEADING}>
@@ -27,10 +26,7 @@ export function PreviewSkillsPage() {
           </div>
         </header>
 
-        <section
-          className="mt-12 space-y-3 vs-card-in"
-          style={{ animationDelay: "120ms" }}
-        >
+        <section className="mt-12 space-y-3 vs-card-in" style={{ animationDelay: "120ms" }}>
           <div className="flex items-baseline gap-2 px-1">
             <h2 className="text-[15px] font-medium text-vs-fg-4">Your skills</h2>
             <span className="text-xs text-vs-fg-2 tabular-nums">{sorted.length}</span>

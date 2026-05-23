@@ -1,14 +1,15 @@
 import { CalendarClock, ListChecks, Mail, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { VsSegmented } from "~/components/ui/visitors";
+import { authClient } from "~/lib/auth-client";
 import { cn } from "~/lib/utils";
-import type { RailTab } from "./helpers";
+import type { InboxItem, MeetingItem, RailTab, TodoItem } from "./helpers";
 import { InboxFeed } from "./inbox-feed";
-import { MeetingsFeed } from "./meetings-feed";
+import { MeetingsFeed, type MeetingLookaheadItem } from "./meetings-feed";
 import { RailAtmosphere } from "./rail-atmosphere";
 import { RailFooter } from "./rail-footer";
 import { RailSlot } from "./rail-slot";
-import { TodoFeed } from "./todo-feed";
+import { TodoFeed, type SuggestionInput } from "./todo-feed";
 import { WeatherChip } from "./weather-chip";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
@@ -17,17 +18,50 @@ const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode 
   { value: "meetings", label: "Up next", icon: <CalendarClock size={12} /> },
 ];
 
+export interface RailBriefingSummary {
+  /** Composed-briefing row id; reserved for a future "view briefing" surface. */
+  id: string;
+  /** e.g. `"morning"` / `"evening"`. */
+  slot: string;
+  /** Local-date the briefing covers (YYYY-MM-DD). */
+  briefingDate: string;
+  /** ISO timestamp when the briefing was composed. */
+  runAt: string;
+  subject: string | null;
+}
+
+export interface RailData {
+  todos: ReadonlyArray<TodoItem>;
+  todoSuggestions?: ReadonlyArray<SuggestionInput>;
+  inbox: ReadonlyArray<InboxItem>;
+  meetings: ReadonlyArray<MeetingItem>;
+  meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
+  /** Latest composed briefing for the user, or null if none has run yet. */
+  latestBriefing?: RailBriefingSummary | null;
+}
+
+export const EMPTY_RAIL_DATA: RailData = {
+  todos: [],
+  inbox: [],
+  meetings: [],
+  latestBriefing: null,
+};
+
 export function RailContent({
   tab,
   onTabChange,
   onClose,
   showClose = false,
+  data,
 }: {
   tab: RailTab;
   onTabChange: (tab: RailTab) => void;
   onClose?: () => void;
   showClose?: boolean;
+  data: RailData;
 }) {
+  const { data: session } = authClient.useSession();
+  const now = new Date();
   return (
     <>
       <RailAtmosphere />
@@ -39,10 +73,11 @@ export function RailContent({
         <div className="px-4 pt-5 pb-4 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-medium tracking-tight text-vs-fg-4">
-              Good morning
+              {greeting(now)}
+              {firstName(session?.user) ? `, ${firstName(session?.user)}` : ""}
             </div>
             <div className="mt-1 text-[11.5px] uppercase tracking-tight font-medium text-vs-fg-2">
-              Friday · May 23
+              {formatRailDate(now)}
             </div>
           </div>
           <div className="flex items-start gap-1.5 shrink-0">
@@ -84,21 +119,55 @@ export function RailContent({
             "[scrollbar-width:thin]",
           )}
         >
-          <div className="relative grid">
+          {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
+           * feed to the rail's width — otherwise the grid auto-sizes to its
+           * widest child (the inbox rows), `truncate` stops working, and
+           * narrower feeds like the to-do empty hint run past the rail's
+           * visible edge. */}
+          <div className="relative grid grid-cols-[minmax(0,1fr)]">
             <RailSlot active={tab === "todo"}>
-              <TodoFeed />
+              <TodoFeed items={data.todos} suggestions={data.todoSuggestions} />
             </RailSlot>
             <RailSlot active={tab === "inbox"}>
-              <InboxFeed />
+              <InboxFeed items={data.inbox} />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
-              <MeetingsFeed />
+              <MeetingsFeed items={data.meetings} lookahead={data.meetingLookahead} />
             </RailSlot>
           </div>
         </div>
 
-        <RailFooter />
+        <RailFooter latestBriefing={data.latestBriefing ?? null} />
       </div>
     </>
   );
+}
+
+/* ---- helpers ---- */
+
+interface SessionUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+function firstName(user: SessionUser | null | undefined): string {
+  if (!user) return "";
+  if (user.name && user.name.trim()) {
+    const part = user.name.trim().split(/\s+/)[0] ?? "";
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  }
+  return "";
+}
+
+function greeting(date: Date): string {
+  const h = date.getHours();
+  if (h >= 5 && h < 12) return "Good morning";
+  if (h >= 12 && h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatRailDate(date: Date): string {
+  const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
+  const month = date.toLocaleDateString(undefined, { month: "short" });
+  return `${weekday} · ${month} ${date.getDate()}`;
 }

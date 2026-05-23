@@ -20,8 +20,12 @@ const serverEnvSchema = z.object({
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().url().optional(),
   POSTHOG_API_KEY: z.string().optional(),
-  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
-  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  // Required: Better Auth Google sign-in uses these. The integration OAuth
+  // flow (Gmail/Calendar scope grants) reuses the same client; that callback
+  // URL lives in GOOGLE_OAUTH_REDIRECT_URI. Better Auth builds its own
+  // callback URL automatically from BETTER_AUTH_URL.
+  GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
   /** Pub/Sub topic Gmail watch should publish to, e.g. `projects/<id>/topics/gmail-push`. */
   GOOGLE_PUBSUB_TOPIC: z.string().optional(),

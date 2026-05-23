@@ -20,7 +20,7 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
         {related.map((item, idx) => (
           <Link
             key={item.id}
-            to="/preview/integrations/$provider"
+            to="/integrations/$provider"
             params={{ provider: item.id }}
             className={cn(
               "vs-card-in flex items-center gap-3 rounded-2xl bg-vs-bg-1 px-3 py-2.5",

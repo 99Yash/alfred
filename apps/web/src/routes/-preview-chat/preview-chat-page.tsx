@@ -1,11 +1,37 @@
 import { useEffect, useRef, useState } from "react";
-import { useChatContext } from "~/components/preview/chat-context";
+import { useChatContext } from "~/components/chat-context";
+import { useRightRail } from "~/lib/app-shell";
 import { ComposerDock } from "./composer-dock";
 import { ConversationPlaceholder } from "./conversation-placeholder";
 import { ConversationScroll } from "./conversation-scroll";
-import { findThread, useRailMode } from "./helpers";
+import { findThread, INBOX, MEETINGS, TODOS, useRailMode } from "./helpers";
+import type { RailData } from "./rail-content";
 import { RightRail } from "./right-rail";
 import { ThreadTopBar } from "./thread-top-bar";
+
+/* Demo fixtures piped into the rail. `/preview/chat` is the loud design
+ * surface — when this route mounts, the rail shows the full populated
+ * design. The real `/chat` surface passes `EMPTY_RAIL_DATA` instead. */
+const PREVIEW_RAIL_DATA: RailData = {
+  todos: TODOS,
+  todoSuggestions: [
+    { label: "Draft reply to Sycamore", detail: "Pull last 3 sends · summarize asks" },
+    { label: "Tag newsletters as Later", detail: "12 threads from this morning" },
+  ],
+  inbox: INBOX,
+  meetings: MEETINGS,
+  meetingLookahead: [
+    { label: "Mon · Board prep with Priya", detail: "09:30 · 60m" },
+    { label: "Tue · Vendor demo", detail: "14:00 · 45m" },
+  ],
+  latestBriefing: {
+    id: "brf_preview",
+    slot: "morning",
+    briefingDate: new Date().toISOString().slice(0, 10),
+    runAt: new Date().toISOString(),
+    subject: "Morning briefing — Friday",
+  },
+};
 
 export function PreviewChatPage() {
   const { activeThread } = useChatContext();
@@ -33,26 +59,32 @@ export function PreviewChatPage() {
 
   const activeEntry = findThread(activeThread);
 
-  // Sidebar + theme provider are owned by `preview.tsx`. This route only
-  // contributes the main column + right rail, rendered as siblings of the
-  // sidebar inside the layout's outer flex container.
+  // Sidebar is owned by AppShell. We contribute the main column here and
+  // register the right rail via `useRightRail()` so it lands as a flex
+  // sibling of the main column inside AppShell — same wiring `/chat`
+  // uses, just with fixture data piped in.
+  useRightRail(
+    <RightRail
+      open={railOpen}
+      mode={railMode}
+      onClose={() => setRailOpen(false)}
+      data={PREVIEW_RAIL_DATA}
+    />,
+  );
+
   return (
-    <>
-      <div className="relative flex min-w-0 flex-1 flex-col">
-        <ThreadTopBar
-          title={activeEntry?.title ?? "New chat"}
-          railOpen={railOpen}
-          onToggleRail={() => setRailOpen((v) => !v)}
-        />
+    <div className="relative flex min-w-0 flex-1 flex-col">
+      <ThreadTopBar
+        title={activeEntry?.title ?? "New chat"}
+        railOpen={railOpen}
+        onToggleRail={() => setRailOpen((v) => !v)}
+      />
 
-        <ConversationScroll>
-          <ConversationPlaceholder entry={activeEntry} />
-        </ConversationScroll>
+      <ConversationScroll>
+        <ConversationPlaceholder entry={activeEntry} />
+      </ConversationScroll>
 
-        <ComposerDock value={composer} onChange={setComposer} />
-      </div>
-
-      <RightRail open={railOpen} mode={railMode} onClose={() => setRailOpen(false)} />
-    </>
+      <ComposerDock value={composer} onChange={setComposer} />
+    </div>
   );
 }

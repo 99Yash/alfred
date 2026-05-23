@@ -635,8 +635,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       }
       if (
         message.historyId &&
-        (!highWaterHistoryId ||
-          compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
+        (!highWaterHistoryId || compareHistoryIds(message.historyId, highWaterHistoryId) > 0)
       ) {
         highWaterHistoryId = message.historyId;
       }

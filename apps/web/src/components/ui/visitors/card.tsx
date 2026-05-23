@@ -49,11 +49,20 @@ interface VsCardHeaderProps extends HTMLAttributes<HTMLDivElement> {
   trailing?: React.ReactNode;
 }
 
-export function VsCardHeader({ className, title, trailing, ref, ...rest }: VsCardHeaderProps & { ref?: Ref<HTMLDivElement> }) {
+export function VsCardHeader({
+  className,
+  title,
+  trailing,
+  ref,
+  ...rest
+}: VsCardHeaderProps & { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
       ref={ref}
-      className={cn("flex items-center justify-between text-sm font-medium text-vs-fg-4 mb-4", className)}
+      className={cn(
+        "flex items-center justify-between text-sm font-medium text-vs-fg-4 mb-4",
+        className,
+      )}
       {...rest}
     >
       <span>{title}</span>

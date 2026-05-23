@@ -1,24 +1,52 @@
 import { cn } from "~/lib/utils";
-import { MEETINGS, type MeetingItem } from "./helpers";
+import type { MeetingItem } from "./helpers";
 import { RailSection } from "./rail-section";
 import { SuggestionRow } from "./suggestion-row";
 
-export function MeetingsFeed() {
+export interface MeetingLookaheadItem {
+  label: string;
+  detail: string;
+}
+
+export function MeetingsFeed({
+  items,
+  lookahead = [],
+}: {
+  items: ReadonlyArray<MeetingItem>;
+  lookahead?: ReadonlyArray<MeetingLookaheadItem>;
+}) {
+  if (!items.length && !lookahead.length) {
+    return (
+      <div className="vs-card-in px-2 py-4">
+        <p className="text-[12px] leading-5 text-vs-fg-2">
+          Connect Google Calendar to see your day at a glance.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="vs-card-in space-y-2">
-      <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
-        Today · {MEETINGS.length}
-      </div>
-      <ul className="space-y-1">
-        {MEETINGS.map((meeting) => (
-          <MeetingRow key={meeting.id} meeting={meeting} />
-        ))}
-      </ul>
+      {items.length ? (
+        <>
+          <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+            Today · {items.length}
+          </div>
+          <ul className="space-y-1">
+            {items.map((meeting) => (
+              <MeetingRow key={meeting.id} meeting={meeting} />
+            ))}
+          </ul>
+        </>
+      ) : null}
 
-      <RailSection title="After today">
-        <SuggestionRow label="Mon · Board prep with Priya" detail="09:30 · 60m" />
-        <SuggestionRow label="Tue · Vendor demo" detail="14:00 · 45m" />
-      </RailSection>
+      {lookahead.length ? (
+        <RailSection title="After today">
+          {lookahead.map((l) => (
+            <SuggestionRow key={l.label} label={l.label} detail={l.detail} />
+          ))}
+        </RailSection>
+      ) : null}
     </div>
   );
 }
@@ -69,9 +97,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
               </span>
             ) : null}
           </span>
-          <span className="block truncate text-[11px] leading-4 text-vs-fg-2">
-            {meeting.with}
-          </span>
+          <span className="block truncate text-[11px] leading-4 text-vs-fg-2">{meeting.with}</span>
         </span>
       </button>
     </li>

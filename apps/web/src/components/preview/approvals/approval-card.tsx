@@ -37,14 +37,12 @@ export function ApprovalCard({
           <ToolIcon toolName={approval.toolName} />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-[15px] font-medium text-vs-fg-4">
-                {approval.toolName}
-              </h2>
+              <h2 className="truncate text-[15px] font-medium text-vs-fg-4">{approval.toolName}</h2>
               <RiskPill riskTier={approval.riskTier} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-vs-fg-3">
               <Link
-                to="/preview/workflows/$workflow"
+                to="/workflows/$workflow"
                 params={{ workflow: approval.workflowSlug }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded transition-colors hover:text-vs-fg-4",
@@ -96,9 +94,7 @@ export function ApprovalCard({
             !draft.ok && "focus-visible:ring-vs-red-2",
           )}
         />
-        {!draft.ok ? (
-          <p className="mt-2 text-[12px] text-vs-red-4">{draft.message}</p>
-        ) : null}
+        {!draft.ok ? <p className="mt-2 text-[12px] text-vs-red-4">{draft.message}</p> : null}
       </div>
 
       <div>
@@ -118,12 +114,7 @@ export function ApprovalCard({
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <VsButton
-          variant="primary"
-          size="md"
-          leading={APPROVE_LEADING}
-          onClick={onResolve}
-        >
+        <VsButton variant="primary" size="md" leading={APPROVE_LEADING} onClick={onResolve}>
           Approve
         </VsButton>
         <VsButton

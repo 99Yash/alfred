@@ -184,11 +184,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
     persist: {
       id: "persist",
       async run(ctx) {
-        if (
-          !ctx.state.composed ||
-          !ctx.state.untilIngestedAt ||
-          !ctx.state.briefingDate
-        ) {
+        if (!ctx.state.composed || !ctx.state.untilIngestedAt || !ctx.state.briefingDate) {
           throw new Error("[daily-briefing] persist entered without composed output");
         }
 

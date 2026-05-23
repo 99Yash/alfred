@@ -30,15 +30,10 @@ export function FadeInOnScroll({
     return () => obs.disconnect();
   }, []);
 
-  const style: CSSProperties =
-    delay > 0 ? { transitionDelay: `${delay}ms` } : {};
+  const style: CSSProperties = delay > 0 ? { transitionDelay: `${delay}ms` } : {};
 
   return (
-    <As
-      ref={ref as never}
-      className={cn("reveal-on-scroll", className)}
-      style={style}
-    >
+    <As ref={ref as never} className={cn("reveal-on-scroll", className)} style={style}>
       {children}
     </As>
   );

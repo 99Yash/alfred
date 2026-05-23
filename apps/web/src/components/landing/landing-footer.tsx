@@ -32,19 +32,15 @@ export function LandingFooter({
               <span className="grid size-6 place-items-center rounded-full bg-white text-[11px] font-bold text-black">
                 A
               </span>
-              <span className="text-[15px] font-semibold text-white">
-                Alfred
-              </span>
+              <span className="text-[15px] font-semibold text-white">Alfred</span>
             </a>
             <p className="max-w-sm text-[14px] leading-[1.55] text-neutral-500">
-              Built over hundreds of late nights, Alfred is the personal AI
-              coworker that runs quietly across every tool you already use.
+              Built over hundreds of late nights, Alfred is the personal AI coworker that runs
+              quietly across every tool you already use.
             </p>
             <div className="flex flex-col gap-2.5">
               <OperationalPill operational={operational} />
-              <p className="text-[12.5px] text-neutral-600">
-                © {new Date().getFullYear()} Alfred
-              </p>
+              <p className="text-[12.5px] text-neutral-600">© {new Date().getFullYear()} Alfred</p>
             </div>
           </div>
 
@@ -94,13 +90,7 @@ const LEGAL_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "Terms", href: "/terms-of-service" },
 ];
 
-function FooterColumn({
-  title,
-  items,
-}: {
-  title: string;
-  items: ReadonlyArray<FooterLink>;
-}) {
+function FooterColumn({ title, items }: { title: string; items: ReadonlyArray<FooterLink> }) {
   return (
     <div className="flex flex-col gap-4">
       <h3 className="text-[12.5px] font-semibold text-white">{title}</h3>
@@ -111,10 +101,7 @@ function FooterColumn({
               href={item.href}
               target={item.external ? "_blank" : undefined}
               rel={item.external ? "noopener noreferrer" : undefined}
-              className={cn(
-                "text-[14px] text-neutral-500 transition-colors",
-                "hover:text-white",
-              )}
+              className={cn("text-[14px] text-neutral-500 transition-colors", "hover:text-white")}
             >
               {item.label}
             </a>

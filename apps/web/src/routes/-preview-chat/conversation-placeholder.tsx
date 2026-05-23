@@ -1,13 +1,4 @@
-import {
-  BookOpen,
-  Brain,
-  Calendar,
-  Inbox,
-  Mail,
-  Sparkles,
-  Tag,
-  Users2,
-} from "lucide-react";
+import { BookOpen, Brain, Calendar, Inbox, Mail, Sparkles, Tag, Users2 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ThreadEntry } from "./helpers";
 import { RunGroup } from "./run-group";
@@ -93,12 +84,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
               <ThoughtRow duration="1s">
                 Ranked by latest-reply-from-me age: older threads first.
               </ThoughtRow>
-              <ToolRow
-                icon={Tag}
-                tone="green"
-                label="Tagged 3 as Reply today"
-                done
-              />
+              <ToolRow icon={Tag} tone="green" label="Tagged 3 as Reply today" done />
             </RunGroup>
             <p>
               <span className="text-vs-fg-4 font-medium">Three to answer.</span> Maya's vesting

@@ -50,9 +50,7 @@ export function VsDock({ items, activeId, className }: VsDockProps) {
             className={cn(
               "relative inline-flex items-center justify-center h-8 rounded-full transition-colors",
               "text-white/70 hover:text-white",
-              isActive
-                ? "bg-vs-purple-4/30 text-white px-2.5 gap-1.5"
-                : "size-8 hover:bg-white/5",
+              isActive ? "bg-vs-purple-4/30 text-white px-2.5 gap-1.5" : "size-8 hover:bg-white/5",
             )}
           >
             <span className="size-4 inline-flex items-center justify-center">{it.icon}</span>
@@ -64,13 +62,26 @@ export function VsDock({ items, activeId, className }: VsDockProps) {
 
         if (it.href) {
           return (
-            <a key={it.id} href={it.href} aria-label={it.label} aria-current={isActive ? "page" : undefined} className="vs-press outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-3 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-fg-4 rounded-full">
+            <a
+              key={it.id}
+              href={it.href}
+              aria-label={it.label}
+              aria-current={isActive ? "page" : undefined}
+              className="vs-press outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-3 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-fg-4 rounded-full"
+            >
               {inner}
             </a>
           );
         }
         return (
-          <button key={it.id} type="button" onClick={it.onClick} aria-label={it.label} aria-current={isActive ? "page" : undefined} className="vs-press outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-3 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-fg-4 rounded-full">
+          <button
+            key={it.id}
+            type="button"
+            onClick={it.onClick}
+            aria-label={it.label}
+            aria-current={isActive ? "page" : undefined}
+            className="vs-press outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-3 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-fg-4 rounded-full"
+          >
             {inner}
           </button>
         );

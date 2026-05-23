@@ -63,9 +63,7 @@ export function VsPill({
         "transition-[box-shadow,background-color,transform]",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         "vs-press",
-        isAccent && tone
-          ? TONE[tone]
-          : cn("bg-vs-bg-1 text-vs-fg-4", "vs-elevated"),
+        isAccent && tone ? TONE[tone] : cn("bg-vs-bg-1 text-vs-fg-4", "vs-elevated"),
         className,
       )}
       {...rest}
@@ -88,7 +86,13 @@ function ChevronUpDown() {
       aria-hidden
       className="shrink-0 text-vs-fg-2"
     >
-      <path d="M3.5 5L6 2.5L8.5 5M3.5 7L6 9.5L8.5 7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3.5 5L6 2.5L8.5 5M3.5 7L6 9.5L8.5 7"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

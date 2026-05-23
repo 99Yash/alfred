@@ -11,43 +11,35 @@ import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import type { ArtifactType, LibraryArtifact } from "~/lib/library-artifacts";
 import { cn } from "~/lib/utils";
 
-const TYPE_TINT: Record<
-  ArtifactType,
-  { bg: string; fg: string; ring: string; icon: LucideIcon }
-> = {
-  document: {
-    bg: "bg-vs-blue-1",
-    fg: "text-vs-blue-4",
-    ring: "ring-vs-blue-2",
-    icon: FileText,
-  },
-  pdf: { bg: "bg-vs-red-1", fg: "text-vs-red-4", ring: "ring-vs-red-2", icon: FileText },
-  presentation: {
-    bg: "bg-vs-amber-1",
-    fg: "text-vs-amber-4",
-    ring: "ring-vs-amber-2",
-    icon: Presentation,
-  },
-  spreadsheet: {
-    bg: "bg-vs-green-1",
-    fg: "text-vs-green-4",
-    ring: "ring-vs-green-2",
-    icon: FileSpreadsheet,
-  },
-};
+const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }> =
+  {
+    document: {
+      bg: "bg-vs-blue-1",
+      fg: "text-vs-blue-4",
+      ring: "ring-vs-blue-2",
+      icon: FileText,
+    },
+    pdf: { bg: "bg-vs-red-1", fg: "text-vs-red-4", ring: "ring-vs-red-2", icon: FileText },
+    presentation: {
+      bg: "bg-vs-amber-1",
+      fg: "text-vs-amber-4",
+      ring: "ring-vs-amber-2",
+      icon: Presentation,
+    },
+    spreadsheet: {
+      bg: "bg-vs-green-1",
+      fg: "text-vs-green-4",
+      ring: "ring-vs-green-2",
+      icon: FileSpreadsheet,
+    },
+  };
 
-export function ArtifactCard({
-  artifact,
-  index,
-}: {
-  artifact: LibraryArtifact;
-  index: number;
-}) {
+export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; index: number }) {
   const tint = TYPE_TINT[artifact.type];
   const Icon = tint.icon;
   return (
     <Link
-      to="/preview/library/$artifact"
+      to="/library/$artifact"
       params={{ artifact: artifact.id }}
       className={cn(
         "group block overflow-hidden rounded-2xl bg-vs-bg-1 vs-card-in",
@@ -101,11 +93,7 @@ export function ArtifactCard({
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-vs-fg-4">{artifact.title}</p>
             {artifact.favourite ? (
-              <Star
-                size={12}
-                aria-hidden
-                className="shrink-0 fill-vs-amber-4 text-vs-amber-4"
-              />
+              <Star size={12} aria-hidden className="shrink-0 fill-vs-amber-4 text-vs-amber-4" />
             ) : null}
           </div>
           <p className="mt-0.5 truncate text-[12px] text-vs-fg-3">

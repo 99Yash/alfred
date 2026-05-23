@@ -5,7 +5,7 @@ import { ProviderDetail } from "~/components/preview/integrations/provider-detai
 import { getIntegrationProvider } from "~/lib/integrations";
 
 export function PreviewIntegrationDetailPage() {
-  const { provider: providerId } = useParams({ from: "/preview/integrations/$provider" });
+  const { provider: providerId } = useParams({ from: "/integrations/$provider" });
   const provider = getIntegrationProvider(providerId);
 
   return (

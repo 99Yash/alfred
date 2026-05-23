@@ -214,12 +214,8 @@
   --vs-radius-6: 1rem;
 
   /* Shadow stack used everywhere — drop + hairline-as-border, all in one box-shadow */
-  --vs-shadow-elevated:
-    0 1px 1px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(0, 0, 0, 0.05);
-  --vs-shadow-elevated-hover:
-    0 1px 1px rgba(0, 0, 0, 0.12),
-    0 0 0 1px rgba(0, 0, 0, 0.1);
+  --vs-shadow-elevated: 0 1px 1px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --vs-shadow-elevated-hover: 0 1px 1px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.1);
 
   /* Brand accent — the CTA color. Separate from the -hue scale because
    * the -4 of any hue is tuned for icons/dots (mid-saturation), not for
@@ -244,12 +240,10 @@
    * the inset highlight + a tight black drop instead — accent halos
    * over near-black read as muddy/leaky. */
   --vs-button-primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.20),
-    0 1px 2px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.18),
     0 8px 24px var(--vs-accent-glow);
   --vs-button-primary-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 2px 4px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 2px 4px rgba(0, 0, 0, 0.22),
     0 12px 32px var(--vs-accent-glow);
 }
 
@@ -346,11 +340,9 @@
     --vs-orange-4: #ffc191;
 
     --vs-shadow-elevated:
-      0 0 0 1px rgba(255, 255, 255, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     --vs-shadow-elevated-hover:
-      0 0 0 1px rgba(255, 255, 255, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
     /* Accent — kept available for the focus ring, .switch checked-state,
      * and any explicitly-purple surface. The dark CTA itself does NOT
@@ -359,7 +351,7 @@
     --vs-accent-to: #5d44df;
     --vs-accent-fg: #ffffff;
     --vs-accent-ring: rgba(126, 117, 245, 0.55);
-    --vs-accent-glow: rgba(126, 117, 245, 0.30);
+    --vs-accent-glow: rgba(126, 117, 245, 0.3);
 
     /* Dimension's "Get Started" CTA recipe — polished obsidian. Pure dark
      * gradient (no accent purple in the fill, which read muddy in V1), a
@@ -370,15 +362,11 @@
     --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
 
     --vs-button-primary-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.18),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-      0 1px 2px rgba(0, 0, 0, 0.6),
-      0 8px 22px rgba(0, 0, 0, 0.45);
+      inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.6), 0 8px 22px rgba(0, 0, 0, 0.45);
     --vs-button-primary-shadow-hover:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-      0 2px 4px rgba(0, 0, 0, 0.7),
-      0 12px 28px rgba(0, 0, 0, 0.5);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.7), 0 12px 28px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -455,30 +443,24 @@
   --vs-orange-4: #ffc191;
 
   --vs-shadow-elevated:
-    0 0 0 1px rgba(255, 255, 255, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --vs-shadow-elevated-hover:
-    0 0 0 1px rgba(255, 255, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
   --vs-accent-from: #7e75f5;
   --vs-accent-to: #5d44df;
   --vs-accent-fg: #ffffff;
   --vs-accent-ring: rgba(126, 117, 245, 0.55);
-  --vs-accent-glow: rgba(126, 117, 245, 0.30);
+  --vs-accent-glow: rgba(126, 117, 245, 0.3);
 
   --vs-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
 
   --vs-button-primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.6),
-    0 8px 22px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.6), 0 8px 22px rgba(0, 0, 0, 0.45);
   --vs-button-primary-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 2px 4px rgba(0, 0, 0, 0.7),
-    0 12px 28px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.7), 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -1446,13 +1428,7 @@
       #000 70%,
       transparent 92%
     );
-    mask: radial-gradient(
-      circle at center,
-      transparent 38%,
-      #000 52%,
-      #000 70%,
-      transparent 92%
-    );
+    mask: radial-gradient(circle at center, transparent 38%, #000 52%, #000 70%, transparent 92%);
     filter: blur(28px) saturate(1.25);
     transform: rotate(-12deg);
   }
@@ -1688,6 +1664,53 @@
     }
   }
 
+  /* Chat composer — per-character entrance (monkeytype-feel typing).
+   * Each <span class="chat-char"> in the textarea mirror animates exactly
+   * once when it mounts. Keep the animation short so fast typing doesn't
+   * feel laggy, and use `backwards` so the from-state applies before the
+   * first frame paints — otherwise React's render → animation gap shows
+   * one frame of fully visible char. */
+  @keyframes chat-char-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+      filter: blur(0.4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+  .chat-char {
+    display: inline;
+    animation: chat-char-in 140ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Soft pulsing dot for the recording timer indicator — slower than a
+   * notification beat so the user reads it as "live" rather than alarm. */
+  @keyframes chat-rec-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(0.86);
+    }
+  }
+  .chat-rec-dot {
+    animation: chat-rec-pulse 1.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-char,
+    .chat-rec-dot {
+      animation: none !important;
+    }
+  }
+
   .morning-briefing-surface {
     background:
       radial-gradient(
@@ -1696,12 +1719,13 @@
         rgba(255, 255, 255, 0.06) 38%,
         transparent 70%
       ),
-      radial-gradient(
-        ellipse 80% 50% at 0% 100%,
-        rgba(72, 103, 175, 0.55),
-        transparent 70%
-      ),
-      linear-gradient(160deg, rgba(72, 103, 175, 0.78) 0%, rgba(58, 88, 156, 0.82) 55%, rgba(64, 96, 168, 0.85) 100%);
+      radial-gradient(ellipse 80% 50% at 0% 100%, rgba(72, 103, 175, 0.55), transparent 70%),
+      linear-gradient(
+        160deg,
+        rgba(72, 103, 175, 0.78) 0%,
+        rgba(58, 88, 156, 0.82) 55%,
+        rgba(64, 96, 168, 0.85) 100%
+      );
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.18),
       inset 0 -1px 0 rgba(0, 0, 0, 0.18);

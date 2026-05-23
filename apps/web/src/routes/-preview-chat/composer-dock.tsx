@@ -5,7 +5,13 @@ import { cn } from "~/lib/utils";
 
 const ADD_TOOL_LEADING = <Plus size={12} />;
 
-export function ComposerDock({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function ComposerDock({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
   const canSend = value.trim().length > 0;
   return (
     <div className="shrink-0 pb-5 pt-1">

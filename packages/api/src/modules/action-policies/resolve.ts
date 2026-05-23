@@ -107,10 +107,7 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
   return pending;
 }
 
-function pickRule(
-  rules: IntegrationRules,
-  slug: IntegrationSlug,
-): IntegrationRule | undefined {
+function pickRule(rules: IntegrationRules, slug: IntegrationSlug): IntegrationRule | undefined {
   return rules[slug];
 }
 
@@ -120,10 +117,7 @@ function pickRule(
  * user default. The default for `system.*` tools is autonomy because the
  * signup hook seeds `integrationRules.system = { mode: 'autonomy' }`.
  */
-export async function resolvePolicyMode(
-  userId: string,
-  toolName: ToolName,
-): Promise<PolicyMode> {
+export async function resolvePolicyMode(userId: string, toolName: ToolName): Promise<PolicyMode> {
   const policy = await getResolvedPolicy(userId);
   const integration = integrationFromToolName(toolName);
   const rule = pickRule(policy.integrationRules, integration);

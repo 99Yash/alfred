@@ -770,7 +770,9 @@ function RichAssistantProse() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Code-Adjacent Question</h3>
+        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">
+          Code-Adjacent Question
+        </h3>
         <p>Ask how they model tool execution policy. A good follow-up could sound like:</p>
         <pre className="max-w-[760px] overflow-x-auto rounded-2xl border border-gray-200 bg-[#111] p-3 text-[12.5px] leading-5 text-white/82">
           <code>{`type ToolPolicy = {

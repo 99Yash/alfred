@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "~/lib/utils";
 import type { RailMode, RailTab } from "./helpers";
-import { RailContent } from "./rail-content";
+import { EMPTY_RAIL_DATA, RailContent, type RailData } from "./rail-content";
 
 /* -------------------------------------------------------------------------- */
 /* Right rail — Today panel                                                    */
@@ -11,15 +11,21 @@ import { RailContent } from "./rail-content";
 /*  • overlay (<1280px): slides in over the conversation with a backdrop.     */
 /* The mode swap auto-syncs `railOpen` to each mode's sensible default so a   */
 /* resize doesn't leave the user looking at a giant fullscreen overlay.       */
+/*                                                                            */
+/* Data is prop-driven — the rail itself owns no fixtures. `/preview/chat`    */
+/* passes a fixture bundle for the demo; `/chat` passes `EMPTY_RAIL_DATA`     */
+/* (or partial real data) so the production surface stays honest until        */
+/* todos / inbox / meetings sync ships.                                       */
 /* -------------------------------------------------------------------------- */
 
 interface RightRailProps {
   open: boolean;
   mode: RailMode;
   onClose: () => void;
+  data?: RailData;
 }
 
-export function RightRail({ open, mode, onClose }: RightRailProps) {
+export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: RightRailProps) {
   const [tab, setTab] = useState<RailTab>("todo");
 
   if (mode === "overlay") {
@@ -48,7 +54,7 @@ export function RightRail({ open, mode, onClose }: RightRailProps) {
             open ? "translate-x-0" : "translate-x-full",
           )}
         >
-          <RailContent tab={tab} onTabChange={setTab} onClose={onClose} showClose />
+          <RailContent tab={tab} onTabChange={setTab} onClose={onClose} showClose data={data} />
         </aside>
       </>
     );
@@ -66,7 +72,7 @@ export function RightRail({ open, mode, onClose }: RightRailProps) {
       )}
     >
       <div className="relative h-full w-[340px] flex flex-col">
-        <RailContent tab={tab} onTabChange={setTab} />
+        <RailContent tab={tab} onTabChange={setTab} data={data} />
       </div>
     </aside>
   );

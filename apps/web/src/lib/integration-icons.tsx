@@ -150,8 +150,7 @@ export function IntegrationGlyph({
     );
   }
 
-  const color =
-    colorOverride ?? (variant === "frost" ? meta.frostColor : meta.plainColor);
+  const color = colorOverride ?? (variant === "frost" ? meta.frostColor : meta.plainColor);
   // BRAND_SVGS is a hand-curated constant in source (see integration-svgs.ts);
   // there is no user-provided HTML path into this value, so the no-danger rule
   // is a false positive here. We use innerHTML to keep the SVG markup
