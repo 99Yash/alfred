@@ -50,12 +50,11 @@ function PreviewLayout() {
   return (
     <ChatContext.Provider value={{ activeThread, setActiveThread }}>
       <VsThemeProvider>
-        <VsThemed className="min-h-dvh bg-vs-background">
-          <div className="relative flex h-dvh w-full overflow-hidden">
+        <VsThemed className="min-h-dvh bg-vs-background-subtle">
+          <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
             <PreviewSidebar
               onOpenSearch={() => setPaletteOpen(true)}
               activeThread={activeThread}
-              onSelectThread={setActiveThread}
             />
             <Outlet />
           </div>

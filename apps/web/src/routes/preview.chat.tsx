@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
 import {
   ArrowRight,
   ArrowUp,
@@ -47,8 +47,15 @@ import { useChatContext } from "~/components/preview/chat-context";
  * is placeholder so the shell can be reviewed in isolation before /chat lands.
  */
 export const Route = createFileRoute("/preview/chat")({
-  component: PreviewChatPage,
+  component: PreviewChatRoute,
 });
+
+function PreviewChatRoute() {
+  const hasChild = useChildMatches().length > 0;
+  return hasChild ? <Outlet /> : <PreviewChatPage />;
+}
+
+export { PreviewChatPage };
 
 type ThreadGroup = "today" | "yesterday" | "earlier";
 
@@ -369,7 +376,8 @@ function RightRail({ open, mode, onClose }: RightRailProps) {
       aria-label="Today"
       className={cn(
         "shrink-0 h-full",
-        "border-l border-vs-bg-3/60 bg-vs-bg-1/40",
+        "rounded-2xl bg-vs-bg-1",
+        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         "transition-[width] duration-200 ease-out overflow-hidden",
         open ? "w-[340px]" : "w-0",
       )}
