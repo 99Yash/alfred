@@ -10,41 +10,26 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  ChevronsLeft,
   Ellipsis,
   Inbox,
   ListChecks,
   Mail,
   Mic,
-  NotebookPen,
   PanelRight,
   Paperclip,
-  Pin,
-  Plug,
   Plus,
-  Search,
-  Settings2,
   Share2,
-  ShieldCheck,
   Sparkles,
-  SquarePen,
   Sun,
   Tag,
   Users2,
-  Workflow,
-  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  VsPill,
-  VsSegmented,
-  VsThemed,
-  VsThemeProvider,
-  VsThemeToggle,
-} from "~/components/ui/visitors";
+import { VsPill, VsSegmented } from "~/components/ui/visitors";
 import { cn } from "~/lib/utils";
+import { useChatContext } from "~/components/preview/chat-context";
 
 /**
  * Visitors-now-grammar app shell for the upcoming chat UI.
@@ -127,15 +112,7 @@ const THREADS: Record<ThreadGroup, ThreadEntry[]> = {
 };
 
 function PreviewChatPage() {
-  return (
-    <VsThemeProvider>
-      <PreviewChatBody />
-    </VsThemeProvider>
-  );
-}
-
-function PreviewChatBody() {
-  const [activeThread, setActiveThread] = useState<string>("morning-brief");
+  const { activeThread } = useChatContext();
   const [composer, setComposer] = useState("");
   const railMode = useRailMode();
   const [railOpen, setRailOpen] = useState(() => railMode === "inline");
@@ -162,32 +139,27 @@ function PreviewChatBody() {
 
   const activeEntry = findThread(activeThread);
 
+  // Sidebar + theme provider are owned by `preview.tsx`. This route only
+  // contributes the main column + right rail, rendered as siblings of the
+  // sidebar inside the layout's outer flex container.
   return (
-    <VsThemed className="min-h-dvh bg-vs-background">
-      <div className="relative flex h-dvh w-full overflow-hidden">
-        <Sidebar activeThread={activeThread} onSelectThread={setActiveThread} />
-
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          <ThreadTopBar
-            title={activeEntry?.title ?? "New chat"}
-            railOpen={railOpen}
-            onToggleRail={() => setRailOpen((v) => !v)}
-          />
-
-          <ConversationScroll>
-            <ConversationPlaceholder entry={activeEntry} />
-          </ConversationScroll>
-
-          <ComposerDock value={composer} onChange={setComposer} />
-        </div>
-
-        <RightRail
-          open={railOpen}
-          mode={railMode}
-          onClose={() => setRailOpen(false)}
+    <>
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <ThreadTopBar
+          title={activeEntry?.title ?? "New chat"}
+          railOpen={railOpen}
+          onToggleRail={() => setRailOpen((v) => !v)}
         />
+
+        <ConversationScroll>
+          <ConversationPlaceholder entry={activeEntry} />
+        </ConversationScroll>
+
+        <ComposerDock value={composer} onChange={setComposer} />
       </div>
-    </VsThemed>
+
+      <RightRail open={railOpen} mode={railMode} onClose={() => setRailOpen(false)} />
+    </>
   );
 }
 
@@ -906,250 +878,6 @@ function RailFooter() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Sidebar                                                                     */
-/* -------------------------------------------------------------------------- */
-
-interface SidebarProps {
-  activeThread: string;
-  onSelectThread: (id: string) => void;
-}
-
-function Sidebar({ activeThread, onSelectThread }: SidebarProps) {
-  return (
-    <aside
-      aria-label="Workspace navigation"
-      className={cn(
-        "relative shrink-0 w-[264px] h-full",
-        "border-r border-vs-bg-3/60",
-        "bg-vs-bg-1/40",
-        "flex flex-col",
-      )}
-    >
-      {/* Slim chrome row. No workspace switcher — single-user app, the
-       * brand belongs on the URL bar, not the sidebar. Just the collapse
-       * arrow tucked into the corner. */}
-      <div className="px-2 pt-2.5 pb-1 flex items-center justify-end">
-        <button
-          type="button"
-          aria-label="Collapse sidebar"
-          className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-          )}
-        >
-          <ChevronsLeft size={15} />
-        </button>
-      </div>
-
-      {/* Workspace nav. New chat + Search are at the top of the same group
-       * as the cross-route nav, matching dimension's sidebar IA — no
-       * separate primary CTA. The kbd hints carry the "this is the
-       * main action" signal instead of a colored fill. */}
-      <div className="px-2 pt-1 pb-2 space-y-0.5">
-        <NavRow icon={SquarePen} label="New chat" kbd="⌘N" />
-        <NavRow icon={Search} label="Search" kbd="⌘K" />
-        <NavRow icon={Plug} label="Integrations" />
-        <NavRow icon={Workflow} label="Workflows" />
-        <NavRow icon={Wrench} label="Skills" />
-        <NavRow icon={BookOpen} label="Library" />
-        <NavRow icon={ShieldCheck} label="Approvals" badge="2" />
-      </div>
-
-      {/* PERSONAL */}
-      <SidebarHeading>Personal</SidebarHeading>
-      <div className="px-2 pb-2 space-y-0.5">
-        <NavRow icon={Brain} label="Memory" />
-        <NavRow icon={NotebookPen} label="Notes" />
-      </div>
-
-      {/* Chats (scrolls). No section heading — the per-group day labels
-       * (TODAY / YESTERDAY / EARLIER) carry enough meaning on their own. */}
-      <nav
-        aria-label="Chats"
-        className={cn(
-          "flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 vs-scrollbar",
-          "[scrollbar-width:thin]",
-        )}
-      >
-        <ThreadGroupBlock label="Today" entries={THREADS.today} activeId={activeThread} onSelect={onSelectThread} />
-        <ThreadGroupBlock label="Yesterday" entries={THREADS.yesterday} activeId={activeThread} onSelect={onSelectThread} />
-        <ThreadGroupBlock label="Earlier" entries={THREADS.earlier} activeId={activeThread} onSelect={onSelectThread} />
-      </nav>
-
-      <UserRow />
-    </aside>
-  );
-}
-
-function SidebarHeading({ children }: { children: ReactNode }) {
-  return (
-    <div className="px-5 pt-3 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
-      {children}
-    </div>
-  );
-}
-
-function NavRow({
-  icon: Icon,
-  label,
-  kbd,
-  badge,
-  active = false,
-}: {
-  icon: LucideIcon;
-  label: string;
-  kbd?: string;
-  badge?: string;
-  active?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
-        "transition-[background-color,color] duration-150 vs-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        active
-          ? "bg-vs-bg-2 text-vs-fg-4"
-          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
-      )}
-    >
-      <Icon
-        size={14}
-        aria-hidden
-        className={cn(
-          "shrink-0 transition-colors",
-          active ? "text-vs-fg-4" : "text-vs-fg-2 group-hover:text-vs-fg-4",
-        )}
-      />
-      <span className="flex-1 min-w-0 truncate text-sm font-medium">{label}</span>
-      {badge ? (
-        <span
-          className={cn(
-            "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full",
-            "text-[10.5px] font-medium tabular-nums",
-            "bg-vs-purple-1 text-vs-purple-4",
-          )}
-        >
-          {badge}
-        </span>
-      ) : null}
-      {kbd ? <KbdHint>{kbd}</KbdHint> : null}
-    </button>
-  );
-}
-
-function KbdHint({ children }: { children: ReactNode }) {
-  return (
-    <kbd
-      className={cn(
-        "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
-        "text-[10.5px] leading-none font-medium tabular-nums",
-        "bg-vs-bg-a2 text-vs-fg-2 font-sans",
-      )}
-    >
-      {children}
-    </kbd>
-  );
-}
-
-function ThreadGroupBlock({
-  label,
-  entries,
-  activeId,
-  onSelect,
-}: {
-  label: string;
-  entries: ThreadEntry[];
-  activeId: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="mb-3">
-      <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
-        {label}
-      </div>
-      <div className="flex flex-col gap-0.5">
-        {entries.map((entry) => (
-          <ThreadRow
-            key={entry.id}
-            entry={entry}
-            active={entry.id === activeId}
-            onSelect={() => onSelect(entry.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ThreadRow({
-  entry,
-  active,
-  onSelect,
-}: {
-  entry: ThreadEntry;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2",
-        "transition-[background-color,color] duration-150 vs-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        active
-          ? "bg-vs-bg-2 text-vs-fg-4"
-          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
-      )}
-    >
-      {entry.pinned ? (
-        <Pin size={12} aria-hidden className="shrink-0 text-vs-fg-2 group-hover:text-vs-fg-3" />
-      ) : entry.unread ? (
-        <span
-          aria-hidden
-          className="size-1.5 shrink-0 rounded-full bg-vs-purple-4"
-        />
-      ) : (
-        <span aria-hidden className="size-1.5 shrink-0" />
-      )}
-      <span className="flex-1 min-w-0 truncate text-sm font-medium">{entry.title}</span>
-    </button>
-  );
-}
-
-function UserRow() {
-  return (
-    <div className="px-3 py-2 border-t border-vs-bg-3/60">
-      <button
-        type="button"
-        className={cn(
-          "w-full inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2",
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        )}
-      >
-        <span
-          aria-hidden
-          className="size-8 shrink-0 rounded-full bg-vs-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
-        >
-          Y
-        </span>
-        <span className="flex-1 min-w-0 text-left">
-          <span className="block text-sm font-medium text-vs-fg-4 truncate">Yash</span>
-          <span className="block text-[11px] text-vs-fg-2 truncate">dev.6@oliv.ai</span>
-        </span>
-        <Settings2 size={14} aria-hidden className="text-vs-fg-2" />
-      </button>
-    </div>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /* Top bar                                                                     */
@@ -1186,7 +914,6 @@ function ThreadTopBar({
           <Ellipsis size={14} />
         </IconButton>
         <span aria-hidden className="mx-1 h-5 w-px bg-vs-bg-3" />
-        <VsThemeToggle />
         <IconButton
           label={railOpen ? "Hide today panel" : "Show today panel"}
           onClick={onToggleRail}

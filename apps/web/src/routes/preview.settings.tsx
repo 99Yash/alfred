@@ -31,9 +31,6 @@ import {
   VsSegmented,
   VsSwitch,
   VsTextarea,
-  VsThemed,
-  VsThemeProvider,
-  VsThemeToggle,
   type VsSegmentedItem,
 } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
@@ -76,21 +73,10 @@ const SECTIONS: ReadonlyArray<SectionDef> = [
 ];
 
 function PreviewSettingsPage() {
-  return (
-    <VsThemeProvider>
-      <PreviewSettingsBody />
-    </VsThemeProvider>
-  );
-}
-
-function PreviewSettingsBody() {
   const [section, setSection] = useState<SectionId>("user");
 
   return (
-    <VsThemed className="min-h-dvh">
-      <div className="fixed top-4 right-4 z-50">
-        <VsThemeToggle />
-      </div>
+    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-2 mb-10 vs-card-in">
           <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Settings</h1>
@@ -111,7 +97,7 @@ function PreviewSettingsBody() {
           </Link>
         </footer>
       </main>
-    </VsThemed>
+    </div>
   );
 }
 

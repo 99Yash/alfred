@@ -1,13 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Check, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  VsButton,
-  VsCard,
-  VsThemed,
-  VsThemeProvider,
-  VsThemeToggle,
-} from "~/components/ui/visitors";
+import { VsButton, VsCard } from "~/components/ui/visitors";
 import {
   getIntegrationProvider,
   getRelatedProviders,
@@ -34,29 +28,16 @@ export const Route = createFileRoute("/preview/integrations/$provider")({
 });
 
 function PreviewIntegrationDetailPage() {
-  return (
-    <VsThemeProvider>
-      <PreviewIntegrationDetailBody />
-    </VsThemeProvider>
-  );
-}
-
-function PreviewIntegrationDetailBody() {
   const { provider: providerId } = Route.useParams();
   const provider = getIntegrationProvider(providerId);
 
   return (
-    <VsThemed className="min-h-dvh bg-vs-background">
-      <div className="fixed top-4 right-4 z-50">
-        <VsThemeToggle />
-      </div>
-
+    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
       <main className="mx-auto w-full max-w-[700px] px-4 sm:px-6 py-10 sm:py-14">
         <BackLink />
-
         {provider ? <ProviderDetail provider={provider} /> : <NotFound />}
       </main>
-    </VsThemed>
+    </div>
   );
 }
 
