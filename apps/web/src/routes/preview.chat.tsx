@@ -1448,10 +1448,10 @@ function ComposerIcon({ label, children }: { label: string; children: ReactNode 
 /* Helpers + tiny icons                                                        */
 /* -------------------------------------------------------------------------- */
 
+const THREAD_INDEX = new Map<string, ThreadEntry>(
+  Object.values(THREADS).flatMap((group) => group.map((t) => [t.id, t] as const)),
+);
+
 function findThread(id: string): ThreadEntry | undefined {
-  for (const group of Object.values(THREADS)) {
-    const hit = group.find((t) => t.id === id);
-    if (hit) return hit;
-  }
-  return undefined;
+  return THREAD_INDEX.get(id);
 }
