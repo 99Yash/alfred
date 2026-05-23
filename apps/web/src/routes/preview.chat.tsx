@@ -494,7 +494,7 @@ function RailAtmosphere() {
         style={{
           background:
             "radial-gradient(80% 70% at 78% 0%, rgba(251, 191, 36, 0.18) 0%, rgba(251, 191, 36, 0.05) 38%, transparent 68%)",
-          filter: "blur(28px)",
+          filter: "blur(8px)",
         }}
       />
       <div
@@ -502,7 +502,7 @@ function RailAtmosphere() {
         style={{
           background:
             "radial-gradient(70% 65% at 18% 8%, rgba(167, 139, 250, 0.18) 0%, rgba(139, 92, 246, 0.04) 45%, transparent 70%)",
-          filter: "blur(34px)",
+          filter: "blur(9px)",
         }}
       />
     </div>
