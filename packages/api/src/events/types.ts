@@ -28,6 +28,10 @@ export const toolCallSchema = z.object({
 export const approvalRequestedSchema = z.object({
   runId: z.string().min(1).max(120),
   approvalId: z.string().min(1).max(120),
+  // Canonical pending-approval browser event for both legacy step HIL
+  // and m13 action staging. The durable `/approvals` queue rides
+  // Replicache; do not emit a separate `staging_pending` event for the
+  // same action_stagings row.
   approvalKind: z.enum(["step", "action_staging"]),
   prompt: z.string().min(1).max(4_000),
 });

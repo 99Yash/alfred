@@ -40,6 +40,8 @@ export const IDB_KEY = {
   SKILL_REVISION: ({ id = "" }: { id?: string }) => constructIDBKey(["skillrev", id]),
   /** `skillrun/` (prefix scan) or `skillrun/{id}` (single row). */
   SKILL_RUN: ({ id = "" }: { id?: string }) => constructIDBKey(["skillrun", id]),
+  /** `actionstaging/` (prefix scan) or `actionstaging/{id}` (single row). */
+  ACTION_STAGING: ({ id = "" }: { id?: string }) => constructIDBKey(["actionstaging", id]),
 } as const;
 
 /** Union of every entity slug in the registry — drives generic dispatchers. */

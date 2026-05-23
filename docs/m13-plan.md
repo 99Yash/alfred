@@ -219,6 +219,7 @@ Goal: humans approve, edit, or reject staged actions inside the app, with email 
 ### 5a. SSE + Replicache wiring
 
 - Add event schemas for `staging_pending` and `staging_resolved` in `packages/api/src/events/types.ts`, or intentionally reuse/replace the existing `approval.requested` event. The implementation must leave one canonical browser event for a pending approval; avoid emitting both for the same staging row.
+- **Implementation choice:** reuse `approval.requested` as the canonical pending-approval event (`approvalKind='action_staging'`). Replicache carries the durable `/approvals` queue; do not emit a separate `staging_pending` event for the same row.
 - Add `actionStagings` to `IDB_KEY`, `packages/sync/src/types.ts`, and `ENTITY_FETCHERS` per the Replicache add-an-entity recipe in `CLAUDE.md`. Pull filters to `user_id = current_user AND status = 'pending'`. Every insert/update that changes a synced field must bump `action_stagings.row_version`.
 
 ### 5b. `/approvals` page
