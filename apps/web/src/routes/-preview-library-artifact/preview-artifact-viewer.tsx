@@ -1,14 +1,13 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Download, Maximize2, Share2, X } from "lucide-react";
 import { useCallback, useEffect } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { VsButton } from "~/components/ui/visitors";
 import { getArtifact } from "~/lib/library-artifacts";
 import { cn } from "~/lib/utils";
-import { Route } from "~/routes/preview.library.$artifact";
 
 export function PreviewArtifactViewer() {
-  const { artifact: artifactId } = Route.useParams();
+  const { artifact: artifactId } = useParams({ from: "/preview/library/$artifact" });
   const navigate = useNavigate();
   const artifact = getArtifact(artifactId);
 
