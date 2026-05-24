@@ -36,12 +36,6 @@ export interface RailData {
   inbox: ReadonlyArray<InboxItem>;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
-  /**
-   * Whether the user has actually connected Google Calendar. Lets the
-   * meetings empty state distinguish "connect Calendar" from "Calendar
-   * connected, day is clear" — both render zero items.
-   */
-  calendarConnected?: boolean;
   /** Latest composed briefing for the user, or null if none has run yet. */
   latestBriefing?: RailBriefingSummary | null;
 }
@@ -50,7 +44,6 @@ export const EMPTY_RAIL_DATA: RailData = {
   todos: [],
   inbox: [],
   meetings: [],
-  calendarConnected: false,
   latestBriefing: null,
 };
 
@@ -134,11 +127,7 @@ export function RailContent({
               <InboxFeed items={data.inbox} />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
-              <MeetingsFeed
-                items={data.meetings}
-                lookahead={data.meetingLookahead}
-                calendarConnected={data.calendarConnected ?? false}
-              />
+              <MeetingsFeed items={data.meetings} lookahead={data.meetingLookahead} />
             </RailSlot>
           </div>
         </div>

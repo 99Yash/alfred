@@ -2,48 +2,26 @@ import { Link } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { VsInput } from "~/components/ui/visitors";
-import { useResolvedIntegrations } from "~/hooks/use-integration-status";
+import { INTEGRATION_PROVIDERS } from "~/lib/integrations";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import { FeaturedHero } from "./featured-hero";
-import { buildConnectedSection, filterSections, matches, MCP_HAYSTACK } from "./helpers";
+import { filterSections, matches, MCP_HAYSTACK } from "./helpers";
 import { MCPServerSection } from "./mcp-server-section";
 import { SectionBlock } from "./section-block";
 
 export function PreviewIntegrationsBody() {
   const [query, setQuery] = useState("");
-  const resolved = useResolvedIntegrations();
-
-  // The "Connected" section is synthesised on top of the resolved overlay
-  // — the catalog no longer carries `status: "connected"` defaults. Drop
-  // the connected providers from the category sweep so they don't render
-  // twice (once in the floating section, once in their natural category).
-  const { connectedSection, remainingProviders } = useMemo(() => {
-    const connected = buildConnectedSection(resolved, query);
-    const remaining = connected
-      ? resolved.filter((p) => p.status !== "connected")
-      : resolved;
-    return { connectedSection: connected, remainingProviders: remaining };
-  }, [resolved, query]);
-
-  const filtered = useMemo(
-    () => filterSections(remainingProviders, query),
-    [remainingProviders, query],
-  );
-  const sections = useMemo(
-    () => (connectedSection ? [connectedSection, ...filtered] : filtered),
-    [connectedSection, filtered],
-  );
-
+  const filtered = useMemo(() => filterSections(query), [query]);
   const mcpVisible = matches(MCP_HAYSTACK, query);
-  const empty = sections.length === 0 && !mcpVisible;
+  const empty = filtered.length === 0 && !mcpVisible;
 
   const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(() => {
     const brands: IntegrationBrand[] = [];
-    for (const p of resolved) {
+    for (const p of INTEGRATION_PROVIDERS) {
       if (p.status === "connected") brands.push(p.brand);
     }
     return brands;
-  }, [resolved]);
+  }, []);
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto">
@@ -74,7 +52,7 @@ export function PreviewIntegrationsBody() {
         </div>
 
         <div className="mt-12 space-y-12">
-          {sections.map((section, sIdx) => (
+          {filtered.map((section, sIdx) => (
             <SectionBlock key={section.title} section={section} index={sIdx} />
           ))}
           {mcpVisible ? <MCPServerSection /> : null}

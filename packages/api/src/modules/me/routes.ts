@@ -1,11 +1,5 @@
 import { db } from "@alfred/db";
-import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
-import {
-  getFreshAccessToken,
-  listEvents,
-  MissingScopesError,
-  requireScopes,
-} from "@alfred/integrations/google";
+import { briefingRuns, documents, emailTriage } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notInArray, or } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { authMacro } from "../../middleware/auth";
@@ -50,24 +44,6 @@ export interface MeLatestBriefing {
   runAt: string;
   subject: string | null;
   status: string;
-}
-
-export interface MeMeetingItem {
-  /** Google Calendar event id; stable across reads of the same occurrence. */
-  id: string;
-  title: string;
-  /** RFC3339 start; `null` only for ill-formed events we couldn't parse. */
-  startAt: string | null;
-  /** RFC3339 end; same caveat. */
-  endAt: string | null;
-  /** All-day if `start.date` was set instead of `start.dateTime`. */
-  allDay: boolean;
-  location: string | null;
-  /** Non-self attendees. */
-  attendees: ReadonlyArray<{ email: string; displayName: string | null }>;
-  hangoutLink: string | null;
-  /** Public web view of the event in Google Calendar. */
-  htmlLink: string | null;
 }
 
 export const meRoutes = new Elysia({ prefix: "/api/me" })
@@ -122,98 +98,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
 
         return { items };
       })
-      .get(
-        "/meetings",
-        async ({
-          user: u,
-        }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
-          // Find any active Google credential the user has connected. We
-          // don't bother selecting a "calendar credential" specifically;
-          // the requireScopes() guard below decides whether this row can
-          // actually be used for Calendar reads.
-          const cred = await db()
-            .select({
-              id: integrationCredentials.id,
-              scopes: integrationCredentials.scopes,
-              status: integrationCredentials.status,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, u.id),
-                eq(integrationCredentials.provider, "google"),
-                eq(integrationCredentials.status, "active"),
-              ),
-            )
-            .limit(1);
-          const row = cred[0];
-          if (!row) return { items: [], connected: false };
-
-          try {
-            await requireScopes(row.id, ["calendar"]);
-          } catch (err) {
-            if (err instanceof MissingScopesError) {
-              return { items: [], connected: false };
-            }
-            throw err;
-          }
-
-          // Today in the server's clock; Calendar API returns event start
-          // times in their original timezones, which the client formats.
-          const now = new Date();
-          const startOfDay = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate(),
-            0,
-            0,
-            0,
-            0,
-          );
-          const endOfDay = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate() + 1,
-            0,
-            0,
-            0,
-            0,
-          );
-
-          const accessToken = await getFreshAccessToken(row.id);
-          const { events } = await listEvents({
-            accessToken,
-            timeMin: startOfDay.toISOString(),
-            timeMax: endOfDay.toISOString(),
-            singleEvents: true,
-            orderBy: "startTime",
-            maxResults: 50,
-          });
-
-          const items: MeMeetingItem[] = events.map((e) => {
-            const startIso = e.start?.dateTime ?? e.start?.date ?? null;
-            const endIso = e.end?.dateTime ?? e.end?.date ?? null;
-            const attendees = (e.attendees ?? [])
-              .filter((a) => !a.self && a.email)
-              .map((a) => ({
-                email: a.email ?? "",
-                displayName: a.displayName ?? null,
-              }));
-            return {
-              id: e.id,
-              title: e.summary ?? "(no title)",
-              startAt: startIso,
-              endAt: endIso,
-              allDay: Boolean(e.start?.date) && !e.start?.dateTime,
-              location: e.location ?? null,
-              attendees,
-              hangoutLink: e.hangoutLink ?? null,
-              htmlLink: e.htmlLink ?? null,
-            };
-          });
-          return { items, connected: true };
-        },
-      )
       .get(
         "/briefings/latest",
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
