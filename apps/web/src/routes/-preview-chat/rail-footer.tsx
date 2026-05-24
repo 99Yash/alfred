@@ -9,7 +9,7 @@ import type { RailBriefingSummary } from "./rail-content";
  *     reads "Morning briefing" with a quiet secondary line so the rail's
  *     bottom anchor stays consistent.
  *   - **Latest.** Shows the briefing's slot + when it ran ("Morning ·
- *     8:42 AM"). On click we currently log — a "view briefing" surface
+ *     8:42 AM"). Click is a no-op for now — a "view briefing" surface
  *     is a follow-up; the CTA's first job is to surface that briefings
  *     are running.
  */
@@ -22,21 +22,10 @@ export function RailFooter({
     ? formatBriefingSubtitle(latestBriefing)
     : "No briefing yet";
 
-  const viewLatestBriefing = () => {
-    if (!latestBriefing) return;
-    // eslint-disable-next-line no-console
-    console.info("[rail] briefing CTA click — view surface lands in a follow-up", {
-      id: latestBriefing.id,
-      slot: latestBriefing.slot,
-      runAt: latestBriefing.runAt,
-    });
-  };
-
   return (
     <div className="shrink-0 p-3 border-t border-vs-bg-3/60">
       <button
         type="button"
-        onClick={viewLatestBriefing}
         aria-label={latestBriefing ? `View briefing from ${secondary}` : "Morning briefing"}
         className={cn(
           "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",

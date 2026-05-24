@@ -11,7 +11,7 @@ import { PreviewArtifactViewer } from "./-preview-library-artifact/preview-artif
  * control.
  *
  * Closes on ESC or backdrop click — both routes the user back to
- * `/preview/library`.
+ * `/library`.
  */
 export const Route = createFileRoute("/library/$artifact")({
   component: PreviewArtifactViewer,

@@ -12,10 +12,6 @@ import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-ro
  *
  * Theme: defaults to system preference, override-able via the toggle
  * in the top-right.
- *
- * Compare:
- *   /workflows            → dimension grammar (dark, gradient title, frost tile)
- *   /preview/workflows    → visitors-now grammar (theme-aware, hero previews)
  */
 export const Route = createFileRoute("/workflows")({
   component: PreviewWorkflowsRoute,
