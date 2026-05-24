@@ -1,4 +1,12 @@
-import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { cn } from "~/lib/utils";
 
 export interface TabPillOption<T extends string> {
@@ -53,6 +61,43 @@ export function TabPill<T extends string>({
   const generatedId = useId();
   const idBase = idBaseProp ?? generatedId;
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // Sliding-indicator geometry. Null until the first layout pass so the
+  // indicator doesn't flash at x=0 on mount.
+  const [indicator, setIndicator] = useState<{
+    x: number;
+    width: number;
+  } | null>(null);
+
+  // Measure the active button relative to the tablist and park the
+  // indicator on it. useLayoutEffect runs before paint, so the indicator
+  // is positioned correctly on the very first frame.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const index = options.findIndex((o) => o.value === value);
+    const button = buttonRefs.current[index];
+    if (!list || !button) return;
+    const listRect = list.getBoundingClientRect();
+    const btnRect = button.getBoundingClientRect();
+    setIndicator({ x: btnRect.left - listRect.left, width: btnRect.width });
+  }, [value, options]);
+
+  // Recompute on container resize so font-load shifts, viewport changes,
+  // or option label edits don't leave the indicator misaligned.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const index = options.findIndex((o) => o.value === value);
+      const button = buttonRefs.current[index];
+      if (!button) return;
+      const listRect = list.getBoundingClientRect();
+      const btnRect = button.getBoundingClientRect();
+      setIndicator({ x: btnRect.left - listRect.left, width: btnRect.width });
+    });
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [options, value]);
 
   const focusTabAt = (index: number) => {
     const target = options[index];
@@ -94,6 +139,7 @@ export function TabPill<T extends string>({
 
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-orientation="horizontal"
       // `tabIndex={-1}` satisfies the rule that interactive roles with
@@ -103,12 +149,33 @@ export function TabPill<T extends string>({
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full",
-        "border border-neutral-800/80 bg-neutral-900/70 p-1 backdrop-blur-md",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+        "relative inline-flex items-center rounded-full",
+        // Tinted glass — dark enough to give the pill body against the
+        // aurora, glassy enough to still feel lit by it.
+        "border border-white/[0.12] bg-black/40 p-1 backdrop-blur-xl",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.4),0_12px_36px_-12px_rgba(99,102,241,0.45)]",
         className,
       )}
     >
+      {/* Sliding active indicator — picks up the indigo/violet aurora behind
+       * the pill, with a soft outer halo so it feels lit rather than painted. */}
+      {indicator ? (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute top-1 bottom-1 left-0 rounded-full",
+            "bg-gradient-to-br from-indigo-500/80 via-violet-500/70 to-fuchsia-500/55",
+            "ring-1 ring-inset ring-white/30",
+            "shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_0_28px_-4px_rgba(139,92,246,0.7)]",
+            "transition-[transform,width] duration-300 ease-out",
+            "motion-reduce:transition-none",
+          )}
+          style={{
+            width: `${indicator.width}px`,
+            transform: `translateX(${indicator.x}px)`,
+          }}
+        />
+      ) : null}
       {options.map((opt, index) => {
         const isActive = opt.value === value;
         return (
@@ -125,15 +192,22 @@ export function TabPill<T extends string>({
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
+              "relative z-10 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
               "text-[13px] font-medium leading-none transition-colors duration-200",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/60",
               isActive
-                ? "bg-neutral-700/60 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                : "text-neutral-400 hover:text-neutral-200",
+                ? "text-white"
+                : "text-neutral-400 hover:text-neutral-100",
             )}
           >
             {opt.icon ? (
-              <span className="flex shrink-0 items-center" aria-hidden>
+              <span
+                aria-hidden
+                className={cn(
+                  "flex shrink-0 items-center transition-colors duration-200",
+                  isActive ? "text-white" : "text-neutral-500",
+                )}
+              >
                 {opt.icon}
               </span>
             ) : null}
