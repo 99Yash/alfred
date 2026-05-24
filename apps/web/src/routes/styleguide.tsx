@@ -1,18 +1,26 @@
 /**
- * Internal styleguide — preview every Dimension-grammar primitive in isolation.
+ * Internal styleguide — Before/After preview of Alfred's two design grammars.
  *
- * Visit /styleguide on a dev build. Each primitive shows its default, hover-
- * able, focusable, active, and disabled states alongside the corresponding
- * recipe from references/dimension-dev/dimension-design-reference-2026-05-18.md.
+ * Visit /styleguide on a dev build and toggle between:
+ *   • After — the Visitors-revamp landing grammar (FrostButton, EyebrowChip,
+ *     AuroraGlow, DeviceBezel, FeatureGrid, etc.) used by the marketing
+ *     surface in components/landing/*.
+ *   • Before — the Dimension primitives still powering the in-app surfaces
+ *     (Button, IconButton, Card, FrostPanel, CommandPalette, …) from
+ *     components/ui/*. Kept verbatim because we still rely on them everywhere
+ *     inside the authenticated app, and a lot of the recipes (frost-border,
+ *     gray ramp, lavender heading) carry forward into the new grammar.
  *
- * Add new primitives to this page as they're built so the next agent (or you,
- * after a context compaction) can verify each one in one place without
- * touching real routes.
+ * Add new primitives to the appropriate half as they're built. Cross-reference
+ * references/dimension-dev/dimension-design-reference-2026-05-18.md §2 for the
+ * Dimension recipes; the Visitors half is the source of truth for the new
+ * marketing direction (see components/landing/landing-page.tsx).
  */
 
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Archive,
+  ArrowRight,
   ArrowUp,
   Bell,
   Check,
@@ -29,7 +37,7 @@ import {
   Sparkles,
   Workflow,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Avatar } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
 import { Card } from "~/components/ui/card";
@@ -44,51 +52,126 @@ import { Tabs } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
+import { AuroraGlow } from "~/components/landing/aurora-glow";
+import { BenefitsRow } from "~/components/landing/benefits-row";
+import { DeviceBezel } from "~/components/landing/device-bezel";
+import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
+import { FrostButton } from "~/components/landing/frost-button";
+import { HeroShowcase } from "~/components/landing/hero-showcase";
+import { LandingBackground } from "~/components/landing/landing-background";
+import { LandingCtaSection } from "~/components/landing/landing-cta-section";
+import { LandingFooter } from "~/components/landing/landing-footer";
+import { MorningBriefingPanel } from "~/components/landing/morning-briefing-panel";
+import { TabPill } from "~/components/landing/tab-pill";
+import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/styleguide")({
   component: StyleguidePage,
 });
 
+type StyleguideMode = "visitors" | "dimension";
+
 function StyleguidePage() {
+  const [mode, setMode] = useState<StyleguideMode>("visitors");
+
   return (
-    <div className="h-full overflow-y-auto bg-[rgb(12,12,12)] text-gray-950">
-      <div className="mx-auto w-full max-w-5xl px-6 py-12 space-y-16">
-        <header className="space-y-3">
-          <p className="text-sm text-gray-800">Internal · Stage&nbsp;1 primitives preview</p>
+    <div className="h-full overflow-y-auto bg-[#0a0a0a] text-gray-950">
+      <div className="mx-auto w-full max-w-5xl px-6 py-12 space-y-12">
+        <header className="space-y-4">
+          <p className="text-sm text-gray-800">Internal · Before / After preview</p>
           <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
             Alfred UI styleguide
           </h1>
           <p className="text-sm text-gray-800 max-w-prose">
-            Every primitive in{" "}
-            <code className="font-mono text-[12px] text-green-400">
-              apps/web/src/components/ui/
-            </code>{" "}
-            rendered with default / hover / focus / active / disabled states. Cross-reference{" "}
-            <code className="font-mono text-[12px] text-green-400">
-              references/dimension-dev/dimension-design-reference-2026-05-18.md
-            </code>{" "}
-            §2 for the recipes.
+            Toggle between the new <strong className="text-white">Visitors revamp</strong>{" "}
+            landing grammar and the <strong className="text-white">Dimension</strong>{" "}
+            primitives that still power the in-app surfaces. Both halves are kept side-by-side
+            on purpose — Dimension recipes (gray ramp, frost-border, lavender headings) carry
+            forward into the new direction and are not going away.
           </p>
+          <div className="pt-1">
+            <Tabs
+              variant="pill"
+              value={mode}
+              onValueChange={(next) => setMode(next as StyleguideMode)}
+              items={[
+                { value: "visitors", label: "After · Visitors revamp", icon: <Sparkles size={14} /> },
+                { value: "dimension", label: "Before · Dimension", icon: <MoonStar size={14} /> },
+              ]}
+            />
+          </div>
         </header>
 
-        <TokensSection />
-        <ButtonSection />
-        <IconButtonSection />
-        <InputSection />
-        <TextareaSection />
-        <SwitchSection />
-        <TabsSection />
-        <ChatThreadSection />
-        <QuickAccessRailSection />
-        <CardSection />
-        <FrostPanelSection />
-        <AvatarSection />
-        <KbdSection />
-        <StatusDotSection />
-        <FrostBorderSection />
-        <CommandPaletteSection />
-        <TypographySection />
+        {mode === "visitors" ? <VisitorsHalf /> : <DimensionHalf />}
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dimension half — the original primitives, untouched.                        */
+/* -------------------------------------------------------------------------- */
+
+function DimensionHalf() {
+  return (
+    <div className="space-y-16">
+      <HalfBanner
+        tone="dimension"
+        eyebrow="Before"
+        title="Dimension primitives"
+        body="Every primitive in apps/web/src/components/ui/ rendered with default / hover / focus / active / disabled states. These power every authenticated surface — chat, settings, command palette, the right rail."
+      />
+      <TokensSection />
+      <ButtonSection />
+      <IconButtonSection />
+      <InputSection />
+      <TextareaSection />
+      <SwitchSection />
+      <TabsSection />
+      <ChatThreadSection />
+      <QuickAccessRailSection />
+      <CardSection />
+      <FrostPanelSection />
+      <AvatarSection />
+      <KbdSection />
+      <StatusDotSection />
+      <FrostBorderSection />
+      <CommandPaletteSection />
+      <TypographySection />
+    </div>
+  );
+}
+
+function HalfBanner({
+  tone,
+  eyebrow,
+  title,
+  body,
+}: {
+  tone: "visitors" | "dimension";
+  eyebrow: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-3xl border px-6 py-5",
+        tone === "visitors"
+          ? "border-indigo-400/25 bg-indigo-400/[0.04]"
+          : "border-white/10 bg-white/[0.02]",
+      )}
+    >
+      <p
+        className={cn(
+          "text-[11.5px] font-semibold uppercase tracking-[0.18em]",
+          tone === "visitors" ? "text-indigo-300" : "text-gray-700",
+        )}
+      >
+        {eyebrow}
+      </p>
+      <h2 className="mt-1.5 text-2xl font-semibold text-white tracking-tight">{title}</h2>
+      <p className="mt-2 text-sm text-gray-800 max-w-prose">{body}</p>
     </div>
   );
 }
@@ -929,6 +1012,724 @@ function TypographySection() {
           and meta.
         </p>
       </Row>
+    </Section>
+  );
+}
+
+/* ========================================================================== */
+/* Visitors half — landing-grammar primitives. Wrap in LandingBackground so   */
+/* every preview reads on the new #0a0a0a canvas with its faint grid.         */
+/* ========================================================================== */
+
+function VisitorsHalf() {
+  return (
+    <div className="space-y-16">
+      <HalfBanner
+        tone="visitors"
+        eyebrow="After"
+        title="Visitors revamp"
+        body="The marketing-landing grammar: Open Runde, tighter negative tracking, indigo/violet accents, frost-glass buttons, frost-pill nav, device-bezel mockups, scroll-triggered fades. Everything here lives in apps/web/src/components/landing/."
+      />
+
+      <VisitorsTokensSection />
+      <VisitorsHeroTypographySection />
+      <FrostButtonSection />
+      <EyebrowChipSection />
+      <TopAnnouncementSection />
+      <FloatingPillNavSection />
+      <TabPillSection />
+      <AuroraGlowSection />
+      <DeviceBezelSection />
+      <BenefitsRowSection />
+      <FeatureCardSection />
+      <OperationalPillSection />
+      <FadeInOnScrollSection />
+      <HeroShowcaseSection />
+      <MorningBriefingSection />
+      <LandingCtaSectionPreview />
+      <LandingFooterPreview />
+    </div>
+  );
+}
+
+/**
+ * Shared canvas wrapper for visitors-half previews — matches the actual
+ * landing background (#0a0a0a + 80px grid + Open Runde) so primitives like
+ * FrostButton read identically to the production page.
+ */
+function VisitorsCanvas({
+  children,
+  className,
+  height,
+}: {
+  children: ReactNode;
+  className?: string;
+  height?: string;
+}) {
+  return (
+    <LandingBackground
+      className={cn("rounded-2xl overflow-hidden", height, className)}
+    >
+      <div className="p-6">{children}</div>
+    </LandingBackground>
+  );
+}
+
+/* ----------------------------- Tokens ----------------------------- */
+
+function VisitorsTokensSection() {
+  return (
+    <Section
+      id="visitors-tokens"
+      title="Tokens — visitors palette"
+      recipe="Background is #0a0a0a (slightly bluer than Dimension's rgb(12,12,12)). Accents lean indigo/violet for ambient warmth, with emerald/amber as status colors. Type stack locks Open Runde at the landing root."
+    >
+      <Row label="canvas">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-16 w-24 rounded-lg border border-white/10"
+            style={{ background: "#0a0a0a" }}
+          />
+          <div className="text-[12.5px] text-gray-800 tabular">
+            #0a0a0a · faint 80px grid · top vignette
+          </div>
+        </div>
+      </Row>
+      <Row label="accents">
+        {[
+          { label: "indigo-300", className: "bg-indigo-300" },
+          { label: "indigo-400", className: "bg-indigo-400" },
+          { label: "violet-400", className: "bg-violet-400" },
+          { label: "violet-500", className: "bg-violet-500" },
+          { label: "fuchsia-500", className: "bg-fuchsia-500" },
+          { label: "emerald-300", className: "bg-emerald-300" },
+          { label: "amber-300", className: "bg-amber-300" },
+          { label: "rose-300", className: "bg-rose-300" },
+        ].map((swatch) => (
+          <div key={swatch.label} className="flex flex-col items-center gap-1">
+            <div className={cn("h-10 w-12 rounded-md border border-white/10", swatch.className)} />
+            <div className="text-[11px] text-gray-800 tabular">{swatch.label}</div>
+          </div>
+        ))}
+      </Row>
+      <Row label="neutral ramp">
+        {[
+          { label: "neutral-300", className: "bg-neutral-300" },
+          { label: "neutral-400", className: "bg-neutral-400" },
+          { label: "neutral-500", className: "bg-neutral-500" },
+          { label: "neutral-600", className: "bg-neutral-600" },
+          { label: "neutral-700", className: "bg-neutral-700" },
+          { label: "neutral-800", className: "bg-neutral-800" },
+          { label: "neutral-900", className: "bg-neutral-900" },
+        ].map((swatch) => (
+          <div key={swatch.label} className="flex flex-col items-center gap-1">
+            <div className={cn("h-10 w-12 rounded-md border border-white/10", swatch.className)} />
+            <div className="text-[11px] text-gray-800 tabular">{swatch.label}</div>
+          </div>
+        ))}
+      </Row>
+      <Row label="font stack">
+        <code className="font-mono text-[12px] text-emerald-300">
+          "Open Runde", Inter, ui-sans-serif, system-ui
+        </code>
+      </Row>
+      <Row label="tracking">
+        <code className="font-mono text-[12px] text-gray-800">
+          body tracking-[-0.012em] · headlines tracking-[-0.045em]
+        </code>
+      </Row>
+    </Section>
+  );
+}
+
+/* ----------------------------- Hero typography ----------------------------- */
+
+function VisitorsHeroTypographySection() {
+  return (
+    <Section
+      id="visitors-hero-typography"
+      title="Hero typography"
+      recipe="Three sizes carry the landing: 6xl hero headline, 4xl/5xl section heading, 15–18px sub. All semibold, white, with negative tracking to bring letters closer."
+    >
+      <VisitorsCanvas>
+        <div className="space-y-5 text-center">
+          <h1
+            className={cn(
+              "mx-auto max-w-3xl text-balance font-semibold text-white",
+              "text-[44px] leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl",
+            )}
+          >
+            The AI coworker that never sleeps.
+          </h1>
+          <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
+            Alfred connects to your email, calendar, and tools to triage your inbox, brief you each
+            morning, and prepare you for every meeting, quietly, in the background.
+          </p>
+          <p className="text-[12.5px] font-medium uppercase tracking-[0.18em] text-neutral-500">
+            Get Started
+          </p>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- FrostButton ----------------------------- */
+
+function FrostButtonSection() {
+  return (
+    <Section
+      id="frost-button"
+      title="FrostButton"
+      recipe="Frost-border pill with a radial top-left specular and a hover after-overlay. Dark tone (default) is translucent white-on-black; light tone is bright fill with dark text (Dimension's original CTA recipe)."
+    >
+      <VisitorsCanvas>
+        <div className="space-y-6">
+          <Row label="dark · sizes">
+            <FrostButton tone="dark" size="sm">
+              Get Started
+            </FrostButton>
+            <FrostButton tone="dark" size="md">
+              Get Started
+            </FrostButton>
+            <FrostButton tone="dark" size="lg">
+              Get Started
+              <ArrowRight className="size-4" />
+            </FrostButton>
+          </Row>
+          <Row label="light · sizes">
+            <FrostButton tone="light" size="sm">
+              Get Started
+            </FrostButton>
+            <FrostButton tone="light" size="md">
+              Get Started
+            </FrostButton>
+            <FrostButton tone="light" size="lg">
+              Get Started
+              <ArrowRight className="size-4" />
+            </FrostButton>
+          </Row>
+          <Row label="disabled">
+            <FrostButton tone="dark" size="md" disabled>
+              Get Started
+            </FrostButton>
+            <FrostButton tone="light" size="md" disabled>
+              Get Started
+            </FrostButton>
+          </Row>
+          <Row label="loading">
+            <FrostButton tone="dark" size="sm" loading>
+              Get Started
+            </FrostButton>
+            <FrostButton tone="dark" size="md" loading>
+              Get Started
+            </FrostButton>
+            <FrostButton tone="dark" size="lg" loading>
+              Get Started
+              <ArrowRight className="size-4" />
+            </FrostButton>
+            <FrostButton tone="light" size="md" loading>
+              Get Started
+            </FrostButton>
+          </Row>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- EyebrowChip ----------------------------- */
+
+function EyebrowChipSection() {
+  return (
+    <Section
+      id="visitors-eyebrow-chip"
+      title="EyebrowChip"
+      recipe="Small bordered pill above hero headlines. Four accents — neutral, indigo, emerald, amber — paired with a leading icon or a status dot."
+    >
+      <VisitorsCanvas>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <EyebrowChip icon={<Sparkles className="size-3.5" strokeWidth={2} />} accent="indigo">
+            Personal AI assistant
+          </EyebrowChip>
+          <EyebrowChip icon={<DemoStatusDot tone="emerald" />} accent="emerald">
+            Server online
+          </EyebrowChip>
+          <EyebrowChip icon={<DemoStatusDot tone="amber" />} accent="amber">
+            Server unreachable
+          </EyebrowChip>
+          <EyebrowChip icon={<DemoStatusDot tone="neutral" />} accent="neutral">
+            Checking server…
+          </EyebrowChip>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+function EyebrowChip({
+  children,
+  icon,
+  accent = "neutral",
+}: {
+  children: ReactNode;
+  icon?: ReactNode;
+  accent?: "neutral" | "emerald" | "indigo" | "amber";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
+        "text-[12px] font-medium tracking-tight",
+        "border",
+        accent === "emerald" && "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-300",
+        accent === "indigo" && "border-indigo-400/25 bg-indigo-400/[0.07] text-indigo-200",
+        accent === "amber" && "border-amber-400/25 bg-amber-400/[0.07] text-amber-200",
+        accent === "neutral" && "border-neutral-800 bg-neutral-900/60 text-neutral-300",
+      )}
+    >
+      {icon}
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-1.5 rounded-full",
+        tone === "emerald" && "bg-emerald-400",
+        tone === "amber" && "bg-amber-400",
+        tone === "neutral" && "bg-neutral-400",
+      )}
+    />
+  );
+}
+
+/* ----------------------------- TopAnnouncement ----------------------------- */
+
+function TopAnnouncementSection() {
+  return (
+    <Section
+      id="visitors-top-announcement"
+      title="TopAnnouncement"
+      recipe="Pinned at top of page in production (fixed positioning). Previewed inline here. Blurred glass pill with a status dot + arrow that translates on hover."
+    >
+      <VisitorsCanvas>
+        <div className="relative flex flex-col items-center gap-4">
+          {/* Inline simulation — strip the `fixed` positioning so the pill
+              renders within the styleguide column. */}
+          <a
+            href="#"
+            className={cn(
+              "group relative flex items-center gap-2 sm:gap-2.5",
+              "rounded-full px-3 py-1.5 sm:px-3.5 text-[12px] sm:text-[12.5px]",
+              "text-white/85 hover:text-white",
+              "before:absolute before:inset-0 before:-z-10 before:rounded-full",
+              "before:bg-black/30 before:backdrop-blur-md hover:before:bg-black/40",
+              "ring-1 ring-inset ring-white/10 hover:ring-white/20",
+              "transition-all duration-200",
+            )}
+          >
+            <span aria-hidden className="size-1 shrink-0 rounded-full bg-amber-200/70" />
+            <span className="whitespace-nowrap">Now in private beta — request access</span>
+            <span
+              aria-hidden
+              className="text-white/55 transition-transform group-hover:translate-x-0.5 group-hover:text-white/80"
+            >
+              →
+            </span>
+          </a>
+          <p className="text-[11px] text-gray-700 tabular">
+            See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
+            components/landing/top-announcement.tsx — production renders fixed at top:5.
+          </p>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- FloatingPillNav ----------------------------- */
+
+function FloatingPillNavSection() {
+  return (
+    <Section
+      id="visitors-floating-nav"
+      title="FloatingPillNav"
+      recipe="Bottom-pinned in production via `fixed`. Previewed inline here as a relative pill so it docks within the styleguide column."
+    >
+      <VisitorsCanvas>
+        <div className="flex items-center justify-center py-8">
+          {/* Inline simulation — mirrors FloatingPillNav's structure but
+              strips the fixed positioning that would otherwise pin it to
+              the viewport across both halves of the styleguide. */}
+          <nav
+            aria-label="Primary"
+            className={cn(
+              "relative h-fit w-fit",
+              "rounded-full p-3 flex items-center justify-between gap-4",
+              "before:absolute before:left-0 before:top-0 before:-z-10",
+              "before:size-full before:rounded-full",
+              "before:bg-black/40 before:backdrop-blur-lg",
+            )}
+          >
+            <div className="ml-2 flex items-center gap-2">
+              <a href="#" className="flex items-center gap-2">
+                <span className="grid size-5 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
+                  A
+                </span>
+                <span className="text-sm font-semibold text-white">Alfred</span>
+              </a>
+            </div>
+            <div aria-hidden className="h-6 w-px shrink-0 bg-white/10" />
+            <div className="flex items-center gap-0 text-sm text-white">
+              <a
+                href="#"
+                className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                Why Alfred
+              </a>
+              <a
+                href="#"
+                className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                Pricing
+              </a>
+            </div>
+            <div className="shrink-0">
+              <FrostButton tone="light" size="sm">
+                Get Started
+              </FrostButton>
+            </div>
+          </nav>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- TabPill ----------------------------- */
+
+function TabPillSection() {
+  const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
+  return (
+    <Section
+      id="visitors-tab-pill"
+      title="TabPill"
+      recipe="Dark frosted segmented pill with a sliding indigo→violet→fuchsia indicator. Sits above the hero device bezel; auto-cycles in HeroShowcase."
+    >
+      <VisitorsCanvas>
+        <div className="relative flex justify-center py-4">
+          <AuroraGlow intensity="subtle" />
+          <TabPill
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "briefing", label: "Briefing" },
+              { value: "inbox", label: "Inbox" },
+              { value: "meetings", label: "Meeting Prep" },
+            ]}
+          />
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- AuroraGlow ----------------------------- */
+
+function AuroraGlowSection() {
+  return (
+    <Section
+      id="visitors-aurora-glow"
+      title="AuroraGlow"
+      recipe="Two stacked radial gradients — wide indigo halo + tighter violet hot-spot. Sits behind the device bezel to make the mockup feel lit from above. intensity: default | subtle."
+    >
+      <VisitorsCanvas>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          <div className="relative h-48 rounded-2xl border border-white/10 bg-black/40">
+            <AuroraGlow intensity="default" />
+            <div className="absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800 tabular">
+              intensity="default"
+            </div>
+          </div>
+          <div className="relative h-48 rounded-2xl border border-white/10 bg-black/40">
+            <AuroraGlow intensity="subtle" />
+            <div className="absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800 tabular">
+              intensity="subtle"
+            </div>
+          </div>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- DeviceBezel ----------------------------- */
+
+function DeviceBezelSection() {
+  return (
+    <Section
+      id="visitors-device-bezel"
+      title="DeviceBezel"
+      recipe="Triple-nested rounded bezel (3rem → 2.5rem → 2rem) with two layered borders + a vertical gradient fill. Frames any mockup so it reads as a physical screen."
+    >
+      <VisitorsCanvas>
+        <div className="relative">
+          <AuroraGlow intensity="subtle" />
+          <DeviceBezel>
+            <div className="grid h-48 place-items-center bg-neutral-950 text-[13px] text-neutral-500">
+              children render here, edge-to-edge
+            </div>
+          </DeviceBezel>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- BenefitsRow ----------------------------- */
+
+function BenefitsRowSection() {
+  return (
+    <Section
+      id="visitors-benefits-row"
+      title="BenefitsRow"
+      recipe="3-up grid — small indigo-tinted icon tile + bold lead + muted tagline. Fades each column in 80ms apart on scroll."
+    >
+      <VisitorsCanvas>
+        <BenefitsRow />
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- FeatureCard ----------------------------- */
+
+function FeatureCardSection() {
+  return (
+    <Section
+      id="visitors-feature-card"
+      title="Feature card"
+      recipe="Rounded-[20px] card with a tone-tinted icon tile, colored eyebrow, big title, body, three checkmark bullets, and a stylized mockup. Tones: indigo / peach / rose / emerald."
+    >
+      <VisitorsCanvas>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FeatureCardDemo
+            tone="indigo"
+            eyebrow="Inbox triage"
+            title="Drafts replies in your tone."
+            body="Triages every overnight thread, archives the noise, and drafts replies only for the threads that actually want one."
+            bullets={[
+              "Learns your tone from your sent mail",
+              "Archives newsletters + receipts on its own",
+              "Marks the four threads worth your morning",
+            ]}
+          />
+          <FeatureCardDemo
+            tone="emerald"
+            eyebrow="Anywhere"
+            title="Talk to it from any tool."
+            body="Chat with Alfred from the web, your phone, the terminal, or any iMessage thread — same memory, same context, every time."
+            bullets={[
+              "iMessage, Slack, browser, and CLI",
+              "Persistent memory across sessions",
+              "Knows what you asked yesterday",
+            ]}
+          />
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+function FeatureCardDemo({
+  tone,
+  eyebrow,
+  title,
+  body,
+  bullets,
+}: {
+  tone: "indigo" | "peach" | "rose" | "emerald";
+  eyebrow: string;
+  title: string;
+  body: string;
+  bullets: ReadonlyArray<string>;
+}) {
+  const TONE: Record<typeof tone, { text: string; bg: string; ring: string }> = {
+    indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
+    peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
+    rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
+    emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
+  };
+  const t = TONE[tone];
+  return (
+    <article
+      className={cn(
+        "group relative isolate flex h-full flex-col overflow-hidden rounded-[20px]",
+        "border border-neutral-800/80 bg-neutral-950/60",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+      )}
+    >
+      <div className="flex flex-col gap-3 p-7 sm:p-8">
+        <span className={cn("grid size-9 place-items-center rounded-xl ring-1 ring-inset", t.bg, t.ring)}>
+          <Sparkles className={cn("size-4", t.text)} strokeWidth={2} />
+        </span>
+        <p className={cn("text-[13px] font-semibold tracking-tight", t.text)}>{eyebrow}</p>
+        <h3 className="max-w-[22ch] text-balance text-[22px] font-semibold leading-[1.18] tracking-[-0.035em] text-white sm:text-[24px]">
+          {title}
+        </h3>
+        <p className="max-w-[36ch] text-[14.5px] leading-[1.55] tracking-[-0.012em] text-neutral-400">
+          {body}
+        </p>
+        <ul className="mt-2 space-y-1.5">
+          {bullets.map((b) => (
+            <li key={b} className="flex items-start gap-2 text-[13.5px] leading-[1.5] text-neutral-300">
+              <Check className={cn("mt-[3px] size-3.5 shrink-0", t.text)} strokeWidth={2.6} />
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+/* ----------------------------- Operational pill ----------------------------- */
+
+function OperationalPillSection() {
+  return (
+    <Section
+      id="visitors-operational-pill"
+      title="Operational pill"
+      recipe="Footer status indicator — green ping-dot when API is reachable, amber when degraded. No separate status page; the dot is the affordance."
+    >
+      <VisitorsCanvas>
+        <div className="flex flex-wrap gap-6">
+          <span className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-neutral-400">
+            <span className="relative grid size-2 place-items-center" aria-hidden>
+              <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/55" />
+              <span className="relative size-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Operational
+          </span>
+          <span className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-amber-400/85">
+            <span className="relative grid size-2 place-items-center" aria-hidden>
+              <span className="relative size-1.5 rounded-full bg-amber-400" />
+            </span>
+            Degraded
+          </span>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- FadeInOnScroll ----------------------------- */
+
+function FadeInOnScrollSection() {
+  const [key, setKey] = useState(0);
+  return (
+    <Section
+      id="visitors-fade-in"
+      title="FadeInOnScroll"
+      recipe="IntersectionObserver-driven wrapper — children start translated/blurred and fade in on first viewport entry. Stagger with `delay` for sequenced reveals."
+    >
+      <VisitorsCanvas>
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setKey((k) => k + 1)}
+            className="rounded-full bg-white/10 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-white/15"
+          >
+            Replay reveal
+          </button>
+          <div key={key} className="space-y-3">
+            <FadeInOnScroll delay={0}>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+                Row 1 · delay 0ms
+              </div>
+            </FadeInOnScroll>
+            <FadeInOnScroll delay={80}>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+                Row 2 · delay 80ms
+              </div>
+            </FadeInOnScroll>
+            <FadeInOnScroll delay={160}>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+                Row 3 · delay 160ms
+              </div>
+            </FadeInOnScroll>
+          </div>
+        </div>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- HeroShowcase ----------------------------- */
+
+function HeroShowcaseSection() {
+  return (
+    <Section
+      id="visitors-hero-showcase"
+      title="HeroShowcase"
+      recipe="The whole hero composition — TabPill + AuroraGlow + DeviceBezel + auto-cycling Briefing / Inbox / MeetingPrep slots. Pauses on hover and when off-screen."
+    >
+      <VisitorsCanvas>
+        <HeroShowcase />
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- MorningBriefingPanel ----------------------------- */
+
+function MorningBriefingSection() {
+  return (
+    <Section
+      id="visitors-morning-briefing"
+      title="MorningBriefingPanel"
+      recipe="Hero-grade briefing surface: integration tile row, greeting headline with inline pictographs, hairline divider, content pills (indigo / violet / peach / rose / amber)."
+    >
+      <VisitorsCanvas>
+        <DeviceBezel>
+          <MorningBriefingPanel className="rounded-none ring-0" />
+        </DeviceBezel>
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+/* ----------------------------- Closing CTA + footer ----------------------------- */
+
+function LandingCtaSectionPreview() {
+  return (
+    <Section
+      id="visitors-cta"
+      title="LandingCtaSection"
+      recipe="Centered closing CTA. Uppercase eyebrow → big headline → muted sub → light FrostButton with arrow."
+    >
+      <VisitorsCanvas>
+        <LandingCtaSection onGetStarted={() => undefined} />
+      </VisitorsCanvas>
+    </Section>
+  );
+}
+
+function LandingFooterPreview() {
+  return (
+    <Section
+      id="visitors-footer"
+      title="LandingFooter"
+      recipe="Dark, quiet footer — tagline column with operational pill + copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
+    >
+      <div className="overflow-hidden rounded-2xl border border-white/10">
+        <LandingFooter onGetStarted={() => undefined} healthOk={true} />
+      </div>
     </Section>
   );
 }
