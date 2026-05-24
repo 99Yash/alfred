@@ -3,8 +3,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./google": "./src/google/index.ts",
-    "./github": "./src/github/index.ts"
+    "./google": "./src/google/index.ts"
   },
   "scripts": {
     "build": "tsdown",

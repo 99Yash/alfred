@@ -42,10 +42,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
     id: "google_gmail",
     name: "Gmail",
     description: "Manage Gmail emails and communications.",
-    status: "available",
-    category: "Apps",
+    status: "connected",
+    category: "Connected",
     brand: "gmail",
-    actionLabel: "Connect",
+    actionLabel: "Manage",
     capabilities: [
       "Read Emails",
       "Compose Emails",
@@ -67,10 +67,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
     id: "google_calendar",
     name: "Google Calendar",
     description: "Manage calendar and schedule events.",
-    status: "available",
-    category: "Apps",
+    status: "connected",
+    category: "Connected",
     brand: "google_calendar",
-    actionLabel: "Connect",
+    actionLabel: "Manage",
     capabilities: [
       "Read Events",
       "Create Events",
@@ -92,10 +92,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
     id: "google_drive",
     name: "Google Drive",
     description: "Access and manage Google Drive files.",
-    status: "soon",
-    category: "Apps",
+    status: "connected",
+    category: "Connected",
     brand: "google_drive",
-    actionLabel: "Coming Soon",
+    actionLabel: "Manage",
     relatedProviderIds: ["google_docs", "google_sheets", "google_slides"],
     capabilities: [
       "Read Files",
@@ -118,10 +118,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
     id: "github",
     name: "GitHub",
     description: "Manage GitHub repos and workflow.",
-    status: "available",
-    category: "Development",
+    status: "connected",
+    category: "Connected",
     brand: "github",
-    actionLabel: "Connect",
+    actionLabel: "Manage",
     capabilities: ["Read Repositories", "Review Pull Requests", "Manage Issues", "Search Code"],
     trust: GOOGLE_TRUST,
     overview: {
@@ -275,31 +275,3 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
     .toLowerCase()
     .includes(needle);
 }
-
-/**
- * Provider → required OAuth scopes the user must have granted for the
- * provider tile to render as "Connected". A provider absent from this map
- * has no live backend yet; its catalog-declared `status` is the source of
- * truth (typically `"soon"`).
- *
- * Slice 2 will add `google_calendar` here; slice 3 will add `github`.
- */
-export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<string>>> = {
-  google_gmail: ["https://www.googleapis.com/auth/gmail.readonly"],
-  google_calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
-  // GitHub's `read:user` is the lowest-common-denominator scope every
-  // `?features=` combination grants; we use it as the connect probe.
-  github: ["read:user"],
-};
-
-/**
- * Provider id → the upstream provider key in the `integration_credentials`
- * table. Providers in this map are checked against real credential rows
- * by `useResolvedIntegrations`; everything else falls back to the catalog
- * status (typically `"soon"`).
- */
-export const PROVIDER_BACKEND: Readonly<Record<string, "google" | "github">> = {
-  google_gmail: "google",
-  google_calendar: "google",
-  github: "github",
-};

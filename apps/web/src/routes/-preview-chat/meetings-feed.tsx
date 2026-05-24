@@ -13,24 +13,15 @@ const EMPTY_LOOKAHEAD: ReadonlyArray<MeetingLookaheadItem> = [];
 export function MeetingsFeed({
   items,
   lookahead = EMPTY_LOOKAHEAD,
-  calendarConnected = false,
 }: {
   items: ReadonlyArray<MeetingItem>;
   lookahead?: ReadonlyArray<MeetingLookaheadItem>;
-  /**
-   * Did the user actually grant the Calendar scope? An empty `items` list
-   * means either "no calendar connected" or "calendar is connected, but
-   * the day is genuinely clear" — copy diverges between the two.
-   */
-  calendarConnected?: boolean;
 }) {
   if (!items.length && !lookahead.length) {
     return (
       <div className="vs-card-in px-2 py-4">
         <p className="text-[12px] leading-5 text-vs-fg-2">
-          {calendarConnected
-            ? "Nothing on your calendar today."
-            : "Connect Google Calendar to see your day at a glance."}
+          Connect Google Calendar to see your day at a glance.
         </p>
       </div>
     );
