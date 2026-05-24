@@ -1,33 +1,61 @@
 import { CheckCircle2, type LucideIcon } from "lucide-react";
+import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type ToolTone } from "./helpers";
 
-export function ToolRow({
-  icon: Icon,
-  tone,
-  label,
-  detail,
-  count,
-  done = false,
-}: {
-  icon: LucideIcon;
-  tone: ToolTone;
-  label: string;
-  detail?: string;
-  count?: string;
-  done?: boolean;
-}) {
+/**
+ * One step in a `RunGroup` — a tool/integration call, search, or write.
+ *
+ * Two visual modes:
+ *  - `integration`: brand-colored SVG (Gmail/Calendar/Slack/…) on a neutral
+ *    chip. Use whenever the row represents a call against a connected
+ *    integration so the user recognizes the source at a glance.
+ *  - `icon` + `tone`: Lucide icon on a toned chip. Use for internal Alfred
+ *    actions (memory recall, sender resolution, tag/label writes that aren't
+ *    integration-scoped).
+ */
+type ToolRowProps =
+  | {
+      integration: IntegrationBrand;
+      icon?: LucideIcon;
+      tone?: ToolTone;
+      label: string;
+      detail?: string;
+      count?: string;
+      done?: boolean;
+    }
+  | {
+      integration?: undefined;
+      icon: LucideIcon;
+      tone: ToolTone;
+      label: string;
+      detail?: string;
+      count?: string;
+      done?: boolean;
+    };
+
+export function ToolRow(props: ToolRowProps) {
+  const { label, detail, count, done = false } = props;
   return (
     <div className="flex items-center gap-2.5 text-sm leading-5">
-      <span
-        aria-hidden
-        className={cn(
-          "size-6 shrink-0 inline-flex items-center justify-center rounded-md",
-          TOOL_TONE[tone],
-        )}
-      >
-        <Icon size={12} />
-      </span>
+      {props.integration ? (
+        <span
+          aria-hidden
+          className="size-6 shrink-0 inline-flex items-center justify-center rounded-md bg-vs-bg-2"
+        >
+          <IntegrationGlyph brand={props.integration} size={14} />
+        </span>
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            "size-6 shrink-0 inline-flex items-center justify-center rounded-md",
+            TOOL_TONE[props.tone],
+          )}
+        >
+          <props.icon size={12} />
+        </span>
+      )}
       <span className="min-w-0 truncate text-vs-fg-4 font-medium">{label}</span>
       {detail ? (
         <span className="hidden sm:inline truncate text-xs text-vs-fg-2 max-w-[28ch]">
@@ -42,6 +70,6 @@ export function ToolRow({
   );
 }
 
-export function SearchRow(props: Omit<React.ComponentProps<typeof ToolRow>, "done">) {
-  return <ToolRow {...props} done />;
+export function SearchRow(props: Omit<ToolRowProps, "done">) {
+  return <ToolRow {...(props as ToolRowProps)} done />;
 }

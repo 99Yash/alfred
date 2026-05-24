@@ -1536,26 +1536,45 @@
     color-scheme: light dark;
   }
 
-  /* `vs-scrollbar` — opt-in thin scrollbar that picks up the theme via
-   * the tokens. Use on any scroll container that should feel polished
-   * rather than relying on the browser default. */
-  .vs .vs-scrollbar {
+  /* Themed scrollbar — default styling for every scroll container inside
+   * `.vs`. `scrollbar-width` doesn't inherit, so we have to splat the rule
+   * across all descendants; `scrollbar-color` does inherit but we keep it
+   * paired with the width selector for clarity. Webkit pseudo-elements use
+   * the descendant combinator so any nested scroll container picks them up.
+   *
+   * Use the `.vs-scrollbar-none` opt-out below to hide the scrollbar on a
+   * specific surface (e.g. internal scroll regions where the bar would
+   * distract). */
+  .vs,
+  .vs * {
     scrollbar-width: thin;
     scrollbar-color: var(--vs-bg-4) transparent;
   }
-  .vs .vs-scrollbar::-webkit-scrollbar {
+  .vs ::-webkit-scrollbar,
+  .vs::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
-  .vs .vs-scrollbar::-webkit-scrollbar-thumb {
+  .vs ::-webkit-scrollbar-thumb,
+  .vs::-webkit-scrollbar-thumb {
     background-color: var(--vs-bg-4);
     border-radius: 9999px;
   }
-  .vs .vs-scrollbar::-webkit-scrollbar-thumb:hover {
+  .vs ::-webkit-scrollbar-thumb:hover,
+  .vs::-webkit-scrollbar-thumb:hover {
     background-color: var(--vs-fg-1);
   }
-  .vs .vs-scrollbar::-webkit-scrollbar-track {
+  .vs ::-webkit-scrollbar-track,
+  .vs::-webkit-scrollbar-track {
     background-color: transparent;
+  }
+  .vs .vs-scrollbar-none,
+  .vs .vs-scrollbar-none * {
+    scrollbar-width: none;
+  }
+  .vs .vs-scrollbar-none::-webkit-scrollbar,
+  .vs .vs-scrollbar-none *::-webkit-scrollbar {
+    display: none;
   }
 
   /* `vs-elevated` — the two-shadow stack that gives every interactive

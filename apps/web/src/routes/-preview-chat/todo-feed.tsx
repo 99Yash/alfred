@@ -10,9 +10,11 @@ export interface SuggestionInput {
   detail: string;
 }
 
+const EMPTY_SUGGESTIONS: ReadonlyArray<SuggestionInput> = [];
+
 export function TodoFeed({
   items,
-  suggestions = [],
+  suggestions = EMPTY_SUGGESTIONS,
 }: {
   items: ReadonlyArray<TodoItem>;
   suggestions?: ReadonlyArray<SuggestionInput>;

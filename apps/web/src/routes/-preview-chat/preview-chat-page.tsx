@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatContext } from "~/components/chat-context";
 import { useRightRail } from "~/lib/app-shell";
 import { ComposerDock } from "./composer-dock";
@@ -63,14 +63,19 @@ export function PreviewChatPage() {
   // register the right rail via `useRightRail()` so it lands as a flex
   // sibling of the main column inside AppShell — same wiring `/chat`
   // uses, just with fixture data piped in.
-  useRightRail(
-    <RightRail
-      open={railOpen}
-      mode={railMode}
-      onClose={() => setRailOpen(false)}
-      data={PREVIEW_RAIL_DATA}
-    />,
+  // Memoize so `useRightRail`'s effect doesn't refire on unrelated re-renders.
+  const railNode = useMemo(
+    () => (
+      <RightRail
+        open={railOpen}
+        mode={railMode}
+        onClose={() => setRailOpen(false)}
+        data={PREVIEW_RAIL_DATA}
+      />
+    ),
+    [railOpen, railMode],
   );
+  useRightRail(railNode);
 
   return (
     <div className="relative flex min-w-0 flex-1 flex-col">

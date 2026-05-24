@@ -128,10 +128,7 @@ export function AppSidebar({
       {threads ? (
         <nav
           aria-label="Chats"
-          className={cn(
-            "flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 vs-scrollbar",
-            "[scrollbar-width:thin]",
-          )}
+          className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4"
         >
           <ThreadGroupBlock
             label="Today"

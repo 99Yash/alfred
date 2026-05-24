@@ -40,7 +40,7 @@ export function TextareaWithMirror({
     const sync = () => {
       mirror.scrollTop = ta.scrollTop;
     };
-    ta.addEventListener("scroll", sync);
+    ta.addEventListener("scroll", sync, { passive: true });
     return () => ta.removeEventListener("scroll", sync);
   }, []);
 
