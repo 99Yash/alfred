@@ -42,7 +42,7 @@ export interface WeatherSnapshot {
  * for anything we can't resolve. Countries listed here use Fahrenheit
  * for everyday temperatures.
  */
-export function preferredTemperatureUnit(): TemperatureUnit {
+function preferredTemperatureUnit(): TemperatureUnit {
   if (typeof navigator === "undefined") return "C";
   try {
     const raw = new Intl.Locale(navigator.language);
