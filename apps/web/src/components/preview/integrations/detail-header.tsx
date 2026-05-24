@@ -12,16 +12,19 @@ const API_URL =
  * (status: "soon") and the CTA renders disabled.
  *
  * Per-provider features:
- *  - Gmail → no `features` param: requests the full Gmail grant
- *    (briefing + triage + reply_draft) so every downstream workflow
- *    works without an extra re-consent.
+ *  - Gmail → `?features=briefing,triage,reply_draft`: requests the full
+ *    Gmail grant so every downstream workflow works without an extra
+ *    re-consent, but explicitly excludes Calendar so the Gmail tile's
+ *    consent screen doesn't ask for calendar access. (Calendar lives in
+ *    `GOOGLE_FEATURE_SCOPES` and would otherwise be picked up by the
+ *    no-arg default.)
  *  - Calendar → `?features=calendar`: ask only for calendar scopes so
  *    a Gmail-already-connected user sees a focused consent screen.
  *    Google's `include_granted_scopes=true` merges this into their
  *    existing grant.
  */
 const CONNECT_PATHS: Readonly<Record<string, string>> = {
-  google_gmail: "/api/integrations/google/connect",
+  google_gmail: "/api/integrations/google/connect?features=briefing,triage,reply_draft",
   google_calendar: "/api/integrations/google/connect?features=calendar",
   github: "/api/integrations/github/connect",
 };
