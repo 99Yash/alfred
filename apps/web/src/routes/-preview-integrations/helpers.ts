@@ -1,6 +1,5 @@
 import {
   CATEGORY_ORDER,
-  INTEGRATION_PROVIDERS,
   matchesIntegration,
   type IntegrationCategory,
   type IntegrationProvider,
@@ -31,11 +30,31 @@ export function matches(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(q);
 }
 
-export function filterSections(query: string): ReadonlyArray<Section> {
+export function filterSections(
+  providers: ReadonlyArray<IntegrationProvider>,
+  query: string,
+): ReadonlyArray<Section> {
   return CATEGORY_ORDER.flatMap((category) => {
-    const providers = INTEGRATION_PROVIDERS.filter(
+    const matched = providers.filter(
       (provider) => provider.category === category && matchesIntegration(provider, query),
     );
-    return providers.length > 0 ? [{ title: category, providers }] : [];
+    return matched.length > 0 ? [{ title: category, providers: matched }] : [];
   });
+}
+
+/**
+ * Build the synthetic "Connected" section that floats above the catalog
+ * categories. Mirrors how the static catalog used to declare connected
+ * tiles upfront, but driven by real `useResolvedIntegrations()` state
+ * instead of hardcoded `status: "connected"` rows.
+ */
+export function buildConnectedSection(
+  resolved: ReadonlyArray<IntegrationProvider>,
+  query: string,
+): Section | null {
+  const connected = resolved.filter(
+    (p) => p.status === "connected" && matchesIntegration(p, query),
+  );
+  if (connected.length === 0) return null;
+  return { title: "Connected", providers: connected };
 }
