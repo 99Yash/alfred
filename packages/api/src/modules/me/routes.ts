@@ -85,25 +85,49 @@ async function resolveUserTimezone(userId: string): Promise<string> {
   return "UTC";
 }
 
+// Cache Intl.DateTimeFormat by timezone — constructing one allocates dozens of
+// objects per locale lookup, and `dayBoundsInTimezone` runs on every request.
+const dateFmtByTz = new Map<string, Intl.DateTimeFormat>();
+const offsetFmtByTz = new Map<string, Intl.DateTimeFormat>();
+
+function getDateFmt(timezone: string): Intl.DateTimeFormat {
+  let fmt = dateFmtByTz.get(timezone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    dateFmtByTz.set(timezone, fmt);
+  }
+  return fmt;
+}
+
+function getOffsetFmt(timezone: string): Intl.DateTimeFormat {
+  let fmt = offsetFmtByTz.get(timezone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    });
+    offsetFmtByTz.set(timezone, fmt);
+  }
+  return fmt;
+}
+
 /**
  * Compute [startOfDay, endOfDay) in `timezone` as UTC `Date` instants.
  * Each bound uses *its own* tz offset (today's for start, tomorrow's for
  * end), so DST transition days correctly produce 23h or 25h windows.
  */
 function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: Date } {
-  const dateFmt = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const dateFmt = getDateFmt(timezone);
+  const offsetFmt = getOffsetFmt(timezone);
   const offsetFor = (d: Date): string => {
     // `longOffset` returns "GMT-05:00" / "GMT" — strip the prefix and
     // default a bare "GMT" to "+00:00" so the ISO string parses uniformly.
-    const part = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "longOffset",
-    })
+    const part = offsetFmt
       .formatToParts(d)
       .find((p) => p.type === "timeZoneName")?.value ?? "";
     const off = part.replace(/^GMT/, "");
