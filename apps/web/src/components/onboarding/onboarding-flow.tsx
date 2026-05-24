@@ -283,7 +283,7 @@ const STEPS: ReadonlyArray<StepDef> = [
     bullets: [
       { icon: MessagesSquare, text: "Slack — pull threads, never miss a mention" },
       { icon: Workflow, text: "Linear & GitHub — keep tickets and PRs in flow" },
-      { icon: Inbox, text: "Google Workspace — Docs, Sheets, Slides" },
+      { icon: Inbox, text: "Google Workspace — Drive, Docs, Sheets, Slides" },
     ],
     assurance: "You're always in control. Critical actions need approval by default.",
     showcaseTitle: "Popular integrations",
@@ -437,6 +437,14 @@ const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
     status: "soon",
   },
   {
+    id: "google_drive",
+    name: "Google Drive",
+    description: "Find and read your files",
+    brand: "google_drive",
+    status: "soon",
+    bundledWithGoogle: true,
+  },
+  {
     id: "google_docs",
     name: "Google Docs",
     description: "Create and edit docs",
@@ -470,7 +478,7 @@ function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
           Connect your tools
         </p>
         <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
-          Six integrations.
+          Seven integrations.
           <br />
           One assistant.
         </h4>

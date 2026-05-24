@@ -55,13 +55,7 @@ export interface GithubOAuthConfig {
 }
 
 export function getGithubOAuthConfig(): GithubOAuthConfig {
-  const env = serverEnv();
-  const { GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_REDIRECT_URI } = env;
-  if (!GITHUB_OAUTH_CLIENT_ID || !GITHUB_OAUTH_CLIENT_SECRET || !GITHUB_OAUTH_REDIRECT_URI) {
-    throw new Error(
-      "GitHub OAuth not configured. Set GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_REDIRECT_URI in apps/server/.env",
-    );
-  }
+  const { GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_REDIRECT_URI } = serverEnv();
   return {
     clientId: GITHUB_OAUTH_CLIENT_ID,
     clientSecret: GITHUB_OAUTH_CLIENT_SECRET,
