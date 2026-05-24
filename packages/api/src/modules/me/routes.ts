@@ -1,8 +1,15 @@
 import { db } from "@alfred/db";
-import { briefingRuns, documents, emailTriage } from "@alfred/db/schemas";
+import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import {
+  getFreshAccessToken,
+  GOOGLE_FEATURE_SCOPES,
+  listEvents,
+} from "@alfred/integrations/google";
 import { and, desc, eq, isNull, notInArray, or } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import { isValidTimezone } from "../briefing/preferences";
+import { getPreference } from "../memory/preferences";
 
 /**
  * Per-user read endpoints used by the chat right rail.
@@ -44,6 +51,94 @@ export interface MeLatestBriefing {
   runAt: string;
   subject: string | null;
   status: string;
+}
+
+export interface MeMeetingItem {
+  /** Google Calendar event id; stable across reads of the same occurrence. */
+  id: string;
+  title: string;
+  /** RFC3339 start; `null` only for ill-formed events we couldn't parse. */
+  startAt: string | null;
+  /** RFC3339 end; same caveat. */
+  endAt: string | null;
+  /** All-day if `start.date` was set instead of `start.dateTime`. */
+  allDay: boolean;
+  location: string | null;
+  /** Non-self attendees. */
+  attendees: ReadonlyArray<{ email: string; displayName: string | null }>;
+  hangoutLink: string | null;
+  /** Public web view of the event in Google Calendar. */
+  htmlLink: string | null;
+}
+
+/**
+ * Resolve the user's IANA timezone from the general `timezone` preference
+ * (shared with workflow scheduling — see `workflows/scheduling.ts`). The
+ * briefing module has its own `briefing.timezone` override; the rail isn't
+ * briefing-specific, so it reads the general key.
+ */
+async function resolveUserTimezone(userId: string): Promise<string> {
+  const pref = await getPreference(userId, "timezone");
+  if (pref && typeof pref.value === "string" && isValidTimezone(pref.value)) {
+    return pref.value;
+  }
+  return "UTC";
+}
+
+// Cache Intl.DateTimeFormat by timezone — constructing one allocates dozens of
+// objects per locale lookup, and `dayBoundsInTimezone` runs on every request.
+const dateFmtByTz = new Map<string, Intl.DateTimeFormat>();
+const offsetFmtByTz = new Map<string, Intl.DateTimeFormat>();
+
+function getDateFmt(timezone: string): Intl.DateTimeFormat {
+  let fmt = dateFmtByTz.get(timezone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    dateFmtByTz.set(timezone, fmt);
+  }
+  return fmt;
+}
+
+function getOffsetFmt(timezone: string): Intl.DateTimeFormat {
+  let fmt = offsetFmtByTz.get(timezone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    });
+    offsetFmtByTz.set(timezone, fmt);
+  }
+  return fmt;
+}
+
+/**
+ * Compute [startOfDay, endOfDay) in `timezone` as UTC `Date` instants.
+ * Each bound uses *its own* tz offset (today's for start, tomorrow's for
+ * end), so DST transition days correctly produce 23h or 25h windows.
+ */
+function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: Date } {
+  const dateFmt = getDateFmt(timezone);
+  const offsetFmt = getOffsetFmt(timezone);
+  const offsetFor = (d: Date): string => {
+    // `longOffset` returns "GMT-05:00" / "GMT" — strip the prefix and
+    // default a bare "GMT" to "+00:00" so the ISO string parses uniformly.
+    const part = offsetFmt
+      .formatToParts(d)
+      .find((p) => p.type === "timeZoneName")?.value ?? "";
+    const off = part.replace(/^GMT/, "");
+    return off || "+00:00";
+  };
+  const tomorrowMs = now.getTime() + 24 * 60 * 60 * 1000;
+  const today = dateFmt.format(now);
+  const tomorrow = dateFmt.format(new Date(tomorrowMs));
+  const start = new Date(`${today}T00:00:00${offsetFor(now)}`);
+  const end = new Date(`${tomorrow}T00:00:00${offsetFor(new Date(tomorrowMs))}`);
+  return { start, end };
 }
 
 export const meRoutes = new Elysia({ prefix: "/api/me" })
@@ -98,6 +193,77 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
 
         return { items };
       })
+      .get(
+        "/meetings",
+        async ({
+          user: u,
+        }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
+          // A user can have multiple active Google credentials (e.g. a
+          // Gmail-only personal account and a Calendar-only work account).
+          // Filter in SQL to the row(s) actually carrying the calendar
+          // scope so we don't accidentally pick a Gmail-only cred and
+          // report "not connected".
+          const calendarScope = GOOGLE_FEATURE_SCOPES.calendar[0];
+          const creds = await db()
+            .select({
+              id: integrationCredentials.id,
+              scopes: integrationCredentials.scopes,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, u.id),
+                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.status, "active"),
+              ),
+            );
+          const row = creds.find((c) => {
+            const granted = (c.scopes as string[] | null) ?? [];
+            return granted.includes(calendarScope);
+          });
+          if (!row) return { items: [], connected: false };
+
+          // "Today" is computed in the user's timezone (general
+          // `user_preferences.timezone`, falling back to UTC) — the rail
+          // is a personal "today's meetings" surface, so server-local
+          // would be wrong for any user not co-located with the host.
+          const timezone = await resolveUserTimezone(u.id);
+          const { start, end } = dayBoundsInTimezone(new Date(), timezone);
+
+          const accessToken = await getFreshAccessToken(row.id);
+          const { events } = await listEvents({
+            accessToken,
+            timeMin: start.toISOString(),
+            timeMax: end.toISOString(),
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 50,
+          });
+
+          const items: MeMeetingItem[] = events.map((e) => {
+            const startIso = e.start?.dateTime ?? e.start?.date ?? null;
+            const endIso = e.end?.dateTime ?? e.end?.date ?? null;
+            const attendees: Array<{ email: string; displayName: string | null }> = [];
+            for (const a of e.attendees ?? []) {
+              if (!a.self && a.email) {
+                attendees.push({ email: a.email, displayName: a.displayName ?? null });
+              }
+            }
+            return {
+              id: e.id,
+              title: e.summary ?? "(no title)",
+              startAt: startIso,
+              endAt: endIso,
+              allDay: Boolean(e.start?.date) && !e.start?.dateTime,
+              location: e.location ?? null,
+              attendees,
+              hangoutLink: e.hangoutLink ?? null,
+              htmlLink: e.htmlLink ?? null,
+            };
+          });
+          return { items, connected: true };
+        },
+      )
       .get(
         "/briefings/latest",
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
