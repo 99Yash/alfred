@@ -88,7 +88,8 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "read_scratch",
     riskTier: "no_risk",
-    description: "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    description:
+      "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     inputSchema: readScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
@@ -110,7 +111,8 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "write_scratch",
     riskTier: "no_risk",
-    description: "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    description:
+      "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     inputSchema: writeScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
@@ -146,7 +148,9 @@ export const systemTools: readonly RegisteredTool[] = [
       const from = parseScratchToolKey(input.fromKey);
       const to = parseScratchToolKey(input.toKey);
       if (from.zone !== "scratch" || to.zone !== "shared") {
-        throw new Error("system.promote requires fromKey=scratch.<subId>.<path> and toKey=shared.<path>");
+        throw new Error(
+          "system.promote requires fromKey=scratch.<subId>.<path> and toKey=shared.<path>",
+        );
       }
 
       const entry = await promoteScratch({

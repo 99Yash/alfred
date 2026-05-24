@@ -1,113 +1,18 @@
-import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
-import { Clock3, Plus, Sparkles } from "lucide-react";
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
-import { BUILTIN_WORKFLOWS, type WorkflowDefinition } from "~/lib/workflows";
-import { cn } from "~/lib/utils";
+import { createFileRoute } from "@tanstack/react-router";
+import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-route";
 
+/**
+ * Visitors-now-grammar port of /workflows.
+ *
+ * Same data + same IA as the original (centered hero, built-ins grid,
+ * empty "Your workflows" state), but rebuilt on VsCard + VsButton with a
+ * per-workflow visual hero — each card shows a stylized preview of what
+ * the workflow produces (stacked email rows for briefing, label chips for
+ * triage, fact cards for research) instead of a flat icon-tile.
+ *
+ * Theme: defaults to system preference, override-able via the toggle
+ * in the top-right.
+ */
 export const Route = createFileRoute("/workflows")({
-  component: WorkflowsRoute,
+  component: PreviewWorkflowsRoute,
 });
-
-function WorkflowsRoute() {
-  const hasChild = useChildMatches().length > 0;
-  return hasChild ? <Outlet /> : <WorkflowsPage />;
-}
-
-function WorkflowsPage() {
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
-      <div className="md:hidden h-6" />
-
-      <header className="space-y-4 text-center">
-        <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
-          Workflows
-        </h1>
-        <p className="text-sm text-gray-800">
-          Create scheduled or trigger-based work Alfred runs on its own.
-        </p>
-        <div className="pt-2 flex justify-center">
-          <Button
-            variant="primary"
-            size="lg"
-            leading={<Plus size={14} />}
-            disabled
-            title="User-authored workflows arrive in m12"
-          >
-            Create Workflow
-          </Button>
-        </div>
-      </header>
-
-      <div className="mt-12 space-y-12">
-        <section className="space-y-3">
-          <h2 className="text-[15px] font-medium text-gray-1000">Built-ins</h2>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {BUILTIN_WORKFLOWS.map((workflow) => (
-              <WorkflowCard key={workflow.id} workflow={workflow} />
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <h2 className="text-[15px] font-medium text-gray-1000">Your workflows</h2>
-          <Card className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-            <span
-              className="frost-icon-tile grid size-10 place-items-center rounded-xl text-gray-900"
-              aria-hidden
-            >
-              <Sparkles size={18} />
-            </span>
-            <p className="text-sm font-medium text-gray-950">No workflows yet</p>
-            <p className="max-w-[28rem] text-[12.5px] text-gray-800">
-              Author your own scheduled or event-driven flows once user-authored workflows land in
-              milestone 12.
-            </p>
-          </Card>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-const TINT: Record<WorkflowDefinition["tint"], string> = {
-  violet:
-    "bg-[rgb(var(--purple-400)/0.16)] text-[rgb(var(--purple-700))] " +
-    "ring-1 ring-inset ring-[rgb(var(--purple-400)/0.18)]",
-  emerald: "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/20",
-  amber: "bg-amber-500/15 text-amber-300 ring-1 ring-inset ring-amber-500/20",
-};
-
-function WorkflowCard({ workflow }: { workflow: WorkflowDefinition }) {
-  const Icon = workflow.icon;
-  return (
-    <Link
-      to="/workflows/$workflow"
-      params={{ workflow: workflow.id }}
-      className={cn(
-        "flex min-h-[244px] flex-col overflow-hidden rounded-3xl p-6 text-gray-950",
-        "bg-gradient-to-b from-[#181818] to-[#131313]",
-        "ring-1 ring-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
-        "transition-[background-color,transform] duration-200 hover:bg-[#181818] active:scale-[0.99]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
-      )}
-    >
-      <span
-        className={cn("grid size-11 shrink-0 place-items-center rounded-2xl", TINT[workflow.tint])}
-        aria-hidden
-      >
-        <Icon size={18} />
-      </span>
-      <div className="mt-6 min-w-0 flex-1">
-        <p className="line-clamp-2 text-base font-medium text-gray-1000">{workflow.name}</p>
-        <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-gray-800">
-          {workflow.description}
-        </p>
-      </div>
-      <span className="mt-6 inline-flex w-fit shrink-0 items-center gap-1 rounded-full bg-white/[0.04] px-2.5 py-1 text-[11.5px] text-gray-800 tabular">
-        <Clock3 size={11} />
-        {workflow.cadence}
-      </span>
-    </Link>
-  );
-}

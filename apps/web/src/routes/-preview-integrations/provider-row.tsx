@@ -38,7 +38,7 @@ export function ProviderRow({ provider, index }: { provider: IntegrationProvider
 
   return (
     <Link
-      to="/preview/integrations/$provider"
+      to="/integrations/$provider"
       params={{ provider: provider.id }}
       className={cn(
         cardClassName,

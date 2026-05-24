@@ -46,7 +46,7 @@ export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number 
   const Icon: LucideIcon = Sparkles;
   return (
     <Link
-      to="/preview/skills/$slug"
+      to="/skills/$slug"
       params={{ slug: skill.slug }}
       className={cn(
         "block rounded-2xl",

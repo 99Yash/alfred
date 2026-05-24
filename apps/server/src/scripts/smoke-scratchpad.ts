@@ -28,22 +28,14 @@ import {
   writeScratch,
 } from "@alfred/api";
 import { db } from "@alfred/db";
-import {
-  actionStagings,
-  agentRunContext,
-  agentRuns,
-  user as userTable,
-} from "@alfred/db/schemas";
+import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@alfred/db/schemas";
 import { createRedisConnection } from "@alfred/api/queue/connection";
 import { and, eq } from "drizzle-orm";
 
 const SMOKE_USER_EMAIL = "smoke-scratchpad@alfred.local";
 
 async function findOrCreateSmokeUser(): Promise<string> {
-  const existing = await db()
-    .select()
-    .from(userTable)
-    .where(eq(userTable.email, SMOKE_USER_EMAIL));
+  const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
   if (existing[0]) return existing[0].id;
   const inserted = await db()
     .insert(userTable)
@@ -145,7 +137,9 @@ async function main(): Promise<void> {
     caller: "boss",
   });
   if (bossWrite.kind !== "executed") {
-    throw new Error(`[smoke-scratchpad] boss shared write expected executed, got ${bossWrite.kind}`);
+    throw new Error(
+      `[smoke-scratchpad] boss shared write expected executed, got ${bossWrite.kind}`,
+    );
   }
   const dispatchShared = await readScratch<{ ok: boolean }>({
     runId,
@@ -312,9 +306,7 @@ async function main(): Promise<void> {
   } finally {
     await conn.quit().catch(() => conn.disconnect());
   }
-  await db()
-    .delete(agentRunContext)
-    .where(eq(agentRunContext.runId, runId));
+  await db().delete(agentRunContext).where(eq(agentRunContext.runId, runId));
   await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
   await db()
     .delete(agentRuns)

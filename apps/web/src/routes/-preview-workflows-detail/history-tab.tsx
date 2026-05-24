@@ -37,9 +37,7 @@ export function HistoryTab({ workflow }: { workflow: WorkflowDefinition }) {
               <CheckCircle2 size={16} />
             </WorkflowIcon>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-vs-fg-4">
-                {row.title}
-              </p>
+              <p className="truncate text-sm font-medium text-vs-fg-4">{row.title}</p>
               <p className="truncate text-xs text-vs-fg-3">{row.description}</p>
             </div>
             <div className="shrink-0 text-right">

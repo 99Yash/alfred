@@ -56,12 +56,9 @@ export function HeroAtmosphere({
   return (
     <div className={cn("relative isolate overflow-clip", className)}>
       {/* Viewport-pinned backdrop. `fixed inset-0` keeps the sky painted at
-        * the viewport across the entire scroll length without depending on
-        * whether the ancestor establishes a scroll-port. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-20"
-      >
+       * the viewport across the entire scroll length without depending on
+       * whether the ancestor establishes a scroll-port. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-20">
         <div className="relative h-full w-full overflow-hidden">
           {/* L1 — base default tone so we never paint void. */}
           <div className="landing-hero-sky absolute inset-0" />
@@ -91,10 +88,10 @@ export function HeroAtmosphere({
           />
 
           {/* Lens-flare rainbow halo — the camera catches the sun during
-            * late-morning. Two layered conic + radial rings produce the
-            * chromatic-aberration look; both are heavily blurred so they
-            * read as soft light spectra, not graphic decoration. Inspired
-            * by dimension's blurred-oval flare at home.html:2376. */}
+           * late-morning. Two layered conic + radial rings produce the
+           * chromatic-aberration look; both are heavily blurred so they
+           * read as soft light spectra, not graphic decoration. Inspired
+           * by dimension's blurred-oval flare at home.html:2376. */}
           <div
             className="pointer-events-none absolute -right-24 top-[-10%] mix-blend-screen transition-opacity duration-500"
             style={{ opacity: lensFlare }}
@@ -109,8 +106,8 @@ export function HeroAtmosphere({
           </div>
 
           {/* Sun halo via paper-shader GodRays — brightest in the morning,
-            * gone by evening. Sits in screen-blend mode so it just adds
-            * light, never darkens. */}
+           * gone by evening. Sits in screen-blend mode so it just adds
+           * light, never darkens. */}
           <div
             className="pointer-events-none absolute inset-0 mix-blend-screen transition-opacity duration-300"
             style={{ opacity: 0.45 * sun }}
@@ -136,8 +133,7 @@ export function HeroAtmosphere({
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-28"
             style={{
-              background:
-                "linear-gradient(180deg, rgba(0,0,0,0.18), transparent)",
+              background: "linear-gradient(180deg, rgba(0,0,0,0.18), transparent)",
             }}
           />
         </div>

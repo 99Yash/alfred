@@ -90,7 +90,10 @@ export function VsThemeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = useMemo<VsThemeContextValue>(() => ({ mode, resolved, setMode }), [mode, resolved, setMode]);
+  const value = useMemo<VsThemeContextValue>(
+    () => ({ mode, resolved, setMode }),
+    [mode, resolved, setMode],
+  );
 
   return <VsThemeContext.Provider value={value}>{children}</VsThemeContext.Provider>;
 }

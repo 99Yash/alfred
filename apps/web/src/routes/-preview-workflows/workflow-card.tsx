@@ -6,7 +6,10 @@ import { BriefingHero } from "./briefing-hero";
 import { TriageHero } from "./triage-hero";
 import { ResearchHero } from "./research-hero";
 
-const TINT: Record<WorkflowDefinition["tint"], { bg: string; chip: string; ring: string; accent: string }> = {
+const TINT: Record<
+  WorkflowDefinition["tint"],
+  { bg: string; chip: string; ring: string; accent: string }
+> = {
   violet: {
     bg: "bg-vs-purple-1",
     chip: "bg-vs-purple-2 text-vs-purple-4",
@@ -32,7 +35,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
   const tint = TINT[workflow.tint];
   return (
     <Link
-      to="/preview/workflows/$workflow"
+      to="/workflows/$workflow"
       params={{ workflow: workflow.id }}
       className={cn(
         "vs-card-in vs-hover-lift vs-press",

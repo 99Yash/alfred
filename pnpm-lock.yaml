@@ -447,9 +447,6 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.28.16)(pg@8.20.0)
-      resend:
-        specifier: 'catalog:'
-        version: 6.12.2
       typescript:
         specifier: ^5
         version: 5.9.3

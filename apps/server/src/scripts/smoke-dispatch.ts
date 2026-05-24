@@ -51,10 +51,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function findOrCreateSmokeUser(): Promise<string> {
-  const existing = await db()
-    .select()
-    .from(userTable)
-    .where(eq(userTable.email, SMOKE_USER_EMAIL));
+  const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
   if (existing[0]) return existing[0].id;
   const inserted = await db()
     .insert(userTable)
@@ -169,7 +166,10 @@ async function main(): Promise<void> {
     userId,
   });
   assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
-  assert(stubs.searchExecCount() === 1, `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`);
+  assert(
+    stubs.searchExecCount() === 1,
+    `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`,
+  );
   const autoRow = (
     await db()
       .select()
@@ -177,7 +177,10 @@ async function main(): Promise<void> {
       .where(eq(actionStagings.id, (auto as { stagingId: string }).stagingId))
   )[0];
   assert(autoRow, "autonomy staging row missing");
-  assert(autoRow.status === "executed", `autonomy row expected 'executed', got '${autoRow.status}'`);
+  assert(
+    autoRow.status === "executed",
+    `autonomy row expected 'executed', got '${autoRow.status}'`,
+  );
   assert(autoRow.requiresApproval === false, "autonomy row should have requires_approval=false");
   assert(autoRow.executeResult !== null, "autonomy row should carry execute_result");
   console.log("[smoke-dispatch] 1. autonomy: row=executed, tool fired once ✓");
@@ -193,7 +196,10 @@ async function main(): Promise<void> {
     userId,
   });
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
-  assert(stubs.searchExecCount() === 1, `idempotent re-dispatch should not re-execute, got ${stubs.searchExecCount()}`);
+  assert(
+    stubs.searchExecCount() === 1,
+    `idempotent re-dispatch should not re-execute, got ${stubs.searchExecCount()}`,
+  );
   console.log("[smoke-dispatch] 1. autonomy: idempotent re-dispatch returns cached result ✓");
 
   const unknownTool = await dispatchToolCall({
@@ -333,7 +339,10 @@ async function main(): Promise<void> {
   const resumedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
   )[0];
-  assert(resumedRow?.status === "executed", `resumed row expected 'executed', got '${resumedRow?.status}'`);
+  assert(
+    resumedRow?.status === "executed",
+    `resumed row expected 'executed', got '${resumedRow?.status}'`,
+  );
   console.log("[smoke-dispatch] 2. gated: approved + signal → executed, tool fired once ✓");
 
   // ─── 3. Retry-suppression ────────────────────────────────────────────
@@ -370,13 +379,17 @@ async function main(): Promise<void> {
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
   });
-  assert(reproposed.kind === "rejected", `retry-suppression expected 'rejected', got '${reproposed.kind}'`);
+  assert(
+    reproposed.kind === "rejected",
+    `retry-suppression expected 'rejected', got '${reproposed.kind}'`,
+  );
   assert(
     (reproposed as { stagingId: string | null }).stagingId === null,
     "retry-suppression must NOT write a new staging row",
   );
   assert(
-    (reproposed as { result: { retryPolicy: string } }).result.retryPolicy === "do_not_retry_identical",
+    (reproposed as { result: { retryPolicy: string } }).result.retryPolicy ===
+      "do_not_retry_identical",
     "retry-suppression result must carry retryPolicy='do_not_retry_identical'",
   );
   assert(stubs.draftExecCount() === draftExecBefore, "retry-suppression must not execute the tool");
@@ -392,39 +405,39 @@ async function main(): Promise<void> {
 
   // ─── 4. cancelRun idempotency ────────────────────────────────────────
   const runId4 = await createSmokeRun(userId, "cancel-turn");
-  await db().insert(actionStagings).values([
-    {
-      userId,
-      runId: runId4,
-      stepId: "turn-1",
-      toolCallId: "tc_cancel_1",
-      toolName: "gmail.send_draft",
-      integration: "gmail",
-      riskTier: "high",
-      proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
-      proposedInputHash: "smoke-cancel-1",
-      requiresApproval: true,
-      status: "pending",
-    },
-    {
-      userId,
-      runId: runId4,
-      stepId: "turn-1",
-      toolCallId: "tc_cancel_2",
-      toolName: "gmail.send_draft",
-      integration: "gmail",
-      riskTier: "high",
-      proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
-      proposedInputHash: "smoke-cancel-2",
-      requiresApproval: true,
-      status: "pending",
-    },
-  ]);
+  await db()
+    .insert(actionStagings)
+    .values([
+      {
+        userId,
+        runId: runId4,
+        stepId: "turn-1",
+        toolCallId: "tc_cancel_1",
+        toolName: "gmail.send_draft",
+        integration: "gmail",
+        riskTier: "high",
+        proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
+        proposedInputHash: "smoke-cancel-1",
+        requiresApproval: true,
+        status: "pending",
+      },
+      {
+        userId,
+        runId: runId4,
+        stepId: "turn-1",
+        toolCallId: "tc_cancel_2",
+        toolName: "gmail.send_draft",
+        integration: "gmail",
+        riskTier: "high",
+        proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
+        proposedInputHash: "smoke-cancel-2",
+        requiresApproval: true,
+        status: "pending",
+      },
+    ]);
   const first = await cancelRun({ runId: runId4, reason: "smoke" });
   assert(first === "cancelled", `cancelRun first call expected 'cancelled', got '${first}'`);
-  const cancelledRow = (
-    await db().select().from(agentRuns).where(eq(agentRuns.id, runId4))
-  )[0];
+  const cancelledRow = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId4)))[0];
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
   assert(
@@ -440,15 +453,23 @@ async function main(): Promise<void> {
     "cancelRun should reject pending approval staging rows for the run",
   );
   const second = await cancelRun({ runId: runId4, reason: "smoke" });
-  assert(second === "already_terminal", `cancelRun second call expected 'already_terminal', got '${second}'`);
+  assert(
+    second === "already_terminal",
+    `cancelRun second call expected 'already_terminal', got '${second}'`,
+  );
   const missing = await cancelRun({ runId: "run_does_not_exist", reason: "smoke" });
-  assert(missing === "not_found", `cancelRun on missing row expected 'not_found', got '${missing}'`);
+  assert(
+    missing === "not_found",
+    `cancelRun on missing row expected 'not_found', got '${missing}'`,
+  );
   console.log("[smoke-dispatch] 4. cancelRun: idempotent ✓");
 
   // ─── cleanup ─────────────────────────────────────────────────────────
   for (const runId of [runId1, runId2, runId3, runId4]) {
     await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
-    await db().delete(agentRuns).where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));
+    await db()
+      .delete(agentRuns)
+      .where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));
   }
   console.log("[smoke-dispatch] cleanup ok");
 }

@@ -26,6 +26,6 @@ export { Kbd } from "./kbd";
 export { StatusDot } from "./status-dot";
 export type { StatusTone, StatusSize } from "./status-dot";
 
-export { Dialog, DialogContent, DialogTrigger, DialogClose } from "./dialog";
+export { Dialog, DialogContent, DialogTrigger } from "./dialog";
 
 export { CommandPalette } from "./command-palette";

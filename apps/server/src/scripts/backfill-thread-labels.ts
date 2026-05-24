@@ -119,10 +119,7 @@ async function main() {
           isNotNull(emailTriage.appliedLabelId),
         ),
       )
-      .orderBy(
-        desc(documents.authoredAt),
-        desc(documents.ingestedAt),
-      )) as SiblingRow[];
+      .orderBy(desc(documents.authoredAt), desc(documents.ingestedAt))) as SiblingRow[];
 
     if (siblings.length < 2) continue;
 

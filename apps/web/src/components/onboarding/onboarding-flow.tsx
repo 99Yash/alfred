@@ -64,7 +64,7 @@ export function OnboardingFlow({
       <HeroAtmosphere className="min-h-[100dvh]">
         <div className="mx-auto flex min-h-[100dvh] w-full max-w-[100rem] flex-col lg:flex-row">
           {/* Left rail — sticky on desktop. Intro label, headline, bullets,
-            * step pager (with active highlight + completed checks), CTA. */}
+           * step pager (with active highlight + completed checks), CTA. */}
           <aside
             className={cn(
               "relative shrink-0 px-6 sm:px-10",
@@ -91,14 +91,17 @@ export function OnboardingFlow({
 
               <ul className="mt-7 flex flex-col gap-3 text-white">
                 {active.bullets.map((bullet) => (
-                  <Bullet key={bullet.text} icon={<bullet.icon className="size-4" strokeWidth={2} />}>
+                  <Bullet
+                    key={bullet.text}
+                    icon={<bullet.icon className="size-4" strokeWidth={2} />}
+                  >
                     {bullet.text}
                   </Bullet>
                 ))}
               </ul>
 
               {/* Stack on phones, inline on sm+ — assurance copy wraps
-                * awkwardly next to the CTA on a narrow viewport. */}
+               * awkwardly next to the CTA on a narrow viewport. */}
               <div className="mt-7 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
                 <FrostButton
                   tone="light"
@@ -151,9 +154,7 @@ export function OnboardingFlow({
                               <span
                                 className={cn(
                                   "block h-5 w-[3px] rounded-[2px] transition-opacity duration-200",
-                                  isActive
-                                    ? "bg-[#73A7FF] opacity-100"
-                                    : "bg-[#73A7FF] opacity-0",
+                                  isActive ? "bg-[#73A7FF] opacity-100" : "bg-[#73A7FF] opacity-0",
                                 )}
                               />
                             </span>
@@ -175,8 +176,8 @@ export function OnboardingFlow({
           </aside>
 
           {/* Right pane — showcase per step. `bg-black/10` only at `lg`
-            * where the pane sits next to the rail; on mobile the pane
-            * stacks BELOW the rail and the band reads as a hard seam. */}
+           * where the pane sits next to the rail; on mobile the pane
+           * stacks BELOW the rail and the band reads as a hard seam. */}
           <section className="relative z-10 grow lg:bg-black/10">
             {/* Vertical tick ruler */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -263,8 +264,7 @@ const STEPS: ReadonlyArray<StepDef> = [
     id: "unlock",
     pagerLabel: "Unlock",
     headline: "Set up in under a minute.",
-    lead:
-      "Link your Google account so Alfred can read your email and calendar, then start working in the background.",
+    lead: "Link your Google account so Alfred can read your email and calendar, then start working in the background.",
     bullets: [
       { icon: Sparkles, text: "Triages inbox and drafts replies in your tone" },
       { icon: Timer, text: "Briefs you each morning and after every meeting" },
@@ -279,8 +279,7 @@ const STEPS: ReadonlyArray<StepDef> = [
     id: "connect",
     pagerLabel: "Connect",
     headline: "Connect the tools you live in.",
-    lead:
-      "Alfred works across your stack. Connect the apps you rely on so nothing falls through the cracks.",
+    lead: "Alfred works across your stack. Connect the apps you rely on so nothing falls through the cracks.",
     bullets: [
       { icon: MessagesSquare, text: "Slack — pull threads, never miss a mention" },
       { icon: Workflow, text: "Linear & GitHub — keep tickets and PRs in flow" },
@@ -288,15 +287,13 @@ const STEPS: ReadonlyArray<StepDef> = [
     ],
     assurance: "You're always in control. Critical actions need approval by default.",
     showcaseTitle: "Popular integrations",
-    showcaseDescription:
-      "Connect now or come back later — your setup syncs across every device.",
+    showcaseDescription: "Connect now or come back later — your setup syncs across every device.",
   },
   {
     id: "finish",
     pagerLabel: "Finish",
     headline: "Welcome to Alfred.",
-    lead:
-      "Setup is complete. Here are a few more ways to use Alfred — coming soon to your pocket and desktop.",
+    lead: "Setup is complete. Here are a few more ways to use Alfred — coming soon to your pocket and desktop.",
     bullets: [
       { icon: Sparkles, text: "Your morning briefing arrives at 7am tomorrow" },
       { icon: MessagesSquare, text: "Chat from the web now — mobile and CLI shortly" },
@@ -304,8 +301,7 @@ const STEPS: ReadonlyArray<StepDef> = [
     ],
     assurance: "You can change schedules and gates anytime under Settings.",
     showcaseTitle: "Where Alfred shows up next",
-    showcaseDescription:
-      "Beyond the web app — Alfred is on its way to your desk and your phone.",
+    showcaseDescription: "Beyond the web app — Alfred is on its way to your desk and your phone.",
   },
 ];
 
@@ -380,10 +376,7 @@ function UnlockShowcase() {
       <div className="h-px w-full bg-gradient-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {UNLOCK_FEATURES.map((f) => (
-          <li
-            key={f.key}
-            className="morning-briefing-surface flex items-start gap-3 p-5"
-          >
+          <li key={f.key} className="morning-briefing-surface flex items-start gap-3 p-5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-inset ring-white/20 backdrop-blur-sm">
               <f.icon size={17} strokeWidth={2} />
             </span>
@@ -422,12 +415,51 @@ interface PopularIntegration {
 }
 
 const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
-  { id: "linear", name: "Linear", description: "Issues and projects", brand: "linear", status: "soon" },
-  { id: "slack", name: "Slack", description: "Messages and channels", brand: "slack", status: "soon" },
-  { id: "github", name: "GitHub", description: "Repos and pull requests", brand: "github", status: "soon" },
-  { id: "google_docs", name: "Google Docs", description: "Create and edit docs", brand: "google_docs", status: "soon", bundledWithGoogle: true },
-  { id: "google_sheets", name: "Google Sheets", description: "Work with spreadsheets", brand: "google_sheets", status: "soon", bundledWithGoogle: true },
-  { id: "google_slides", name: "Google Slides", description: "Create and edit decks", brand: "google_slides", status: "soon", bundledWithGoogle: true },
+  {
+    id: "linear",
+    name: "Linear",
+    description: "Issues and projects",
+    brand: "linear",
+    status: "soon",
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    description: "Messages and channels",
+    brand: "slack",
+    status: "soon",
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Repos and pull requests",
+    brand: "github",
+    status: "soon",
+  },
+  {
+    id: "google_docs",
+    name: "Google Docs",
+    description: "Create and edit docs",
+    brand: "google_docs",
+    status: "soon",
+    bundledWithGoogle: true,
+  },
+  {
+    id: "google_sheets",
+    name: "Google Sheets",
+    description: "Work with spreadsheets",
+    brand: "google_sheets",
+    status: "soon",
+    bundledWithGoogle: true,
+  },
+  {
+    id: "google_slides",
+    name: "Google Slides",
+    description: "Create and edit decks",
+    brand: "google_slides",
+    status: "soon",
+    bundledWithGoogle: true,
+  },
 ];
 
 function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
@@ -449,10 +481,7 @@ function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
           const status: IntegrationTileStatus =
             p.bundledWithGoogle && connectedEmail ? "included" : p.status;
           return (
-            <li
-              key={p.id}
-              className="morning-briefing-surface flex items-center gap-3 px-5 py-4"
-            >
+            <li key={p.id} className="morning-briefing-surface flex items-center gap-3 px-5 py-4">
               <IntegrationIcon brand={p.brand} size="md" title={p.name} variant="frost" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14px] font-semibold text-white">{p.name}</p>
@@ -504,9 +533,27 @@ interface InstallTile {
 }
 
 const INSTALL_TILES: ReadonlyArray<InstallTile> = [
-  { key: "desktop", title: "Desktop App", body: "One click from your dock", icon: Terminal, status: "soon" },
-  { key: "imessage", title: "iMessage", body: "Chat with Alfred via text", icon: Inbox, status: "soon" },
-  { key: "mobile", title: "Mobile App", body: "Alfred in your pocket", icon: Smartphone, status: "soon" },
+  {
+    key: "desktop",
+    title: "Desktop App",
+    body: "One click from your dock",
+    icon: Terminal,
+    status: "soon",
+  },
+  {
+    key: "imessage",
+    title: "iMessage",
+    body: "Chat with Alfred via text",
+    icon: Inbox,
+    status: "soon",
+  },
+  {
+    key: "mobile",
+    title: "Mobile App",
+    body: "Alfred in your pocket",
+    icon: Smartphone,
+    status: "soon",
+  },
 ];
 
 function FinishShowcase() {

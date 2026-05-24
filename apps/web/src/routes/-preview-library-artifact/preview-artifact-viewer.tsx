@@ -7,12 +7,12 @@ import { getArtifact } from "~/lib/library-artifacts";
 import { cn } from "~/lib/utils";
 
 export function PreviewArtifactViewer() {
-  const { artifact: artifactId } = useParams({ from: "/preview/library/$artifact" });
+  const { artifact: artifactId } = useParams({ from: "/library/$artifact" });
   const navigate = useNavigate();
   const artifact = getArtifact(artifactId);
 
   const close = useCallback(() => {
-    void navigate({ to: "/preview/library" });
+    void navigate({ to: "/library" });
   }, [navigate]);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export function PreviewArtifactViewer() {
         >
           <p className="text-sm font-medium text-vs-fg-4">Artifact not found</p>
           <Link
-            to="/preview/library"
+            to="/library"
             className="mt-3 inline-flex text-xs text-vs-fg-3 underline underline-offset-4 hover:text-vs-fg-4"
           >
             Back to Library
@@ -92,7 +92,7 @@ export function PreviewArtifactViewer() {
             <Maximize2 size={15} />
           </VsButton>
           <Link
-            to="/preview/library"
+            to="/library"
             aria-label="Close artifact"
             className={cn(
               "grid size-8 place-items-center rounded-full bg-vs-bg-2 text-vs-fg-3",
@@ -105,7 +105,7 @@ export function PreviewArtifactViewer() {
         </div>
       </header>
 
-      <main className="relative min-h-0 flex-1 overflow-y-auto vs-scrollbar px-4 py-8">
+      <main className="relative min-h-0 flex-1 overflow-y-auto px-4 py-8">
         <div className="mx-auto flex w-full max-w-[460px] flex-col gap-8">
           {artifact.pages.map((page, index) => (
             <section key={`${page.title}-${index}`} aria-label={`Page ${index + 1}`}>
@@ -116,10 +116,7 @@ export function PreviewArtifactViewer() {
                 </span>
               </div>
               {page.html ? (
-                <ArtifactPageFrame
-                  html={page.html}
-                  title={`${artifact.title} page ${index + 1}`}
-                />
+                <ArtifactPageFrame html={page.html} title={`${artifact.title} page ${index + 1}`} />
               ) : (
                 <div
                   className={cn(
