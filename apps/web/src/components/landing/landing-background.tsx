@@ -7,8 +7,9 @@ import { cn } from "~/lib/utils";
  * spacing, not gradients or animated meshes.
  *
  * Grid is drawn as a CSS `background-image` so it tiles cheaply at any size
- * and scales with the viewport. Two layers (40px major + 8px minor) to give
- * the texture some depth without becoming a focal point.
+ * and scales with the viewport. A single 80px grid (vertical + horizontal
+ * lines composed into one image) gives the texture without becoming a
+ * focal point.
  */
 export function LandingBackground({
   children,

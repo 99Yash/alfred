@@ -34,7 +34,7 @@ export function FloatingPillNav({
       {logo ? <div className="ml-2 flex items-center gap-2">{logo}</div> : null}
       {children ? (
         <>
-          <div aria-orientation="vertical" className="hidden h-6 w-px shrink-0 bg-white/10 sm:block" />
+          <div aria-hidden className="hidden h-6 w-px shrink-0 bg-white/10 sm:block" />
           <div className="hidden items-center gap-0 text-sm text-white sm:flex">{children}</div>
         </>
       ) : null}

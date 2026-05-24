@@ -1,11 +1,16 @@
 import { CalendarDays, Inbox as InboxIcon, Sun } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AuroraGlow } from "~/components/landing/aurora-glow";
 import { DeviceBezel } from "~/components/landing/device-bezel";
 import { InboxMockup } from "~/components/landing/inbox-mockup";
 import { MeetingPrepMockup } from "~/components/landing/meeting-prep-mockup";
 import { MorningBriefingPanel } from "~/components/landing/morning-briefing-panel";
-import { TabPill, type TabPillOption } from "~/components/landing/tab-pill";
+import {
+  TabPill,
+  tabButtonId,
+  tabPanelId,
+  type TabPillOption,
+} from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
 type ShowcaseTab = "briefing" | "inbox" | "meetings";
@@ -33,12 +38,12 @@ const AUTO_ADVANCE_MS = 2000;
 
 /**
  * Hero product showcase — three Alfred views (briefing / inbox / meeting prep)
- * that auto-loop through every five seconds with a soft crossfade + lift.
+ * that auto-loop through every two seconds with a soft crossfade + lift.
  * Inspired by visitors.now's tab-pill-above-product pattern, plus auto-cycling
  * so the page feels alive without the user clicking.
  *
  * Behavior:
- *   • Auto-advances `tab` every 5s (suspended when off-screen or hovered).
+ *   • Auto-advances `tab` every 2s (suspended when off-screen or hovered).
  *   • Manual click swaps tab AND resets the cycle so the new tab sits for
  *     the full interval before advancing.
  *   • Respects `prefers-reduced-motion`: no transitions, no auto-advance.
@@ -50,6 +55,7 @@ const AUTO_ADVANCE_MS = 2000;
  */
 export function HeroShowcase({ className }: { className?: string }) {
   const [tab, setTab] = useState<ShowcaseTab>("briefing");
+  const idBase = useId();
   // Hover + off-screen are pause signals only — they never appear in JSX
   // and shouldn't trigger re-renders. Refs let event handlers and the
   // IntersectionObserver flip them without rescheduling the interval.
@@ -104,13 +110,18 @@ export function HeroShowcase({ className }: { className?: string }) {
       <AuroraGlow />
 
       <div className="relative flex flex-col items-center">
-        <TabPill options={TABS} value={tab} onChange={setTab} />
+        <TabPill options={TABS} value={tab} onChange={setTab} idBase={idBase} />
 
         <div className="relative mt-6 w-full">
           <DeviceBezel>
             <div className="relative grid">
               {TAB_VALUES.map((value) => (
-                <Slot key={value} active={tab === value}>
+                <Slot
+                  key={value}
+                  active={tab === value}
+                  id={tabPanelId(idBase, value)}
+                  labelledBy={tabButtonId(idBase, value)}
+                >
                   {value === "briefing" && (
                     <MorningBriefingPanel className="rounded-none ring-0" />
                   )}
@@ -133,10 +144,27 @@ export function HeroShowcase({ className }: { className?: string }) {
  * fade out behind. Inactive slots also get `pointer-events-none` so they
  * never intercept clicks meant for the visible mockup beneath/above.
  */
-function Slot({ active, children }: { active: boolean; children: ReactNode }) {
+function Slot({
+  active,
+  id,
+  labelledBy,
+  children,
+}: {
+  active: boolean;
+  id: string;
+  labelledBy: string;
+  children: ReactNode;
+}) {
   return (
     <div
+      id={id}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
       aria-hidden={!active}
+      // Inactive panels are visually faded but still painted for the
+      // crossfade; remove them from the tab order so keyboard focus
+      // never lands on hidden content.
+      tabIndex={active ? 0 : -1}
       className={cn(
         "[grid-area:1/1] transition-[opacity,transform,filter] duration-500 ease-out",
         active
