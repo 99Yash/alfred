@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import type { ButtonHTMLAttributes, CSSProperties, Ref } from "react";
 import { cn } from "~/lib/utils";
 
@@ -14,11 +15,17 @@ export type FrostButtonSize = "sm" | "md" | "lg";
  * Alfred is dark-first so `tone="dark"` is the default. Use `tone="light"`
  * on top of light backgrounds (e.g. a paper-textured section) — that matches
  * Dimension's original "Get Started" button recipe.
+ *
+ * Pass `loading` to fade the label and overlay a spinner. The button is
+ * automatically disabled (and `cursor-wait`) while loading so consumers
+ * don't need a separate `disabled` flag during async submits.
  */
 export function FrostButton({
   className,
   size = "md",
   tone = "dark",
+  loading = false,
+  disabled,
   ref,
   style,
   children,
@@ -26,6 +33,7 @@ export function FrostButton({
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: FrostButtonSize;
   tone?: FrostButtonTone;
+  loading?: boolean;
   ref?: Ref<HTMLButtonElement>;
 }) {
   const sizeClass =
@@ -60,11 +68,16 @@ export function FrostButton({
     ...style,
   };
 
+  const spinnerSize = size === "sm" ? 14 : size === "lg" ? 18 : 16;
+
   return (
     <button
       ref={ref}
       type="button"
       style={mergedStyle}
+      disabled={disabled || loading}
+      data-loading={loading || undefined}
+      aria-busy={loading || undefined}
       className={cn(
         "frost-border press-scale select-none isolate inline-flex items-center justify-center",
         "rounded-full font-medium backdrop-blur-md",
@@ -73,6 +86,7 @@ export function FrostButton({
         "after:pointer-events-none after:opacity-0 after:transition-opacity after:duration-200",
         "active:after:opacity-0",
         "disabled:cursor-not-allowed disabled:brightness-[0.85] disabled:after:opacity-0",
+        "data-[loading=true]:cursor-wait",
         "transition duration-200",
         toneClass,
         sizeClass,
@@ -91,7 +105,22 @@ export function FrostButton({
           "before:opacity-80",
         )}
       />
-      <span className="relative z-[1] flex items-center gap-[inherit]">{children}</span>
+      <span
+        className={cn(
+          "relative z-[1] flex items-center gap-[inherit] transition-opacity duration-150",
+          loading && "opacity-0",
+        )}
+      >
+        {children}
+      </span>
+      {loading ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-[2] grid place-items-center"
+        >
+          <Loader2 className="animate-spin" size={spinnerSize} strokeWidth={2.25} />
+        </span>
+      ) : null}
     </button>
   );
 }
