@@ -33,6 +33,15 @@ const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_AUDIENCE: z.string().optional(),
   /** Service-account email expected as the `email` claim in the OIDC token. Optional defense-in-depth. */
   GOOGLE_PUBSUB_SERVICE_ACCOUNT: z.string().optional(),
+  /**
+   * Classic GitHub OAuth App credentials. Optional so the server boots
+   * before an app is created; `getGithubOAuthConfig()` throws with a
+   * descriptive error when the integration routes try to use them
+   * without configuration.
+   */
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GITHUB_OAUTH_REDIRECT_URI: z.string().url().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
