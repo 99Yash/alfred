@@ -13,12 +13,10 @@ export function ApprovalsTab({ workflow }: { workflow: WorkflowDefinition }) {
             <ShieldCheck size={16} />
           </WorkflowIcon>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-vs-fg-4">
-              No pending approvals
-            </p>
+            <p className="text-sm font-medium text-vs-fg-4">No pending approvals</p>
             <p className="mt-1 text-xs leading-5 text-vs-fg-3">
-              {workflow.name} can run automatically for low-risk steps.
-              Outbound or destructive actions still stop for review.
+              {workflow.name} can run automatically for low-risk steps. Outbound or destructive
+              actions still stop for review.
             </p>
           </div>
         </div>

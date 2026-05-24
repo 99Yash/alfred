@@ -41,23 +41,3 @@ export function VsCard({ className, padded = true, interactive, ref, ...rest }: 
     />
   );
 }
-
-interface VsCardHeaderProps extends HTMLAttributes<HTMLDivElement> {
-  /** Title text shown on the left. */
-  title: string;
-  /** Optional right-side controls — typically a TabBar-as-text or a Pill. */
-  trailing?: React.ReactNode;
-}
-
-export function VsCardHeader({ className, title, trailing, ref, ...rest }: VsCardHeaderProps & { ref?: Ref<HTMLDivElement> }) {
-  return (
-    <div
-      ref={ref}
-      className={cn("flex items-center justify-between text-sm font-medium text-vs-fg-4 mb-4", className)}
-      {...rest}
-    >
-      <span>{title}</span>
-      {trailing ? <div className="flex items-center gap-3 text-vs-fg-2">{trailing}</div> : null}
-    </div>
-  );
-}

@@ -292,9 +292,7 @@ function TasksPanel({
                 className={cn(
                   "mt-0.5 grid size-4 shrink-0 place-items-center rounded-[4px] border",
                   "transition-[background-color,border-color]",
-                  todo.done
-                    ? "border-white/60 bg-white/60"
-                    : "border-white/40 bg-transparent",
+                  todo.done ? "border-white/60 bg-white/60" : "border-white/40 bg-transparent",
                 )}
               >
                 {todo.done ? <CheckCircle2 size={10} className="text-black/70" /> : null}
@@ -466,9 +464,7 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-white">{meeting.title}</span>
-                  <span className="shrink-0 text-[11px] tabular text-white/55">
-                    {meeting.time}
-                  </span>
+                  <span className="shrink-0 text-[11px] tabular text-white/55">{meeting.time}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11.5px] text-white/55">
                   <span className="inline-flex items-center gap-1">

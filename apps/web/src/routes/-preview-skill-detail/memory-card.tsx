@@ -26,11 +26,7 @@ export function MemoryCard({ body }: { body: string }) {
           components={{
             li: ({ children }) => (
               <li>
-                <Sparkles
-                  size={13}
-                  aria-hidden
-                  className="mt-[3px] shrink-0 text-vs-purple-4"
-                />
+                <Sparkles size={13} aria-hidden className="mt-[3px] shrink-0 text-vs-purple-4" />
                 <span className="min-w-0 flex-1">{children}</span>
               </li>
             ),

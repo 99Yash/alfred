@@ -9,16 +9,9 @@
 export { VsButton } from "./button";
 export type { VsButtonVariant, VsButtonSize } from "./button";
 
-export { VsCard, VsCardHeader } from "./card";
+export { VsCard } from "./card";
 
 export { VsPill } from "./pill";
-
-export { VsKpi } from "./kpi";
-
-export { VsDock } from "./dock";
-export type { VsDockItem } from "./dock";
-
-export { VsHeader } from "./header";
 
 export { VsInput } from "./input";
 

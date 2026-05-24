@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils";
 export function BackLink() {
   return (
     <Link
-      to="/preview/workflows"
+      to="/workflows"
       className={cn(
         "inline-flex items-center gap-2 text-sm text-vs-fg-3",
         "transition-colors hover:text-vs-fg-4",

@@ -43,10 +43,7 @@ export function RunGroup({
 
       {open ? (
         <div className="relative ml-[7px] mt-1.5 pl-5 pb-1">
-          <span
-            aria-hidden
-            className="absolute left-0 top-1.5 bottom-2.5 w-px bg-vs-bg-3"
-          />
+          <span aria-hidden className="absolute left-0 top-1.5 bottom-2.5 w-px bg-vs-bg-3" />
           <div className="space-y-1.5">{children}</div>
         </div>
       ) : null}

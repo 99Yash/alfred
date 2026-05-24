@@ -48,7 +48,14 @@ const VARIANT: Record<InputVariant, string> = {
   search: "rounded-full px-4 py-2",
 };
 
-export function Input({ className, variant = "default", leading, trailing, ref, ...rest }: InputProps) {
+export function Input({
+  className,
+  variant = "default",
+  leading,
+  trailing,
+  ref,
+  ...rest
+}: InputProps) {
   /* Bare input — most usage. */
   if (!leading && !trailing) {
     return <input ref={ref} className={cn(BASE, VARIANT[variant], className)} {...rest} />;

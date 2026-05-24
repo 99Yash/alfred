@@ -4,10 +4,7 @@ import { MCP_SECTION } from "./helpers";
 
 export function MCPServerSection() {
   return (
-    <section
-      className="space-y-3 vs-card-in"
-      style={{ animationDelay: `${480}ms` }}
-    >
+    <section className="space-y-3 vs-card-in" style={{ animationDelay: `${480}ms` }}>
       <h2 className="text-xs uppercase tracking-tight text-vs-fg-2 font-medium px-1">
         {MCP_SECTION.heading}
       </h2>

@@ -161,14 +161,12 @@ async function main() {
     throw new Error(`run status=${run.status}`);
   }
 
-  const output = run.output as
-    | {
-        briefingRunId?: string;
-        emailSendId?: string | null;
-        status?: string;
-        slot: string;
-      }
-    | null;
+  const output = run.output as {
+    briefingRunId?: string;
+    emailSendId?: string | null;
+    status?: string;
+    slot: string;
+  } | null;
   assert(output?.briefingRunId, "run completed but output.briefingRunId is missing");
   console.log(
     `[smoke-daily-briefing] run completed: briefingRunId=${output.briefingRunId} ` +

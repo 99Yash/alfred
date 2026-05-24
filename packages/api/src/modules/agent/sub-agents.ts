@@ -22,11 +22,13 @@ const existingSubAgentSelection = {
   status: agentRuns.status,
 } as const;
 
-export async function spawnSubAgent(args: SpawnSubAgentInput & {
-  parentRunId: string;
-  userId: string;
-  parentToolCallId: string;
-}): Promise<{
+export async function spawnSubAgent(
+  args: SpawnSubAgentInput & {
+    parentRunId: string;
+    userId: string;
+    parentToolCallId: string;
+  },
+): Promise<{
   ok: true;
   status: "spawned" | "already_spawned";
   parentRunId: string;
@@ -53,7 +55,9 @@ export async function spawnSubAgent(args: SpawnSubAgentInput & {
 
   const existing = await findExistingSubAgentRun(args);
   if (existing) {
-    await enqueueRun(existing.id, { jobId: subAgentJobId(args.parentRunId, args.parentToolCallId) });
+    await enqueueRun(existing.id, {
+      jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
+    });
     return {
       ok: true,
       status: "already_spawned",
@@ -80,7 +84,9 @@ export async function spawnSubAgent(args: SpawnSubAgentInput & {
     metadata,
     trigger: { kind: "manual" },
   });
-  await enqueueRun(created.runId, { jobId: subAgentJobId(args.parentRunId, args.parentToolCallId) });
+  await enqueueRun(created.runId, {
+    jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
+  });
   return {
     ok: true,
     status: "spawned",

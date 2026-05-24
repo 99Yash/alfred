@@ -5,11 +5,11 @@ import { ProviderDetail } from "~/components/preview/integrations/provider-detai
 import { getIntegrationProvider } from "~/lib/integrations";
 
 export function PreviewIntegrationDetailPage() {
-  const { provider: providerId } = useParams({ from: "/preview/integrations/$provider" });
+  const { provider: providerId } = useParams({ from: "/integrations/$provider" });
   const provider = getIntegrationProvider(providerId);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
+    <div className="flex-1 min-w-0 overflow-y-auto">
       <main className="mx-auto w-full max-w-[700px] px-4 sm:px-6 py-10 sm:py-14">
         <BackLink />
         {provider ? <ProviderDetail provider={provider} /> : <NotFound />}

@@ -12,7 +12,9 @@ export function FeaturesSection() {
     <VsCard padded={false}>
       <div className="p-5 pb-2 space-y-1">
         <p className="text-sm font-medium text-vs-fg-4">Background agents</p>
-        <p className="text-xs text-vs-fg-3">Enable or disable the agents that run on your behalf.</p>
+        <p className="text-xs text-vs-fg-3">
+          Enable or disable the agents that run on your behalf.
+        </p>
       </div>
       <div className="divide-y divide-vs-bg-2">
         {BACKGROUND_AGENTS.map((agent) => (

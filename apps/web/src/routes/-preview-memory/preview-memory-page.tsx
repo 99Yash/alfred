@@ -92,7 +92,7 @@ export function PreviewMemoryPage() {
   const rejectFact = (id: string) => setFacts((prev) => prev.filter((f) => f.id !== id));
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
+    <div className="flex-1 min-w-0 overflow-y-auto">
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         <header className="space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-vs-fg-4">
@@ -145,7 +145,9 @@ export function PreviewMemoryPage() {
               title="Confirmed"
               count={confirmed.length}
               hint={
-                confirmed.length === 0 ? undefined : "Acts as background context on every Alfred run."
+                confirmed.length === 0
+                  ? undefined
+                  : "Acts as background context on every Alfred run."
               }
             />
             {confirmed.length === 0 ? (

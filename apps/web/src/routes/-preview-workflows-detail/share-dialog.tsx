@@ -47,9 +47,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
       >
         <div className="px-6 pt-5 pb-2">
           <p className="text-sm font-medium text-vs-fg-4">Share workflow</p>
-          <p className="mt-1 text-xs text-vs-fg-3">
-            Copy a private link to this workflow preview.
-          </p>
+          <p className="mt-1 text-xs text-vs-fg-3">Copy a private link to this workflow preview.</p>
         </div>
         <div className="px-6 pb-6">
           <div className="rounded-2xl bg-vs-bg-2/60 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] p-4">
@@ -58,12 +56,8 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
                 <Share2 size={16} />
               </WorkflowIcon>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-vs-fg-4">
-                  {workflow.name}
-                </p>
-                <p className="truncate text-[12px] text-vs-fg-3">
-                  {workflow.description}
-                </p>
+                <p className="truncate text-sm font-medium text-vs-fg-4">{workflow.name}</p>
+                <p className="truncate text-[12px] text-vs-fg-3">{workflow.description}</p>
               </div>
             </div>
             <div

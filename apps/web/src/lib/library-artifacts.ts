@@ -64,7 +64,8 @@ export const LIBRARY_ARTIFACTS: ReadonlyArray<LibraryArtifact> = [
     typeLabel: "Spreadsheet",
     updatedLabel: "Last week",
     favourite: false,
-    summary: "A generated spreadsheet-style review of workspace usage, vendors, and renewal timing.",
+    summary:
+      "A generated spreadsheet-style review of workspace usage, vendors, and renewal timing.",
     pages: [
       {
         title: "Cost Review",

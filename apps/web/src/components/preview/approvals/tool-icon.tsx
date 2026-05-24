@@ -9,7 +9,9 @@ export function ToolIcon({ toolName }: { toolName: ToolName }) {
       aria-hidden
       className={cn(
         "grid size-10 shrink-0 place-items-center rounded-xl",
-        toolName === "gmail.send_draft" ? "bg-vs-red-1 text-vs-red-4" : "bg-vs-blue-1 text-vs-blue-4",
+        toolName === "gmail.send_draft"
+          ? "bg-vs-red-1 text-vs-red-4"
+          : "bg-vs-blue-1 text-vs-blue-4",
       )}
     >
       <Icon size={18} />

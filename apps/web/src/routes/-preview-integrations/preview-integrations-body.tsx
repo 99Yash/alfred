@@ -24,10 +24,12 @@ export function PreviewIntegrationsBody() {
   }, []);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto vs-scrollbar">
+    <div className="flex-1 min-w-0 overflow-y-auto">
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
-          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">Integrations</h1>
+          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">
+            Integrations
+          </h1>
           <p className="text-sm text-vs-fg-3">
             Connect the tools Alfred can read, write, and act on.
           </p>

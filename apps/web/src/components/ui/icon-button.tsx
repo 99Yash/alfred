@@ -23,7 +23,15 @@ const SIZE: Record<IconButtonSize, string> = {
   md: "size-8",
 };
 
-export function IconButton({ label, className, size = "md", type, children, ref, ...rest }: IconButtonProps) {
+export function IconButton({
+  label,
+  className,
+  size = "md",
+  type,
+  children,
+  ref,
+  ...rest
+}: IconButtonProps) {
   return (
     <button
       ref={ref}

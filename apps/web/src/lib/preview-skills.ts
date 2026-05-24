@@ -95,7 +95,7 @@ export const PREVIEW_SKILLS: ReadonlyArray<PreviewSkill> = [
       "- **Tone:** concise, direct; default to fewer words.",
       "- **Banned phrases:** _utilize_, _leverage_, _just_, _stoked_, _excited to share_.",
       "- **Punctuation:** dashes over commas for asides; never trailing exclamation marks.",
-      "- **Email sign-off:** \"— Y\" on internal threads; \"Best, Yash\" on external.",
+      '- **Email sign-off:** "— Y" on internal threads; "Best, Yash" on external.',
     ].join("\n"),
     lastRunAt: daysAgo(1),
     updatedAt: daysAgo(1),

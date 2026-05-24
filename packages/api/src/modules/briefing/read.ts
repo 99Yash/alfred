@@ -62,7 +62,9 @@ interface ListEmailsSinceArgs {
   limit?: number;
 }
 
-export async function listEmailsSinceWatermark(args: ListEmailsSinceArgs): Promise<EmailListItem[]> {
+export async function listEmailsSinceWatermark(
+  args: ListEmailsSinceArgs,
+): Promise<EmailListItem[]> {
   const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
 
   const conditions = [
@@ -152,10 +154,7 @@ export async function listPriorBriefings(
 ): Promise<PriorBriefingSummary[]> {
   const limit = args.limit ?? PRIOR_BRIEFINGS_DEFAULT_LIMIT;
 
-  const conditions = [
-    eq(briefingRuns.userId, args.userId),
-    eq(briefingRuns.status, "composed"),
-  ];
+  const conditions = [eq(briefingRuns.userId, args.userId), eq(briefingRuns.status, "composed")];
   if (args.slot) conditions.push(eq(briefingRuns.slot, args.slot));
 
   const rows = await db()
