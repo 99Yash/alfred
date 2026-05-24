@@ -74,14 +74,17 @@ export interface AlfredLabelMap {
  */
 export async function ensureAlfredLabels(
   credentialId: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; accessToken?: string } = {},
 ): Promise<AlfredLabelMap> {
   if (!opts.force) {
     const cached = await loadCachedLabels(credentialId);
     if (cached) return cached;
   }
 
-  const accessToken = await getFreshAccessToken(credentialId);
+  // Reuse a caller-supplied token when present — otherwise a sibling call
+  // chain that already fetched one ends up triggering a second DB read and,
+  // near expiry, a concurrent refresh.
+  const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
   const existing = await listLabels({ accessToken });
   const existingByName = new Map(existing.map((l) => [l.name, l.id] as const));
 
@@ -185,10 +188,8 @@ export async function findThreadSiblingsWithAlfredLabels(args: {
   threadId: string;
   excludeMessageId: string;
 }): Promise<Array<{ messageId: string; labelId: string }>> {
-  const [accessToken, alfredLabels] = await Promise.all([
-    getFreshAccessToken(args.credentialId),
-    ensureAlfredLabels(args.credentialId),
-  ]);
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const alfredLabels = await ensureAlfredLabels(args.credentialId, { accessToken });
   const alfredIds = new Set(alfredLabels.allIds);
   const messages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
   const siblings: Array<{ messageId: string; labelId: string }> = [];
@@ -250,7 +251,8 @@ export interface ApplyTriageLabelResult {
 export async function applyTriageLabel(
   args: ApplyTriageLabelArgs,
 ): Promise<ApplyTriageLabelResult> {
-  const labels = await ensureAlfredLabels(args.credentialId);
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const labels = await ensureAlfredLabels(args.credentialId, { accessToken });
   const targetId = labels.byCategory[args.category];
 
   const removeLabelIds: string[] = [];
@@ -260,7 +262,6 @@ export async function applyTriageLabel(
     removeLabelIds.push(args.previousLabelId);
   }
 
-  const accessToken = await getFreshAccessToken(args.credentialId);
   await modifyMessageLabels({
     accessToken,
     messageId: args.messageId,

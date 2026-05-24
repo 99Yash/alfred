@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { cn } from '~/lib/utils';
+import { useState } from "react";
+import { cn } from "~/lib/utils";
 
 /**
  * Dark, quiet footer — sits on the same black canvas as the rest of the
@@ -39,7 +39,7 @@ export function LandingFooter({
               </span>
             </a>
             <p className="max-w-sm text-[14px] leading-[1.55] text-neutral-500">
-              Built over a lots of sweat and iterations, Alfred is the personal
+              Built over a lot of sweat and iterations, Alfred is the personal
               AI coworker that runs quietly across every tool you already use.
             </p>
             <div className="flex flex-col gap-2.5">
@@ -74,26 +74,26 @@ interface FooterLink {
 }
 
 const PRODUCT_ITEMS: ReadonlyArray<FooterLink> = [
-  { label: 'Home', href: '/' },
-  { label: 'Why Alfred', href: '#benefits' },
-  { label: 'Get Started', href: '/login' },
+  { label: "Home", href: "/" },
+  { label: "Why Alfred", href: "#benefits" },
+  { label: "Get Started", href: "/login" },
 ];
 
 const FEATURE_ITEMS: ReadonlyArray<FooterLink> = [
-  { label: 'Inbox triage', href: '#features' },
-  { label: 'Morning briefing', href: '#features' },
-  { label: 'Meeting prep', href: '#features' },
-  { label: 'Talk to it anywhere', href: '#features' },
+  { label: "Inbox triage", href: "#features" },
+  { label: "Morning briefing", href: "#features" },
+  { label: "Meeting prep", href: "#features" },
+  { label: "Talk to it anywhere", href: "#features" },
 ];
 
 const MADE_BY_ITEMS: ReadonlyArray<FooterLink> = [
-  { label: 'GitHub', href: 'https://github.com/99Yash/alfred', external: true },
-  { label: 'X', href: 'https://x.com', external: true },
+  { label: "GitHub", href: "https://github.com/99Yash/alfred", external: true },
+  { label: "X", href: "https://x.com", external: true },
 ];
 
 const LEGAL_ITEMS: ReadonlyArray<FooterLink> = [
-  { label: 'Privacy', href: '/privacy-policy' },
-  { label: 'Terms', href: '/terms-of-service' },
+  { label: "Privacy", href: "/privacy-policy" },
+  { label: "Terms", href: "/terms-of-service" },
 ];
 
 function FooterColumn({
@@ -111,11 +111,11 @@ function FooterColumn({
           <li key={`${title}-${item.label}`}>
             <a
               href={item.href}
-              target={item.external ? '_blank' : undefined}
-              rel={item.external ? 'noopener noreferrer' : undefined}
+              target={item.external ? "_blank" : undefined}
+              rel={item.external ? "noopener noreferrer" : undefined}
               className={cn(
-                'text-[14px] text-neutral-500 transition-colors',
-                'hover:text-white',
+                "text-[14px] text-neutral-500 transition-colors",
+                "hover:text-white",
               )}
             >
               {item.label}
@@ -149,8 +149,8 @@ function OperationalPill({ operational }: { operational: boolean }) {
   return (
     <span
       className={cn(
-        'inline-flex w-fit items-center gap-2 text-[13px] font-medium',
-        operational ? 'text-neutral-400' : 'text-amber-400/85',
+        "inline-flex w-fit items-center gap-2 text-[13px] font-medium",
+        operational ? "text-neutral-400" : "text-amber-400/85",
       )}
     >
       <span className="relative grid size-2 place-items-center" aria-hidden>
@@ -163,7 +163,7 @@ function OperationalPill({ operational }: { operational: boolean }) {
           <span className="relative size-1.5 rounded-full bg-amber-400" />
         )}
       </span>
-      {operational ? 'Operational' : 'Degraded'}
+      {operational ? "Operational" : "Degraded"}
     </span>
   );
 }
