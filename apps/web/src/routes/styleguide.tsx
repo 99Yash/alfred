@@ -51,7 +51,7 @@ export const Route = createFileRoute("/styleguide")({
 
 function StyleguidePage() {
   return (
-    <div className="min-h-[100dvh] bg-[rgb(12,12,12)] text-gray-950">
+    <div className="h-full overflow-y-auto bg-[rgb(12,12,12)] text-gray-950">
       <div className="mx-auto w-full max-w-5xl px-6 py-12 space-y-16">
         <header className="space-y-3">
           <p className="text-sm text-gray-800">Internal · Stage&nbsp;1 primitives preview</p>
