@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { Plus, Sparkles } from "lucide-react";
 import { VsButton, VsCard } from "~/components/ui/visitors";
 import { BUILTIN_WORKFLOWS } from "~/lib/workflows";
@@ -63,13 +62,6 @@ export function PreviewWorkflowsPage() {
             </p>
           </VsCard>
         </section>
-
-        <footer className="mt-16 flex items-center justify-center text-xs text-vs-fg-2 gap-2">
-          <span>Comparing against</span>
-          <Link to="/workflows" className="font-medium text-vs-fg-3 hover:text-vs-fg-4">
-            /workflows
-          </Link>
-        </footer>
       </main>
     </div>
   );
