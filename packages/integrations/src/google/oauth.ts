@@ -23,16 +23,23 @@ const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
 
 /**
- * Per-feature Gmail scopes. A feature's full required set is the
+ * Per-feature Google scopes. A feature's full required set is the
  * identity scopes plus its entry here.
  *
  *   briefing     — gmail.readonly: read user's mail to compose digests
  *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
  *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
+ *   calendar     — calendar.readonly: list events for meeting context
  *
  * Triage's `gmail.modify` already implies read access, but listing
  * `gmail.readonly` separately keeps each feature's scope row honest:
  * Google's consent screen will dedupe overlapping scopes for the user.
+ *
+ * The Calendar feature lives alongside Gmail features because a user
+ * connects "Google" once and we layer capability grants on top via
+ * `include_granted_scopes=true`. Asking for `?features=calendar` from
+ * the connect endpoint requests only identity + calendar, and Google
+ * merges it into the existing grant rather than re-prompting for Gmail.
  */
 export const GOOGLE_FEATURE_SCOPES = {
   briefing: ["https://www.googleapis.com/auth/gmail.readonly"],
@@ -41,6 +48,7 @@ export const GOOGLE_FEATURE_SCOPES = {
     "https://www.googleapis.com/auth/gmail.modify",
   ],
   reply_draft: ["https://www.googleapis.com/auth/gmail.send"],
+  calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;

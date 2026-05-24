@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VsPill } from "~/components/ui/visitors";
 import { useInbox } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
+import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { authClient } from "~/lib/auth-client";
@@ -404,25 +405,30 @@ function ComposerIcon({
  *
  * - Inbox → `/api/me/inbox` (real Gmail data; empty when Gmail isn't
  *   connected).
+ * - Meetings → `/api/me/meetings` (real Calendar data; empty when
+ *   Calendar isn't connected).
  * - Latest briefing → `/api/me/briefings/latest` (drives the footer
  *   CTA's subtitle).
  *
- * Todos + meetings stay empty — there's no schema yet — which surfaces
- * the honest "connect / add one" empty states in `TodoFeed` and
- * `MeetingsFeed`.
+ * Todos stays empty — there's no schema yet — which surfaces the honest
+ * "add one" empty state in `TodoFeed`.
  */
 function useRailData(): RailData {
   const inbox = useInbox();
+  const meetings = useMeetings();
   const briefing = useLatestBriefing();
   const inboxData = inbox.data;
+  const meetingsData = meetings.data;
   const briefingData = briefing.data;
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
       inbox: inboxData ?? [],
+      meetings: meetingsData?.items ?? [],
+      calendarConnected: meetingsData?.connected ?? false,
       latestBriefing: briefingData ?? null,
     }),
-    [inboxData, briefingData],
+    [inboxData, meetingsData, briefingData],
   );
 }
 
