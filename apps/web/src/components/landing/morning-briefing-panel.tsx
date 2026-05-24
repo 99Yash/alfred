@@ -104,7 +104,7 @@ export function MorningBriefingPanel({ className }: { className?: string }) {
           <ContentPill icon={<MessagesSquare className="size-3.5" />} tone="violet">
             #Eng
           </ContentPill>
-          <span className="text-white/85">— 3 customers affected.</span>
+          <span className="text-white/85">: 3 customers affected.</span>
         </p>
       </div>
     </div>

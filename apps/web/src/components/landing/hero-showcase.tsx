@@ -50,24 +50,21 @@ const AUTO_ADVANCE_MS = 2000;
  */
 export function HeroShowcase({ className }: { className?: string }) {
   const [tab, setTab] = useState<ShowcaseTab>("briefing");
-  // Split into two independent signals — hover and visibility — and derive
-  // pause from their OR. A single shared boolean lets each writer overwrite
-  // the other (e.g. an IntersectionObserver tick during hover, or a
-  // mouseleave fired while off-screen), so the auto-cycle either resumed
-  // for an invisible panel or stayed paused after the cursor left.
-  const [isHovered, setIsHovered] = useState(false);
-  const [isOffScreen, setIsOffScreen] = useState(false);
-  const paused = isHovered || isOffScreen;
+  // Hover + off-screen are pause signals only — they never appear in JSX
+  // and shouldn't trigger re-renders. Refs let event handlers and the
+  // IntersectionObserver flip them without rescheduling the interval.
+  const hoverRef = useRef(false);
+  const offScreenRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-advance every AUTO_ADVANCE_MS, suspended when paused (hover) or
-  // when the showcase is scrolled out of view. Resetting on `tab` is what
-  // gives manual clicks a full interval before the next auto-advance — any
-  // setTab() (manual or auto) reschedules the next tick.
+  // Auto-advance every AUTO_ADVANCE_MS. The interval is always live (under
+  // reduced-motion it never starts), and each tick checks the pause refs.
+  // Resetting on `tab` is what gives manual clicks a full interval before
+  // the next auto-advance — any setTab() reschedules the next tick.
   useEffect(() => {
-    if (paused) return;
     if (prefersReducedMotion()) return;
     const id = window.setInterval(() => {
+      if (hoverRef.current || offScreenRef.current) return;
       setTab((current) => {
         const idx = TAB_VALUES.indexOf(current);
         const nextValue = TAB_VALUES[(idx + 1) % TAB_VALUES.length];
@@ -75,7 +72,7 @@ export function HeroShowcase({ className }: { className?: string }) {
       });
     }, AUTO_ADVANCE_MS);
     return () => window.clearInterval(id);
-  }, [paused, tab]);
+  }, [tab]);
 
   // Pause the auto-cycle when the showcase isn't visible — saves a tab
   // landing on the wrong panel by the time the user scrolls down. Also
@@ -84,7 +81,9 @@ export function HeroShowcase({ className }: { className?: string }) {
     const el = containerRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(
-      ([entry]) => setIsOffScreen(!entry?.isIntersecting),
+      ([entry]) => {
+        offScreenRef.current = !entry?.isIntersecting;
+      },
       { threshold: 0.2 },
     );
     obs.observe(el);
@@ -95,8 +94,12 @@ export function HeroShowcase({ className }: { className?: string }) {
     <div
       ref={containerRef}
       className={cn("relative w-full", className)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => {
+        hoverRef.current = true;
+      }}
+      onMouseLeave={() => {
+        hoverRef.current = false;
+      }}
     >
       <AuroraGlow />
 
