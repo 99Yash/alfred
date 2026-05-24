@@ -42,6 +42,7 @@ export type { GmailWatchState } from "./watch";
 export {
   listMessages,
   getMessage,
+  getThreadMessageLabels,
   extractMessageContent,
   listHistory,
   isHistoryGoneError,
@@ -67,6 +68,7 @@ export type {
 export {
   ensureAlfredLabels,
   applyTriageLabel,
+  findThreadSiblingsWithAlfredLabels,
   labelNameFor,
   categoryFromLabelName,
   TRIAGE_CATEGORIES,

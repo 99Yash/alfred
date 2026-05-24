@@ -89,7 +89,13 @@ export async function listEmailsSinceWatermark(
       triageRationale: emailTriage.rationale,
     })
     .from(documents)
-    .leftJoin(emailTriage, eq(emailTriage.documentId, documents.id))
+    .leftJoin(
+      emailTriage,
+      and(
+        eq(emailTriage.userId, documents.userId),
+        eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(desc(documents.ingestedAt))
     .limit(limit);

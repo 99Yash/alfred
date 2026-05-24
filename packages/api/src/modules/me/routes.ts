@@ -60,7 +60,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
             category: emailTriage.category,
           })
           .from(documents)
-          .leftJoin(emailTriage, eq(emailTriage.documentId, documents.id))
+          .leftJoin(
+            emailTriage,
+            and(
+              eq(emailTriage.userId, documents.userId),
+              eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+            ),
+          )
           .where(
             and(
               eq(documents.userId, u.id),

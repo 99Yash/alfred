@@ -85,7 +85,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   useRightRail(railNode);
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col">
+    <div className="relative flex h-full min-w-0 flex-col">
       <TopBar
         title={title}
         railOpen={railOpen}
@@ -146,35 +146,33 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
   const name = firstName(session?.user);
   const now = new Date();
 
-  // 3-row grid so the composer sits at the true vertical center of the
-  // remaining viewport, with greeting floating above and connect-tools
-  // floating below. The 1fr rows soak up unequal slack symmetrically.
+  // Cluster greeting + composer + connect-tools as a single block centered
+  // in the remaining viewport. flex-col + justify-center keeps the group
+  // tight whether the column is 600px or 1000px tall.
   return (
-    <div className="grid flex-1 grid-rows-[1fr_auto_1fr] px-6">
-      <div className="self-end flex flex-col items-center pb-8">
+    <div className="flex flex-1 flex-col items-center justify-center px-6">
+      <div className="flex flex-col items-center">
         <p className="text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
           {formatDate(now)}
         </p>
-        <h2 className="mt-3 text-3xl md:text-4xl font-medium tracking-tight text-vs-fg-4 text-center">
+        <h2 className="mt-3 text-3xl md:text-4xl font-medium tracking-[-0.04em] text-vs-fg-4 text-center">
           {greeting(now)}
           {name ? <span className="text-vs-fg-3">, {name}</span> : null}
         </h2>
       </div>
 
-      <div className="w-full max-w-2xl mx-auto">
+      <div className="mt-8 w-full max-w-2xl">
         <Composer threadId={threadId} />
       </div>
 
-      <div className="self-start pt-10">
-        <ConnectToolsRow />
-      </div>
+      <ConnectToolsRow />
     </div>
   );
 }
 
 function ConnectToolsRow() {
   return (
-    <div className="mt-10 flex flex-col items-center gap-3">
+    <div className="mt-8 flex flex-col items-center gap-3">
       <p className="text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
         Connect your tools
       </p>
@@ -182,18 +180,22 @@ function ConnectToolsRow() {
         to="/integrations"
         aria-label="Connect your tools"
         className={cn(
-          "inline-flex items-center gap-2 rounded-2xl p-1.5",
+          "group inline-flex items-center rounded-full p-1 -ml-1",
           "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
         )}
       >
-        {CONNECT_BRANDS.map((brand) => (
+        {CONNECT_BRANDS.map((brand, i) => (
           <span
             key={brand}
             aria-hidden
+            style={{ zIndex: CONNECT_BRANDS.length - i }}
             className={cn(
-              "size-9 grid place-items-center rounded-xl",
-              "bg-vs-bg-2 hover:bg-vs-bg-a2 transition-colors vs-press",
+              "relative grid size-9 shrink-0 place-items-center rounded-full",
+              "bg-vs-bg-1 ring-2 ring-vs-background",
+              "transition-transform duration-200 ease-out",
+              "hover:-translate-y-0.5 hover:scale-[1.08] hover:z-10",
+              i > 0 && "-ml-2.5",
             )}
           >
             <IntegrationGlyph brand={brand} size={18} />

@@ -17,7 +17,7 @@ export function ShowcasePanel() {
 
       <div className="relative z-10 max-w-[420px] px-10 py-12 space-y-7">
         <div className="space-y-2">
-          <h2 className="text-[26px] font-medium text-vs-fg-4 leading-[1.15]">
+          <h2 className="text-[26px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-[1.15]">
             Your morning, briefed.
             <br />
             Your inbox, triaged.

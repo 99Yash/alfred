@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
-import { createLabel, listLabels, modifyMessageLabels } from "./gmail";
+import { createLabel, getThreadMessageLabels, listLabels, modifyMessageLabels } from "./gmail";
 
 /**
  * Triage labels (ADR-0025 #1).
@@ -74,14 +74,17 @@ export interface AlfredLabelMap {
  */
 export async function ensureAlfredLabels(
   credentialId: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; accessToken?: string } = {},
 ): Promise<AlfredLabelMap> {
   if (!opts.force) {
     const cached = await loadCachedLabels(credentialId);
     if (cached) return cached;
   }
 
-  const accessToken = await getFreshAccessToken(credentialId);
+  // Reuse a caller-supplied token when present — otherwise a sibling call
+  // chain that already fetched one ends up triggering a second DB read and,
+  // near expiry, a concurrent refresh.
+  const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
   const existing = await listLabels({ accessToken });
   const existingByName = new Map(existing.map((l) => [l.name, l.id] as const));
 
@@ -170,6 +173,37 @@ async function persistCachedLabels(credentialId: string, map: AlfredLabelMap): P
     .where(eq(integrationCredentials.id, credentialId));
 }
 
+/**
+ * Inspect every message in a Gmail thread and return the alfred-owned labels
+ * found on siblings (messages other than `excludeMessageId`). Used by the
+ * triage workflow to strip stale labels from older messages so the thread
+ * view in Gmail collapses to a single tag — Gmail's UI unions labels across
+ * every message in a thread.
+ *
+ * One thread.get call (minimal format) + one label-map lookup. No DB hits
+ * beyond the credential cache used by `ensureAlfredLabels`.
+ */
+export async function findThreadSiblingsWithAlfredLabels(args: {
+  credentialId: string;
+  threadId: string;
+  excludeMessageId: string;
+}): Promise<Array<{ messageId: string; labelId: string }>> {
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const alfredLabels = await ensureAlfredLabels(args.credentialId, { accessToken });
+  const alfredIds = new Set(alfredLabels.allIds);
+  const messages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+  const siblings: Array<{ messageId: string; labelId: string }> = [];
+  for (const m of messages) {
+    if (m.id === args.excludeMessageId) continue;
+    for (const labelId of m.labelIds) {
+      if (alfredIds.has(labelId)) {
+        siblings.push({ messageId: m.id, labelId });
+      }
+    }
+  }
+  return siblings;
+}
+
 export interface ApplyTriageLabelArgs {
   credentialId: string;
   /** Gmail message id (NOT thread id — labels apply per-message). */
@@ -217,7 +251,8 @@ export interface ApplyTriageLabelResult {
 export async function applyTriageLabel(
   args: ApplyTriageLabelArgs,
 ): Promise<ApplyTriageLabelResult> {
-  const labels = await ensureAlfredLabels(args.credentialId);
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  const labels = await ensureAlfredLabels(args.credentialId, { accessToken });
   const targetId = labels.byCategory[args.category];
 
   const removeLabelIds: string[] = [];
@@ -227,7 +262,6 @@ export async function applyTriageLabel(
     removeLabelIds.push(args.previousLabelId);
   }
 
-  const accessToken = await getFreshAccessToken(args.credentialId);
   await modifyMessageLabels({
     accessToken,
     messageId: args.messageId,
