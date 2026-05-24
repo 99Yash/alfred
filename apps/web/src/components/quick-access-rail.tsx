@@ -168,7 +168,7 @@ export function QuickAccessRail({
                 {healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"}
               </span>
             </div>
-            <h2 className="mt-1 text-2xl font-medium tracking-tight">{active.label}</h2>
+            <h2 className="mt-1 text-2xl font-medium tracking-[-0.04em]">{active.label}</h2>
           </div>
 
           <div

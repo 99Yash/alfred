@@ -1,31 +1,31 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { LandingPage } from "~/components/landing/landing-page";
 import { authClient } from "~/lib/auth-client";
 
 /**
  * Root index — `/`.
  *
- * The visitors-now shell makes `/chat` the primary surface (matching what
- * `/preview` did during the dimension/vs A/B). `/` exists only to bounce
- * the user to the right next step:
- *   - signed-in  → `/chat`
- *   - signed-out → `/login`
- *
- * Rendering nothing while `useSession()` resolves prevents a flash of
- * chrome on the very first paint.
+ * Authed visitors bounce to `/chat`; unauthed visitors see the marketing
+ * landing in place at `/`. `/login` is reachable but no longer the default
+ * for signed-out visitors. While `useSession()` resolves we render nothing
+ * to avoid a one-frame flash of the landing for users who are about to be
+ * routed to `/chat`.
  */
 export const Route = createFileRoute("/")({
-  component: IndexRedirect,
+  component: IndexRoute,
 });
 
-function IndexRedirect() {
+function IndexRoute() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
 
   useEffect(() => {
     if (isPending) return;
-    void navigate({ to: session?.user ? "/chat" : "/login", replace: true });
+    if (!session?.user) return;
+    void navigate({ to: "/chat", replace: true });
   }, [isPending, session?.user, navigate]);
 
-  return null;
+  if (isPending || session?.user) return null;
+  return <LandingPage healthOk={true} healthLoading={false} />;
 }

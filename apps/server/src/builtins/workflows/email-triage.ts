@@ -1,8 +1,6 @@
 import {
   classifyEmail,
-  clearAppliedLabelIds,
   DEFAULT_TRIAGE_CATEGORY,
-  getThreadSiblingsWithLabels,
   getTriage,
   loadTriageContext,
   setAppliedLabelId,
@@ -14,6 +12,7 @@ import {
 } from "@alfred/api";
 import {
   applyTriageLabel,
+  findThreadSiblingsWithAlfredLabels,
   TRIAGE_CATEGORIES,
   type TriageCategory,
 } from "@alfred/integrations/google";
@@ -23,18 +22,33 @@ import { z } from "zod";
  * Email triage workflow (ADR-0025 #1).
  *
  * Steps:
- *   1. classify    — load doc + credential, call cheap-tier LLM, write
- *                    `email_triage` row.
- *   2. apply-label — modify Gmail labels (add chosen, remove previous),
- *                    persist `applied_label_id`. Done.
+ *   1. classify    — load doc + credential, call cheap-tier LLM, upsert
+ *                    `email_triage` row keyed on the Gmail thread.
+ *   2. apply-label — modify Gmail labels (add chosen on the latest message,
+ *                    strip alfred labels from every sibling message in the
+ *                    thread), persist `applied_label_id`. Done.
+ *
+ * Schema model:
+ *   One `email_triage` row per (userId, sourceThreadId). Each new message in
+ *   a thread re-runs classify and OVERWRITES the row — the canonical alfred
+ *   tag is always the latest message's outcome. No per-message audit row;
+ *   audit lives on `api_call_log` (the metered LLM call) + `agent_runs`.
  *
  * Idempotency:
- *   - The classify step skips the LLM if a triage row from the SAME run
- *     already exists (a retry within the same run reuses the prior call).
- *   - A NEW run always re-classifies — that's the explicit re-evaluation
- *     contract for replies (ADR-0025: "Re-evaluates on reply").
+ *   - The classify step skips the LLM if the thread's existing triage row
+ *     was written by THIS run (a retry within the same attempt reuses the
+ *     prior call).
+ *   - A NEW run on a thread always re-classifies — that's the explicit
+ *     re-evaluation contract for replies (ADR-0025: "Re-evaluates on reply").
  *   - The apply-label step is naturally idempotent: Gmail's `messages.modify`
  *     adds/removes labels deterministically.
+ *
+ * Thread-level label collapse:
+ *   Gmail's thread view unions labels across every message in a thread, so
+ *   an older `fyi`/`follow_up` message left next to a newer `done` reply
+ *   ends up showing both tags. `apply-label` queries the thread on Gmail's
+ *   side (`getThreadMessageLabels`) and strips every alfred label off every
+ *   sibling message before applying the new label to the latest one.
  *
  * Failure modes:
  *   - LLM parse failure: caught, falls through to DEFAULT_TRIAGE_CATEGORY
@@ -44,6 +58,8 @@ import { z } from "zod";
  *   - Gmail API failure on label-write: bubbles up, the runtime retries
  *     the step. The `email_triage` row is already written so no LLM cost
  *     repeats.
+ *   - Document has no `sourceThreadId` (shouldn't happen for Gmail, but
+ *     defensive): finish without writing — we have nothing to key on.
  */
 
 const TRIAGE_CATEGORIES_SCHEMA = z.enum(TRIAGE_CATEGORIES);
@@ -51,12 +67,12 @@ const TRIAGE_CATEGORIES_SCHEMA = z.enum(TRIAGE_CATEGORIES);
 const stateSchema = z.object({
   documentId: z.string(),
   reason: z.enum(["ingest", "webhook", "manual", "reply"]).optional(),
+  /** Resolved from the document during classify; carried into apply-label. */
+  sourceThreadId: z.string().optional(),
   /** Set after classify; consumed by apply-label. */
   category: TRIAGE_CATEGORIES_SCHEMA.optional(),
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
-  /** Previously-applied alfred label id (re-classification path). */
-  previousLabelId: z.string().nullable().optional(),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -64,7 +80,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   slug: TRIAGE_WORKFLOW_SLUG,
   name: "Email triage",
   description:
-    "Classify an inbound Gmail message into one of ten categories and write the corresponding label back (ADR-0025).",
+    "Classify an inbound Gmail message into one of ten categories and write the corresponding label back, keyed per-thread (ADR-0025).",
   // Fan-out is driven by the Gmail ingestion path per fresh-inserted doc
   // (packages/api/src/modules/integrations/queue.ts). Realtime traffic
   // arrives via `gmail.poll_recent` (pub/sub → messages.list, ADR-0037);
@@ -100,11 +116,23 @@ export const emailTriageWorkflow: Workflow<State> = {
           };
         }
 
-        // Idempotency: if a row from THIS run already exists, reuse the
-        // prior classification — a retry within the same attempt shouldn't
-        // re-bill the LLM. A fresh run from a reply trigger writes a new
-        // run_id and so will re-classify.
-        const existing = await getTriage(ctx.state.documentId);
+        const sourceThreadId = ctxData.document.sourceThreadId;
+        if (!sourceThreadId) {
+          // Gmail messages always carry a threadId — but be defensive so
+          // a malformed ingest doesn't crash the worker.
+          await ctx.log(`document missing sourceThreadId: ${ctx.state.documentId}`);
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { skipped: true, reason: "missing-thread-id" },
+          };
+        }
+
+        // Idempotency: if the thread's row was written by THIS run already,
+        // reuse the prior classification — a retry within the same attempt
+        // shouldn't re-bill the LLM. A fresh run from a reply trigger writes
+        // a new run_id and so will re-classify.
+        const existing = await getTriage(ctx.userId, sourceThreadId);
         let classification: TriageClassification;
         let model: string;
         if (existing && existing.runId === ctx.runId) {
@@ -114,7 +142,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: existing.rationale ?? "",
           };
           model = existing.model;
-          await ctx.log(`classify: reuse existing row category=${classification.category}`);
+          await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
         } else {
           try {
             const result = await classifyEmail({
@@ -149,8 +177,9 @@ export const emailTriageWorkflow: Workflow<State> = {
           }
 
           await upsertTriage({
-            documentId: ctx.state.documentId,
             userId: ctx.userId,
+            sourceThreadId,
+            documentId: ctx.state.documentId,
             category: classification.category,
             confidence: classification.confidence,
             rationale: classification.rationale,
@@ -160,7 +189,8 @@ export const emailTriageWorkflow: Workflow<State> = {
         }
 
         await ctx.log(
-          `classify: doc=${ctx.state.documentId} category=${classification.category} ` +
+          `classify: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
+            `category=${classification.category} ` +
             `confidence=${classification.confidence.toFixed(2)} model=${model}`,
         );
 
@@ -168,10 +198,10 @@ export const emailTriageWorkflow: Workflow<State> = {
           kind: "next",
           state: {
             ...ctx.state,
+            sourceThreadId,
             category: classification.category as TriageCategory,
             confidence: classification.confidence,
             rationale: classification.rationale,
-            previousLabelId: existing?.appliedLabelId ?? null,
           },
           nextStep: "apply-label",
         };
@@ -182,9 +212,10 @@ export const emailTriageWorkflow: Workflow<State> = {
       id: "apply-label",
       async run(ctx) {
         const category = ctx.state.category;
-        if (!category) {
+        const sourceThreadId = ctx.state.sourceThreadId;
+        if (!category || !sourceThreadId) {
           throw new Error(
-            "[email-triage] apply-label entered without a category set; classify step did not commit",
+            "[email-triage] apply-label entered without category/sourceThreadId; classify step did not commit",
           );
         }
 
@@ -199,49 +230,30 @@ export const emailTriageWorkflow: Workflow<State> = {
           };
         }
 
-        // Gmail aggregates labels at the thread level (a thread shows the
-        // union of every message's labels). If an older message in this
-        // thread still carries its earlier alfred label, the thread ends
-        // up tagged with multiple categories. Strip those siblings here
-        // so the latest classification wins.
-        const siblings = ctxData.document.sourceThreadId
-          ? await getThreadSiblingsWithLabels({
-              documentId: ctx.state.documentId,
-              userId: ctx.userId,
-              sourceThreadId: ctxData.document.sourceThreadId,
-            })
-          : [];
+        // Resolve siblings from Gmail (not the DB) — single source of truth
+        // for "which messages in this thread carry alfred labels right now."
+        // Survives stale DB state from older deployments and hand-labelling.
+        const siblings = await findThreadSiblingsWithAlfredLabels({
+          credentialId: ctxData.credentialId,
+          threadId: sourceThreadId,
+          excludeMessageId: ctxData.document.sourceId,
+        });
 
         const result = await applyTriageLabel({
           credentialId: ctxData.credentialId,
           messageId: ctxData.document.sourceId,
           category,
-          // Always strip every other alfred label off the message — not just
-          // the one we previously persisted. `previousLabelId` only knows
-          // about labels this DB wrote; an orphan label can come from a
-          // prior deployment that pointed at the same Gmail account, or
-          // from the user labelling by hand. Stripping all alfred labels
-          // (except the target) self-heals those cases. The bandwidth cost
-          // is ~9 extra label ids in `removeLabelIds` — same round-trip.
+          // Strip every other alfred label off the latest message too — handles
+          // the case where it was hand-labelled before alfred touched it.
           stripAllAlfredLabels: true,
-          threadSiblings: siblings.map((s) => ({
-            messageId: s.sourceId,
-            labelId: s.appliedLabelId,
-          })),
+          threadSiblings: siblings,
         });
 
-        await setAppliedLabelId(ctx.state.documentId, result.appliedLabelId);
-        if (result.strippedSiblings.length) {
-          // Resolve stripped Gmail message ids back to their document ids so
-          // we can clear `applied_label_id` on the corresponding triage rows.
-          const strippedMessageIds = new Set(result.strippedSiblings.map((s) => s.messageId));
-          const strippedDocIds = siblings
-            .filter((s) => strippedMessageIds.has(s.sourceId))
-            .map((s) => s.documentId);
-          await clearAppliedLabelIds(strippedDocIds);
-        }
+        await setAppliedLabelId(ctx.userId, sourceThreadId, result.appliedLabelId);
+
         await ctx.log(
-          `apply-label: doc=${ctx.state.documentId} applied=${category} (${result.appliedLabelId}) ` +
+          `apply-label: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
+            `applied=${category} (${result.appliedLabelId}) ` +
             `removed=${result.removedLabelIds.length} ` +
             `siblingsStripped=${result.strippedSiblings.length}/${siblings.length}`,
         );
