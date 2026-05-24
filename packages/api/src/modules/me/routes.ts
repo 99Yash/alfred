@@ -2,13 +2,14 @@ import { db } from "@alfred/db";
 import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
   getFreshAccessToken,
+  GOOGLE_FEATURE_SCOPES,
   listEvents,
-  MissingScopesError,
-  requireScopes,
 } from "@alfred/integrations/google";
 import { and, desc, eq, isNull, notInArray, or } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import { isValidTimezone } from "../briefing/preferences";
+import { getPreference } from "../memory/preferences";
 
 /**
  * Per-user read endpoints used by the chat right rail.
@@ -70,6 +71,52 @@ export interface MeMeetingItem {
   htmlLink: string | null;
 }
 
+/**
+ * Resolve the user's IANA timezone from the general `timezone` preference
+ * (shared with workflow scheduling — see `workflows/scheduling.ts`). The
+ * briefing module has its own `briefing.timezone` override; the rail isn't
+ * briefing-specific, so it reads the general key.
+ */
+async function resolveUserTimezone(userId: string): Promise<string> {
+  const pref = await getPreference(userId, "timezone");
+  if (pref && typeof pref.value === "string" && isValidTimezone(pref.value)) {
+    return pref.value;
+  }
+  return "UTC";
+}
+
+/**
+ * Compute [startOfDay, endOfDay) in `timezone` as UTC `Date` instants.
+ * Each bound uses *its own* tz offset (today's for start, tomorrow's for
+ * end), so DST transition days correctly produce 23h or 25h windows.
+ */
+function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: Date } {
+  const dateFmt = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const offsetFor = (d: Date): string => {
+    // `longOffset` returns "GMT-05:00" / "GMT" — strip the prefix and
+    // default a bare "GMT" to "+00:00" so the ISO string parses uniformly.
+    const part = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(d)
+      .find((p) => p.type === "timeZoneName")?.value ?? "";
+    const off = part.replace(/^GMT/, "");
+    return off || "+00:00";
+  };
+  const tomorrowMs = now.getTime() + 24 * 60 * 60 * 1000;
+  const today = dateFmt.format(now);
+  const tomorrow = dateFmt.format(new Date(tomorrowMs));
+  const start = new Date(`${today}T00:00:00${offsetFor(now)}`);
+  const end = new Date(`${tomorrow}T00:00:00${offsetFor(new Date(tomorrowMs))}`);
+  return { start, end };
+}
+
 export const meRoutes = new Elysia({ prefix: "/api/me" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
@@ -127,15 +174,16 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
         async ({
           user: u,
         }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
-          // Find any active Google credential the user has connected. We
-          // don't bother selecting a "calendar credential" specifically;
-          // the requireScopes() guard below decides whether this row can
-          // actually be used for Calendar reads.
-          const cred = await db()
+          // A user can have multiple active Google credentials (e.g. a
+          // Gmail-only personal account and a Calendar-only work account).
+          // Filter in SQL to the row(s) actually carrying the calendar
+          // scope so we don't accidentally pick a Gmail-only cred and
+          // report "not connected".
+          const calendarScope = GOOGLE_FEATURE_SCOPES.calendar[0];
+          const creds = await db()
             .select({
               id: integrationCredentials.id,
               scopes: integrationCredentials.scopes,
-              status: integrationCredentials.status,
             })
             .from(integrationCredentials)
             .where(
@@ -144,47 +192,25 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
                 eq(integrationCredentials.provider, "google"),
                 eq(integrationCredentials.status, "active"),
               ),
-            )
-            .limit(1);
-          const row = cred[0];
+            );
+          const row = creds.find((c) => {
+            const granted = (c.scopes as string[] | null) ?? [];
+            return granted.includes(calendarScope);
+          });
           if (!row) return { items: [], connected: false };
 
-          try {
-            await requireScopes(row.id, ["calendar"]);
-          } catch (err) {
-            if (err instanceof MissingScopesError) {
-              return { items: [], connected: false };
-            }
-            throw err;
-          }
-
-          // Today in the server's clock; Calendar API returns event start
-          // times in their original timezones, which the client formats.
-          const now = new Date();
-          const startOfDay = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate(),
-            0,
-            0,
-            0,
-            0,
-          );
-          const endOfDay = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate() + 1,
-            0,
-            0,
-            0,
-            0,
-          );
+          // "Today" is computed in the user's timezone (general
+          // `user_preferences.timezone`, falling back to UTC) — the rail
+          // is a personal "today's meetings" surface, so server-local
+          // would be wrong for any user not co-located with the host.
+          const timezone = await resolveUserTimezone(u.id);
+          const { start, end } = dayBoundsInTimezone(new Date(), timezone);
 
           const accessToken = await getFreshAccessToken(row.id);
           const { events } = await listEvents({
             accessToken,
-            timeMin: startOfDay.toISOString(),
-            timeMax: endOfDay.toISOString(),
+            timeMin: start.toISOString(),
+            timeMax: end.toISOString(),
             singleEvents: true,
             orderBy: "startTime",
             maxResults: 50,
@@ -193,12 +219,12 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
           const items: MeMeetingItem[] = events.map((e) => {
             const startIso = e.start?.dateTime ?? e.start?.date ?? null;
             const endIso = e.end?.dateTime ?? e.end?.date ?? null;
-            const attendees = (e.attendees ?? [])
-              .filter((a) => !a.self && a.email)
-              .map((a) => ({
-                email: a.email ?? "",
-                displayName: a.displayName ?? null,
-              }));
+            const attendees: Array<{ email: string; displayName: string | null }> = [];
+            for (const a of e.attendees ?? []) {
+              if (!a.self && a.email) {
+                attendees.push({ email: a.email, displayName: a.displayName ?? null });
+              }
+            }
             return {
               id: e.id,
               title: e.summary ?? "(no title)",

@@ -281,8 +281,6 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
  * provider tile to render as "Connected". A provider absent from this map
  * has no live backend yet; its catalog-declared `status` is the source of
  * truth (typically `"soon"`).
- *
- * Slice 2 will add `google_calendar` here; slice 3 will add `github`.
  */
 export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<string>>> = {
   google_gmail: ["https://www.googleapis.com/auth/gmail.readonly"],

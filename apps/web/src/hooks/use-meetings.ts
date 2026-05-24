@@ -28,11 +28,14 @@ export function useMeetings() {
       // Without this, every future event would render with the Next pill
       // and the rail's signal value evaporates.
       const now = Date.now();
-      const futureStarts = raw
-        .map((r) => (r.startAt ? new Date(r.startAt).getTime() : Number.POSITIVE_INFINITY))
-        .map((t) => (Number.isNaN(t) ? Number.POSITIVE_INFINITY : t))
-        .filter((t) => t > now);
-      const nextStart = futureStarts.length ? Math.min(...futureStarts) : null;
+      let nextStart: number | null = null;
+      for (const r of raw) {
+        const parsed = r.startAt ? new Date(r.startAt).getTime() : Number.POSITIVE_INFINITY;
+        const start = Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
+        if (start > now && (nextStart === null || start < nextStart)) {
+          nextStart = start;
+        }
+      }
       const items = raw.map((r) => toMeetingItem(r, nextStart));
       return { items, connected: Boolean(res.data.connected) };
     },

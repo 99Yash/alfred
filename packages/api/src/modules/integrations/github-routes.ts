@@ -60,10 +60,10 @@ export const githubIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
         async ({ user, query, set }) => {
           let features: GithubFeature[] | undefined;
           if (query.features) {
-            const parsed = query.features
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
+            const parsed = query.features.split(",").flatMap((s) => {
+              const t = s.trim();
+              return t ? [t] : [];
+            });
             const known = parsed.filter((f): f is GithubFeature => f in GITHUB_FEATURE_SCOPES);
             if (known.length !== parsed.length) {
               return status(400, {
@@ -128,29 +128,31 @@ export const githubIntegrationRoutes = new Elysia({ prefix: "/api/integrations/g
       }
 
       const tokens = await exchangeCode(query.code);
-      const credential = await upsertGithubCredential({
-        userId: decoded.userId,
-        accountId: tokens.accountId,
-        accountLabel: tokens.accountLogin,
-        accessToken: tokens.access_token,
-        expiresAt: tokens.expiresAt,
-        scopes: tokens.scopes,
-        metadata: {
-          login: tokens.accountLogin,
-          name: tokens.accountName,
-          email: tokens.accountEmail,
-          token_type: tokens.token_type,
-        },
-      });
-
       // Bounce back to the SPA. If the user is mid-onboarding, return to
       // step 2; otherwise drop them on the integrations page so they can
-      // see the new "Connected" badge.
-      const userRow = await db()
-        .select({ onboardedAt: user.onboardedAt })
-        .from(user)
-        .where(eq(user.id, decoded.userId))
-        .limit(1);
+      // see the new "Connected" badge. The onboarding lookup is independent
+      // of the credential upsert, so race them.
+      const [credential, userRow] = await Promise.all([
+        upsertGithubCredential({
+          userId: decoded.userId,
+          accountId: tokens.accountId,
+          accountLabel: tokens.accountLogin,
+          accessToken: tokens.access_token,
+          expiresAt: tokens.expiresAt,
+          scopes: tokens.scopes,
+          metadata: {
+            login: tokens.accountLogin,
+            name: tokens.accountName,
+            email: tokens.accountEmail,
+            token_type: tokens.token_type,
+          },
+        }),
+        db()
+          .select({ onboardedAt: user.onboardedAt })
+          .from(user)
+          .where(eq(user.id, decoded.userId))
+          .limit(1),
+      ]);
       const stillOnboarding = userRow[0]?.onboardedAt === null;
       const connectedParam = `github_connected=${encodeURIComponent(tokens.accountLogin)}`;
       const target = stillOnboarding
