@@ -96,6 +96,11 @@ export function TabPill<T extends string>({
     <div
       role="tablist"
       aria-orientation="horizontal"
+      // `tabIndex={-1}` satisfies the rule that interactive roles with
+      // handlers be focusable, without putting the container itself in
+      // the tab order — the active child tab remains the keyboard entry
+      // point per the WAI-ARIA tabs pattern.
+      tabIndex={-1}
       onKeyDown={handleKeyDown}
       className={cn(
         "inline-flex items-center gap-1 rounded-full",
