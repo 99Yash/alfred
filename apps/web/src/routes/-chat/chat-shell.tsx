@@ -11,7 +11,7 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VsPill } from "~/components/ui/visitors";
 import { useInbox } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
@@ -67,14 +67,22 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
-  useRightRail(
-    <RightRail
-      open={railOpen}
-      mode={railMode}
-      onClose={() => setRailOpen(false)}
-      data={railData}
-    />,
+  // Memoize the rail node so `useRightRail`'s effect only fires when the
+  // rail's inputs actually change — otherwise every ChatShell re-render
+  // would push a new JSX reference into AppShell and trigger an extra
+  // AppShell re-render.
+  const railNode = useMemo(
+    () => (
+      <RightRail
+        open={railOpen}
+        mode={railMode}
+        onClose={() => setRailOpen(false)}
+        data={railData}
+      />
+    ),
+    [railOpen, railMode, railData],
   );
+  useRightRail(railNode);
 
   return (
     <div className="relative flex min-w-0 flex-1 flex-col">
@@ -404,11 +412,16 @@ function ComposerIcon({
 function useRailData(): RailData {
   const inbox = useInbox();
   const briefing = useLatestBriefing();
-  return {
-    ...EMPTY_RAIL_DATA,
-    inbox: inbox.data ?? [],
-    latestBriefing: briefing.data ?? null,
-  };
+  const inboxData = inbox.data;
+  const briefingData = briefing.data;
+  return useMemo(
+    () => ({
+      ...EMPTY_RAIL_DATA,
+      inbox: inboxData ?? [],
+      latestBriefing: briefingData ?? null,
+    }),
+    [inboxData, briefingData],
+  );
 }
 
 interface SessionUser {

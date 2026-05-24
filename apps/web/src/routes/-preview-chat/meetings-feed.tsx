@@ -8,9 +8,11 @@ export interface MeetingLookaheadItem {
   detail: string;
 }
 
+const EMPTY_LOOKAHEAD: ReadonlyArray<MeetingLookaheadItem> = [];
+
 export function MeetingsFeed({
   items,
-  lookahead = [],
+  lookahead = EMPTY_LOOKAHEAD,
 }: {
   items: ReadonlyArray<MeetingItem>;
   lookahead?: ReadonlyArray<MeetingLookaheadItem>;

@@ -303,7 +303,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
         <div
           ref={listRef}
-          className="max-h-[52vh] overflow-y-auto vs-scrollbar [scrollbar-width:thin] pb-2"
+          className="max-h-[52vh] overflow-y-auto pb-2"
         >
           {visualOrder.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-vs-fg-2">No matches.</div>

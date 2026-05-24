@@ -113,12 +113,7 @@ export function RailContent({
          * Same pattern as `HeroShowcase`'s `Slot`. The scroll container's
          * height is the MAX of all feeds, so a tab swap never re-flows
          * the rail. */}
-        <div
-          className={cn(
-            "relative flex-1 min-h-0 overflow-y-auto vs-scrollbar px-3 pb-3",
-            "[scrollbar-width:thin]",
-          )}
-        >
+        <div className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-3">
           {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
            * feed to the rail's width — otherwise the grid auto-sizes to its
            * widest child (the inbox rows), `truncate` stops working, and

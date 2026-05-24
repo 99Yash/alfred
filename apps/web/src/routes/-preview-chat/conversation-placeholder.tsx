@@ -1,4 +1,4 @@
-import { BookOpen, Brain, Calendar, Inbox, Mail, Sparkles, Tag, Users2 } from "lucide-react";
+import { Brain, Sparkles, Users2 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ThreadEntry } from "./helpers";
 import { RunGroup } from "./run-group";
@@ -69,8 +69,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 The user wants just emails ranked by reply urgency, skipping the calendar pull.
               </ThoughtRow>
               <SearchRow
-                icon={Mail}
-                tone="sky"
+                integration="gmail"
                 label="Filtered Gmail"
                 detail="from:* in:inbox -label:later"
                 count="7 threads"
@@ -84,7 +83,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
               <ThoughtRow duration="1s">
                 Ranked by latest-reply-from-me age: older threads first.
               </ThoughtRow>
-              <ToolRow icon={Tag} tone="green" label="Tagged 3 as Reply today" done />
+              <ToolRow integration="gmail" label="Tagged 3 as Reply today" done />
             </RunGroup>
             <p>
               <span className="text-vs-fg-4 font-medium">Three to answer.</span> Maya's vesting
@@ -94,7 +93,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
             <p>The newsletters and three notifications have been auto-archived to Later.</p>
             <SourcesRow
               items={[
-                { icon: Inbox, label: "Inbox", count: 7, tone: "sky" },
+                { integration: "gmail", label: "Inbox", count: 7 },
                 { icon: Users2, label: "Contacts", count: 3, tone: "purple" },
               ]}
             />
@@ -106,15 +105,13 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 Pulling unread Gmail threads since yesterday and Friday's calendar blocks.
               </ThoughtRow>
               <SearchRow
-                icon={Mail}
-                tone="sky"
+                integration="gmail"
                 label="Searched Gmail"
                 detail="is:unread newer_than:1d"
                 count="8 threads"
               />
               <ToolRow
-                icon={BookOpen}
-                tone="purple"
+                integration="gmail"
                 label="Read 3 threads"
                 detail="Maya, Sycamore, Linear"
               />
@@ -122,8 +119,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 Now the calendar: three blocks today plus a tentative.
               </ThoughtRow>
               <SearchRow
-                icon={Calendar}
-                tone="amber"
+                integration="google_calendar"
                 label="Listed today's events"
                 detail="2026-05-23 · primary calendar"
                 count="3 events"
@@ -144,8 +140,8 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
             </p>
             <SourcesRow
               items={[
-                { icon: Inbox, label: "Inbox", count: 8, tone: "sky" },
-                { icon: Calendar, label: "Calendar", count: 3, tone: "amber" },
+                { integration: "gmail", label: "Inbox", count: 8 },
+                { integration: "google_calendar", label: "Calendar", count: 3 },
                 { icon: Brain, label: "Memory", count: 2, tone: "pink" },
               ]}
             />

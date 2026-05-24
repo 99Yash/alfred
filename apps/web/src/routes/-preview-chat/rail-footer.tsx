@@ -22,7 +22,7 @@ export function RailFooter({
     ? formatBriefingSubtitle(latestBriefing)
     : "No briefing yet";
 
-  const handleClick = () => {
+  const viewLatestBriefing = () => {
     if (!latestBriefing) return;
     // eslint-disable-next-line no-console
     console.info("[rail] briefing CTA click — view surface lands in a follow-up", {
@@ -36,7 +36,7 @@ export function RailFooter({
     <div className="shrink-0 p-3 border-t border-vs-bg-3/60">
       <button
         type="button"
-        onClick={handleClick}
+        onClick={viewLatestBriefing}
         aria-label={latestBriefing ? `View briefing from ${secondary}` : "Morning briefing"}
         className={cn(
           "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",

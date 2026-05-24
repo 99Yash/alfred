@@ -140,17 +140,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const chatContextValue = useMemo(() => ({ activeThread, setActiveThread }), [activeThread]);
 
-  // Unauthenticated routes (login) and onboarding get bare children — no
-  // chrome. Still wrap in VsThemeProvider so the login surface (and any
-  // future chromeless surface) gets vs tokens.
-  if (!authed) {
-    return (
-      <RightRailContext.Provider value={ctx}>
-        <VsThemeProvider>{children}</VsThemeProvider>
-      </RightRailContext.Provider>
-    );
-  }
-
   // First-load gating: between "session resolved" and "onboarding query
   // resolved" we don't yet know whether to redirect new users to
   // /onboarding. Without this guard, the route's component paints for a
@@ -159,36 +148,45 @@ export function AppShell({ children }: { children: ReactNode }) {
   const gatingPending = routeToOnboarding === undefined && !onOnboardingRoute;
   const mainContent = gatingPending ? null : children;
 
+  // Providers always wrap children — even on chromeless / unauthed paints —
+  // so any route that calls `useChatContext` / `useSidebarState` on its
+  // first render (before `useSession` resolves) doesn't trip the error
+  // boundary. They're cheap state holders; no harm in providing them on
+  // /login or while pending.
   return (
     <RightRailContext.Provider value={ctx}>
       <SidebarStateContext.Provider value={sidebarStateValue}>
-      <ChatContext.Provider value={chatContextValue}>
-        <VsThemeProvider>
-          <VsThemed className="min-h-dvh bg-vs-background-subtle">
-            <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
-              <AppSidebar
-                onOpenSearch={() => setPaletteOpen(true)}
-                activeThread={activeThread}
-                threads={sidebarThreads}
-                approvalsBadge={sidebarApprovalsBadge}
-                open={sidebarOpen}
-                onCollapse={() => setSidebarOpen(false)}
-              />
-              <main className="flex flex-1 min-w-0 relative">
-                <div className="flex-1 min-w-0 overflow-x-hidden">{mainContent}</div>
-                {rightRailNode}
-              </main>
-            </div>
+        <ChatContext.Provider value={chatContextValue}>
+          <VsThemeProvider>
+            {authed ? (
+              <VsThemed className="min-h-dvh bg-vs-background-subtle">
+                <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
+                  <AppSidebar
+                    onOpenSearch={() => setPaletteOpen(true)}
+                    activeThread={activeThread}
+                    threads={sidebarThreads}
+                    approvalsBadge={sidebarApprovalsBadge}
+                    open={sidebarOpen}
+                    onCollapse={() => setSidebarOpen(false)}
+                  />
+                  <main className="flex flex-1 min-w-0 relative">
+                    <div className="flex-1 min-w-0 overflow-x-hidden">{mainContent}</div>
+                    {rightRailNode}
+                  </main>
+                </div>
 
-            {paletteOpen ? (
-              <SearchPalette
-                onClose={() => setPaletteOpen(false)}
-                recentThreads={paletteRecentThreads}
-              />
-            ) : null}
-          </VsThemed>
-        </VsThemeProvider>
-      </ChatContext.Provider>
+                {paletteOpen ? (
+                  <SearchPalette
+                    onClose={() => setPaletteOpen(false)}
+                    recentThreads={paletteRecentThreads}
+                  />
+                ) : null}
+              </VsThemed>
+            ) : (
+              children
+            )}
+          </VsThemeProvider>
+        </ChatContext.Provider>
       </SidebarStateContext.Provider>
     </RightRailContext.Provider>
   );
