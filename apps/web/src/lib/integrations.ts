@@ -91,27 +91,19 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
   {
     id: "google_drive",
     name: "Google Drive",
-    description: "Access and manage Google Drive files.",
-    status: "soon",
+    description: "Read files across your Google Drive.",
+    status: "available",
     category: "Apps",
     brand: "google_drive",
-    actionLabel: "Coming Soon",
+    actionLabel: "Connect",
     relatedProviderIds: ["google_docs", "google_sheets", "google_slides"],
-    capabilities: [
-      "Read Files",
-      "Upload Files",
-      "Download Files",
-      "Create Folders",
-      "Share Files",
-      "Search Files",
-      "Manage Permissions",
-    ],
+    capabilities: ["Search Files", "List Folders", "Read File Metadata", "Download File Contents"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect your Google Drive to Alfred for comprehensive file management. Access, upload, download, and organize your files directly from your assistant.",
-      heading: "Smart File Operations",
+      body: "Connect Google Drive to Alfred so it can find and read your files when answering questions or composing workflows.",
+      heading: "Read-only file access",
       detail:
-        "Alfred can help find specific files, organize Drive, share documents with team members, and analyze file contents to answer questions about your documents.",
+        "Alfred can search for files, follow folder structures, and pull contents into context. Writes (rename, share, move, delete) are out of scope at this grant level.",
     },
   },
   {
@@ -162,52 +154,52 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
   {
     id: "google_docs",
     name: "Google Docs",
-    description: "Create and edit Google Docs.",
+    description: "Read your Google Docs.",
     status: "available",
     category: "Productivity",
     brand: "google_docs",
     actionLabel: "Connect",
-    capabilities: ["Read Documents", "Create Documents", "Edit Documents", "Search Documents"],
+    capabilities: ["Read Documents", "Extract Headings", "Read Tables", "Search Document Text"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Docs to Alfred to read, create, and update documents from agent workflows.",
-      heading: "Document Intelligence",
+      body: "Connect Google Docs to Alfred so it can pull structured content — headings, paragraphs, tables — into context when you ask.",
+      heading: "Read-only document access",
       detail:
-        "Alfred can use Docs as source material, draft new documents, and keep generated content tied to your workspace.",
+        "Alfred can use Docs as source material in answers and workflows. Drafting back to Docs (create/edit) is not enabled at this grant level.",
     },
   },
   {
     id: "google_sheets",
     name: "Google Sheets",
-    description: "Work with Google Sheets.",
+    description: "Read your Google Sheets.",
     status: "available",
     category: "Productivity",
     brand: "google_sheets",
     actionLabel: "Connect",
-    capabilities: ["Read Sheets", "Update Sheets", "Create Sheets", "Analyze Tables"],
+    capabilities: ["Read Sheet Metadata", "Read Cell Ranges", "Inspect Named Ranges"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Sheets to Alfred for spreadsheet-backed research, reporting, and operational workflows.",
-      heading: "Spreadsheet Intelligence",
+      body: "Connect Google Sheets to Alfred for spreadsheet-backed lookups and summaries.",
+      heading: "Read-only spreadsheet access",
       detail:
-        "Alfred can read tables, update tracked ranges, and use spreadsheet context when producing summaries or recommendations.",
+        "Alfred can read cell ranges and sheet structure to answer questions or feed workflows. Updating cells is not enabled at this grant level.",
     },
   },
   {
     id: "google_slides",
     name: "Google Slides",
-    description: "Create and edit Google Slides.",
+    description: "Read your Google Slides.",
     status: "available",
     category: "Productivity",
     brand: "google_slides",
     actionLabel: "Connect",
-    capabilities: ["Read Presentations", "Create Slides", "Update Slides", "Export Decks"],
+    capabilities: ["Read Presentations", "Extract Slide Text", "Read Speaker Notes"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Slides to Alfred to create and update presentation decks from assistant output.",
-      heading: "Presentation Intelligence",
+      body: "Connect Google Slides to Alfred to pull deck structure, slide text, and speaker notes into context.",
+      heading: "Read-only deck access",
       detail:
-        "Alfred can turn research and structured notes into deck-ready slides while keeping the final artifact in your workspace.",
+        "Alfred can summarize decks and lift content into other artifacts. Editing slides is not enabled at this grant level.",
     },
   },
   {
@@ -285,6 +277,10 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
 export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<string>>> = {
   google_gmail: ["https://www.googleapis.com/auth/gmail.readonly"],
   google_calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
+  google_drive: ["https://www.googleapis.com/auth/drive.readonly"],
+  google_docs: ["https://www.googleapis.com/auth/documents.readonly"],
+  google_sheets: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  google_slides: ["https://www.googleapis.com/auth/presentations.readonly"],
   // GitHub's `read:user` is the lowest-common-denominator scope every
   // `?features=` combination grants; we use it as the connect probe.
   github: ["read:user"],
@@ -299,5 +295,9 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<str
 export const PROVIDER_BACKEND: Readonly<Record<string, "google" | "github">> = {
   google_gmail: "google",
   google_calendar: "google",
+  google_drive: "google",
+  google_docs: "google",
+  google_sheets: "google",
+  google_slides: "google",
   github: "github",
 };

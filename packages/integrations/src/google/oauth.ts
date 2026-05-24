@@ -30,16 +30,27 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
  *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
  *   calendar     — calendar.readonly: list events for meeting context
+ *   drive        — drive.readonly: find/list files across the user's Drive
+ *   docs         — documents.readonly: read structured Doc content (headings, tables)
+ *   sheets       — spreadsheets.readonly: read cell ranges + sheet metadata
+ *   slides       — presentations.readonly: read deck structure + speaker notes
  *
  * Triage's `gmail.modify` already implies read access, but listing
  * `gmail.readonly` separately keeps each feature's scope row honest:
  * Google's consent screen will dedupe overlapping scopes for the user.
  *
- * The Calendar feature lives alongside Gmail features because a user
- * connects "Google" once and we layer capability grants on top via
- * `include_granted_scopes=true`. Asking for `?features=calendar` from
- * the connect endpoint requests only identity + calendar, and Google
- * merges it into the existing grant rather than re-prompting for Gmail.
+ * The Calendar and Workspace (Drive/Docs/Sheets/Slides) features live
+ * alongside Gmail features because a user connects "Google" once and we
+ * layer capability grants on top via `include_granted_scopes=true`.
+ * Asking for `?features=docs` from the connect endpoint requests only
+ * identity + docs, and Google merges it into the existing grant rather
+ * than re-prompting for Gmail.
+ *
+ * Note on the Workspace scopes: `drive.readonly` is enough to *list and
+ * download* files; structured API access to Docs/Sheets/Slides still
+ * needs each app's own scope. We grant all four together so the same
+ * consent screen unlocks both "find the deck" (drive) and "read what's
+ * in the deck" (slides) without a second prompt.
  */
 export const GOOGLE_FEATURE_SCOPES = {
   briefing: ["https://www.googleapis.com/auth/gmail.readonly"],
@@ -49,6 +60,10 @@ export const GOOGLE_FEATURE_SCOPES = {
   ],
   reply_draft: ["https://www.googleapis.com/auth/gmail.send"],
   calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
+  drive: ["https://www.googleapis.com/auth/drive.readonly"],
+  docs: ["https://www.googleapis.com/auth/documents.readonly"],
+  sheets: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  slides: ["https://www.googleapis.com/auth/presentations.readonly"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;
@@ -86,15 +101,8 @@ export interface GoogleOAuthConfig {
   redirectUri: string;
 }
 
-/** Read OAuth config from env. Throws when not configured — caller decides if that's fatal. */
 export function getGoogleOAuthConfig(): GoogleOAuthConfig {
-  const env = serverEnv();
-  const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI } = env;
-  if (!GOOGLE_OAUTH_CLIENT_ID || !GOOGLE_OAUTH_CLIENT_SECRET || !GOOGLE_OAUTH_REDIRECT_URI) {
-    throw new Error(
-      "Google OAuth not configured. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URI in apps/server/.env",
-    );
-  }
+  const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI } = serverEnv();
   return {
     clientId: GOOGLE_OAUTH_CLIENT_ID,
     clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,

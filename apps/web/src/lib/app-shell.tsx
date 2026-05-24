@@ -173,7 +173,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <main className="flex flex-1 min-w-0 relative gap-1.5">
                     <div
                       className={cn(
-                        "flex-1 min-w-0 overflow-hidden",
+                        "flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
                         "rounded-2xl bg-vs-bg-1",
                         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
                       )}
