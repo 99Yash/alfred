@@ -155,30 +155,37 @@ function Slot({
   labelledBy: string;
   children: ReactNode;
 }) {
+  const baseClassName =
+    "[grid-area:1/1] transition-[opacity,transform,filter] duration-500 ease-out";
+  // Split the active/inactive cases into two render paths so a static
+  // a11y checker can see that `aria-hidden` is never paired with a
+  // focusable `tabIndex` on the same element — a focusable subtree that's
+  // aria-hidden confuses keyboard users.
+  if (active) {
+    return (
+      <div
+        id={id}
+        role="tabpanel"
+        aria-labelledby={labelledBy}
+        tabIndex={0}
+        className={cn(baseClassName, "opacity-100 z-10")}
+        style={{ transform: "translateY(0) scale(1)" }}
+      >
+        {children}
+      </div>
+    );
+  }
   return (
     <div
       id={id}
       role="tabpanel"
       aria-labelledby={labelledBy}
-      aria-hidden={!active}
-      // Inactive panels are visually faded but still painted for the
-      // crossfade; remove them from the tab order so keyboard focus
-      // never lands on hidden content.
-      tabIndex={active ? 0 : -1}
+      aria-hidden
       className={cn(
-        "[grid-area:1/1] transition-[opacity,transform,filter] duration-500 ease-out",
-        active
-          ? "opacity-100 z-10"
-          : "opacity-0 pointer-events-none blur-[2px]",
+        baseClassName,
+        "opacity-0 pointer-events-none blur-[2px]",
       )}
-      // Inline transform so Tailwind v4's transform-variable composition
-      // doesn't fight with the `transition-all` shorthand. Outgoing mockup
-      // lifts 10px while scaling down a touch; active sits at rest.
-      style={{
-        transform: active
-          ? "translateY(0) scale(1)"
-          : "translateY(10px) scale(0.985)",
-      }}
+      style={{ transform: "translateY(10px) scale(0.985)" }}
     >
       {children}
     </div>
