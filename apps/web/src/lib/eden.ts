@@ -13,22 +13,3 @@ const API_URL =
 export const client = treaty<App>(API_URL, {
   fetch: { credentials: "include" },
 });
-
-/**
- * Pull a human-readable message out of an Eden error envelope. Eden wraps
- * server `status(4xx, { message })` responses as `{ error: { value } }`;
- * this collapses the safe path into a single string + a fallback.
- */
-export function edenErrorMessage(error: unknown, fallback: string): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "value" in error &&
-    typeof (error as { value: unknown }).value === "object" &&
-    (error as { value: unknown }).value !== null &&
-    "message" in ((error as { value: object }).value as object)
-  ) {
-    return String((error as { value: { message: unknown } }).value.message);
-  }
-  return fallback;
-}

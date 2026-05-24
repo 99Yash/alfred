@@ -2,9 +2,9 @@ import { Link } from "@tanstack/react-router";
 import {
   ArrowUp,
   AtSign,
-  ChevronsRight,
   Ellipsis,
   Mic,
+  PanelLeft,
   PanelRight,
   Paperclip,
   Share2,
@@ -116,7 +116,7 @@ function TopBar({
       <div className="flex items-center gap-2 min-w-0">
         {!sidebarOpen ? (
           <IconButton label="Open sidebar" onClick={() => setSidebarOpen(true)}>
-            <ChevronsRight size={14} />
+            <PanelLeft size={14} />
           </IconButton>
         ) : null}
         <h1 className="truncate text-sm font-medium text-vs-fg-4">{title}</h1>
