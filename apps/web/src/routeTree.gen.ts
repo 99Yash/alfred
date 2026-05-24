@@ -24,6 +24,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
 import { Route as PreviewChatRouteImport } from './routes/preview.chat'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
@@ -106,6 +107,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const PreviewLandingRoute = PreviewLandingRouteImport.update({
+  id: '/preview/landing',
+  path: '/preview/landing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewChatRoute = PreviewChatRouteImport.update({
   id: '/preview/chat',
   path: '/preview/chat',
@@ -156,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
+  '/preview/landing': typeof PreviewLandingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -179,6 +186,7 @@ export interface FileRoutesByTo {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
+  '/preview/landing': typeof PreviewLandingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -203,6 +211,7 @@ export interface FileRoutesById {
   '/integrations/$provider': typeof IntegrationsProviderRoute
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
+  '/preview/landing': typeof PreviewLandingRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -228,6 +237,7 @@ export interface FileRouteTypes {
     | '/integrations/$provider'
     | '/library/$artifact'
     | '/preview/chat'
+    | '/preview/landing'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -251,6 +261,7 @@ export interface FileRouteTypes {
     | '/integrations/$provider'
     | '/library/$artifact'
     | '/preview/chat'
+    | '/preview/landing'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -274,6 +285,7 @@ export interface FileRouteTypes {
     | '/integrations/$provider'
     | '/library/$artifact'
     | '/preview/chat'
+    | '/preview/landing'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -295,6 +307,7 @@ export interface RootRouteChildren {
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   DebugEventsRoute: typeof DebugEventsRoute
   PreviewChatRoute: typeof PreviewChatRouteWithChildren
+  PreviewLandingRoute: typeof PreviewLandingRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -403,6 +416,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/preview/landing': {
+      id: '/preview/landing'
+      path: '/preview/landing'
+      fullPath: '/preview/landing'
+      preLoaderRoute: typeof PreviewLandingRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/preview/chat': {
       id: '/preview/chat'
@@ -533,6 +553,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowsRoute: WorkflowsRouteWithChildren,
   DebugEventsRoute: DebugEventsRoute,
   PreviewChatRoute: PreviewChatRouteWithChildren,
+  PreviewLandingRoute: PreviewLandingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -67,8 +67,8 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
         "shrink-0 h-full",
         "rounded-2xl bg-vs-bg-1",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "transition-[width] duration-200 ease-out overflow-hidden",
-        open ? "w-[340px]" : "w-0",
+        "transition-[width,margin] duration-200 ease-out overflow-hidden",
+        open ? "w-[340px]" : "w-0 -ml-1.5 pointer-events-none",
       )}
     >
       <div className="relative h-full w-[340px] flex flex-col">

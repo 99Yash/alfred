@@ -1,33 +1,33 @@
-import { index, pgTable, real, text, timestamp } from "drizzle-orm/pg-core";
+import { index, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
-import { documents } from "./documents";
 
 /**
  * Email triage classifications (ADR-0025 #1).
  *
- * One row per document, keyed on `document_id`. Re-classification (e.g. on
- * reply) overwrites in place — the canonical alfred-label is always the
- * latest classification's outcome. Per-attempt audit lives in `api_call_log`
- * (the metered LLM call) and `agent_runs` (the workflow run that produced
- * the row), so we don't keep a separate history table.
+ * One row per Gmail thread (PK = `(user_id, source_thread_id)`). Each new
+ * message in a thread re-runs the classifier and overwrites this row — the
+ * canonical alfred-label is always the latest message's outcome. Per-attempt
+ * audit lives in `api_call_log` (the metered LLM call) and `agent_runs`
+ * (the workflow run), so we don't keep a per-message history table.
+ *
+ * `document_id` is a soft pointer to the latest classified Gmail message in
+ * the thread — no FK, so a Gmail purge that wipes one message doesn't
+ * cascade-delete the whole thread's classification. The next classification
+ * cycle re-points it.
  *
  * Why a dedicated table rather than `documents.metadata` jsonb:
- *  - we want to query "all docs awaiting reply" by category cheaply;
- *  - foreign-key cascades give us automatic cleanup when a document is
- *    deleted (Gmail purge, account disconnect);
- *  - `model` + `classified_at` are useful even when the document itself
- *    hasn't changed.
+ *  - we want to query "all threads awaiting reply" by category cheaply;
+ *  - `model` + `classified_at` are useful for audit/debug even when the
+ *    thread itself hasn't changed.
  */
 export const emailTriage = pgTable(
   "email_triage",
   {
-    documentId: text("document_id")
-      .primaryKey()
-      .references(() => documents.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    sourceThreadId: text("source_thread_id").notNull(),
     /**
      * One of `TRIAGE_CATEGORIES` (`urgent | action_needed | follow_up |
      * awaiting_reply | meeting | fyi | done | payment | newsletter |
@@ -42,17 +42,20 @@ export const emailTriage = pgTable(
     /** Model identifier (`gemini-2.5-flash`, `claude-haiku-4-5`, …). */
     model: text("model").notNull(),
     /**
-     * Gmail label id we wrote back ({@link emailTriage.category} → label id).
-     * Stored so re-classification can remove the previous label without
-     * re-fetching the credential's label cache.
+     * Gmail label id currently applied to the latest message in this
+     * thread ({@link emailTriage.category} → label id). Stored so the
+     * label-write step knows what to remove on re-classification.
      */
     appliedLabelId: text("applied_label_id"),
+    /** Soft pointer to the latest classified `documents.id`. No FK. */
+    documentId: text("document_id"),
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
     /** Pointer to the originating `agent_runs.id`. */
     runId: text("run_id"),
     ...lifecycle_dates,
   },
   (t) => [
+    primaryKey({ columns: [t.userId, t.sourceThreadId] }),
     index("email_triage_user_category_idx").on(t.userId, t.category, t.classifiedAt),
     index("email_triage_user_classified_idx").on(t.userId, t.classifiedAt),
   ],

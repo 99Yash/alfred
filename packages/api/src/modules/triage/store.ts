@@ -1,17 +1,19 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
-import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 /**
- * Persistence helpers for the triage table. The workflow owns the LLM call
- * and the Gmail label-write; this module is pure DB access — easy to mock,
- * easy to read.
+ * Persistence helpers for the thread-keyed triage table. The workflow owns
+ * the LLM call and the Gmail label-write; this module is pure DB access.
+ * One row per (userId, sourceThreadId) — every new message in the thread
+ * re-classifies and overwrites this row.
  */
 
 export interface TriageRow {
-  documentId: string;
   userId: string;
+  sourceThreadId: string;
+  documentId: string | null;
   category: TriageCategory;
   confidence: number;
   rationale: string | null;
@@ -21,26 +23,23 @@ export interface TriageRow {
   runId: string | null;
 }
 
-export async function getTriage(documentId: string): Promise<TriageRow | null> {
-  const rows = await db().select().from(emailTriage).where(eq(emailTriage.documentId, documentId));
+export async function getTriage(
+  userId: string,
+  sourceThreadId: string,
+): Promise<TriageRow | null> {
+  const rows = await db()
+    .select()
+    .from(emailTriage)
+    .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
   const row = rows[0];
   if (!row) return null;
-  return {
-    documentId: row.documentId,
-    userId: row.userId,
-    category: row.category as TriageCategory,
-    confidence: row.confidence,
-    rationale: row.rationale,
-    model: row.model,
-    appliedLabelId: row.appliedLabelId,
-    classifiedAt: row.classifiedAt,
-    runId: row.runId,
-  };
+  return rowToTriage(row);
 }
 
 export interface UpsertTriageArgs {
-  documentId: string;
   userId: string;
+  sourceThreadId: string;
+  documentId: string;
   category: TriageCategory;
   confidence: number;
   rationale: string | null;
@@ -50,34 +49,36 @@ export interface UpsertTriageArgs {
 }
 
 /**
- * Insert or update the triage row. Re-classification overwrites in place
- * (we keep one canonical row per document); audit lives on `api_call_log`
- * + `agent_runs`.
+ * Insert or update the thread's triage row. Re-classification on a new
+ * message in the thread overwrites in place; the row always reflects the
+ * latest message's outcome.
  *
  * `appliedLabelId` is left untouched if the caller doesn't pass it — that
- * lets the classify step write the row without knowing the Gmail label,
- * and the label-write step update only the `appliedLabelId` column.
+ * lets the classify step write the row before knowing the Gmail label and
+ * the label-write step update just the `appliedLabelId` column.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<TriageRow> {
   const now = new Date();
-  const baseSet: Record<string, unknown> = {
+  const updateSet: Record<string, unknown> = {
     category: args.category,
     confidence: args.confidence,
     rationale: args.rationale,
     model: args.model,
+    documentId: args.documentId,
     classifiedAt: now,
     runId: args.runId,
     updatedAt: now,
   };
   if (args.appliedLabelId !== undefined) {
-    baseSet.appliedLabelId = args.appliedLabelId;
+    updateSet.appliedLabelId = args.appliedLabelId;
   }
 
   const result = await db()
     .insert(emailTriage)
     .values({
-      documentId: args.documentId,
       userId: args.userId,
+      sourceThreadId: args.sourceThreadId,
+      documentId: args.documentId,
       category: args.category,
       confidence: args.confidence,
       rationale: args.rationale,
@@ -87,95 +88,32 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<TriageRow> {
       appliedLabelId: args.appliedLabelId ?? null,
     })
     .onConflictDoUpdate({
-      target: emailTriage.documentId,
-      set: baseSet,
+      target: [emailTriage.userId, emailTriage.sourceThreadId],
+      set: updateSet,
     })
     .returning();
   const row = result[0];
-  if (!row) throw new Error(`[triage] upsert returned no row for doc=${args.documentId}`);
-  return {
-    documentId: row.documentId,
-    userId: row.userId,
-    category: row.category as TriageCategory,
-    confidence: row.confidence,
-    rationale: row.rationale,
-    model: row.model,
-    appliedLabelId: row.appliedLabelId,
-    classifiedAt: row.classifiedAt,
-    runId: row.runId,
-  };
+  if (!row) {
+    throw new Error(
+      `[triage] upsert returned no row for user=${args.userId} thread=${args.sourceThreadId}`,
+    );
+  }
+  return rowToTriage(row);
 }
 
 /**
- * Update only the `applied_label_id` on an existing row — used by the
- * label-write step after Gmail's `messages.modify` succeeds.
+ * Update only the `applied_label_id` on a thread's triage row — used by
+ * the label-write step after Gmail's `messages.modify` succeeds.
  */
-export async function setAppliedLabelId(documentId: string, appliedLabelId: string): Promise<void> {
+export async function setAppliedLabelId(
+  userId: string,
+  sourceThreadId: string,
+  appliedLabelId: string,
+): Promise<void> {
   await db()
     .update(emailTriage)
     .set({ appliedLabelId, updatedAt: new Date() })
-    .where(eq(emailTriage.documentId, documentId));
-}
-
-export interface ThreadSibling {
-  documentId: string;
-  /** Gmail message id — for the labels API. */
-  sourceId: string;
-  appliedLabelId: string;
-}
-
-/**
- * Find other Gmail messages in the same thread that currently hold an alfred
- * label. Used by the workflow so we can strip them when re-classifying — Gmail
- * thread view unions labels across messages, so leftover labels on older
- * messages show up as duplicate tags on the thread.
- *
- * Excludes the source document itself (the new message that triggered triage).
- * Skips docs without `applied_label_id` set: they may be classified but the
- * label-write step hasn't landed, or the row was cleared by a prior sweep.
- */
-export async function getThreadSiblingsWithLabels(args: {
-  documentId: string;
-  userId: string;
-  sourceThreadId: string;
-}): Promise<ThreadSibling[]> {
-  const rows = await db()
-    .select({
-      documentId: documents.id,
-      sourceId: documents.sourceId,
-      appliedLabelId: emailTriage.appliedLabelId,
-    })
-    .from(documents)
-    .innerJoin(emailTriage, eq(emailTriage.documentId, documents.id))
-    .where(
-      and(
-        eq(documents.userId, args.userId),
-        eq(documents.source, "gmail"),
-        eq(documents.sourceThreadId, args.sourceThreadId),
-        ne(documents.id, args.documentId),
-        isNotNull(emailTriage.appliedLabelId),
-      ),
-    );
-  return rows
-    .filter((r): r is ThreadSibling => r.appliedLabelId !== null)
-    .map((r) => ({
-      documentId: r.documentId,
-      sourceId: r.sourceId,
-      appliedLabelId: r.appliedLabelId,
-    }));
-}
-
-/**
- * Null out `applied_label_id` for the given documents. Called after Gmail
- * confirms the labels have been stripped, so the DB no longer claims those
- * messages carry an alfred label. Keeps `category` intact for audit.
- */
-export async function clearAppliedLabelIds(documentIds: string[]): Promise<void> {
-  if (documentIds.length === 0) return;
-  await db()
-    .update(emailTriage)
-    .set({ appliedLabelId: null, updatedAt: new Date() })
-    .where(inArray(emailTriage.documentId, documentIds));
+    .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
 }
 
 export interface TriageDocumentContext {
@@ -242,5 +180,20 @@ export async function loadTriageContext(
       metadata: (doc.metadata as Record<string, unknown> | null) ?? {},
     },
     credentialId: cred.id,
+  };
+}
+
+function rowToTriage(row: typeof emailTriage.$inferSelect): TriageRow {
+  return {
+    userId: row.userId,
+    sourceThreadId: row.sourceThreadId,
+    documentId: row.documentId,
+    category: row.category as TriageCategory,
+    confidence: row.confidence,
+    rationale: row.rationale,
+    model: row.model,
+    appliedLabelId: row.appliedLabelId,
+    classifiedAt: row.classifiedAt,
+    runId: row.runId,
   };
 }

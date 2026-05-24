@@ -96,7 +96,10 @@ export async function gatherBriefingDigest(
   // a day, max), the JS partition is faster than 6 separate queries.
   const rows = await db()
     .select({
-      documentId: emailTriage.documentId,
+      // Select from the documents side of the inner-join — `emailTriage.documentId`
+      // is nullable in the thread-keyed schema (pointer can dangle after a doc
+      // purge); the joined `documents.id` is guaranteed non-null here.
+      documentId: documents.id,
       category: emailTriage.category,
       confidence: emailTriage.confidence,
       rationale: emailTriage.rationale,

@@ -80,7 +80,7 @@ export function OnboardingFlow({
               <h1
                 className={cn(
                   "mt-4 max-w-[20rem] text-balance font-medium text-white sm:max-w-none",
-                  "text-4xl sm:text-5xl leading-[1.05] tracking-[-0.02em]",
+                  "text-4xl sm:text-5xl leading-[1.05] tracking-[-0.04em]",
                 )}
               >
                 {active.headline}
@@ -224,7 +224,7 @@ export function OnboardingFlow({
             <div className="relative flex flex-col pl-5">
               <div className="mx-auto flex w-full flex-col pl-10 pr-6 pt-4 pb-32 sm:pr-10">
                 <div className="mb-6 flex flex-col gap-1.5">
-                  <h3 className="text-[34px] font-medium leading-tight tracking-[-0.02em] text-white sm:text-[36px]">
+                  <h3 className="text-[34px] font-medium leading-tight tracking-[-0.04em] text-white sm:text-[36px]">
                     {active.showcaseTitle}
                   </h3>
                   <p className="max-w-2xl pr-10 text-[15px] text-white/85">
@@ -367,7 +367,7 @@ function UnlockShowcase() {
         <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
           What you'll unlock
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.02em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
           Six things Alfred handles
           <br />
           the moment you connect.
@@ -469,7 +469,7 @@ function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
         <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
           Connect your tools
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.02em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
           Six integrations.
           <br />
           One assistant.
@@ -563,7 +563,7 @@ function FinishShowcase() {
         <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
           You're all set
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.02em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
           Alfred is ready.
           <br />
           More surfaces coming soon.

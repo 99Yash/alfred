@@ -1,5 +1,5 @@
 /**
- * Smoke test for the m9 email-triage workflow.
+ * Smoke test for the m9 email-triage workflow (thread-keyed schema).
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts
  *
@@ -8,23 +8,21 @@
  * with at least one ingested email — run smoke-google.ts first if needed.
  *
  * What this verifies end-to-end (with a connected credential):
- *   1. ensureAlfredLabels installs the six Alfred/* labels in the mailbox
- *      (or recovers them from a prior run via the credential metadata cache).
+ *   1. ensureAlfredLabels installs the ten Alfred labels (or recovers them
+ *      from the credential metadata cache).
  *   2. Triggering email-triage on a real ingested doc runs through:
  *        classify  →  apply-label  →  done
  *      with a metered LLM call landing in api_call_log.
- *   3. The corresponding Gmail message picks up exactly one Alfred/* label
- *      (verified by re-fetching the message via the Gmail API).
- *   4. Re-running on the same doc is idempotent: it re-classifies (a fresh
- *      run does NOT skip the LLM — that's the explicit re-evaluation
- *      contract for replies) but the Gmail message ends up with one
- *      Alfred/* label still, regardless of category change.
- *
- * What this does NOT verify:
- *   - The webhook → ingest → triage fan-out (covered by smoke-google-poll
- *     plus a real send to the inbox).
- *   - User toggle to disable triage (deferred to m12 with the workflows
- *     table; m9 ships the workflow always-on for connected mailboxes).
+ *   3. The corresponding Gmail message picks up exactly one Alfred label.
+ *   4. A single triage row keyed on (userId, sourceThreadId) lands in the DB
+ *      and points at the just-classified document.
+ *   5. Re-running on the same doc is idempotent at the schema level: a new
+ *      run RE-classifies (the explicit re-evaluation contract for replies)
+ *      but the result is still one row per thread and one alfred label per
+ *      thread in Gmail.
+ *   6. (Conditional) On a thread with multiple ingested messages, classifying
+ *      the latest message strips alfred labels from every sibling — Gmail
+ *      ends up with one alfred label across the whole thread.
  */
 import {
   closeAgentQueue,
@@ -34,7 +32,6 @@ import {
   enqueueRun,
   getTriage,
   TRIAGE_WORKFLOW_SLUG,
-  upsertTriage,
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
@@ -79,6 +76,7 @@ async function pickIngestedDocument(userId: string) {
     .select({
       id: documents.id,
       sourceId: documents.sourceId,
+      sourceThreadId: documents.sourceThreadId,
       title: documents.title,
       authoredAt: documents.authoredAt,
     })
@@ -136,9 +134,10 @@ async function main() {
       "[smoke-triage] no ingested gmail documents — run smoke-google.ts to ingest first",
     );
   }
+  assert(doc.sourceThreadId, `picked doc=${doc.id} missing sourceThreadId`);
   console.log(
-    `[smoke-triage] target doc=${doc.id} subject=${JSON.stringify(doc.title)} ` +
-      `gmailMessageId=${doc.sourceId}`,
+    `[smoke-triage] target doc=${doc.id} thread=${doc.sourceThreadId} ` +
+      `subject=${JSON.stringify(doc.title)} gmailMessageId=${doc.sourceId}`,
   );
 
   const labelsBefore = await fetchMessageLabelIds(cred.id, doc.sourceId);
@@ -178,7 +177,7 @@ async function main() {
   );
 
   // ---- Phase 4: verify DB row + Gmail state -------------------------------
-  const triageRow = await getTriage(doc.id);
+  const triageRow = await getTriage(cred.userId, doc.sourceThreadId);
   assert(triageRow, "email_triage row missing after run 1");
   assert(
     triageRow.category === out1.category,
@@ -187,6 +186,10 @@ async function main() {
   assert(
     triageRow.appliedLabelId === out1.appliedLabelId,
     `db appliedLabelId mismatch: ${triageRow.appliedLabelId} vs ${out1.appliedLabelId}`,
+  );
+  assert(
+    triageRow.documentId === doc.id,
+    `triage row documentId=${triageRow.documentId} != run 1 doc=${doc.id}`,
   );
   console.log(
     `[smoke-triage] db row OK: category=${triageRow.category} model=${triageRow.model} run=${triageRow.runId}`,
@@ -204,7 +207,7 @@ async function main() {
     `expected exactly 1 alfred label on message, got ${alfredLabelsOnMessage.length}: ${alfredLabelsOnMessage.join(", ")}`,
   );
 
-  // ---- Phase 5: re-run triage; verify still exactly one alfred label ------
+  // ---- Phase 5: re-run triage; still exactly one alfred label, one row ----
   const { runId: runId2 } = await createRun({
     userId: cred.userId,
     workflowSlug: TRIAGE_WORKFLOW_SLUG,
@@ -233,21 +236,31 @@ async function main() {
     `final alfred label ${alfredLabelsFinal[0]} != run 2 output ${out2.appliedLabelId}`,
   );
 
-  // The triage row should now reflect run 2's classification, not run 1's.
-  const finalRow = await getTriage(doc.id);
+  const finalRow = await getTriage(cred.userId, doc.sourceThreadId);
   assert(finalRow, "triage row missing after run 2");
   assert(finalRow.runId === runId2, `triage row runId=${finalRow.runId} != run2=${runId2}`);
 
-  // Quick sanity: total email_triage rows for this user matches docs we've triaged.
-  const rowCount = await db().select().from(emailTriage).where(eq(emailTriage.userId, cred.userId));
-  console.log(`[smoke-triage] total email_triage rows for user: ${rowCount.length}`);
+  // One row per thread invariant — the user's mental model.
+  const rowsForThread = await db()
+    .select()
+    .from(emailTriage)
+    .where(
+      and(
+        eq(emailTriage.userId, cred.userId),
+        eq(emailTriage.sourceThreadId, doc.sourceThreadId),
+      ),
+    );
+  assert(
+    rowsForThread.length === 1,
+    `expected 1 triage row for thread, got ${rowsForThread.length}`,
+  );
+  console.log(`[smoke-triage] one-row-per-thread invariant holds for ${doc.sourceThreadId}`);
 
-  // ---- Phase 6: thread-sibling stripping (best-effort) --------------------
+  // ---- Phase 6: thread-sibling stripping (conditional) --------------------
   //
-  // If the mailbox has a thread with multiple ingested messages, triaging
-  // the newest one should strip alfred labels from the older siblings so
-  // the thread ends up with a single tag in the Gmail UI. Conditional —
-  // not every test mailbox has multi-message threads.
+  // If the mailbox has a thread with multiple ingested messages, classifying
+  // the newest one should strip alfred labels from every sibling on Gmail's
+  // side so the thread ends up with a single tag.
   const candidateThreads = await db()
     .select({
       threadId: documents.sourceThreadId,
@@ -293,29 +306,15 @@ async function main() {
           `older=${older.map((d) => d.id).join(",")}`,
       );
 
-      // Seed: directly apply an alfred label to every message in the thread,
-      // bypassing the workflow. Running the workflow here would cascade-
-      // strip earlier siblings as each seed lands (that's the behavior we're
-      // about to test); by the time we re-triage `latest`, only the oldest
-      // seed would remain. Direct seeding gives us the multi-labeled initial
-      // state the strip-step needs to actually do work.
+      // Seed alfred labels on every message in the thread (Gmail-side only;
+      // no per-doc triage rows since the new schema doesn't have them). This
+      // gives the workflow something to strip.
       const seedCategory: TriageCategory = "fyi";
-      const seedLabelId = labels.byCategory[seedCategory];
       for (const d of threadDocs) {
         await applyTriageLabel({
           credentialId: cred.id,
           messageId: d.sourceId,
           category: seedCategory,
-        });
-        await upsertTriage({
-          documentId: d.id,
-          userId: cred.userId,
-          category: seedCategory,
-          confidence: 1,
-          rationale: "smoke-triage:seed",
-          model: "smoke-triage",
-          runId: null,
-          appliedLabelId: seedLabelId,
         });
       }
 
@@ -339,8 +338,7 @@ async function main() {
         `expected to strip ${older.length} siblings, got ${latestOut.strippedSiblings}`,
       );
 
-      // Each older message should now have zero alfred labels in Gmail and
-      // applied_label_id cleared in the DB.
+      // Every older message should have zero alfred labels in Gmail.
       for (const d of older) {
         const onMessage = (await fetchMessageLabelIds(cred.id, d.sourceId)).filter((id) =>
           labels.allIds.includes(id),
@@ -349,15 +347,9 @@ async function main() {
           onMessage.length === 0,
           `older message ${d.sourceId} still has alfred labels: ${onMessage.join(", ")}`,
         );
-        const t = await getTriage(d.id);
-        assert(t, `triage row missing for older doc ${d.id}`);
-        assert(
-          t.appliedLabelId === null,
-          `older doc ${d.id} appliedLabelId not cleared: ${t.appliedLabelId}`,
-        );
       }
 
-      // And the latest message should still carry exactly one alfred label.
+      // Latest message should still carry exactly one alfred label.
       const onLatest = (await fetchMessageLabelIds(cred.id, latest.sourceId)).filter((id) =>
         labels.allIds.includes(id),
       );
