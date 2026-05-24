@@ -13,7 +13,7 @@ export function PreviewSkillsPage() {
     <div className="flex-1 min-w-0 overflow-y-auto">
       <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
-          <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-vs-fg-4">
+          <h1 className="text-[40px] leading-[48px] font-medium tracking-[-0.04em] text-vs-fg-4">
             Skills
           </h1>
           <p className="text-sm text-vs-fg-3">

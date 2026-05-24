@@ -12,6 +12,7 @@ import { SearchPalette } from "~/components/search-palette";
 import { VsThemed, VsThemeProvider } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
+import { cn } from "~/lib/utils";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -169,8 +170,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                     open={sidebarOpen}
                     onCollapse={() => setSidebarOpen(false)}
                   />
-                  <main className="flex flex-1 min-w-0 relative">
-                    <div className="flex-1 min-w-0 overflow-x-hidden">{mainContent}</div>
+                  <main className="flex flex-1 min-w-0 relative gap-1.5">
+                    <div
+                      className={cn(
+                        "flex-1 min-w-0 overflow-hidden",
+                        "rounded-2xl bg-vs-bg-1",
+                        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
+                      )}
+                    >
+                      {mainContent}
+                    </div>
                     {rightRailNode}
                   </main>
                 </div>

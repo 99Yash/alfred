@@ -15,10 +15,8 @@ export {
   upsertTriage,
   setAppliedLabelId,
   loadTriageContext,
-  getThreadSiblingsWithLabels,
-  clearAppliedLabelIds,
 } from "./store";
-export type { TriageRow, UpsertTriageArgs, TriageDocumentContext, ThreadSibling } from "./store";
+export type { TriageRow, UpsertTriageArgs, TriageDocumentContext } from "./store";
 
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 export type { TriageWorkflowInput } from "./workflow-input";

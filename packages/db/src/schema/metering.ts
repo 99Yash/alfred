@@ -24,7 +24,8 @@ import { user } from "./auth";
  * Attribution columns are nullable so we can meter calls outside of an
  * agent run (cold-start research, ad-hoc test calls). The `kind`
  * discriminator lets us reuse this table for non-LLM costs (embeddings,
- * web_search) without per-kind tables.
+ * web_search) without per-kind tables. user_id FK cascades on delete —
+ * single-user app, no value in keeping cost history past the user.
  */
 export const apiCallLog = pgTable(
   "api_call_log",
@@ -40,7 +41,7 @@ export const apiCallLog = pgTable(
     /** Snapshot at write time. numeric(12,8) keeps fractions of a cent across orders of magnitude. */
     costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
     latencyMs: integer("latency_ms"),
-    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id"),
     stepId: text("step_id"),
     attempt: integer("attempt"),

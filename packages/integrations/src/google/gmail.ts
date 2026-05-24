@@ -110,6 +110,39 @@ export async function getMessage(args: GetMessageArgs): Promise<GmailMessage> {
   return messageSchema.parse(json);
 }
 
+const threadMessageMinSchema = z.object({
+  id: z.string(),
+  labelIds: z.array(z.string()).optional(),
+});
+
+const threadGetMinResponseSchema = z.object({
+  messages: z.array(threadMessageMinSchema).optional(),
+});
+
+export interface ThreadMessageLabels {
+  id: string;
+  labelIds: string[];
+}
+
+/**
+ * Fetch a Gmail thread and return each message's id + labelIds. Uses the
+ * `minimal` format so the response stays tiny — no body, no headers, just
+ * what we need to find sibling messages that still carry alfred labels.
+ */
+export async function getThreadMessageLabels(args: {
+  accessToken: string;
+  threadId: string;
+}): Promise<ThreadMessageLabels[]> {
+  const url = new URL(`${API_BASE}/threads/${args.threadId}`);
+  url.searchParams.set("format", "minimal");
+  const json = await getJson(url.toString(), args.accessToken);
+  const parsed = threadGetMinResponseSchema.parse(json);
+  return (parsed.messages ?? []).map((m) => ({
+    id: m.id,
+    labelIds: m.labelIds ?? [],
+  }));
+}
+
 async function getJson(url: string, accessToken: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: {

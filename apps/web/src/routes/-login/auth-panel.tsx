@@ -17,7 +17,9 @@ export function AuthPanel() {
     try {
       const { error: signInError } = await authClient.signIn.social({
         provider: "google",
-        callbackURL: "/",
+        // Absolute URL so Better Auth doesn't resolve it against BETTER_AUTH_URL
+        // (the server origin) and strand the user on :3001 after the OAuth callback.
+        callbackURL: `${window.location.origin}/`,
       });
       if (signInError) {
         setError(signInError.message ?? "Couldn't start Google sign-in");
@@ -40,7 +42,7 @@ export function AuthPanel() {
           >
             <span className="text-base font-medium leading-none">A</span>
           </div>
-          <h1 className="text-[22px] font-medium text-vs-fg-4 leading-tight">Sign in to Alfred</h1>
+          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">Sign in to Alfred</h1>
           <p className="text-sm text-vs-fg-2">Your personal assistant, on email and calendar.</p>
         </div>
 
