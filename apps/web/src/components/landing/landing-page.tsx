@@ -24,6 +24,19 @@ import { cn } from "~/lib/utils";
  * sub + CTAs + tabbed product showcase with aurora behind it) → 3-up
  * benefits row → closing CTA → footer. Floating bottom nav over the top.
  */
+function goToLogin() {
+  window.location.assign("/login");
+}
+
+// Module-scope so the JSX object is stable across renders — the
+// FloatingPillNav `cta` slot would otherwise receive a fresh node on every
+// LandingPage re-render.
+const NAV_CTA = (
+  <FrostButton tone="light" size="sm" onClick={goToLogin}>
+    Get Started
+  </FrostButton>
+);
+
 export function LandingPage({
   healthOk,
   healthLoading,
@@ -31,8 +44,6 @@ export function LandingPage({
   healthOk: boolean;
   healthLoading: boolean;
 }) {
-  const goToLogin = () => window.location.assign("/login");
-
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
       <div className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
@@ -66,11 +77,7 @@ export function LandingPage({
             <span className="text-sm font-semibold text-white">Alfred</span>
           </a>
         }
-        cta={
-          <FrostButton tone="light" size="sm" onClick={goToLogin}>
-            Get Started
-          </FrostButton>
-        }
+        cta={NAV_CTA}
       >
         <a href="#benefits" className={NAV_LINK}>
           Why Alfred
@@ -150,7 +157,7 @@ function Hero({
       <FadeInOnScroll delay={140}>
         <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
           Alfred connects to your email, calendar, and tools to triage your
-          inbox, brief you each morning, and prepare you for every meeting —
+          inbox, brief you each morning, and prepare you for every meeting,
           quietly, in the background.
         </p>
       </FadeInOnScroll>

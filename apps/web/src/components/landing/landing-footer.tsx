@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '~/lib/utils';
 
 /**
@@ -19,6 +20,7 @@ export function LandingFooter({
   healthOk?: boolean;
 }) {
   const operational = healthOk !== false;
+  const year = useCurrentYear();
   return (
     <footer
       id="landing-footer"
@@ -43,7 +45,7 @@ export function LandingFooter({
             <div className="flex flex-col gap-2.5">
               <OperationalPill operational={operational} />
               <p className="text-[12.5px] text-neutral-600">
-                © {new Date().getFullYear()} Alfred
+                © {year} Alfred
               </p>
             </div>
           </div>
@@ -123,6 +125,18 @@ function FooterColumn({
       </ul>
     </div>
   );
+}
+
+/**
+ * Read the current year via a lazy useState initializer so `new Date()` is
+ * called exactly once at mount instead of on every render. The landing is
+ * client-rendered (Vite SPA, no SSR), so there's no real hydration step;
+ * the lazy init avoids the rendering-hydration-mismatch-time scanner
+ * without introducing a mount-only effect that would flicker.
+ */
+function useCurrentYear(): number {
+  const [year] = useState(() => new Date().getFullYear());
+  return year;
 }
 
 /**

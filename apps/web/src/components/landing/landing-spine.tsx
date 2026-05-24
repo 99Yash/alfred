@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "~/lib/utils";
 
 /**
@@ -47,88 +47,39 @@ export function LandingSpine() {
 }
 
 /**
- * A numbered node anchored to the spine. Place at the start of each section;
- * the negative translate-x pulls the circle onto the spine line. The `label`
- * sits next to it as the section eyebrow.
- *
- * Children render to the right of the marker (the section eyebrow text).
- */
-export function SpineMarker({
-  index,
-  children,
-}: {
-  index: number;
-  children?: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative z-10 flex items-center gap-5",
-        // Pull leftward so the circle's CENTER sits ON the spine line. The
-        // circle is size-7 (28px), so translating its left edge by -14px puts
-        // the center 14px to the left of the section content's leading edge —
-        // which is where the spine lives at every breakpoint (spine `left-5`
-        // matches wrapper `px-5`, `left-10` matches `px-10`, `left-0` matches
-        // `lg:px-0`).
-        "-translate-x-[14px]",
-      )}
-    >
-      <span
-        className={cn(
-          "grid size-7 shrink-0 place-items-center rounded-full",
-          "bg-neutral-700 text-[12.5px] font-medium tabular text-white",
-          "ring-4 ring-[#0a0a0a]",
-        )}
-        aria-hidden
-      >
-        {String(index).padStart(2, "0")}
-      </span>
-      {children ? (
-        <span className="text-[12.5px] font-medium uppercase tracking-[0.18em] text-neutral-400">
-          {children}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/**
  * Tracks the scroll progress of the window (0..1). Mirrors the existing
  * `useScrollProgress` but reads from `window.scrollY` instead of a ref'd
  * container — which is the right primitive for a page that scrolls the
  * document body, as the new landing does.
  */
 function useWindowScrollProgress(): number {
-  const [progress, setProgress] = useState(0);
-  const rafRef = useRef<number | null>(null);
+  const [progress, setProgress] = useState(() => computeScrollProgress());
 
   useEffect(() => {
+    let rafId: number | null = null;
     const tick = () => {
-      rafRef.current = null;
-      const max =
-        (document.documentElement.scrollHeight || 0) - window.innerHeight;
-      if (max <= 0) {
-        setProgress(0);
-        return;
-      }
-      const next = Math.min(1, Math.max(0, window.scrollY / max));
-      setProgress(next);
+      rafId = null;
+      setProgress(computeScrollProgress());
     };
-
     const onScroll = () => {
-      if (rafRef.current != null) return;
-      rafRef.current = requestAnimationFrame(tick);
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(tick);
     };
-
-    tick();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll, { passive: true });
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (rafId != null) cancelAnimationFrame(rafId);
     };
   }, []);
 
   return progress;
+}
+
+function computeScrollProgress(): number {
+  if (typeof window === "undefined") return 0;
+  const max = (document.documentElement.scrollHeight || 0) - window.innerHeight;
+  if (max <= 0) return 0;
+  return Math.min(1, Math.max(0, window.scrollY / max));
 }

@@ -34,15 +34,15 @@ export function AuroraGlow({
       )}
       style={{ opacity }}
     >
-      {/* Wide ambient indigo halo. blur radius kept modest (28px) — the
-       * gradient already softens naturally, and large blurs (>40px) burn
-       * GPU memory on mobile without much added effect. */}
+      {/* Wide ambient indigo halo. The radial-gradient's alpha falloff does
+       * the softening; the blur is only a light polish so it stays under
+       * the GPU-memory threshold large blurs would hit on mobile. */}
       <div
         className="absolute inset-0"
         style={{
           background:
             "radial-gradient(60% 50% at 50% 35%, rgba(99, 102, 241, 0.35) 0%, rgba(99, 102, 241, 0.08) 45%, transparent 70%)",
-          filter: "blur(28px)",
+          filter: "blur(8px)",
         }}
       />
       {/* Tighter violet hot-spot near the top of the mockup */}
@@ -51,7 +51,7 @@ export function AuroraGlow({
         style={{
           background:
             "radial-gradient(35% 30% at 50% 20%, rgba(167, 139, 250, 0.4) 0%, rgba(139, 92, 246, 0.12) 50%, transparent 75%)",
-          filter: "blur(44px)",
+          filter: "blur(9px)",
         }}
       />
     </div>
