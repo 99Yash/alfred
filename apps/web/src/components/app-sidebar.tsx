@@ -2,9 +2,9 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
   Brain,
-  ChevronsLeft,
   LogOut,
   NotebookPen,
+  PanelLeft,
   Pin,
   Plug,
   Search,
@@ -84,7 +84,7 @@ export function AppSidebar({
             "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
           )}
         >
-          <ChevronsLeft size={15} />
+          <PanelLeft size={14} />
         </button>
       </div>
 
