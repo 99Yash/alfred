@@ -65,6 +65,13 @@ export type {
   CreateLabelArgs,
   ModifyMessageLabelsArgs,
 } from "./gmail";
+export { listEvents } from "./calendar";
+export type {
+  CalendarEvent,
+  CalendarAttendee,
+  ListEventsArgs,
+  ListEventsResult,
+} from "./calendar";
 export {
   ensureAlfredLabels,
   applyTriageLabel,
