@@ -79,8 +79,14 @@ export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult
   const url = new URL(`${API_BASE}/calendars/${calendarId}/events`);
   url.searchParams.set("timeMin", args.timeMin);
   url.searchParams.set("timeMax", args.timeMax);
-  url.searchParams.set("singleEvents", String(args.singleEvents ?? true));
-  url.searchParams.set("orderBy", args.orderBy ?? "startTime");
+  const singleEvents = args.singleEvents ?? true;
+  url.searchParams.set("singleEvents", String(singleEvents));
+  // Calendar API rejects `orderBy=startTime` unless `singleEvents=true`, so
+  // the default flips with `singleEvents`. Callers that explicitly pass
+  // `startTime` + `singleEvents=false` still get a 400 from upstream — by
+  // design, we don't second-guess an explicit caller request.
+  const orderBy = args.orderBy ?? (singleEvents ? "startTime" : "updated");
+  url.searchParams.set("orderBy", orderBy);
   url.searchParams.set("maxResults", String(args.maxResults ?? 50));
 
   const json = await getJson(url.toString(), args.accessToken);

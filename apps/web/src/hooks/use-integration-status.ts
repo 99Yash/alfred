@@ -72,11 +72,11 @@ function useProviderCredentials(backend: "google" | "github") {
   });
 }
 
-export function useGoogleCredentials() {
+function useGoogleCredentials() {
   return useProviderCredentials("google");
 }
 
-export function useGithubCredentials() {
+function useGithubCredentials() {
   return useProviderCredentials("github");
 }
 
