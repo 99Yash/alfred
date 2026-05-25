@@ -1,6 +1,6 @@
 import { TRIAGE_DISPLAY, type TriageCategory } from "@alfred/contracts";
 import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Loader2, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useInboxDetail } from "~/hooks/use-inbox";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
@@ -57,29 +57,28 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
   const serverPaginated = !!pagination;
   const totalUnread = items.filter((i) => i.unread).length;
 
-  const filtered = useMemo(() => {
-    if (serverPaginated) {
-      // Server already returns just the current page — local filter is
-      // applied on top so the unread toggle / text search work without
-      // forcing a server round-trip per keystroke. Limits the rail to
-      // filtering the visible page, which is acceptable for a single-
-      // user inbox; the server query covers the cross-page slice.
-      return items.filter((item) => filterMatches(item, query, unreadOnly));
-    }
-    return items.filter((item) => filterMatches(item, query, unreadOnly));
-  }, [items, query, unreadOnly, serverPaginated]);
+  // Server already returns just the current page — local filter is applied
+  // on top so the unread toggle / text search work without forcing a server
+  // round-trip per keystroke. Limits the rail to filtering the visible page,
+  // which is acceptable for a single-user inbox; the server query covers the
+  // cross-page slice.
+  const filtered = useMemo(
+    () => items.filter((item) => filterMatches(item, query, unreadOnly)),
+    [items, query, unreadOnly],
+  );
 
   const localPageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  // Re-clamp when filter shrinks the result set below the current page.
-  useEffect(() => {
-    if (!serverPaginated && localPage > localPageCount - 1) setLocalPage(0);
-  }, [localPage, localPageCount, serverPaginated]);
+  // Clamp during render — when the filter (or the `items` prop) shrinks
+  // the result set below the parked page, the rail shows the last valid
+  // page without a state write. Prev/next handlers read off `pageIndex`
+  // (the clamped value) so a stale `localPage` doesn't strand the user.
+  const pageIndex = pagination?.pageIndex ?? Math.min(localPage, localPageCount - 1);
+  const pageCount = pagination?.pageCount ?? localPageCount;
 
   const visible = useMemo(() => {
     if (serverPaginated) return filtered;
-    const safe = Math.min(localPage, localPageCount - 1);
-    return filtered.slice(safe * PAGE_SIZE, safe * PAGE_SIZE + PAGE_SIZE);
-  }, [filtered, localPage, localPageCount, serverPaginated]);
+    return filtered.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE);
+  }, [filtered, pageIndex, serverPaginated]);
 
   // Detail-pane reader: when a row is selected, swap the list out. The
   // reader gets its own fetch (`useInboxDetail`), so the list-level filter
@@ -97,9 +96,6 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
       </div>
     );
   }
-
-  const pageIndex = pagination?.pageIndex ?? Math.min(localPage, localPageCount - 1);
-  const pageCount = pagination?.pageCount ?? localPageCount;
 
   return (
     <div className="vs-card-in space-y-2">
@@ -145,11 +141,11 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
               isLoading={pagination?.isLoading ?? false}
               onPrev={() => {
                 if (pagination) pagination.onPrev();
-                else setLocalPage((p) => Math.max(0, p - 1));
+                else setLocalPage(Math.max(0, pageIndex - 1));
               }}
               onNext={() => {
                 if (pagination) pagination.onNext();
-                else setLocalPage((p) => Math.min(localPageCount - 1, p + 1));
+                else setLocalPage(Math.min(localPageCount - 1, pageIndex + 1));
               }}
             />
           ) : null}
