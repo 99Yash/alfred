@@ -9,6 +9,7 @@ import {
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
+import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
@@ -120,8 +121,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
       );
-      if (data.triageInsertedDocs && result.insertedDocumentIds.length) {
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
+      if (result.insertedDocumentIds.length) {
+        // Triage enqueue (optional) and the rail-update publish are
+        // independent writes to different tables; fan them out so a
+        // large bulk seed doesn't pay the latencies in series.
+        await Promise.all([
+          data.triageInsertedDocs
+            ? enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest")
+            : Promise.resolve(),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
@@ -139,13 +148,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (result.insertedDocumentIds.length) {
-        // Triage first, embed second — the triage worker picks up the jobs
-        // and starts classifying while we're still waiting on Voyage.
-        // Triage reads the doc row (not chunks), so an in-flight embed is
-        // irrelevant to it. The `gmail.embed_sweep` job backstops any
-        // embed that fails here so we don't lose chunks permanently.
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
-        await embedRealtimeInserts(result.insertedDocumentIds);
+        // Triage enqueue, embed fan-out, and the rail-update publish
+        // are independent — they target different tables / queues and
+        // each function swallows its own errors. Fan them out so the
+        // realtime tag-latency budget (ADR-0037) isn't compounded by
+        // Voyage embed latency or outbox round-trips.
+        await Promise.all([
+          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook"),
+          embedRealtimeInserts(result.insertedDocumentIds),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
@@ -163,7 +175,10 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // `messagesAdded` history entry. We still fan triage so a missed
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
+        await Promise.all([
+          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest"),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
@@ -288,6 +303,37 @@ async function enqueueTriageRuns(
       }
     }),
   );
+}
+
+/**
+ * Best-effort `inbox.updated` notification — fires the SSE bus so the
+ * chat right-rail can invalidate its `["me","inbox"]` query without
+ * polling. We coalesce per-job (one event per N inserts) rather than
+ * per-doc so a bursty back-catalog catch-up doesn't generate hundreds
+ * of frames. The matching `reason: 'triaged'` half lives in the
+ * email-triage workflow.
+ *
+ * Failures are swallowed-and-logged: a missed SSE frame is a missed
+ * refresh, not a missed write — the rail's 5-min poll backstops it.
+ */
+async function publishInboxUpdate(
+  userId: string,
+  reason: "ingested" | "triaged",
+  count: number,
+): Promise<void> {
+  try {
+    // `inboxUpdatedSchema` caps `count` at 10_000; a bulk back-catalog
+    // re-ingest can exceed that. The count is telemetry-only (clients
+    // don't act on it), so clamp instead of letting validation throw
+    // and lose the refresh signal entirely.
+    const payload = { reason, count: Math.min(count, 10_000) } as const;
+    await publishEvent({ userId, kind: "inbox.updated", payload });
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] publishInboxUpdate failed user=${userId} reason=${reason}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 /**
