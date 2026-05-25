@@ -791,15 +791,14 @@ function ToggleButton({
 }
 
 /**
- * Renders email HTML in a sandboxed iframe via `srcDoc`. The sandbox
- * flags strip scripts + same-origin access; DOMPurify already scrubbed
- * dangerous markup server-side, so this is defense-in-depth.
+ * Renders email HTML in a sandboxed iframe via `srcDoc`. DOMPurify already
+ * scrubbed dangerous markup server-side; the sandbox is defense-in-depth.
  *
- * Auto-sizes by reading `iframe.contentDocument.body.scrollHeight` on
- * `load` and on `ResizeObserver` ticks — possible without `allow-scripts`
- * because `srcDoc` documents are accessible to the parent even when
- * sandboxed (the sandbox restricts what the iframe can do to the parent,
- * not the other way around).
+ * Sandbox includes `allow-same-origin` but NOT `allow-scripts` — that pairing
+ * is required for the parent to read `contentDocument.body.scrollHeight`
+ * (without `allow-same-origin` the srcdoc document gets an opaque origin
+ * and the read is blocked), and it stays safe because no scripts can run
+ * to exploit the same-origin access. Auto-sizes on `load` + `ResizeObserver`.
  */
 function EmailHtmlFrame({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -851,10 +850,11 @@ function EmailHtmlFrame({ html }: { html: string }) {
       ref={ref}
       title="Email body"
       srcDoc={html}
-      // No `allow-scripts`, no `allow-same-origin`. `allow-popups`
-      // (and the -to-escape-sandbox companion) lets the `<base target="_blank">`
-      // we injected during sanitization actually open links in a new tab.
-      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      // `allow-same-origin` without `allow-scripts` lets us measure
+      // `contentDocument` from the parent while still blocking JS execution
+      // inside the frame. `allow-popups` (and -to-escape-sandbox) lets the
+      // `<base target="_blank">` we injected open links in a new tab.
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       // referrerpolicy keeps clicked links from leaking the chat URL.
       referrerPolicy="no-referrer"
       className="block w-full bg-white"

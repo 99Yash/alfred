@@ -14,7 +14,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { VsThemeToggle } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
 import { cn } from "~/lib/utils";
@@ -303,14 +303,26 @@ function ThreadRow({ entry, active }: { entry: PreviewThreadEntry; active: boole
 function UserRow() {
   const { data: session } = authClient.useSession();
   const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
 
   const email = session?.user?.email ?? "";
   const name = displayName(session?.user);
   const initial = (name || email || "·").charAt(0).toUpperCase();
 
+  // Navigate even when signOut() rejects — a stale cookie shouldn't strand
+  // the user on a page they no longer trust. The setSigningOut guard prevents
+  // a double-click from firing two parallel signOut requests.
   const signOut = async () => {
-    await authClient.signOut();
-    await navigate({ to: "/login" });
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await authClient.signOut();
+    } catch (err) {
+      console.error("Sign out failed", err);
+    } finally {
+      await navigate({ to: "/login" });
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -339,11 +351,13 @@ function UserRow() {
       <button
         type="button"
         onClick={signOut}
+        disabled={signingOut}
         aria-label="Sign out"
         title="Sign out"
         className={cn(
           "size-8 inline-flex items-center justify-center rounded-lg",
           "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
           "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
         )}
       >

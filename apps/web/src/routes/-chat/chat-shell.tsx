@@ -13,7 +13,9 @@ import {
   Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Particles } from "~/components/ui/particles";
 import { VsPill } from "~/components/ui/visitors";
+import { useVsTheme } from "~/components/ui/visitors/theme";
 import { useInbox, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
 import type { InboxItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
@@ -366,6 +368,8 @@ const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> 
 ];
 
 function Composer({ threadId }: { threadId: string | undefined }) {
+  const { resolved: theme } = useVsTheme();
+
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
   // /chat hero). Survives refresh; cleared on submit.
   const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
@@ -553,17 +557,28 @@ function Composer({ threadId }: { threadId: string | undefined }) {
       ) : null}
       <div
         className={cn(
-          "vs-elevated relative rounded-3xl p-2",
-          // `bg-vs-bg-1` paints the solid fill; the radial gradient layers on
-          // top via `background-image` as a subtle top-left gleam — adds
-          // depth on dark, near-invisible on light. Stacks below children
-          // automatically, no z-index gymnastics.
-          "bg-vs-bg-1",
-          "bg-[image:radial-gradient(circle_at_18%_0%,rgba(255,255,255,0.08)_0%,transparent_55%)]",
+          "vs-elevated relative rounded-3xl p-2 overflow-hidden",
+          // Transparent surface — particles + the vs-elevated hairline carry
+          // the composer's visual identity now, no solid fill needed.
           "focus-within:ring-2 focus-within:ring-vs-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-vs-background transition-shadow",
         )}
       >
+        {/* Ambient drifting particles inside the composer surface. Sits
+         * underneath the editor + controls via stacking order (rendered first
+         * + pointer-events-none from the component). Re-keyed on theme so the
+         * canvas re-mounts with the right color. */}
+        <Particles
+          key={theme}
+          className="absolute inset-0"
+          quantity={20}
+          color={theme === "dark" ? "#ffffff" : "#000000"}
+          maxAlpha={theme === "dark" ? 0.3 : 0.45}
+        />
+        {/* Wrap editor + controls in a positioned container so they paint
+         * above the absolutely-positioned particles canvas (positioned
+         * siblings with z-auto paint in tree order). */}
+        <div className="relative">
         {mic.recording ? (
           <RecordingPanel
             levelsRef={mic.levelsRef}
@@ -660,6 +675,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
               </button>
             )}
           </div>
+        </div>
         </div>
       </div>
     </form>

@@ -164,6 +164,7 @@ export function TiptapComposer({
       }),
     ],
     content: initialJSON,
+    autofocus: "end",
     editorProps: {
       attributes: {
         "aria-label": "Message",
