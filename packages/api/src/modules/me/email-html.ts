@@ -69,7 +69,9 @@ export function sanitizeEmailHtml(raw: string | null | undefined): string | null
   // Re-inject the `<base>` after sanitization — DOMPurify strips `<meta>`
   // and `<link>` along with anything else that could redirect, so the safer
   // path is to write the tag back ourselves once the dangerous markup is gone.
-  const baseTag = `<base target="_blank" rel="noopener noreferrer">`;
+  // `<base>` doesn't accept `rel`; modern browsers default to `noopener` for
+  // `target="_blank"` so we get the safety guarantee without invalid markup.
+  const baseTag = `<base target="_blank">`;
   if (/<head\b[^>]*>/i.test(cleaned)) {
     return cleaned.replace(/<head\b[^>]*>/i, (m) => `${m}${baseTag}`);
   }

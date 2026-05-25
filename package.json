@@ -23,6 +23,9 @@
     "turbo": "^2.8.10"
   },
   "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "pnpm": {
     "overrides": {
       "@types/pg": "^8.18.0"
