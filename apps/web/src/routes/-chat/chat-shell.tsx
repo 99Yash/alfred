@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import {
+  ArrowRight,
   ArrowUp,
   AtSign,
   Ellipsis,
@@ -169,66 +170,161 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
         </h2>
       </div>
 
+      {/* Composer + connect-tools shelf share a column so the shelf reads
+       * as part of the same affordance — the composer flattens its bottom
+       * edge and the shelf tucks under it, slightly inset. Mirrors
+       * dimension's `ConnectIntegrationsBar` pattern. */}
       <div className="mt-8 w-full max-w-2xl">
         <Composer threadId={threadId} />
+        <ConnectToolsBar />
       </div>
-
-      <ConnectToolsRow />
     </div>
   );
 }
 
-function ConnectToolsRow() {
+function ConnectToolsBar() {
   return (
-    <div className="mt-8 flex flex-col items-center gap-3">
-      <p className="text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
-        Connect your tools
-      </p>
-      <Link
-        to="/integrations"
-        aria-label="Connect your tools"
-        className={cn(
-          "group inline-flex items-center rounded-full p-1 -ml-1",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-          "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
-        )}
-      >
-        {CONNECT_BRANDS.map((brand, i) => (
-          <span
-            key={brand}
-            aria-hidden
-            style={{ zIndex: CONNECT_BRANDS.length - i }}
-            className={cn(
-              "relative grid size-9 shrink-0 place-items-center rounded-full",
-              "bg-vs-bg-1 ring-2 ring-vs-background",
-              "transition-transform duration-200 ease-out",
-              "hover:-translate-y-0.5 hover:scale-[1.08] hover:z-10",
-              i > 0 && "-ml-2.5",
-            )}
-          >
-            <IntegrationGlyph brand={brand} size={18} />
-          </span>
-        ))}
-      </Link>
-    </div>
+    <Link
+      to="/integrations"
+      aria-label="Connect your tools"
+      className={cn(
+        // `group` for the trailing-arrow reveal. Same fill as the composer
+        // above (`bg-vs-bg-1`) so the two sit as ONE card visually — only
+        // the hairline `border-t` separates the input region from the
+        // tools shelf. No second elevation, no tonal step-down.
+        "group relative flex items-center gap-3 px-4 py-3",
+        "rounded-b-3xl rounded-t-none",
+        "bg-vs-bg-1 border-t border-vs-bg-3",
+        // Subtle highlight on the divider on hover so the affordance reads
+        // without ever feeling heavy.
+        "transition-colors duration-200 ease-out",
+        "hover:bg-vs-bg-a2",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+        "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+      )}
+    >
+      <span className="inline-flex items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            "grid size-5 place-items-center rounded-md",
+            "bg-vs-purple-1 text-vs-purple-4",
+            "transition-transform duration-200 ease-out group-hover:rotate-[8deg]",
+          )}
+        >
+          <Sparkles size={11} />
+        </span>
+        <span className="text-[13px] font-medium text-vs-fg-4">
+          Connect your tools
+        </span>
+      </span>
+
+      <div className="ml-auto flex items-center">
+        <div className="flex items-center gap-2">
+          {CONNECT_BRANDS.map(({ brand, label }) => (
+            <span
+              key={brand}
+              title={label}
+              className={cn(
+                "relative grid size-5 shrink-0 place-items-center",
+                "transition-transform duration-200 ease-out",
+                "group-hover:scale-[1.08]",
+              )}
+            >
+              <span className="sr-only">{label}</span>
+              <IntegrationGlyph brand={brand} size={18} />
+            </span>
+          ))}
+        </div>
+
+        {/* Arrow reveals on hover/focus via a width animation so the bar
+         * doesn't reflow at rest. */}
+        <span
+          aria-hidden
+          className={cn(
+            "inline-flex items-center overflow-hidden text-vs-fg-4",
+            "max-w-0 opacity-0 -translate-x-1",
+            "transition-[max-width,opacity,transform] duration-200 ease-out",
+            "group-hover:max-w-5 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pl-2",
+            "group-focus-visible:max-w-5 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:pl-2",
+          )}
+        >
+          <ArrowRight size={13} strokeWidth={2.25} />
+        </span>
+      </div>
+    </Link>
   );
 }
 
-const CONNECT_BRANDS: IntegrationBrand[] = [
-  "gmail",
-  "google_calendar",
-  "google_drive",
-  "slack",
-  "github",
-  "linear",
-  "web",
+const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> = [
+  { brand: "gmail", label: "Gmail" },
+  { brand: "google_calendar", label: "Calendar" },
+  { brand: "google_drive", label: "Drive" },
+  { brand: "slack", label: "Slack" },
+  { brand: "github", label: "GitHub" },
+  { brand: "linear", label: "Linear" },
+  { brand: "web", label: "Web search" },
 ];
 
 function Composer({ threadId }: { threadId: string | undefined }) {
-  const [value, setValue] = useState("");
+  // Persist drafts per thread (and a shared "new chat" bucket for the empty
+  // /chat hero). Survives refresh; cleared on submit.
+  const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return window.localStorage.getItem(draftKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  useEffect(() => {
+    try {
+      if (value) window.localStorage.setItem(draftKey, value);
+      else window.localStorage.removeItem(draftKey);
+    } catch {
+      // Quota / private-mode — drafts are best-effort, swallow.
+    }
+  }, [value, draftKey]);
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mic = useMicRecording();
   const trimmed = value.trim();
   const canSend = trimmed.length > 0 && !mic.recording;
+
+  // Type-anywhere autofocus: any printable keystroke on the page lands in
+  // the composer. Skipped when the user is already inside an input / when a
+  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!e.key || e.key.length !== 1) return; // ignore F-keys, arrows, etc.
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      const ta = textareaRef.current;
+      if (!ta || ta === document.activeElement) return;
+      ta.focus();
+      // Native event already consumed by the document; manually append so
+      // the keystroke isn't lost between focus + browser default routing.
+      e.preventDefault();
+      const next = value + e.key;
+      setValue(next);
+      // Restore caret to end after React commits.
+      queueMicrotask(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = next.length;
+          textareaRef.current.selectionEnd = next.length;
+        }
+      });
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [value]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -243,7 +339,15 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     <form onSubmit={handleSubmit} aria-label="Send a message">
       <div
         className={cn(
-          "vs-elevated relative rounded-3xl bg-vs-bg-1 p-2",
+          // Flat bottom so the `ConnectToolsBar` shelf tucks underneath as a
+          // continuation, not a separate card.
+          "vs-elevated relative rounded-3xl rounded-b-none p-2",
+          // `bg-vs-bg-1` paints the solid fill; the radial gradient layers on
+          // top via `background-image` as a subtle top-left gleam — adds
+          // depth on dark, near-invisible on light. Stacks below children
+          // automatically, no z-index gymnastics.
+          "bg-vs-bg-1",
+          "bg-[image:radial-gradient(circle_at_18%_0%,rgba(255,255,255,0.08)_0%,transparent_55%)]",
           "focus-within:ring-2 focus-within:ring-vs-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-vs-background transition-shadow",
         )}
@@ -256,12 +360,19 @@ function Composer({ threadId }: { threadId: string | undefined }) {
           />
         ) : (
           <TextareaWithMirror
+            textareaRef={textareaRef}
             value={value}
             onChange={setValue}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 e.currentTarget.form?.requestSubmit();
+                return;
+              }
+              if (e.key === "Escape") {
+                // Esc blurs the composer so global shortcuts (⌘K, etc.)
+                // route correctly without a wrestling match for focus.
+                e.currentTarget.blur();
               }
             }}
             placeholder="Type and press enter to start chatting…"
@@ -304,7 +415,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
                 onClick={mic.stop}
                 aria-label="Stop recording"
                 className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-xl",
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
                   "vs-press transition-[opacity,filter,transform]",
                   "bg-vs-red-4 text-white",
                   "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
@@ -321,8 +432,9 @@ function Composer({ threadId }: { threadId: string | undefined }) {
                 disabled={!canSend}
                 aria-label="Send"
                 className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-xl",
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
                   "vs-press transition-[opacity,filter,transform]",
+                  "enabled:hover:scale-[1.04] active:scale-[0.97]",
                   "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
                   "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
                   canSend
@@ -390,7 +502,7 @@ function ComposerIcon({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "size-8 inline-flex items-center justify-center rounded-lg",
+        "size-8 inline-flex items-center justify-center rounded-full",
         "transition-colors vs-press",
         active
           ? "bg-vs-purple-1 text-vs-purple-4"

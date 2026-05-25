@@ -15,7 +15,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import {
   useInboxDetail,
@@ -636,12 +636,10 @@ function ThreadMessageCard({
   defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  // Default to Reader; users can flip to Original per-message. Reset when
-  // the message changes so navigating a thread doesn't strand state.
+  // Default to Reader; users can flip to Original per-message. The parent
+  // keys this card by documentId, so a different message remounts with fresh
+  // state — no manual reset needed.
   const [view, setView] = useState<"reader" | "original">("reader");
-  useEffect(() => {
-    setView("reader");
-  }, [message.documentId]);
 
   const hasHtml = !!message.htmlBody;
 
@@ -749,11 +747,8 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <div
-      role="group"
-      aria-label="Message view"
-      className="inline-flex items-center gap-0 rounded-md bg-vs-bg-a2 ring-1 ring-vs-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium"
-    >
+    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-vs-bg-a2 ring-1 ring-vs-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
+      <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
       </ToggleButton>
@@ -763,7 +758,7 @@ function ViewToggle({
       >
         Original
       </ToggleButton>
-    </div>
+    </fieldset>
   );
 }
 

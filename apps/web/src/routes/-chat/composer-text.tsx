@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEventHandler, type Ref } from "react";
+import { useEffect, useLayoutEffect, useRef, type KeyboardEventHandler, type Ref } from "react";
 import { cn } from "~/lib/utils";
 
 /**
@@ -14,6 +14,10 @@ import { cn } from "~/lib/utils";
  * Metrics on the mirror MUST match the textarea exactly (font, leading,
  * letter-spacing, padding, white-space wrapping) or the caret will drift away
  * from the visible glyph.
+ *
+ * Auto-grows up to `max-h-64` (256px). Past that the textarea scrolls and
+ * the mirror's scrollTop tracks it. A top/bottom linear mask fades scrolled
+ * content at the edges so the rounded corners don't clip glyphs hard.
  */
 export function TextareaWithMirror({
   value,
@@ -44,6 +48,16 @@ export function TextareaWithMirror({
     return () => ta.removeEventListener("scroll", sync);
   }, []);
 
+  // Auto-grow: reset to `auto` so scrollHeight reports natural height, then
+  // clamp via Tailwind's min-h / max-h. Layout effect so the grow fires in
+  // the same paint as the keystroke — avoids a one-frame jiggle on Enter.
+  useLayoutEffect(() => {
+    const ta = internalTaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [value]);
+
   const setTaRef = (node: HTMLTextAreaElement | null) => {
     internalTaRef.current = node;
     if (typeof textareaRef === "function") textareaRef(node);
@@ -60,7 +74,16 @@ export function TextareaWithMirror({
   );
 
   return (
-    <div className="relative">
+    <div
+      className={cn(
+        "relative",
+        // Soft top/bottom haze so scrolled content fades into the rounded
+        // container instead of clipping a hard edge against it. Mirrors the
+        // dimension chat-input mask trick (top 10px, bottom 8px fade).
+        "[mask:linear-gradient(to_bottom,transparent_0,black_10px,black_calc(100%-8px),transparent_100%)]",
+        "[-webkit-mask:linear-gradient(to_bottom,transparent_0,black_10px,black_calc(100%-8px),transparent_100%)]",
+      )}
+    >
       <div
         ref={mirrorRef}
         aria-hidden
