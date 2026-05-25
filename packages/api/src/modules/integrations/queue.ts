@@ -121,11 +121,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
       );
-      if (data.triageInsertedDocs && result.insertedDocumentIds.length) {
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
-      }
       if (result.insertedDocumentIds.length) {
-        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+        // Triage enqueue (optional) and the rail-update publish are
+        // independent writes to different tables; fan them out so a
+        // large bulk seed doesn't pay the latencies in series.
+        await Promise.all([
+          data.triageInsertedDocs
+            ? enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest")
+            : Promise.resolve(),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
@@ -143,14 +148,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (result.insertedDocumentIds.length) {
-        // Triage first, embed second — the triage worker picks up the jobs
-        // and starts classifying while we're still waiting on Voyage.
-        // Triage reads the doc row (not chunks), so an in-flight embed is
-        // irrelevant to it. The `gmail.embed_sweep` job backstops any
-        // embed that fails here so we don't lose chunks permanently.
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
-        await embedRealtimeInserts(result.insertedDocumentIds);
-        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+        // Triage enqueue, embed fan-out, and the rail-update publish
+        // are independent — they target different tables / queues and
+        // each function swallows its own errors. Fan them out so the
+        // realtime tag-latency budget (ADR-0037) isn't compounded by
+        // Voyage embed latency or outbox round-trips.
+        await Promise.all([
+          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook"),
+          embedRealtimeInserts(result.insertedDocumentIds),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
@@ -168,8 +175,10 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // `messagesAdded` history entry. We still fan triage so a missed
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
-        await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
-        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+        await Promise.all([
+          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest"),
+          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        ]);
       }
       return result;
     }
