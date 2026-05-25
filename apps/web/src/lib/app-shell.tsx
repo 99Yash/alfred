@@ -150,9 +150,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   // resolved" we don't yet know whether to redirect new users to
   // /onboarding. Without this guard, the route's component paints for a
   // frame before the effect above navigates away. Render the chrome but
-  // blank the main column until we know.
+  // blank the main column until we know. The same gate also covers the
+  // window where `useSession()` is still pending — we want the chrome
+  // mounted (so the route's `h-full` has a real `h-dvh` ancestor) but the
+  // main column blank until we know who the user is.
   const gatingPending = routeToOnboarding === undefined && !onOnboardingRoute;
-  const mainContent = gatingPending ? null : children;
+  const mainContent = gatingPending || isPending ? null : children;
+
+  // Chrome should be present for any non-chromeless route the user is
+  // allowed to see — including the brief window where the session is
+  // still resolving. Gating chrome on `authed` alone causes a flash
+  // where ChatShell (and any other `h-full` route) renders parented by
+  // `__root`'s `min-h-screen` wrapper, collapsing the hero to the top.
+  const showChrome = !chromeless && (isPending || !!sessionUser);
 
   // Providers always wrap children — even on chromeless / unauthed paints —
   // so any route that calls `useChatContext` / `useSidebarState` on its
@@ -164,7 +174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <SidebarStateContext.Provider value={sidebarStateValue}>
         <ChatContext.Provider value={chatContextValue}>
           <VsThemeProvider>
-            {authed ? (
+            {showChrome ? (
               <VsThemed className="min-h-dvh bg-vs-background-subtle">
                 <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
                   <AppSidebar
