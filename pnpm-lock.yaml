@@ -19,13 +19,13 @@ catalogs:
       specifier: ^3.0.0
       version: 3.0.32
     '@elysiajs/cors':
-      specifier: ^1.4.1
+      specifier: 1.4.2
       version: 1.4.2
     '@elysiajs/eden':
-      specifier: ^1.4.6
+      specifier: 1.4.9
       version: 1.4.9
     '@elysiajs/node':
-      specifier: ^1.4.3
+      specifier: 1.4.5
       version: 1.4.5
     '@sentry/node':
       specifier: ^10.50.0
@@ -70,7 +70,7 @@ catalogs:
       specifier: ^17.2.2
       version: 17.4.2
     elysia:
-      specifier: ^1.4.22
+      specifier: 1.4.28
       version: 1.4.28
     ioredis:
       specifier: ^5.6.1
@@ -114,6 +114,7 @@ catalogs:
 
 overrides:
   '@types/pg': ^8.18.0
+  exact-mirror: 1.0.0
 
 importers:
 
@@ -3517,7 +3518,7 @@ packages:
     peerDependencies:
       '@sinclair/typebox': '>= 0.34.0 < 1'
       '@types/bun': '>= 1.2.0'
-      exact-mirror: '>= 0.0.9'
+      exact-mirror: 1.0.0
       file-type: '>= 20.0.0'
       openapi-types: '>= 12.0.0'
       typescript: '>= 5.0.0'
