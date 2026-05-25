@@ -202,7 +202,7 @@ Preamble lives beside the sentinel workflow in `packages/api/src/modules/agent/w
 
 ### 4e. Smoke
 
-`packages/api/src/modules/agent/smoke-brief-execution.ts` — auto-approves any pending `action_stagings` via direct DB update + `signalRun()`, exercising both autonomous and gated-resume paths. Brief: `"@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning."` Asserts: status=completed, ≥ 2 ping-pong step rows each, `system.load_integration` + `gmail.*` + `calendar.*` executed stagings, `state.activeIntegrations` grew, `api_call_log` count = `boss-turn` count, output text non-empty.
+`apps/server/src/scripts/smoke-brief-execution.ts` — auto-approves any pending `action_stagings` via direct DB update + `signalRun()`, exercising both autonomous and gated-resume paths. Lives in `apps/server/src/scripts/` alongside the other smokes (`smoke-cold-start`, `smoke-sub-agents`, etc.) rather than under `packages/api/` because it depends on the running server worker. Brief: `"@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning."` Asserts: status=completed, ≥ 2 ping-pong step rows each, `system.load_integration` + `gmail.*` + `calendar.*` executed stagings, `state.activeIntegrations` grew, `api_call_log` count = `boss-turn` count, output text non-empty.
 
 ### Phase 4 acceptance
 
@@ -411,7 +411,7 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 - [x] **Phase 1** — Foundations: contracts package, migrations, signup hook
 - [x] **Phase 2** — Runtime primitives: scratchpad helpers, tool registry, initial tool slice
 - [x] **Phase 3** — Dispatcher (the spine) — open ADR items resolved
-- [ ] **Phase 4** — Agent bridge: ping-pong `boss-turn` ↔ `dispatch-tools` steps + sentinel `userAuthoredBriefWorkflow` + `agent_runs.transcript` jsonb + `system.load_integration` + strict `@`-mention seed (ADR-0040)
+- [x] **Phase 4** — Agent bridge: ping-pong `boss-turn` ↔ `dispatch-tools` steps + sentinel `userAuthoredBriefWorkflow` + `agent_runs.transcript` jsonb + `system.load_integration` + strict `@`-mention seed (ADR-0040). Smoke at `apps/server/src/scripts/smoke-brief-execution.ts`.
 - [ ] **Phase 5** — HIL surface: SSE + Replicache + `/approvals` page + decision API + email debounce
 - [ ] **Phase 6** — Sub-agents: spawn + zone enforcement + scratchpad tools + fail-back
 - [ ] **Phase 7** — Compaction: token counter, in-flight tail, compactor call, cache breakpoint, prompt pass
