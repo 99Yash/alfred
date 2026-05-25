@@ -1,37 +1,181 @@
 import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
 
+export const INBOX_PAGE_SIZE = 8;
+
+export interface InboxPage {
+  items: ReadonlyArray<InboxItem>;
+  nextCursor: string | null;
+  total: number;
+}
+
 /**
- * Recent Gmail threads for the rail's Inbox tab. Returns the rail's local
- * `InboxItem` shape so `InboxFeed` stays presentation-only — the network
- * envelope is collapsed into the view model here, not at the call site.
+ * Recent Gmail threads for the rail's Inbox tab, paginated server-side.
+ *
+ * `useInfiniteQuery` accumulates pages in `data.pages[0..N]` so going
+ * back to an already-loaded page is instant. `InboxFeed` owns the
+ * page-index UI; this hook just exposes `fetchNextPage()` for advancing.
  *
  * The endpoint is best-effort: a 401 (Gmail not connected) and an empty
  * 200 both surface as `items = []`, which `InboxFeed` renders as the
  * "Connect Gmail to see your latest unread threads here" empty state.
  *
  * Refresh: SSE `inbox.updated` frames invalidate this query in real time
- * (wired in `useEventBridge`), so the explicit poll is a slow backstop
- * for dropped frames + a fresh window-focus refetch — not the primary
- * freshness mechanism.
+ * (wired in `useEventBridge` against the `["me","inbox"]` prefix), so
+ * the explicit poll is a slow backstop for dropped frames + a fresh
+ * window-focus refetch — not the primary freshness mechanism.
  */
 export function useInbox() {
-  return useQuery<ReadonlyArray<InboxItem>>({
+  return useInfiniteQuery({
     queryKey: ["me", "inbox"],
-    queryFn: async () => {
-      const res = await client.api.me.inbox.get();
-      if (res.error || !res.data) return [];
-      return res.data.items.map(toInboxItem);
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
+      const res = await client.api.me.inbox.get({
+        query: {
+          limit: INBOX_PAGE_SIZE,
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+      });
+      if (res.error || !res.data) {
+        return { items: [], nextCursor: null, total: 0 };
+      }
+      const items = Array.isArray(res.data.items)
+        ? res.data.items.map(toInboxItem)
+        : [];
+      return {
+        items,
+        nextCursor: res.data.nextCursor ?? null,
+        total: res.data.total ?? items.length,
+      };
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: InboxPage) => lastPage.nextCursor ?? null,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: true,
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
   });
+}
+
+/**
+ * Thread-shaped payload for the rail reader. The request carries the
+ * `documentId` the user clicked; the response inflates to the entire
+ * Gmail thread that document belongs to. `selectedDocumentId` lets the
+ * UI anchor / highlight the message that drove the navigation.
+ *
+ * Returns `null` when the document doesn't exist or the user isn't
+ * authorized; the reader pane renders a "Not found" state in that case.
+ */
+export interface InboxThread {
+  threadId: string | null;
+  subject: string | null;
+  category: TriageCategory | null;
+  selectedDocumentId: string;
+  messages: ReadonlyArray<InboxMessage>;
+}
+
+export interface InboxMessage {
+  documentId: string;
+  sender: string | null;
+  senderDisplay: string;
+  senderEmail: string | null;
+  to: string | null;
+  cc: string | null;
+  subject: string | null;
+  snippet: string | null;
+  body: string;
+  /** Sanitized HTML body for the iframe "Original" view. Null when absent. */
+  htmlBody: string | null;
+  authoredAt: string | null;
+  authoredAtRelative: string;
+  unread: boolean;
+  attachments: ReadonlyArray<InboxAttachment>;
+}
+
+export interface InboxAttachment {
+  partId: string | null;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
+export function useInboxDetail(documentId: string | null) {
+  return useQuery<InboxThread | null>({
+    queryKey: ["me", "inbox", "detail", documentId],
+    enabled: !!documentId,
+    queryFn: async () => {
+      if (!documentId) return null;
+      const res = await client.api.me
+        .inbox({ documentId })
+        .get();
+      if (res.error || !res.data) return null;
+      const data = res.data;
+      const messages: InboxMessage[] = Array.isArray(data.messages)
+        ? data.messages.map((m) => {
+            const rawSender = m.sender ?? "";
+            const display = parseSenderDisplay(rawSender);
+            const email = parseSenderEmail(rawSender);
+            const attachments: InboxAttachment[] = Array.isArray(m.attachments)
+              ? m.attachments.map((a) => ({
+                  partId: a.partId ?? null,
+                  attachmentId: a.attachmentId,
+                  filename: a.filename,
+                  mimeType: a.mimeType,
+                  size: a.size,
+                }))
+              : [];
+            return {
+              documentId: m.documentId,
+              sender: m.sender,
+              senderDisplay: display || "Unknown sender",
+              senderEmail: email,
+              to: m.to,
+              cc: m.cc,
+              subject: m.subject,
+              snippet: m.snippet ?? null,
+              body: m.body,
+              htmlBody: m.htmlBody ?? null,
+              authoredAt: m.authoredAt,
+              authoredAtRelative: formatRelative(m.authoredAt),
+              unread: m.unread,
+              attachments,
+            };
+          })
+        : [];
+      return {
+        threadId: data.threadId,
+        subject: data.subject,
+        category: isTriageCategory(data.category)
+          ? (data.category as TriageCategory)
+          : null,
+        selectedDocumentId: data.selectedDocumentId,
+        messages,
+      };
+    },
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
+}
+
+function parseSenderDisplay(raw: string): string {
+  if (!raw) return "";
+  const before = raw.split("<")[0]?.trim() ?? "";
+  const unquoted = before.replace(/^"|"$/g, "").trim();
+  if (unquoted) return unquoted;
+  const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
+  return addr.split("@")[0] ?? raw;
+}
+
+function parseSenderEmail(raw: string): string | null {
+  if (!raw) return null;
+  const angle = raw.match(/<([^>]+)>/)?.[1];
+  if (angle) return angle.trim();
+  if (raw.includes("@")) return raw.trim();
+  return null;
 }
 
 interface InboxResponseItem {

@@ -164,7 +164,7 @@ export function IntegrationGlyph({
       fill="none"
       height={size}
       style={color ? { color } : undefined}
-      viewBox="0 0 50 50"
+      viewBox="8 8 34 34"
       width={size}
       xmlns="http://www.w3.org/2000/svg"
       // eslint-disable-next-line react/no-danger

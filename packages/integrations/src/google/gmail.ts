@@ -431,6 +431,58 @@ export function extractMessageContent(message: GmailMessage): ExtractedMessage {
   };
 }
 
+export interface ExtractedAttachment {
+  /** Gmail part id (e.g. `"1.2"`). Stable within a message. Null for ill-formed parts. */
+  partId: string | null;
+  /** Opaque token for `messages.attachments.get`. Required to download the bytes. */
+  attachmentId: string;
+  filename: string;
+  /** RFC mime type, e.g. `application/pdf`. */
+  mimeType: string;
+  /** Bytes, as reported by Gmail. `0` when missing. */
+  size: number;
+}
+
+/**
+ * Walk the MIME tree and collect file attachments. Real attachments have
+ * both a `filename` and an `attachmentId` (the body data is fetched lazily
+ * via a separate API call). Inline body parts (text/plain, text/html) have
+ * neither; embedded images (cid: refs) have an attachmentId but typically
+ * no filename — those stay invisible until we add inline-image support.
+ */
+export function extractAttachments(message: GmailMessage): ExtractedAttachment[] {
+  const out: ExtractedAttachment[] = [];
+  walkAttachments(message.payload, out);
+  return out;
+}
+
+function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment[]): void {
+  if (!part) return;
+  const filename = part.filename?.trim();
+  const attachmentId = part.body?.attachmentId;
+  if (filename && attachmentId) {
+    out.push({
+      partId: part.partId ?? null,
+      attachmentId,
+      filename,
+      mimeType: part.mimeType ?? "application/octet-stream",
+      size: part.body?.size ?? 0,
+    });
+  }
+  for (const sub of part.parts ?? []) walkAttachments(sub, out);
+}
+
+/**
+ * Pull the message's `text/html` part verbatim (base64-decoded). Returns
+ * null when no html alternative exists. The reader uses this to render
+ * the email "as the sender intended" in a sandboxed iframe — the existing
+ * `body` field stays the text/plain fallback for the markdown view.
+ */
+export function extractMessageHtml(message: GmailMessage): string | null {
+  const html = collectText(message.payload, "text/html");
+  return html || null;
+}
+
 function headersToRecord(headers: { name: string; value: string }[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const h of headers) out[h.name.toLowerCase()] = h.value;
