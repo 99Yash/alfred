@@ -1,7 +1,27 @@
 import { TRIAGE_DISPLAY, type TriageCategory } from "@alfred/contracts";
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Loader2, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useInboxDetail } from "~/hooks/use-inbox";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  File as FileIcon,
+  FileSpreadsheet,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  Music,
+  Paperclip,
+  Search,
+  X,
+} from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { MarkdownRenderer } from "~/components/markdown-renderer";
+import {
+  useInboxDetail,
+  type InboxAttachment,
+  type InboxMessage,
+} from "~/hooks/use-inbox";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
@@ -483,9 +503,14 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
 };
 
 /**
- * Single-email reader. Replaces the list view when a row is selected.
- * Renders the row's full plain-text body (server-side header strip already
- * applied) with a back button and an Open-in-Gmail deep link.
+ * Thread reader. Replaces the list view when a row is selected; renders
+ * every Gmail message sharing the row's `threadId` as a stacked timeline,
+ * oldest-first. The clicked message gets a subtle ring so the user can
+ * find it after the fan-out.
+ *
+ * Each message exposes a Reader (markdown) / Original (sandboxed iframe
+ * with the sanitized HTML) toggle so transactional mail can render with
+ * its own CSS while newsletters fall back to a clean text view.
  *
  * Reply editor is intentionally deferred — dimension ships a Tiptap-based
  * inline composer (CatchupGmailItem), but Alfred doesn't yet have a send
@@ -548,36 +573,508 @@ function InboxDetailPane({
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium text-vs-fg-4">
+            <h3 className="text-[14px] leading-5 font-medium text-vs-fg-4 break-words">
               {data.subject || "(no subject)"}
             </h3>
-            <div className="flex items-baseline gap-2">
-              <span className="text-[12px] font-medium text-vs-fg-3 truncate">
-                {data.senderDisplay}
+            <div className="flex items-center gap-2 flex-wrap">
+              {data.category ? <CategoryChip category={data.category} /> : null}
+              <span className="text-[11px] tabular-nums text-vs-fg-2">
+                {data.messages.length} message
+                {data.messages.length === 1 ? "" : "s"}
               </span>
-              {data.authoredAtRelative ? (
-                <span className="text-[11px] tabular-nums text-vs-fg-2 shrink-0">
-                  {data.authoredAtRelative}
-                </span>
-              ) : null}
             </div>
-            {data.senderEmail ? (
-              <p className="text-[11px] text-vs-fg-2 truncate">{data.senderEmail}</p>
-            ) : null}
-            {data.category ? (
-              <CategoryChip category={data.category} />
-            ) : null}
           </header>
-          <div
-            className={cn(
-              "rounded-lg bg-vs-bg-a2 px-3 py-2.5",
-              "text-[12px] leading-[1.55] text-vs-fg-3 whitespace-pre-wrap break-words",
-            )}
-          >
-            {data.body.trim() || "(empty body)"}
-          </div>
+          {data.messages.length === 0 ? (
+            <p className="text-[12px] text-vs-fg-2 px-1">(no messages)</p>
+          ) : (
+            <ol className="space-y-2.5">
+              {data.messages.map((m, i) => (
+                <li key={m.documentId}>
+                  <ThreadMessageCard
+                    message={m}
+                    isSelected={m.documentId === data.selectedDocumentId}
+                    threadId={data.threadId}
+                    /* Auto-expand the last message in the thread + the
+                     * clicked one. Earlier messages collapse to a single
+                     * header row so long threads don't overwhelm the rail. */
+                    defaultOpen={
+                      m.documentId === data.selectedDocumentId ||
+                      i === data.messages.length - 1
+                    }
+                  />
+                </li>
+              ))}
+            </ol>
+          )}
         </article>
       )}
     </div>
   );
+}
+
+/**
+ * One message in the thread timeline.
+ *
+ * Collapsed: a single tappable row with avatar + sender + relative time
+ * + a one-line snippet. Cheap to scan; matches Gmail's collapsed reply
+ * shape.
+ *
+ * Expanded: full header, view toggle (Reader / Original), markdown or
+ * iframe body, attachment strip. The toggle is per-message so a thread
+ * can mix views — useful when one reply quotes an HTML newsletter and
+ * the others are plain prose.
+ */
+function ThreadMessageCard({
+  message,
+  isSelected,
+  threadId,
+  defaultOpen,
+}: {
+  message: InboxMessage;
+  isSelected: boolean;
+  threadId: string | null;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  // Default to Reader; users can flip to Original per-message. Reset when
+  // the message changes so navigating a thread doesn't strand state.
+  const [view, setView] = useState<"reader" | "original">("reader");
+  useEffect(() => {
+    setView("reader");
+  }, [message.documentId]);
+
+  const hasHtml = !!message.htmlBody;
+
+  const summary = useMemo(
+    () => buildSnippet(message.snippet, message.body),
+    [message.snippet, message.body],
+  );
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl bg-vs-bg-a2/60 ring-1 ring-vs-bg-3/40",
+        "transition-shadow",
+        isSelected && "ring-2 ring-vs-purple-2",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-xl",
+          "transition-colors hover:bg-vs-bg-a2",
+          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )}
+        aria-expanded={open}
+      >
+        <SenderInitialAvatar name={message.senderDisplay} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-vs-fg-4">
+              {message.senderDisplay}
+            </span>
+            {message.authoredAtRelative ? (
+              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-vs-fg-2">
+                {message.authoredAtRelative}
+              </span>
+            ) : null}
+          </span>
+          {!open && summary ? (
+            <span className="block truncate text-[11.5px] text-vs-fg-2 mt-0.5">
+              {summary}
+            </span>
+          ) : null}
+          {open && message.senderEmail ? (
+            <span className="block truncate text-[11px] text-vs-fg-2 mt-0.5">
+              {message.senderEmail}
+            </span>
+          ) : null}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="px-2.5 pb-2.5 space-y-2">
+          {hasHtml ? (
+            <ViewToggle value={view} onChange={setView} />
+          ) : null}
+          <div className="rounded-lg bg-vs-bg-1/40 ring-1 ring-vs-bg-3/30 overflow-hidden">
+            {view === "original" && message.htmlBody ? (
+              <EmailHtmlFrame html={message.htmlBody} />
+            ) : message.body.trim() ? (
+              <div className="px-3 py-2.5">
+                <MarkdownRenderer>{message.body.trim()}</MarkdownRenderer>
+              </div>
+            ) : (
+              <p className="px-3 py-2.5 text-[12px] italic text-vs-fg-2">
+                (empty body)
+              </p>
+            )}
+          </div>
+          {message.attachments.length > 0 ? (
+            <AttachmentStrip
+              attachments={message.attachments}
+              threadId={threadId}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Build a short preview from the message body when Gmail didn't supply a
+ * snippet (or supplied one full of HTML entities). The collapsed message
+ * row uses this to give the user something to scan before expanding.
+ */
+function buildSnippet(snippet: string | null, body: string): string {
+  const s = (snippet ?? "").trim();
+  if (s) return s;
+  // Strip leading "On Mon, … wrote:" attribution lines and obvious
+  // signatures so the snippet shows the actual reply content.
+  const firstLine = body
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0 && !/^>/.test(l) && !/^on .+wrote:/i.test(l));
+  return (firstLine ?? "").slice(0, 140);
+}
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: "reader" | "original";
+  onChange: (next: "reader" | "original") => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Message view"
+      className="inline-flex items-center gap-0 rounded-md bg-vs-bg-a2 ring-1 ring-vs-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium"
+    >
+      <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
+        Reader
+      </ToggleButton>
+      <ToggleButton
+        active={value === "original"}
+        onClick={() => onChange("original")}
+      >
+        Original
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded px-1.5 py-0.5 transition-colors vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+        "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        active
+          ? "bg-vs-bg-1 text-vs-fg-4"
+          : "text-vs-fg-2 hover:text-vs-fg-3",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Renders email HTML in a sandboxed iframe via `srcDoc`. The sandbox
+ * flags strip scripts + same-origin access; DOMPurify already scrubbed
+ * dangerous markup server-side, so this is defense-in-depth.
+ *
+ * Auto-sizes by reading `iframe.contentDocument.body.scrollHeight` on
+ * `load` and on `ResizeObserver` ticks — possible without `allow-scripts`
+ * because `srcDoc` documents are accessible to the parent even when
+ * sandboxed (the sandbox restricts what the iframe can do to the parent,
+ * not the other way around).
+ */
+function EmailHtmlFrame({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(200);
+
+  useLayoutEffect(() => {
+    const frame = ref.current;
+    if (!frame) return;
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
+
+    const measure = () => {
+      if (cancelled) return;
+      const doc = frame.contentDocument;
+      if (!doc?.body) return;
+      // `scrollHeight` on body misses bottom margin on some emails;
+      // documentElement covers both. Cap at a generous max so a runaway
+      // email can't blow up the rail layout.
+      const h = Math.min(
+        Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 80),
+        2400,
+      );
+      setHeight(h);
+    };
+
+    const onLoad = () => {
+      measure();
+      const doc = frame.contentDocument;
+      if (doc?.body && typeof ResizeObserver !== "undefined") {
+        observer = new ResizeObserver(() => measure());
+        observer.observe(doc.body);
+      }
+    };
+
+    frame.addEventListener("load", onLoad);
+    // Some browsers fire load before the listener attaches when the
+    // document was already populated synchronously by srcDoc — measure now.
+    if (frame.contentDocument?.readyState === "complete") onLoad();
+
+    return () => {
+      cancelled = true;
+      frame.removeEventListener("load", onLoad);
+      observer?.disconnect();
+    };
+  }, [html]);
+
+  return (
+    <iframe
+      ref={ref}
+      title="Email body"
+      srcDoc={html}
+      // No `allow-scripts`, no `allow-same-origin`. `allow-popups`
+      // (and the -to-escape-sandbox companion) lets the `<base target="_blank">`
+      // we injected during sanitization actually open links in a new tab.
+      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      // referrerpolicy keeps clicked links from leaking the chat URL.
+      referrerPolicy="no-referrer"
+      className="block w-full bg-white"
+      style={{ height, border: 0, colorScheme: "light" }}
+    />
+  );
+}
+
+/**
+ * Two-letter monogram avatar for thread message cards. Reuses the same
+ * deterministic-tone mapping as the inbox list rows so a sender keeps
+ * the same color across surfaces.
+ */
+function SenderInitialAvatar({ name }: { name: string }) {
+  const tone = useMemo(() => toneFromName(name), [name]);
+  const initial = (name.trim().charAt(0) || "?").toUpperCase();
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "mt-0.5 size-6 shrink-0 rounded-full inline-flex items-center justify-center",
+        "text-[10.5px] font-semibold",
+        tone,
+      )}
+    >
+      {initial}
+    </span>
+  );
+}
+
+const TONE_CLASSES = [
+  "bg-vs-purple-1 text-vs-purple-4",
+  "bg-vs-sky-1 text-vs-sky-4",
+  "bg-vs-amber-1 text-vs-amber-4",
+  "bg-vs-green-1 text-vs-green-4",
+  "bg-vs-red-1 text-vs-red-4",
+] as const;
+
+function toneFromName(name: string): string {
+  if (!name) return TONE_CLASSES[0];
+  let hash = 5381;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) + hash + name.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % TONE_CLASSES.length;
+  return TONE_CLASSES[idx] ?? TONE_CLASSES[0];
+}
+
+/**
+ * Compact attachment row. Gmail's attachment-download endpoint requires the
+ * opaque `attachmentId` plus an OAuth token — we don't ship that to the
+ * browser, so each chip just deep-links into Gmail web. The thread URL is
+ * the closest stable target (Gmail doesn't surface per-attachment anchors).
+ */
+function AttachmentStrip({
+  attachments,
+  threadId,
+}: {
+  attachments: ReadonlyArray<InboxAttachment>;
+  threadId: string | null;
+}) {
+  const gmailHref = threadId
+    ? `https://mail.google.com/mail/u/0/#inbox/${threadId}`
+    : null;
+  return (
+    <section aria-label="Attachments" className="space-y-1.5">
+      <div className="flex items-center gap-1.5 px-0.5">
+        <Paperclip size={11} className="text-vs-fg-2" aria-hidden />
+        <span className="text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+          {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1">
+        {attachments.map((a) => (
+          <AttachmentRow key={a.attachmentId} attachment={a} href={gmailHref} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function AttachmentRow({
+  attachment,
+  href,
+}: {
+  attachment: InboxAttachment;
+  href: string | null;
+}) {
+  const { tone, icon: Icon } = attachmentVisual(attachment.mimeType, attachment.filename);
+  const body = (
+    <>
+      <span
+        aria-hidden
+        className={cn(
+          "shrink-0 inline-flex items-center justify-center",
+          "size-8 rounded-md",
+          tone,
+        )}
+      >
+        <Icon size={14} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] leading-4 font-medium text-vs-fg-4">
+          {attachment.filename}
+        </span>
+        <span className="block text-[11px] leading-4 text-vs-fg-2 tabular-nums">
+          {formatBytes(attachment.size)}
+          {attachment.mimeType ? (
+            <>
+              <span aria-hidden className="mx-1 opacity-60">·</span>
+              <span className="uppercase tracking-tight">
+                {extensionFor(attachment.filename, attachment.mimeType)}
+              </span>
+            </>
+          ) : null}
+        </span>
+      </span>
+      {href ? (
+        <ExternalLink size={12} className="shrink-0 text-vs-fg-2" aria-hidden />
+      ) : null}
+    </>
+  );
+  const shared = cn(
+    "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
+    "ring-1 ring-vs-bg-3/40 bg-vs-bg-a2/60",
+    href
+      ? cn(
+          "transition-colors hover:bg-vs-bg-a2 hover:ring-vs-bg-3/70",
+          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )
+      : "",
+  );
+  return (
+    <li>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer noopener"
+          className={shared}
+          title="Open in Gmail to download"
+        >
+          {body}
+        </a>
+      ) : (
+        <div className={shared}>{body}</div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Pick an icon + tone for an attachment based on its mime type. Falls back
+ * to the filename extension when the mime is the generic
+ * `application/octet-stream` (common from forwarded mails).
+ */
+function attachmentVisual(
+  mimeType: string,
+  filename: string,
+): { tone: string; icon: typeof FileIcon } {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const mime = mimeType.toLowerCase();
+  if (mime.startsWith("image/")) {
+    return { tone: "bg-vs-purple-1 text-vs-purple-4", icon: ImageIcon };
+  }
+  if (mime.startsWith("video/")) {
+    return { tone: "bg-vs-sky-1 text-vs-sky-4", icon: Film };
+  }
+  if (mime.startsWith("audio/")) {
+    return { tone: "bg-vs-sky-1 text-vs-sky-4", icon: Music };
+  }
+  if (mime === "application/pdf" || ext === "pdf") {
+    return { tone: "bg-vs-red-1 text-vs-red-4", icon: FileText };
+  }
+  if (
+    mime.includes("spreadsheet") ||
+    mime === "text/csv" ||
+    ext === "csv" ||
+    ext === "xlsx" ||
+    ext === "xls"
+  ) {
+    return { tone: "bg-vs-green-1 text-vs-green-4", icon: FileSpreadsheet };
+  }
+  if (
+    mime.includes("word") ||
+    mime === "text/plain" ||
+    ext === "doc" ||
+    ext === "docx" ||
+    ext === "txt" ||
+    ext === "md"
+  ) {
+    return { tone: "bg-vs-amber-1 text-vs-amber-4", icon: FileText };
+  }
+  return { tone: "bg-vs-bg-a2 text-vs-fg-3", icon: FileIcon };
+}
+
+function extensionFor(filename: string, mimeType: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  if (ext && ext.length <= 5 && ext !== filename.toLowerCase()) return ext;
+  // Map a few common mime types to a readable label when the filename
+  // doesn't carry an extension (e.g. `attachment` with `image/png`).
+  const mime = mimeType.toLowerCase();
+  if (mime === "application/pdf") return "pdf";
+  if (mime.startsWith("image/")) return mime.slice(6);
+  if (mime.startsWith("video/")) return mime.slice(6);
+  if (mime.startsWith("audio/")) return mime.slice(6);
+  return "";
+}
+
+const KIB = 1024;
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < KIB) return `${bytes} B`;
+  if (bytes < KIB * KIB) return `${(bytes / KIB).toFixed(1)} KB`;
+  if (bytes < KIB * KIB * KIB) return `${(bytes / (KIB * KIB)).toFixed(1)} MB`;
+  return `${(bytes / (KIB * KIB * KIB)).toFixed(1)} GB`;
 }

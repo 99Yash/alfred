@@ -61,28 +61,50 @@ export function useInbox() {
 }
 
 /**
- * Full payload for one inbox row — drives the rail's single-email reader.
+ * Thread-shaped payload for the rail reader. The request carries the
+ * `documentId` the user clicked; the response inflates to the entire
+ * Gmail thread that document belongs to. `selectedDocumentId` lets the
+ * UI anchor / highlight the message that drove the navigation.
+ *
  * Returns `null` when the document doesn't exist or the user isn't
  * authorized; the reader pane renders a "Not found" state in that case.
  */
-export interface InboxDetail {
-  documentId: string;
+export interface InboxThread {
   threadId: string | null;
+  subject: string | null;
+  category: TriageCategory | null;
+  selectedDocumentId: string;
+  messages: ReadonlyArray<InboxMessage>;
+}
+
+export interface InboxMessage {
+  documentId: string;
   sender: string | null;
   senderDisplay: string;
   senderEmail: string | null;
   to: string | null;
   cc: string | null;
   subject: string | null;
+  snippet: string | null;
   body: string;
+  /** Sanitized HTML body for the iframe "Original" view. Null when absent. */
+  htmlBody: string | null;
   authoredAt: string | null;
   authoredAtRelative: string;
   unread: boolean;
-  category: TriageCategory | null;
+  attachments: ReadonlyArray<InboxAttachment>;
+}
+
+export interface InboxAttachment {
+  partId: string | null;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 }
 
 export function useInboxDetail(documentId: string | null) {
-  return useQuery<InboxDetail | null>({
+  return useQuery<InboxThread | null>({
     queryKey: ["me", "inbox", "detail", documentId],
     enabled: !!documentId,
     queryFn: async () => {
@@ -92,25 +114,46 @@ export function useInboxDetail(documentId: string | null) {
         .get();
       if (res.error || !res.data) return null;
       const data = res.data;
-      const rawSender = data.sender ?? "";
-      const display = parseSenderDisplay(rawSender);
-      const email = parseSenderEmail(rawSender);
+      const messages: InboxMessage[] = Array.isArray(data.messages)
+        ? data.messages.map((m) => {
+            const rawSender = m.sender ?? "";
+            const display = parseSenderDisplay(rawSender);
+            const email = parseSenderEmail(rawSender);
+            const attachments: InboxAttachment[] = Array.isArray(m.attachments)
+              ? m.attachments.map((a) => ({
+                  partId: a.partId ?? null,
+                  attachmentId: a.attachmentId,
+                  filename: a.filename,
+                  mimeType: a.mimeType,
+                  size: a.size,
+                }))
+              : [];
+            return {
+              documentId: m.documentId,
+              sender: m.sender,
+              senderDisplay: display || "Unknown sender",
+              senderEmail: email,
+              to: m.to,
+              cc: m.cc,
+              subject: m.subject,
+              snippet: m.snippet ?? null,
+              body: m.body,
+              htmlBody: m.htmlBody ?? null,
+              authoredAt: m.authoredAt,
+              authoredAtRelative: formatRelative(m.authoredAt),
+              unread: m.unread,
+              attachments,
+            };
+          })
+        : [];
       return {
-        documentId: data.documentId,
         threadId: data.threadId,
-        sender: data.sender,
-        senderDisplay: display || "Unknown sender",
-        senderEmail: email,
-        to: data.to,
-        cc: data.cc,
         subject: data.subject,
-        body: data.body,
-        authoredAt: data.authoredAt,
-        authoredAtRelative: formatRelative(data.authoredAt),
-        unread: data.unread,
         category: isTriageCategory(data.category)
           ? (data.category as TriageCategory)
           : null,
+        selectedDocumentId: data.selectedDocumentId,
+        messages,
       };
     },
     staleTime: 30_000,
