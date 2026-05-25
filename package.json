@@ -28,7 +28,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@types/pg": "^8.18.0"
+      "@types/pg": "^8.18.0",
+      "exact-mirror": "1.0.0"
     }
   }
 }
