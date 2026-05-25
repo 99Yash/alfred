@@ -65,7 +65,7 @@ function toInboxItem(row: InboxResponseItem): InboxItem {
     // for corporate / transactional senders. Gmail / Outlook addresses
     // are people — they deserve the colored-initial avatar, not the
     // Gmail logo standing in for the human behind it.
-    senderDomain: brand || isPersonalDomain(domain) ? null : domain || null,
+    senderDomain: brand === null && !isPersonalDomain(domain) && domain ? domain : null,
   };
 }
 
@@ -132,10 +132,19 @@ function senderDomain(raw: string | null): string {
  */
 function brandFor(domain: string): IntegrationBrand | null {
   if (!domain) return null;
-  if (domain.endsWith("github.com")) return "github";
-  if (domain.endsWith("linear.app")) return "linear";
-  if (domain.endsWith("slack.com")) return "slack";
+  if (matchesDomain(domain, "github.com")) return "github";
+  if (matchesDomain(domain, "linear.app")) return "linear";
+  if (matchesDomain(domain, "slack.com")) return "slack";
   return null;
+}
+
+/**
+ * Match `host` exactly or as a strict subdomain of `base`. Guards against
+ * the obvious `endsWith` trap where `evilgithub.com` would otherwise be
+ * classified as GitHub.
+ */
+function matchesDomain(host: string, base: string): boolean {
+  return host === base || host.endsWith(`.${base}`);
 }
 
 function initialFor(name: string): string {

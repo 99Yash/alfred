@@ -189,8 +189,13 @@ export const emailTriageWorkflow: Workflow<State> = {
           });
 
           // Tell the rail to re-fetch: the row's category chip just
-          // changed. Best-effort — a dropped frame is recovered by the
-          // 60s rail poll, so we don't bubble the error out of the step.
+          // changed. Best-effort and intentionally outside `upsertTriage`'s
+          // implicit `db()` connection — the store doesn't take a `tx`
+          // arg, so the publish can't share one. The 5-min rail poll
+          // recovers a dropped frame, and a server crash between the
+          // two writes still leaves a triaged row to be picked up on
+          // the next poll. If publish itself throws, we log and continue
+          // so a transient outbox issue doesn't fail the workflow step.
           try {
             await publishEvent({
               userId: ctx.userId,
