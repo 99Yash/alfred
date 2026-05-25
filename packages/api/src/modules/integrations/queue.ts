@@ -305,7 +305,7 @@ async function enqueueTriageRuns(
  * email-triage workflow.
  *
  * Failures are swallowed-and-logged: a missed SSE frame is a missed
- * refresh, not a missed write — the 60s rail poll backstops it.
+ * refresh, not a missed write — the rail's 5-min poll backstops it.
  */
 async function publishInboxUpdate(
   userId: string,
@@ -313,7 +313,12 @@ async function publishInboxUpdate(
   count: number,
 ): Promise<void> {
   try {
-    await publishEvent({ userId, kind: "inbox.updated", payload: { reason, count } });
+    // `inboxUpdatedSchema` caps `count` at 10_000; a bulk back-catalog
+    // re-ingest can exceed that. The count is telemetry-only (clients
+    // don't act on it), so clamp instead of letting validation throw
+    // and lose the refresh signal entirely.
+    const payload = { reason, count: Math.min(count, 10_000) } as const;
+    await publishEvent({ userId, kind: "inbox.updated", payload });
   } catch (err) {
     console.warn(
       `[ingestion:worker] publishInboxUpdate failed user=${userId} reason=${reason}:`,
