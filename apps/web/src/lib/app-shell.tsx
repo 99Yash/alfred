@@ -113,8 +113,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPaletteOpen(false);
   }
 
-  /* Routes that render edge-to-edge — no sidebar, no rail. */
-  const chromeless = location.pathname === "/login" || location.pathname.startsWith("/onboarding");
+  /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
+   * this set because it owns its own layout: signed-out visitors see
+   * the marketing landing, signed-in visitors get redirected to
+   * `/chat`. Wrapping it in app chrome — even briefly during the
+   * pending window — flashes "Memory / Notes / Skills…" at strangers
+   * before the landing renders. */
+  const chromeless =
+    location.pathname === "/" ||
+    location.pathname === "/login" ||
+    location.pathname.startsWith("/onboarding");
 
   /* `/preview/*` is the fixture-rich design surface. The chrome on real
    * routes stays empty (chat thread list, approvals badge, palette recent
@@ -150,9 +158,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   // resolved" we don't yet know whether to redirect new users to
   // /onboarding. Without this guard, the route's component paints for a
   // frame before the effect above navigates away. Render the chrome but
-  // blank the main column until we know.
+  // blank the main column until we know. This also covers `isPending`
+  // implicitly: `onboardingQuery.enabled` is `!isPending && !!sessionUser`,
+  // so while the session is loading `routeToOnboarding` stays `undefined`.
   const gatingPending = routeToOnboarding === undefined && !onOnboardingRoute;
   const mainContent = gatingPending ? null : children;
+
+  // Chrome should be present for any non-chromeless route the user is
+  // allowed to see — including the brief window where the session is
+  // still resolving. Gating chrome on `authed` alone causes a flash
+  // where ChatShell (and any other `h-full` route) renders parented by
+  // `__root`'s `min-h-screen` wrapper, collapsing the hero to the top.
+  const showChrome = !chromeless && (isPending || !!sessionUser);
 
   // Providers always wrap children — even on chromeless / unauthed paints —
   // so any route that calls `useChatContext` / `useSidebarState` on its
@@ -164,7 +181,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <SidebarStateContext.Provider value={sidebarStateValue}>
         <ChatContext.Provider value={chatContextValue}>
           <VsThemeProvider>
-            {authed ? (
+            {showChrome ? (
               <VsThemed className="min-h-dvh bg-vs-background-subtle">
                 <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
                   <AppSidebar
