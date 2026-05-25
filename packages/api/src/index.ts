@@ -65,7 +65,15 @@ export type {
   RunStatus,
 } from "./modules/agent/index.js";
 
-export const app = new Elysia({ name: "api" })
+// `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
+// schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia
+// 1.4.28 passes the wrong option key to `exact-mirror@1.0.0`
+// (`TypeCompiler` vs the expected `Compile`), so every route with a
+// `t.Optional(...)` query/body — which desugars to a Union internally —
+// logs `[exact-mirror] TypeBox's TypeCompiler is required to use Union`
+// on first hit. `Value.Clean` is slower but for a single-user app the
+// per-request cost is negligible.
+export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(errorHandler)
   .use(replicache)
   .use(events)
