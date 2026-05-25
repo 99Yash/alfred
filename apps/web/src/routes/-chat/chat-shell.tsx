@@ -601,88 +601,109 @@ function Composer({ threadId }: { threadId: string | undefined }) {
           />
         )}
 
-        <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
-          <div className="flex items-center gap-1">
-            <ComposerIcon label="Attach file" disabled={mic.recording}>
-              <Paperclip size={14} />
-            </ComposerIcon>
-            <ComposerIcon
-              label="Mention a source"
-              disabled={mic.recording}
-              onClick={insertAtTrigger}
-              active={suggestion !== null}
-            >
-              <AtSign size={14} />
-            </ComposerIcon>
-            <VsPill
-              className="h-7 px-2 text-[12px] text-vs-fg-3"
-              leading={MODEL_LEADING}
-              chevron
-              disabled
-              title="Model picker — coming with m13"
-            >
-              Auto
-            </VsPill>
-            {mic.error ? (
-              <span className="text-[11px] text-vs-red-4 pl-1">{mic.error}</span>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-1">
-            <ComposerIcon
-              label={mic.recording ? "Stop dictation" : "Dictate"}
-              onClick={mic.recording ? mic.stop : mic.start}
-              active={mic.recording}
-            >
-              <Mic size={14} />
-            </ComposerIcon>
-            {mic.recording ? (
-              <button
-                type="button"
-                onClick={mic.stop}
-                aria-label="Stop recording"
-                className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-                  "vs-press transition-[opacity,filter,transform]",
-                  "bg-vs-red-4 text-white",
-                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
-                  "hover:brightness-[1.05]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
-                )}
-              >
-                <Square size={12} strokeWidth={2.5} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!canSend}
-                aria-label="Send"
-                className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-                  "vs-press transition-[opacity,filter,transform]",
-                  "enabled:hover:scale-[1.04] active:scale-[0.97]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
-                  canSend
-                    ? cn(
-                        "text-[var(--vs-accent-fg)]",
-                        "bg-[image:var(--vs-cta-bg)]",
-                        "shadow-[var(--vs-button-primary-shadow)]",
-                        "hover:brightness-[1.06]",
-                        "hover:shadow-[var(--vs-button-primary-shadow-hover)]",
-                      )
-                    : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
-                )}
-              >
-                <ArrowUp size={16} strokeWidth={2.25} />
-              </button>
-            )}
-          </div>
-        </div>
+        <ComposerToolbar
+          mic={mic}
+          canSend={canSend}
+          mentionActive={suggestion !== null}
+          onMentionClick={insertAtTrigger}
+        />
         </div>
       </div>
     </form>
+  );
+}
+
+function ComposerToolbar({
+  mic,
+  canSend,
+  mentionActive,
+  onMentionClick,
+}: {
+  mic: ReturnType<typeof useMicRecording>;
+  canSend: boolean;
+  mentionActive: boolean;
+  onMentionClick: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
+      <div className="flex items-center gap-1">
+        <ComposerIcon label="Attach file" disabled={mic.recording}>
+          <Paperclip size={14} />
+        </ComposerIcon>
+        <ComposerIcon
+          label="Mention a source"
+          disabled={mic.recording}
+          onClick={onMentionClick}
+          active={mentionActive}
+        >
+          <AtSign size={14} />
+        </ComposerIcon>
+        <VsPill
+          className="h-7 px-2 text-[12px] text-vs-fg-3"
+          leading={MODEL_LEADING}
+          chevron
+          disabled
+          title="Model picker — coming with m13"
+        >
+          Auto
+        </VsPill>
+        {mic.error ? (
+          <span className="text-[11px] text-vs-red-4 pl-1">{mic.error}</span>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-1">
+        <ComposerIcon
+          label={mic.recording ? "Stop dictation" : "Dictate"}
+          onClick={mic.recording ? mic.stop : mic.start}
+          active={mic.recording}
+        >
+          <Mic size={14} />
+        </ComposerIcon>
+        {mic.recording ? (
+          <button
+            type="button"
+            onClick={mic.stop}
+            aria-label="Stop recording"
+            className={cn(
+              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+              "vs-press transition-[opacity,filter,transform]",
+              "bg-vs-red-4 text-white",
+              "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
+              "hover:brightness-[1.05]",
+              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+              "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+            )}
+          >
+            <Square size={12} strokeWidth={2.5} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={!canSend}
+            aria-label="Send"
+            className={cn(
+              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+              "vs-press transition-[opacity,filter,transform]",
+              "enabled:hover:scale-[1.04] active:scale-[0.97]",
+              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+              "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+              canSend
+                ? cn(
+                    "text-[var(--vs-accent-fg)]",
+                    "bg-[image:var(--vs-cta-bg)]",
+                    "shadow-[var(--vs-button-primary-shadow)]",
+                    "hover:brightness-[1.06]",
+                    "hover:shadow-[var(--vs-button-primary-shadow-hover)]",
+                  )
+                : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
+            )}
+          >
+            <ArrowUp size={16} strokeWidth={2.25} />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
