@@ -113,8 +113,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPaletteOpen(false);
   }
 
-  /* Routes that render edge-to-edge — no sidebar, no rail. */
-  const chromeless = location.pathname === "/login" || location.pathname.startsWith("/onboarding");
+  /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
+   * this set because it owns its own layout: signed-out visitors see
+   * the marketing landing, signed-in visitors get redirected to
+   * `/chat`. Wrapping it in app chrome — even briefly during the
+   * pending window — flashes "Memory / Notes / Skills…" at strangers
+   * before the landing renders. */
+  const chromeless =
+    location.pathname === "/" ||
+    location.pathname === "/login" ||
+    location.pathname.startsWith("/onboarding");
 
   /* `/preview/*` is the fixture-rich design surface. The chrome on real
    * routes stays empty (chat thread list, approvals badge, palette recent
@@ -150,12 +158,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // resolved" we don't yet know whether to redirect new users to
   // /onboarding. Without this guard, the route's component paints for a
   // frame before the effect above navigates away. Render the chrome but
-  // blank the main column until we know. The same gate also covers the
-  // window where `useSession()` is still pending — we want the chrome
-  // mounted (so the route's `h-full` has a real `h-dvh` ancestor) but the
-  // main column blank until we know who the user is.
+  // blank the main column until we know. This also covers `isPending`
+  // implicitly: `onboardingQuery.enabled` is `!isPending && !!sessionUser`,
+  // so while the session is loading `routeToOnboarding` stays `undefined`.
   const gatingPending = routeToOnboarding === undefined && !onOnboardingRoute;
-  const mainContent = gatingPending || isPending ? null : children;
+  const mainContent = gatingPending ? null : children;
 
   // Chrome should be present for any non-chromeless route the user is
   // allowed to see — including the brief window where the session is
