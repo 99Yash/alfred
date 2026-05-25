@@ -1009,14 +1009,6 @@
     margin: 0;
   }
 
-  .tiptap-minimum-input p.is-editor-empty:first-child::before {
-    content: attr(data-placeholder);
-    float: left;
-    height: 0;
-    color: var(--vs-fg-2);
-    pointer-events: none;
-  }
-
   .dimension-weather-surface {
     background:
       linear-gradient(

@@ -1,5 +1,4 @@
 import Mention from "@tiptap/extension-mention";
-import Placeholder from "@tiptap/extension-placeholder";
 import {
   EditorContent,
   NodeViewWrapper,
@@ -9,7 +8,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import {
@@ -88,6 +87,10 @@ export function TiptapComposer({
   // when the user is picking a mention.
   const suggestionOpenRef = useRef(false);
 
+  // Local empty state drives our custom animated placeholder overlay (replaces
+  // Tiptap's built-in CSS placeholder so we can fade/slide/blur it out).
+  const [isEmpty, setIsEmpty] = useState(true);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -98,9 +101,6 @@ export function TiptapComposer({
         bulletList: false,
         orderedList: false,
         listItem: false,
-      }),
-      Placeholder.configure({
-        placeholder: placeholder ?? "",
       }),
       Mention.extend({
         addNodeView() {
@@ -196,9 +196,17 @@ export function TiptapComposer({
       },
     },
     onUpdate: ({ editor }) => {
-      onChangeRef.current(editor.getText(), editor.getJSON(), editor.isEmpty);
+      const empty = editor.isEmpty;
+      setIsEmpty(empty);
+      onChangeRef.current(editor.getText(), editor.getJSON(), empty);
     },
   });
+
+  // Seed isEmpty from the initial doc so the overlay starts hidden when the
+  // editor mounts with a draft.
+  useEffect(() => {
+    if (editor) setIsEmpty(editor.isEmpty);
+  }, [editor]);
 
   useImperativeHandle(
     ref,
@@ -229,7 +237,31 @@ export function TiptapComposer({
     [editor],
   );
 
-  return <EditorContent editor={editor} />;
+  return (
+    <div className="relative">
+      <EditorContent editor={editor} />
+      {placeholder ? (
+        <span
+          aria-hidden
+          data-visible={isEmpty}
+          className={cn(
+            // Match the editor's first-line position (px-3 pt-2 from
+            // composer-editor) so the overlay sits exactly where the cursor
+            // starts. text-vs-fg-2 keeps it readable in both themes.
+            "pointer-events-none absolute left-3 top-2",
+            "text-[15px] leading-7 font-medium tracking-tight text-vs-fg-2",
+            // Stardust transition — fades + slides + blurs out as the editor
+            // fills. Spring-ish ease for a soft landing.
+            "transition-[opacity,filter,transform] duration-300 ease-out",
+            "data-[visible=true]:opacity-100 data-[visible=true]:blur-0 data-[visible=true]:translate-x-0",
+            "data-[visible=false]:opacity-0 data-[visible=false]:blur-sm data-[visible=false]:translate-x-7",
+          )}
+        >
+          {placeholder}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 /**
