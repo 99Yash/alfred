@@ -90,8 +90,10 @@ export function MarkdownRenderer({ children, className }: MarkdownRendererProps)
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
-          a: ({ node: _node, ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer noopener" />
+          a: ({ node: _node, children, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener">
+              {children}
+            </a>
           ),
         }}
       >
