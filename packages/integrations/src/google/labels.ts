@@ -1,3 +1,4 @@
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
@@ -10,24 +11,13 @@ import { createLabel, getThreadMessageLabels, listLabels, modifyMessageLabels } 
  * Reuse the user's existing numbered priority labels (originally created by
  * Dimension and kept by the user). The numeric prefix gives a natural sort
  * order in the Gmail sidebar — `action_needed` is "2: action needed", `fyi`
- * is "6: fyi", etc. Category → label name mapping is canonical here; every
- * read/write goes through this module so the rest of the codebase never
- * types raw label strings.
+ * is "6: fyi", etc. The category enum itself lives in `@alfred/contracts`
+ * (browser-safe) so the web rail can render category chips without pulling
+ * in this Node-only module; we just add the integration-specific label-name
+ * mapping on top.
  */
 
-export const TRIAGE_CATEGORIES = [
-  "urgent",
-  "action_needed",
-  "follow_up",
-  "awaiting_reply",
-  "meeting",
-  "fyi",
-  "done",
-  "payment",
-  "newsletter",
-  "marketing",
-] as const;
-export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
+export { TRIAGE_CATEGORIES, type TriageCategory };
 
 const LABEL_NAMES: Record<TriageCategory, string> = {
   urgent: "1: urgent",

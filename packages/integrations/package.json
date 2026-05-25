@@ -11,6 +11,7 @@
     "check-types": "tsc -b"
   },
   "dependencies": {
+    "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/ingestion": "workspace:*",

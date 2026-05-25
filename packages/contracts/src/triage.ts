@@ -1,11 +1,10 @@
 /**
- * Browser-safe mirror of the triage category list. The canonical source
- * lives in `@alfred/integrations/google/labels` but that package is
- * Node-only — the web bundle needs the category enum for the rail's
- * category chip and category filter, so we keep a tiny constant here.
- *
- * Keep the order + spelling in sync with `TRIAGE_CATEGORIES` in
- * `packages/integrations/src/google/labels.ts`.
+ * Canonical triage category list. Lives in `@alfred/contracts` so the
+ * web bundle can import it without pulling in the Node-only
+ * `@alfred/integrations` package. `@alfred/integrations/google/labels`
+ * re-exports `TRIAGE_CATEGORIES` and `TriageCategory` from here and adds
+ * the integration-specific Gmail label-name mapping on top — there is
+ * only one source of truth.
  */
 
 export const TRIAGE_CATEGORIES = [

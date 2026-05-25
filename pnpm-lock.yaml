@@ -562,6 +562,9 @@ importers:
 
   packages/integrations:
     dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
