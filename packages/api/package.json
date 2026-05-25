@@ -24,6 +24,7 @@
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
     "ioredis": "catalog:",
+    "isomorphic-dompurify": "^2.36.0",
     "jose": "^6.2.2",
     "pg": "^8.16.3",
     "resend": "catalog:",

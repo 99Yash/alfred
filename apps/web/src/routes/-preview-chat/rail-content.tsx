@@ -1,4 +1,4 @@
-import { CalendarClock, ListChecks, X } from "lucide-react";
+import { ListChecks, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { VsSegmented } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
@@ -15,10 +15,15 @@ import { WeatherChip } from "./weather-chip";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
   { value: "todo", label: "To do", icon: <ListChecks size={12} /> },
-  // Inbox is Gmail-sourced today; the brand glyph reads at a glance and
-  // mirrors the source icon shown in `ConnectToolsRow` below the composer.
+  // Inbox + Up next are both source-backed (Gmail / Google Calendar). Their
+  // tab glyphs mirror the brand icons in `ConnectToolsRow` so a glance
+  // tells the user which integration the tab is reading from.
   { value: "inbox", label: "Inbox", icon: <IntegrationGlyph brand="gmail" size={12} /> },
-  { value: "meetings", label: "Up next", icon: <CalendarClock size={12} /> },
+  {
+    value: "meetings",
+    label: "Up next",
+    icon: <IntegrationGlyph brand="google_calendar" size={12} />,
+  },
 ];
 
 export interface RailBriefingSummary {
@@ -33,10 +38,32 @@ export interface RailBriefingSummary {
   subject: string | null;
 }
 
+/**
+ * Server-driven pagination for the rail Inbox tab. When present, `InboxFeed`
+ * surfaces ← → controls and the chat shell owns the page index; when absent
+ * (preview route, fixtures), the feed renders without pagination.
+ */
+export interface InboxPagination {
+  pageIndex: number;
+  pageCount: number;
+  total: number;
+  isLoading: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}
+
 export interface RailData {
   todos: ReadonlyArray<TodoItem>;
   todoSuggestions?: ReadonlyArray<SuggestionInput>;
   inbox: ReadonlyArray<InboxItem>;
+  /** Optional pagination state for the inbox tab. */
+  inboxPagination?: InboxPagination;
+  /** Document id of the email currently expanded in the rail reader, if any. */
+  selectedInboxId?: string | null;
+  /** Open the rail's single-email reader for `documentId`. */
+  onOpenInbox?: (documentId: string) => void;
+  /** Close the rail's single-email reader and return to the list view. */
+  onCloseInbox?: () => void;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -134,7 +161,13 @@ export function RailContent({
               <TodoFeed items={data.todos} suggestions={data.todoSuggestions} />
             </RailSlot>
             <RailSlot active={tab === "inbox"}>
-              <InboxFeed items={data.inbox} />
+              <InboxFeed
+                items={data.inbox}
+                pagination={data.inboxPagination}
+                selectedId={data.selectedInboxId ?? null}
+                onOpen={data.onOpenInbox}
+                onClose={data.onCloseInbox}
+              />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
               <MeetingsFeed

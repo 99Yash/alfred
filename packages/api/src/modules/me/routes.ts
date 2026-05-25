@@ -1,15 +1,20 @@
 import { db } from "@alfred/db";
 import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
+  extractAttachments,
+  extractMessageHtml,
   getFreshAccessToken,
   GOOGLE_FEATURE_SCOPES,
   listEvents,
+  type ExtractedAttachment,
+  type GmailMessage,
 } from "@alfred/integrations/google";
-import { and, desc, eq, isNull, notInArray, or } from "drizzle-orm";
-import { Elysia } from "elysia";
+import { and, asc, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
+import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
+import { sanitizeEmailHtml } from "./email-html";
 
 /**
  * Per-user read endpoints used by the chat right rail.
@@ -22,7 +27,8 @@ import { getPreference } from "../memory/preferences";
  * to see your latest unread threads here").
  */
 
-const INBOX_LIMIT = 12;
+const INBOX_DEFAULT_LIMIT = 8;
+const INBOX_MAX_LIMIT = 50;
 /**
  * Triage categories the rail Inbox tab hides. Newsletters + marketing are
  * still ingested (briefing watermark + search), they just don't deserve a
@@ -52,6 +58,59 @@ export interface MeInboxItem {
   category: string | null;
 }
 
+/**
+ * Thread-level payload for the rail reader. The route receives a single
+ * `documentId` (the row the user clicked), then fans out to every Gmail
+ * doc sharing its `sourceThreadId` — the reader renders them as a
+ * conversation timeline, with the clicked message highlighted via
+ * `selectedDocumentId`.
+ *
+ * Subject + category lift to the thread root because both are shared
+ * across messages (Gmail thread subjects are stable up to "Re:" prefixes,
+ * and email_triage is keyed on the thread). Per-message identifiers
+ * (sender, body, attachments, html) live on `MeInboxMessage`.
+ */
+export interface MeInboxDetail {
+  threadId: string | null;
+  subject: string | null;
+  category: string | null;
+  selectedDocumentId: string;
+  messages: ReadonlyArray<MeInboxMessage>;
+}
+
+export interface MeInboxMessage {
+  documentId: string;
+  sender: string | null;
+  to: string | null;
+  cc: string | null;
+  subject: string | null;
+  snippet: string | null;
+  /** Markdown-ready plain body — drives the Reader view. */
+  body: string;
+  /**
+   * Sanitized HTML from the message's `text/html` part. Null when the
+   * sender shipped a text-only email or the body sanitized down to
+   * nothing. The reader renders this in a sandboxed iframe when present.
+   */
+  htmlBody: string | null;
+  authoredAt: string | null;
+  unread: boolean;
+  /**
+   * File attachments parsed from the cached Gmail payload. The reader pane
+   * renders these as chips below the body. `attachmentId` is opaque — the
+   * client can't download bytes directly; clicking a chip opens Gmail web.
+   */
+  attachments: ReadonlyArray<MeInboxAttachment>;
+}
+
+export interface MeInboxAttachment {
+  partId: string | null;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface MeLatestBriefing {
   id: string;
   slot: string;
@@ -77,6 +136,171 @@ export interface MeMeetingItem {
   hangoutLink: string | null;
   /** Public web view of the event in Google Calendar. */
   htmlLink: string | null;
+}
+
+/**
+ * Decode an inbox cursor. The shape is `<authoredAtISO>|<documentId>`;
+ * a missing `|` means a legacy timestamp-only cursor and we treat it as
+ * invalid rather than silently advancing (clients pick up the new shape
+ * on the next page, never mid-pagination).
+ *
+ * Returns `null` for no cursor, `"invalid"` for parse failure, or the
+ * decoded pair for a valid cursor.
+ */
+function parseInboxCursor(
+  raw: string | undefined,
+): { authoredAt: Date; documentId: string } | null | "invalid" {
+  if (!raw) return null;
+  const sep = raw.indexOf("|");
+  if (sep < 0) return "invalid";
+  const iso = raw.slice(0, sep);
+  const documentId = raw.slice(sep + 1);
+  if (!iso || !documentId) return "invalid";
+  const authoredAt = new Date(iso);
+  if (Number.isNaN(authoredAt.getTime())) return "invalid";
+  return { authoredAt, documentId };
+}
+
+/**
+ * `documents.content` for Gmail is `buildContent(extracted)` output:
+ *   `From: …\nTo: …\nSubject: …\nDate: …\n\n<body>`
+ * The header block is redundant with `metadata.from` / `.to` / `.subject`
+ * and the `authoredAt` column, so strip it before returning to the reader
+ * — the UI renders those fields from structured columns instead.
+ */
+function stripContentHeaders(content: string): string {
+  if (!content) return "";
+  // The synthetic block ends at the first blank line. If we never wrote a
+  // header (some shapes had no parseable fields), `buildContent` returns
+  // the body verbatim — recognize that by checking the prefix.
+  if (!/^(From|To|Cc|Subject|Date):/m.test(content.slice(0, 200))) {
+    return content;
+  }
+  const blank = content.indexOf("\n\n");
+  return blank < 0 ? "" : content.slice(blank + 2);
+}
+
+/**
+ * Detects common shapes of raw HTML hiding inside a `text/plain` body —
+ * GitHub notifications, mail-list digests, and a handful of newsletters
+ * pack a `<picture>`/`<a>` HTML fallback below the markdown copy.
+ */
+const HTML_TAG_RE =
+  /<(?:!--|\/?(?:a|p|div|span|br|img|picture|source|table|tr|td|th|ul|ol|li|blockquote|h[1-6]|html|body|head|style|script|font|center|pre|code|hr|strong|em|b|i|u|figure|figcaption|small|details|summary)\b)/i;
+
+/**
+ * Clean a `text/plain` Gmail body for in-rail rendering. The ingest already
+ * prefers `text/plain` over stripped HTML, but some senders embed raw HTML
+ * inside the `text/plain` part itself (GitHub badges, "view in browser"
+ * fallbacks). Without a pass here the reader prints angle-bracket noise.
+ *
+ *  - Normalize CRLF → LF so `remark-breaks` produces consistent `<br>`s.
+ *  - Strip `<!-- … -->` comments (Devin / GitHub track-and-trace blocks).
+ *  - Strip `<style>` / `<script>` blocks wholesale.
+ *  - Strip remaining HTML tags when the body trips the tag detector.
+ *  - Collapse runs of ≥3 blank lines so HTML-stripped output doesn't leave
+ *    a half-page of whitespace where the tags used to sit.
+ *
+ * This is a read-time cleanup; the persisted `documents.content` stays
+ * untouched so a future re-ingest with smarter extraction is free to take
+ * over without a migration.
+ */
+function normalizeBodyForReader(content: string): string {
+  if (!content) return "";
+  const stripped = stripContentHeaders(content);
+  let body = stripped.replace(/\r\n/g, "\n");
+  body = body.replace(/<!--[\s\S]*?-->/g, "");
+  body = body.replace(/<style[\s\S]*?<\/style>/gi, "");
+  body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
+  if (HTML_TAG_RE.test(body)) {
+    body = body
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+  // Tame whitespace introduced by the strip — keep paragraph breaks (two
+  // newlines) but collapse anything denser. `\s*\n` first so trailing
+  // spaces on otherwise-blank lines don't survive as visible whitespace.
+  body = body.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  body = fenceDiffBlocks(body);
+  return body.trim();
+}
+
+/**
+ * Detects unified-diff style runs in plaintext email bodies — GitHub PR
+ * notifications quote review snippets as raw diff (`-      foo` / `+      bar`)
+ * with no surrounding code fence, which makes the markdown parser see each
+ * `-` line as a list item and each indented continuation as an indented
+ * code block. That renders as bullets-with-boxes, not the unified block
+ * the sender intended. Wrapping the run in a ```diff fence collapses it
+ * back to a single `<pre>` block in the reader.
+ *
+ * Conservative on the per-line check (multi-space indent after the marker,
+ * which separates diff lines from genuine `- bullet` list items where
+ * there's a single space). Permissive on the run shape — a run can be
+ * all `+`, all `-`, or mixed, since GitHub review comments quote either
+ * direction independently. Lines preceded by the email-quote prefix `> `
+ * are peeled before pattern-matching so quoted file snippets fold into
+ * the same block.
+ */
+function fenceDiffBlocks(body: string): string {
+  const lines = body.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (looksLikeDiffLine(lines[i])) {
+      let end = i;
+      while (
+        end < lines.length &&
+        (looksLikeDiffLine(lines[end]) ||
+          (lines[end] === "" &&
+            end + 1 < lines.length &&
+            looksLikeDiffLine(lines[end + 1])))
+      ) {
+        end++;
+      }
+      // Don't swallow trailing blanks into the fence.
+      while (end > i + 1 && lines[end - 1] === "") end--;
+      const slice = lines.slice(i, end);
+      if (slice.length >= 2) {
+        out.push("```diff");
+        for (const l of slice) out.push(stripQuotePrefix(l));
+        out.push("```");
+        i = end;
+        continue;
+      }
+    }
+    out.push(lines[i] ?? "");
+    i++;
+  }
+  return out.join("\n");
+}
+
+function stripQuotePrefix(line: string): string {
+  return line.replace(/^>\s?/, "");
+}
+
+function looksLikeDiffLine(line: string | undefined): boolean {
+  if (line == null) return false;
+  // Peel the `> ` email-quote prefix first — GitHub review notifications
+  // routinely lead the diff with `> +    foo(...)` (the `>` marking the
+  // snippet as quoted from the source file).
+  const stripped = stripQuotePrefix(line);
+  // Multi-space indent after marker rules out genuine markdown list items
+  // (`- bullet` and `+ bullet` both use a single space). Tab-separated and
+  // bare `+`/`-` (diff hunk separators) also qualify, as does `@@ … @@`.
+  return (
+    /^[-+] {2,}\S/.test(stripped) ||
+    /^[-+]\t/.test(stripped) ||
+    /^[-+]$/.test(stripped) ||
+    /^@@ -?\d/.test(stripped)
+  );
 }
 
 /**
@@ -153,56 +377,253 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
-      .get("/inbox", async ({ user: u }): Promise<{ items: MeInboxItem[] }> => {
-        const rows = await db()
-          .select({
-            documentId: documents.id,
-            threadId: documents.sourceThreadId,
-            subject: documents.title,
-            authoredAt: documents.authoredAt,
-            metadata: documents.metadata,
-            category: emailTriage.category,
-          })
-          .from(documents)
-          .leftJoin(
-            emailTriage,
-            and(
-              eq(emailTriage.userId, documents.userId),
-              eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+      .get(
+        "/inbox",
+        async ({ user: u, query }) => {
+          const limit = Math.min(
+            INBOX_MAX_LIMIT,
+            Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT),
+          );
+          // Composite cursor `<authoredAtISO>|<documentId>` — the id
+          // tie-breaker avoids skipping rows with identical authoredAt
+          // values (Gmail batch notifications routinely share an
+          // `internalDate` to the millisecond; a plain timestamp cursor
+          // with `lt` would leak the tied row off the next page).
+          const parsedCursor = parseInboxCursor(query.cursor);
+          if (parsedCursor === "invalid") {
+            return status(400, { message: "Invalid cursor" });
+          }
+
+          const baseWhere = and(
+            eq(documents.userId, u.id),
+            eq(documents.source, "gmail"),
+            // Untriaged rows (left join null) and rows that aren't in the
+            // suppressed list both belong in the rail.
+            or(
+              isNull(emailTriage.category),
+              notInArray(emailTriage.category, RAIL_SUPPRESSED_CATEGORIES),
             ),
-          )
-          .where(
-            and(
-              eq(documents.userId, u.id),
-              eq(documents.source, "gmail"),
-              // Untriaged rows (left join null) and rows that aren't in the
-              // suppressed list both belong in the rail.
-              or(
-                isNull(emailTriage.category),
-                notInArray(emailTriage.category, RAIL_SUPPRESSED_CATEGORIES),
+          );
+
+          // Total count drives the "X/N" indicator in the rail. With cursor
+          // pagination we don't get this for free, so it's a second roundtrip —
+          // cheap at single-user scale, but it's the reason we cap MAX_LIMIT.
+          const totalRow = await db()
+            .select({ value: drizzleSql<number>`count(*)::int` })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
               ),
-            ),
-          )
-          .orderBy(desc(documents.authoredAt))
-          .limit(INBOX_LIMIT);
+            )
+            .where(baseWhere);
+          const total = totalRow[0]?.value ?? 0;
 
-        const items: MeInboxItem[] = rows.map((r) => {
-          const meta = (r.metadata as Record<string, unknown> | null) ?? {};
-          const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+          const rows = await db()
+            .select({
+              documentId: documents.id,
+              threadId: documents.sourceThreadId,
+              subject: documents.title,
+              authoredAt: documents.authoredAt,
+              metadata: documents.metadata,
+              category: emailTriage.category,
+            })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+              ),
+            )
+            .where(
+              parsedCursor
+                ? and(
+                    baseWhere,
+                    or(
+                      lt(documents.authoredAt, parsedCursor.authoredAt),
+                      and(
+                        eq(documents.authoredAt, parsedCursor.authoredAt),
+                        lt(documents.id, parsedCursor.documentId),
+                      ),
+                    ),
+                  )
+                : baseWhere,
+            )
+            // `id` tie-breaks rows sharing an `authoredAt` so the cursor
+            // WHERE clause stays consistent with the ORDER BY.
+            .orderBy(desc(documents.authoredAt), desc(documents.id))
+            // Over-fetch by one so we can tell if there's a next page without
+            // a second query — drop the extra row before returning.
+            .limit(limit + 1);
+
+          const hasMore = rows.length > limit;
+          const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+          const items: MeInboxItem[] = pageRows.map((r) => {
+            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            return {
+              documentId: r.documentId,
+              threadId: r.threadId ?? null,
+              sender: typeof meta.from === "string" ? meta.from : null,
+              subject: r.subject ?? null,
+              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              authoredAt: r.authoredAt?.toISOString() ?? null,
+              unread: labelIds.includes("UNREAD"),
+              category: r.category ?? null,
+            };
+          });
+
+          const last = pageRows[pageRows.length - 1];
+          const nextCursor =
+            hasMore && last?.authoredAt
+              ? `${last.authoredAt.toISOString()}|${last.documentId}`
+              : null;
+
+          return { items, nextCursor, total };
+        },
+        {
+          query: t.Object({
+            limit: t.Optional(t.Numeric({ minimum: 1, maximum: INBOX_MAX_LIMIT })),
+            cursor: t.Optional(t.String()),
+          }),
+        },
+      )
+      .get(
+        "/inbox/:documentId",
+        async ({ user: u, params }) => {
+          // First resolve the selected row to its threadId — we accept a
+          // `documentId` (so existing rail links keep working) but the
+          // response is thread-shaped.
+          const selectedRows = await db()
+            .select({
+              documentId: documents.id,
+              threadId: documents.sourceThreadId,
+              subject: documents.title,
+            })
+            .from(documents)
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                eq(documents.source, "gmail"),
+                eq(documents.id, params.documentId),
+              ),
+            )
+            .limit(1);
+
+          const selected = selectedRows[0];
+          if (!selected) return status(404, { message: "Not found" });
+
+          // Fan out to every sibling message in the same thread. Falls
+          // back to the single row when the thread id is null (extremely
+          // rare for `source = 'gmail'`, but the column is nullable).
+          const threadRows = selected.threadId
+            ? await db()
+                .select({
+                  documentId: documents.id,
+                  threadId: documents.sourceThreadId,
+                  subject: documents.title,
+                  content: documents.content,
+                  authoredAt: documents.authoredAt,
+                  metadata: documents.metadata,
+                  raw: documents.raw,
+                  category: emailTriage.category,
+                })
+                .from(documents)
+                .leftJoin(
+                  emailTriage,
+                  and(
+                    eq(emailTriage.userId, documents.userId),
+                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(documents.userId, u.id),
+                    eq(documents.source, "gmail"),
+                    eq(documents.sourceThreadId, selected.threadId),
+                  ),
+                )
+                // Oldest first so the reader reads top-to-bottom like a
+                // chat transcript — matches how Gmail's web UI orders threads.
+                .orderBy(asc(documents.authoredAt), asc(documents.id))
+            : await db()
+                .select({
+                  documentId: documents.id,
+                  threadId: documents.sourceThreadId,
+                  subject: documents.title,
+                  content: documents.content,
+                  authoredAt: documents.authoredAt,
+                  metadata: documents.metadata,
+                  raw: documents.raw,
+                  category: emailTriage.category,
+                })
+                .from(documents)
+                .leftJoin(
+                  emailTriage,
+                  and(
+                    eq(emailTriage.userId, documents.userId),
+                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(documents.userId, u.id),
+                    eq(documents.source, "gmail"),
+                    eq(documents.id, params.documentId),
+                  ),
+                );
+
+          const messages: MeInboxMessage[] = threadRows.map((row) => {
+            const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds)
+              ? (meta.labelIds as string[])
+              : [];
+            // `documents.raw` is the verbatim Gmail message we stored at
+            // ingest (schema-validated then). Cast back to `GmailMessage`
+            // rather than re-running zod per request — the shape is fixed
+            // and parsing the MIME tree dominates the cost anyway.
+            const raw = (row.raw ?? null) as GmailMessage | null;
+            const attachments: ExtractedAttachment[] = raw
+              ? extractAttachments(raw)
+              : [];
+            const rawHtml = raw ? extractMessageHtml(raw) : null;
+            return {
+              documentId: row.documentId,
+              sender: typeof meta.from === "string" ? meta.from : null,
+              to: typeof meta.to === "string" ? meta.to : null,
+              cc: typeof meta.cc === "string" ? meta.cc : null,
+              subject: row.subject ?? null,
+              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              body: normalizeBodyForReader(row.content ?? ""),
+              htmlBody: sanitizeEmailHtml(rawHtml),
+              authoredAt: row.authoredAt?.toISOString() ?? null,
+              unread: labelIds.includes("UNREAD"),
+              attachments,
+            };
+          });
+
+          // Subject + category lift from the selected row (thread subjects
+          // mostly stable up to "Re:" prefixes; email_triage is keyed on
+          // the thread anyway). Falls back to the first message when the
+          // selected row somehow isn't in the result (e.g. fan-out raced
+          // with a delete — defensive).
+          const selectedRow =
+            threadRows.find((r) => r.documentId === params.documentId) ??
+            threadRows[0];
           return {
-            documentId: r.documentId,
-            threadId: r.threadId ?? null,
-            sender: typeof meta.from === "string" ? meta.from : null,
-            subject: r.subject ?? null,
-            snippet: typeof meta.snippet === "string" ? meta.snippet : null,
-            authoredAt: r.authoredAt?.toISOString() ?? null,
-            unread: labelIds.includes("UNREAD"),
-            category: r.category ?? null,
+            threadId: selected.threadId ?? null,
+            subject: selectedRow?.subject ?? selected.subject ?? null,
+            category: selectedRow?.category ?? null,
+            selectedDocumentId: params.documentId,
+            messages,
           };
-        });
-
-        return { items };
-      })
+        },
+        { params: t.Object({ documentId: t.String() }) },
+      )
       .get(
         "/meetings",
         async ({
