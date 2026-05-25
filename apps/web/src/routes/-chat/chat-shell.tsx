@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VsPill } from "~/components/ui/visitors";
-import { useInbox, INBOX_PAGE_SIZE } from "~/hooks/use-inbox";
+import { useInbox, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
+import type { InboxItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
@@ -28,6 +29,12 @@ import { TextareaWithMirror } from "./composer-text";
 import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
 
 const MODEL_LEADING = <Sparkles size={12} />;
+
+// Module-level empties so the `?? EMPTY` fallback in `useRailData` returns a
+// referentially stable value before react-query's first fetch resolves —
+// otherwise every downstream callback / memo would churn on each render.
+const EMPTY_INBOX_PAGES: ReadonlyArray<InboxPage> = [];
+const EMPTY_INBOX_ITEMS: ReadonlyArray<InboxItem> = [];
 
 /**
  * Fixture-free chat scaffold shared by `/chat` and `/chat/$threadId`.
@@ -424,26 +431,33 @@ function useRailData(): RailData {
   const [inboxPageIndex, setInboxPageIndex] = useState(0);
   const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
 
-  const pages = inbox.data?.pages ?? [];
+  // Stabilize array references — react-query keeps `data.pages` stable via
+  // structural sharing, but the `?? []` fallback would otherwise mint a
+  // fresh empty array on every render before the first fetch resolves,
+  // churning every downstream callback / memo that depends on it.
+  const pages = useMemo(
+    () => inbox.data?.pages ?? EMPTY_INBOX_PAGES,
+    [inbox.data?.pages],
+  );
   const total = pages[0]?.total ?? 0;
   const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_PAGE_SIZE));
+  // Clamp during render — when invalidation drops the total below the
+  // parked index (e.g. user archived items from another client), the rail
+  // shows the last valid page without a state write. Prev/next handlers
+  // read off `safeInboxPage` so a stale index can't strand the user.
   const safeInboxPage = Math.min(inboxPageIndex, inboxPageCount - 1);
-  const inboxItems = pages[safeInboxPage]?.items ?? [];
-
-  // Clamp the page index whenever invalidation drops the total below
-  // the index we're parked on (e.g. user archived items from another
-  // client) — keeps the rail from rendering an empty page-N indicator.
-  useEffect(() => {
-    if (inboxPageIndex > inboxPageCount - 1) setInboxPageIndex(0);
-  }, [inboxPageIndex, inboxPageCount]);
+  const inboxItems = useMemo(
+    () => pages[safeInboxPage]?.items ?? EMPTY_INBOX_ITEMS,
+    [pages, safeInboxPage],
+  );
 
   const onPrevInbox = useCallback(() => {
-    setInboxPageIndex((i) => Math.max(0, i - 1));
-  }, []);
+    setInboxPageIndex(Math.max(0, safeInboxPage - 1));
+  }, [safeInboxPage]);
 
   const fetchNextPage = inbox.fetchNextPage;
   const onNextInbox = useCallback(() => {
-    const target = inboxPageIndex + 1;
+    const target = safeInboxPage + 1;
     if (target >= inboxPageCount) return;
     // If we haven't fetched this page yet, fire the request — the page
     // will land in cache and re-render with items populated. Don't gate
@@ -452,7 +466,7 @@ function useRailData(): RailData {
     // spinner in the indicator.
     if (!pages[target]) void fetchNextPage();
     setInboxPageIndex(target);
-  }, [inboxPageIndex, inboxPageCount, pages, fetchNextPage]);
+  }, [safeInboxPage, inboxPageCount, pages, fetchNextPage]);
 
   const onOpenInbox = useCallback((documentId: string) => {
     setSelectedInboxId(documentId);
