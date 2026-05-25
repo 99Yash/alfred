@@ -101,6 +101,29 @@ export interface MeMeetingItem {
 }
 
 /**
+ * Decode an inbox cursor. The shape is `<authoredAtISO>|<documentId>`;
+ * a missing `|` means a legacy timestamp-only cursor and we treat it as
+ * invalid rather than silently advancing (clients pick up the new shape
+ * on the next page, never mid-pagination).
+ *
+ * Returns `null` for no cursor, `"invalid"` for parse failure, or the
+ * decoded pair for a valid cursor.
+ */
+function parseInboxCursor(
+  raw: string | undefined,
+): { authoredAt: Date; documentId: string } | null | "invalid" {
+  if (!raw) return null;
+  const sep = raw.indexOf("|");
+  if (sep < 0) return "invalid";
+  const iso = raw.slice(0, sep);
+  const documentId = raw.slice(sep + 1);
+  if (!iso || !documentId) return "invalid";
+  const authoredAt = new Date(iso);
+  if (Number.isNaN(authoredAt.getTime())) return "invalid";
+  return { authoredAt, documentId };
+}
+
+/**
  * `documents.content` for Gmail is `buildContent(extracted)` output:
  *   `From: …\nTo: …\nSubject: …\nDate: …\n\n<body>`
  * The header block is redundant with `metadata.from` / `.to` / `.subject`
@@ -200,8 +223,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
             INBOX_MAX_LIMIT,
             Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT),
           );
-          const cursorDate = query.cursor ? new Date(query.cursor) : null;
-          if (cursorDate && Number.isNaN(cursorDate.getTime())) {
+          // Composite cursor `<authoredAtISO>|<documentId>` — the id
+          // tie-breaker avoids skipping rows with identical authoredAt
+          // values (Gmail batch notifications routinely share an
+          // `internalDate` to the millisecond; a plain timestamp cursor
+          // with `lt` would leak the tied row off the next page).
+          const parsedCursor = parseInboxCursor(query.cursor);
+          if (parsedCursor === "invalid") {
             return status(400, { message: "Invalid cursor" });
           }
 
@@ -250,11 +278,22 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
               ),
             )
             .where(
-              cursorDate
-                ? and(baseWhere, lt(documents.authoredAt, cursorDate))
+              parsedCursor
+                ? and(
+                    baseWhere,
+                    or(
+                      lt(documents.authoredAt, parsedCursor.authoredAt),
+                      and(
+                        eq(documents.authoredAt, parsedCursor.authoredAt),
+                        lt(documents.id, parsedCursor.documentId),
+                      ),
+                    ),
+                  )
                 : baseWhere,
             )
-            .orderBy(desc(documents.authoredAt))
+            // `id` tie-breaks rows sharing an `authoredAt` so the cursor
+            // WHERE clause stays consistent with the ORDER BY.
+            .orderBy(desc(documents.authoredAt), desc(documents.id))
             // Over-fetch by one so we can tell if there's a next page without
             // a second query — drop the extra row before returning.
             .limit(limit + 1);
@@ -278,9 +317,10 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
           });
 
           const last = pageRows[pageRows.length - 1];
-          const nextCursor = hasMore && last?.authoredAt
-            ? last.authoredAt.toISOString()
-            : null;
+          const nextCursor =
+            hasMore && last?.authoredAt
+              ? `${last.authoredAt.toISOString()}|${last.documentId}`
+              : null;
 
           return { items, nextCursor, total };
         },

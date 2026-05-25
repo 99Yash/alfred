@@ -1,9 +1,15 @@
 // Auto-generated from dimension.dev integration SVGs (public brand assets).
-// Each value is the inner content of a 50x50 viewBox SVG. Render via
-// dangerouslySetInnerHTML inside <svg viewBox='0 0 50 50'>. The __UID0__
-// placeholder is substituted with a useId() value at render time so
-// multiple instances of the same icon on a page do not collide on filter
-// or clip-path IDs.
+// Source artwork is authored in a 50x50 grid; the actual glyph paths
+// occupy the inner ~[8,42] x [8,42] region. `IntegrationGlyph` renders
+// these inside `<svg viewBox="8 8 34 34">` so icons fill the visible
+// space at small rail sizes (12–32px). The crop intentionally clips a
+// few units of drop-shadow on the doc-family glyphs (google_docs,
+// google_slides, google_sheets) — imperceptible at our rendering sizes
+// and an acceptable trade for the tighter optical fit.
+//
+// `__UID0__` is substituted with a useId() value at render time so
+// multiple instances of the same icon on a page do not collide on
+// filter or clip-path IDs.
 
 export type BrandSvgSlug =
   | "gmail"
