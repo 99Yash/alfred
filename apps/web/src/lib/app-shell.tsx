@@ -12,6 +12,7 @@ import { SearchPalette } from "~/components/search-palette";
 import { VsThemed, VsThemeProvider } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
+import { useEventBridge } from "~/lib/events/use-event-bridge";
 import { cn } from "~/lib/utils";
 
 /* -----------------------------------------------------------------------------
@@ -64,6 +65,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
   const location = useLocation();
   const navigate = useNavigate();
+  // Single per-session SSE connection that drives React Query
+  // invalidations (inbox.updated → ["me","inbox"]). Mounted here so it
+  // outlives route changes.
+  useEventBridge();
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);

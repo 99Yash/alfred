@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@alfred/api": "workspace:*",
+    "@alfred/contracts": "workspace:*",
     "@alfred/schemas": "workspace:*",
     "@alfred/sync": "workspace:*",
     "@elysiajs/eden": "catalog:",

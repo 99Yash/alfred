@@ -1,4 +1,6 @@
+import type { TriageCategory } from "@alfred/contracts";
 import { useEffect, useState } from "react";
+import type { IntegrationBrand } from "~/lib/integration-icons";
 
 export type ThreadGroup = "today" | "yesterday" | "earlier";
 
@@ -128,6 +130,17 @@ export interface InboxItem {
   unread?: boolean;
   initial: string;
   tone: ToolTone;
+  /** Gmail thread id — used to deep-link rows to Gmail web. */
+  threadId?: string | null;
+  /** Triage category surfaced as a chip next to the timestamp. */
+  category?: TriageCategory | null;
+  /** Brand glyph for noreply senders (github, linkedin, linear, …). */
+  senderBrand?: IntegrationBrand | null;
+  /**
+   * Domain of the sender's email (e.g. `notion.so`). Used for the favicon
+   * fallback avatar when the domain doesn't have a first-class brand SVG.
+   */
+  senderDomain?: string | null;
 }
 
 export const INBOX: InboxItem[] = [

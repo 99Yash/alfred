@@ -198,6 +198,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@alfred/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -559,6 +562,9 @@ importers:
 
   packages/integrations:
     dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
