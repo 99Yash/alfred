@@ -33,10 +33,32 @@ export interface RailBriefingSummary {
   subject: string | null;
 }
 
+/**
+ * Server-driven pagination for the rail Inbox tab. When present, `InboxFeed`
+ * surfaces ← → controls and the chat shell owns the page index; when absent
+ * (preview route, fixtures), the feed renders without pagination.
+ */
+export interface InboxPagination {
+  pageIndex: number;
+  pageCount: number;
+  total: number;
+  isLoading: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}
+
 export interface RailData {
   todos: ReadonlyArray<TodoItem>;
   todoSuggestions?: ReadonlyArray<SuggestionInput>;
   inbox: ReadonlyArray<InboxItem>;
+  /** Optional pagination state for the inbox tab. */
+  inboxPagination?: InboxPagination;
+  /** Document id of the email currently expanded in the rail reader, if any. */
+  selectedInboxId?: string | null;
+  /** Open the rail's single-email reader for `documentId`. */
+  onOpenInbox?: (documentId: string) => void;
+  /** Close the rail's single-email reader and return to the list view. */
+  onCloseInbox?: () => void;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -134,7 +156,13 @@ export function RailContent({
               <TodoFeed items={data.todos} suggestions={data.todoSuggestions} />
             </RailSlot>
             <RailSlot active={tab === "inbox"}>
-              <InboxFeed items={data.inbox} />
+              <InboxFeed
+                items={data.inbox}
+                pagination={data.inboxPagination}
+                selectedId={data.selectedInboxId ?? null}
+                onOpen={data.onOpenInbox}
+                onClose={data.onCloseInbox}
+              />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
               <MeetingsFeed

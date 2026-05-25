@@ -5,8 +5,8 @@ import {
   GOOGLE_FEATURE_SCOPES,
   listEvents,
 } from "@alfred/integrations/google";
-import { and, desc, eq, isNull, notInArray, or } from "drizzle-orm";
-import { Elysia } from "elysia";
+import { and, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
+import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
@@ -22,7 +22,8 @@ import { getPreference } from "../memory/preferences";
  * to see your latest unread threads here").
  */
 
-const INBOX_LIMIT = 12;
+const INBOX_DEFAULT_LIMIT = 8;
+const INBOX_MAX_LIMIT = 50;
 /**
  * Triage categories the rail Inbox tab hides. Newsletters + marketing are
  * still ingested (briefing watermark + search), they just don't deserve a
@@ -52,6 +53,26 @@ export interface MeInboxItem {
   category: string | null;
 }
 
+/**
+ * Full payload for a single inbox row — drives the rail's single-email
+ * reader pane. Body is the plain-text extraction stored in `documents.content`
+ * with the synthetic header block stripped (the header lives in `from`/
+ * `to`/`subject`/`authoredAt` already).
+ */
+export interface MeInboxDetail {
+  documentId: string;
+  threadId: string | null;
+  sender: string | null;
+  to: string | null;
+  cc: string | null;
+  subject: string | null;
+  snippet: string | null;
+  body: string;
+  authoredAt: string | null;
+  unread: boolean;
+  category: string | null;
+}
+
 export interface MeLatestBriefing {
   id: string;
   slot: string;
@@ -77,6 +98,25 @@ export interface MeMeetingItem {
   hangoutLink: string | null;
   /** Public web view of the event in Google Calendar. */
   htmlLink: string | null;
+}
+
+/**
+ * `documents.content` for Gmail is `buildContent(extracted)` output:
+ *   `From: …\nTo: …\nSubject: …\nDate: …\n\n<body>`
+ * The header block is redundant with `metadata.from` / `.to` / `.subject`
+ * and the `authoredAt` column, so strip it before returning to the reader
+ * — the UI renders those fields from structured columns instead.
+ */
+function stripContentHeaders(content: string): string {
+  if (!content) return "";
+  // The synthetic block ends at the first blank line. If we never wrote a
+  // header (some shapes had no parseable fields), `buildContent` returns
+  // the body verbatim — recognize that by checking the prefix.
+  if (!/^(From|To|Cc|Subject|Date):/m.test(content.slice(0, 200))) {
+    return content;
+  }
+  const blank = content.indexOf("\n\n");
+  return blank < 0 ? "" : content.slice(blank + 2);
 }
 
 /**
@@ -153,56 +193,155 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
-      .get("/inbox", async ({ user: u }): Promise<{ items: MeInboxItem[] }> => {
-        const rows = await db()
-          .select({
-            documentId: documents.id,
-            threadId: documents.sourceThreadId,
-            subject: documents.title,
-            authoredAt: documents.authoredAt,
-            metadata: documents.metadata,
-            category: emailTriage.category,
-          })
-          .from(documents)
-          .leftJoin(
-            emailTriage,
-            and(
-              eq(emailTriage.userId, documents.userId),
-              eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-            ),
-          )
-          .where(
-            and(
-              eq(documents.userId, u.id),
-              eq(documents.source, "gmail"),
-              // Untriaged rows (left join null) and rows that aren't in the
-              // suppressed list both belong in the rail.
-              or(
-                isNull(emailTriage.category),
-                notInArray(emailTriage.category, RAIL_SUPPRESSED_CATEGORIES),
-              ),
-            ),
-          )
-          .orderBy(desc(documents.authoredAt))
-          .limit(INBOX_LIMIT);
+      .get(
+        "/inbox",
+        async ({ user: u, query }) => {
+          const limit = Math.min(
+            INBOX_MAX_LIMIT,
+            Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT),
+          );
+          const cursorDate = query.cursor ? new Date(query.cursor) : null;
+          if (cursorDate && Number.isNaN(cursorDate.getTime())) {
+            return status(400, { message: "Invalid cursor" });
+          }
 
-        const items: MeInboxItem[] = rows.map((r) => {
-          const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+          const baseWhere = and(
+            eq(documents.userId, u.id),
+            eq(documents.source, "gmail"),
+            // Untriaged rows (left join null) and rows that aren't in the
+            // suppressed list both belong in the rail.
+            or(
+              isNull(emailTriage.category),
+              notInArray(emailTriage.category, RAIL_SUPPRESSED_CATEGORIES),
+            ),
+          );
+
+          // Total count drives the "X/N" indicator in the rail. With cursor
+          // pagination we don't get this for free, so it's a second roundtrip —
+          // cheap at single-user scale, but it's the reason we cap MAX_LIMIT.
+          const totalRow = await db()
+            .select({ value: drizzleSql<number>`count(*)::int` })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+              ),
+            )
+            .where(baseWhere);
+          const total = totalRow[0]?.value ?? 0;
+
+          const rows = await db()
+            .select({
+              documentId: documents.id,
+              threadId: documents.sourceThreadId,
+              subject: documents.title,
+              authoredAt: documents.authoredAt,
+              metadata: documents.metadata,
+              category: emailTriage.category,
+            })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+              ),
+            )
+            .where(
+              cursorDate
+                ? and(baseWhere, lt(documents.authoredAt, cursorDate))
+                : baseWhere,
+            )
+            .orderBy(desc(documents.authoredAt))
+            // Over-fetch by one so we can tell if there's a next page without
+            // a second query — drop the extra row before returning.
+            .limit(limit + 1);
+
+          const hasMore = rows.length > limit;
+          const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+          const items: MeInboxItem[] = pageRows.map((r) => {
+            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            return {
+              documentId: r.documentId,
+              threadId: r.threadId ?? null,
+              sender: typeof meta.from === "string" ? meta.from : null,
+              subject: r.subject ?? null,
+              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              authoredAt: r.authoredAt?.toISOString() ?? null,
+              unread: labelIds.includes("UNREAD"),
+              category: r.category ?? null,
+            };
+          });
+
+          const last = pageRows[pageRows.length - 1];
+          const nextCursor = hasMore && last?.authoredAt
+            ? last.authoredAt.toISOString()
+            : null;
+
+          return { items, nextCursor, total };
+        },
+        {
+          query: t.Object({
+            limit: t.Optional(t.Numeric({ minimum: 1, maximum: INBOX_MAX_LIMIT })),
+            cursor: t.Optional(t.String()),
+          }),
+        },
+      )
+      .get(
+        "/inbox/:documentId",
+        async ({ user: u, params }) => {
+          const rows = await db()
+            .select({
+              documentId: documents.id,
+              threadId: documents.sourceThreadId,
+              subject: documents.title,
+              content: documents.content,
+              authoredAt: documents.authoredAt,
+              metadata: documents.metadata,
+              category: emailTriage.category,
+            })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+              ),
+            )
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                eq(documents.source, "gmail"),
+                eq(documents.id, params.documentId),
+              ),
+            )
+            .limit(1);
+
+          const row = rows[0];
+          if (!row) return status(404, { message: "Not found" });
+
+          const meta = (row.metadata as Record<string, unknown> | null) ?? {};
           const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
           return {
-            documentId: r.documentId,
-            threadId: r.threadId ?? null,
+            documentId: row.documentId,
+            threadId: row.threadId ?? null,
             sender: typeof meta.from === "string" ? meta.from : null,
-            subject: r.subject ?? null,
+            to: typeof meta.to === "string" ? meta.to : null,
+            cc: typeof meta.cc === "string" ? meta.cc : null,
+            subject: row.subject ?? null,
             snippet: typeof meta.snippet === "string" ? meta.snippet : null,
-            authoredAt: r.authoredAt?.toISOString() ?? null,
+            body: stripContentHeaders(row.content ?? ""),
+            authoredAt: row.authoredAt?.toISOString() ?? null,
             unread: labelIds.includes("UNREAD"),
-            category: r.category ?? null,
+            category: row.category ?? null,
           };
-        });
-
-        return { items };
-      })
+        },
+        { params: t.Object({ documentId: t.String() }) },
+      )
       .get(
         "/meetings",
         async ({
