@@ -53,12 +53,32 @@ export const memoryFactLearnedSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/**
+ * The Gmail inbox view has changed in a way that warrants a re-fetch.
+ *
+ *  - `reason: 'ingested'` — one or more new documents were inserted by the
+ *    ingest worker (`gmail.poll_recent` / `poll_history` / `ingest_recent`).
+ *  - `reason: 'triaged'` — the triage workflow classified a thread and the
+ *    row's category chip may have changed.
+ *
+ * Publishers should coalesce: emit at most once per ingestion job or per
+ * triage run rather than per document. The client invalidates the rail's
+ * `["me","inbox"]` React Query on receipt; the payload is deliberately
+ * minimal so we don't try to do partial client-side merges.
+ */
+export const inboxUpdatedSchema = z.object({
+  reason: z.enum(["ingested", "triaged"]),
+  /** Best-effort count of affected docs for telemetry — not load-bearing. */
+  count: z.number().int().nonnegative().max(10_000).optional(),
+});
+
 export const eventPayloadSchemas = {
   "agent.progress": agentProgressSchema,
   "agent.run": agentRunSchema,
   "tool.call": toolCallSchema,
   "approval.requested": approvalRequestedSchema,
   "memory.fact_learned": memoryFactLearnedSchema,
+  "inbox.updated": inboxUpdatedSchema,
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;

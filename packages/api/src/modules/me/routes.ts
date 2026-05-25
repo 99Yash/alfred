@@ -34,6 +34,14 @@ const RAIL_SUPPRESSED_CATEGORIES = ["newsletter", "marketing"];
 
 export interface MeInboxItem {
   documentId: string;
+  /**
+   * Gmail thread id. Stable across re-ingest and used to deep-link into
+   * Gmail web (`https://mail.google.com/mail/u/0/#inbox/<id>`). Null only
+   * for documents that lost their thread grouping during ingest — which
+   * we don't currently produce for `source = 'gmail'`, but the column is
+   * nullable so we keep the type honest.
+   */
+  threadId: string | null;
   /** Raw `From` header from Gmail metadata, e.g. `"Maya Chen <maya@example.com>"`. */
   sender: string | null;
   subject: string | null;
@@ -149,6 +157,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
         const rows = await db()
           .select({
             documentId: documents.id,
+            threadId: documents.sourceThreadId,
             subject: documents.title,
             authoredAt: documents.authoredAt,
             metadata: documents.metadata,
@@ -182,6 +191,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
           const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
           return {
             documentId: r.documentId,
+            threadId: r.threadId ?? null,
             sender: typeof meta.from === "string" ? meta.from : null,
             subject: r.subject ?? null,
             snippet: typeof meta.snippet === "string" ? meta.snippet : null,
