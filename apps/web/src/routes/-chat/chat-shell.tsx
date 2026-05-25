@@ -560,6 +560,10 @@ function Composer({ threadId }: { threadId: string | undefined }) {
           "vs-elevated relative rounded-3xl p-2 overflow-hidden",
           // Transparent surface — particles + the vs-elevated hairline carry
           // the composer's visual identity now, no solid fill needed.
+          // Light mode gets a stronger inset ring on top of vs-elevated's 0.05
+          // hairline so the edge reads against the white page; dark relies on
+          // vs-elevated's existing inset white ring.
+          theme === "light" && "ring-1 ring-inset ring-vs-fg-a1/50",
           "focus-within:ring-2 focus-within:ring-vs-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-vs-background transition-shadow",
         )}
