@@ -4,10 +4,15 @@ import { authClient } from "~/lib/auth-client";
 import { openEventStream } from "./stream";
 
 /**
- * Side-effect hook that opens a single SSE connection per signed-in
- * session and translates incoming events into React Query cache
- * invalidations. Mount once at the app shell — additional consumers
- * (e.g. `useInbox`) just read from React Query as usual.
+ * Side-effect hook that opens an SSE connection on behalf of the React
+ * Query cache and invalidates the relevant queries when events arrive.
+ * Mount once at the app shell — additional consumers (`useInbox`, etc.)
+ * just read from React Query as usual.
+ *
+ * Not a global singleton: other consumers (e.g. `/debug/events` via
+ * `useEventStream`) open their own `EventSource`. Consolidating to a
+ * shared bus is a separate refactor; for now each subscriber pays its
+ * own connection cost — fine at single-user scale.
  *
  * Current bindings:
  *   - `inbox.updated` → invalidate `["me","inbox"]` so the rail re-fetches.

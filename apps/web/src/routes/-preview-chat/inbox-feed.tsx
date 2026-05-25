@@ -146,68 +146,81 @@ function InboxRow({ item }: { item: InboxItem }) {
   const href = item.threadId
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
     : undefined;
-  const Tag = href ? "a" : "button";
+  // Render as an anchor when we have a thread to open, otherwise a
+  // plain non-interactive container — a focusable element with no
+  // handler would lie to keyboard users about the row being actionable.
+  const sharedClass = cn(
+    "group relative w-full text-left rounded-xl px-2 py-2 -mx-0.5",
+    "flex items-start gap-2.5",
+    href
+      ? cn(
+          "hover:bg-vs-bg-a2 transition-colors vs-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        )
+      : "cursor-default",
+  );
+
+  const body = (
+    <>
+      {/* Unread accent — sits along the left edge of the row so the
+       * "this needs attention" signal reads even when the user is
+       * scanning the rail peripherally. Falls back to a transparent
+       * stripe for read rows so the layout doesn't shift. */}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute left-0 top-2 bottom-2 w-[2px] rounded-full transition-colors",
+          item.unread ? "bg-vs-purple-4" : "bg-transparent",
+        )}
+      />
+
+      <SenderAvatar item={item} />
+
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              "min-w-0 truncate text-[13px] leading-5",
+              item.unread ? "font-medium text-vs-fg-4" : "text-vs-fg-3",
+            )}
+          >
+            {item.sender}
+          </span>
+          <span className="ml-auto shrink-0 inline-flex items-center gap-1.5">
+            {item.category ? <CategoryChip category={item.category} /> : null}
+            <span className="text-[11px] text-vs-fg-2 tabular-nums">{item.time}</span>
+          </span>
+        </span>
+        <span
+          className={cn(
+            "block truncate text-[12px] leading-4",
+            item.unread ? "text-vs-fg-3" : "text-vs-fg-2",
+          )}
+        >
+          {item.subject}
+        </span>
+        <span
+          className={cn(
+            "block truncate text-[11px] leading-4",
+            item.unread ? "text-vs-fg-2" : "text-vs-fg-2/70",
+          )}
+        >
+          {item.preview}
+        </span>
+      </span>
+    </>
+  );
 
   return (
     <li>
-      <Tag
-        {...(href
-          ? { href, target: "_blank", rel: "noreferrer noopener" }
-          : { type: "button" as const })}
-        className={cn(
-          "group relative w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
-          "flex items-start gap-2.5",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        )}
-      >
-        {/* Unread accent — sits along the left edge of the row so the
-         * "this needs attention" signal reads even when the user is
-         * scanning the rail peripherally. Falls back to a transparent
-         * stripe for read rows so the layout doesn't shift. */}
-        <span
-          aria-hidden
-          className={cn(
-            "absolute left-0 top-2 bottom-2 w-[2px] rounded-full transition-colors",
-            item.unread ? "bg-vs-purple-4" : "bg-transparent",
-          )}
-        />
-
-        <SenderAvatar item={item} />
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "min-w-0 truncate text-[13px] leading-5",
-                item.unread ? "font-medium text-vs-fg-4" : "text-vs-fg-3",
-              )}
-            >
-              {item.sender}
-            </span>
-            <span className="ml-auto shrink-0 inline-flex items-center gap-1.5">
-              {item.category ? <CategoryChip category={item.category} /> : null}
-              <span className="text-[11px] text-vs-fg-2 tabular-nums">{item.time}</span>
-            </span>
-          </span>
-          <span
-            className={cn(
-              "block truncate text-[12px] leading-4",
-              item.unread ? "text-vs-fg-3" : "text-vs-fg-2",
-            )}
-          >
-            {item.subject}
-          </span>
-          <span
-            className={cn(
-              "block truncate text-[11px] leading-4",
-              item.unread ? "text-vs-fg-2" : "text-vs-fg-2/70",
-            )}
-          >
-            {item.preview}
-          </span>
-        </span>
-      </Tag>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer noopener" className={sharedClass}>
+          {body}
+        </a>
+      ) : (
+        <div className={sharedClass}>{body}</div>
+      )}
     </li>
   );
 }
@@ -275,11 +288,12 @@ function SenderAvatar({ item }: { item: InboxItem }) {
 }
 
 /**
- * Compact triage chip. Categories share three buckets visually:
+ * Compact triage chip. Categories share four buckets visually:
  *  - red    — `urgent`
  *  - amber  — `action_needed`, `awaiting_reply`, `payment`
  *  - sky    — `follow_up`, `meeting`
- *  - gray   — `fyi`, `done`, `newsletter`, `marketing`
+ *  - green  — `done`
+ *  - gray   — `fyi`, `newsletter`, `marketing`
  */
 function CategoryChip({ category }: { category: TriageCategory }) {
   return (
