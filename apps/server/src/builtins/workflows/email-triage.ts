@@ -3,6 +3,7 @@ import {
   DEFAULT_TRIAGE_CATEGORY,
   getTriage,
   loadTriageContext,
+  publishEvent,
   setAppliedLabelId,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
@@ -186,6 +187,21 @@ export const emailTriageWorkflow: Workflow<State> = {
             model,
             runId: ctx.runId,
           });
+
+          // Tell the rail to re-fetch: the row's category chip just
+          // changed. Best-effort — a dropped frame is recovered by the
+          // 60s rail poll, so we don't bubble the error out of the step.
+          try {
+            await publishEvent({
+              userId: ctx.userId,
+              kind: "inbox.updated",
+              payload: { reason: "triaged", count: 1 },
+            });
+          } catch (err) {
+            await ctx.log(
+              `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
 
         await ctx.log(

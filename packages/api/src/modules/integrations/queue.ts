@@ -9,6 +9,7 @@ import {
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
+import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
@@ -123,6 +124,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       if (data.triageInsertedDocs && result.insertedDocumentIds.length) {
         await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
       }
+      if (result.insertedDocumentIds.length) {
+        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+      }
       return result;
     }
     case "gmail.poll_recent": {
@@ -146,6 +150,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // embed that fails here so we don't lose chunks permanently.
         await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook");
         await embedRealtimeInserts(result.insertedDocumentIds);
+        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
       }
       return result;
     }
@@ -164,6 +169,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
         await enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest");
+        await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
       }
       return result;
     }
@@ -288,6 +294,32 @@ async function enqueueTriageRuns(
       }
     }),
   );
+}
+
+/**
+ * Best-effort `inbox.updated` notification — fires the SSE bus so the
+ * chat right-rail can invalidate its `["me","inbox"]` query without
+ * polling. We coalesce per-job (one event per N inserts) rather than
+ * per-doc so a bursty back-catalog catch-up doesn't generate hundreds
+ * of frames. The matching `reason: 'triaged'` half lives in the
+ * email-triage workflow.
+ *
+ * Failures are swallowed-and-logged: a missed SSE frame is a missed
+ * refresh, not a missed write — the 60s rail poll backstops it.
+ */
+async function publishInboxUpdate(
+  userId: string,
+  reason: "ingested" | "triaged",
+  count: number,
+): Promise<void> {
+  try {
+    await publishEvent({ userId, kind: "inbox.updated", payload: { reason, count } });
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] publishInboxUpdate failed user=${userId} reason=${reason}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 /**

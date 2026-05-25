@@ -1,7 +1,8 @@
-import { CalendarClock, ListChecks, Mail, X } from "lucide-react";
+import { CalendarClock, ListChecks, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { VsSegmented } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
+import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import type { InboxItem, MeetingItem, RailTab, TodoItem } from "./helpers";
 import { InboxFeed } from "./inbox-feed";
@@ -14,7 +15,9 @@ import { WeatherChip } from "./weather-chip";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
   { value: "todo", label: "To do", icon: <ListChecks size={12} /> },
-  { value: "inbox", label: "Inbox", icon: <Mail size={12} /> },
+  // Inbox is Gmail-sourced today; the brand glyph reads at a glance and
+  // mirrors the source icon shown in `ConnectToolsRow` below the composer.
+  { value: "inbox", label: "Inbox", icon: <IntegrationGlyph brand="gmail" size={12} /> },
   { value: "meetings", label: "Up next", icon: <CalendarClock size={12} /> },
 ];
 

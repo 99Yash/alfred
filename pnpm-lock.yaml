@@ -198,6 +198,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@alfred/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
