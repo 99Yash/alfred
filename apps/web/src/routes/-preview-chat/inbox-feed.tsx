@@ -158,7 +158,16 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {items.length === 0 && pagination?.isLoading ? (
+        // Page hasn't landed in the cache yet (typically: user clicked
+        // "Next" before the fetch resolved). Show a loader rather than the
+        // "No matches" empty state, which would otherwise flash for one
+        // render window and read as a filter result instead of in-flight
+        // pagination.
+        <div className="px-2 py-6 flex items-center justify-center">
+          <Loader2 size={14} className="animate-spin text-vs-fg-3" aria-hidden />
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="px-2 py-6 text-center">
           <p className="text-[12px] text-vs-fg-2">No matches.</p>
         </div>
