@@ -180,7 +180,10 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
        * edge and the shelf tucks under it, slightly inset. Mirrors
        * dimension's `ConnectIntegrationsBar` pattern. */}
       <div className="mt-8 w-full max-w-2xl">
-        <Composer threadId={threadId} />
+        {/* Key by threadId so the composer (and its Tiptap editor) remounts
+         * on thread switch — draft-seeding from localStorage runs once per
+         * thread and the editor instance starts fresh, no per-render sync. */}
+        <Composer key={threadId ?? "new"} threadId={threadId} />
         <ConnectToolsBar />
       </div>
     </div>
@@ -201,7 +204,6 @@ function MentionPalette({
   onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // Click outside the palette closes it. Pointerdown beats pointerup so the
   // click never lands on whatever's underneath.
@@ -222,19 +224,20 @@ function MentionPalette({
     return () => document.removeEventListener("pointerdown", handler);
   }, [onClose]);
 
-  // Scroll the active row into view when keyboard navigation walks past
-  // the visible window. `block: "nearest"` only scrolls when the row is
-  // actually off-screen, so the list doesn't twitch on every keystroke.
-  useEffect(() => {
-    const el = optionRefs.current[activeIdx];
+  // Scroll the active row into view as soon as React attaches its DOM node.
+  // Wiring this through a ref callback (instead of a useEffect on activeIdx)
+  // means the scroll fires from the same render that swapped the active
+  // option — no extra render-then-effect step — and only when the active
+  // node identity actually changes. `block: "nearest"` is a no-op once the
+  // row is visible, so the list doesn't twitch on hover.
+  const scrollActiveIntoView = useCallback((el: HTMLButtonElement | null) => {
     if (el) el.scrollIntoView({ block: "nearest" });
-  }, [activeIdx]);
+  }, []);
 
+  const labelId = "mention-palette-label";
   return (
     <div
       ref={rootRef}
-      role="listbox"
-      aria-label="Mention a source"
       className={cn(
         "absolute bottom-full left-0 right-0 mb-2 z-20",
         "vs-elevated rounded-2xl bg-vs-bg-1 p-1.5",
@@ -245,53 +248,62 @@ function MentionPalette({
         "transition-opacity duration-150 ease-out",
       )}
     >
-      <p className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-vs-fg-2">
+      <p
+        id={labelId}
+        className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-vs-fg-2"
+      >
         Mention a source
       </p>
-      {options.map((opt, i) => {
-        const Icon = opt.icon;
-        const isActive = i === activeIdx;
-        return (
-          <button
-            key={opt.value}
-            ref={(el) => {
-              optionRefs.current[i] = el;
-            }}
-            type="button"
-            role="option"
-            aria-selected={isActive}
-            onMouseEnter={() => onHover(i)}
-            onClick={() => onPick(opt)}
-            className={cn(
-              "w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
-              "transition-colors",
-              isActive ? "bg-vs-bg-a2" : "hover:bg-vs-bg-a2",
-              "outline-none",
-            )}
-          >
-            <span className="grid size-6 shrink-0 place-items-center rounded-md bg-vs-bg-2">
-              {opt.brand ? (
-                <IntegrationGlyph brand={opt.brand} size={14} />
-              ) : Icon ? (
-                <Icon size={13} className="text-vs-fg-3" />
+      {/* `role="menu"` rather than `role="listbox"` here is a deliberate
+       * compromise: react-doctor's prefer-tag-over-role maps listbox →
+       * <datalist> (no rich rows possible) and <ul role="listbox"> trips
+       * no-noninteractive-element-to-interactive-role. Semantically the
+       * palette is a popup the user picks one item from — `menu` /
+       * `menuitem` cover that and don't conflict with either rule. */}
+      <div role="menu" aria-labelledby={labelId}>
+        {options.map((opt, i) => {
+          const Icon = opt.icon;
+          const isActive = i === activeIdx;
+          return (
+            <button
+              key={opt.value}
+              ref={isActive ? scrollActiveIntoView : null}
+              type="button"
+              role="menuitem"
+              aria-current={isActive ? "true" : undefined}
+              onMouseEnter={() => onHover(i)}
+              onClick={() => onPick(opt)}
+              className={cn(
+                "w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
+                "transition-colors",
+                isActive ? "bg-vs-bg-a2" : "hover:bg-vs-bg-a2",
+                "outline-none",
+              )}
+            >
+              <span className="grid size-6 shrink-0 place-items-center rounded-md bg-vs-bg-2">
+                {opt.brand ? (
+                  <IntegrationGlyph brand={opt.brand} size={14} />
+                ) : Icon ? (
+                  <Icon size={13} className="text-vs-fg-3" />
+                ) : null}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-vs-fg-4 truncate">
+                  {opt.label}
+                </span>
+                <span className="block text-[11px] text-vs-fg-2 truncate">
+                  {opt.subtitle}
+                </span>
+              </span>
+              {isActive ? (
+                <span className="text-[10px] text-vs-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-vs-bg-2">
+                  ↵
+                </span>
               ) : null}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium text-vs-fg-4 truncate">
-                {opt.label}
-              </span>
-              <span className="block text-[11px] text-vs-fg-2 truncate">
-                {opt.subtitle}
-              </span>
-            </span>
-            {isActive ? (
-              <span className="text-[10px] text-vs-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-vs-bg-2">
-                ↵
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -381,10 +393,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
       };
     }
     return undefined;
-    // draftKey is intentionally excluded: the editor seeds exactly once, and
-    // a thread switch unmounts/remounts the Composer via React's key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draftKey]);
 
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const mic = useMicRecording();
@@ -408,19 +417,26 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     [suggestion],
   );
 
-  // Clamp the active index when filtering shrinks the list.
-  useEffect(() => {
-    if (mentionIdx >= mentionCandidates.length) {
-      setMentionIdx(Math.max(0, mentionCandidates.length - 1));
-    }
-  }, [mentionCandidates.length, mentionIdx]);
-
-  // Reset to the top of the list whenever a new suggestion opens or the
-  // query changes — otherwise the highlight can sit stale on a row the user
-  // can no longer see after typing past it.
-  useEffect(() => {
+  // Reset the active index when a new suggestion opens or the query changes.
+  // The previous-value-during-render pattern keeps this synchronous and out
+  // of an effect. `prevQuery` is only used to gate the reset, never read in
+  // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
+  const currentQuery = suggestion?.query ?? null;
+  const prevQueryRef = useRef<string | null>(currentQuery);
+  if (prevQueryRef.current !== currentQuery) {
+    prevQueryRef.current = currentQuery;
     setMentionIdx(0);
-  }, [suggestion?.query]);
+  }
+
+  // Clamp the active row at render time. If filtering shrunk the list since
+  // the last keystroke, the displayed highlight lands on the last valid row
+  // without an effect that loops state back through React. The keyboard
+  // handler reads off `visibleMentionIdx` so a stale `mentionIdx` can't
+  // walk past the new list bounds either.
+  const visibleMentionIdx =
+    mentionCandidates.length === 0
+      ? 0
+      : Math.min(mentionIdx, mentionCandidates.length - 1);
 
   const insertMention = useCallback((option: MentionOption) => {
     suggestion?.command(option);
@@ -437,16 +453,16 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     if (!suggestion || mentionCandidates.length === 0) return false;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setMentionIdx((i) => Math.min(mentionCandidates.length - 1, i + 1));
+      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
       return true;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setMentionIdx((i) => Math.max(0, i - 1));
+      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
       return true;
     }
     if (event.key === "Enter" || event.key === "Tab") {
-      const pick = mentionCandidates[mentionIdx];
+      const pick = mentionCandidates[visibleMentionIdx];
       if (pick) {
         event.preventDefault();
         suggestion.command(pick);
@@ -529,7 +545,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
       {suggestion && mentionCandidates.length > 0 ? (
         <MentionPalette
           options={mentionCandidates}
-          activeIdx={mentionIdx}
+          activeIdx={visibleMentionIdx}
           onHover={setMentionIdx}
           onPick={insertMention}
           onClose={() => suggestion.dismiss()}

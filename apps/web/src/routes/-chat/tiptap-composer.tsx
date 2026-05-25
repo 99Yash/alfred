@@ -9,7 +9,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import {
@@ -40,6 +40,7 @@ export interface TiptapComposerHandle {
 }
 
 interface TiptapComposerProps {
+  ref?: Ref<TiptapComposerHandle>;
   initialJSON?: JSONContent;
   placeholder?: string;
   className?: string;
@@ -62,177 +63,173 @@ interface TiptapComposerProps {
  * than the default tippy popup. Suggestion key handling is bridged via a ref
  * to avoid recreating the editor on every render.
  */
-export const TiptapComposer = forwardRef<TiptapComposerHandle, TiptapComposerProps>(
-  function TiptapComposer(
-    {
-      initialJSON,
-      placeholder,
-      className,
-      onChange,
-      onSubmit,
-      onSuggestionChange,
-      suggestionKeyDownRef,
-    },
-    ref,
-  ) {
-    // Stable refs so the closures captured by Tiptap's extension config don't
-    // need to be recreated on every parent render.
-    const onChangeRef = useRef(onChange);
-    const onSubmitRef = useRef(onSubmit);
-    const onSuggestionChangeRef = useRef(onSuggestionChange);
-    useEffect(() => {
-      onChangeRef.current = onChange;
-      onSubmitRef.current = onSubmit;
-      onSuggestionChangeRef.current = onSuggestionChange;
-    });
+export function TiptapComposer({
+  ref,
+  initialJSON,
+  placeholder,
+  className,
+  onChange,
+  onSubmit,
+  onSuggestionChange,
+  suggestionKeyDownRef,
+}: TiptapComposerProps) {
+  // Stable refs so the closures captured by Tiptap's extension config don't
+  // need to be recreated on every parent render.
+  const onChangeRef = useRef(onChange);
+  const onSubmitRef = useRef(onSubmit);
+  const onSuggestionChangeRef = useRef(onSuggestionChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onSubmitRef.current = onSubmit;
+    onSuggestionChangeRef.current = onSuggestionChange;
+  });
 
-    // Tracks whether the suggestion popup is open — used to skip Enter-submit
-    // when the user is picking a mention.
-    const suggestionOpenRef = useRef(false);
+  // Tracks whether the suggestion popup is open — used to skip Enter-submit
+  // when the user is picking a mention.
+  const suggestionOpenRef = useRef(false);
 
-    const editor = useEditor({
-      extensions: [
-        StarterKit.configure({
-          blockquote: false,
-          codeBlock: false,
-          heading: false,
-          horizontalRule: false,
-          bulletList: false,
-          orderedList: false,
-          listItem: false,
-        }),
-        Placeholder.configure({
-          placeholder: placeholder ?? "",
-        }),
-        Mention.extend({
-          addNodeView() {
-            return ReactNodeViewRenderer(MentionChipNodeView);
-          },
-        }).configure({
-          // `@<label>` round-trips through `editor.getText()` so plain-text
-          // submission still carries the mention.
-          renderText({ node }) {
-            const label = node.attrs.label ?? node.attrs.id ?? "";
-            return `@${label}`;
-          },
-          // Backspace immediately before a chip deletes the whole chip (default
-          // behavior keeps the `@` floating around).
-          deleteTriggerWithBackspace: true,
-          HTMLAttributes: {
-            class: "tiptap-mention-chip",
-          },
-          suggestion: {
-            char: "@",
-            allowSpaces: false,
-            items: ({ query }) => Array.from(filterMentionOptions(query)),
-            render: () => ({
-              onStart: (props) => {
-                suggestionOpenRef.current = true;
-                onSuggestionChangeRef.current({
-                  query: props.query,
-                  command: (item) =>
-                    props.command({ id: item.value, label: item.label }),
-                  dismiss: () => {
-                    props.editor
-                      .chain()
-                      .focus()
-                      .deleteRange(props.range)
-                      .run();
-                  },
-                });
-              },
-              onUpdate: (props) => {
-                onSuggestionChangeRef.current({
-                  query: props.query,
-                  command: (item) =>
-                    props.command({ id: item.value, label: item.label }),
-                  dismiss: () => {
-                    props.editor
-                      .chain()
-                      .focus()
-                      .deleteRange(props.range)
-                      .run();
-                  },
-                });
-              },
-              onExit: () => {
-                suggestionOpenRef.current = false;
-                onSuggestionChangeRef.current(null);
-              },
-              onKeyDown: ({ event }) =>
-                suggestionKeyDownRef.current?.(event) ?? false,
-            }),
-          },
-        }),
-      ],
-      content: initialJSON,
-      editorProps: {
-        attributes: {
-          "aria-label": "Message",
-          class: cn(
-            "tiptap tiptap-minimum-input composer-editor",
-            "outline-none whitespace-pre-wrap break-words",
-            "min-h-[64px] max-h-64 overflow-y-auto px-3 pt-2 pb-1.5",
-            "text-[15px] leading-7 font-medium tracking-tight text-vs-fg-4",
-            "caret-vs-purple-3",
-            className ?? "",
-          ),
-        },
-        handleKeyDown: (view, event) => {
-          // Suggestion popup handles its own keys via the suggestion plugin's
-          // onKeyDown above. Only step in when it's closed.
-          if (suggestionOpenRef.current) return false;
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            onSubmitRef.current();
-            return true;
-          }
-          if (event.key === "Escape") {
-            // Blur so global shortcuts (⌘K etc.) route correctly without
-            // wrestling for focus.
-            if (view.dom instanceof HTMLElement) view.dom.blur();
-            return false;
-          }
-          return false;
-        },
-      },
-      onUpdate: ({ editor }) => {
-        onChangeRef.current(editor.getText(), editor.getJSON(), editor.isEmpty);
-      },
-    });
-
-    useImperativeHandle(
-      ref,
-      () => ({
-        focusEnd: () => editor?.commands.focus("end"),
-        insertText: (text) => {
-          if (!editor) return;
-          editor.chain().focus("end").insertContent(text).run();
-        },
-        insertAtTrigger: () => {
-          if (!editor) return;
-          // Inspect the char immediately before the cursor — if it's not
-          // whitespace or document-start, prepend a space so the `@` opens
-          // the palette (suggestion's `allowedPrefixes` defaults to [' ']).
-          const { from } = editor.state.selection;
-          const prev =
-            from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
-          const needsSpace = prev !== "" && prev !== " " && prev !== "\n";
-          editor
-            .chain()
-            .focus()
-            .insertContent(needsSpace ? " @" : "@")
-            .run();
-        },
-        clear: () => editor?.commands.clearContent(true),
-        isEmpty: () => editor?.isEmpty ?? true,
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        blockquote: false,
+        codeBlock: false,
+        heading: false,
+        horizontalRule: false,
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
       }),
-      [editor],
-    );
+      Placeholder.configure({
+        placeholder: placeholder ?? "",
+      }),
+      Mention.extend({
+        addNodeView() {
+          return ReactNodeViewRenderer(MentionChipNodeView);
+        },
+      }).configure({
+        // `@<label>` round-trips through `editor.getText()` so plain-text
+        // submission still carries the mention.
+        renderText({ node }) {
+          const label = node.attrs.label ?? node.attrs.id ?? "";
+          return `@${label}`;
+        },
+        // Backspace immediately before a chip deletes the whole chip (default
+        // behavior keeps the `@` floating around).
+        deleteTriggerWithBackspace: true,
+        HTMLAttributes: {
+          class: "tiptap-mention-chip",
+        },
+        suggestion: {
+          char: "@",
+          allowSpaces: false,
+          items: ({ query }) => Array.from(filterMentionOptions(query)),
+          render: () => ({
+            onStart: (props) => {
+              suggestionOpenRef.current = true;
+              onSuggestionChangeRef.current({
+                query: props.query,
+                command: (item) =>
+                  props.command({ id: item.value, label: item.label }),
+                dismiss: () => {
+                  props.editor
+                    .chain()
+                    .focus()
+                    .deleteRange(props.range)
+                    .run();
+                },
+              });
+            },
+            onUpdate: (props) => {
+              onSuggestionChangeRef.current({
+                query: props.query,
+                command: (item) =>
+                  props.command({ id: item.value, label: item.label }),
+                dismiss: () => {
+                  props.editor
+                    .chain()
+                    .focus()
+                    .deleteRange(props.range)
+                    .run();
+                },
+              });
+            },
+            onExit: () => {
+              suggestionOpenRef.current = false;
+              onSuggestionChangeRef.current(null);
+            },
+            onKeyDown: ({ event }) =>
+              suggestionKeyDownRef.current?.(event) ?? false,
+          }),
+        },
+      }),
+    ],
+    content: initialJSON,
+    editorProps: {
+      attributes: {
+        "aria-label": "Message",
+        class: cn(
+          "tiptap tiptap-minimum-input composer-editor",
+          "outline-none whitespace-pre-wrap break-words",
+          "min-h-[64px] max-h-64 overflow-y-auto px-3 pt-2 pb-1.5",
+          "text-[15px] leading-7 font-medium tracking-tight text-vs-fg-4",
+          "caret-vs-purple-3",
+          className ?? "",
+        ),
+      },
+      handleKeyDown: (view, event) => {
+        // Suggestion popup handles its own keys via the suggestion plugin's
+        // onKeyDown above. Only step in when it's closed.
+        if (suggestionOpenRef.current) return false;
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          onSubmitRef.current();
+          return true;
+        }
+        if (event.key === "Escape") {
+          // Blur so global shortcuts (⌘K etc.) route correctly without
+          // wrestling for focus.
+          if (view.dom instanceof HTMLElement) view.dom.blur();
+          return false;
+        }
+        return false;
+      },
+    },
+    onUpdate: ({ editor }) => {
+      onChangeRef.current(editor.getText(), editor.getJSON(), editor.isEmpty);
+    },
+  });
 
-    return <EditorContent editor={editor} />;
-  },
-);
+  useImperativeHandle(
+    ref,
+    () => ({
+      focusEnd: () => editor?.commands.focus("end"),
+      insertText: (text) => {
+        if (!editor) return;
+        editor.chain().focus("end").insertContent(text).run();
+      },
+      insertAtTrigger: () => {
+        if (!editor) return;
+        // Inspect the char immediately before the cursor — if it's not
+        // whitespace or document-start, prepend a space so the `@` opens
+        // the palette (suggestion's `allowedPrefixes` defaults to [' ']).
+        const { from } = editor.state.selection;
+        const prev =
+          from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
+        const needsSpace = prev !== "" && prev !== " " && prev !== "\n";
+        editor
+          .chain()
+          .focus()
+          .insertContent(needsSpace ? " @" : "@")
+          .run();
+      },
+      clear: () => editor?.commands.clearContent(true),
+      isEmpty: () => editor?.isEmpty ?? true,
+    }),
+    [editor],
+  );
+
+  return <EditorContent editor={editor} />;
+}
 
 /**
  * Inline chip rendered for each mention node. Built as an `inline-block` pill
