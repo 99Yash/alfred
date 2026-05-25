@@ -1,15 +1,20 @@
 import { db } from "@alfred/db";
 import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
+  extractAttachments,
+  extractMessageHtml,
   getFreshAccessToken,
   GOOGLE_FEATURE_SCOPES,
   listEvents,
+  type ExtractedAttachment,
+  type GmailMessage,
 } from "@alfred/integrations/google";
-import { and, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
+import { sanitizeEmailHtml } from "./email-html";
 
 /**
  * Per-user read endpoints used by the chat right rail.
@@ -54,23 +59,56 @@ export interface MeInboxItem {
 }
 
 /**
- * Full payload for a single inbox row — drives the rail's single-email
- * reader pane. Body is the plain-text extraction stored in `documents.content`
- * with the synthetic header block stripped (the header lives in `from`/
- * `to`/`subject`/`authoredAt` already).
+ * Thread-level payload for the rail reader. The route receives a single
+ * `documentId` (the row the user clicked), then fans out to every Gmail
+ * doc sharing its `sourceThreadId` — the reader renders them as a
+ * conversation timeline, with the clicked message highlighted via
+ * `selectedDocumentId`.
+ *
+ * Subject + category lift to the thread root because both are shared
+ * across messages (Gmail thread subjects are stable up to "Re:" prefixes,
+ * and email_triage is keyed on the thread). Per-message identifiers
+ * (sender, body, attachments, html) live on `MeInboxMessage`.
  */
 export interface MeInboxDetail {
-  documentId: string;
   threadId: string | null;
+  subject: string | null;
+  category: string | null;
+  selectedDocumentId: string;
+  messages: ReadonlyArray<MeInboxMessage>;
+}
+
+export interface MeInboxMessage {
+  documentId: string;
   sender: string | null;
   to: string | null;
   cc: string | null;
   subject: string | null;
   snippet: string | null;
+  /** Markdown-ready plain body — drives the Reader view. */
   body: string;
+  /**
+   * Sanitized HTML from the message's `text/html` part. Null when the
+   * sender shipped a text-only email or the body sanitized down to
+   * nothing. The reader renders this in a sandboxed iframe when present.
+   */
+  htmlBody: string | null;
   authoredAt: string | null;
   unread: boolean;
-  category: string | null;
+  /**
+   * File attachments parsed from the cached Gmail payload. The reader pane
+   * renders these as chips below the body. `attachmentId` is opaque — the
+   * client can't download bytes directly; clicking a chip opens Gmail web.
+   */
+  attachments: ReadonlyArray<MeInboxAttachment>;
+}
+
+export interface MeInboxAttachment {
+  partId: string | null;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 }
 
 export interface MeLatestBriefing {
@@ -140,6 +178,129 @@ function stripContentHeaders(content: string): string {
   }
   const blank = content.indexOf("\n\n");
   return blank < 0 ? "" : content.slice(blank + 2);
+}
+
+/**
+ * Detects common shapes of raw HTML hiding inside a `text/plain` body —
+ * GitHub notifications, mail-list digests, and a handful of newsletters
+ * pack a `<picture>`/`<a>` HTML fallback below the markdown copy.
+ */
+const HTML_TAG_RE =
+  /<(?:!--|\/?(?:a|p|div|span|br|img|picture|source|table|tr|td|th|ul|ol|li|blockquote|h[1-6]|html|body|head|style|script|font|center|pre|code|hr|strong|em|b|i|u|figure|figcaption|small|details|summary)\b)/i;
+
+/**
+ * Clean a `text/plain` Gmail body for in-rail rendering. The ingest already
+ * prefers `text/plain` over stripped HTML, but some senders embed raw HTML
+ * inside the `text/plain` part itself (GitHub badges, "view in browser"
+ * fallbacks). Without a pass here the reader prints angle-bracket noise.
+ *
+ *  - Normalize CRLF → LF so `remark-breaks` produces consistent `<br>`s.
+ *  - Strip `<!-- … -->` comments (Devin / GitHub track-and-trace blocks).
+ *  - Strip `<style>` / `<script>` blocks wholesale.
+ *  - Strip remaining HTML tags when the body trips the tag detector.
+ *  - Collapse runs of ≥3 blank lines so HTML-stripped output doesn't leave
+ *    a half-page of whitespace where the tags used to sit.
+ *
+ * This is a read-time cleanup; the persisted `documents.content` stays
+ * untouched so a future re-ingest with smarter extraction is free to take
+ * over without a migration.
+ */
+function normalizeBodyForReader(content: string): string {
+  if (!content) return "";
+  const stripped = stripContentHeaders(content);
+  let body = stripped.replace(/\r\n/g, "\n");
+  body = body.replace(/<!--[\s\S]*?-->/g, "");
+  body = body.replace(/<style[\s\S]*?<\/style>/gi, "");
+  body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
+  if (HTML_TAG_RE.test(body)) {
+    body = body
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+  // Tame whitespace introduced by the strip — keep paragraph breaks (two
+  // newlines) but collapse anything denser. `\s*\n` first so trailing
+  // spaces on otherwise-blank lines don't survive as visible whitespace.
+  body = body.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  body = fenceDiffBlocks(body);
+  return body.trim();
+}
+
+/**
+ * Detects unified-diff style runs in plaintext email bodies — GitHub PR
+ * notifications quote review snippets as raw diff (`-      foo` / `+      bar`)
+ * with no surrounding code fence, which makes the markdown parser see each
+ * `-` line as a list item and each indented continuation as an indented
+ * code block. That renders as bullets-with-boxes, not the unified block
+ * the sender intended. Wrapping the run in a ```diff fence collapses it
+ * back to a single `<pre>` block in the reader.
+ *
+ * Conservative on the per-line check (multi-space indent after the marker,
+ * which separates diff lines from genuine `- bullet` list items where
+ * there's a single space). Permissive on the run shape — a run can be
+ * all `+`, all `-`, or mixed, since GitHub review comments quote either
+ * direction independently. Lines preceded by the email-quote prefix `> `
+ * are peeled before pattern-matching so quoted file snippets fold into
+ * the same block.
+ */
+function fenceDiffBlocks(body: string): string {
+  const lines = body.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (looksLikeDiffLine(lines[i])) {
+      let end = i;
+      while (
+        end < lines.length &&
+        (looksLikeDiffLine(lines[end]) ||
+          (lines[end] === "" &&
+            end + 1 < lines.length &&
+            looksLikeDiffLine(lines[end + 1])))
+      ) {
+        end++;
+      }
+      // Don't swallow trailing blanks into the fence.
+      while (end > i + 1 && lines[end - 1] === "") end--;
+      const slice = lines.slice(i, end);
+      if (slice.length >= 2) {
+        out.push("```diff");
+        for (const l of slice) out.push(stripQuotePrefix(l));
+        out.push("```");
+        i = end;
+        continue;
+      }
+    }
+    out.push(lines[i] ?? "");
+    i++;
+  }
+  return out.join("\n");
+}
+
+function stripQuotePrefix(line: string): string {
+  return line.replace(/^>\s?/, "");
+}
+
+function looksLikeDiffLine(line: string | undefined): boolean {
+  if (line == null) return false;
+  // Peel the `> ` email-quote prefix first — GitHub review notifications
+  // routinely lead the diff with `> +    foo(...)` (the `>` marking the
+  // snippet as quoted from the source file).
+  const stripped = stripQuotePrefix(line);
+  // Multi-space indent after marker rules out genuine markdown list items
+  // (`- bullet` and `+ bullet` both use a single space). Tab-separated and
+  // bare `+`/`-` (diff hunk separators) also qualify, as does `@@ … @@`.
+  return (
+    /^[-+] {2,}\S/.test(stripped) ||
+    /^[-+]\t/.test(stripped) ||
+    /^[-+]$/.test(stripped) ||
+    /^@@ -?\d/.test(stripped)
+  );
 }
 
 /**
@@ -334,24 +495,16 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
       .get(
         "/inbox/:documentId",
         async ({ user: u, params }) => {
-          const rows = await db()
+          // First resolve the selected row to its threadId — we accept a
+          // `documentId` (so existing rail links keep working) but the
+          // response is thread-shaped.
+          const selectedRows = await db()
             .select({
               documentId: documents.id,
               threadId: documents.sourceThreadId,
               subject: documents.title,
-              content: documents.content,
-              authoredAt: documents.authoredAt,
-              metadata: documents.metadata,
-              category: emailTriage.category,
             })
             .from(documents)
-            .leftJoin(
-              emailTriage,
-              and(
-                eq(emailTriage.userId, documents.userId),
-                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-              ),
-            )
             .where(
               and(
                 eq(documents.userId, u.id),
@@ -361,23 +514,112 @@ export const meRoutes = new Elysia({ prefix: "/api/me" })
             )
             .limit(1);
 
-          const row = rows[0];
-          if (!row) return status(404, { message: "Not found" });
+          const selected = selectedRows[0];
+          if (!selected) return status(404, { message: "Not found" });
 
-          const meta = (row.metadata as Record<string, unknown> | null) ?? {};
-          const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+          // Fan out to every sibling message in the same thread. Falls
+          // back to the single row when the thread id is null (extremely
+          // rare for `source = 'gmail'`, but the column is nullable).
+          const threadRows = selected.threadId
+            ? await db()
+                .select({
+                  documentId: documents.id,
+                  threadId: documents.sourceThreadId,
+                  subject: documents.title,
+                  content: documents.content,
+                  authoredAt: documents.authoredAt,
+                  metadata: documents.metadata,
+                  raw: documents.raw,
+                  category: emailTriage.category,
+                })
+                .from(documents)
+                .leftJoin(
+                  emailTriage,
+                  and(
+                    eq(emailTriage.userId, documents.userId),
+                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(documents.userId, u.id),
+                    eq(documents.source, "gmail"),
+                    eq(documents.sourceThreadId, selected.threadId),
+                  ),
+                )
+                // Oldest first so the reader reads top-to-bottom like a
+                // chat transcript — matches how Gmail's web UI orders threads.
+                .orderBy(asc(documents.authoredAt), asc(documents.id))
+            : await db()
+                .select({
+                  documentId: documents.id,
+                  threadId: documents.sourceThreadId,
+                  subject: documents.title,
+                  content: documents.content,
+                  authoredAt: documents.authoredAt,
+                  metadata: documents.metadata,
+                  raw: documents.raw,
+                  category: emailTriage.category,
+                })
+                .from(documents)
+                .leftJoin(
+                  emailTriage,
+                  and(
+                    eq(emailTriage.userId, documents.userId),
+                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(documents.userId, u.id),
+                    eq(documents.source, "gmail"),
+                    eq(documents.id, params.documentId),
+                  ),
+                );
+
+          const messages: MeInboxMessage[] = threadRows.map((row) => {
+            const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds)
+              ? (meta.labelIds as string[])
+              : [];
+            // `documents.raw` is the verbatim Gmail message we stored at
+            // ingest (schema-validated then). Cast back to `GmailMessage`
+            // rather than re-running zod per request — the shape is fixed
+            // and parsing the MIME tree dominates the cost anyway.
+            const raw = (row.raw ?? null) as GmailMessage | null;
+            const attachments: ExtractedAttachment[] = raw
+              ? extractAttachments(raw)
+              : [];
+            const rawHtml = raw ? extractMessageHtml(raw) : null;
+            return {
+              documentId: row.documentId,
+              sender: typeof meta.from === "string" ? meta.from : null,
+              to: typeof meta.to === "string" ? meta.to : null,
+              cc: typeof meta.cc === "string" ? meta.cc : null,
+              subject: row.subject ?? null,
+              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              body: normalizeBodyForReader(row.content ?? ""),
+              htmlBody: sanitizeEmailHtml(rawHtml),
+              authoredAt: row.authoredAt?.toISOString() ?? null,
+              unread: labelIds.includes("UNREAD"),
+              attachments,
+            };
+          });
+
+          // Subject + category lift from the selected row (thread subjects
+          // mostly stable up to "Re:" prefixes; email_triage is keyed on
+          // the thread anyway). Falls back to the first message when the
+          // selected row somehow isn't in the result (e.g. fan-out raced
+          // with a delete — defensive).
+          const selectedRow =
+            threadRows.find((r) => r.documentId === params.documentId) ??
+            threadRows[0];
           return {
-            documentId: row.documentId,
-            threadId: row.threadId ?? null,
-            sender: typeof meta.from === "string" ? meta.from : null,
-            to: typeof meta.to === "string" ? meta.to : null,
-            cc: typeof meta.cc === "string" ? meta.cc : null,
-            subject: row.subject ?? null,
-            snippet: typeof meta.snippet === "string" ? meta.snippet : null,
-            body: stripContentHeaders(row.content ?? ""),
-            authoredAt: row.authoredAt?.toISOString() ?? null,
-            unread: labelIds.includes("UNREAD"),
-            category: row.category ?? null,
+            threadId: selected.threadId ?? null,
+            subject: selectedRow?.subject ?? selected.subject ?? null,
+            category: selectedRow?.category ?? null,
+            selectedDocumentId: params.documentId,
+            messages,
           };
         },
         { params: t.Object({ documentId: t.String() }) },
