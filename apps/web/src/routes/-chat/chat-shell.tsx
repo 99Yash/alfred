@@ -11,9 +11,9 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VsPill } from "~/components/ui/visitors";
-import { useInbox } from "~/hooks/use-inbox";
+import { useInbox, INBOX_PAGE_SIZE } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
@@ -417,18 +417,83 @@ function useRailData(): RailData {
   const inbox = useInbox();
   const meetings = useMeetings();
   const briefing = useLatestBriefing();
-  const inboxData = inbox.data;
+
+  // Local page index walks the cached `inbox.data.pages[]`. When the user
+  // advances past the last loaded page we kick off `fetchNextPage`; back
+  // navigation is free because the pages stay in cache.
+  const [inboxPageIndex, setInboxPageIndex] = useState(0);
+  const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
+
+  const pages = inbox.data?.pages ?? [];
+  const total = pages[0]?.total ?? 0;
+  const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_PAGE_SIZE));
+  const safeInboxPage = Math.min(inboxPageIndex, inboxPageCount - 1);
+  const inboxItems = pages[safeInboxPage]?.items ?? [];
+
+  // Clamp the page index whenever invalidation drops the total below
+  // the index we're parked on (e.g. user archived items from another
+  // client) — keeps the rail from rendering an empty page-N indicator.
+  useEffect(() => {
+    if (inboxPageIndex > inboxPageCount - 1) setInboxPageIndex(0);
+  }, [inboxPageIndex, inboxPageCount]);
+
+  const onPrevInbox = useCallback(() => {
+    setInboxPageIndex((i) => Math.max(0, i - 1));
+  }, []);
+
+  const fetchNextPage = inbox.fetchNextPage;
+  const onNextInbox = useCallback(() => {
+    const target = inboxPageIndex + 1;
+    if (target >= inboxPageCount) return;
+    // If we haven't fetched this page yet, fire the request — the page
+    // will land in cache and re-render with items populated. Don't gate
+    // the index advance on the fetch; React Query renders the existing
+    // (empty) page until the fetch resolves and InboxFeed surfaces the
+    // spinner in the indicator.
+    if (!pages[target]) void fetchNextPage();
+    setInboxPageIndex(target);
+  }, [inboxPageIndex, inboxPageCount, pages, fetchNextPage]);
+
+  const onOpenInbox = useCallback((documentId: string) => {
+    setSelectedInboxId(documentId);
+  }, []);
+  const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
+
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
-      inbox: inboxData ?? [],
+      inbox: inboxItems,
+      inboxPagination: {
+        pageIndex: safeInboxPage,
+        pageCount: inboxPageCount,
+        total,
+        isLoading: inbox.isFetching,
+        onPrev: onPrevInbox,
+        onNext: onNextInbox,
+      },
+      selectedInboxId,
+      onOpenInbox,
+      onCloseInbox,
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
       latestBriefing: briefingData ?? null,
     }),
-    [inboxData, meetingsData, briefingData],
+    [
+      inboxItems,
+      safeInboxPage,
+      inboxPageCount,
+      total,
+      inbox.isFetching,
+      onPrevInbox,
+      onNextInbox,
+      selectedInboxId,
+      onOpenInbox,
+      onCloseInbox,
+      meetingsData,
+      briefingData,
+    ],
   );
 }
 

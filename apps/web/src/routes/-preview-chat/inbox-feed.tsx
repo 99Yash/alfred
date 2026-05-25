@@ -1,9 +1,13 @@
 import { TRIAGE_DISPLAY, type TriageCategory } from "@alfred/contracts";
-import { Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Loader2, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useInboxDetail } from "~/hooks/use-inbox";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
+import type { InboxPagination } from "./rail-content";
+
+const PAGE_SIZE = 8;
 
 /**
  * Google's free favicon CDN. Returns a per-domain logo when one exists
@@ -28,26 +32,63 @@ function faviconUrl(domain: string, size = 64): string {
  * The component is presentation-only — refresh cadence (window-focus +
  * 60s poll) lives in `useInbox`.
  */
-export function InboxFeed({ items }: { items: ReadonlyArray<InboxItem> }) {
+export interface InboxFeedProps {
+  items: ReadonlyArray<InboxItem>;
+  /** Optional server-driven pagination. When omitted, local filtering still
+   * supports a single page (no controls shown) — used by preview routes. */
+  pagination?: InboxPagination;
+  /** Document id of the row currently expanded in the reader pane. When
+   * non-null, the feed swaps the list out for `InboxDetailPane`. */
+  selectedId?: string | null;
+  /** Open the reader for a given row. Rendered as a link to Gmail when omitted. */
+  onOpen?: (documentId: string) => void;
+  /** Close the reader and return to the list. */
+  onClose?: () => void;
+}
+
+export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: InboxFeedProps) {
   const [query, setQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [localPage, setLocalPage] = useState(0);
 
+  // Server-driven pagination owns the cursor; local-only mode keeps a
+  // simple page index for fixture / preview usage where filtering is the
+  // primary slicer.
+  const serverPaginated = !!pagination;
   const totalUnread = items.filter((i) => i.unread).length;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (unreadOnly && !item.unread) return false;
-      if (!q) return true;
-      return (
-        item.sender.toLowerCase().includes(q) ||
-        item.subject.toLowerCase().includes(q) ||
-        item.preview.toLowerCase().includes(q)
-      );
-    });
-  }, [items, query, unreadOnly]);
+    if (serverPaginated) {
+      // Server already returns just the current page — local filter is
+      // applied on top so the unread toggle / text search work without
+      // forcing a server round-trip per keystroke. Limits the rail to
+      // filtering the visible page, which is acceptable for a single-
+      // user inbox; the server query covers the cross-page slice.
+      return items.filter((item) => filterMatches(item, query, unreadOnly));
+    }
+    return items.filter((item) => filterMatches(item, query, unreadOnly));
+  }, [items, query, unreadOnly, serverPaginated]);
 
-  if (!items.length) {
+  const localPageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Re-clamp when filter shrinks the result set below the current page.
+  useEffect(() => {
+    if (!serverPaginated && localPage > localPageCount - 1) setLocalPage(0);
+  }, [localPage, localPageCount, serverPaginated]);
+
+  const visible = useMemo(() => {
+    if (serverPaginated) return filtered;
+    const safe = Math.min(localPage, localPageCount - 1);
+    return filtered.slice(safe * PAGE_SIZE, safe * PAGE_SIZE + PAGE_SIZE);
+  }, [filtered, localPage, localPageCount, serverPaginated]);
+
+  // Detail-pane reader: when a row is selected, swap the list out. The
+  // reader gets its own fetch (`useInboxDetail`), so the list-level filter
+  // / pagination state stays put while the user reads.
+  if (selectedId && onClose) {
+    return <InboxDetailPane documentId={selectedId} onClose={onClose} />;
+  }
+
+  if (!items.length && (!pagination || pagination.total === 0)) {
     return (
       <div className="vs-card-in px-2 py-4">
         <p className="text-[12px] leading-5 text-vs-fg-2">
@@ -57,14 +98,26 @@ export function InboxFeed({ items }: { items: ReadonlyArray<InboxItem> }) {
     );
   }
 
+  const pageIndex = pagination?.pageIndex ?? Math.min(localPage, localPageCount - 1);
+  const pageCount = pagination?.pageCount ?? localPageCount;
+
   return (
     <div className="vs-card-in space-y-2">
-      <SearchBar value={query} onChange={setQuery} />
+      <SearchBar
+        value={query}
+        onChange={(next) => {
+          setQuery(next);
+          if (!serverPaginated) setLocalPage(0);
+        }}
+      />
 
-      <div className="px-1 flex items-center justify-between">
+      <div className="px-1 flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => setUnreadOnly((v) => !v)}
+          onClick={() => {
+            setUnreadOnly((v) => !v);
+            if (!serverPaginated) setLocalPage(0);
+          }}
           aria-pressed={unreadOnly}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
@@ -84,12 +137,29 @@ export function InboxFeed({ items }: { items: ReadonlyArray<InboxItem> }) {
           />
           Unread · {totalUnread}
         </button>
-        <button
-          type="button"
-          className="text-[11px] text-vs-fg-3 hover:text-vs-fg-4 transition-colors"
-        >
-          Mark all read
-        </button>
+        <div className="flex items-center gap-1.5">
+          {pageCount > 1 ? (
+            <Pagination
+              page={pageIndex}
+              pageCount={pageCount}
+              isLoading={pagination?.isLoading ?? false}
+              onPrev={() => {
+                if (pagination) pagination.onPrev();
+                else setLocalPage((p) => Math.max(0, p - 1));
+              }}
+              onNext={() => {
+                if (pagination) pagination.onNext();
+                else setLocalPage((p) => Math.min(localPageCount - 1, p + 1));
+              }}
+            />
+          ) : null}
+          <button
+            type="button"
+            className="text-[11px] text-vs-fg-3 hover:text-vs-fg-4 transition-colors"
+          >
+            Mark all read
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -98,12 +168,86 @@ export function InboxFeed({ items }: { items: ReadonlyArray<InboxItem> }) {
         </div>
       ) : (
         <ul className="space-y-0.5">
-          {filtered.map((item) => (
-            <InboxRow key={item.id} item={item} />
+          {visible.map((item) => (
+            <InboxRow key={item.id} item={item} onOpen={onOpen} />
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function filterMatches(item: InboxItem, query: string, unreadOnly: boolean): boolean {
+  if (unreadOnly && !item.unread) return false;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    item.sender.toLowerCase().includes(q) ||
+    item.subject.toLowerCase().includes(q) ||
+    item.preview.toLowerCase().includes(q)
+  );
+}
+
+function Pagination({
+  page,
+  pageCount,
+  isLoading,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  pageCount: number;
+  isLoading?: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const prevDisabled = page === 0 || isLoading;
+  const nextDisabled = page >= pageCount - 1 || isLoading;
+  return (
+    <div className="flex items-center gap-0.5">
+      <PaginationButton label="Previous page" onClick={onPrev} disabled={prevDisabled}>
+        <ChevronLeft size={12} />
+      </PaginationButton>
+      <span className="text-[10.5px] tabular-nums text-vs-fg-3 px-1 min-w-[28px] text-center inline-flex items-center justify-center gap-1">
+        {isLoading ? (
+          <Loader2 size={10} className="animate-spin text-vs-fg-3" aria-hidden />
+        ) : null}
+        {page + 1}/{pageCount}
+      </span>
+      <PaginationButton label="Next page" onClick={onNext} disabled={nextDisabled}>
+        <ChevronRight size={12} />
+      </PaginationButton>
+    </div>
+  );
+}
+
+function PaginationButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "size-6 inline-flex items-center justify-center rounded-md",
+        "transition-colors vs-press",
+        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+        "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-vs-fg-3",
+        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -142,17 +286,24 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-function InboxRow({ item }: { item: InboxItem }) {
+function InboxRow({
+  item,
+  onOpen,
+}: {
+  item: InboxItem;
+  onOpen?: (documentId: string) => void;
+}) {
   const href = item.threadId
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
     : undefined;
-  // Render as an anchor when we have a thread to open, otherwise a
-  // plain non-interactive container — a focusable element with no
-  // handler would lie to keyboard users about the row being actionable.
+  // Render priority: `onOpen` (in-rail reader) → anchor (Gmail web)
+  // → static container. A focusable element with no handler would lie
+  // to keyboard users about the row being actionable.
+  const interactive = !!onOpen || !!href;
   const sharedClass = cn(
     "group relative w-full text-left rounded-xl px-2 py-2 -mx-0.5",
     "flex items-start gap-2.5",
-    href
+    interactive
       ? cn(
           "hover:bg-vs-bg-a2 transition-colors vs-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
@@ -214,7 +365,11 @@ function InboxRow({ item }: { item: InboxItem }) {
 
   return (
     <li>
-      {href ? (
+      {onOpen ? (
+        <button type="button" onClick={() => onOpen(item.id)} className={sharedClass}>
+          {body}
+        </button>
+      ) : href ? (
         <a href={href} target="_blank" rel="noreferrer noopener" className={sharedClass}>
           {body}
         </a>
@@ -321,3 +476,103 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
   newsletter: "bg-vs-bg-a2 text-vs-fg-2",
   marketing: "bg-vs-bg-a2 text-vs-fg-2",
 };
+
+/**
+ * Single-email reader. Replaces the list view when a row is selected.
+ * Renders the row's full plain-text body (server-side header strip already
+ * applied) with a back button and an Open-in-Gmail deep link.
+ *
+ * Reply editor is intentionally deferred — dimension ships a Tiptap-based
+ * inline composer (CatchupGmailItem), but Alfred doesn't yet have a send
+ * API for the rail. Adding the editor without `sendReply` is a UI lie,
+ * so v1 just reads.
+ */
+function InboxDetailPane({
+  documentId,
+  onClose,
+}: {
+  documentId: string;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useInboxDetail(documentId);
+
+  return (
+    <div className="vs-card-in flex flex-col gap-3 px-1">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5",
+            "text-[11px] uppercase tracking-tight font-medium text-vs-fg-3",
+            "transition-colors hover:text-vs-fg-4 hover:bg-vs-bg-a2",
+            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          )}
+        >
+          <ArrowLeft size={12} />
+          Back
+        </button>
+        {data?.threadId ? (
+          <a
+            href={`https://mail.google.com/mail/u/0/#inbox/${data.threadId}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={cn(
+              "inline-flex items-center gap-1 text-[11px] text-vs-fg-3",
+              "transition-colors hover:text-vs-fg-4",
+              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+              "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+              "rounded-md px-1.5 py-1 -mx-1.5",
+            )}
+          >
+            Open in Gmail
+            <ExternalLink size={11} />
+          </a>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <div className="px-2 py-8 flex items-center justify-center">
+          <Loader2 size={16} className="animate-spin text-vs-fg-3" aria-hidden />
+        </div>
+      ) : isError || !data ? (
+        <div className="px-2 py-6 text-center">
+          <p className="text-[12px] text-vs-fg-2">Couldn't load this email.</p>
+        </div>
+      ) : (
+        <article className="space-y-3 px-1">
+          <header className="space-y-1.5">
+            <h3 className="text-[14px] leading-5 font-medium text-vs-fg-4">
+              {data.subject || "(no subject)"}
+            </h3>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[12px] font-medium text-vs-fg-3 truncate">
+                {data.senderDisplay}
+              </span>
+              {data.authoredAtRelative ? (
+                <span className="text-[11px] tabular-nums text-vs-fg-2 shrink-0">
+                  {data.authoredAtRelative}
+                </span>
+              ) : null}
+            </div>
+            {data.senderEmail ? (
+              <p className="text-[11px] text-vs-fg-2 truncate">{data.senderEmail}</p>
+            ) : null}
+            {data.category ? (
+              <CategoryChip category={data.category} />
+            ) : null}
+          </header>
+          <div
+            className={cn(
+              "rounded-lg bg-vs-bg-a2 px-3 py-2.5",
+              "text-[12px] leading-[1.55] text-vs-fg-3 whitespace-pre-wrap break-words",
+            )}
+          >
+            {data.body.trim() || "(empty body)"}
+          </div>
+        </article>
+      )}
+    </div>
+  );
+}
