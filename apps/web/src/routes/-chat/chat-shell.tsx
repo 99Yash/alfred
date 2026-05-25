@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
+import type { JSONContent } from "@tiptap/react";
 import {
-  ArrowRight,
   ArrowUp,
   AtSign,
   Ellipsis,
@@ -26,7 +26,12 @@ import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
 import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-content";
 import { RightRail } from "~/routes/-preview-chat/right-rail";
-import { TextareaWithMirror } from "./composer-text";
+import { filterMentionOptions, type MentionOption } from "./mention-options";
+import {
+  TiptapComposer,
+  type SuggestionRenderState,
+  type TiptapComposerHandle,
+} from "./tiptap-composer";
 import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
 
 const MODEL_LEADING = <Sparkles size={12} />;
@@ -182,75 +187,157 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
   );
 }
 
+function MentionPalette({
+  options,
+  activeIdx,
+  onHover,
+  onPick,
+  onClose,
+}: {
+  options: ReadonlyArray<MentionOption>;
+  activeIdx: number;
+  onHover: (i: number) => void;
+  onPick: (option: MentionOption) => void;
+  onClose: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // Click outside the palette closes it. Pointerdown beats pointerup so the
+  // click never lands on whatever's underneath.
+  useEffect(() => {
+    const handler = (e: PointerEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      const target = e.target as Node | null;
+      // Don't close on clicks inside the palette, or inside the composer
+      // form (the textarea is the trigger surface — clicking it should
+      // keep the palette open so the user can continue typing).
+      if (target && (root.contains(target) || root.closest("form")?.contains(target))) {
+        return;
+      }
+      onClose();
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [onClose]);
+
+  // Scroll the active row into view when keyboard navigation walks past
+  // the visible window. `block: "nearest"` only scrolls when the row is
+  // actually off-screen, so the list doesn't twitch on every keystroke.
+  useEffect(() => {
+    const el = optionRefs.current[activeIdx];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
+  return (
+    <div
+      ref={rootRef}
+      role="listbox"
+      aria-label="Mention a source"
+      className={cn(
+        "absolute bottom-full left-0 right-0 mb-2 z-20",
+        "vs-elevated rounded-2xl bg-vs-bg-1 p-1.5",
+        "max-h-72 overflow-y-auto",
+        // Subtle entry — slide up + fade. Tailwind's `animate-in` keyframes
+        // ship with the project (used elsewhere as `vs-card-in`); fall back
+        // to a plain fade so it never appears static.
+        "transition-opacity duration-150 ease-out",
+      )}
+    >
+      <p className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-vs-fg-2">
+        Mention a source
+      </p>
+      {options.map((opt, i) => {
+        const Icon = opt.icon;
+        const isActive = i === activeIdx;
+        return (
+          <button
+            key={opt.value}
+            ref={(el) => {
+              optionRefs.current[i] = el;
+            }}
+            type="button"
+            role="option"
+            aria-selected={isActive}
+            onMouseEnter={() => onHover(i)}
+            onClick={() => onPick(opt)}
+            className={cn(
+              "w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
+              "transition-colors",
+              isActive ? "bg-vs-bg-a2" : "hover:bg-vs-bg-a2",
+              "outline-none",
+            )}
+          >
+            <span className="grid size-6 shrink-0 place-items-center rounded-md bg-vs-bg-2">
+              {opt.brand ? (
+                <IntegrationGlyph brand={opt.brand} size={14} />
+              ) : Icon ? (
+                <Icon size={13} className="text-vs-fg-3" />
+              ) : null}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-vs-fg-4 truncate">
+                {opt.label}
+              </span>
+              <span className="block text-[11px] text-vs-fg-2 truncate">
+                {opt.subtitle}
+              </span>
+            </span>
+            {isActive ? (
+              <span className="text-[10px] text-vs-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-vs-bg-2">
+                ↵
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ConnectToolsBar() {
   return (
     <Link
       to="/integrations"
       aria-label="Connect your tools"
       className={cn(
-        // `group` for the trailing-arrow reveal. Same fill as the composer
-        // above (`bg-vs-bg-1`) so the two sit as ONE card visually — only
-        // the hairline `border-t` separates the input region from the
-        // tools shelf. No second elevation, no tonal step-down.
-        "group relative flex items-center gap-3 px-4 py-3",
-        "rounded-b-3xl rounded-t-none",
-        "bg-vs-bg-1 border-t border-vs-bg-3",
-        // Subtle highlight on the divider on hover so the affordance reads
-        // without ever feeling heavy.
-        "transition-colors duration-200 ease-out",
-        "hover:bg-vs-bg-a2",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+        // No card, no fill, no divider — just a tappable row floating
+        // below the composer. Mirrors dimension's `00-chat-new-initial`
+        // reference: label on the left, icons on the right, page bg
+        // showing through.
+        "group mt-4 flex items-center gap-3 px-1.5",
+        "rounded-md outline-none",
+        "focus-visible:ring-2 focus-visible:ring-vs-purple-2",
         "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
       )}
     >
-      <span className="inline-flex items-center gap-2">
-        <span
-          aria-hidden
-          className={cn(
-            "grid size-5 place-items-center rounded-md",
-            "bg-vs-purple-1 text-vs-purple-4",
-            "transition-transform duration-200 ease-out group-hover:rotate-[8deg]",
-          )}
-        >
-          <Sparkles size={11} />
-        </span>
-        <span className="text-[13px] font-medium text-vs-fg-4">
-          Connect your tools
-        </span>
+      <span
+        className={cn(
+          "text-[13px] font-medium text-vs-fg-2",
+          "transition-colors duration-200 group-hover:text-vs-fg-4",
+        )}
+      >
+        Connect your tools
       </span>
 
-      <div className="ml-auto flex items-center">
-        <div className="flex items-center gap-2">
-          {CONNECT_BRANDS.map(({ brand, label }) => (
-            <span
-              key={brand}
-              title={label}
-              className={cn(
-                "relative grid size-5 shrink-0 place-items-center",
-                "transition-transform duration-200 ease-out",
-                "group-hover:scale-[1.08]",
-              )}
-            >
-              <span className="sr-only">{label}</span>
-              <IntegrationGlyph brand={brand} size={18} />
-            </span>
-          ))}
-        </div>
-
-        {/* Arrow reveals on hover/focus via a width animation so the bar
-         * doesn't reflow at rest. */}
-        <span
-          aria-hidden
-          className={cn(
-            "inline-flex items-center overflow-hidden text-vs-fg-4",
-            "max-w-0 opacity-0 -translate-x-1",
-            "transition-[max-width,opacity,transform] duration-200 ease-out",
-            "group-hover:max-w-5 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pl-2",
-            "group-focus-visible:max-w-5 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:pl-2",
-          )}
-        >
-          <ArrowRight size={13} strokeWidth={2.25} />
-        </span>
+      <div className="ml-auto flex items-center gap-2">
+        {CONNECT_BRANDS.map(({ brand, label }) => (
+          <span
+            key={brand}
+            title={label}
+            className={cn(
+              "relative grid size-5 shrink-0 place-items-center",
+              // Resting: slightly muted so the row reads as a soft hint,
+              // not a busy color block. Brightens on group hover.
+              "opacity-70 transition-[opacity,transform] duration-200 ease-out",
+              "group-hover:opacity-100 hover:scale-[1.12]",
+            )}
+          >
+            <span className="sr-only">{label}</span>
+            <IntegrationGlyph brand={brand} size={16} />
+          </span>
+        ))}
       </div>
     </Link>
   );
@@ -270,27 +357,129 @@ function Composer({ threadId }: { threadId: string | undefined }) {
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
   // /chat hero). Survives refresh; cleared on submit.
   const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
-  const [value, setValue] = useState(() => {
-    if (typeof window === "undefined") return "";
-    try {
-      return window.localStorage.getItem(draftKey) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  useEffect(() => {
-    try {
-      if (value) window.localStorage.setItem(draftKey, value);
-      else window.localStorage.removeItem(draftKey);
-    } catch {
-      // Quota / private-mode — drafts are best-effort, swallow.
-    }
-  }, [value, draftKey]);
 
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
+  // accept the legacy plain-string format so drafts written by the previous
+  // textarea+mirror composer survive the migration.
+  const initialJSON = useMemo<JSONContent | undefined>(() => {
+    if (typeof window === "undefined") return undefined;
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage.getItem(draftKey);
+    } catch {
+      return undefined;
+    }
+    if (!raw) return undefined;
+    try {
+      const parsed = JSON.parse(raw) as JSONContent;
+      if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
+    } catch {
+      // Legacy plain-text draft — wrap as a single paragraph.
+      return {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: raw }] }],
+      };
+    }
+    return undefined;
+    // draftKey is intentionally excluded: the editor seeds exactly once, and
+    // a thread switch unmounts/remounts the Composer via React's key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const editorRef = useRef<TiptapComposerHandle | null>(null);
   const mic = useMicRecording();
-  const trimmed = value.trim();
-  const canSend = trimmed.length > 0 && !mic.recording;
+
+  const [text, setText] = useState<string>(() => {
+    // Mirror what Tiptap will report on mount so the send button reflects
+    // restored drafts before the first onChange fires.
+    if (!initialJSON) return "";
+    return extractTextFromJSON(initialJSON);
+  });
+  const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
+  const canSend = !isEmpty && !mic.recording;
+
+  // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
+  // the palette UI reads from it.
+  const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+
+  const mentionCandidates = useMemo(
+    () => (suggestion ? filterMentionOptions(suggestion.query) : []),
+    [suggestion],
+  );
+
+  // Clamp the active index when filtering shrinks the list.
+  useEffect(() => {
+    if (mentionIdx >= mentionCandidates.length) {
+      setMentionIdx(Math.max(0, mentionCandidates.length - 1));
+    }
+  }, [mentionCandidates.length, mentionIdx]);
+
+  // Reset to the top of the list whenever a new suggestion opens or the
+  // query changes — otherwise the highlight can sit stale on a row the user
+  // can no longer see after typing past it.
+  useEffect(() => {
+    setMentionIdx(0);
+  }, [suggestion?.query]);
+
+  const insertMention = useCallback((option: MentionOption) => {
+    suggestion?.command(option);
+  }, [suggestion]);
+
+  const insertAtTrigger = useCallback(() => {
+    editorRef.current?.insertAtTrigger();
+  }, []);
+
+  // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
+  // tells Tiptap to swallow the key so it doesn't also reach the editor.
+  const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
+  suggestionKeyDownRef.current = (event) => {
+    if (!suggestion || mentionCandidates.length === 0) return false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setMentionIdx((i) => Math.min(mentionCandidates.length - 1, i + 1));
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionIdx((i) => Math.max(0, i - 1));
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      const pick = mentionCandidates[mentionIdx];
+      if (pick) {
+        event.preventDefault();
+        suggestion.command(pick);
+        return true;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      suggestion.dismiss();
+      return true;
+    }
+    return false;
+  };
+
+  // Persist drafts as JSON. Tiptap's onChange already fires after every doc
+  // mutation, so this effect only needs to react to changes in `text` (used
+  // as a coarse "did the editor mutate" signal — JSON identity would churn).
+  const onEditorChange = useCallback(
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+      setText(nextText);
+      setIsEmpty(nextEmpty);
+      try {
+        if (nextEmpty) {
+          window.localStorage.removeItem(draftKey);
+        } else {
+          window.localStorage.setItem(draftKey, JSON.stringify(nextJSON));
+        }
+      } catch {
+        // Quota / private-mode — drafts are best-effort, swallow.
+      }
+    },
+    [draftKey],
+  );
 
   // Type-anywhere autofocus: any printable keystroke on the page lands in
   // the composer. Skipped when the user is already inside an input / when a
@@ -298,7 +487,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (!e.key || e.key.length !== 1) return; // ignore F-keys, arrows, etc.
+      if (!e.key || e.key.length !== 1) return;
       const target = e.target;
       if (
         target instanceof HTMLElement &&
@@ -306,42 +495,49 @@ function Composer({ threadId }: { threadId: string | undefined }) {
       ) {
         return;
       }
-      const ta = textareaRef.current;
-      if (!ta || ta === document.activeElement) return;
-      ta.focus();
-      // Native event already consumed by the document; manually append so
-      // the keystroke isn't lost between focus + browser default routing.
+      const handle = editorRef.current;
+      if (!handle) return;
       e.preventDefault();
-      const next = value + e.key;
-      setValue(next);
-      // Restore caret to end after React commits.
-      queueMicrotask(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = next.length;
-          textareaRef.current.selectionEnd = next.length;
-        }
-      });
+      handle.insertText(e.key);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [value]);
+  }, []);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleSubmit = useCallback(() => {
     if (!canSend) return;
     // Stub — wired in m13. Logging on dev so the input round-trips visibly.
     // eslint-disable-next-line no-console
-    console.info("[chat] composer submit:", { threadId, value: trimmed });
-    setValue("");
+    console.info("[chat] composer submit:", { threadId, value: text.trim() });
+    editorRef.current?.clear();
+    setText("");
+    setIsEmpty(true);
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // best-effort
+    }
+  }, [canSend, draftKey, text, threadId]);
+
+  const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    handleSubmit();
   };
 
   return (
-    <form onSubmit={handleSubmit} aria-label="Send a message">
+    <form onSubmit={onFormSubmit} aria-label="Send a message" className="relative">
+      {suggestion && mentionCandidates.length > 0 ? (
+        <MentionPalette
+          options={mentionCandidates}
+          activeIdx={mentionIdx}
+          onHover={setMentionIdx}
+          onPick={insertMention}
+          onClose={() => suggestion.dismiss()}
+        />
+      ) : null}
       <div
         className={cn(
-          // Flat bottom so the `ConnectToolsBar` shelf tucks underneath as a
-          // continuation, not a separate card.
-          "vs-elevated relative rounded-3xl rounded-b-none p-2",
+          "vs-elevated relative rounded-3xl p-2",
           // `bg-vs-bg-1` paints the solid fill; the radial gradient layers on
           // top via `background-image` as a subtle top-left gleam — adds
           // depth on dark, near-invisible on light. Stacks below children
@@ -359,23 +555,14 @@ function Composer({ threadId }: { threadId: string | undefined }) {
             active={mic.recording}
           />
         ) : (
-          <TextareaWithMirror
-            textareaRef={textareaRef}
-            value={value}
-            onChange={setValue}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-                return;
-              }
-              if (e.key === "Escape") {
-                // Esc blurs the composer so global shortcuts (⌘K, etc.)
-                // route correctly without a wrestling match for focus.
-                e.currentTarget.blur();
-              }
-            }}
+          <TiptapComposer
+            ref={editorRef}
+            initialJSON={initialJSON}
             placeholder="Type and press enter to start chatting…"
+            onChange={onEditorChange}
+            onSubmit={handleSubmit}
+            onSuggestionChange={setSuggestion}
+            suggestionKeyDownRef={suggestionKeyDownRef}
           />
         )}
 
@@ -384,7 +571,12 @@ function Composer({ threadId }: { threadId: string | undefined }) {
             <ComposerIcon label="Attach file" disabled={mic.recording}>
               <Paperclip size={14} />
             </ComposerIcon>
-            <ComposerIcon label="Mention a source" disabled={mic.recording}>
+            <ComposerIcon
+              label="Mention a source"
+              disabled={mic.recording}
+              onClick={insertAtTrigger}
+              active={suggestion !== null}
+            >
               <AtSign size={14} />
             </ComposerIcon>
             <VsPill
@@ -673,4 +865,35 @@ function ordinal(n: number): string {
     default:
       return "th";
   }
+}
+
+/**
+ * Mirrors what Tiptap's `editor.getText()` would produce for the given JSON,
+ * used to seed the `canSend` check from a restored draft before the first
+ * onUpdate fires. Each mention node contributes `@<label>` to match the
+ * editor's configured `renderText`.
+ */
+function extractTextFromJSON(json: JSONContent): string {
+  let out = "";
+  const walk = (node: JSONContent) => {
+    if (node.type === "text" && typeof node.text === "string") {
+      out += node.text;
+    } else if (node.type === "mention") {
+      const label = node.attrs?.label ?? node.attrs?.id ?? "";
+      out += `@${label}`;
+    }
+    if (Array.isArray(node.content)) {
+      // ProseMirror block separators show up as newlines in getText().
+      let first = true;
+      for (const child of node.content) {
+        if (!first && (child.type === "paragraph" || child.type === "hardBreak")) {
+          out += "\n";
+        }
+        walk(child);
+        first = false;
+      }
+    }
+  };
+  walk(json);
+  return out;
 }
