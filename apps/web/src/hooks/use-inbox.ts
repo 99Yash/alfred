@@ -1,5 +1,5 @@
 import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
@@ -57,6 +57,40 @@ export function useInbox() {
     refetchOnWindowFocus: true,
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * Mark a set of inbox rows as read by removing the Gmail UNREAD label
+ * server-side. The endpoint already filters to currently-unread rows so
+ * callers can over-include without thinking (e.g. "all visible ids");
+ * we still pass the documentIds explicitly rather than asking the
+ * server to mark *everything* — the rail's button is "all visible on
+ * the current page," not server-wide.
+ *
+ * Invalidates the inbox list on success; we don't bother with optimistic
+ * updates because the server returns instantly and the rail rerenders
+ * the affected rows within a tick.
+ */
+export function useMarkInboxRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (documentIds: ReadonlyArray<string>) => {
+      const res = await client.api.me.inbox["mark-read"].post({
+        documentIds: [...documentIds],
+      });
+      if (res.error) {
+        const detail =
+          res.error.value && typeof res.error.value === "object" && "message" in res.error.value
+            ? String((res.error.value as { message: unknown }).message)
+            : `Mark-read failed (${res.status})`;
+        throw new Error(detail);
+      }
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["me", "inbox"] });
+    },
   });
 }
 

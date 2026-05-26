@@ -376,6 +376,43 @@ export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promis
   return messageSchema.parse(json);
 }
 
+export interface BatchModifyMessagesArgs {
+  accessToken: string;
+  /**
+   * Gmail message ids (NOT thread ids). Gmail caps the list at 1000 per
+   * call; callers should chunk if they need more. Empty arrays are a
+   * client error here rather than a silent no-op — the round-trip cost
+   * is small and a no-op call usually signals a callsite bug.
+   */
+  messageIds: ReadonlyArray<string>;
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+}
+
+/**
+ * Apply / remove labels across many messages in one request. Wraps
+ * `users.messages.batchModify`, which returns 204 No Content on success
+ * — no message bodies come back, so we resolve `void` and let callers
+ * re-query if they need post-modify state.
+ *
+ * Like `modifyMessageLabels`, the operation is idempotent per-message:
+ * adding an existing label or removing a missing label is a no-op.
+ */
+export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promise<void> {
+  if (args.messageIds.length === 0) {
+    throw new Error("[gmail] batchModifyMessages called with empty messageIds");
+  }
+  if (args.messageIds.length > 1000) {
+    throw new Error(
+      `[gmail] batchModifyMessages exceeds Gmail's 1000-id cap (got ${args.messageIds.length})`,
+    );
+  }
+  const payload: Record<string, unknown> = { ids: args.messageIds };
+  if (args.addLabelIds?.length) payload.addLabelIds = args.addLabelIds;
+  if (args.removeLabelIds?.length) payload.removeLabelIds = args.removeLabelIds;
+  await postJson(`${API_BASE}/messages/batchModify`, args.accessToken, payload);
+}
+
 // ---------------------------------------------------------------------------
 // MIME helpers
 // ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Particles } from "~/components/ui/particles";
 import { VsPill } from "~/components/ui/visitors";
 import { useVsTheme } from "~/components/ui/visitors/theme";
-import { useInbox, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
+import { useInbox, useMarkInboxRead, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
 import type { InboxItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
@@ -836,6 +836,20 @@ function useRailData(): RailData {
   }, []);
   const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
 
+  // "Mark all read" is bulk by the page's visible-unread ids — InboxFeed
+  // computes that set and hands it to us. `useMarkInboxRead` invalidates
+  // ["me","inbox"] on success, so the rail rerenders with the rows
+  // already showing as read.
+  const markInboxRead = useMarkInboxRead();
+  const markInboxReadMutate = markInboxRead.mutate;
+  const onMarkInboxRead = useCallback(
+    (ids: ReadonlyArray<string>) => {
+      if (ids.length === 0) return;
+      markInboxReadMutate(ids);
+    },
+    [markInboxReadMutate],
+  );
+
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
   return useMemo(
@@ -853,6 +867,7 @@ function useRailData(): RailData {
       selectedInboxId,
       onOpenInbox,
       onCloseInbox,
+      onMarkInboxRead,
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
       latestBriefing: briefingData ?? null,
@@ -868,6 +883,7 @@ function useRailData(): RailData {
       selectedInboxId,
       onOpenInbox,
       onCloseInbox,
+      onMarkInboxRead,
       meetingsData,
       briefingData,
     ],

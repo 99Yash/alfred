@@ -64,9 +64,22 @@ export interface InboxFeedProps {
   onOpen?: (documentId: string) => void;
   /** Close the reader and return to the list. */
   onClose?: () => void;
+  /**
+   * Optional bulk "mark read" — when present, the feed renders a
+   * "Mark all read" affordance that fires with the *visible* unread
+   * ids. Preview routes (and any caller that wants to suppress the
+   * action) omit this. */
+  onMarkRead?: (documentIds: ReadonlyArray<string>) => void;
 }
 
-export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: InboxFeedProps) {
+export function InboxFeed({
+  items,
+  pagination,
+  selectedId,
+  onOpen,
+  onClose,
+  onMarkRead,
+}: InboxFeedProps) {
   const [query, setQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [localPage, setLocalPage] = useState(0);
@@ -99,6 +112,14 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
     if (serverPaginated) return filtered;
     return filtered.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE);
   }, [filtered, pageIndex, serverPaginated]);
+
+  // Ids the "Mark all read" button will pass to the parent. Drawn from
+  // the visible slice (not `items`) so the button respects the user's
+  // current filter + page; an empty list disables the button.
+  const visibleUnreadIds = useMemo(
+    () => visible.filter((i) => i.unread).map((i) => i.id),
+    [visible],
+  );
 
   // Detail-pane reader: when a row is selected, swap the list out. The
   // reader gets its own fetch (`useInboxDetail`), so the list-level filter
@@ -169,12 +190,20 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
               }}
             />
           ) : null}
-          <button
-            type="button"
-            className="text-[11px] text-white/65 hover:text-white transition-colors"
-          >
-            Mark all read
-          </button>
+          {onMarkRead ? (
+            <button
+              type="button"
+              disabled={visibleUnreadIds.length === 0}
+              onClick={() => onMarkRead(visibleUnreadIds)}
+              className={cn(
+                "text-[11px] text-white/65 hover:text-white transition-colors",
+                "outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded",
+                "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-white/65",
+              )}
+            >
+              Mark all read
+            </button>
+          ) : null}
         </div>
       </div>
 
