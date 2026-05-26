@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AppSidebar } from "~/components/app-sidebar";
 import { ChatContext } from "~/components/chat-context";
 import {
@@ -59,6 +67,31 @@ export function useSidebarState(): SidebarStateValue {
   return ctx;
 }
 
+/* -----------------------------------------------------------------------------
+ * Viewport-driven sidebar collapse
+ * Mirrors `useRailMode` from -preview-chat/helpers — same matchMedia + snap-on-
+ * transition shape, but at a narrower breakpoint than the rail (1024px vs
+ * 1280px) so the right rail collapses first and the sidebar follows once
+ * we're firmly in tablet territory. Both default-open inline, default-closed
+ * overlay; the user can still override manually after a transition.
+ * -------------------------------------------------------------------------- */
+
+const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
+
+function useSidebarMode(): "inline" | "overlay" {
+  const [mode, setMode] = useState<"inline" | "overlay">(() => {
+    if (typeof window === "undefined") return "inline";
+    return window.matchMedia(SIDEBAR_BREAKPOINT).matches ? "inline" : "overlay";
+  });
+  useEffect(() => {
+    const mq = window.matchMedia(SIDEBAR_BREAKPOINT);
+    const handler = () => setMode(mq.matches ? "inline" : "overlay");
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return mode;
+}
+
 /* -------------------------------------------------------------------------- */
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -71,8 +104,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEventBridge();
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const sidebarMode = useSidebarMode();
+  const [sidebarOpen, setSidebarOpen] = useState(() => sidebarMode === "inline");
   const [activeThread, setActiveThread] = useState<string>("morning-brief");
+
+  // Snap the sidebar back to each mode's default when the viewport
+  // crosses the breakpoint — wide viewports get it open inline, narrow
+  // viewports get it collapsed. Same during-render pattern as the
+  // right-rail mode reset in `chat-shell.tsx`; the ref tracks the
+  // previous mode so we only snap on the transition, not every render.
+  const prevSidebarModeRef = useRef(sidebarMode);
+  if (prevSidebarModeRef.current !== sidebarMode) {
+    prevSidebarModeRef.current = sidebarMode;
+    setSidebarOpen(sidebarMode === "inline");
+  }
 
   /* Server-truth onboarding flag. Only fetched once we know we're authed; the
    * `enabled` keeps the query off the login screen. */
