@@ -281,11 +281,16 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
     <div
       className={cn(
         "flex items-center gap-1.5 px-2 py-1.5 -mx-0.5 rounded-lg",
-        "bg-vs-bg-a2 ring-1 ring-vs-bg-3/60",
-        "focus-within:ring-vs-purple-2 transition-shadow",
+        // White-alpha treatment so the field reads against the rail's
+        // video surface. Brighter ring at rest, near-white on focus —
+        // the vs-purple-2 ring is too dim to register on the cloudy
+        // backdrop.
+        "bg-white/[0.06] ring-1 ring-inset ring-white/15",
+        "focus-within:bg-white/[0.10] focus-within:ring-white/45",
+        "transition-[background-color,box-shadow]",
       )}
     >
-      <Search size={12} className="text-vs-fg-2 shrink-0" />
+      <Search size={12} className="text-white/55 shrink-0" />
       <input
         type="text"
         value={value}
@@ -293,7 +298,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         placeholder="Filter inbox"
         aria-label="Filter inbox"
         className={cn(
-          "flex-1 min-w-0 bg-transparent text-[12px] leading-5 text-vs-fg-4 placeholder:text-vs-fg-2",
+          "flex-1 min-w-0 bg-transparent text-[12px] leading-5 text-white placeholder:text-white/55",
           "outline-none",
         )}
       />
@@ -302,7 +307,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear filter"
-          className="text-vs-fg-2 hover:text-vs-fg-4 transition-colors shrink-0"
+          className="text-white/55 hover:text-white transition-colors shrink-0"
         >
           <X size={12} />
         </button>
