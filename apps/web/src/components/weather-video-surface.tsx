@@ -27,6 +27,22 @@ const VIDEO_FOR_CONDITION: Record<WeatherCondition, string> = {
 const NIGHT_VIDEO = "/videos/night.mp4";
 const DEFAULT_VIDEO = "/videos/partly_cloudy.mp4";
 
+/**
+ * Local-clock fallback used when `useWeather()` hasn't resolved yet or
+ * has errored (open-meteo / geojs occasionally fail from the browser
+ * with no CORS surface). Mirrors the open-meteo `is_day` branch we'd
+ * normally take, just without sunrise/sunset precision.
+ *
+ * The window is intentionally wide — civil-evening starts long before
+ * astronomical sunset, and "show night.mp4 at 6pm in Bhubaneswar" reads
+ * far less weird than "show partly_cloudy at 6pm".
+ */
+function isLocalNight(): boolean {
+  if (typeof window === "undefined") return false;
+  const hour = new Date().getHours();
+  return hour < 6 || hour >= 18;
+}
+
 interface WeatherVideoSurfaceProps {
   /**
    * Live weather condition from `useWeather()`. `undefined` while the
@@ -42,14 +58,20 @@ interface WeatherVideoSurfaceProps {
 
 export function WeatherVideoSurface({
   condition,
-  isDay = true,
+  isDay,
   className,
 }: WeatherVideoSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasData = condition !== undefined;
+  // Without a weather signal, fall back to local-clock night/day so the
+  // rail at least matches the user's wall-time. Skipping this fallback
+  // is how we ended up showing partly-cloudy at 7pm in Bhubaneswar.
+  const isNightFallback = !hasData && isLocalNight();
   const videoSrc = !hasData
-    ? DEFAULT_VIDEO
-    : !isDay
+    ? isNightFallback
+      ? NIGHT_VIDEO
+      : DEFAULT_VIDEO
+    : isDay === false
       ? NIGHT_VIDEO
       : VIDEO_FOR_CONDITION[condition];
 
@@ -79,7 +101,11 @@ export function WeatherVideoSurface({
           "absolute inset-0 h-full w-full object-cover",
           "pointer-events-none select-none",
           "transition-opacity duration-1000 ease-in-out",
-          hasData ? "opacity-100" : "opacity-0",
+          // Always render the chosen video: the fallback (local-clock
+          // night vs partly_cloudy) is meaningful on its own, so the
+          // rail doesn't sit empty waiting for the weather hook —
+          // especially on geojs/open-meteo failure paths.
+          "opacity-100",
         )}
       >
         <source src={videoSrc} type="video/mp4" />

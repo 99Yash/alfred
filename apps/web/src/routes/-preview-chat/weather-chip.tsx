@@ -34,10 +34,11 @@ export function WeatherChip() {
     return () => window.clearInterval(id);
   }, [shouldRoll]);
 
-  if (isLoading) {
-    return <Plate aria-label="Weather loading" className="animate-pulse w-[88px]" />;
-  }
-  if (isError || !data) {
+  // Render nothing until real data lands. The previous pulsing
+  // skeleton churned the header during the (sometimes long) retry
+  // window when geojs / open-meteo were failing — the rail's video
+  // already conveys "weather here", so silence > theater while we wait.
+  if (isLoading || isError || !data) {
     return null;
   }
 
