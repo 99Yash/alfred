@@ -87,7 +87,7 @@ await scheduleRepeatableBriefingJobs();
 // builtin rows seed with `next_run_at = null` to stay out of this scan.
 await scheduleRepeatableWorkflowsJobs();
 
-const server = new Elysia({ adapter: node() })
+const server = new Elysia({ adapter: node(), normalize: "typebox" })
   .use(
     cors({
       origin: serverEnv().CORS_ORIGIN,

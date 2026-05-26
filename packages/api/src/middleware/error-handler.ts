@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { ApiError } from "./errors.js";
 
-export const errorHandler = new Elysia({ name: "error-handler" }).onError(
+export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(
   { as: "global" },
   ({ code, error, set }) => {
     if (error instanceof ApiError) {

@@ -24,7 +24,7 @@ import {
  * Replicache puller picks up the new rows on the next poke; the client
  * never directly mutates skills/runs in v1 (see m12 plan D6).
  */
-export const skillsRoutes = new Elysia({ prefix: "/api/skills" })
+export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
