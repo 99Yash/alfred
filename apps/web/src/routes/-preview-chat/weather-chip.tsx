@@ -107,6 +107,7 @@ function Plate({
 
 const ICON_FOR_CONDITION: Record<WeatherCondition, LucideIcon> = {
   clear: Sun,
+  partly_cloudy: Cloud,
   cloudy: Cloud,
   fog: CloudFog,
   rain: CloudRain,
@@ -117,6 +118,7 @@ const ICON_FOR_CONDITION: Record<WeatherCondition, LucideIcon> = {
 
 const TONE_FOR_CONDITION: Record<WeatherCondition, string> = {
   clear: "text-vs-amber-4",
+  partly_cloudy: "text-vs-fg-3",
   cloudy: "text-vs-fg-3",
   fog: "text-vs-fg-3",
   rain: "text-vs-sky-4",
@@ -127,6 +129,7 @@ const TONE_FOR_CONDITION: Record<WeatherCondition, string> = {
 
 const LABEL_FOR_CONDITION: Record<WeatherCondition, string | null> = {
   clear: "Sunny",
+  partly_cloudy: "Partly cloudy",
   cloudy: "Cloudy",
   fog: "Foggy",
   rain: "Rainy",
