@@ -39,20 +39,26 @@ declare const ianaTimezoneBrand: unique symbol;
 export type IanaTimezone = string & { readonly [ianaTimezoneBrand]: true };
 
 /**
- * Runtime guard for IANA timezone strings. Verifies the value against
- * `Intl.supportedValuesOf('timeZone')` so we don't accept arbitrary text.
- * Throws on miss so callers can rely on the branded type after the call.
+ * Cached at module scope — `Intl.supportedValuesOf('timeZone')` allocates
+ * a ~600-entry array on every call. Guard / schema-refine both run on hot
+ * paths (API boundaries, zod parsing), so we pay the allocation once.
+ */
+const SUPPORTED_TIMEZONES: ReadonlySet<string> = new Set(Intl.supportedValuesOf("timeZone"));
+
+/**
+ * Runtime guard for IANA timezone strings. Verifies the value against the
+ * platform's supported timezones so we don't accept arbitrary text. Throws
+ * on miss so callers can rely on the branded type after the call.
  */
 export function assertIanaTimezone(value: string): asserts value is IanaTimezone {
-  const supported = Intl.supportedValuesOf("timeZone");
-  if (!supported.includes(value)) {
+  if (!SUPPORTED_TIMEZONES.has(value)) {
     throw new Error(`Not a recognized IANA timezone: ${value}`);
   }
 }
 
 export function isIanaTimezone(value: unknown): value is IanaTimezone {
   if (typeof value !== "string") return false;
-  return Intl.supportedValuesOf("timeZone").includes(value);
+  return SUPPORTED_TIMEZONES.has(value);
 }
 
 export const ianaTimezoneSchema = z
@@ -126,9 +132,14 @@ export interface DayOfWeekContribution {
 }
 
 /**
- * Output of the gather step. `null` for a source means "not connected / scope
- * missing / upstream failed". The composer prompt is responsible for handling
- * the empty case verbatim — empty state is content, not an error path.
+ * Output of the gather step. Sources split into guaranteed vs optional:
+ *   - `email` is always present — triage is a built-in pipeline; an empty
+ *     inbox is represented as `categories: {}`, not `null`.
+ *   - `day_of_week` is always present — it's deterministic from the briefing
+ *     date and never fails.
+ *   - `calendar` / `github` / `weather` are `null` when "not connected / scope
+ *     missing / upstream failed". The composer prompt handles the empty case
+ *     verbatim — empty state is content, not an error path.
  */
 export interface BriefingGather {
   email: EmailContribution;
