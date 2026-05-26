@@ -516,16 +516,12 @@ function WeatherLabel({
   const wrapperClass =
     "flex h-[20px] items-center gap-1.5 text-sm font-bold tracking-[0.04em] text-white/60 mix-blend-plus-lighter";
 
-  if (loading) {
-    return (
-      <div className={wrapperClass} aria-label="Weather loading">
-        <span className="h-3 w-20 animate-pulse rounded-full bg-white/15" />
-      </div>
-    );
-  }
-  if (errored || !snapshot) {
-    // Hide the weather slot on error so the rail header doesn't show a
-    // stale or fabricated location — same play as `WeatherChip`.
+  // Reserve the slot's height during load + error so the segmented
+  // tablist below doesn't shift when the temp lands — but render
+  // nothing visible. Previously the load state pulsed, which read as a
+  // failure mode rather than "almost there" once geojs/open-meteo
+  // started intermittently 4xx-ing from the browser.
+  if (loading || errored || !snapshot) {
     return <div className={wrapperClass} aria-hidden />;
   }
   return (
