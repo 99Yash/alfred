@@ -350,6 +350,9 @@ importers:
       '@ai-sdk/perplexity':
         specifier: 'catalog:'
         version: 3.0.32(zod@4.3.6)
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
@@ -490,6 +493,9 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
     devDependencies:
       '@alfred/config':
         specifier: workspace:*

@@ -22,6 +22,11 @@ interface ParticlesProps {
   color?: string;
   /** Upper bound on per-particle alpha (random 0.05..maxAlpha). Default 0.4. */
   maxAlpha?: number;
+  /**
+   * When true, particles "stardust" out — alpha fades to 0 while each particle
+   * accelerates outward from canvas center. Flip back to false to re-form.
+   */
+  dispersed?: boolean;
 }
 
 type Circle = {
@@ -50,9 +55,16 @@ export function Particles({
   ease = 50,
   color = "#ffffff",
   maxAlpha = 0.4,
+  dispersed = false,
 }: ParticlesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // The animate loop is set up once and lives across re-renders, so it reads
+  // `dispersed` through a ref to pick up changes without restarting the RAF.
+  const dispersedRef = useRef(dispersed);
+  useEffect(() => {
+    dispersedRef.current = dispersed;
+  }, [dispersed]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -129,6 +141,8 @@ export function Particles({
 
     const animate = () => {
       clearContext();
+      const cx = size.w / 2;
+      const cy = size.h / 2;
       circles.forEach((circle, i) => {
         const edges = [
           circle.x + circle.translateX - circle.size,
@@ -138,7 +152,14 @@ export function Particles({
         ];
         const closest = edges.reduce((a, b) => Math.min(a, b));
         const fade = parseFloat(remap(closest, 0, 20, 0, 1).toFixed(2));
-        if (fade > 1) {
+        if (dispersedRef.current) {
+          // Stardust exit: ramp alpha down to 0 over ~18 frames and add a
+          // position-proportional outward kick so particles scatter from
+          // center rather than just dimming in place.
+          circle.alpha = Math.max(0, circle.alpha - 0.025);
+          circle.dx += (circle.x + circle.translateX - cx) * 0.0008;
+          circle.dy += (circle.y + circle.translateY - cy) * 0.0008;
+        } else if (fade > 1) {
           circle.alpha = Math.min(circle.alpha + 0.02, circle.targetAlpha);
         } else {
           circle.alpha = circle.targetAlpha * fade;

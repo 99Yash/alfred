@@ -47,6 +47,8 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 | Content privacy       | Vendor at-rest crypto + log redaction + no `documents.raw`; no app-layer encryption at v1 (ADR-0038)              |
 | Attachment ingestion  | `attachments` + `attachment_pages` tables; Claude PDF/image extraction; dedicated `doc-extraction-runs` queue; four-gate cost shield (ADR-0039) |
 | Brief-only run shape  | Ping-pong `boss-turn` ↔ `dispatch-tools` steps; sentinel `userAuthoredBriefWorkflow` resolves all user-authored slugs; `agent_runs.transcript` jsonb; strict `@`-mention seed (ADR-0040)        |
+| Daily briefing        | Cross-source LLM compose; `breakingSummary` in email + `fullBriefing` in-app; `briefings` table (one row per user/day); `[[<kind>:<id>]]` reference placeholders resolved per surface (ADR-0041) |
+| Email triage pipeline | Layered: deterministic sender-context extraction + cheap classifier + boss `deepen` escalation gate + async dossier auto-trigger with confidence-tier TTL cache (ADR-0042)                       |
 
 ---
 
@@ -796,6 +798,14 @@ The original 6-bucket taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `f
 
 **Briefing downstream.** The morning briefing's priority/suppressed split (`packages/api/src/modules/briefing/gather.ts`) is updated alongside this amendment: `urgent` lands first in the priority order (so a same-day-actionable item never gets buried), `follow_up` after `awaiting_reply`, and `done`/`marketing` join `fyi`/`newsletter` in the suppressed counts. Display order mirrors the user's Gmail label numbering. Reply-drafting (ADR-0025 #5, still default-OFF) continues to key on `awaiting_reply`; whether to also draft for `follow_up` (softer touch — "thanks for the nudge, here's where we are") is left for when that workflow flips ON.
 
+**Amendment (2026-05-26) — triage pipeline rebuilt as layered classifier with boss escalation (ADR-0042).**
+
+ADR-0042 keeps the 10-bucket taxonomy from the prior amendment but rebuilds the pipeline shape. The classify step gains a deterministic `extract-sender-context` prefix that emits typed `SenderContext` (bot vs human vs service, body-actor parsing for GitHub/Calendar/Linear, `botSlug` from a curated allowlist). Rule #9 splits into 9a/9b/9c: bot review comments → `fyi`, severity-suspect bot alerts (Sentry, Stripe billing, Google security, Vercel deploy, Datadog) classify on body content, unknown service envelopes use today's behavior. A boss-tier `deepen` step fires when the cheap classifier's confidence is low, OR sender is in `SEVERITY_SUSPECT_BOTS`, OR sender is an unknown human in an important category. Dossier work for unknown human senders fires async via the ADR-0031 workflow with `person_profiles`-backed TTL caching. See ADR-0042 for the full pipeline shape, cost calculus, and failure model.
+
+**Amendment (2026-05-26) — morning briefing rebuilt as cross-source LLM compose with split surface (ADR-0041).**
+
+ADR-0041 supersedes the m10 deterministic-render path. The briefing workflow stays `gather → compose → send`, but `gather` now spans five sources (email triage rollup + Calendar + GitHub + Weather + day-of-week, with a per-integration `collectBriefingContribution` extensibility contract), and `compose` becomes a single `getBossModel()` call producing both a 4-6 line breaking summary (the email body) and a structured full briefing (the in-app surface). Entity references (PRs, commits, meetings) use `[[<kind>:<id>]]` placeholders resolved per-surface. A new `briefings` table is the canonical record, Replicache-synced read-only with a 30-day pull window. ADR-0033's inbox-only bound is widened in tandem.
+
 ---
 
 ## ADR-0026 — `AlfredAgent`: per-turn LLM driver, not a tool-loop wrapper
@@ -1117,6 +1127,10 @@ Cold-start is lifetime-once, self-research, and writes into `user_facts`/`memory
 - Whether the dossier profile table should generalize to `entity_profiles` for organizations/projects/products. Start with people unless implementation shows the abstraction is free.
 - Whether quick Sonar Pro lookups should ever be persisted, or only deep-research outputs.
 
+**Amendment (2026-05-26) — triage-driven auto-trigger + confidence-tier TTL caching (ADR-0042).**
+
+The "later, allow opt-in proactive triggers" line in the Triggers section gains a concrete first proactive trigger: triage's `deepen` step (ADR-0042). When the escalation gate fires on an unknown human sender in `urgent` / `action_needed` / `awaiting_reply`, the triage workflow enqueues this ADR's `person-research` workflow as an async side-effect, NOT a blocking step. The current email's classification proceeds without the dossier; future emails from the same sender benefit from the cached profile. Privacy semantics intact — the dossier still surfaces as a review-before-memory draft card before any fact lands in `user_facts`; the "no silent background research of arbitrary contacts at v1" rule is preserved because the trigger is gated on triage importance, not on contact appearance. The `person_profiles` rows themselves act as a cache: stale-by-confidence-tier (`identity_confidence` ≥0.9 → 90d, 0.7-0.9 → 30d, <0.7 → 7d) triggers re-research only when the sender re-appears in an important triage category. Cache key is the stable sender identifier — `email` for direct senders, `service:handle` for body actors (e.g. `github:coderabbitai`).
+
 ---
 
 ## ADR-0032 — Burst dedup on per-credential ingestion: BullMQ `deduplication: { id, ttl }`, never a static `jobId`
@@ -1203,6 +1217,10 @@ The dedup id format is `gmail.poll_history.{credentialId}` with `.` separator (B
 - (c) Drop PR mentions from briefings entirely until GitHub is wired (rejected — the user routinely cares about review-comment emails on their own PRs; surfacing those with the noted band-aid is better than silence).
 
 **Trace back to the symptom.** 2026-05-21 morning smoke output included "PR #16, PR #24, and PR #25 are all ready for you to take a look" — all three were already merged. The prompt-level guard now in place reduces repeat-noise; the actual fix is GitHub OAuth.
+
+**Amendment (2026-05-26) — inbox-only bound widened to full cross-source gather (ADR-0041).**
+
+The "v1 ships against Gmail only" position is superseded by ADR-0041's five-source gather: email triage rollup + Google Calendar + GitHub + Weather + day-of-week. The integration-sequencing argument here remains correct (each source is gated on its OAuth scope or external dependency landing first), but the briefing workflow itself no longer ships in an "inbox-only" v1 shape. The agent's deterministic gather (`list_calendar_events`, `list_action_items`, `list_meeting_preps` stubs returning `[]`) is replaced by a typed `BriefingContributor<T>` contract per source; each contributor returns `null` until its underlying integration is wired, and the composer's prompt handles empty cases verbatim. The "don't paper over the gap with cleverness" rule still applies — when GitHub PR-merge state isn't readable, the briefing must say so or omit, not infer. The "safety through architecture" rule (briefing agents have no `send_email`, no `draft_reply`, no general `web_search`) is preserved by ADR-0041's compose call having no tool surface at all — it's a single structured-output `generateText` over the gather, not an agent loop.
 
 ---
 
@@ -2202,6 +2220,324 @@ Section 7 (immediate request) = the brief, as the first user message. Section 6 
 - Turn cap default (30) is a guess; revisit when real runs accumulate.
 - `system.spawn_sub_agent` is registered in `@alfred/contracts` but Phase 6's responsibility to implement and route through `dispatch-tools`'s step-body interpreter.
 - Whether the workflow CRUD layer should reject user slugs starting with `__` to keep the sentinel namespace pristine. Defensive niceness; not blocking.
+
+---
+
+## ADR-0041 — Daily briefing v2: cross-source LLM compose, split surface, `briefings` entity
+
+**Decision.** The daily briefing is rebuilt around six coordinated micro-decisions, superseding the m10 deterministic-render path and widening the inbox-only fidelity bound from ADR-0033:
+
+1. **Cross-source gather.** Five contributions feed each day's briefing: email triage rollup, Google Calendar (today's events), GitHub (PRs awaiting the user's review + yesterday's authored commits), weather (Open-Meteo, location resolved from prefs/memory), day-of-week + holidays. Each integration exposes `collectBriefingContribution(userId, date) → BriefingContribution` — same extensibility pattern as ADR-0011's cold-start signals. Future sources bolt on without a workflow rewrite.
+2. **Single LLM compose call (boss-tier).** `gather → compose → send` stays the workflow shape, but `compose` becomes one `meteredGenerateText` call with `getBossModel()` and `output: zod(briefingSchema)`. Cheap-tier produces flat tone-deaf prose for the warmth this surface needs; the per-day cost (~$0.02) is the right place to spend.
+3. **Two artifacts from one composer call.** `breakingSummary` (4-6 lines of markdown) is the email body source; `fullBriefing` (`{ headline, sections: { source, label, body }[], reasoning }`) is the in-app surface. Single call emits both — they cannot drift in tone or facts because they share a generation.
+4. **Reference resolution via `[[<kind>:<id>]]` placeholders.** Composer prose names entities by opaque token, not URL. A per-surface resolver expands against the gather: email HTML gets bold + service icon + anchor; in-app gets a typed `<EntityChip>`; plain-text fallback uses the entity's label. The LLM never sees or generates a URL — prevents hallucinated links. Kinds at v1: `pr | commit | meeting | email | repo` (closed enum in `@alfred/contracts`).
+5. **New `briefings` entity, one row per `(user_id, briefing_date)`, idempotent.** Canonical record of the day. Status-machine lifecycle. Replicache-synced read-only with a 30-day pull window. `briefing_date` is a PG `date` (string mode, no JS Date noise); `timezone` is branded `IanaTimezone` text validated against `Intl.supportedValuesOf('timeZone')` at the API boundary. Both columns are load-bearing — see below.
+6. **New metering attribution kind: `briefing`.** Const-narrowed in `@alfred/contracts.AttributionKind`. Cost rollups bucket the daily briefing apart from agent runs, triage, web search, doc extraction.
+
+**Trigger model unchanged.** Hourly `briefing.tick` continues to honor `user_preferences.briefing.delivery_hour`. Per-user scheduled jobs were considered and rejected — at single-user scale the tick's index lookup is free, and a second BullMQ scheduler buys nothing the unified `workflows.tick` (ADR-0027) hasn't already justified.
+
+**Schema sketch.**
+
+```ts
+// packages/db/src/schema/briefings.ts
+briefings (
+  id            text PK,                          -- createId('brf')
+  user_id       text FK -> users,
+  briefing_date date NOT NULL,                    -- 'YYYY-MM-DD' in user tz (mode: 'string')
+  timezone      text NOT NULL,                    -- $type<IanaTimezone>()
+  status        text NOT NULL,                    -- 'pending' | 'gathering' | 'composing' | 'sent' | 'failed'
+
+  gather           jsonb NOT NULL,                -- $type<BriefingGather>()
+  breaking_summary text NOT NULL DEFAULT '',
+  full_briefing    jsonb NOT NULL,                -- $type<FullBriefing>()
+  model            text,                          -- model id used for compose
+
+  email_send_id text FK -> email_sends NULL,      -- delivery side-effect link
+  row_version   bigint NOT NULL DEFAULT 0,
+  ...lifecycle_dates,
+
+  UNIQUE(user_id, briefing_date)
+)
+```
+
+`BriefingGather` and `FullBriefing` live in `@alfred/contracts/briefing.ts`. Each `*Contribution` type is exported separately so future integrations add their slice without touching shared types. `gather` and `full_briefing` use Drizzle `.$type<T>()` for compile-time safety; runtime validation is the composer's structured-output contract.
+
+**Why `briefing_date` + `timezone` as separate columns, not a `timestamptz`.**
+
+`briefing_date` is the *identity* of the briefing — the unique index, the query key for "yesterday's briefing", the idempotency key for `notify()`. Querying by calendar day must not require tz math at read time. A `timestamptz` encodes an instant + offset, not a calendar date in an IANA zone — Postgres stores the offset, not the IANA name, so "+05:30" identifies Asia/Kolkata *or* Asia/Colombo *or* a manual offset. The IANA name is the canonical zone identity (DST rules, historical offset changes); we need both pieces independently, captured at compose time. Cosmetic ergonomics via a `briefingDateAndTz` spread helper in `packages/db/src/helpers.ts`, same shape as the existing `lifecycle_dates` spread.
+
+**Composer output schema.**
+
+```ts
+// packages/contracts/src/briefing.ts
+export const briefingSchema = z.object({
+  breakingSummary: z.string().min(1).max(2000),
+  fullBriefing: z.object({
+    headline: z.string().min(1).max(200),
+    sections: z.array(z.object({
+      source: gatherSourceSlugSchema,             // 'email' | 'calendar' | 'github' | 'weather' | 'day_of_week'
+      label:  z.string().min(1).max(80),
+      body:   z.string().min(1).max(2000),
+    })).max(12),
+    reasoning: z.string().min(1).max(3000),
+  }),
+});
+```
+
+Composer prompt explicitly enumerates every available reference. Example fragment passed to the LLM:
+
+```
+Available references (use ONLY these IDs; do not invent):
+  PRs:       [pr:warden#9  - "refactor: migrate ADR-0017 cascade to ai-retry"]
+             [pr:blog#42   - "fix(replicache): slowness on initial pull"]
+  Commits:   [commit:warden@a1b2c3d - "ai-retry wrap in 12 callers"]
+  Meetings:  []
+  Threads:   [email:thr_abc123 - "Quarterly check-in"]
+
+When citing one of the above in your prose, use [[<kind>:<id>]] verbatim.
+Do NOT emit URLs. Do NOT emit markdown bold or links for entity references.
+```
+
+**Reference resolution layer.**
+
+```ts
+// packages/api/src/modules/briefing/references.ts
+type Segment =
+  | { kind: 'text';    value: string }
+  | { kind: 'pr';      repo: string; number: number; title: string; url: string; merged?: boolean }
+  | { kind: 'commit';  repo: string; sha: string; shortSha: string; message: string; url: string }
+  | { kind: 'meeting'; eventId: string; title: string; start: string; calendarUrl: string }
+  | { kind: 'email';   threadId: string; subject: string; gmailUrl: string }
+  | { kind: 'repo';    slug: string; url: string };
+
+export function resolveBriefingReferences(
+  markdown: string,
+  gather: BriefingGather,
+): { segments: Segment[]; unresolved: string[] };
+```
+
+`renderBriefingEmail(segments) → { html, text }` and `renderBriefingApp(segments) → React.ReactNode` are the two surface-specific renderers. Unresolved placeholders fall back to a plain-text label and append to `unresolved`; the workflow logs them and a hook count surfaces in observability — drift between gather and composer is a real risk and we want it visible. The breaking-summary and full-briefing share the same resolver — one source of composer truth, two renderers.
+
+**Replicache integration.**
+
+- New `IDB_KEY.briefing` entry in `packages/sync/src/keys.ts` — prefix `idb/briefing/`, per-row key `idb/briefing/{briefingDate}` (date is naturally unique per user; simpler than an opaque id for client routing).
+- Read schema in `packages/sync/src/schemas.ts` includes `breakingSummary`, `fullBriefing`, `briefingDate`, `timezone`, `status`, `rowVersion`.
+- No client mutators at v1 — the workflow is the only writer. A future "regenerate" mutator flips `status` back to `'pending'` and re-enqueues the workflow.
+- Pull window: **last 30 days**. Older briefings reachable via an on-demand `/api/briefings/history?before=...` route. Keeps IndexedDB cache bounded — at one row/day, 30d is ~30 rows × small jsonb each.
+
+**Gather extensibility.**
+
+```ts
+// packages/contracts/src/briefing.ts
+export interface BriefingContributor<T> {
+  source: GatherSourceSlug;
+  collect(args: { userId: string; date: string; timezone: IanaTimezone }): Promise<T | null>;
+}
+```
+
+Each contributor returns `null` if its integration isn't connected or the OAuth scope is missing — composer prompt handles the empty cases ("no meetings today" / "weather unavailable"). New integrations bolt on by adding a contributor + a `GatherSourceSlug` enum value + a schema branch; no workflow change.
+
+**v1 source notes.**
+
+- **Email** — reuses `email_triage` joined to `documents` (no new query path).
+- **Calendar** — requires `calendar.events.readonly` added to `GOOGLE_FEATURE_SCOPES.briefing` (currently `briefing` includes only `gmail.readonly`). Same Google OAuth client; user re-consent on next OAuth refresh or feature reconnect.
+- **GitHub PR-review-requested + commits-yesterday** — requires `repo` scope on the GitHub OAuth app (currently `read:user`). Two read fetchers; cached in the gather payload, not in a separate table at v1.
+- **Weather** — Open-Meteo (no API key, generous free tier). Location resolved from `user_preferences.location` (added alongside this ADR) or falls back to the IANA timezone's principal city. Cached in Redis per `(lat, lng, briefingDate)` for the day.
+- **Day-of-week + holidays** — pure `Intl.DateTimeFormat` on the user's timezone; holidays via a small `@alfred/contracts` table covering US/IN holidays at v1.
+
+**Empty-state behavior.** A day with no meetings, no important email, no PR activity does *not* skip — the empty state is itself the content. The composer prompt's tone rule: *"On a quiet day, acknowledge the quiet — name what didn't happen, recognize recent effort if memory carries it, leave the user feeling earned rest, not informational void."* The dimension worked example *"no PR activity. After shipping 11k lines of warden security yesterday, you've earned the quiet"* is baked into the prompt as a canonical example.
+
+**Failure modes.**
+
+- **Composer LLM unavailable.** Workflow falls back to a deterministic template render of the gather data, sent under the same idempotency key but with `status='failed'` and a `compose_fallback=true` flag on the briefing. Better to ship the gather than nothing.
+- **Send failure (Resend outage).** Briefing row stays at `status='failed'`. `breakingSummary` and `fullBriefing` are already composed; the in-app surface still renders. A per-row "resend" affordance lets the user retry once the upstream recovers.
+- **Reference resolution miss.** Unresolved `[[pr:foo#bar]]` falls back to the inner label `"foo#bar"` as plain text; `unresolved[]` is logged. Composer prompt drift is the most likely cause; the log surfaces it.
+
+**Cost calculus (single user).**
+
+| Phase | Calls/day | Tier | $/day |
+| --- | --- | --- | --- |
+| Gather (no LLM) | 5 contributors | — | 0 |
+| Compose | 1 | boss | ~$0.02 |
+| Send | 1 | — | 0 |
+| **Total** | | | ~$0.02/day |
+
+vs the previous deterministic-render path (~$0/day, deterministic prose) — the delta is the cost of the warmth and judgment that the dimension example demonstrates is the actual product surface.
+
+**Alternatives.**
+
+- (a) **Single email with collapsible "full briefing" disclosure.** Rejected — HTML email rendering of LLM reasoning + per-source drill-downs is awkward across clients; mobile especially mangles disclosure widgets; loses a place for briefing history.
+- (b) **Boss-agent-driven gather (LLM picks which tools to call per day).** Rejected — daily user-facing surface on top of m13 infrastructure still under construction. "What matters" is a product decision (same five sources every day), not a per-run reasoning decision; pushing it into a boss burns tokens to re-derive a fixed answer.
+- (c) **Cheap-tier compose model.** Rejected — the warmth and judgment in the dimension example are not cheap-model outputs. Saving ~$0.01/day on the most-visible artifact is the wrong trade.
+- (d) **Plain markdown without reference placeholders (LLM emits URLs inline).** Rejected — URL hallucination on a daily user-facing email is unacceptable; in-app entity chips can't be reconstructed from `<a href>`; styling responsibility belongs to surfaces, not the LLM.
+- (e) **Single `timestamptz briefing_at` column for date + tz.** Rejected — loses the calendar-date identity needed for the idempotency unique index and history queries; Postgres timestamptz stores offset, not IANA zone name; canonical zone identity is lost.
+- (f) **Append-only `briefing_runs` history per render.** Rejected — at single-user scale, day-by-day overwrite is the natural model; render history is a feature nobody asked for; `agent_runs` already audits the workflow itself.
+
+**Open.**
+
+- Future "regenerate" mutator for the in-app surface — server-authored only at v1.
+- `briefing_history` route shape for pulls older than 30 days. Likely a simple paginated read; no Replicache involvement.
+- Whether the composer prompt should evolve to consume `person_profiles` (ADR-0031) once dossiers exist — so "Alice requested your review" becomes "Alice (eng lead at $company) requested your review". Forward-compatible via the reference resolver; the gather payload would carry resolved dossier slices alongside.
+- Holiday calendar coverage beyond US/IN — add per locale as needed; the const table is the right scale at v1.
+
+---
+
+## ADR-0042 — Email triage v2: layered pipeline with deterministic sender extraction + cheap classifier + boss escalation + async dossier trigger
+
+**Decision.** Email triage becomes a four-step workflow: `extract-sender-context → classify → [deepen?] → apply-label`. The middle two steps form a layered classifier: a cheap-tier LLM handles the obvious bulk; a boss-agent `deepen` step fires only when the gate's three conditions are met. The deterministic extraction step at the head exists so neither LLM step has to parse email headers — that's regex work. The dossier-research side-effect for unknown important human senders fires async from `deepen`, with TTL-based caching of completed dossiers in `memory_facts`-backed `person_profiles` (ADR-0031).
+
+Six coordinated micro-decisions:
+
+1. **Deterministic `extract-sender-context` step.** Parses `From:` + body and emits a typed `SenderContext` (`{ fromKind, bodyActor?, effectiveAuthor, botSlug? }`). Lives in `packages/api/src/modules/triage/sender-context.ts`. Zero LLM cost; ~5ms; output threaded through workflow state into the classifier.
+2. **Cheap classifier consumes `SenderContext`.** Today's classify step keeps its cheap-tier model and 10-bucket taxonomy; the system prompt evolves to consume `SenderContext` as a first-class input. Rule #9 splits into 9a/9b/9c: bot review comments → `fyi`; severity-suspect bot alerts → classify on body content alone; unknown service envelopes → today's behavior. Bot identification stops being prompt-derived; severity judgment stays prompt-derived.
+3. **`deepen` step, boss-tier, gated.** Fires when *any* of: classifier `confidence < 0.7`, OR `senderContext.botSlug ∈ SEVERITY_SUSPECT_BOTS`, OR `effectiveAuthor === 'person'` AND sender not in `memory_facts` contacts. Runs a brief-only `AlfredAgent` loop (ADR-0040 sentinel) with a read-only tool surface: `memory.read`, `github.list_repos`, `gmail.thread_history`, `web_search`. Outputs a refined category, a severity flag, and an optional `request_dossier(personEmail)` side-effect. Failure (model timeout, m13 hiccup) falls back to the cheap classifier's output — triage never blocks on the boss.
+4. **Async dossier auto-trigger via `person-research`.** When `deepen` returns `request_dossier` for an unknown human in `urgent` / `action_needed` / `awaiting_reply`, enqueues the ADR-0031 workflow as a side-effect. The current email's classification does NOT wait — it ships on classifier + deepen output alone. Future emails from the same sender benefit from the now-cached dossier.
+5. **Dossier cache via `person_profiles` with confidence-tier TTL.** ADR-0031's saved profile IS the cache; no new table. Cache key is the stable sender identifier: `email` for direct senders, `service:handle` for body actors (`github:coderabbitai`). TTL by `identity_confidence`: ≥0.9 → 90d, 0.7-0.9 → 30d, <0.7 → 7d. Re-research fires when stale AND sender lands in an important triage category (or via explicit user refresh).
+6. **Coverage observability.** New logging event `triage.sender_extraction` per email, recording `{ fromKind, bodyActor?, effectiveAuthor, botSlug?, parserHit?, classifierConfidence, escalated, escalationReason? }`. The bot allowlist and body-actor parser set grow from observed log data, not speculation.
+
+**Why this is its own ADR.** ADR-0025 #1's 2026-05-21 amendment widened *what* triage outputs (6 → 10 buckets). This ADR widens *how* triage decides — different cost/latency tradeoffs, a new pipeline step, a new dependency on m13's boss runtime, a new auto-trigger contract amending ADR-0031. Different shape, different blast radius.
+
+**Pipeline.**
+
+```
+ingest doc (gmail.poll_recent or gmail.poll_history)
+  ↓
+extract-sender-context           deterministic, ~5ms
+  ↓                              SenderContext { effectiveAuthor, ... }
+classify                          cheap LLM, ~500ms
+  ↓                              category, confidence, rationale
+[deepen?]                         iff confidence < 0.7
+                                  OR senderContext.botSlug ∈ SEVERITY_SUSPECT_BOTS
+                                  OR (effectiveAuthor === 'person' AND not in contacts)
+  ↓                              refined category, severityFlag, dossierRequest?
+apply-label                       deterministic, Gmail messages.modify
+                                  + thread-sibling alfred-label strip
+[fire-and-forget]
+  person-research workflow if dossierRequest
+```
+
+**`SenderContext` shape (in `@alfred/contracts`).**
+
+```ts
+export const SENDER_KIND = ['person', 'service', 'unknown'] as const;
+export type SenderKind = (typeof SENDER_KIND)[number];
+
+export const EFFECTIVE_AUTHOR = ['bot', 'person', 'service', 'unknown'] as const;
+export type EffectiveAuthor = (typeof EFFECTIVE_AUTHOR)[number];
+
+export const BOT_SLUGS = [
+  'coderabbit', 'copilot-review', 'github-actions', 'dependabot', 'renovate',
+  'vercel', 'sentry', 'stripe-billing', 'google-security', 'datadog',
+] as const;
+export type BotSlug = (typeof BOT_SLUGS)[number];
+
+export interface SenderContext {
+  fromKind: SenderKind;
+  bodyActor?: {
+    kind: 'bot' | 'person' | 'unknown';
+    name: string;            // 'coderabbitai', 'alice', 'dependabot[bot]'
+    handle?: string;         // GitHub handle when extractable
+  };
+  effectiveAuthor: EffectiveAuthor;
+  botSlug?: BotSlug;         // populated when effectiveAuthor === 'bot' AND recognized
+}
+```
+
+**Severity-suspect bot allowlist.** A const subset of `BOT_SLUGS` indicating "this bot CAN be urgent, so escalate to `deepen` even if the cheap classifier said `fyi`":
+
+```ts
+export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set([
+  'sentry',           // alert: errors spiking
+  'stripe-billing',   // payment failure breaks access today
+  'google-security',  // sign-in verification, account compromise
+  'vercel',           // deploy fail on user's own project
+  'datadog',          // SLO breach, incident
+]);
+```
+
+CodeRabbit / Copilot review / Dependabot / Renovate / GitHub Actions are deliberately *not* in this set — their messages are advisory in 99% of cases. If a Dependabot PR is genuinely severe (high-CVE security alert), the classifier's text-content reasoning catches it on rule 9a's exception clause, not via the sender-severity-suspect heuristic.
+
+**Body-actor parsers (v1).** Three sources cover ~80% of bot/human disambiguation in real inboxes:
+
+| Source | Detection | Parser |
+| --- | --- | --- |
+| GitHub          | `From: noreply@github.com`              | Extract `**actor**` markdown bold in first ~10 lines; `[bot]` suffix → bot; otherwise person |
+| Google Calendar | `From: calendar-notification@google.com`| Parse iCal `ORGANIZER` field or "organizer:" line in body                                   |
+| Linear          | `From: notifications@linear.app`         | Parse "Comment from {actor}" / "{actor} commented" line                                     |
+
+Each parser is ~30 LOC, tested with fixture emails in `packages/api/test/triage/sender-context.test.ts`. Long-tail sources (Notion, Slack, Vercel deploy notifications, Jira) fall through to `effectiveAuthor: 'unknown'` — the escalation gate's `confidence < 0.7` clause is the safety net.
+
+**Classifier system-prompt evolution.** Rule #9 today (*"Automated alerts that demand a remediation step → 'urgent' if same-day else 'action_needed'. NOT 'fyi'."*) splits into:
+
+```
+9a. Bot review comments (effectiveAuthor === 'bot' AND botSlug ∈
+    {coderabbit, copilot-review, github-actions, dependabot, renovate}):
+      → 'fyi'. Advisory at best; the user can scan when they want.
+      EXCEPTION: escalate to 'action_needed' or 'urgent' only if body text
+      indicates a security advisory (CVE, vulnerability, secret exposed),
+      regardless of bot identity.
+
+9b. Severity-suspect bot alerts (effectiveAuthor === 'bot' AND
+    botSlug ∈ SEVERITY_SUSPECT_BOTS):
+      Classify on body content alone — 'urgent' if same-day-actionable
+      (Sentry error spike, Stripe payment failure breaking access,
+      Google sign-in verification, Vercel deploy failure on the user's
+      project), 'action_needed' otherwise.
+
+9c. Unknown bot or service envelope (effectiveAuthor === 'service' AND
+    no botSlug, OR effectiveAuthor === 'unknown'):
+      Today's behavior — classify on body content alone.
+```
+
+**`deepen` step shape.** Boss brief-only run with a fixed brief:
+
+```
+Refine the triage classification for this email. The cheap classifier
+output: {category, confidence, rationale}. The sender context: {SenderContext}.
+
+Use the read-only tools to gather context:
+  - memory.read         : prior dossiers, contacts, user preferences
+  - github.list_repos   : is the user's relationship to a service active?
+  - gmail.thread_history: prior interactions with this sender
+
+Return:
+  - refinedCategory: one of TRIAGE_CATEGORIES (may equal cheap classifier output)
+  - severityFlag:   'severe' | 'normal' | 'low'
+  - dossierRequest?: { personEmail } if web search would be valuable but
+                     you didn't run it (the async dossier workflow handles it)
+```
+
+The boss is *not* invited to call `web_search` directly — that's web search budget that belongs to the async dossier workflow, not to per-email triage. The `dossierRequest` side-effect surfaces the request; the triage workflow enqueues `person-research` separately.
+
+**Failure model.** If `deepen` fails (model timeout, boss runtime error, m13 phase regression), the workflow logs the failure and proceeds to `apply-label` with the cheap classifier's output. Triage never blocks; the user always gets a label. The History tab surfaces the failure for diagnosis.
+
+**Cost calculus (100 emails/day single user).**
+
+| Phase | Calls/day | Tier | $/day |
+| --- | --- | --- | --- |
+| Extract sender context  | 100       | regex    | 0       |
+| Classify                | 100       | cheap    | ~$0.01  |
+| Deepen                  | ~10 (10% escalation) | boss    | ~$0.20  |
+| Dossier (new sender, rate-limited) | ~1 | research | ~$0.05  |
+| **Total**               |           |          | **~$0.26/day** |
+
+vs **pure boss agent on every email**: 100 × ~$0.02 = ~$2.00/day. **10x cost reduction** for the obvious 90% of email, with the boss's judgment exactly where it adds value. The bigger structural argument is latency: the cheap path returns a Gmail label in ~1s; pure-boss takes ~10s. For an inbox-tagging job that fires per-message, that delta is the difference between "feels real-time" and "feels broken."
+
+**Alternatives.**
+
+- (a) **Pure boss agent on every email.** Single mental model; richest reasoning. Rejected — 10x cost, 10x latency, depends on m13 phase 4 landing solid before m9 cleanup can ship. At single-user scale cost isn't crippling, but the latency story is the real disqualifier.
+- (b) **Bot detection inside classifier prompt only.** Cheapest to ship. Rejected — classifier becomes parser + judge; parsing GitHub email headers in natural language is exactly what regex is for; prompt-rule precedence degrades past ~12 rules (we're at 11 today).
+- (c) **Post-classifier deterministic re-score.** Classifier runs unchanged; a deterministic step adjusts output. Rejected — classifier's `rationale` field gets out of sync with the final category ("Rationale: code review owed. Category: fyi." reads as a bug to anyone auditing).
+- (d) **Sync dossier in `deepen`.** Boss blocks on web search + dossier compose during triage. Rejected — dossier work is 30-60s; blocking triage on it means the Gmail label arrives 30s late. Async via `person-research` is the right cadence split.
+- (e) **Speculative dossier on every new human sender.** Rejected — generates dossiers for cold-outbound sales pitches and one-off senders. Wasteful. The gate's "important triage category" clause is the right filter.
+- (f) **User-triggered dossiers only (no auto-trigger).** Rejected — the whole point of "if it's a human, maybe Google search them" is for Alfred to do the work proactively; the escalation gate already has the signal it needs.
+
+**Open.**
+
+- Bot allowlist storage migration to DB-backed when it grows past ~20 entries. Hardcoded const is the right scale at v1.
+- Body-actor parsers beyond GitHub / Calendar / Linear — add per observed-data evidence, not speculation.
+- Whether to surface escalation reasons in the History tab UI ("deepened because confidence was 0.6") for tunable observability.
+- Whether `deepen`'s read-only tool surface needs a per-tool `read_only=true` flag at the registry level, or whether the tool selection in the workflow brief is sufficient (current take: brief sufficient; structural flag only if a future workflow needs to enforce read-only across all calls).
 
 ---
 
