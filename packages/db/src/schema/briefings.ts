@@ -37,7 +37,7 @@ export const briefings = pgTable(
   {
     id: text("id")
       .primaryKey()
-      .$defaultFn(() => createId("brf")),
+      .$defaultFn(() => createId("brg")),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -47,12 +47,17 @@ export const briefings = pgTable(
     timezone: text("timezone").notNull().$type<IanaTimezone>(),
     /** 'pending' | 'gathering' | 'composing' | 'sent' | 'failed'. */
     status: text("status").notNull().default("pending").$type<BriefingStatus>(),
-    /** Cross-source gather payload (composer input). Null sources are part of the schema. */
-    gather: jsonb("gather").notNull().$type<BriefingGather>(),
-    /** Short above-the-fold prose (composer output). Empty string until composed. */
-    breakingSummary: text("breaking_summary").notNull().default(""),
-    /** Full briefing prose + section structure (composer output). */
-    fullBriefing: jsonb("full_briefing").notNull().$type<FullBriefing>(),
+    /**
+     * Cross-source gather payload (composer input). Null until the `gather`
+     * step writes it; `status` is the source of truth for whether it's
+     * populated. Per-source `null`s (no calendar consent, etc.) are part of
+     * the `BriefingGather` shape itself, distinct from this column-level NULL.
+     */
+    gather: jsonb("gather").$type<BriefingGather>(),
+    /** Short above-the-fold prose (composer output). Null until status ≥ 'composing'. */
+    breakingSummary: text("breaking_summary"),
+    /** Full briefing prose + section structure (composer output). Null until status ≥ 'composing'. */
+    fullBriefing: jsonb("full_briefing").$type<FullBriefing>(),
     /** Compose model id (e.g. 'claude-opus-4-7'). Null until composed. */
     model: text("model"),
     /** FK to the email_sends row that delivered this briefing. Null until sent. */
