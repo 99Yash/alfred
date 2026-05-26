@@ -1,34 +1,39 @@
-import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { BriefingGather, BriefingStatus, FullBriefing, IanaTimezone } from "@alfred/contracts";
+import {
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+import { emailSends } from "./notifications";
 
 /**
- * One row per composed briefing. Two roles in one table:
+ * Daily briefing — one row per (user, briefing_date). ADR-0041.
  *
- *   1. Watermark store. `watermark_at` is the `documents.ingested_at`
- *      cut-off this run consumed; the next run for the same `(user_id,
- *      slot)` reads `WHERE ingested_at > watermark_at`. Using
- *      `ingested_at` (not `authored_at`) matches `gatherBriefingDigest` —
- *      threaded emails can carry an old Date header but what matters is
- *      "what alfred saw since the last briefing."
+ * Coexists with the legacy `briefing_runs` table (watermark + slot model)
+ * during cutover; the morning-briefing workflow flips writes here in
+ * Phase 6. The legacy table stays read-only diagnostic until a later
+ * milestone drops it.
  *
- *   2. Composed-body archive. `body_text` is read back by future
- *      briefing runs as part of the prompt context — that's how an
- *      evening briefing can say "morning mentioned the Deepanshu
- *      follow-up..." without re-deriving from the inbox. The agent
- *      reads its own prior output, not chat history.
+ * Idempotency is enforced at the data layer this time: `UNIQUE(user_id,
+ * briefing_date)` short-circuits a duplicate compose. A failed row can
+ * be retried in place — status walks back through the gathering →
+ * composing → sent machine; the unique key prevents a parallel insert.
  *
- * `slot` is the only place we distinguish morning from evening at the
- * data layer; the workflow + agent are otherwise shared.
- *
- * Idempotency rides on `email_sends.(user_id, idempotency_key)` per
- * ADR-0020 — `briefing_runs` itself does not enforce one-per-day. A
- * smoke run forcing a re-compose is legitimate (different watermark,
- * different body); the duplicate-send guard is downstream.
+ * `gather`, `full_briefing` are typed against `@alfred/contracts` via
+ * `.$type<T>()` so the Replicache read schema and this row agree by
+ * construction. `briefing_date` is `date({ mode: 'string' })` so the
+ * column round-trips as `YYYY-MM-DD` without Drizzle injecting a JS
+ * `Date` — keeps Eden treaty + Replicache pulls boring.
  */
-export const briefingRuns = pgTable(
-  "briefing_runs",
+export const briefings = pgTable(
+  "briefings",
   {
     id: text("id")
       .primaryKey()
@@ -36,56 +41,32 @@ export const briefingRuns = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** 'morning' | 'evening'. New slots (e.g. 'midday') can land without a migration. */
-    slot: text("slot").notNull(),
-    /** Local-date this run is *for* (YYYY-MM-DD in user tz). Same shape as the idempotency-key day-segment. */
-    briefingDate: text("briefing_date").notNull(),
-    /** Wall-clock when the run actually composed. */
-    runAt: timestamp("run_at", { withTimezone: true }).defaultNow().notNull(),
-    /**
-     * Upper bound of `documents.ingested_at` this run consumed; the next
-     * run for the same `(user_id, slot)` reads strictly greater. Null
-     * before the agent finishes (status='composing').
-     */
-    watermarkAt: timestamp("watermark_at", { withTimezone: true }),
-    /** 'composing' | 'composed' | 'failed'. */
-    status: text("status").notNull().default("composing"),
-    /** Composed body — read by future runs as prompt context. */
-    subject: text("subject"),
-    bodyText: text("body_text"),
-    bodyHtml: text("body_html"),
-    /**
-     * Free-form audit jsonb: tool-call counts, document ids cited,
-     * meeting-prep / action-item refs surfaced. Not the source of truth
-     * for any downstream read — diagnostics only.
-     */
-    payload: jsonb("payload")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    /** Tied to the workflow run that produced this row (FK left soft to avoid a tight coupling). */
-    agentRunId: text("agent_run_id"),
-    modelId: text("model_id"),
-    inputTokens: integer("input_tokens"),
-    outputTokens: integer("output_tokens"),
-    /** Truncated error on failure. */
-    error: text("error"),
+    /** Local-date this briefing is *for* (YYYY-MM-DD in user tz). */
+    briefingDate: date("briefing_date", { mode: "string" }).notNull(),
+    /** IANA timezone the briefing was rendered in. Branded string from contracts. */
+    timezone: text("timezone").notNull().$type<IanaTimezone>(),
+    /** 'pending' | 'gathering' | 'composing' | 'sent' | 'failed'. */
+    status: text("status").notNull().default("pending").$type<BriefingStatus>(),
+    /** Cross-source gather payload (composer input). Null sources are part of the schema. */
+    gather: jsonb("gather").notNull().$type<BriefingGather>(),
+    /** Short above-the-fold prose (composer output). Empty string until composed. */
+    breakingSummary: text("breaking_summary").notNull().default(""),
+    /** Full briefing prose + section structure (composer output). */
+    fullBriefing: jsonb("full_briefing").notNull().$type<FullBriefing>(),
+    /** Compose model id (e.g. 'claude-opus-4-7'). Null until composed. */
+    model: text("model"),
+    /** FK to the email_sends row that delivered this briefing. Null until sent. */
+    emailSendId: text("email_send_id").references(() => emailSends.id, {
+      onDelete: "set null",
+    }),
+    /** Replicache row-version. Bumped on every status / body change. */
+    rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [
-    // Most common read: "last N briefings for this user (any slot)" — used by the agent's
-    // `list_prior_briefings` tool. Ordered descending in the query.
-    index("briefing_runs_user_run_at_idx").on(t.userId, t.runAt),
-    // Watermark lookup: "what was the latest composed briefing for this (user, slot)?"
-    // Filtered to `composed` so a half-finished row doesn't poison the next watermark.
-    index("briefing_runs_watermark_idx")
-      .on(t.userId, t.slot, t.runAt)
-      .where(sql`${t.status} = 'composed'`),
-    // Soft uniqueness — same (user, slot, date) shouldn't have multiple composed rows.
-    // Partial so retries on a failed row don't trip it. Cron + smoke + manual all hit this.
-    uniqueIndex("briefing_runs_user_slot_date_idx")
-      .on(t.userId, t.slot, t.briefingDate)
-      .where(sql`${t.status} = 'composed'`),
+    // Idempotency key — one briefing per (user, calendar day in their tz).
+    uniqueIndex("briefings_user_date_idx").on(t.userId, t.briefingDate),
+    // Replicache pull window: "last N briefings for this user, newest first."
+    index("briefings_user_date_desc_idx").on(t.userId, t.briefingDate.desc()),
   ],
 );
-
-export type BriefingSlot = "morning" | "evening";
