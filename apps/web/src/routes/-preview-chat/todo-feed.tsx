@@ -38,7 +38,7 @@ export function TodoFeed({
 
       {done.length ? (
         <div className="pt-1">
-          <div className="px-2 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+          <div className="px-2 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
             Done
           </div>
           <ul className="space-y-0.5">
@@ -62,7 +62,7 @@ export function TodoFeed({
 
 function EmptyHint({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-2 py-3 text-[12px] leading-5 text-vs-fg-2">{children}</p>
+    <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>
   );
 }
 

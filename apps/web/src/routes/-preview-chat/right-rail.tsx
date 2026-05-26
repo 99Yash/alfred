@@ -47,7 +47,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
           aria-hidden={!open}
           className={cn(
             "fixed top-0 right-0 bottom-0 z-50 w-[340px] max-w-[88vw]",
-            "border-l border-vs-bg-3/60 bg-vs-bg-1",
+            "border-l border-vs-bg-3/60 bg-transparent",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
             "transition-transform duration-200 ease-out",
             "overflow-hidden",
@@ -65,7 +65,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
       aria-label="Today"
       className={cn(
         "shrink-0 h-full",
-        "rounded-2xl bg-vs-bg-1",
+        "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         "transition-[width,margin] duration-200 ease-out overflow-hidden",
         open ? "w-[340px]" : "w-0 -ml-1.5 pointer-events-none",

@@ -621,7 +621,7 @@ function QuickAccessRailSection() {
       recipe="Weather-backed right rail: weather header, icon tablist, add-todo row, suggestions, and Morning Briefing bottom action."
     >
       <div className="h-[640px] w-[348px]">
-        <QuickAccessRail healthOk healthLoading={false} />
+        <QuickAccessRail />
       </div>
     </Section>
   );
