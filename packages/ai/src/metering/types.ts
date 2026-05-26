@@ -1,3 +1,5 @@
+import type { AttributionKind } from "@alfred/contracts";
+
 /** What `metered()` writes to `api_call_log`. Extracted post-hoc from the SDK result. */
 export interface CallUsage {
   inputTokens?: number;
@@ -5,8 +7,13 @@ export interface CallUsage {
   cachedInputTokens?: number;
 }
 
-/** Discriminator for `api_call_log.kind`. New kinds land here as integrations arrive. */
-export type CallKind = "llm" | "embedding" | "web_search" | "transcription" | "tool_api";
+/**
+ * Discriminator for `api_call_log.kind`. The canonical union lives in
+ * `@alfred/contracts` (`AttributionKind`) so the web cost-rollup UI can
+ * read it without pulling Node-only deps. `CallKind` is preserved here as
+ * a source-compatible alias for the wrapper-API callers.
+ */
+export type CallKind = AttributionKind;
 
 /**
  * Caller-supplied attribution and free-form metadata persisted with each

@@ -15,3 +15,4 @@ export type {
   MeteredResult,
   ResultExtractor,
 } from "./types";
+export { ATTRIBUTION_KINDS, isAttributionKind, type AttributionKind } from "@alfred/contracts";
