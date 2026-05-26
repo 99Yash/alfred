@@ -90,7 +90,7 @@ function decodePayload(data: string | undefined): GmailNotificationPayload | nul
   }
 }
 
-export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks" }).post(
+export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
   "/gmail",
   async ({ body, headers }) => {
     try {

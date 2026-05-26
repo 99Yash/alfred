@@ -14,7 +14,7 @@ import { authMacro } from "../../middleware/auth";
  * The client reads it on boot and gates `/onboarding` access — both the
  * "redirect new users in" and "kick existing users out" directions.
  */
-export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding" })
+export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app

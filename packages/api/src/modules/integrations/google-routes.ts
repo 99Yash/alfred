@@ -63,7 +63,10 @@ function verifyState(raw: string): SignedState | null {
   }
 }
 
-export const googleIntegrationRoutes = new Elysia({ prefix: "/api/integrations/google" })
+export const googleIntegrationRoutes = new Elysia({
+  prefix: "/api/integrations/google",
+  normalize: "typebox",
+})
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app

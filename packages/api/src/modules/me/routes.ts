@@ -373,7 +373,7 @@ function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: D
   return { start, end };
 }
 
-export const meRoutes = new Elysia({ prefix: "/api/me" })
+export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
