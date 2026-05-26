@@ -110,7 +110,7 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
   if (!items.length && (!pagination || pagination.total === 0)) {
     return (
       <div className="vs-card-in px-2 py-4">
-        <p className="text-[12px] leading-5 text-vs-fg-2">
+        <p className="text-[12px] leading-5 text-white/65">
           Connect Gmail to see your latest unread threads here.
         </p>
       </div>
@@ -138,17 +138,17 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
             "text-[10.5px] uppercase tracking-tight font-medium transition-colors",
-            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
             unreadOnly
-              ? "bg-vs-purple-1 text-vs-purple-4"
-              : "text-vs-fg-2 hover:text-vs-fg-3",
+              ? "bg-vs-purple-4/20 text-vs-purple-4"
+              : "text-white/60 hover:text-white/85",
           )}
         >
           <span
             aria-hidden
             className={cn(
               "size-1.5 rounded-full",
-              unreadOnly ? "bg-vs-purple-4" : "bg-vs-fg-2",
+              unreadOnly ? "bg-vs-purple-4" : "bg-white/55",
             )}
           />
           Unread · {totalUnread}
@@ -171,7 +171,7 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
           ) : null}
           <button
             type="button"
-            className="text-[11px] text-vs-fg-3 hover:text-vs-fg-4 transition-colors"
+            className="text-[11px] text-white/65 hover:text-white transition-colors"
           >
             Mark all read
           </button>
@@ -185,11 +185,11 @@ export function InboxFeed({ items, pagination, selectedId, onOpen, onClose }: In
         // render window and read as a filter result instead of in-flight
         // pagination.
         <div className="px-2 py-6 flex items-center justify-center">
-          <Loader2 size={14} className="animate-spin text-vs-fg-3" aria-hidden />
+          <Loader2 size={14} className="animate-spin text-white/70" aria-hidden />
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-2 py-6 text-center">
-          <p className="text-[12px] text-vs-fg-2">No matches.</p>
+          <p className="text-[12px] text-white/55">No matches.</p>
         </div>
       ) : (
         <ul className="space-y-0.5">
@@ -233,9 +233,9 @@ function Pagination({
       <PaginationButton label="Previous page" onClick={onPrev} disabled={prevDisabled}>
         <ChevronLeft size={12} />
       </PaginationButton>
-      <span className="text-[10.5px] tabular-nums text-vs-fg-3 px-1 min-w-[28px] text-center inline-flex items-center justify-center gap-1">
+      <span className="text-[10.5px] tabular-nums text-white/70 px-1 min-w-[28px] text-center inline-flex items-center justify-center gap-1">
         {isLoading ? (
-          <Loader2 size={10} className="animate-spin text-vs-fg-3" aria-hidden />
+          <Loader2 size={10} className="animate-spin text-white/70" aria-hidden />
         ) : null}
         {page + 1}/{pageCount}
       </span>
@@ -266,9 +266,9 @@ function PaginationButton({
       className={cn(
         "size-6 inline-flex items-center justify-center rounded-md",
         "transition-colors vs-press",
-        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
-        "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-vs-fg-3",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        "text-white/70 hover:bg-white/10 hover:text-white",
+        "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-white/70",
+        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
       )}
     >
       {children}
@@ -335,9 +335,8 @@ function InboxRow({
     "flex items-start gap-2.5",
     interactive
       ? cn(
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "hover:bg-white/[0.07] transition-colors vs-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )
       : "cursor-default",
   );
@@ -363,20 +362,20 @@ function InboxRow({
           <span
             className={cn(
               "min-w-0 truncate text-[13px] leading-5",
-              item.unread ? "font-medium text-vs-fg-4" : "text-vs-fg-3",
+              item.unread ? "font-medium text-white" : "text-white/75",
             )}
           >
             {item.sender}
           </span>
           <span className="ml-auto shrink-0 inline-flex items-center gap-1.5">
             {item.category ? <CategoryChip category={item.category} /> : null}
-            <span className="text-[11px] text-vs-fg-2 tabular-nums">{item.time}</span>
+            <span className="text-[11px] text-white/55 tabular-nums">{item.time}</span>
           </span>
         </span>
         <span
           className={cn(
             "block truncate text-[12px] leading-4",
-            item.unread ? "text-vs-fg-3" : "text-vs-fg-2",
+            item.unread ? "text-white/80" : "text-white/60",
           )}
         >
           {item.subject}
@@ -384,7 +383,7 @@ function InboxRow({
         <span
           className={cn(
             "block truncate text-[11px] leading-4",
-            item.unread ? "text-vs-fg-2" : "text-vs-fg-2/70",
+            item.unread ? "text-white/60" : "text-white/45",
           )}
         >
           {item.preview}
@@ -419,7 +418,7 @@ function SenderAvatar({ item }: { item: InboxItem }) {
         aria-hidden
         className={cn(
           "mt-0.5 size-7 shrink-0 rounded-full inline-flex items-center justify-center",
-          "bg-vs-bg-2 ring-1 ring-vs-bg-3/60",
+          "bg-white/10 ring-1 ring-inset ring-white/15",
         )}
       >
         <IntegrationGlyph brand={item.senderBrand} size={16} />
