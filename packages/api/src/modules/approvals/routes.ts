@@ -29,7 +29,7 @@ interface DecisionOutcome {
  * the user's decision, pokes Replicache so `/approvals` drops the card, and
  * wakes or cancels the parked run.
  */
-export const approvalsRoutes = new Elysia({ prefix: "/api/approvals" })
+export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app.post(

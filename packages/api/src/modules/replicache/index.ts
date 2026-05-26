@@ -5,7 +5,7 @@ import { ReplicacheModel } from "./model";
 import { handlePull } from "./pull";
 import { handlePush } from "./push";
 
-export const replicache = new Elysia({ prefix: "/api/replicache" })
+export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app

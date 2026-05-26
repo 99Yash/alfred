@@ -51,7 +51,10 @@ function verifyState(raw: string): SignedState | null {
   }
 }
 
-export const githubIntegrationRoutes = new Elysia({ prefix: "/api/integrations/github" })
+export const githubIntegrationRoutes = new Elysia({
+  prefix: "/api/integrations/github",
+  normalize: "typebox",
+})
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app

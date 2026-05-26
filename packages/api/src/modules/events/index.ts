@@ -27,7 +27,7 @@ import { getEventsSince, getReplayHighWatermark } from "./replay";
  * publish to Redis fails for one row, later ids may arrive before the failed
  * row is retried on the next drain pass. Consumers must be id-tolerant.
  */
-export const events = new Elysia({ prefix: "/api/events" })
+export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app

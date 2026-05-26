@@ -43,7 +43,7 @@ export type {
 } from "./types";
 export type { CancelOutcome, CancelRunArgs, SignalArgs, SignalOutcome } from "./service";
 
-export const agent = new Elysia({ prefix: "/api/agent" })
+export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
