@@ -12,7 +12,7 @@ export {
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 
-export const integrations = new Elysia({ name: "integrations" })
+export const integrations = new Elysia({ name: "integrations", normalize: "typebox" })
   .use(googleIntegrationRoutes)
   .use(githubIntegrationRoutes)
   .use(gmailWebhookRoutes);
