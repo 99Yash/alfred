@@ -571,13 +571,15 @@ function Composer({ threadId }: { threadId: string | undefined }) {
         {/* Ambient drifting particles inside the composer surface. Sits
          * underneath the editor + controls via stacking order (rendered first
          * + pointer-events-none from the component). Re-keyed on theme so the
-         * canvas re-mounts with the right color. */}
+         * canvas re-mounts with the right color. Stardust away while the
+         * user has text in the editor — mirrors the placeholder exit. */}
         <Particles
           key={theme}
           className="absolute inset-0"
           quantity={20}
           color={theme === "dark" ? "#ffffff" : "#000000"}
           maxAlpha={theme === "dark" ? 0.3 : 0.45}
+          dispersed={!isEmpty}
         />
         {/* Wrap editor + controls in a positioned container so they paint
          * above the absolutely-positioned particles canvas (positioned
