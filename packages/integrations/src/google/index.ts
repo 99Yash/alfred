@@ -53,6 +53,7 @@ export {
   listLabels,
   createLabel,
   modifyMessageLabels,
+  batchModifyMessages,
 } from "./gmail";
 export type {
   GmailMessage,

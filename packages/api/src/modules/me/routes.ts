@@ -3,13 +3,25 @@ import { briefingRuns, documents, emailTriage, integrationCredentials } from "@a
 import {
   extractAttachments,
   extractMessageHtml,
+  batchModifyMessages,
   getFreshAccessToken,
   GOOGLE_FEATURE_SCOPES,
   listEvents,
   type ExtractedAttachment,
   type GmailMessage,
 } from "@alfred/integrations/google";
-import { and, asc, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql as drizzleSql,
+} from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
@@ -623,6 +635,113 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           };
         },
         { params: t.Object({ documentId: t.String() }) },
+      )
+      .post(
+        "/inbox/mark-read",
+        async ({ user: u, body }) => {
+          // Resolve the requested docs to (Gmail message id, current
+          // labelIds) and filter to the user's own currently-UNREAD
+          // Gmail rows. Two things this guards against: a client sending
+          // ids it doesn't own (the user_id filter), and a client
+          // sending ids that are already read (Gmail would no-op, but
+          // we'd still bill a round-trip + write a useless metadata
+          // update). Cap the list because the rail page only ever shows
+          // ~8 rows; refuse anything sketchier so a bad caller can't
+          // ask us to slam Gmail with the full inbox.
+          const rows = await db()
+            .select({
+              id: documents.id,
+              sourceId: documents.sourceId,
+              metadata: documents.metadata,
+            })
+            .from(documents)
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                eq(documents.source, "gmail"),
+                inArray(documents.id, body.documentIds),
+              ),
+            );
+
+          const unreadRows = rows.filter((r) => {
+            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            return labelIds.includes("UNREAD");
+          });
+          if (unreadRows.length === 0) return { marked: 0 };
+
+          // Find the Gmail credential carrying `gmail.modify` — the
+          // read-only briefing scope isn't enough to remove a label.
+          // Mirrors the calendar-scope filter in `/meetings` so a
+          // Calendar-only Google account doesn't get picked up here.
+          const modifyScope = GOOGLE_FEATURE_SCOPES.triage[1];
+          const creds = await db()
+            .select({
+              id: integrationCredentials.id,
+              scopes: integrationCredentials.scopes,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, u.id),
+                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.status, "active"),
+              ),
+            );
+          const cred = creds.find((c) => {
+            const granted = (c.scopes as string[] | null) ?? [];
+            return granted.includes(modifyScope);
+          });
+          if (!cred) {
+            return status(409, {
+              message: "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
+            });
+          }
+
+          const accessToken = await getFreshAccessToken(cred.id);
+          await batchModifyMessages({
+            accessToken,
+            messageIds: unreadRows.map((r) => r.sourceId),
+            removeLabelIds: ["UNREAD"],
+          });
+
+          // Strip UNREAD from each row's stored metadata so the next
+          // /inbox refetch reports them as read immediately. Without
+          // this the rows would re-appear unread until the next Gmail
+          // poll / history sync reconciles labels — a confusing UX gap
+          // even for the few seconds it takes.
+          await db()
+            .update(documents)
+            .set({
+              metadata: drizzleSql`jsonb_set(
+                ${documents.metadata},
+                '{labelIds}',
+                COALESCE(${documents.metadata}->'labelIds', '[]'::jsonb) - 'UNREAD'
+              )`,
+            })
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                inArray(
+                  documents.id,
+                  unreadRows.map((r) => r.id),
+                ),
+              ),
+            );
+
+          return { marked: unreadRows.length };
+        },
+        {
+          body: t.Object({
+            // The rail page caps at 8 visible rows today; 50 leaves
+            // headroom for future page-size bumps without blessing
+            // server-wide "mark all" via this endpoint.
+            documentIds: t.Array(t.String({ minLength: 1 }), {
+              minItems: 1,
+              maxItems: 50,
+            }),
+          }),
+        },
       )
       .get(
         "/meetings",

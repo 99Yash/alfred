@@ -65,6 +65,13 @@ export interface RailData {
   onOpenInbox?: (documentId: string) => void;
   /** Close the rail's single-email reader and return to the list view. */
   onCloseInbox?: () => void;
+  /**
+   * Bulk "Mark all read" handler. The InboxFeed calls it with the
+   * currently-visible *unread* ids; the parent chat shell wires this
+   * to `useMarkInboxRead()`. Optional — the preview route omits it, in
+   * which case the button is a no-op (and we hide it).
+   */
+  onMarkInboxRead?: (documentIds: ReadonlyArray<string>) => void;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -182,6 +189,7 @@ export function RailContent({
                 selectedId={data.selectedInboxId ?? null}
                 onOpen={data.onOpenInbox}
                 onClose={data.onCloseInbox}
+                onMarkRead={data.onMarkInboxRead}
               />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
