@@ -34,10 +34,11 @@ export function WeatherChip() {
     return () => window.clearInterval(id);
   }, [shouldRoll]);
 
-  if (isLoading) {
-    return <Plate aria-label="Weather loading" className="animate-pulse w-[88px]" />;
-  }
-  if (isError || !data) {
+  // Render nothing until real data lands. The previous pulsing
+  // skeleton churned the header during the (sometimes long) retry
+  // window when geojs / open-meteo were failing — the rail's video
+  // already conveys "weather here", so silence > theater while we wait.
+  if (isLoading || isError || !data) {
     return null;
   }
 
@@ -107,6 +108,7 @@ function Plate({
 
 const ICON_FOR_CONDITION: Record<WeatherCondition, LucideIcon> = {
   clear: Sun,
+  partly_cloudy: Cloud,
   cloudy: Cloud,
   fog: CloudFog,
   rain: CloudRain,
@@ -117,6 +119,7 @@ const ICON_FOR_CONDITION: Record<WeatherCondition, LucideIcon> = {
 
 const TONE_FOR_CONDITION: Record<WeatherCondition, string> = {
   clear: "text-vs-amber-4",
+  partly_cloudy: "text-vs-fg-3",
   cloudy: "text-vs-fg-3",
   fog: "text-vs-fg-3",
   rain: "text-vs-sky-4",
@@ -127,6 +130,7 @@ const TONE_FOR_CONDITION: Record<WeatherCondition, string> = {
 
 const LABEL_FOR_CONDITION: Record<WeatherCondition, string | null> = {
   clear: "Sunny",
+  partly_cloudy: "Partly cloudy",
   cloudy: "Cloudy",
   fog: "Foggy",
   rain: "Rainy",

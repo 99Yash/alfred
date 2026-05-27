@@ -23,7 +23,7 @@ export function RailFooter({
     : "No briefing yet";
 
   return (
-    <div className="shrink-0 p-3 border-t border-vs-bg-3/60">
+    <div className="shrink-0 p-3 border-t border-white/10">
       <button
         type="button"
         aria-label={latestBriefing ? `View briefing from ${secondary}` : "Morning briefing"}

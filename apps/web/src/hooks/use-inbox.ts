@@ -1,5 +1,6 @@
 import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
@@ -57,6 +58,68 @@ export function useInbox() {
     refetchOnWindowFocus: true,
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * Mark a set of inbox rows as read by removing the Gmail UNREAD label
+ * server-side. The endpoint already filters to currently-unread rows so
+ * callers can over-include without thinking (e.g. "all visible ids");
+ * we still pass the documentIds explicitly rather than asking the
+ * server to mark *everything* — the rail's button is "all visible on
+ * the current page," not server-wide.
+ *
+ * Optimistically flips the affected rows to read across every loaded
+ * page so the rail updates on click rather than after the server
+ * round-trip + refetch. `onError` rolls back to the pre-mutation
+ * snapshot; `onSettled` invalidates to reconcile with the server (e.g.
+ * rows the server declined to touch because they were already read).
+ */
+export function useMarkInboxRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (documentIds: ReadonlyArray<string>) => {
+      const res = await client.api.me.inbox["mark-read"].post({
+        documentIds: [...documentIds],
+      });
+      if (res.error) {
+        const detail =
+          res.error.value && typeof res.error.value === "object" && "message" in res.error.value
+            ? String((res.error.value as { message: unknown }).message)
+            : `Mark-read failed (${res.status})`;
+        throw new Error(detail);
+      }
+      return res.data;
+    },
+    onMutate: async (documentIds: ReadonlyArray<string>) => {
+      const inboxKey = ["me", "inbox"];
+      // Stop in-flight refetches from clobbering our optimistic write.
+      await queryClient.cancelQueries({ queryKey: inboxKey });
+      const previous =
+        queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(inboxKey);
+      const markRead = new Set(documentIds);
+      queryClient.setQueryData<InfiniteData<InboxPage, string | null>>(inboxKey, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pages: current.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) =>
+              item.unread && markRead.has(item.id) ? { ...item, unread: false } : item,
+            ),
+          })),
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _documentIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["me", "inbox"], context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["me", "inbox"] });
+    },
   });
 }
 

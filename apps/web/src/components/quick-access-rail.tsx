@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useState, type ComponentType, type KeyboardEvent } from "react";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
+import { useWeather } from "~/hooks/use-weather";
+import type { WeatherSnapshot } from "~/lib/weather";
 import { cn } from "~/lib/utils";
 
 type RailMode = "tasks" | "emails" | "meetings";
@@ -113,14 +115,9 @@ const FIXTURE_MEETINGS: ReadonlyArray<MeetingItem> = [
   },
 ];
 
-export function QuickAccessRail({
-  healthOk,
-  healthLoading,
-}: {
-  healthOk: boolean;
-  healthLoading: boolean;
-}) {
+export function QuickAccessRail() {
   const [mode, setMode] = useState<RailMode>("tasks");
+  const { data: weather, isLoading: weatherLoading, isError: weatherError } = useWeather();
   const [todos, setTodos] = useState<TodoItem[]>(() => INITIAL_TODOS.map((t) => ({ ...t })));
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>(() =>
     INITIAL_SUGGESTIONS.map((s) => ({ ...s })),
@@ -154,20 +151,18 @@ export function QuickAccessRail({
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden rounded-3xl text-white shadow-pop ring-1 ring-white/10">
-      <WeatherVideoSurface />
+      <WeatherVideoSurface condition={weather?.condition} isDay={weather?.isDay} />
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.1),rgba(0,0,0,0.08)_28%,rgba(7,17,31,0.7)_100%)]" />
       <div className="absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.24),transparent)]" />
 
       <div className="relative flex min-h-0 flex-1 flex-col p-5 pb-0">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-sm font-bold tracking-[0.04em] text-white/60 mix-blend-plus-lighter">
-              <span className="truncate">Bhubaneswar</span>
-              <span className="tabular">30°</span>
-              <span className="sr-only">
-                {healthLoading ? "Server checking" : healthOk ? "Server online" : "Server offline"}
-              </span>
-            </div>
+            <WeatherLabel
+              snapshot={weather}
+              loading={weatherLoading}
+              errored={weatherError}
+            />
             <h2 className="mt-1 text-2xl font-medium tracking-[-0.04em]">{active.label}</h2>
           </div>
 
@@ -505,6 +500,37 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function WeatherLabel({
+  snapshot,
+  loading,
+  errored,
+}: {
+  snapshot: WeatherSnapshot | undefined;
+  loading: boolean;
+  errored: boolean;
+}) {
+  const wrapperClass =
+    "flex h-[20px] items-center gap-1.5 text-sm font-bold tracking-[0.04em] text-white/60 mix-blend-plus-lighter";
+
+  // Reserve the slot's height during load + error so the segmented
+  // tablist below doesn't shift when the temp lands — but render
+  // nothing visible. Previously the load state pulsed, which read as a
+  // failure mode rather than "almost there" once geojs/open-meteo
+  // started intermittently 4xx-ing from the browser.
+  if (loading || errored || !snapshot) {
+    return <div className={wrapperClass} aria-hidden />;
+  }
+  return (
+    <div
+      className={wrapperClass}
+      aria-label={`${snapshot.temperature} degrees ${snapshot.unit} in ${snapshot.city}`}
+    >
+      <span className="truncate">{snapshot.city}</span>
+      <span className="tabular">{snapshot.temperature}°</span>
     </div>
   );
 }

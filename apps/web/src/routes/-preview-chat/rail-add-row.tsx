@@ -7,17 +7,17 @@ export function RailAddRow({ placeholder }: { placeholder: string }) {
       type="button"
       className={cn(
         "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-        "border border-dashed border-vs-bg-3 hover:border-vs-fg-2",
+        "border border-dashed border-white/15 hover:border-white/35",
         "transition-colors flex items-center gap-2",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
       )}
     >
       <Plus
         size={12}
         aria-hidden
-        className="text-vs-fg-2 group-hover:text-vs-fg-4 transition-colors"
+        className="text-white/60 group-hover:text-white transition-colors"
       />
-      <span className="text-[12px] text-vs-fg-2 group-hover:text-vs-fg-3 transition-colors">
+      <span className="text-[12px] text-white/65 group-hover:text-white/90 transition-colors">
         {placeholder}
       </span>
     </button>
