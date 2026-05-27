@@ -30,6 +30,20 @@
   font-display: swap;
 }
 
+/* Metric-matched fallback (Arial reshaped to Open Runde's box) so the
+ * font-display: swap above is invisible — no reflow when Open Runde arrives.
+ * Overrides generated from the real font metrics via @capsizecss/core
+ * (Open Runde: unitsPerEm 2816, ascent 2728, descent -680, xWidthAvg 1373).
+ * Regenerate with capsize if the font file changes. */
+@font-face {
+  font-family: "Open Runde Fallback";
+  src: local("Arial"), local("ArialMT");
+  ascent-override: 88.5757%;
+  descent-override: 22.079%;
+  line-gap-override: 0%;
+  size-adjust: 109.3697%;
+}
+
 /* -----------------------------------------------------------------------------
  * Theme tokens (dark-only — Alfred ships a single Dimension-grammar surface)
  * Tokens live as raw CSS vars on :root, then @theme inline maps them to
@@ -516,7 +530,7 @@
   --color-purple-950: rgb(var(--purple-950));
 
   --font-sans:
-    "Open Runde", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    "Open Runde", "Open Runde Fallback", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono:
     ui-monospace, "SF Mono", SFMono-Regular, "Menlo", "Consolas", "Liberation Mono", monospace;
