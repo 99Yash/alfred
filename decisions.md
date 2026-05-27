@@ -49,6 +49,8 @@ Companion doc: `dimension-dev-recon.md` (research on dimension.dev's architectur
 | Brief-only run shape  | Ping-pong `boss-turn` ↔ `dispatch-tools` steps; sentinel `userAuthoredBriefWorkflow` resolves all user-authored slugs; `agent_runs.transcript` jsonb; strict `@`-mention seed (ADR-0040)        |
 | Daily briefing        | Cross-source LLM compose; `breakingSummary` in email + `fullBriefing` in-app; `briefings` table (one row per user/day); `[[<kind>:<id>]]` reference placeholders resolved per surface (ADR-0041) |
 | Email triage pipeline | Layered: deterministic sender-context extraction + cheap classifier + boss `deepen` escalation gate + async dossier auto-trigger with confidence-tier TTL cache (ADR-0042)                       |
+| Integration write surface | Write tools are first-class; authorization = tool registry + active tool exposure bounded by `workflows.allowed_integrations` + `user action policy` (default `gated`); no structural write-block (ADR-0043, supersedes ADR-0033's no-write rule) |
+| OAuth posture | Multi-tenant-capable architecture, operated single-tenant; Google consent screen Production-unverified; least-privilege scope tiers, one restricted concession (`gmail.modify`); scope set tracks registered tools (ADR-0044) |
 
 ---
 
@@ -1222,6 +1224,10 @@ The dedup id format is `gmail.poll_history.{credentialId}` with `.` separator (B
 
 The "v1 ships against Gmail only" position is superseded by ADR-0041's five-source gather: email triage rollup + Google Calendar + GitHub + Weather + day-of-week. The integration-sequencing argument here remains correct (each source is gated on its OAuth scope or external dependency landing first), but the briefing workflow itself no longer ships in an "inbox-only" v1 shape. The agent's deterministic gather (`list_calendar_events`, `list_action_items`, `list_meeting_preps` stubs returning `[]`) is replaced by a typed `BriefingContributor<T>` contract per source; each contributor returns `null` until its underlying integration is wired, and the composer's prompt handles empty cases verbatim. The "don't paper over the gap with cleverness" rule still applies — when GitHub PR-merge state isn't readable, the briefing must say so or omit, not infer. The "safety through architecture" rule (briefing agents have no `send_email`, no `draft_reply`, no general `web_search`) is preserved by ADR-0041's compose call having no tool surface at all — it's a single structured-output `generateText` over the gather, not an agent loop.
 
+**Amendment (2026-05-27) — the "never expand the write surface" rule is superseded by ADR-0043.**
+
+The blanket claim that integrations "expand the *read* surface, never the *write* surface, regardless of OAuth scopes" no longer holds product-wide. ADR-0043 makes write tools first-class, authorized by the composition of tool registry + active tool exposure bounded by `workflows.allowed_integrations` + `user action policy` (default `gated`). The specific guarantee that *the briefing* never writes is unchanged — but it now rests on ADR-0041's compose call being tool-free by construction, not on a global no-write rule. Read this ADR's "expands read, never write" line as scoped to the briefing/compose path; ADR-0043 governs everywhere else.
+
 ---
 
 ## ADR-0034 — Human-in-the-loop approval taxonomy + action staging
@@ -1430,6 +1436,14 @@ A workflow can hit both gates serially: step-level approval ("yes, do this phase
 - Initial sub-set of integrations + per-action lists that ship with `@alfred/contracts` at first cut. Intent: every integration that ships a `liveTool` registers its slug + actions in contracts; backfill Gmail as part of m13a.
 - Whether the `policy-bust:u:<userId>` channel rides alongside ADR-0005's existing kinds or as a sibling Redis Pub/Sub channel. v1 plan: sibling channel; revisit if outbox kinds prove the right home.
 - Threshold default (5min) is a UX guess. Worth dialing once we have real usage signal; the column + settings field already exist.
+
+**Amendment (2026-05-27) — chat "auto mode" = run-scoped autonomy override; Workspace write tools namespaced per-app.**
+
+Two refinements landed while planning the write-surface expansion (ADR-0043/0044):
+
+1. **Chat auto-mode is a run-scoped autonomy override, not a fourth policy concept.** The composer's existing `autoMode` toggle (`dimension-chat-thread.tsx`, "auto mode" / "manual review") ultimately persists onto the thread/conversation row, but the dispatcher should only see a run-scoped policy override copied from that thread at run creation. That override sits at the **top** of policy resolution: `run-scoped auto-mode override → per-tool override → per-integration mode → user default`. "Auto mode" = blanket `autonomy` for that run/thread (no riskTier carve-outs — ADR-0034 alt-(f) holds); "manual review" = honor the durable policy. The override is **server-authoritative once a run exists** because the gate runs server-side and background runs have no browser. `localStorage`/global client state holds only the **default toggle position for new chats**, default **manual** (preserves the conservative-default asymmetry). Implementation rides the m13 chat→runtime bridge; the dispatcher's resolution order accepts the optional run-scoped override without assuming a thread table already exists.
+
+2. **Workspace write tools are namespaced per Google app.** `docs` / `sheets` / `slides` are distinct `LoadableIntegrationSlug`s (add `sheets`, `slides`); tools read `docs.create`, `sheets.create`, `slides.create`, etc. This gives self-describing names, per-app `@`-mentions, and per-app policy granularity (`slides: autonomy` while `gmail: gated`), even though all four ride the one shared Google credential and the single `drive.file` scope (the editor APIs honor `drive.file` for app-created files). `create_*` returns `{ fileId, webViewLink }` and never auto-shares/sends — broadening visibility (`drive.share`) or sending (`gmail.send`) are separate, separately-gated tools. `riskTier`: `create_*` → `low`, `share`/`send` → `high` (UX hint only).
 
 ---
 
@@ -2538,6 +2552,87 @@ vs **pure boss agent on every email**: 100 × ~$0.02 = ~$2.00/day. **10x cost re
 - Body-actor parsers beyond GitHub / Calendar / Linear — add per observed-data evidence, not speculation.
 - Whether to surface escalation reasons in the History tab UI ("deepened because confidence was 0.6") for tunable observability.
 - Whether `deepen`'s read-only tool surface needs a per-tool `read_only=true` flag at the registry level, or whether the tool selection in the workflow brief is sufficient (current take: brief sufficient; structural flag only if a future workflow needs to enforce read-only across all calls).
+
+---
+
+## ADR-0043 — Integration write surface: tools may write, authorization is the user action policy
+
+**Decision.** Integrations may expose **write tools** (send mail, create/modify calendar events, create Drive files, edit a doc, etc.). Authorization for any write is the composition of three layers we already have, evaluated in order:
+
+1. **Tool registry** — a write tool exists only if it is registered (m13 work). No registration, no write.
+2. **Active tool exposure** / `workflows.allowed_integrations` — SDK tools are built only from `state.activeIntegrations`, whose initial seed is strict `@`-mentions intersected with `workflows.allowed_integrations`; later expansion goes through `system.load_integration`, which enforces the same cap (ADR-0026/0040). A workflow whose allowlist excludes an integration can never get that integration's tools exposed to the model. If a future generic dispatch endpoint bypasses SDK tool exposure, it must add an equivalent dispatcher-side active-integration check.
+3. **User action policy** (ADR-0034) — the resolved `policy mode` (`autonomy | gated`) decides whether the call executes immediately or stages for HIL. Default `gated`.
+
+No write is blocked structurally by `risk_tier` or by a hardcoded tier; **the user owns the policy** (reaffirms ADR-0034 alt-(f)). This **supersedes ADR-0033's blanket rule** that integrations "expand the *read* surface, never the *write* surface, regardless of OAuth scopes available on the underlying token."
+
+**Why this is its own ADR.** ADR-0033 made an absolute architectural promise — no write tools, ever, regardless of token scope — as a safety stance for the *unattended briefing agent*, written before the action-policy machinery existed. ADR-0034 then built per-call gating but never revisited 0033's promise. Expanding the write surface for the interactive boss agent and (per the product goal) for user-authored workflows forces the question into the open: writes are now first-class, and the guarantee migrates from architecture to configuration.
+
+**The trade we are making (stated honestly).** *Before:* a background workflow architecturally could not send mail — its tool surface had no write tools. *After:* "a background workflow won't send mail unannounced" rests on the policy **default** being `gated`. This is still safe in operation — a `gated` write tool in an unattended run parks on `wakeCondition.kind='hil'` and fires the debounced approval email (ADR-0034); nothing sends without a human decision. But the protection is now a **default, not an invariant**. We accept this because (a) a personal assistant must act, not just read; (b) user-authored workflows will legitimately need to send/create across one or multiple integrations; (c) ADR-0001's single-user framing makes "the system protects future-you from current-you" hostile, not helpful (ADR-0034 alt-(f)).
+
+**What stays true.** The briefing **compose** path remains tool-free by construction (ADR-0041): it is a single structured-output `generateText` over the gather, not an agent loop, so it physically cannot write regardless of policy. "Safety through architecture" survives where it is cheap — a read-only surface stays read-only by being given no write tools and no write integration in its allowlist — and "safety through policy" covers everything that genuinely needs to act.
+
+**Default posture.** New write tools register at whatever `riskTier` the author assigns (UX hint only; ADR-0034) and inherit the user's `default_mode = gated`. The user opts a tool or integration into `autonomy` explicitly (per-integration mode or per-tool override). The forward-compat `set_action_policy` tool (ADR-0034 out-of-scope slot) is the eventual chat path for "trust gmail entirely"; not built here.
+
+**Alternatives.**
+
+- (a) **Keep ADR-0033 absolute; only ever read.** Rejected — defeats the product; a personal assistant that can't send a reply or create a doc is a search box.
+- (b) **Reading A: writes for the interactive boss agent only, never for background workflows.** Rejected (considered and dropped 2026-05-27) — the roadmap has workflows that send/create unattended; walling background runs off from writes forces a second, parallel authorization model later. The policy gate already handles unattended writes correctly (park + notify).
+- (c) **Hardcode a structural write-block for high `riskTier` regardless of policy.** Rejected — paternalism; restates ADR-0034 alt-(f).
+
+**Cross-ref.** Amends ADR-0033. Composes with ADR-0034 (policy/staging), ADR-0026/0040 (active-integration seed + load cap), and ADR-0044 (the scope posture supplying the OAuth grants these tools call).
+
+---
+
+## ADR-0044 — Google OAuth posture: multi-tenant-capable architecture, Production-unverified single-tenant operation, least-privilege scope tiers
+
+**Decision.** Alfred is **architected multi-tenant** (per-user `integration_credentials`, per-user `user_action_policies`, `user_id` partitioning throughout) but **operated as a single tenant** today. The Google OAuth consent screen moves from **Testing → Production publishing status, deliberately unverified**. Scopes are requested **least-privilege, tracking the registered tool set**; we extend freely into **sensitive** scopes (app verification, no security assessment) and take exactly **one restricted** scope as a knowing concession (`gmail.modify` — reading and labeling mail is the product). The granted set is the union of scopes required by *currently registered* tools; adding a scope is an incremental re-consent, after which the refresh token is no longer subject to Testing mode's 7-day expiry (it is still revocable and subject to Google's normal token limits).
+
+**Why this is its own ADR.** ADR-0001 fixed single-user scope. This ADR records that single-user is the current *operating mode*, not an *architectural ceiling* — and reasons through the OAuth verification economics that make "go public someday" a submission + auth-policy flip rather than a rewrite. A future reader will ask "why is the production app intentionally unverified, and why these specific scopes?"; this answers both.
+
+**The verification economics (the load-bearing facts).**
+
+- **Testing publishing status** (where we were — see `docs/railway-deploy-handoff.md`): users must be listed as test users, non-profile authorizations expire after 7 days, and there is a 100-test-user cap. The 7-day refresh-token expiry is the operational pain on an always-on assistant.
+- **Production, unverified:** anyone can attempt consent, the unverified-app warning appears for unapproved sensitive/restricted scopes, and a 100-new-user cap applies while the app remains unverified. At single-tenant scale every downside is a non-issue; the win is avoiding Testing mode's 7-day token expiry. **We never submit for verification, so there is nothing to be rejected** — the historical "Google would never approve it" wall exists only on the *verified-public* path.
+- **Google scope tiers** set the bar to ever go public:
+  - **Non-sensitive** (`drive.file`, `openid`, `email`): no sensitive/restricted scope review; a public branded app can still need basic app/brand verification, but this is not the expensive path.
+  - **Sensitive** (`gmail.send`, `calendar.events`, `documents`, `spreadsheets`, `presentations`): app verification — privacy policy, demo video, logo, justification. No security assessment.
+  - **Restricted** (`gmail.readonly`, `gmail.modify`, full `drive`): restricted verification **plus a security assessment if restricted-scope data is stored or transmitted through servers**. This is the real public wall for a solo dev.
+
+**Scope set (least-privilege, tracks tools).**
+
+| Surface | Scope | Tier | Why |
+| --- | --- | --- | --- |
+| Identity | `openid`, `userinfo.email` | profile-only | sign-in / credential row identity |
+| Drive (create) | `drive.file` | non-sensitive | create/edit Alfred-owned docs/sheets/slides (the "make me a PPT" path); also gains per-file access to files the user picks via Google Picker — no restricted scope needed |
+| Gmail send | `gmail.send` | sensitive | send / reply |
+| Calendar | `calendar.events` | sensitive | read + create/update/delete events (narrower than full `calendar`) |
+| Workspace edit *(optional power tier)* | `documents`, `spreadsheets`, `presentations` | sensitive | edit *existing* Workspace files the user already has. Default **off** in favor of `drive.file` + Picker; enable when a tool genuinely needs cross-file edit. Listed because they do not trigger the restricted-scope security assessment |
+| Gmail read + label | `gmail.modify` | **restricted (the one concession)** | read message bodies, apply/remove labels (triage, briefing, search). `gmail.readonly` is subsumed |
+
+**Explicitly NOT requested:** `https://mail.google.com/` (full IMAP/delete), `gmail.settings.*`, full `drive` / `drive.readonly`, Admin SDK, Contacts, Tasks — none map to a current tool, and each widens breach radius and verification surface.
+
+**Consequences for "go public."** The public path is: verify the sensitive scopes + commit to the security assessment for the `gmail.modify` family (the single restricted scope, because Alfred stores/transmits Gmail data server-side) + remove ADR-0009's one-email allowlist for open signup. Keeping the restricted surface to **one** scope family is deliberate — it makes the eventual restricted-scope review as small as Google allows. Multi-tenant architecture means none of this is a rewrite.
+
+**Resume framing.** The defensible artifact is the *documented trade-off*, not a paid audit: "architected multi-tenant, operated single-tenant Production-unverified to avoid a restricted-scope security assessment disproportionate for a portfolio project; least-privilege scopes keep the verification surface minimal; going public is a verification submission + allowlist removal."
+
+**Operational steps (no code).** Flip the GCP consent screen Testing → Production; re-consent the owner account once under the broadened scopes to get a refresh token outside Testing mode's 7-day expiry; record the "to go public" checklist in `pending-setup.md`.
+
+**Source check (2026-05-27).** Verified against Google's OAuth, Drive, Gmail, Calendar, Sheets, and Slides docs: Testing-mode offline grants expire after 7 days for non-profile scopes; In Production unverified apps show the warning and have a 100-new-user cap; `drive.file` is non-sensitive and per-file; Gmail `gmail.send` is sensitive while `gmail.readonly`/`gmail.modify` are restricted; restricted scopes require a security assessment when restricted data is stored or transmitted through servers. Key refs: [OAuth token expiry](https://developers.google.com/identity/protocols/oauth2), [app audience/user cap](https://support.google.com/cloud/answer/15549945), [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth), [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [restricted scopes](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification).
+
+**Alternatives.**
+
+- (a) **Stay in Testing mode.** Rejected — the 7-day refresh-token expiry on an always-on assistant is a recurring outage; Production-unverified fixes it for free.
+- (b) **Pursue verification + security assessment now.** Rejected — recurring paid audit, disproportionate for current scope; nothing forces it at single-tenant.
+- (c) **Broad "grant-all" restricted scopes (full `drive`, full mailbox).** Rejected (reversed an earlier inclination, 2026-05-27) — maximizes breach radius and verification surface and directly fights the public-someday goal; the capability gained is "edit files the user never opened with Alfred," exactly what a public app couldn't keep.
+- (d) **`drive.file` only, no sensitive scopes.** Rejected — too narrow; can't send mail or manage calendar, which the assistant needs. Sensitive scopes cost only brand verification, so we take them.
+
+**Open.**
+
+- Whether to enable the `documents`/`spreadsheets`/`presentations` power tier or stay on `drive.file` + Picker — decide when a cross-file-edit tool is actually built.
+- Exact "go public" checklist contents in `pending-setup.md`.
+- **Self-host-per-user as a third path:** Alfred could ship as a self-hosted instance where each user runs their own GCP project + Production-unverified consent screen. Then *every user is their own OAuth developer account*, and the restricted-scope security assessment does not apply to a centralized public app because there is no centralized public OAuth client. Strong candidate; revisit if/when distribution becomes real.
+
+**Cross-ref.** Records the operating mode under ADR-0001; supplies the OAuth grants ADR-0043's write tools call; the eventual public flip touches ADR-0009 (auth allowlist).
 
 ---
 
