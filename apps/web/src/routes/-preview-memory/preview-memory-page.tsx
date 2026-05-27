@@ -5,74 +5,8 @@ import type { LocalFact } from "./helpers";
 import { ProposedFactCard } from "./proposed-fact-card";
 import { SectionHeading } from "./section-heading";
 
-const SEED_FACTS: LocalFact[] = [
-  {
-    id: "p1",
-    key: "user.timezone",
-    value: "Asia/Kolkata",
-    status: "proposed",
-    confidence: 0.62,
-    source: "gmail · headers · last 7 days",
-    createdAt: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
-  },
-  {
-    id: "p2",
-    key: "preferences.morning_briefing_time",
-    value: "08:00",
-    status: "proposed",
-    confidence: 0.48,
-    source: "chat · 2026-05-22",
-    createdAt: new Date(Date.now() - 1000 * 60 * 95).toISOString(),
-  },
-  {
-    id: "c1",
-    key: "user.full_name",
-    value: "Yash Gourav Kar",
-    status: "confirmed",
-    confidence: 1,
-    source: "google · profile",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
-  },
-  {
-    id: "c2",
-    key: "company.name",
-    value: "Alfred Labs",
-    status: "confirmed",
-    confidence: 0.92,
-    source: "research · sonar deep",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
-  },
-  {
-    id: "c3",
-    key: "company.stage",
-    value: "Pre-seed, single founder",
-    status: "confirmed",
-    confidence: 0.88,
-    source: "research · sonar deep",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
-  },
-  {
-    id: "c4",
-    key: "writing.style",
-    value: "Concise; bullet-friendly; rarely uses exclamation marks.",
-    status: "confirmed",
-    confidence: 0.81,
-    source: "gmail · drafts · last 30 days",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-  },
-  {
-    id: "c5",
-    key: "calendar.work_hours",
-    value: "10:00–19:00 IST",
-    status: "confirmed",
-    confidence: 0.79,
-    source: "calendar · last 14 days",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-  },
-];
-
 export function PreviewMemoryPage() {
-  const [facts, setFacts] = useState<LocalFact[]>(SEED_FACTS);
+  const [facts, setFacts] = useState<LocalFact[]>([]);
 
   const { proposed, confirmed } = useMemo(() => {
     const p: LocalFact[] = [];

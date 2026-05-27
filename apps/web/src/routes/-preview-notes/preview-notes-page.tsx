@@ -2,6 +2,7 @@ import { ArrowUp, FileText, Mic } from "lucide-react";
 import { useRef, useState } from "react";
 import { VsCard, VsTextarea } from "~/components/ui/visitors";
 import { cn } from "~/lib/utils";
+import { useDictation } from "./use-dictation";
 import { NotesShell } from "./notes-shell";
 
 interface LocalNote {
@@ -10,32 +11,16 @@ interface LocalNote {
   createdAt: string;
 }
 
-const SEED_NOTES: LocalNote[] = [
-  {
-    id: "seed-1",
-    text: "Look up Sycamore's last three sends before tomorrow's call.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-  },
-  {
-    id: "seed-2",
-    text: "Decision: park the Linear renewal until end of quarter; cheaper to keep month-to-month for now.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
-  },
-  {
-    id: "seed-3",
-    text: "Personal — schedule the FATCA forms by May 26; ping the bank if no acknowledgement by Friday.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-  },
-];
-
 export function PreviewNotesPage() {
-  const [notes, setNotes] = useState<LocalNote[]>(SEED_NOTES);
+  const [notes, setNotes] = useState<LocalNote[]>([]);
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dictation = useDictation();
 
   const createNote = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (dictation.listening) dictation.stop();
     const next: LocalNote = {
       id: `local-${Date.now()}`,
       text: trimmed,
@@ -43,6 +28,22 @@ export function PreviewNotesPage() {
     };
     setNotes((prev) => [next, ...prev]);
     setText("");
+    queueMicrotask(() => textareaRef.current?.focus());
+  };
+
+  const toggleDictation = () => {
+    if (dictation.listening) {
+      dictation.stop();
+      return;
+    }
+    // Append each finalised segment to the note, separated by a space so
+    // dictation flows naturally after any text already typed.
+    dictation.start((chunk) => {
+      if (!chunk) return;
+      setText((prev) =>
+        prev.length === 0 || prev.endsWith(" ") ? prev + chunk : `${prev} ${chunk}`,
+      );
+    });
     queueMicrotask(() => textareaRef.current?.focus());
   };
 
@@ -81,16 +82,33 @@ export function PreviewNotesPage() {
 
           <div className="flex items-center justify-between gap-2 px-1 pb-1">
             <p className="pl-2 text-[11.5px] text-vs-fg-2">
-              {hasContent ? `${text.length} chars` : "Notes are private."}
+              {dictation.error ? (
+                <span className="text-vs-red-4">{dictation.error}</span>
+              ) : dictation.listening ? (
+                <span className="text-vs-fg-3">
+                  {dictation.interim ? dictation.interim : "Listening…"}
+                </span>
+              ) : hasContent ? (
+                `${text.length} chars`
+              ) : (
+                "Notes are private."
+              )}
             </p>
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                aria-label="Voice input"
-                disabled
+                aria-label={dictation.listening ? "Stop voice input" : "Voice input"}
+                aria-pressed={dictation.listening}
+                onClick={toggleDictation}
+                disabled={!dictation.supported}
+                title={
+                  dictation.supported ? undefined : "Voice input isn't supported in this browser"
+                }
                 className={cn(
-                  "inline-flex size-8 items-center justify-center rounded-full",
-                  "text-vs-fg-2 hover:text-vs-fg-3 transition-colors",
+                  "inline-flex size-8 items-center justify-center rounded-full transition-colors",
+                  dictation.listening
+                    ? "text-vs-red-4 bg-vs-bg-2"
+                    : "text-vs-fg-2 hover:text-vs-fg-3",
                   "disabled:opacity-40 disabled:cursor-not-allowed",
                 )}
               >
