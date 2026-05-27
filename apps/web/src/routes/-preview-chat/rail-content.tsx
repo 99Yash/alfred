@@ -72,6 +72,8 @@ export interface RailData {
    * which case the button is a no-op (and we hide it).
    */
   onMarkInboxRead?: (documentIds: ReadonlyArray<string>) => void;
+  /** True while a mark-read mutation is in flight — disables the button. */
+  markInboxReadPending?: boolean;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -148,8 +150,8 @@ export function RailContent({
                 onClick={onClose}
                 className={cn(
                   "size-7 inline-flex items-center justify-center rounded-lg",
-                  "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+                  "text-white/70 hover:bg-white/[0.07] hover:text-white transition-colors vs-press",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}
               >
                 <X size={13} />
@@ -190,6 +192,7 @@ export function RailContent({
                 onOpen={data.onOpenInbox}
                 onClose={data.onCloseInbox}
                 onMarkRead={data.onMarkInboxRead}
+                markReadPending={data.markInboxReadPending}
               />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>

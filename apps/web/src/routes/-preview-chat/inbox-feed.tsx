@@ -70,6 +70,8 @@ export interface InboxFeedProps {
    * ids. Preview routes (and any caller that wants to suppress the
    * action) omit this. */
   onMarkRead?: (documentIds: ReadonlyArray<string>) => void;
+  /** True while a mark-read request is in flight — disables the button. */
+  markReadPending?: boolean;
 }
 
 export function InboxFeed({
@@ -79,6 +81,7 @@ export function InboxFeed({
   onOpen,
   onClose,
   onMarkRead,
+  markReadPending = false,
 }: InboxFeedProps) {
   const [query, setQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -193,7 +196,7 @@ export function InboxFeed({
           {onMarkRead ? (
             <button
               type="button"
-              disabled={visibleUnreadIds.length === 0}
+              disabled={visibleUnreadIds.length === 0 || markReadPending}
               onClick={() => onMarkRead(visibleUnreadIds)}
               className={cn(
                 "text-[11px] text-white/65 hover:text-white transition-colors",
