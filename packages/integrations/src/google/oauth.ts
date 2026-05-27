@@ -51,19 +51,30 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  * needs each app's own scope. We grant all four together so the same
  * consent screen unlocks both "find the deck" (drive) and "read what's
  * in the deck" (slides) without a second prompt.
+ *
+ * Individual scope URLs are named below so callers can reference a
+ * capability by intent (`GMAIL_MODIFY_SCOPE`) instead of by position in
+ * a feature tuple — reordering a tuple then can't silently repoint a
+ * scope check at the wrong grant.
  */
+export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+export const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+export const DOCS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly";
+export const SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+export const SLIDES_READONLY_SCOPE = "https://www.googleapis.com/auth/presentations.readonly";
+
 export const GOOGLE_FEATURE_SCOPES = {
-  briefing: ["https://www.googleapis.com/auth/gmail.readonly"],
-  triage: [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.modify",
-  ],
-  reply_draft: ["https://www.googleapis.com/auth/gmail.send"],
-  calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
-  drive: ["https://www.googleapis.com/auth/drive.readonly"],
-  docs: ["https://www.googleapis.com/auth/documents.readonly"],
-  sheets: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  slides: ["https://www.googleapis.com/auth/presentations.readonly"],
+  briefing: [GMAIL_READONLY_SCOPE],
+  triage: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
+  reply_draft: [GMAIL_SEND_SCOPE],
+  calendar: [CALENDAR_READONLY_SCOPE],
+  drive: [DRIVE_READONLY_SCOPE],
+  docs: [DOCS_READONLY_SCOPE],
+  sheets: [SHEETS_READONLY_SCOPE],
+  slides: [SLIDES_READONLY_SCOPE],
 } as const satisfies Record<string, readonly string[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;

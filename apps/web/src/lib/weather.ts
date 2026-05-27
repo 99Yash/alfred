@@ -19,6 +19,7 @@
 
 export type WeatherCondition =
   | "clear"
+  | "partly_cloudy"
   | "cloudy"
   | "fog"
   | "rain"
@@ -35,6 +36,13 @@ export interface WeatherSnapshot {
   /** City name (or region, when geojs can't resolve a city). */
   city: string;
   condition: WeatherCondition;
+  /**
+   * `true` when open-meteo reports daylight at the resolved coordinates.
+   * Drives the night-video swap in the rail. Missing data defaults to
+   * `true` (daytime) so a flaky `is_day` field never paints the surface
+   * black for a daytime user.
+   */
+  isDay: boolean;
 }
 
 /**
@@ -66,6 +74,7 @@ interface OpenMeteoResponse {
   current?: {
     temperature_2m?: unknown;
     weather_code?: unknown;
+    is_day?: unknown;
   };
 }
 
@@ -100,7 +109,7 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(lat));
   url.searchParams.set("longitude", String(lon));
-  url.searchParams.set("current", "temperature_2m,weather_code");
+  url.searchParams.set("current", "temperature_2m,weather_code,is_day");
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
   const wRes = await fetch(url);
   if (!wRes.ok) {
@@ -112,29 +121,38 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
     throw new Error("open-meteo: missing temperature");
   }
   const code = typeof w.current?.weather_code === "number" ? w.current.weather_code : undefined;
+  const isDayRaw = w.current?.is_day;
+  const isDay = isDayRaw === 1 || isDayRaw === true || isDayRaw === undefined;
 
   return {
     temperature: Math.round(tempRaw),
     unit,
     city,
     condition: mapWeatherCode(code),
+    isDay,
   };
 }
 
 /**
  * WMO weather codes (open-meteo's `weather_code`):
  *   0       = clear
- *   1-3     = mainly clear / partly cloudy / overcast
+ *   1-2     = mainly clear / partly cloudy → `partly_cloudy`
+ *   3       = overcast → `cloudy`
  *   45-48   = fog
  *   51-67   = drizzle / rain
  *   71-77   = snow
  *   80-86   = rain showers / snow showers
  *   95-99   = thunderstorm
+ *
+ * 1-2 are split from 3 so the rail can pick the partly-cloudy loop
+ * (lively, sunlit) for "mainly clear" weather and reserve the heavier
+ * overcast loop for true overcast — matches dimension's split.
  */
 function mapWeatherCode(code: number | undefined): WeatherCondition {
   if (code === undefined) return "unknown";
   if (code === 0) return "clear";
-  if (code >= 1 && code <= 3) return "cloudy";
+  if (code >= 1 && code <= 2) return "partly_cloudy";
+  if (code === 3) return "cloudy";
   if (code >= 45 && code <= 48) return "fog";
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "rain";
   if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return "snow";

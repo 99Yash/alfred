@@ -3,13 +3,26 @@ import { briefingRuns, documents, emailTriage, integrationCredentials } from "@a
 import {
   extractAttachments,
   extractMessageHtml,
+  batchModifyMessages,
   getFreshAccessToken,
-  GOOGLE_FEATURE_SCOPES,
+  GMAIL_MODIFY_SCOPE,
+  CALENDAR_READONLY_SCOPE,
   listEvents,
   type ExtractedAttachment,
   type GmailMessage,
 } from "@alfred/integrations/google";
-import { and, asc, desc, eq, isNull, lt, notInArray, or, sql as drizzleSql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql as drizzleSql,
+} from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
@@ -624,6 +637,152 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         },
         { params: t.Object({ documentId: t.String() }) },
       )
+      .post(
+        "/inbox/mark-read",
+        async ({ user: u, body }) => {
+          // Resolve the requested docs to (Gmail message id, owning
+          // account, current labelIds) and filter to the user's own
+          // currently-UNREAD Gmail rows. Two things this guards
+          // against: a client sending ids it doesn't own (the user_id
+          // filter), and a client sending ids that are already read
+          // (Gmail would no-op, but we'd still bill a round-trip +
+          // write a useless metadata update). Cap the list because the
+          // rail page only ever shows ~8 rows; refuse anything
+          // sketchier so a bad caller can't ask us to slam Gmail with
+          // the full inbox.
+          const rows = await db()
+            .select({
+              id: documents.id,
+              sourceId: documents.sourceId,
+              accountId: documents.accountId,
+              metadata: documents.metadata,
+            })
+            .from(documents)
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                eq(documents.source, "gmail"),
+                inArray(documents.id, body.documentIds),
+              ),
+            );
+
+          const unreadRows = rows.filter((r) => {
+            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            return labelIds.includes("UNREAD");
+          });
+          if (unreadRows.length === 0) return { marked: 0 };
+
+          // Group unread rows by the Google account they were ingested
+          // under. A user can connect multiple Google accounts
+          // (work + personal) and each `integration_credentials` row
+          // only holds tokens for its own mailbox — calling
+          // batchModifyMessages with the wrong account's token would
+          // 404/403 the whole request. `documents.accountId` mirrors
+          // `integration_credentials.account_id` for exactly this
+          // reason. Older ingested rows may have NULL accountId, so
+          // bucket those under a sentinel and pick the lone modify-
+          // scoped cred for them if there is one.
+          const byAccount = new Map<string | null, typeof unreadRows>();
+          for (const r of unreadRows) {
+            const key = r.accountId ?? null;
+            const bucket = byAccount.get(key) ?? [];
+            bucket.push(r);
+            byAccount.set(key, bucket);
+          }
+
+          // Find Gmail credentials carrying `gmail.modify` — the
+          // read-only briefing scope isn't enough to remove a label.
+          // Mirrors the calendar-scope filter in `/meetings` so a
+          // Calendar-only Google account doesn't get picked up here.
+          const modifyScope = GMAIL_MODIFY_SCOPE;
+          const creds = await db()
+            .select({
+              id: integrationCredentials.id,
+              accountId: integrationCredentials.accountId,
+              scopes: integrationCredentials.scopes,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, u.id),
+                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.status, "active"),
+              ),
+            );
+          const modifyCreds = creds.filter((c) => {
+            const granted = (c.scopes as string[] | null) ?? [];
+            return granted.includes(modifyScope);
+          });
+          if (modifyCreds.length === 0) {
+            return status(409, {
+              message: "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
+            });
+          }
+          const credByAccount = new Map(modifyCreds.map((c) => [c.accountId, c]));
+          // Fallback for legacy NULL-accountId docs: the unique
+          // modify-scoped cred if there's exactly one, otherwise
+          // ambiguous and we skip them.
+          const fallbackCred = modifyCreds.length === 1 ? modifyCreds[0] : null;
+
+          const markedRows: typeof unreadRows = [];
+          for (const [accountId, group] of byAccount) {
+            const cred = accountId ? credByAccount.get(accountId) : fallbackCred;
+            if (!cred) continue;
+            const accessToken = await getFreshAccessToken(cred.id);
+            await batchModifyMessages({
+              accessToken,
+              messageIds: group.map((r) => r.sourceId),
+              removeLabelIds: ["UNREAD"],
+            });
+            markedRows.push(...group);
+          }
+          if (markedRows.length === 0) {
+            return status(409, {
+              message: "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
+            });
+          }
+
+          // Strip UNREAD from each row's stored metadata so the next
+          // /inbox refetch reports them as read immediately. Without
+          // this the rows would re-appear unread until the next Gmail
+          // poll / history sync reconciles labels — a confusing UX gap
+          // even for the few seconds it takes. Scoped to the rows we
+          // actually modified in Gmail above, so a partial multi-
+          // account result doesn't silently desync unmodified rows.
+          await db()
+            .update(documents)
+            .set({
+              metadata: drizzleSql`jsonb_set(
+                ${documents.metadata},
+                '{labelIds}',
+                COALESCE(${documents.metadata}->'labelIds', '[]'::jsonb) - 'UNREAD'
+              )`,
+            })
+            .where(
+              and(
+                eq(documents.userId, u.id),
+                inArray(
+                  documents.id,
+                  markedRows.map((r) => r.id),
+                ),
+              ),
+            );
+
+          return { marked: markedRows.length };
+        },
+        {
+          body: t.Object({
+            // The rail page caps at 8 visible rows today; 50 leaves
+            // headroom for future page-size bumps without blessing
+            // server-wide "mark all" via this endpoint.
+            documentIds: t.Array(t.String({ minLength: 1 }), {
+              minItems: 1,
+              maxItems: 50,
+            }),
+          }),
+        },
+      )
       .get(
         "/meetings",
         async ({
@@ -634,7 +793,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // Filter in SQL to the row(s) actually carrying the calendar
           // scope so we don't accidentally pick a Gmail-only cred and
           // report "not connected".
-          const calendarScope = GOOGLE_FEATURE_SCOPES.calendar[0];
+          const calendarScope = CALENDAR_READONLY_SCOPE;
           const creds = await db()
             .select({
               id: integrationCredentials.id,

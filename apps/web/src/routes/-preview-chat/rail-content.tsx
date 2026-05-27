@@ -1,13 +1,14 @@
 import { ListChecks, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { VsSegmented } from "~/components/ui/visitors";
+import { useWeather } from "~/hooks/use-weather";
 import { authClient } from "~/lib/auth-client";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import type { InboxItem, MeetingItem, RailTab, TodoItem } from "./helpers";
 import { InboxFeed } from "./inbox-feed";
 import { MeetingsFeed, type MeetingLookaheadItem } from "./meetings-feed";
-import { RailAtmosphere } from "./rail-atmosphere";
 import { RailFooter } from "./rail-footer";
 import { RailSlot } from "./rail-slot";
 import { TodoFeed, type SuggestionInput } from "./todo-feed";
@@ -64,6 +65,15 @@ export interface RailData {
   onOpenInbox?: (documentId: string) => void;
   /** Close the rail's single-email reader and return to the list view. */
   onCloseInbox?: () => void;
+  /**
+   * Bulk "Mark all read" handler. The InboxFeed calls it with the
+   * currently-visible *unread* ids; the parent chat shell wires this
+   * to `useMarkInboxRead()`. Optional — the preview route omits it, in
+   * which case the button is a no-op (and we hide it).
+   */
+  onMarkInboxRead?: (documentIds: ReadonlyArray<string>) => void;
+  /** True while a mark-read mutation is in flight — disables the button. */
+  markInboxReadPending?: boolean;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -98,22 +108,36 @@ export function RailContent({
   data: RailData;
 }) {
   const { data: session } = authClient.useSession();
+  const { data: weather } = useWeather();
   const now = new Date();
   return (
     <>
-      <RailAtmosphere />
+      {/* Full-bleed condition-aware video, exactly as the styleguide
+       * QuickAccessRail. Two stacked gradient scrims add legibility for
+       * the rail content on top: a bottom-fading dark mask (so the
+       * Morning briefing footer reads white-on-black) and a soft top
+       * lift (so the header text doesn't blend into the lighter top of
+       * the sky video). */}
+      <WeatherVideoSurface condition={weather?.condition} isDay={weather?.isDay} />
+      {/* Same legibility stack as `quick-access-rail.tsx`: a soft
+       * sky-to-night ramp lets the upper video still read while the
+       * lower 30% darkens enough for the feed to sit on something
+       * readable. The thin top hairlight lifts the rail away from the
+       * page chrome. */}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.10),rgba(0,0,0,0.08)_28%,rgba(7,17,31,0.70)_100%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.24),transparent)]" />
 
-      <div className="relative z-10 flex h-full min-h-0 flex-col">
+      <div className="relative z-10 flex h-full min-h-0 flex-col text-white">
         {/* Header — greeting on the left, weather chip on the right. The
          * weather chip is the dimension-style atmospheric touch: a soft
          * surface plate floating above the rail's radial glow. */}
         <div className="px-4 pt-5 pb-4 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-medium tracking-tight text-vs-fg-4">
+            <div className="text-[15px] font-medium tracking-tight text-white">
               {greeting(now)}
               {firstName(session?.user) ? `, ${firstName(session?.user)}` : ""}
             </div>
-            <div className="mt-1 text-[11.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+            <div className="mt-1 text-[11.5px] uppercase tracking-tight font-medium text-white/60 mix-blend-plus-lighter">
               {formatRailDate(now)}
             </div>
           </div>
@@ -126,8 +150,8 @@ export function RailContent({
                 onClick={onClose}
                 className={cn(
                   "size-7 inline-flex items-center justify-center rounded-lg",
-                  "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+                  "text-white/70 hover:bg-white/[0.07] hover:text-white transition-colors vs-press",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}
               >
                 <X size={13} />
@@ -167,6 +191,8 @@ export function RailContent({
                 selectedId={data.selectedInboxId ?? null}
                 onOpen={data.onOpenInbox}
                 onClose={data.onCloseInbox}
+                onMarkRead={data.onMarkInboxRead}
+                markReadPending={data.markInboxReadPending}
               />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>
