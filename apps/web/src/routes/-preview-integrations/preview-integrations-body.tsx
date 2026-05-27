@@ -60,17 +60,19 @@ export function PreviewIntegrationsBody() {
         <FeaturedHero brands={connectedBrands} />
 
         <div className="flex justify-center mt-8 vs-card-in" style={{ animationDelay: "120ms" }}>
-          <VsInput
-            placeholder="Search for integration"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="max-w-[640px] !h-[44px] !rounded-2xl !pl-10"
-            aria-label="Search integrations"
-          />
-          <Search
-            size={14}
-            className="absolute -ml-[600px] mt-[15px] text-vs-fg-2 pointer-events-none hidden md:block"
-          />
+          <div className="relative w-full max-w-[640px]">
+            <Search
+              size={14}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-vs-fg-2 pointer-events-none hidden md:block"
+            />
+            <VsInput
+              placeholder="Search for integration"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full !h-[44px] !rounded-2xl !pl-10"
+              aria-label="Search integrations"
+            />
+          </div>
         </div>
 
         <div className="mt-12 space-y-12">
