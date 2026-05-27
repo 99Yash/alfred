@@ -46,9 +46,10 @@ function isLocalNight(): boolean {
 interface WeatherVideoSurfaceProps {
   /**
    * Live weather condition from `useWeather()`. `undefined` while the
-   * query is loading or errored — the component falls back to the CSS
-   * sky and keeps the video element at opacity-0 so we don't flash a
-   * stale loop before data lands.
+   * query is loading or errored — the component falls back to a local-
+   * clock pick (night.mp4 vs partly_cloudy.mp4) and plays it at full
+   * opacity. We prefer "wrong-but-plausible loop" over an empty rail
+   * here because geojs/open-meteo failure is silent and indefinite.
    */
   condition?: WeatherCondition;
   /** Daytime flag from open-meteo. `false` swaps in the night loop. */

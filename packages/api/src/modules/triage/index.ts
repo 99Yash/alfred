@@ -20,3 +20,6 @@ export type { TriageRow, UpsertTriageArgs, TriageDocumentContext } from "./store
 
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 export type { TriageWorkflowInput } from "./workflow-input";
+
+export { extractSenderContext } from "./sender-context";
+export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
