@@ -73,9 +73,9 @@ function TodoRow({ todo }: { todo: TodoItem }) {
         type="button"
         className={cn(
           "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
+          "hover:bg-white/[0.07] transition-colors vs-press",
           "flex items-start gap-2.5",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
       >
         <span
@@ -85,7 +85,7 @@ function TodoRow({ todo }: { todo: TodoItem }) {
             "border transition-colors",
             todo.done
               ? "bg-vs-purple-4 border-vs-purple-4 text-white"
-              : "border-vs-bg-3 group-hover:border-vs-fg-2 bg-transparent",
+              : "border-white/25 group-hover:border-white/50 bg-transparent",
           )}
         >
           {todo.done ? <Check size={10} strokeWidth={3} /> : null}
@@ -94,13 +94,13 @@ function TodoRow({ todo }: { todo: TodoItem }) {
           <span
             className={cn(
               "block text-[13px] leading-5 font-medium",
-              todo.done ? "text-vs-fg-2 line-through" : "text-vs-fg-4",
+              todo.done ? "text-white/55 line-through" : "text-white",
             )}
           >
             {todo.title}
           </span>
           {todo.due || todo.source ? (
-            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-vs-fg-2">
+            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/55">
               {todo.source === "email" ? (
                 <Mail size={10} className="text-vs-sky-4" aria-hidden />
               ) : null}

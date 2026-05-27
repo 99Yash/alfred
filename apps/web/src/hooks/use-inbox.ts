@@ -1,4 +1,5 @@
 import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
+import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integration-icons";
@@ -68,9 +69,11 @@ export function useInbox() {
  * server to mark *everything* — the rail's button is "all visible on
  * the current page," not server-wide.
  *
- * Invalidates the inbox list on success; we don't bother with optimistic
- * updates because the server returns instantly and the rail rerenders
- * the affected rows within a tick.
+ * Optimistically flips the affected rows to read across every loaded
+ * page so the rail updates on click rather than after the server
+ * round-trip + refetch. `onError` rolls back to the pre-mutation
+ * snapshot; `onSettled` invalidates to reconcile with the server (e.g.
+ * rows the server declined to touch because they were already read).
  */
 export function useMarkInboxRead() {
   const queryClient = useQueryClient();
@@ -88,7 +91,33 @@ export function useMarkInboxRead() {
       }
       return res.data;
     },
-    onSuccess: () => {
+    onMutate: async (documentIds: ReadonlyArray<string>) => {
+      const inboxKey = ["me", "inbox"];
+      // Stop in-flight refetches from clobbering our optimistic write.
+      await queryClient.cancelQueries({ queryKey: inboxKey });
+      const previous =
+        queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(inboxKey);
+      const markRead = new Set(documentIds);
+      queryClient.setQueryData<InfiniteData<InboxPage, string | null>>(inboxKey, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pages: current.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) =>
+              item.unread && markRead.has(item.id) ? { ...item, unread: false } : item,
+            ),
+          })),
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _documentIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["me", "inbox"], context.previous);
+      }
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["me", "inbox"] });
     },
   });

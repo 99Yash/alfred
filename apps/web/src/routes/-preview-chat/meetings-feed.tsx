@@ -27,7 +27,7 @@ export function MeetingsFeed({
   if (!items.length && !lookahead.length) {
     return (
       <div className="vs-card-in px-2 py-4">
-        <p className="text-[12px] leading-5 text-vs-fg-2">
+        <p className="text-[12px] leading-5 text-white/55">
           {calendarConnected
             ? "Nothing on your calendar today."
             : "Connect Google Calendar to see your day at a glance."}
@@ -40,7 +40,7 @@ export function MeetingsFeed({
     <div className="vs-card-in space-y-2">
       {items.length ? (
         <>
-          <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+          <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
             Today · {items.length}
           </div>
           <ul className="space-y-1">
@@ -70,9 +70,9 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
         type="button"
         className={cn(
           "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
+          "hover:bg-white/[0.07] transition-colors vs-press",
           "flex items-start gap-2.5",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
       >
         <span
@@ -82,17 +82,17 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
             "h-10 w-10 leading-none",
             isNext
               ? "bg-vs-amber-1 text-vs-amber-4 ring-1 ring-vs-amber-2"
-              : "bg-vs-bg-2 text-vs-fg-3",
+              : "bg-white/10 text-white/70",
           )}
         >
           <span className="text-[11px] font-semibold tabular-nums">{meeting.time}</span>
-          <span className="mt-0.5 text-[9px] uppercase tracking-tight text-vs-fg-2">
+          <span className="mt-0.5 text-[9px] uppercase tracking-tight text-white/55">
             {meeting.duration}
           </span>
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="min-w-0 truncate text-[13px] leading-5 font-medium text-vs-fg-4">
+            <span className="min-w-0 truncate text-[13px] leading-5 font-medium text-white">
               {meeting.title}
             </span>
             {isNext ? (
@@ -108,7 +108,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
               </span>
             ) : null}
           </span>
-          <span className="block truncate text-[11px] leading-4 text-vs-fg-2">{meeting.with}</span>
+          <span className="block truncate text-[11px] leading-4 text-white/55">{meeting.with}</span>
         </span>
       </button>
     </li>

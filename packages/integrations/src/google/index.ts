@@ -5,6 +5,14 @@ export {
   getGoogleOAuthConfig,
   DEFAULT_GOOGLE_SCOPES,
   GOOGLE_FEATURE_SCOPES,
+  GMAIL_READONLY_SCOPE,
+  GMAIL_MODIFY_SCOPE,
+  GMAIL_SEND_SCOPE,
+  CALENDAR_READONLY_SCOPE,
+  DRIVE_READONLY_SCOPE,
+  DOCS_READONLY_SCOPE,
+  SHEETS_READONLY_SCOPE,
+  SLIDES_READONLY_SCOPE,
   scopesForFeatures,
 } from "./oauth";
 export type {
@@ -68,6 +76,7 @@ export type {
   GmailLabel,
   CreateLabelArgs,
   ModifyMessageLabelsArgs,
+  BatchModifyMessagesArgs,
 } from "./gmail";
 export { listEvents } from "./calendar";
 export type {
