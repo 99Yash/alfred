@@ -42,7 +42,9 @@ export function AuthPanel() {
           >
             <span className="text-base font-medium leading-none">A</span>
           </div>
-          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">Sign in to Alfred</h1>
+          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">
+            Sign in to Alfred
+          </h1>
           <p className="text-sm text-vs-fg-2">Your personal assistant, on email and calendar.</p>
         </div>
 

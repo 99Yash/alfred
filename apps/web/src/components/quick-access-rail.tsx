@@ -158,11 +158,7 @@ export function QuickAccessRail() {
       <div className="relative flex min-h-0 flex-1 flex-col p-5 pb-0">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <WeatherLabel
-              snapshot={weather}
-              loading={weatherLoading}
-              errored={weatherError}
-            />
+            <WeatherLabel snapshot={weather} loading={weatherLoading} errored={weatherError} />
             <h2 className="mt-1 text-2xl font-medium tracking-[-0.04em]">{active.label}</h2>
           </div>
 

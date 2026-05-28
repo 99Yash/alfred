@@ -23,10 +23,7 @@ export interface TriageRow {
   runId: string | null;
 }
 
-export async function getTriage(
-  userId: string,
-  sourceThreadId: string,
-): Promise<TriageRow | null> {
+export async function getTriage(userId: string, sourceThreadId: string): Promise<TriageRow | null> {
   const rows = await db()
     .select()
     .from(emailTriage)

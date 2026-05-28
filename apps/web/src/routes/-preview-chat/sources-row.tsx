@@ -9,7 +9,13 @@ import { TOOL_TONE, type ToolTone } from "./helpers";
  * source (Memory, Contacts) — Lucide icon on a toned chip.
  */
 type SourceItem =
-  | { integration: IntegrationBrand; label: string; count: number; icon?: LucideIcon; tone?: ToolTone }
+  | {
+      integration: IntegrationBrand;
+      label: string;
+      count: number;
+      icon?: LucideIcon;
+      tone?: ToolTone;
+    }
   | { integration?: undefined; icon: LucideIcon; tone: ToolTone; label: string; count: number };
 
 export function SourcesRow({ items }: { items: SourceItem[] }) {

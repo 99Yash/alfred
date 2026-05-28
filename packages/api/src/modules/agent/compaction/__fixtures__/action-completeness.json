@@ -1,0 +1,93 @@
+{
+  "name": "action-completeness",
+  "description": "Every approved, rejected, and failed tool call from the prior transcript must appear in the run summary. Dropping any silently corrupts the boss's view of what already happened.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "@gmail @calendar — Look at this week's calendar and send Carol a confirmation for the vendor sync."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll check Carol's threads first, then look at the calendar, then send a confirmation."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_a",
+          "toolName": "gmail.search",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "threads": [
+                  {
+                    "id": "thread_carol_vendor",
+                    "from": "carol@vendor.test",
+                    "subject": "Vendor sync this Thursday"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Found the vendor thread. Drafting a send to confirm Thursday."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_b",
+          "toolName": "gmail.send_draft",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "rejected_by_user",
+              "toolName": "gmail.send_draft",
+              "reason": "I already replied to this thread yesterday — don't double-send"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Acknowledged. I'll move on and try to add the meeting to your calendar."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_c",
+          "toolName": "calendar.create_event",
+          "output": {
+            "type": "error-json",
+            "value": {
+              "status": "failed",
+              "error": "calendar.create_event: 409 Conflict — overlapping event 'Standup' at 10:00"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Calendar create failed due to a conflict. I'll pull the event list to find a free slot."
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Calling calendar.list_events to find free slots Thursday."
+    }
+  ],
+  "mustContain": ["gmail.search", "gmail.send_draft", "calendar.create_event"]
+}

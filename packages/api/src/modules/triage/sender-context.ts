@@ -97,7 +97,10 @@ function parseFromHeader(raw: string | null): ParsedFrom | null {
   let addressRaw: string;
   const angle = trimmed.match(ANGLE_ADDR_RE);
   if (angle && angle[2] !== undefined) {
-    const namePart = (angle[1] ?? "").trim().replace(/^"+|"+$/g, "").trim();
+    const namePart = (angle[1] ?? "")
+      .trim()
+      .replace(/^"+|"+$/g, "")
+      .trim();
     displayName = namePart || null;
     addressRaw = angle[2].trim();
   } else {
@@ -231,9 +234,7 @@ function parseBodyActor(domain: string, localPart: string, body: string): BodyAc
 
 function isGithubDomain(domain: string): boolean {
   return (
-    domain === "github.com" ||
-    domain === "noreply.github.com" ||
-    domain.endsWith(".github.com")
+    domain === "github.com" || domain === "noreply.github.com" || domain.endsWith(".github.com")
   );
 }
 
@@ -251,7 +252,10 @@ function isCalendarSender(domain: string, localPart: string): boolean {
  * `**dependabot[bot]**` collapses to `dependabot[bot]` before suffix tests.
  */
 function unwrapBold(s: string): string {
-  return s.trim().replace(/^\*\*|\*\*$/g, "").trim();
+  return s
+    .trim()
+    .replace(/^\*\*|\*\*$/g, "")
+    .trim();
 }
 
 const GITHUB_BOLD_RE = /\*\*([^*\n]{1,80})\*\*/;
@@ -292,7 +296,10 @@ function parseCalendarBodyActor(body: string): BodyActor | undefined {
     const angle = plainRaw.match(ANGLE_NAME_RE);
     const angleEmail = angle?.[2];
     if (angleEmail) {
-      const name = (angle?.[1] ?? "").trim().replace(/^"+|"+$/g, "").trim();
+      const name = (angle?.[1] ?? "")
+        .trim()
+        .replace(/^"+|"+$/g, "")
+        .trim();
       const handle = angleEmail.trim().toLowerCase();
       return { kind: "person", name: name || handle, handle };
     }
@@ -333,10 +340,7 @@ function resolveBotSlug(args: {
     const handle = bodyActor?.handle?.toLowerCase();
     if (!handle) return undefined;
     if (handle.startsWith("coderabbitai")) return "coderabbit";
-    if (
-      handle.startsWith("copilot-pull-request-reviewer") ||
-      handle.startsWith("github-copilot")
-    ) {
+    if (handle.startsWith("copilot-pull-request-reviewer") || handle.startsWith("github-copilot")) {
       return "copilot-review";
     }
     if (handle === "github-actions" || handle.startsWith("github-actions")) {
@@ -349,11 +353,7 @@ function resolveBotSlug(args: {
 
   if (domain === "sentry.io" || domain.endsWith(".sentry.io")) return "sentry";
 
-  if (
-    domain === "stripe.com" ||
-    domain === "stripe.email" ||
-    domain.endsWith(".stripe.com")
-  ) {
+  if (domain === "stripe.com" || domain === "stripe.email" || domain.endsWith(".stripe.com")) {
     return "stripe-billing";
   }
 
@@ -366,19 +366,11 @@ function resolveBotSlug(args: {
     return "google-security";
   }
 
-  if (
-    domain === "vercel.com" ||
-    domain === "vercel-app.com" ||
-    domain.endsWith(".vercel.com")
-  ) {
+  if (domain === "vercel.com" || domain === "vercel-app.com" || domain.endsWith(".vercel.com")) {
     return "vercel";
   }
 
-  if (
-    domain === "datadoghq.com" ||
-    domain === "datadog.com" ||
-    domain.endsWith(".datadoghq.com")
-  ) {
+  if (domain === "datadoghq.com" || domain === "datadog.com" || domain.endsWith(".datadoghq.com")) {
     return "datadog";
   }
 

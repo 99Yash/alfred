@@ -13,14 +13,8 @@ import type { RailBriefingSummary } from "./rail-content";
  *     is a follow-up; the CTA's first job is to surface that briefings
  *     are running.
  */
-export function RailFooter({
-  latestBriefing,
-}: {
-  latestBriefing: RailBriefingSummary | null;
-}) {
-  const secondary = latestBriefing
-    ? formatBriefingSubtitle(latestBriefing)
-    : "No briefing yet";
+export function RailFooter({ latestBriefing }: { latestBriefing: RailBriefingSummary | null }) {
+  const secondary = latestBriefing ? formatBriefingSubtitle(latestBriefing) : "No briefing yet";
 
   return (
     <div className="shrink-0 p-3 border-t border-white/10">
@@ -41,12 +35,8 @@ export function RailFooter({
         <span className="inline-flex min-w-0 items-center gap-2">
           <Sparkles size={13} aria-hidden className="shrink-0" />
           <span className="min-w-0 flex flex-col">
-            <span className="text-[13px] font-medium leading-tight truncate">
-              Morning briefing
-            </span>
-            <span className="text-[11px] leading-tight opacity-80 truncate">
-              {secondary}
-            </span>
+            <span className="text-[13px] font-medium leading-tight truncate">Morning briefing</span>
+            <span className="text-[11px] leading-tight opacity-80 truncate">{secondary}</span>
           </span>
         </span>
         <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />

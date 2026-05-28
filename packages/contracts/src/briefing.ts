@@ -24,13 +24,7 @@ export type GatherSourceSlug = (typeof GATHER_SOURCE_SLUGS)[number];
 
 export const gatherSourceSlugSchema = z.enum(GATHER_SOURCE_SLUGS);
 
-export const BRIEFING_REFERENCE_KINDS = [
-  "pr",
-  "commit",
-  "meeting",
-  "email",
-  "repo",
-] as const;
+export const BRIEFING_REFERENCE_KINDS = ["pr", "commit", "meeting", "email", "repo"] as const;
 export type BriefingReferenceKind = (typeof BRIEFING_REFERENCE_KINDS)[number];
 
 // ─── IANA timezone (branded string) ───────────────────────────────────────

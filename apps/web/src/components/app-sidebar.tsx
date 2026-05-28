@@ -72,88 +72,90 @@ export function AppSidebar({
       )}
     >
       <div className="w-[264px] h-full flex flex-col">
-      {/* Slim chrome row — collapse arrow tucked into the corner. */}
-      <div className="px-2 pt-2.5 pb-1 flex items-center justify-end">
-        <button
-          type="button"
-          aria-label="Collapse sidebar"
-          onClick={onCollapse}
-          className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-          )}
-        >
-          <PanelLeft size={14} />
-        </button>
-      </div>
+        {/* Slim chrome row — collapse arrow tucked into the corner. */}
+        <div className="px-2 pt-2.5 pb-1 flex items-center justify-end">
+          <button
+            type="button"
+            aria-label="Collapse sidebar"
+            onClick={onCollapse}
+            className={cn(
+              "size-8 inline-flex items-center justify-center rounded-lg",
+              "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+            )}
+          >
+            <PanelLeft size={14} />
+          </button>
+        </div>
 
-      <div className="px-2 pt-1 pb-2 space-y-0.5">
-        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
-        <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
-        <NavLink
-          icon={Plug}
-          label="Integrations"
-          to="/integrations"
-          active={path.startsWith("/integrations")}
-        />
-        <NavLink
-          icon={Workflow}
-          label="Workflows"
-          to="/workflows"
-          active={path.startsWith("/workflows")}
-        />
-        <NavLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
-        <NavLink
-          icon={BookOpen}
-          label="Library"
-          to="/library"
-          active={path.startsWith("/library")}
-        />
-        <NavLink
-          icon={ShieldCheck}
-          label="Approvals"
-          to="/approvals"
-          badge={approvalsBadge}
-          active={path.startsWith("/approvals")}
-        />
-      </div>
-
-      <SidebarHeading>Personal</SidebarHeading>
-      <div className="px-2 pb-2 space-y-0.5">
-        <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
-        <NavLink icon={NotebookPen} label="Notes" to="/notes" active={path.startsWith("/notes")} />
-      </div>
-
-      {threads ? (
-        <nav
-          aria-label="Chats"
-          className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4"
-        >
-          <ThreadGroupBlock
-            label="Today"
-            entries={threads.today}
-            activeId={activeThread}
-            chatActive={isChat}
+        <div className="px-2 pt-1 pb-2 space-y-0.5">
+          <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
+          <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
+          <NavLink
+            icon={Plug}
+            label="Integrations"
+            to="/integrations"
+            active={path.startsWith("/integrations")}
           />
-          <ThreadGroupBlock
-            label="Yesterday"
-            entries={threads.yesterday}
-            activeId={activeThread}
-            chatActive={isChat}
+          <NavLink
+            icon={Workflow}
+            label="Workflows"
+            to="/workflows"
+            active={path.startsWith("/workflows")}
           />
-          <ThreadGroupBlock
-            label="Earlier"
-            entries={threads.earlier}
-            activeId={activeThread}
-            chatActive={isChat}
+          <NavLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
+          <NavLink
+            icon={BookOpen}
+            label="Library"
+            to="/library"
+            active={path.startsWith("/library")}
           />
-        </nav>
-      ) : (
-        <div className="flex-1 min-h-0" />
-      )}
+          <NavLink
+            icon={ShieldCheck}
+            label="Approvals"
+            to="/approvals"
+            badge={approvalsBadge}
+            active={path.startsWith("/approvals")}
+          />
+        </div>
 
-      <UserRow />
+        <SidebarHeading>Personal</SidebarHeading>
+        <div className="px-2 pb-2 space-y-0.5">
+          <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
+          <NavLink
+            icon={NotebookPen}
+            label="Notes"
+            to="/notes"
+            active={path.startsWith("/notes")}
+          />
+        </div>
+
+        {threads ? (
+          <nav aria-label="Chats" className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4">
+            <ThreadGroupBlock
+              label="Today"
+              entries={threads.today}
+              activeId={activeThread}
+              chatActive={isChat}
+            />
+            <ThreadGroupBlock
+              label="Yesterday"
+              entries={threads.yesterday}
+              activeId={activeThread}
+              chatActive={isChat}
+            />
+            <ThreadGroupBlock
+              label="Earlier"
+              entries={threads.earlier}
+              activeId={activeThread}
+              chatActive={isChat}
+            />
+          </nav>
+        ) : (
+          <div className="flex-1 min-h-0" />
+        )}
+
+        <UserRow />
       </div>
     </aside>
   );

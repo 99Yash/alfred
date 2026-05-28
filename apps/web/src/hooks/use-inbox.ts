@@ -42,9 +42,7 @@ export function useInbox() {
       if (res.error || !res.data) {
         return { items: [], nextCursor: null, total: 0 };
       }
-      const items = Array.isArray(res.data.items)
-        ? res.data.items.map(toInboxItem)
-        : [];
+      const items = Array.isArray(res.data.items) ? res.data.items.map(toInboxItem) : [];
       return {
         items,
         nextCursor: res.data.nextCursor ?? null,
@@ -95,8 +93,7 @@ export function useMarkInboxRead() {
       const inboxKey = ["me", "inbox"];
       // Stop in-flight refetches from clobbering our optimistic write.
       await queryClient.cancelQueries({ queryKey: inboxKey });
-      const previous =
-        queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(inboxKey);
+      const previous = queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(inboxKey);
       const markRead = new Set(documentIds);
       queryClient.setQueryData<InfiniteData<InboxPage, string | null>>(inboxKey, (current) => {
         if (!current) return current;
@@ -172,9 +169,7 @@ export function useInboxDetail(documentId: string | null) {
     enabled: !!documentId,
     queryFn: async () => {
       if (!documentId) return null;
-      const res = await client.api.me
-        .inbox({ documentId })
-        .get();
+      const res = await client.api.me.inbox({ documentId }).get();
       if (res.error || !res.data) return null;
       const data = res.data;
       const messages: InboxMessage[] = Array.isArray(data.messages)
@@ -212,9 +207,7 @@ export function useInboxDetail(documentId: string | null) {
       return {
         threadId: data.threadId,
         subject: data.subject,
-        category: isTriageCategory(data.category)
-          ? (data.category as TriageCategory)
-          : null,
+        category: isTriageCategory(data.category) ? (data.category as TriageCategory) : null,
         selectedDocumentId: data.selectedDocumentId,
         messages,
       };
@@ -360,14 +353,7 @@ function initialFor(name: string): string {
   return first || "?";
 }
 
-const TONE_PALETTE: ReadonlyArray<ToolTone> = [
-  "purple",
-  "sky",
-  "amber",
-  "green",
-  "pink",
-  "orange",
-];
+const TONE_PALETTE: ReadonlyArray<ToolTone> = ["purple", "sky", "amber", "green", "pink", "orange"];
 
 /**
  * Deterministic tone-per-sender so the same correspondent keeps the same

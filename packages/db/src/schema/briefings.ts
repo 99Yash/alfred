@@ -1,13 +1,5 @@
 import type { BriefingGather, BriefingStatus, FullBriefing, IanaTimezone } from "@alfred/contracts";
-import {
-  date,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
+import { date, index, integer, jsonb, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";

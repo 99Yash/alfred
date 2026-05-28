@@ -81,6 +81,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
       startTime: startedAt,
       metadata: {
         kind: meta.kind,
+        role: meta.role,
         userId: meta.userId,
         runId: meta.runId,
         stepId: meta.stepId,

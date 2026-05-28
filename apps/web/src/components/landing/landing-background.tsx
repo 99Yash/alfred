@@ -26,11 +26,7 @@ export function LandingBackground({
       style={{
         fontFamily: '"Open Runde", Inter, ui-sans-serif, system-ui, sans-serif',
       }}
-      className={cn(
-        "relative isolate bg-[#0a0a0a]",
-        "tracking-[-0.012em]",
-        className,
-      )}
+      className={cn("relative isolate bg-[#0a0a0a]", "tracking-[-0.012em]", className)}
     >
       <div
         aria-hidden
