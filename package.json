@@ -14,7 +14,7 @@
     "db:generate": "turbo run db:generate --filter=@alfred/db",
     "db:migrate": "turbo run db:migrate --filter=@alfred/db",
     "db:sync-prices": "turbo run db:sync-prices --filter=@alfred/db",
-    "db:predeploy": "pnpm db:migrate && pnpm db:sync-prices",
+    "db:predeploy": "pnpm --filter @alfred/db db:migrate && pnpm --filter @alfred/db db:sync-prices",
     "check": "node scripts/check-web-boundaries.mjs && oxlint && oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json"
   },
   "devDependencies": {
