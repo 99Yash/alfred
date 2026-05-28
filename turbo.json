@@ -32,6 +32,9 @@
     },
     "db:generate": {
       "cache": false
+    },
+    "db:sync-prices": {
+      "cache": false
     }
   }
 }
