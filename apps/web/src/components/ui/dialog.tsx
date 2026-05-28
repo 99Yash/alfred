@@ -21,7 +21,6 @@ import type { ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 export const Dialog = RadixDialog.Root;
-export const DialogTrigger = RadixDialog.Trigger;
 
 interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title"> {
   title: ReactNode;

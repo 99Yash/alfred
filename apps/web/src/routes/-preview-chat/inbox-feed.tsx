@@ -115,10 +115,13 @@ export function InboxFeed({
   // Ids the "Mark all read" button will pass to the parent. Drawn from
   // the visible slice (not `items`) so the button respects the user's
   // current filter + page; an empty list disables the button.
-  const visibleUnreadIds = useMemo(
-    () => visible.filter((i) => i.unread).map((i) => i.id),
-    [visible],
-  );
+  const visibleUnreadIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const item of visible) {
+      if (item.unread) ids.push(item.id);
+    }
+    return ids;
+  }, [visible]);
 
   // Detail-pane reader: when a row is selected, swap the list out. The
   // reader gets its own fetch (`useInboxDetail`), so the list-level filter

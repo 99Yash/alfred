@@ -94,6 +94,8 @@ export function WeatherVideoSurface({ condition, isDay, className }: WeatherVide
         playsInline
         disablePictureInPicture
         preload="metadata"
+        aria-label="Decorative weather background"
+        tabIndex={-1}
         className={cn(
           "absolute inset-0 h-full w-full object-cover",
           "pointer-events-none select-none",
