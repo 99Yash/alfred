@@ -96,7 +96,7 @@ const bossTurnStep: Step<BriefRunState> = {
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent ? SUB_AGENT_SYSTEM_PROMPT : BOSS_SYSTEM_PROMPT,
       tools: () => resolveSdkTools(state.activeIntegrations, subAgent !== null),
-      model: getBossModel(),
+      model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {
         kind: "llm",
         userId: ctx.userId,
