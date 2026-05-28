@@ -8,14 +8,27 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
-import {
-  filterMentionOptions,
-  getMentionOption,
-  type MentionOption,
-} from "./mention-options";
+import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
+
+/**
+ * Approximates Tiptap's `editor.isEmpty` against a serialized initial doc so
+ * we can seed local empty state without waiting for the editor to mount. The
+ * empty-paragraph special case mirrors Tiptap's default representation of an
+ * empty document.
+ */
+function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
+  if (!initialJSON) return true;
+  const content = initialJSON.content;
+  if (!content || content.length === 0) return true;
+  if (content.length === 1) {
+    const only = content[0];
+    if (only?.type === "paragraph" && (!only.content || only.content.length === 0)) return true;
+  }
+  return false;
+}
 
 export interface SuggestionRenderState {
   query: string;
@@ -73,15 +86,15 @@ export function TiptapComposer({
   suggestionKeyDownRef,
 }: TiptapComposerProps) {
   // Stable refs so the closures captured by Tiptap's extension config don't
-  // need to be recreated on every parent render.
+  // need to be recreated on every parent render. Refs are mutable, so updating
+  // them inline during render is safe and avoids a useEffect that would re-run
+  // on every render just to mirror the latest props.
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
-  useEffect(() => {
-    onChangeRef.current = onChange;
-    onSubmitRef.current = onSubmit;
-    onSuggestionChangeRef.current = onSuggestionChange;
-  });
+  onChangeRef.current = onChange;
+  onSubmitRef.current = onSubmit;
+  onSuggestionChangeRef.current = onSuggestionChange;
 
   // Tracks whether the suggestion popup is open — used to skip Enter-submit
   // when the user is picking a mention.
@@ -89,7 +102,9 @@ export function TiptapComposer({
 
   // Local empty state drives our custom animated placeholder overlay (replaces
   // Tiptap's built-in CSS placeholder so we can fade/slide/blur it out).
-  const [isEmpty, setIsEmpty] = useState(true);
+  // Seeded from initialJSON so a draft-mounted editor doesn't briefly show the
+  // placeholder before Tiptap's onUpdate fires.
+  const [isEmpty, setIsEmpty] = useState(() => isInitialContentEmpty(initialJSON));
 
   const editor = useEditor({
     extensions: [
@@ -128,28 +143,18 @@ export function TiptapComposer({
               suggestionOpenRef.current = true;
               onSuggestionChangeRef.current({
                 query: props.query,
-                command: (item) =>
-                  props.command({ id: item.value, label: item.label }),
+                command: (item) => props.command({ id: item.value, label: item.label }),
                 dismiss: () => {
-                  props.editor
-                    .chain()
-                    .focus()
-                    .deleteRange(props.range)
-                    .run();
+                  props.editor.chain().focus().deleteRange(props.range).run();
                 },
               });
             },
             onUpdate: (props) => {
               onSuggestionChangeRef.current({
                 query: props.query,
-                command: (item) =>
-                  props.command({ id: item.value, label: item.label }),
+                command: (item) => props.command({ id: item.value, label: item.label }),
                 dismiss: () => {
-                  props.editor
-                    .chain()
-                    .focus()
-                    .deleteRange(props.range)
-                    .run();
+                  props.editor.chain().focus().deleteRange(props.range).run();
                 },
               });
             },
@@ -157,8 +162,7 @@ export function TiptapComposer({
               suggestionOpenRef.current = false;
               onSuggestionChangeRef.current(null);
             },
-            onKeyDown: ({ event }) =>
-              suggestionKeyDownRef.current?.(event) ?? false,
+            onKeyDown: ({ event }) => suggestionKeyDownRef.current?.(event) ?? false,
           }),
         },
       }),
@@ -202,12 +206,6 @@ export function TiptapComposer({
     },
   });
 
-  // Seed isEmpty from the initial doc so the overlay starts hidden when the
-  // editor mounts with a draft.
-  useEffect(() => {
-    if (editor) setIsEmpty(editor.isEmpty);
-  }, [editor]);
-
   useImperativeHandle(
     ref,
     () => ({
@@ -222,8 +220,7 @@ export function TiptapComposer({
         // whitespace or document-start, prepend a space so the `@` opens
         // the palette (suggestion's `allowedPrefixes` defaults to [' ']).
         const { from } = editor.state.selection;
-        const prev =
-          from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
+        const prev = from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
         const needsSpace = prev !== "" && prev !== " " && prev !== "\n";
         editor
           .chain()

@@ -32,6 +32,7 @@ export {
   cancelRun,
   enqueueRun,
   getAgentQueue,
+  verifyMeteringModels,
 } from "./modules/agent/index.js";
 export {
   startIngestionWorker,
@@ -55,6 +56,12 @@ export * from "./modules/skill-documentation/index.js";
 export * from "./modules/workflows/index.js";
 export * from "./modules/approvals/index.js";
 export * from "./modules/me/index.js";
+export {
+  compactTranscript,
+  COMPACTOR_SYSTEM_PROMPT,
+  type CompactTranscriptArgs,
+  type CompactTranscriptResult,
+} from "./modules/agent/compaction/index.js";
 export type {
   Workflow,
   WorkflowInput,

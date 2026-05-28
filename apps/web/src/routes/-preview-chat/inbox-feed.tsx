@@ -17,11 +17,7 @@ import {
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
-import {
-  useInboxDetail,
-  type InboxAttachment,
-  type InboxMessage,
-} from "~/hooks/use-inbox";
+import { useInboxDetail, type InboxAttachment, type InboxMessage } from "~/hooks/use-inbox";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
@@ -119,10 +115,13 @@ export function InboxFeed({
   // Ids the "Mark all read" button will pass to the parent. Drawn from
   // the visible slice (not `items`) so the button respects the user's
   // current filter + page; an empty list disables the button.
-  const visibleUnreadIds = useMemo(
-    () => visible.filter((i) => i.unread).map((i) => i.id),
-    [visible],
-  );
+  const visibleUnreadIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const item of visible) {
+      if (item.unread) ids.push(item.id);
+    }
+    return ids;
+  }, [visible]);
 
   // Detail-pane reader: when a row is selected, swap the list out. The
   // reader gets its own fetch (`useInboxDetail`), so the list-level filter
@@ -163,17 +162,12 @@ export function InboxFeed({
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
             "text-[10.5px] uppercase tracking-tight font-medium transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-            unreadOnly
-              ? "bg-vs-purple-4/20 text-vs-purple-4"
-              : "text-white/60 hover:text-white/85",
+            unreadOnly ? "bg-vs-purple-4/20 text-vs-purple-4" : "text-white/60 hover:text-white/85",
           )}
         >
           <span
             aria-hidden
-            className={cn(
-              "size-1.5 rounded-full",
-              unreadOnly ? "bg-vs-purple-4" : "bg-white/55",
-            )}
+            className={cn("size-1.5 rounded-full", unreadOnly ? "bg-vs-purple-4" : "bg-white/55")}
           />
           Unread · {totalUnread}
         </button>
@@ -348,13 +342,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-function InboxRow({
-  item,
-  onOpen,
-}: {
-  item: InboxItem;
-  onOpen?: (documentId: string) => void;
-}) {
+function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: string) => void }) {
   const href = item.threadId
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
     : undefined;
@@ -553,13 +541,7 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
  * API for the rail. Adding the editor without `sendReply` is a UI lie,
  * so v1 just reads.
  */
-function InboxDetailPane({
-  documentId,
-  onClose,
-}: {
-  documentId: string;
-  onClose: () => void;
-}) {
+function InboxDetailPane({ documentId, onClose }: { documentId: string; onClose: () => void }) {
   const { data, isLoading, isError } = useInboxDetail(documentId);
 
   return (
@@ -634,8 +616,7 @@ function InboxDetailPane({
                      * clicked one. Earlier messages collapse to a single
                      * header row so long threads don't overwhelm the rail. */
                     defaultOpen={
-                      m.documentId === data.selectedDocumentId ||
-                      i === data.messages.length - 1
+                      m.documentId === data.selectedDocumentId || i === data.messages.length - 1
                     }
                   />
                 </li>
@@ -716,9 +697,7 @@ function ThreadMessageCard({
             ) : null}
           </span>
           {!open && summary ? (
-            <span className="block truncate text-[11.5px] text-vs-fg-2 mt-0.5">
-              {summary}
-            </span>
+            <span className="block truncate text-[11.5px] text-vs-fg-2 mt-0.5">{summary}</span>
           ) : null}
           {open && message.senderEmail ? (
             <span className="block truncate text-[11px] text-vs-fg-2 mt-0.5">
@@ -730,9 +709,7 @@ function ThreadMessageCard({
 
       {open ? (
         <div className="px-2.5 pb-2.5 space-y-2">
-          {hasHtml ? (
-            <ViewToggle value={view} onChange={setView} />
-          ) : null}
+          {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
           <div className="rounded-lg bg-vs-bg-1/40 ring-1 ring-vs-bg-3/30 overflow-hidden">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
@@ -741,16 +718,11 @@ function ThreadMessageCard({
                 <MarkdownRenderer>{message.body.trim()}</MarkdownRenderer>
               </div>
             ) : (
-              <p className="px-3 py-2.5 text-[12px] italic text-vs-fg-2">
-                (empty body)
-              </p>
+              <p className="px-3 py-2.5 text-[12px] italic text-vs-fg-2">(empty body)</p>
             )}
           </div>
           {message.attachments.length > 0 ? (
-            <AttachmentStrip
-              attachments={message.attachments}
-              threadId={threadId}
-            />
+            <AttachmentStrip attachments={message.attachments} threadId={threadId} />
           ) : null}
         </div>
       ) : null}
@@ -788,10 +760,7 @@ function ViewToggle({
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
       </ToggleButton>
-      <ToggleButton
-        active={value === "original"}
-        onClick={() => onChange("original")}
-      >
+      <ToggleButton active={value === "original"} onClick={() => onChange("original")}>
         Original
       </ToggleButton>
     </fieldset>
@@ -816,9 +785,7 @@ function ToggleButton({
         "rounded px-1.5 py-0.5 transition-colors vs-press",
         "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        active
-          ? "bg-vs-bg-1 text-vs-fg-4"
-          : "text-vs-fg-2 hover:text-vs-fg-3",
+        active ? "bg-vs-bg-1 text-vs-fg-4" : "text-vs-fg-2 hover:text-vs-fg-3",
       )}
     >
       {children}
@@ -952,9 +919,7 @@ function AttachmentStrip({
   attachments: ReadonlyArray<InboxAttachment>;
   threadId: string | null;
 }) {
-  const gmailHref = threadId
-    ? `https://mail.google.com/mail/u/0/#inbox/${threadId}`
-    : null;
+  const gmailHref = threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : null;
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
@@ -972,13 +937,7 @@ function AttachmentStrip({
   );
 }
 
-function AttachmentRow({
-  attachment,
-  href,
-}: {
-  attachment: InboxAttachment;
-  href: string | null;
-}) {
+function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href: string | null }) {
   const { tone, icon: Icon } = attachmentVisual(attachment.mimeType, attachment.filename);
   const body = (
     <>
@@ -1000,7 +959,9 @@ function AttachmentRow({
           {formatBytes(attachment.size)}
           {attachment.mimeType ? (
             <>
-              <span aria-hidden className="mx-1 opacity-60">·</span>
+              <span aria-hidden className="mx-1 opacity-60">
+                ·
+              </span>
               <span className="uppercase tracking-tight">
                 {extensionFor(attachment.filename, attachment.mimeType)}
               </span>
@@ -1008,9 +969,7 @@ function AttachmentRow({
           ) : null}
         </span>
       </span>
-      {href ? (
-        <ExternalLink size={12} className="shrink-0 text-vs-fg-2" aria-hidden />
-      ) : null}
+      {href ? <ExternalLink size={12} className="shrink-0 text-vs-fg-2" aria-hidden /> : null}
     </>
   );
   const shared = cn(

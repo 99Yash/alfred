@@ -30,13 +30,7 @@ const FIELD_BUILDERS: Partial<Record<ToolName, (input: Record<string, unknown>) 
   ],
 };
 
-export function InputRenderer({
-  toolName,
-  input,
-}: {
-  toolName: ToolName;
-  input: unknown;
-}) {
+export function InputRenderer({ toolName, input }: { toolName: ToolName; input: unknown }) {
   const builder = FIELD_BUILDERS[toolName];
   const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
 

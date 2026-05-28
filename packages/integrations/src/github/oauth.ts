@@ -55,7 +55,8 @@ export interface GithubOAuthConfig {
 }
 
 export function getGithubOAuthConfig(): GithubOAuthConfig {
-  const { GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_REDIRECT_URI } = serverEnv();
+  const { GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_REDIRECT_URI } =
+    serverEnv();
   return {
     clientId: GITHUB_OAUTH_CLIENT_ID,
     clientSecret: GITHUB_OAUTH_CLIENT_SECRET,
@@ -131,7 +132,9 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   });
   if (!tokenRes.ok) {
     const body = await tokenRes.text().catch(() => "");
-    throw new Error(`[github.oauth] token exchange failed: ${tokenRes.status} ${body.slice(0, 500)}`);
+    throw new Error(
+      `[github.oauth] token exchange failed: ${tokenRes.status} ${body.slice(0, 500)}`,
+    );
   }
   const tokenJson = await tokenRes.json();
   const parsedToken = tokenResponseSchema.safeParse(tokenJson);
@@ -152,9 +155,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
   });
   if (!userRes.ok) {
     const body = await userRes.text().catch(() => "");
-    throw new Error(
-      `[github.oauth] /user lookup failed: ${userRes.status} ${body.slice(0, 500)}`,
-    );
+    throw new Error(`[github.oauth] /user lookup failed: ${userRes.status} ${body.slice(0, 500)}`);
   }
   const user = githubUserSchema.parse(await userRes.json());
 

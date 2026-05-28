@@ -57,11 +57,7 @@ interface WeatherVideoSurfaceProps {
   className?: string;
 }
 
-export function WeatherVideoSurface({
-  condition,
-  isDay,
-  className,
-}: WeatherVideoSurfaceProps) {
+export function WeatherVideoSurface({ condition, isDay, className }: WeatherVideoSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasData = condition !== undefined;
   // Without a weather signal, fall back to local-clock night/day so the
@@ -98,6 +94,8 @@ export function WeatherVideoSurface({
         playsInline
         disablePictureInPicture
         preload="metadata"
+        aria-label="Decorative weather background"
+        tabIndex={-1}
         className={cn(
           "absolute inset-0 h-full w-full object-cover",
           "pointer-events-none select-none",

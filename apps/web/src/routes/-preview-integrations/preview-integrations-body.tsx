@@ -19,9 +19,7 @@ export function PreviewIntegrationsBody() {
   // twice (once in the floating section, once in their natural category).
   const { connectedSection, remainingProviders } = useMemo(() => {
     const connected = buildConnectedSection(resolved, query);
-    const remaining = connected
-      ? resolved.filter((p) => p.status !== "connected")
-      : resolved;
+    const remaining = connected ? resolved.filter((p) => p.status !== "connected") : resolved;
     return { connectedSection: connected, remainingProviders: remaining };
   }, [resolved, query]);
 

@@ -93,7 +93,8 @@ export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
     () =>
       INTEGRATION_PROVIDERS.map((p) => {
         const backend = PROVIDER_BACKEND[p.id];
-        const creds = backend === "google" ? googleCreds : backend === "github" ? githubCreds : undefined;
+        const creds =
+          backend === "google" ? googleCreds : backend === "github" ? githubCreds : undefined;
         return resolveOne(p, creds);
       }),
     [googleCreds, githubCreds],

@@ -245,10 +245,7 @@ async function main() {
     .select()
     .from(emailTriage)
     .where(
-      and(
-        eq(emailTriage.userId, cred.userId),
-        eq(emailTriage.sourceThreadId, doc.sourceThreadId),
-      ),
+      and(eq(emailTriage.userId, cred.userId), eq(emailTriage.sourceThreadId, doc.sourceThreadId)),
     );
   assert(
     rowsForThread.length === 1,

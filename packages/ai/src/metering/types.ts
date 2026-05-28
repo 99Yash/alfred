@@ -16,6 +16,26 @@ export interface CallUsage {
 export type CallKind = AttributionKind;
 
 /**
+ * Logical caller of a metered LLM call. Surfaces on
+ * `api_call_log.request_meta.role` so cost rollups can split a run's
+ * spend between agent surfaces (boss vs sub-agent vs compactor) without
+ * adding a column. Wired in Phase 7 (ADR-0035) for the boss workflow's
+ * three roles: `'boss'` and `'sub_agent'` on `AlfredAgent.turn()` calls
+ * inside `userAuthoredBriefWorkflow`, and `'compactor'` on
+ * `compactTranscript`. The remaining roles (`'triage'`, `'briefing'`,
+ * `'cold_start'`, `'memory_extraction'`) are typed for forward-compat
+ * and get plumbed when those call sites are revisited.
+ */
+export type CallRole =
+  | "compactor"
+  | "boss"
+  | "sub_agent"
+  | "triage"
+  | "briefing"
+  | "cold_start"
+  | "memory_extraction";
+
+/**
  * Caller-supplied attribution and free-form metadata persisted with each
  * call row. Attribution columns are nullable — ad-hoc test calls and
  * cold-start research run outside an agent and still want metering.
@@ -34,6 +54,14 @@ export interface CallAttribution {
    * ADR-0015. `meteredEmbed` always uses `'embedding'` regardless.
    */
   kind?: CallKind;
+  /**
+   * Logical caller within the agent runtime. Forwarded to
+   * `api_call_log.request_meta.role` so a single run's spend can be
+   * split between boss / sub-agent / compactor without adding a column.
+   * Optional — calls outside an agent (ad-hoc tests, cold-start) may
+   * omit it.
+   */
+  role?: CallRole;
 }
 
 export interface MeteredMeta extends CallAttribution {

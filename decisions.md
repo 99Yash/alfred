@@ -1557,7 +1557,7 @@ ADR-0026's two ephemeral `cacheControl` breakpoints sit on the stable system pro
     Math.floor(modelContextWindow * COMPACTION_THRESHOLD_PCT);
   ```
 
-**Fault behavior.** Compactor call failure → run fails with `reason='compactor_failed'`, retryable. Explicit failure beats degraded behavior (running with overflowing context = hallucination or silent truncation). Retry on next executor wake gives the cheap-tier model another shot; persistent failure surfaces as a real bug rather than silent quality degradation.
+**Fault behavior.** Compactor call failure triggers a **bounded in-step retry** — 3 attempts with 100ms then 200ms backoff inside the `compact-transcript` step body. On terminal exhaustion the run fails with `error.message='compactor_failed: <last error>'`. Explicit failure beats degraded behavior (running with overflowing context = hallucination or silent truncation). The retry lives in the step rather than relying on the executor's per-attempt counter so a transient cheap-tier blip doesn't burn a whole run attempt; the executor's idempotency (per ADR-0014) still covers worker-crash recovery, narrowing the double-charge window to a single in-flight cheap-model call (~$0.0001) — matching every other LLM step in the system. Three local attempts is also enough headroom that persistent failure surfaces as a real bug rather than a flapping retry loop. **Per-run dollar budget for runaway loops is the orthogonal concern handled by ADR-0046** (sibling, deferred from m13); the 30-turn cap in `userAuthoredBriefWorkflow` is the structural ceiling in the meantime.
 
 **Sub-agents do not compact.** Per ADR-0026, a sub-agent approaching its context window is evidence the brief was too broad; the right answer is failing back to the boss for re-decomposition, not soldiering on with a degraded view. No compactor invocation inside a sub-agent run. The boss's own "compaction" of sub-agent output happens at the scratchpad/`promote` boundary per ADR-0016 — that's a different mechanism (synthesis at the agent-tree edge) than transcript compaction (in-flight reduction within a single agent's context).
 
@@ -2636,6 +2636,58 @@ No write is blocked structurally by `risk_tier` or by a hardcoded tier; **the us
 
 ---
 
+## ADR-0045 — Per-document ingestion cost guard: free pre-flight estimate, reject-on-exceed, passive row status
+
+**Decision.** Every document the embedding pipeline touches gets a **free pre-flight cost estimate before any paid call**, and is rejected (not partially run, not retried into the ground) if the estimate exceeds a per-document budget. Two paths, one principle ("estimate, then approve or reject"):
+
+1. **Embedding (new).** In `embedDocument()`, after chunking and before `embedMany()`, sum the chunk `tokenCount`s (already computed locally by the chunker — zero marginal cost), multiply by the Voyage input rate from `model_prices`, and compare to `ALFRED_EMBEDDING_PER_DOC_BUDGET_USD` (default **$1.00**). Over budget → skip the Voyage call, flip the document to `embedding_status='budget_exceeded'`, and stop. The estimate is exact for embedding because Voyage bills per input token and we know the token count before the call.
+2. **Extraction (already shipped, ADR-0039).** The four-gate shield is the estimate-then-reject for the media path: the MIME allowlist, the 20 MB size cap, and the page-header read (no Claude call) are all free pre-flight checks; the 50-page cap bounds a single attachment at ~$1 of Haiku 4.5; the $5/day soft cap is the running aggregate. **No change** — ADR-0039 stands, and it already uses the cheap/fast model (Haiku 4.5 default, Sonnet only on a per-page figure-caption miss).
+
+**Why this is its own ADR.** ADR-0015 metered every billable call but logs cost *post-hoc* — it never refuses one. ADR-0021 sized the embedding corpus at $3–9 *lifetime* and reasonably treated embedding as too cheap to gate. ADR-0039 built a cost shield, but only for the attachment-extraction queue. The gap this ADR closes: the **embedding path has no pre-flight refusal at all**, and `documents` has **no status column**, so a skipped or failed document is invisible. A reader will ask "embedding is nearly free — why gate it, and where does a rejected doc show up?"; this answers both.
+
+**The per-doc embedding budget is a pathological-input ceiling, not an active throttle.** At `voyage-3.5` = **$0.06 / 1M input tokens**, the $1.00 cap is ~**16.7M tokens ≈ 67 MB of text in one document**. No real email, PDF, or note approaches it; the guard exists to stop a runaway input (a malformed export, a giant log dump, a base64 blob mistaken for prose) from silently embedding into a five-figure-chunk balloon. It rides for free on a token count the chunker already produces, so the cost of having it is one comparison. ADR-0021's $3–9 *lifetime* corpus estimate remains the accepted aggregate spend — **there is no lifetime cap enforced**; this ADR adds only the per-document ceiling.
+
+**Schema (documents gains status; full DDL in migration).**
+
+```
+documents  (gains columns; existing rows default to 'pending' then backfill to 'embedded')
+  embedding_status ('pending' | 'embedded' | 'budget_exceeded' | 'failed')  default 'pending'
+  skipped_reason   ('budget_exceeded' | null)
+  last_error       text nullable        -- populated on 'failed', mirrors ADR-0039's attachments.last_error
+  estimated_embed_tokens integer nullable  -- the pre-flight number, for audit + UI
+```
+
+Mirrors ADR-0039's `attachments.extraction_status` shape deliberately, so the two ingestion families surface the same way. `chunks.embedding` stays nullable as today; the document-level status is the unit a human or agent reasons about.
+
+**Surfacing — passive row + agent-visible flag, no notification.**
+
+- **Passive row status.** `embedding_status` / `skipped_reason` live on the row, queryable by a future documents/library UI. The row IS the dead letter (same philosophy as ADR-0039's `extraction_status='failed'`); no separate table.
+- **Agent-visible flag.** Retrieval surfaces a budget-skipped document to the boss agent so it can say "I have a document I haven't indexed (too large to embed)" inline, rather than the doc vanishing from recall with no explanation — the embedding-path twin of ADR-0039's `truncated_at_page` flag.
+- **No active notification.** Deliberately excluded. A `notify()` kind for budget events is not built; at single-user scale a per-doc embedding rejection is a near-impossible event, and the passive status + agent flag cover the realistic case (the user asks about a doc, the agent explains it wasn't indexed). Revisit only if a second user or a routinely-firing cap makes silent skips a real support burden.
+
+**Recovery.** A `budget_exceeded` document is not embedded but is not lost — the row and content persist. Raising `ALFRED_EMBEDDING_PER_DOC_BUDGET_USD` and re-running the embed sweep (`gmail.embed_sweep`, ADR-0037) re-evaluates it. No automatic retry: unlike a transient `failed`, a budget rejection is deterministic and will fail identically until the budget or the document changes, so the embed sweep skips `budget_exceeded` rows and only retries `failed` ones.
+
+**Trade-offs accepted.**
+
+- **A `budget_exceeded` doc is silently un-searchable** until a human raises the cap or the agent surfaces it on demand. Accepted: the alternative (notification spam for an event that essentially never fires) is worse.
+- **The estimate trusts the chunker's char-based token count** (4 chars/token), which can drift from Voyage's real tokenizer. Accepted: the cap is a 67 MB sanity ceiling, not a fine-grained throttle, so a ±20% tokenizer error changes nothing material.
+
+**Alternatives.**
+
+- (a) **No embedding gate (status quo / ADR-0021's stance).** Rejected here only at the margin — embedding is genuinely cheap, but a free pre-flight guard against a pathological input is one comparison, and the user wants an explicit, documented ceiling.
+- (b) **Lifetime or daily embedding budget.** Rejected — ADR-0021's $3–9 lifetime is acceptable spend; a daily/lifetime embedding cap is the "per-MIME budget split" ADR-0039 already rejected as premature. The per-doc ceiling is the proportionate guard.
+- (c) **Per-doc dollar cap on extraction too.** Redundant — ADR-0039's 50-page cap already bounds one attachment at ~$1; a second dollar check on the same path adds nothing.
+- (d) **Active `notify()` on every budget event.** Rejected — see Surfacing; near-zero fire rate doesn't justify a new notification kind.
+
+**Open.**
+
+- Whether the documents/library UI that renders `embedding_status` is built in this milestone or deferred — the schema lands now regardless so the status is recorded from day one.
+- The exact env-var default ($1.00) — trivially tunable; promotes to `user_action_policies` only when a second user appears, same as ADR-0039's $5/day cap.
+
+**Cross-ref.** Extends ADR-0015 (metering) from log-only to refuse-before-call on the embedding path; complements ADR-0039 (the extraction-path cost shield) with the matching embedding-path guard and a shared row-status surface; the budget number is a sibling of ADR-0039's `ALFRED_DOC_EXTRACTION_DAILY_BUDGET_USD`. Recovery rides ADR-0037's embed sweep.
+
+---
+
 ## Open / deferred
 
 Items intentionally not decided yet. Each is a future ADR when its time comes.
@@ -2662,6 +2714,29 @@ Items intentionally not decided yet. Each is a future ADR when its time comes.
 - Package layout details (mostly mirrors milkpod's `packages/{ai,api,auth,config,db,env,sync}` plus new `packages/{integrations,ingestion}`).
 - Drizzle migration workflow (already standardized in milkpod's `docs/database.md`).
 - Search namespace warming pattern (dimension does this; layered onto ADR-0010's hybrid policy as part of integration ingestion).
+
+---
+
+## ADR-0046 — Per-run cost ceiling for looping agent workflows (stub, deferred)
+
+**Status.** Stub. Surfaced during m13 Phase 7 grilling as a sibling concern to ADR-0035; deferred from m13 so compaction can ship without entangling budget enforcement. Decide and implement post-m13.
+
+**Decision (intended).** Introduce a per-run USD budget cap for any workflow whose run is driven by an LLM loop (today: `userAuthoredBriefWorkflow`'s boss-turn ↔ dispatch-tools ↔ compact-transcript triplet). When the running sum of `api_call_log.cost_usd` for a `run_id` crosses the cap, the executor fails the run with `error.message='cost_ceiling_exceeded'` before the next `boss-turn`. Default cap to be sized against observed real-world runs; v1 likely a static config knob (`ALFRED_PER_RUN_USD_CEILING`) before becoming a per-workflow column.
+
+**Why this is its own ADR.**
+
+- **Orthogonal to ADR-0035.** Compaction preserves *quality* by keeping the context window in the high-quality region. It does not bound *cost* — a runaway loop with cheap tool errors can compact happily and still rack up boss-turn calls. The 30-turn cap in `userAuthoredBriefWorkflow` is a structural ceiling but a coarse one (a single high-input turn can cost more than 30 small ones).
+- **Orthogonal to ADR-0045.** ADR-0045 gates a *single document's* embedding cost; this gates a *single run's* total spend across LLM + tool calls.
+- **Why not "in m13".** Designing the right surface (per-workflow override? user-level monthly cap? soft warn vs hard fail?) requires real run data Alfred doesn't have yet. Shipping compaction first lets us watch cost distributions accumulate in `api_call_log` and pick the threshold empirically rather than guess.
+
+**Open questions to settle when this ADR lands.**
+
+- Granularity: per-run only, or also per-workflow / per-user / monthly?
+- Behavior on cross: hard-fail the run (current sketch) vs. interrupt for user approval to continue (HIL pattern) vs. soft-warn + log?
+- Whether the cap reads from `model_prices` × estimated next-turn token count for *pre-flight* rejection (cheaper but inexact) or only post-hoc from `api_call_log` (exact but always burns the over-budget call).
+- Whether to count compactor spend against the cap (compactor saves boss spend; double-counting punishes the right behavior).
+
+**Cross-ref.** Sibling to ADR-0035 (quality). Builds on ADR-0015 (per-call cost log). Will likely interact with ADR-0034 if a "user approves continuing past budget" branch is added.
 
 ---
 
