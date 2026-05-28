@@ -30,10 +30,7 @@ export function ConnectedAccounts({
 
         {connected && accounts.length > 0 ? (
           accounts.map((acct) => (
-            <div
-              key={acct.accountLabel}
-              className="grid grid-cols-3 items-center gap-4 px-4 py-3"
-            >
+            <div key={acct.accountLabel} className="grid grid-cols-3 items-center gap-4 px-4 py-3">
               <p className="min-w-0 truncate text-sm text-vs-fg-4 font-medium">
                 {acct.accountLabel}
               </p>

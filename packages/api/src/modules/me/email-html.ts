@@ -76,10 +76,7 @@ export function sanitizeEmailHtml(raw: string | null | undefined): string | null
     return cleaned.replace(/<head\b[^>]*>/i, (m) => `${m}${baseTag}`);
   }
   if (/<html\b[^>]*>/i.test(cleaned)) {
-    return cleaned.replace(
-      /<html\b[^>]*>/i,
-      (m) => `${m}<head>${baseTag}</head>`,
-    );
+    return cleaned.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${baseTag}</head>`);
   }
   return `<!doctype html><html><head>${baseTag}</head><body>${cleaned}</body></html>`;
 }

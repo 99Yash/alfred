@@ -79,12 +79,7 @@ export type {
   BatchModifyMessagesArgs,
 } from "./gmail";
 export { listEvents } from "./calendar";
-export type {
-  CalendarEvent,
-  CalendarAttendee,
-  ListEventsArgs,
-  ListEventsResult,
-} from "./calendar";
+export type { CalendarEvent, CalendarAttendee, ListEventsArgs, ListEventsResult } from "./calendar";
 export {
   ensureAlfredLabels,
   applyTriageLabel,

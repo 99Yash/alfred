@@ -195,9 +195,7 @@ export function TabPill<T extends string>({
               "relative z-10 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
               "text-[13px] font-medium leading-none transition-colors duration-200",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/60",
-              isActive
-                ? "text-white"
-                : "text-neutral-400 hover:text-neutral-100",
+              isActive ? "text-white" : "text-neutral-400 hover:text-neutral-100",
             )}
           >
             {opt.icon ? (

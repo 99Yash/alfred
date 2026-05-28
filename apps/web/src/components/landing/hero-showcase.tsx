@@ -122,9 +122,7 @@ export function HeroShowcase({ className }: { className?: string }) {
                   id={tabPanelId(idBase, value)}
                   labelledBy={tabButtonId(idBase, value)}
                 >
-                  {value === "briefing" && (
-                    <MorningBriefingPanel className="rounded-none ring-0" />
-                  )}
+                  {value === "briefing" && <MorningBriefingPanel className="rounded-none ring-0" />}
                   {value === "inbox" && <InboxMockup />}
                   {value === "meetings" && <MeetingPrepMockup />}
                 </Slot>
@@ -181,10 +179,7 @@ function Slot({
       role="tabpanel"
       aria-labelledby={labelledBy}
       aria-hidden
-      className={cn(
-        baseClassName,
-        "opacity-0 pointer-events-none blur-[2px]",
-      )}
+      className={cn(baseClassName, "opacity-0 pointer-events-none blur-[2px]")}
       style={{ transform: "translateY(10px) scale(0.985)" }}
     >
       {children}

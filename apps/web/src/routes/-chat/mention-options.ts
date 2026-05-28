@@ -32,7 +32,6 @@ export function filterMentionOptions(query: string): ReadonlyArray<MentionOption
   const q = query.trim().toLowerCase();
   if (!q) return MENTION_OPTIONS;
   return MENTION_OPTIONS.filter(
-    (o) =>
-      o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
+    (o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
   );
 }

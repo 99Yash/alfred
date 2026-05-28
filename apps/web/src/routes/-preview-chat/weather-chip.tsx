@@ -27,10 +27,7 @@ export function WeatherChip() {
 
   useEffect(() => {
     if (!shouldRoll) return;
-    const id = window.setInterval(
-      () => setPhase((p) => (p === 0 ? 1 : 0)),
-      ROLL_INTERVAL_MS,
-    );
+    const id = window.setInterval(() => setPhase((p) => (p === 0 ? 1 : 0)), ROLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [shouldRoll]);
 
@@ -44,7 +41,9 @@ export function WeatherChip() {
 
   const Icon = ICON_FOR_CONDITION[data.condition];
   return (
-    <Plate aria-label={`${data.temperature} degrees ${data.unit} in ${data.city}, ${conditionLabel ?? data.condition}`}>
+    <Plate
+      aria-label={`${data.temperature} degrees ${data.unit} in ${data.city}, ${conditionLabel ?? data.condition}`}
+    >
       <Icon size={12} className={cn("shrink-0", TONE_FOR_CONDITION[data.condition])} aria-hidden />
       <span className="text-[12px] font-medium text-vs-fg-4 tabular-nums">
         {data.temperature}°{data.unit}
@@ -86,11 +85,7 @@ function TextRoller({ items, phase }: { items: string[]; phase: number }) {
   );
 }
 
-function Plate({
-  children,
-  className,
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement>) {
+function Plate({ children, className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...rest}

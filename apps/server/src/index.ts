@@ -34,6 +34,7 @@ import {
   stopIngestionWorker,
   stopMemoryWorker,
   stopWorkflowsWorker,
+  verifyMeteringModels,
   warmPool,
 } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -46,6 +47,11 @@ import "./instrument";
 
 // Boot sequence: connect to Postgres pool, realtime event bridge, Replicache poke bus.
 await warmPool();
+// ADR-0035 guard: every agent model must have a populated
+// `model_prices.context_window`. A missing value means the compactor
+// can't size its 60% threshold, so the boss would loop unbounded. Fail
+// loud at boot with a clear remediation rather than wedge at runtime.
+await verifyMeteringModels();
 await initEventBridge();
 await initReplicachePokeBridge();
 // Register built-in workflows BEFORE the worker starts pulling jobs —

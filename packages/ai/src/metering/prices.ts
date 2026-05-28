@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { modelPrices } from "@alfred/db/schemas";
+import type { LanguageModel } from "ai";
 import { and, desc, eq, lte } from "drizzle-orm";
 import type { CallUsage } from "./types";
 
@@ -20,6 +21,7 @@ interface CachedPrice {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   perCallUsd: number | null;
+  contextWindow: number | null;
   fetchedAt: number;
 }
 
@@ -30,6 +32,15 @@ export interface PriceLookup {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   perCallUsd: number | null;
+  /**
+   * Max input tokens the model accepts in a single request. Seeded by
+   * `pnpm --filter @alfred/db db:sync-prices` from models.dev. `null`
+   * for rows that don't carry a meaningful context window (e.g. Voyage
+   * embeddings). Consumed by ADR-0035 compaction to derive the 60%
+   * threshold; `resolveModelContextWindow` throws when it is missing
+   * for a model the runtime needs to reason about.
+   */
+  contextWindow: number | null;
 }
 
 function cacheKey(provider: string, model: string): string {
@@ -56,6 +67,7 @@ async function fetchPrice(provider: string, model: string): Promise<PriceLookup 
     outputPerMtok: Number(row.outputPerMtok),
     cachedInputPerMtok: row.cachedInputPerMtok != null ? Number(row.cachedInputPerMtok) : null,
     perCallUsd: row.perCallUsd != null ? Number(row.perCallUsd) : null,
+    contextWindow: row.contextWindow ?? null,
   };
 }
 
@@ -68,12 +80,45 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
       outputPerMtok: cached.outputPerMtok,
       cachedInputPerMtok: cached.cachedInputPerMtok,
       perCallUsd: cached.perCallUsd,
+      contextWindow: cached.contextWindow,
     };
   }
   const fresh = await fetchPrice(provider, model);
   if (!fresh) return null;
   cache.set(key, { ...fresh, fetchedAt: Date.now() });
   return fresh;
+}
+
+/**
+ * Resolve the input-token context window for an AI SDK `LanguageModel` via
+ * the `model_prices.context_window` column. Throws when the row is
+ * missing or carries a null context window — boot-time `verifyMeteringModels`
+ * uses this to fail fast on misconfigured workers (ADR-0035 derives the
+ * compaction threshold from this value; a silent fallback would mean
+ * unbounded transcript growth).
+ *
+ * Provider id normalization mirrors `wrappers.modelIdsFor`: AI SDK exposes
+ * namespaced ids (`google.generative-ai`, `anthropic.messages`), models.dev
+ * uses the head (`google`, `anthropic`).
+ */
+export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
+  const { provider, modelId } = identifyModel(model);
+  const price = await getPrice(provider, modelId);
+  if (!price || price.contextWindow == null) {
+    throw new Error(
+      `[metering] no context_window for ${provider}/${modelId} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
+    );
+  }
+  return price.contextWindow;
+}
+
+function identifyModel(model: LanguageModel): { provider: string; modelId: string } {
+  if (typeof model === "object" && model && "provider" in model && "modelId" in model) {
+    const raw = String(model.provider);
+    const head = raw.split(".")[0] ?? raw;
+    return { provider: head, modelId: String(model.modelId) };
+  }
+  return { provider: "unknown", modelId: String(model) };
 }
 
 /**

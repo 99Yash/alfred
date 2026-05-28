@@ -102,11 +102,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   return (
     <div className="relative flex h-full min-w-0 flex-col">
-      <TopBar
-        title={title}
-        railOpen={railOpen}
-        onToggleRail={() => setRailOpen((v) => !v)}
-      />
+      <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       <EmptyHero threadId={threadId} />
     </div>
   );
@@ -293,9 +289,7 @@ function MentionPalette({
                 <span className="block text-[13px] font-medium text-vs-fg-4 truncate">
                   {opt.label}
                 </span>
-                <span className="block text-[11px] text-vs-fg-2 truncate">
-                  {opt.subtitle}
-                </span>
+                <span className="block text-[11px] text-vs-fg-2 truncate">{opt.subtitle}</span>
               </span>
               {isActive ? (
                 <span className="text-[10px] text-vs-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-vs-bg-2">
@@ -438,13 +432,14 @@ function Composer({ threadId }: { threadId: string | undefined }) {
   // handler reads off `visibleMentionIdx` so a stale `mentionIdx` can't
   // walk past the new list bounds either.
   const visibleMentionIdx =
-    mentionCandidates.length === 0
-      ? 0
-      : Math.min(mentionIdx, mentionCandidates.length - 1);
+    mentionCandidates.length === 0 ? 0 : Math.min(mentionIdx, mentionCandidates.length - 1);
 
-  const insertMention = useCallback((option: MentionOption) => {
-    suggestion?.command(option);
-  }, [suggestion]);
+  const insertMention = useCallback(
+    (option: MentionOption) => {
+      suggestion?.command(option);
+    },
+    [suggestion],
+  );
 
   const insertAtTrigger = useCallback(() => {
     editorRef.current?.insertAtTrigger();
@@ -585,30 +580,30 @@ function Composer({ threadId }: { threadId: string | undefined }) {
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
         <div className="relative">
-        {mic.recording ? (
-          <RecordingPanel
-            levelsRef={mic.levelsRef}
-            elapsed={mic.elapsed}
-            active={mic.recording}
-          />
-        ) : (
-          <TiptapComposer
-            ref={editorRef}
-            initialJSON={initialJSON}
-            placeholder="Type and press enter to start chatting…"
-            onChange={onEditorChange}
-            onSubmit={handleSubmit}
-            onSuggestionChange={setSuggestion}
-            suggestionKeyDownRef={suggestionKeyDownRef}
-          />
-        )}
+          {mic.recording ? (
+            <RecordingPanel
+              levelsRef={mic.levelsRef}
+              elapsed={mic.elapsed}
+              active={mic.recording}
+            />
+          ) : (
+            <TiptapComposer
+              ref={editorRef}
+              initialJSON={initialJSON}
+              placeholder="Type and press enter to start chatting…"
+              onChange={onEditorChange}
+              onSubmit={handleSubmit}
+              onSuggestionChange={setSuggestion}
+              suggestionKeyDownRef={suggestionKeyDownRef}
+            />
+          )}
 
-        <ComposerToolbar
-          mic={mic}
-          canSend={canSend}
-          mentionActive={suggestion !== null}
-          onMentionClick={insertAtTrigger}
-        />
+          <ComposerToolbar
+            mic={mic}
+            canSend={canSend}
+            mentionActive={suggestion !== null}
+            onMentionClick={insertAtTrigger}
+          />
         </div>
       </div>
     </form>
@@ -649,9 +644,7 @@ function ComposerToolbar({
         >
           Auto
         </VsPill>
-        {mic.error ? (
-          <span className="text-[11px] text-vs-red-4 pl-1">{mic.error}</span>
-        ) : null}
+        {mic.error ? <span className="text-[11px] text-vs-red-4 pl-1">{mic.error}</span> : null}
       </div>
 
       <div className="flex items-center gap-1">
@@ -798,10 +791,7 @@ function useRailData(): RailData {
   // structural sharing, but the `?? []` fallback would otherwise mint a
   // fresh empty array on every render before the first fetch resolves,
   // churning every downstream callback / memo that depends on it.
-  const pages = useMemo(
-    () => inbox.data?.pages ?? EMPTY_INBOX_PAGES,
-    [inbox.data?.pages],
-  );
+  const pages = useMemo(() => inbox.data?.pages ?? EMPTY_INBOX_PAGES, [inbox.data?.pages]);
   const total = pages[0]?.total ?? 0;
   const inboxPageCount = Math.max(1, Math.ceil(total / INBOX_PAGE_SIZE));
   // Clamp during render — when invalidation drops the total below the

@@ -90,6 +90,7 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         requestMeta: {
           ...meta.requestMeta,
           idempotencyKey: meta.idempotencyKey,
+          ...(meta.role ? { role: meta.role } : {}),
         },
         responseMeta: responseMeta ?? null,
         error,

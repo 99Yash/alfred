@@ -11,11 +11,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
-import {
-  filterMentionOptions,
-  getMentionOption,
-  type MentionOption,
-} from "./mention-options";
+import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 
 export interface SuggestionRenderState {
   query: string;
@@ -128,28 +124,18 @@ export function TiptapComposer({
               suggestionOpenRef.current = true;
               onSuggestionChangeRef.current({
                 query: props.query,
-                command: (item) =>
-                  props.command({ id: item.value, label: item.label }),
+                command: (item) => props.command({ id: item.value, label: item.label }),
                 dismiss: () => {
-                  props.editor
-                    .chain()
-                    .focus()
-                    .deleteRange(props.range)
-                    .run();
+                  props.editor.chain().focus().deleteRange(props.range).run();
                 },
               });
             },
             onUpdate: (props) => {
               onSuggestionChangeRef.current({
                 query: props.query,
-                command: (item) =>
-                  props.command({ id: item.value, label: item.label }),
+                command: (item) => props.command({ id: item.value, label: item.label }),
                 dismiss: () => {
-                  props.editor
-                    .chain()
-                    .focus()
-                    .deleteRange(props.range)
-                    .run();
+                  props.editor.chain().focus().deleteRange(props.range).run();
                 },
               });
             },
@@ -157,8 +143,7 @@ export function TiptapComposer({
               suggestionOpenRef.current = false;
               onSuggestionChangeRef.current(null);
             },
-            onKeyDown: ({ event }) =>
-              suggestionKeyDownRef.current?.(event) ?? false,
+            onKeyDown: ({ event }) => suggestionKeyDownRef.current?.(event) ?? false,
           }),
         },
       }),
@@ -222,8 +207,7 @@ export function TiptapComposer({
         // whitespace or document-start, prepend a space so the `@` opens
         // the palette (suggestion's `allowedPrefixes` defaults to [' ']).
         const { from } = editor.state.selection;
-        const prev =
-          from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
+        const prev = from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
         const needsSpace = prev !== "" && prev !== " " && prev !== "\n";
         editor
           .chain()

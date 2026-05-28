@@ -6,10 +6,6 @@ export {
   DEFAULT_GITHUB_SCOPES,
   scopesForFeatures,
 } from "./oauth";
-export type {
-  GithubOAuthConfig,
-  ExchangeCodeResult,
-  GithubFeature,
-} from "./oauth";
+export type { GithubOAuthConfig, ExchangeCodeResult, GithubFeature } from "./oauth";
 export { upsertGithubCredential, getGithubAccessToken } from "./credentials";
 export type { UpsertGithubCredentialArgs } from "./credentials";

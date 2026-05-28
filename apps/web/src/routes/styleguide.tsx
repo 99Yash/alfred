@@ -83,11 +83,11 @@ function StyleguidePage() {
             Alfred UI styleguide
           </h1>
           <p className="text-sm text-gray-800 max-w-prose">
-            Toggle between the new <strong className="text-white">Visitors revamp</strong>{" "}
-            landing grammar and the <strong className="text-white">Dimension</strong>{" "}
-            primitives that still power the in-app surfaces. Both halves are kept side-by-side
-            on purpose — Dimension recipes (gray ramp, frost-border, lavender headings) carry
-            forward into the new direction and are not going away.
+            Toggle between the new <strong className="text-white">Visitors revamp</strong> landing
+            grammar and the <strong className="text-white">Dimension</strong> primitives that still
+            power the in-app surfaces. Both halves are kept side-by-side on purpose — Dimension
+            recipes (gray ramp, frost-border, lavender headings) carry forward into the new
+            direction and are not going away.
           </p>
           <div className="pt-1">
             <Tabs
@@ -95,7 +95,11 @@ function StyleguidePage() {
               value={mode}
               onValueChange={(next) => setMode(next as StyleguideMode)}
               items={[
-                { value: "visitors", label: "After · Visitors revamp", icon: <Sparkles size={14} /> },
+                {
+                  value: "visitors",
+                  label: "After · Visitors revamp",
+                  icon: <Sparkles size={14} />,
+                },
                 { value: "dimension", label: "Before · Dimension", icon: <MoonStar size={14} /> },
               ]}
             />
@@ -1067,9 +1071,7 @@ function VisitorsCanvas({
   height?: string;
 }) {
   return (
-    <LandingBackground
-      className={cn("rounded-2xl overflow-hidden", height, className)}
-    >
+    <LandingBackground className={cn("rounded-2xl overflow-hidden", height, className)}>
       <div className="p-6">{children}</div>
     </LandingBackground>
   );
@@ -1575,7 +1577,13 @@ function FeatureCardDemo({
       )}
     >
       <div className="flex flex-col gap-3 p-7 sm:p-8">
-        <span className={cn("grid size-9 place-items-center rounded-xl ring-1 ring-inset", t.bg, t.ring)}>
+        <span
+          className={cn(
+            "grid size-9 place-items-center rounded-xl ring-1 ring-inset",
+            t.bg,
+            t.ring,
+          )}
+        >
           <Sparkles className={cn("size-4", t.text)} strokeWidth={2} />
         </span>
         <p className={cn("text-[13px] font-semibold tracking-tight", t.text)}>{eyebrow}</p>
@@ -1587,7 +1595,10 @@ function FeatureCardDemo({
         </p>
         <ul className="mt-2 space-y-1.5">
           {bullets.map((b) => (
-            <li key={b} className="flex items-start gap-2 text-[13.5px] leading-[1.5] text-neutral-300">
+            <li
+              key={b}
+              className="flex items-start gap-2 text-[13.5px] leading-[1.5] text-neutral-300"
+            >
               <Check className={cn("mt-[3px] size-3.5 shrink-0", t.text)} strokeWidth={2.6} />
               <span>{b}</span>
             </li>

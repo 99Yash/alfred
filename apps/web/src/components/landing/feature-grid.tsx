@@ -53,8 +53,8 @@ export function FeatureGrid({ className }: { className?: string }) {
             Everything Alfred handles for you.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-balance text-[15px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[17px]">
-            One assistant, four jobs, running quietly across every tool you
-            already use, so nothing important slips by.
+            One assistant, four jobs, running quietly across every tool you already use, so nothing
+            important slips by.
           </p>
         </div>
       </FadeInOnScroll>
@@ -181,14 +181,7 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
         >
           <Icon className={cn("size-4", tone.text)} strokeWidth={2} />
         </span>
-        <p
-          className={cn(
-            "text-[13px] font-semibold tracking-tight",
-            tone.text,
-          )}
-        >
-          {card.eyebrow}
-        </p>
+        <p className={cn("text-[13px] font-semibold tracking-tight", tone.text)}>{card.eyebrow}</p>
         <h3 className="max-w-[22ch] text-balance text-[22px] font-semibold leading-[1.18] tracking-[-0.035em] text-white sm:text-[24px]">
           {card.title}
         </h3>
@@ -201,10 +194,7 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
               key={b}
               className="flex items-start gap-2 text-[13.5px] leading-[1.5] text-neutral-300"
             >
-              <Check
-                className={cn("mt-[3px] size-3.5 shrink-0", tone.text)}
-                strokeWidth={2.6}
-              />
+              <Check className={cn("mt-[3px] size-3.5 shrink-0", tone.text)} strokeWidth={2.6} />
               <span>{b}</span>
             </li>
           ))}
@@ -229,9 +219,24 @@ function InboxRowMockup() {
   return (
     <div className="space-y-1.5">
       {[
-        { name: "Anika", subject: "Re: auth migration — staged today", chip: "Drafted", tone: "rose" as const },
-        { name: "Dana", subject: "Q3 roadmap needs your take", chip: "Drafted", tone: "peach" as const },
-        { name: "Vercel", subject: "Domain settings updated", chip: "Archived", tone: "violet" as const },
+        {
+          name: "Anika",
+          subject: "Re: auth migration — staged today",
+          chip: "Drafted",
+          tone: "rose" as const,
+        },
+        {
+          name: "Dana",
+          subject: "Q3 roadmap needs your take",
+          chip: "Drafted",
+          tone: "peach" as const,
+        },
+        {
+          name: "Vercel",
+          subject: "Domain settings updated",
+          chip: "Archived",
+          tone: "violet" as const,
+        },
       ].map((row) => (
         <div
           key={row.name}
@@ -240,18 +245,10 @@ function InboxRowMockup() {
           <MiniAvatar initial={row.name[0] ?? "?"} tone={row.tone} />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2">
-              <span className="text-[13px] font-medium text-white">
-                {row.name}
-              </span>
-              <MiniChip
-                kind={row.chip === "Drafted" ? "drafted" : "archived"}
-              >
-                {row.chip}
-              </MiniChip>
+              <span className="text-[13px] font-medium text-white">{row.name}</span>
+              <MiniChip kind={row.chip === "Drafted" ? "drafted" : "archived"}>{row.chip}</MiniChip>
             </p>
-            <p className="mt-0.5 truncate text-[12.5px] text-neutral-400">
-              {row.subject}
-            </p>
+            <p className="mt-0.5 truncate text-[12.5px] text-neutral-400">{row.subject}</p>
           </div>
         </div>
       ))}
@@ -272,8 +269,7 @@ function BriefingPillMockup() {
         </span>
       </div>
       <p className="text-[14px] leading-[1.5] text-neutral-200">
-        Good morning. You have{" "}
-        <MiniPill tone="indigo">4 meetings</MiniPill> but a free{" "}
+        Good morning. You have <MiniPill tone="indigo">4 meetings</MiniPill> but a free{" "}
         <MiniPill tone="peach">afternoon</MiniPill>.
       </p>
       <div className="h-px w-full bg-gradient-to-r from-neutral-700 via-neutral-800 to-transparent" />
@@ -328,8 +324,8 @@ function ChatBubbleMockup() {
           A
         </span>
         <div className="max-w-[80%] rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 px-3.5 py-2 text-[13.5px] leading-[1.4] text-neutral-200">
-          The checkout webhook fix in{" "}
-          <MiniPill tone="violet">#Eng</MiniPill>. Three customers refunded.
+          The checkout webhook fix in <MiniPill tone="violet">#Eng</MiniPill>. Three customers
+          refunded.
         </div>
       </div>
       <p className="ml-8 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-neutral-500">
@@ -354,13 +350,7 @@ const MINI_AVATAR_BG: Record<MiniAvatarTone, string> = {
   emerald: "bg-emerald-400/30 text-emerald-200 ring-emerald-400/30",
 };
 
-function MiniAvatar({
-  initial,
-  tone,
-}: {
-  initial: string;
-  tone: MiniAvatarTone;
-}) {
+function MiniAvatar({ initial, tone }: { initial: string; tone: MiniAvatarTone }) {
   return (
     <span
       aria-hidden
