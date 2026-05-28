@@ -1,5 +1,7 @@
 import {
   getBossModel,
+  getSubAgentModel,
+  resolveModelContextWindow,
   AlfredAgent,
   tool,
   type ModelMessage,
@@ -7,6 +9,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
   type AgentTranscriptMessage,
@@ -14,6 +17,7 @@ import {
   type ToolName,
 } from "@alfred/contracts";
 import { z } from "zod";
+import { compactTranscript } from "../compaction";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -38,8 +42,26 @@ const briefRunStateSchema = z.object({
   subAgent: subAgentMetadataSchema.nullable(),
   inFlightTailStart: z.number().int().min(0),
   turnCount: z.number().int().min(0),
+  /**
+   * Input tokens reported by the last boss-turn (ADR-0035). `dispatch-tools`
+   * adds an estimate of tool-result chars-to-tokens on top to decide
+   * whether to route through the compactor before the next turn. Default
+   * 0 — the first boss-turn always fits under threshold.
+   */
+  lastInputTokens: z.number().int().min(0).default(0),
 });
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
+
+const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
+/**
+ * Skip the compactor call when the prior transcript is below this byte
+ * size — the boss has barely begun and the round-trip would cost more
+ * than the deferred compaction. The constant is intentionally inside the
+ * workflow rather than `@alfred/contracts`; only this workflow makes the
+ * skip decision today.
+ */
+const COMPACTION_MIN_PRIOR_CHARS = 20_000;
+const COMPACTOR_RETRY_ATTEMPTS = 3;
 
 const BOSS_SYSTEM_PROMPT = [
   "You are Alfred, the user's personal assistant agent.",
@@ -88,11 +110,13 @@ const bossTurnStep: Step<BriefRunState> = {
       attribution: {
         stepId: ctx.idempotencyKey,
         attempt: ctx.attempt,
+        role: subAgent ? "sub_agent" : "boss",
       },
     });
 
     const nextTranscript = appendModelMessages(transcript, result.raw.response.messages);
     state.inFlightTailStart = transcript.length;
+    state.lastInputTokens = result.usage.inputTokens ?? 0;
 
     if (result.kind === "final") {
       const output = subAgent
@@ -175,14 +199,140 @@ const dispatchToolsStep: Step<BriefRunState> = {
       state.pendingToolCalls = state.pendingToolCalls.slice(1);
     }
 
+    // ADR-0035: estimate next-turn input size and route through compaction
+    // (boss) or fail back to the parent (sub-agent) when over threshold.
+    //
+    // `lastInputTokens` captures the input billed for the just-completed
+    // boss-turn — which read the transcript up to but NOT including the
+    // assistant tool-call message it produced. Everything the next
+    // boss-turn will see on top of that is the entire suffix starting at
+    // `inFlightTailStart` (assistant tool-call message + every tool
+    // result we appended above), so size the whole tail, not just the
+    // tool results — large tool-call argument blobs or assistant prose
+    // would otherwise sneak the estimate under the threshold.
+    const isSubAgent = state.subAgent !== null;
+    const model = isSubAgent ? getSubAgentModel() : getBossModel();
+    const threshold = compactionThresholdTokens(await resolveModelContextWindow(model));
+    const tailChars = JSON.stringify(transcript.slice(state.inFlightTailStart)).length;
+    const estimated = state.lastInputTokens + Math.ceil(tailChars / 4);
+
+    if (estimated <= threshold) {
+      return {
+        kind: "next",
+        state,
+        transcript,
+        nextStep: "boss-turn",
+      };
+    }
+
+    if (isSubAgent) {
+      // ADR-0026 / ADR-0035: sub-agents do not compact. Write the
+      // structured error into the sub-agent's own scratch zone so the
+      // boss can read it via `system.read_scratch` and re-decompose.
+      const subAgent = state.subAgent!;
+      await writeScratch({
+        runId: subAgent.parentRunId,
+        zone: "scratch",
+        subId: subAgent.subId,
+        path: "error",
+        value: { reason: "context_pressure_in_subagent", subId: subAgent.subId },
+        writtenBy: subAgent.subId,
+      });
+      throw new Error("context_pressure_in_subagent");
+    }
+
     return {
       kind: "next",
       state,
       transcript,
+      nextStep: COMPACT_TRANSCRIPT_STEP_ID,
+    };
+  },
+};
+
+const compactTranscriptStep: Step<BriefRunState> = {
+  id: COMPACT_TRANSCRIPT_STEP_ID,
+  async run(ctx) {
+    const state = ctx.state;
+    const transcript = ctx.transcript;
+
+    // Guard 1: nothing to compact — the boss has not yet captured an
+    // in-flight tail boundary. Skip silently; the next turn will set it.
+    if (state.inFlightTailStart === 0) {
+      return { kind: "next", state, nextStep: "boss-turn" };
+    }
+
+    const prior = transcript.slice(0, state.inFlightTailStart);
+    const inFlightTail = transcript.slice(state.inFlightTailStart);
+
+    // Guard 2: prior transcript is below the round-trip-worth-it floor.
+    const priorChars = JSON.stringify(prior).length;
+    if (priorChars < COMPACTION_MIN_PRIOR_CHARS) {
+      return { kind: "next", state, nextStep: "boss-turn" };
+    }
+
+    let result: Awaited<ReturnType<typeof compactTranscript>> | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= COMPACTOR_RETRY_ATTEMPTS; attempt++) {
+      try {
+        result = await compactTranscript({
+          prior,
+          inFlightTail,
+          attribution: {
+            userId: ctx.userId,
+            runId: ctx.runId,
+            stepId: COMPACT_TRANSCRIPT_STEP_ID,
+            attempt: ctx.attempt,
+            idempotencyKey: `${ctx.idempotencyKey}:compact-${attempt}`,
+          },
+        });
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt < COMPACTOR_RETRY_ATTEMPTS) {
+          await sleepMs(attempt * 100);
+        }
+      }
+    }
+    if (!result) {
+      throw new Error(`compactor_failed: ${errorMessage(lastError)}`);
+    }
+
+    // Guard 3: post-compaction the in-flight tail itself blows the
+    // threshold. There is no further reduction we can make — fail loud
+    // rather than risk hallucination from overflow.
+    const postChars = JSON.stringify(result.transcript).length;
+    const threshold = compactionThresholdTokens(await resolveModelContextWindow(getBossModel()));
+    if (Math.ceil(postChars / 4) > threshold) {
+      throw new Error("context_overflow_post_compaction");
+    }
+
+    // After compaction, the next boss-turn rebuilds its in-flight tail
+    // from scratch; the `<run_summary>` system note plus tail is the new
+    // baseline.
+    const nextState: BriefRunState = { ...state, inFlightTailStart: 0 };
+    return {
+      kind: "next",
+      state: nextState,
+      transcript: result.transcript,
       nextStep: "boss-turn",
     };
   },
 };
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "unknown error";
+  }
+}
 
 export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   slug: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
@@ -199,6 +349,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       subAgent: readSubAgentMetadata(input.metadata),
       inFlightTailStart: 0,
       turnCount: 0,
+      lastInputTokens: 0,
     };
   },
   initialTranscript(input) {
@@ -208,6 +359,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   steps: {
     "boss-turn": bossTurnStep,
     "dispatch-tools": dispatchToolsStep,
+    [COMPACT_TRANSCRIPT_STEP_ID]: compactTranscriptStep,
   },
   stateSchema: briefRunStateSchema,
 };

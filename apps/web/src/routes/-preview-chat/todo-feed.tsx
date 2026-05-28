@@ -31,7 +31,9 @@ export function TodoFeed({
           ))}
         </ul>
       ) : (
-        <EmptyHint>Nothing on your list yet. Add one below or let Alfred surface tasks from your inbox.</EmptyHint>
+        <EmptyHint>
+          Nothing on your list yet. Add one below or let Alfred surface tasks from your inbox.
+        </EmptyHint>
       )}
 
       <RailAddRow placeholder="Add a to-do…" />
@@ -61,9 +63,7 @@ export function TodoFeed({
 }
 
 function EmptyHint({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>
-  );
+  return <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>;
 }
 
 function TodoRow({ todo }: { todo: TodoItem }) {

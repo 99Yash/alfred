@@ -13,6 +13,7 @@ import {
   signalRunInTx,
   type SignalArgs,
 } from "./service";
+import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
 export {
@@ -30,6 +31,7 @@ export {
   runOnce,
   startAgentWorker,
   stopAgentWorker,
+  verifyMeteringModels,
 };
 export { closeAgentQueue };
 export type {

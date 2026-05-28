@@ -166,10 +166,8 @@ export function Particles({
         }
         circle.x += circle.dx;
         circle.y += circle.dy;
-        circle.translateX +=
-          (mouse.x / (staticity / circle.magnetism) - circle.translateX) / ease;
-        circle.translateY +=
-          (mouse.y / (staticity / circle.magnetism) - circle.translateY) / ease;
+        circle.translateX += (mouse.x / (staticity / circle.magnetism) - circle.translateX) / ease;
+        circle.translateY += (mouse.y / (staticity / circle.magnetism) - circle.translateY) / ease;
         const out =
           circle.x < -circle.size ||
           circle.x > size.w + circle.size ||

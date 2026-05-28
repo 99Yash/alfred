@@ -272,9 +272,7 @@ function fenceDiffBlocks(body: string): string {
       while (
         end < lines.length &&
         (looksLikeDiffLine(lines[end]) ||
-          (lines[end] === "" &&
-            end + 1 < lines.length &&
-            looksLikeDiffLine(lines[end + 1])))
+          (lines[end] === "" && end + 1 < lines.length && looksLikeDiffLine(lines[end + 1])))
       ) {
         end++;
       }
@@ -372,9 +370,7 @@ function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: D
   const offsetFor = (d: Date): string => {
     // `longOffset` returns "GMT-05:00" / "GMT" — strip the prefix and
     // default a bare "GMT" to "+00:00" so the ISO string parses uniformly.
-    const part = offsetFmt
-      .formatToParts(d)
-      .find((p) => p.type === "timeZoneName")?.value ?? "";
+    const part = offsetFmt.formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? "";
     const off = part.replace(/^GMT/, "");
     return off || "+00:00";
   };
@@ -393,10 +389,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .get(
         "/inbox",
         async ({ user: u, query }) => {
-          const limit = Math.min(
-            INBOX_MAX_LIMIT,
-            Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT),
-          );
+          const limit = Math.min(INBOX_MAX_LIMIT, Math.max(1, query.limit ?? INBOX_DEFAULT_LIMIT));
           // Composite cursor `<authoredAtISO>|<documentId>` — the id
           // tie-breaker avoids skipping rows with identical authoredAt
           // values (Gmail batch notifications routinely share an
@@ -592,17 +585,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           const messages: MeInboxMessage[] = threadRows.map((row) => {
             const meta = (row.metadata as Record<string, unknown> | null) ?? {};
-            const labelIds = Array.isArray(meta.labelIds)
-              ? (meta.labelIds as string[])
-              : [];
+            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
             // `documents.raw` is the verbatim Gmail message we stored at
             // ingest (schema-validated then). Cast back to `GmailMessage`
             // rather than re-running zod per request — the shape is fixed
             // and parsing the MIME tree dominates the cost anyway.
             const raw = (row.raw ?? null) as GmailMessage | null;
-            const attachments: ExtractedAttachment[] = raw
-              ? extractAttachments(raw)
-              : [];
+            const attachments: ExtractedAttachment[] = raw ? extractAttachments(raw) : [];
             const rawHtml = raw ? extractMessageHtml(raw) : null;
             return {
               documentId: row.documentId,
@@ -625,8 +614,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // selected row somehow isn't in the result (e.g. fan-out raced
           // with a delete — defensive).
           const selectedRow =
-            threadRows.find((r) => r.documentId === params.documentId) ??
-            threadRows[0];
+            threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
           return {
             threadId: selected.threadId ?? null,
             subject: selectedRow?.subject ?? selected.subject ?? null,
@@ -739,7 +727,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           }
           if (markedRows.length === 0) {
             return status(409, {
-              message: "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
+              message:
+                "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
             });
           }
 
@@ -785,9 +774,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       )
       .get(
         "/meetings",
-        async ({
-          user: u,
-        }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
+        async ({ user: u }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
           // A user can have multiple active Google credentials (e.g. a
           // Gmail-only personal account and a Calendar-only work account).
           // Filter in SQL to the row(s) actually carrying the calendar
@@ -867,9 +854,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               status: briefingRuns.status,
             })
             .from(briefingRuns)
-            .where(
-              and(eq(briefingRuns.userId, u.id), eq(briefingRuns.status, "composed")),
-            )
+            .where(and(eq(briefingRuns.userId, u.id), eq(briefingRuns.status, "composed")))
             .orderBy(desc(briefingRuns.runAt))
             .limit(1);
           const row = rows[0];

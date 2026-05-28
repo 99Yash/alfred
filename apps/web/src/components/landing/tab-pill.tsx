@@ -5,25 +5,13 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type ReactNode,
 } from "react";
+import {
+  tabButtonId,
+  tabPanelId,
+  type TabPillOption,
+} from "~/components/landing/tab-pill-ids";
 import { cn } from "~/lib/utils";
-
-export interface TabPillOption<T extends string> {
-  value: T;
-  label: string;
-  icon?: ReactNode;
-}
-
-/** Stable id for a tab button — pair with `tabPanelId` for `aria-controls`. */
-export function tabButtonId(idBase: string, value: string): string {
-  return `${idBase}-tab-${value}`;
-}
-
-/** Stable id for a tab panel — set on the panel and referenced by `aria-controls`. */
-export function tabPanelId(idBase: string, value: string): string {
-  return `${idBase}-panel-${value}`;
-}
 
 /**
  * Segmented control rendered as a dark rounded pill. Modeled on
@@ -195,9 +183,7 @@ export function TabPill<T extends string>({
               "relative z-10 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
               "text-[13px] font-medium leading-none transition-colors duration-200",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/60",
-              isActive
-                ? "text-white"
-                : "text-neutral-400 hover:text-neutral-100",
+              isActive ? "text-white" : "text-neutral-400 hover:text-neutral-100",
             )}
           >
             {opt.icon ? (

@@ -8,11 +8,7 @@ import { cn } from "~/lib/utils";
  * spine wrapper so it inherits the same column width and the spine line
  * passes behind it.
  */
-export function LandingCtaSection({
-  onGetStarted,
-}: {
-  onGetStarted: () => void;
-}) {
+export function LandingCtaSection({ onGetStarted }: { onGetStarted: () => void }) {
   return (
     <section
       id="cta"

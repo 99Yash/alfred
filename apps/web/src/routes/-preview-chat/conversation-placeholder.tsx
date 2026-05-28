@@ -110,11 +110,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
                 detail="is:unread newer_than:1d"
                 count="8 threads"
               />
-              <ToolRow
-                integration="gmail"
-                label="Read 3 threads"
-                detail="Maya, Sycamore, Linear"
-              />
+              <ToolRow integration="gmail" label="Read 3 threads" detail="Maya, Sycamore, Linear" />
               <ThoughtRow duration="1s">
                 Now the calendar: three blocks today plus a tentative.
               </ThoughtRow>

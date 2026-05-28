@@ -103,16 +103,18 @@ async function resetSmokeRows(userId: string): Promise<void> {
 }
 
 async function createSmokeWorkflow(userId: string): Promise<void> {
-  await db().insert(workflows).values({
-    userId,
-    slug: WORKFLOW_SLUG,
-    name: "Smoke brief execution",
-    brief: SMOKE_BRIEF,
-    trigger: { kind: "manual" },
-    allowedIntegrations: ["gmail", "calendar"],
-    status: "active",
-    isBuiltin: false,
-  });
+  await db()
+    .insert(workflows)
+    .values({
+      userId,
+      slug: WORKFLOW_SLUG,
+      name: "Smoke brief execution",
+      brief: SMOKE_BRIEF,
+      trigger: { kind: "manual" },
+      allowedIntegrations: ["gmail", "calendar"],
+      status: "active",
+      isBuiltin: false,
+    });
 }
 
 interface PendingStaging {
@@ -295,7 +297,9 @@ async function main(): Promise<void> {
   for (const s of stagings) {
     console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
   }
-  const executedToolNames = new Set(stagings.filter((s) => s.status === "executed").map((s) => s.toolName));
+  const executedToolNames = new Set(
+    stagings.filter((s) => s.status === "executed").map((s) => s.toolName),
+  );
   assert(
     executedToolNames.has("system.load_integration"),
     "expected an executed system.load_integration staging",

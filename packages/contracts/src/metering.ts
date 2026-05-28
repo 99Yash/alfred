@@ -21,7 +21,5 @@ export const ATTRIBUTION_KINDS = [
 export type AttributionKind = (typeof ATTRIBUTION_KINDS)[number];
 
 export function isAttributionKind(value: unknown): value is AttributionKind {
-  return (
-    typeof value === "string" && (ATTRIBUTION_KINDS as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (ATTRIBUTION_KINDS as readonly string[]).includes(value);
 }

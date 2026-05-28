@@ -27,5 +27,3 @@ export function initObservability() {
     });
   }
 }
-
-export { Sentry, posthog };

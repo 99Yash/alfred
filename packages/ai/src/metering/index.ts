@@ -5,10 +5,17 @@ export {
   meteredEmbed,
   type AttributedCall,
 } from "./wrappers";
-export { getPrice, computeCost, _resetPriceCacheForTests } from "./prices";
+export {
+  getPrice,
+  computeCost,
+  resolveModelContextWindow,
+  _resetPriceCacheForTests,
+} from "./prices";
+export type { PriceLookup } from "./prices";
 export { flushLangfuse, shutdownLangfuse } from "./langfuse";
 export type {
   CallKind,
+  CallRole,
   CallAttribution,
   CallUsage,
   MeteredMeta,
