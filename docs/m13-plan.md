@@ -412,7 +412,7 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 - [x] **Phase 2** — Runtime primitives: scratchpad helpers, tool registry, initial tool slice
 - [x] **Phase 3** — Dispatcher (the spine) — open ADR items resolved
 - [x] **Phase 4** — Agent bridge: ping-pong `boss-turn` ↔ `dispatch-tools` steps + sentinel `userAuthoredBriefWorkflow` + `agent_runs.transcript` jsonb + `system.load_integration` + strict `@`-mention seed (ADR-0040). Smoke at `apps/server/src/scripts/smoke-brief-execution.ts`.
-- [ ] **Phase 5** — HIL surface: SSE + Replicache + `/approvals` page + decision API + email debounce
+- [~] **Phase 5** — HIL surface. Code-complete: server `ACTION_STAGING` pull fetcher (5a-server), `useActionStagings` Replicache hook + live `/approvals` page wired to the decision API (5a-web/5b), `POST /api/approvals/:stagingId/decision` (5c), `staging-notify` debounce worker scheduled from the dispatcher + started at boot (5d). Remaining: live click-through verification against a real gated run, and the 5e expiry-worker decision (`expires_at` resume path exists in dispatch, but nothing flips rows to `expired` yet — keep or drop per the plan's note).
 - [ ] **Phase 6** — Sub-agents: spawn + zone enforcement + scratchpad tools + fail-back
 - [ ] **Phase 7** — Compaction: token counter, in-flight tail, compactor call, cache breakpoint, prompt pass
 - [ ] **Phase 8** — Event/on_signal dispatchers + policy editor UI + risk-tier UX
