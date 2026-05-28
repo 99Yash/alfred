@@ -12,21 +12,27 @@ import { openEventStream, type EventStreamFrame } from "./stream";
  */
 export function useEventStream(limit = 50): EventStreamFrame[] {
   const { data: session } = authClient.useSession();
+  const userId = session?.user?.id;
   const [frames, setFrames] = useState<EventStreamFrame[]>([]);
 
+  // Reset frames when the user changes — using the "previous prop" pattern so
+  // the reset happens during render, not in an effect. The conditional setter
+  // only fires on the render that observes the change, so it won't loop.
+  const [prevUserId, setPrevUserId] = useState<string | undefined>(userId);
+  if (prevUserId !== userId) {
+    setPrevUserId(userId);
+    setFrames([]);
+  }
+
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) {
-      setFrames([]);
-      return;
-    }
+    if (!userId) return;
     const close = openEventStream({
       onFrame: (frame) => {
         setFrames((prev) => [frame, ...prev].slice(0, limit));
       },
     });
     return close;
-  }, [session?.user?.id, limit]);
+  }, [userId, limit]);
 
   return frames;
 }

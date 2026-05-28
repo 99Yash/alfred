@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, use, useEffect, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { type AlfredReplicache, createReplicache } from "./client";
 
@@ -6,21 +6,18 @@ const ReplicacheContext = createContext<AlfredReplicache | null>(null);
 
 export function ReplicacheProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession();
+  const userId = session?.user?.id;
   const [rep, setRep] = useState<AlfredReplicache | null>(null);
 
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) {
-      setRep(null);
-      return;
-    }
+    if (!userId) return;
     const { rep: instance, close } = createReplicache(userId);
     setRep(instance);
     return () => {
       setRep(null);
       close();
     };
-  }, [session?.user?.id]);
+  }, [userId]);
 
   return <ReplicacheContext.Provider value={rep}>{children}</ReplicacheContext.Provider>;
 }
@@ -30,5 +27,5 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
  * is (re)initializing. Subscription hooks must treat `null` as "not ready".
  */
 export function useReplicache(): AlfredReplicache | null {
-  return useContext(ReplicacheContext);
+  return use(ReplicacheContext);
 }

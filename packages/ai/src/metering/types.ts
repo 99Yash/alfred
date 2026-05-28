@@ -19,8 +19,12 @@ export type CallKind = AttributionKind;
  * Logical caller of a metered LLM call. Surfaces on
  * `api_call_log.request_meta.role` so cost rollups can split a run's
  * spend between agent surfaces (boss vs sub-agent vs compactor) without
- * adding a column. Wired only for `'compactor'` in Phase 7 (ADR-0035);
- * other call sites backfill in a follow-up.
+ * adding a column. Wired in Phase 7 (ADR-0035) for the boss workflow's
+ * three roles: `'boss'` and `'sub_agent'` on `AlfredAgent.turn()` calls
+ * inside `userAuthoredBriefWorkflow`, and `'compactor'` on
+ * `compactTranscript`. The remaining roles (`'triage'`, `'briefing'`,
+ * `'cold_start'`, `'memory_extraction'`) are typed for forward-compat
+ * and get plumbed when those call sites are revisited.
  */
 export type CallRole =
   | "compactor"

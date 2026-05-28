@@ -66,16 +66,43 @@ export async function compactTranscript(
     },
   );
 
-  const summary = buildSummaryMessage(result.text);
+  const text = assertRunSummary(result.text);
+  const summary = buildSummaryMessage(text);
   return {
     transcript: [summary, ...inFlightTail],
     summary,
     raw: {
-      text: result.text,
+      text,
       inputTokens: result.usage?.inputTokens,
       outputTokens: result.usage?.outputTokens,
     },
   };
+}
+
+/**
+ * Enforce the handoff contract: the model output must be a single
+ * `<run_summary>...</run_summary>` element with no leading or trailing
+ * prose. Markdown fences and surrounding whitespace are tolerated and
+ * stripped — the model occasionally wraps XML in ```xml fences even when
+ * told not to. Anything else throws so the caller's bounded retry loop
+ * sees it (one bad cheap-tier sample shouldn't tank the run, but a
+ * malformed envelope MUST NOT silently replace the prior transcript).
+ */
+function assertRunSummary(raw: string): string {
+  const trimmed = stripCodeFences(raw).trim();
+  if (!trimmed.startsWith("<run_summary>") || !trimmed.endsWith("</run_summary>")) {
+    const preview = trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+    throw new Error(
+      `compactor_invalid_output: expected one <run_summary>…</run_summary> element, got: ${preview}`,
+    );
+  }
+  return trimmed;
+}
+
+function stripCodeFences(text: string): string {
+  const fence = /^\s*```(?:xml)?\s*([\s\S]*?)\s*```\s*$/i;
+  const match = fence.exec(text);
+  return match ? (match[1] ?? text) : text;
 }
 
 /**

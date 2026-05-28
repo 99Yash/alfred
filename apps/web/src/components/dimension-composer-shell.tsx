@@ -130,46 +130,6 @@ export function DimensionComposerSendButton({ disabled }: { disabled?: boolean }
   );
 }
 
-/**
- * Semantic model chip. Labels stay Alfred-specific; the geometry and material
- * mirror Dimension's compact model selector.
- */
-export function DimensionModelChip({
-  value,
-  disabled = true,
-}: {
-  value: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      title="Model picker"
-      className={cn(
-        "inline-flex h-[30px] w-[108px] items-center justify-between gap-2 rounded-lg px-2 py-1",
-        "border border-transparent bg-[linear-gradient(180deg,#0C0C0C_0%,#151515_100%)]",
-        "text-[13px] font-normal text-white/86 backdrop-blur-sm",
-        "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
-        "transition-[filter] hover:brightness-110",
-        disabled ? "cursor-not-allowed opacity-95" : undefined,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "grid size-4 shrink-0 place-items-center rounded-full",
-          "bg-[radial-gradient(circle_at_30%_30%,#a5a5a5,#1e1e1e_70%)]",
-          "shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(0,0,0,0.4)]",
-        )}
-      >
-        <Sparkles size={9} className="text-white/85" />
-      </span>
-      <span className="leading-none">{value}</span>
-    </button>
-  );
-}
-
 export function DimensionComposerContextMenu({
   label = "Add context",
   items,

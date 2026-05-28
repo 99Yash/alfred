@@ -165,6 +165,8 @@ export function QuickAccessRail() {
           <div
             role="tablist"
             aria-label="Quick access mode"
+            aria-orientation="horizontal"
+            tabIndex={-1}
             onKeyDown={onRailTabKeyDown}
             className="flex rounded-2xl bg-black/20 p-1 backdrop-blur-sm"
           >

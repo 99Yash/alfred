@@ -170,7 +170,6 @@ const dispatchToolsStep: Step<BriefRunState> = {
       activeIntegrations: [...ctx.state.activeIntegrations],
     };
     let transcript = [...ctx.transcript];
-    let appendedChars = 0;
 
     while (state.pendingToolCalls.length > 0) {
       const call = state.pendingToolCalls[0]!;
@@ -196,18 +195,26 @@ const dispatchToolsStep: Step<BriefRunState> = {
       }
 
       applySystemToolEffect(state, call.toolName, result);
-      const message = toolResultMessage(call, result);
-      appendedChars += JSON.stringify(message).length;
-      transcript = [...transcript, message];
+      transcript = [...transcript, toolResultMessage(call, result)];
       state.pendingToolCalls = state.pendingToolCalls.slice(1);
     }
 
     // ADR-0035: estimate next-turn input size and route through compaction
     // (boss) or fail back to the parent (sub-agent) when over threshold.
+    //
+    // `lastInputTokens` captures the input billed for the just-completed
+    // boss-turn — which read the transcript up to but NOT including the
+    // assistant tool-call message it produced. Everything the next
+    // boss-turn will see on top of that is the entire suffix starting at
+    // `inFlightTailStart` (assistant tool-call message + every tool
+    // result we appended above), so size the whole tail, not just the
+    // tool results — large tool-call argument blobs or assistant prose
+    // would otherwise sneak the estimate under the threshold.
     const isSubAgent = state.subAgent !== null;
     const model = isSubAgent ? getSubAgentModel() : getBossModel();
     const threshold = compactionThresholdTokens(await resolveModelContextWindow(model));
-    const estimated = state.lastInputTokens + Math.ceil(appendedChars / 4);
+    const tailChars = JSON.stringify(transcript.slice(state.inFlightTailStart)).length;
+    const estimated = state.lastInputTokens + Math.ceil(tailChars / 4);
 
     if (estimated <= threshold) {
       return {
