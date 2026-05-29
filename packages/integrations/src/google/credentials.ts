@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { refreshAccessToken } from "./oauth";
+import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
  * Persistence + freshness layer for Google `integration_credentials`.
@@ -122,7 +122,22 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
     !cred.expiresAt || cred.expiresAt.getTime() - Date.now() < REFRESH_THRESHOLD_MS;
   if (!expiringSoon) return cred.accessToken;
 
-  const refreshed = await refreshAccessToken(cred.refreshToken);
+  let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
+  try {
+    refreshed = await refreshAccessToken(cred.refreshToken);
+  } catch (err) {
+    if (err instanceof GoogleReauthRequiredError) {
+      // A dead refresh token fails on every poll. Flip the credential out of
+      // "active" so `findCredentialsNeedingPoll` stops re-enqueuing the same
+      // doomed job each sweep (the silent 5-min failure loop that took Gmail
+      // ingestion dark for 36h), and the UI can surface a reconnect prompt.
+      await db()
+        .update(integrationCredentials)
+        .set({ status: "needs_reauth", updatedAt: new Date() })
+        .where(eq(integrationCredentials.id, credentialId));
+    }
+    throw err;
+  }
   await db()
     .update(integrationCredentials)
     .set({
