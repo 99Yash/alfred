@@ -88,7 +88,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   // anything missed shows up on the 5-min `gmail.poll_history` catch-up
   // sweep. Declared as an event-source trigger so the workflows.tick
   // cron path never touches it.
-  trigger: { kind: "event", source: "gmail.ingest" },
+  trigger: { kind: "event", source: "gmail", type: "message_received" },
   initialStep: "classify",
   stateSchema,
 

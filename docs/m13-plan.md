@@ -354,33 +354,47 @@ Budget real time. ADR-0035 marks the prompt as "sketched, not engineered" — ru
 
 ## Phase 8 — Other dispatchers + policy UX
 
-Goal: light up the m12-disabled trigger kinds and ship the policy editing surface.
+Goal: light up the `event` trigger kind and ship the policy editing surface. **Scope locked in grilling 2026-05-29 → ADR-0047; `on_signal` (8b) deferred** (no signal producer exists in the codebase, so a dispatcher would be untestable dead code).
 
-### 8a. `event` trigger dispatcher
+### 8a. `event` trigger dispatcher — the `emitEvent` bus (ADR-0047)
 
-For workflows with `trigger.kind='event'`: listen on the appropriate event source (Gmail webhook, etc.), `createRun({ trigger: { kind: 'event', eventId, payload } })`. Idempotency via `agent_runs.trigger.eventId`. Lifts the m12 "lands with m13" tooltip.
+Generic bus, **one dispatch path**, triage unified onto it. Detailed design in [ADR-0047](../decisions.md).
 
-### 8b. `on_signal` trigger dispatcher
+- **`emitEvent({ userId, source, type, eventId, payload })`** in `packages/api/src/modules/workflows/` (or a new `modules/event-dispatch/`, not `modules/events/` because that already means realtime outbox/SSE): queries `workflows WHERE status='active' AND trigger->>'kind'='event' AND trigger->>'source'=… AND trigger->>'type'=…`, `createRun`s each match with uniform `input: { documentId, reason, source, type }` + `trigger: { kind:'event', source, type, eventId, payload: { documentId, reason } }`.
+- **Triage unification:** delete `enqueueTriageRuns`' hardcoded `createRun` (`packages/api/src/modules/integrations/queue.ts`); the Gmail ingestion worker calls `emitEvent` per freshly-inserted doc instead. `email-triage`'s row already has `trigger.kind='event'`; migrate its `source/type` to `gmail`/`message_received`. `initialState` reads `input.documentId/reason` **unchanged** — run behavior byte-identical.
+- **`@alfred/contracts`:** add closed `EVENT_SOURCES` (`['gmail']`) + per-source `*_EVENT_TYPES` (`gmail: ['message_received']`); migrate the `workflowTrigger` event schema from open `source: string` to `{ source: EventSource, type: EventType, filter? }`. v1 dispatcher does **not** evaluate `filter`; API rejects non-empty `filter` writes.
+- **Run trigger schema:** migrate `agentRunTriggerSchema`'s event branch to tolerate old rows and require new writes. Historical rows are `{ kind:'event', eventId, payload }`, so either make `source/type` optional on read or backfill. Prefer tolerant read: `source?: EventSource`, `type?: EventType`; new `emitEvent` writes always include both.
+- **Payload resolve-at-init:** `trigger.payload = { documentId, reason }` only. Widen `WorkflowInput` to include `userId` and `trigger`; `Workflow.initialTranscript` returns `MaybePromise`; `createRun()` awaits it. The sentinel reads `documents WHERE user_id = input.userId AND id = trigger.payload.documentId` to append a `user`-role `<trigger_event>` message after the brief.
+- **Missing document fallback:** if the referenced document is gone, append `<trigger_event unavailable="true" document_id="...">` and continue; do not throw from `createRun`.
+- **Bounded `<trigger_event>` context:** for inbound provider content, include ids, source/type, title/subject, sender metadata, authored time, URL, and a raw excerpt capped at **4,000 characters** for v1; include `truncated=true` + `documentId` when clipped. Do **not** inline full third-party bodies by default. User-authored outbound content may be inlined in full when Alfred created it.
+- **Register the read escape hatch:** add an executable `gmail.read_message` `liveTool` in `packages/api/src/modules/tools/gmail.ts` before relying on the bounded excerpt. `GMAIL_ACTIONS` already includes `read_message`, but callability comes from the registry. Input should accept `documentId` (preferred) or Gmail message id; output may return full cached `documents.content` plus metadata, still subject to dispatcher policy.
+- **Auto-seed:** event runs seed the trigger source's integration into `state.activeIntegrations` (∩ `workflows.allowed_integrations`).
+- **Allowed-integration validation:** when creating/updating an event workflow, reject `allowed_integrations` if it is non-empty and does not include `trigger.source`; otherwise the workflow cannot act on its own trigger and `system.load_integration` will also fail the cap.
+- **Event authoring:** re-enable the event trigger branch in the workflow editor with source/type pickers and an empty-filter-only API contract. Keep `on_signal` disabled.
+- **Idempotency:** bounded, not global. Keep insert-once → emit-once + webhook 30s dedup. Add a best-effort non-terminal duplicate check in `emitEvent` on `(userId, workflowSlug, source, type, eventId, reason)` before `createRun` so ingestion job retries do not normally double-fire. This is racy by design without a DB constraint; do **not** add a hard `(user_id, workflow_slug, eventId)` index because it would break triage's reply-retriage. `eventId` is audit/filter only.
 
-For workflows with `trigger.kind='on_signal'`: subscribe to the named signal source; `createRun` on fire. Lifts the m12 tooltip.
+### 8b. `on_signal` trigger dispatcher — **DEFERRED**
 
-### 8c. Per-integration policy editor
+No code emits a named signal today (the glossary's `cold-start.ready` is illustrative). Building a subscriber for a non-existent producer ships untestable dead code. Revisit when a concrete signal producer lands. The m12 UI tooltip for `on_signal` stays "lands later."
 
-In settings, on each integration card:
+### 8c. Per-integration policy editor — Replicache-synced (ADR-0034 amendment)
 
-- Radio: **Full autonomy** / **Gated**. (Third tier "Per-tool config" is forward-compat in the schema but deferred from the v1 UI.)
-- Mutating the radio calls an API mutation that updates `user_action_policies.integration_rules` AND publishes on `policy-bust:u:<userId>`.
+On the `/integrations/$provider` detail page:
+
+- Radio: **Full autonomy** / **Gated**. (Per-tool overrides + `default_mode` editing deferred from the v1 UI.)
+- **Migration:** add `row_version` (+ bump) to `user_action_policies`. Wire it through the Replicache add-an-entity recipe (`IDB_KEY`, `packages/sync/src/types.ts`, `ENTITY_FETCHERS`) as a **single entity keyed by `userId`**; the web derives each integration's mode from `integration_rules[slug].mode ?? default_mode` client-side. Pull filters to `user_id = current_user`.
+- **Mutation dual-invalidates:** UPDATE `user_action_policies.integration_rules`, bump `row_version` (web pull), **and** `publishPolicyBust(userId)` (in-process dispatcher cache across instances).
 
 ### 8d. Risk-tier UX polish
 
-- Integration card summary: "Gmail — 12 tools (4 high, 5 medium, 3 low)".
+- **Tier counts folded into the integrations-resolve endpoint** (the detail page already calls it) — per-integration `{ high, medium, low, no_risk }` from `listToolsForIntegration(slug)`, server-side (web can't import the registry). Renders "Gmail — 12 tools (4 high, 5 medium, 3 low)".
 - Staging-card badges reflect `riskTier`.
 - Email subject prefix `[<risk_tier>]`.
 
 ### Phase 8 acceptance
 
-- An `event`-triggered workflow fires on a real Gmail webhook event (re-using the m7 Gmail webhook plumbing).
-- Toggling Gmail from `gated` to `autonomy` in the UI takes effect on the next dispatched tool call across all server instances (verified by watching the policy cache bust).
+- An `event`-triggered user workflow fires on a real Gmail message event through `emitEvent`, with a `<trigger_event>` message carrying bounded email context and a `documentId`; `smoke-triage` still passes (triage rides the same bus).
+- Toggling Gmail from `gated` to `autonomy` in the UI takes effect on the next dispatched tool call across all server instances (policy cache bust) AND the change reflects on other devices via Replicache.
 
 ---
 
@@ -415,5 +429,5 @@ Run on a dev account; capture the smoke output in the milestone PR description.
 - [~] **Phase 5** — HIL surface. Code-complete: server `ACTION_STAGING` pull fetcher (5a-server), `useActionStagings` Replicache hook + live `/approvals` page wired to the decision API (5a-web/5b), `POST /api/approvals/:stagingId/decision` (5c), `staging-notify` debounce worker scheduled from the dispatcher + started at boot (5d). Remaining: live click-through verification against a real gated run, and the 5e expiry-worker decision (`expires_at` resume path exists in dispatch, but nothing flips rows to `expired` yet — keep or drop per the plan's note).
 - [x] **Phase 6** — Sub-agents: spawn (`spawnSubAgent`), zone enforcement at the dispatcher, scratchpad tools (`system.read_scratch` / `system.write_scratch` / `system.promote`), and fail-back via `scratch.{subId}.error` (the latter closes alongside Phase 7's threshold infra).
 - [x] **Phase 7** — Compaction: `lastInputTokens` token accounting, in-flight tail via `state.inFlightTailStart`, `compactTranscript` primitive at `packages/api/src/modules/agent/compaction/`, ephemeral `cacheControl` on the `<run_summary>` system message, `CallRole` plumbing with `'compactor'` wired, boot-time `verifyMeteringModels`, ADR-0046 stub for the future per-run cost ceiling. Fixture smoke at `apps/server/src/scripts/smoke-compaction.ts`; 7f prompt pass still owed.
-- [ ] **Phase 8** — Event/on_signal dispatchers + policy editor UI + risk-tier UX
+- [ ] **Phase 8** — `event` dispatcher (`emitEvent` bus, triage unified — ADR-0047) + policy editor UI (Replicache-synced) + risk-tier UX. **`on_signal` deferred** (no signal producer yet). Design locked 2026-05-29.
 - [ ] **Phase 9** — `smoke-boss.ts` green

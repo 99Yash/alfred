@@ -16,6 +16,9 @@ import {
   type IntegrationSlug,
   type ToolName,
 } from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { documents } from "@alfred/db/schemas";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { compactTranscript } from "../compaction";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
@@ -62,6 +65,7 @@ const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
  */
 const COMPACTION_MIN_PRIOR_CHARS = 20_000;
 const COMPACTOR_RETRY_ATTEMPTS = 3;
+const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
 const BOSS_SYSTEM_PROMPT = [
   "You are Alfred, the user's personal assistant agent.",
@@ -342,8 +346,15 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
     const allowedIntegrations = readAllowedIntegrations(input.metadata);
+    const eventSeed =
+      input.trigger.kind === "event" && input.trigger.source && isIntegrationSlug(input.trigger.source)
+        ? [input.trigger.source]
+        : [];
     return {
-      activeIntegrations: parseIntegrationMentions(input.brief, allowedIntegrations),
+      activeIntegrations: uniqueIntegrations([
+        ...parseIntegrationMentions(input.brief, allowedIntegrations),
+        ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
+      ]),
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
       subAgent: readSubAgentMetadata(input.metadata),
@@ -352,9 +363,12 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       lastInputTokens: 0,
     };
   },
-  initialTranscript(input) {
+  async initialTranscript(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
-    return [{ role: "user", content: input.brief }];
+    const transcript: AgentTranscriptMessage[] = [{ role: "user", content: input.brief }];
+    const triggerEvent = await buildTriggerEventMessage(input);
+    if (triggerEvent) transcript.push(triggerEvent);
+    return transcript;
   },
   steps: {
     "boss-turn": bossTurnStep,
@@ -478,6 +492,10 @@ function uniqueIntegrations(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
+function integrationAllowed(slug: string, allowedIntegrations: readonly string[]): boolean {
+  return allowedIntegrations.length === 0 || allowedIntegrations.includes(slug);
+}
+
 function readAllowedIntegrations(metadata: Record<string, unknown> | undefined): string[] {
   const raw = metadata?.allowedIntegrations;
   if (!Array.isArray(raw)) return [];
@@ -491,4 +509,109 @@ function toJsonValue(value: unknown): unknown {
   } catch {
     return { unserializable: String(value) };
   }
+}
+
+async function buildTriggerEventMessage(input: {
+  userId: string;
+  trigger: { kind: string; source?: string; type?: string; payload?: Record<string, unknown> };
+}): Promise<AgentTranscriptMessage | null> {
+  const trigger = input.trigger;
+  if (trigger.kind !== "event") return null;
+
+  const documentId =
+    typeof trigger.payload?.documentId === "string" ? trigger.payload.documentId : undefined;
+  const reason = typeof trigger.payload?.reason === "string" ? trigger.payload.reason : undefined;
+  if (!documentId) {
+    return {
+      role: "user",
+      content: [
+        '<trigger_event unavailable="true">',
+        xmlTag("source", trigger.source ?? "unknown"),
+        xmlTag("type", trigger.type ?? "unknown"),
+        xmlTag("reason", reason ?? "unknown"),
+        xmlTag("unavailable_reason", "missing_document_id"),
+        "</trigger_event>",
+      ].join("\n"),
+    };
+  }
+
+  const rows = await db()
+    .select({
+      id: documents.id,
+      source: documents.source,
+      sourceId: documents.sourceId,
+      sourceThreadId: documents.sourceThreadId,
+      title: documents.title,
+      content: documents.content,
+      url: documents.url,
+      authoredAt: documents.authoredAt,
+      metadata: documents.metadata,
+    })
+    .from(documents)
+    .where(and(eq(documents.userId, input.userId), eq(documents.id, documentId)))
+    .limit(1);
+  const doc = rows[0];
+
+  if (!doc) {
+    return {
+      role: "user",
+      content: [
+        '<trigger_event unavailable="true">',
+        xmlTag("source", trigger.source ?? "unknown"),
+        xmlTag("type", trigger.type ?? "unknown"),
+        xmlTag("document_id", documentId),
+        xmlTag("reason", reason ?? "unknown"),
+        xmlTag("unavailable_reason", "document_not_found"),
+        "</trigger_event>",
+      ].join("\n"),
+    };
+  }
+
+  const metadata = (doc.metadata as Record<string, unknown> | null) ?? {};
+  const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
+  const truncated = doc.content.length > excerpt.length;
+  const metadataSubset = pickTriggerMetadata(metadata);
+
+  return {
+    role: "user",
+    content: [
+      "<trigger_event>",
+      xmlTag("source", trigger.source ?? doc.source),
+      xmlTag("type", trigger.type ?? "unknown"),
+      xmlTag("document_id", doc.id),
+      xmlTag("provider_id", doc.sourceId),
+      doc.sourceThreadId ? xmlTag("thread_id", doc.sourceThreadId) : "",
+      doc.title ? xmlTag("title", doc.title) : "",
+      doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
+      doc.url ? xmlTag("url", doc.url) : "",
+      reason ? xmlTag("reason", reason) : "",
+      xmlTag("truncated", String(truncated)),
+      xmlTag("metadata", JSON.stringify(metadataSubset)),
+      xmlTag("excerpt", excerpt),
+      "</trigger_event>",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+function pickTriggerMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"]) {
+    if (metadata[key] !== undefined) out[key] = metadata[key];
+  }
+  return out;
+}
+
+function xmlTag(name: string, value: string): string {
+  return `<${name}>${escapeXml(value)}</${name}>`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
