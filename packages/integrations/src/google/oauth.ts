@@ -217,6 +217,20 @@ export interface RefreshTokenResult {
   scopes: string[];
 }
 
+/**
+ * Thrown when Google rejects a refresh with `invalid_grant` — the refresh
+ * token is dead (revoked, consent withdrawn, or expired under the Testing-mode
+ * 7-day window). Retrying never recovers it; the only fix is user re-consent.
+ * Callers catch this to flip the credential to `needs_reauth` instead of
+ * looping the same failure every poll.
+ */
+export class GoogleReauthRequiredError extends Error {
+  constructor(detail: string) {
+    super(`[google.oauth] refresh token revoked or expired — re-consent required: ${detail}`);
+    this.name = "GoogleReauthRequiredError";
+  }
+}
+
 export async function refreshAccessToken(refreshToken: string): Promise<RefreshTokenResult> {
   const cfg = getGoogleOAuthConfig();
   const body = new URLSearchParams({
@@ -232,6 +246,13 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
+    if (
+      json &&
+      typeof json === "object" &&
+      (json as { error?: unknown }).error === "invalid_grant"
+    ) {
+      throw new GoogleReauthRequiredError(JSON.stringify(json));
+    }
     throw new Error(`[google.oauth] refresh failed: ${res.status} ${JSON.stringify(json)}`);
   }
   const parsed = tokenResponseSchema.parse(json);
