@@ -1,15 +1,17 @@
 /**
  * Gmail tools registered into the boss's tool surface.
  *
- * Phase 2 ships the registration + an executable `gmail.search` so the
- * autonomy path can be smoke-tested end-to-end. `gmail.send_draft`
- * registers at boot but throws on execute until the Phase 4 agent
- * bridge wires the Gmail send API — the dispatcher only invokes
- * `execute` on the approved-staging resume path for gated tools, so a
- * stubbed execute is safe to ship now and harden later.
+ * `gmail.search` and `gmail.read_message` are low-risk cached/read paths.
+ * `gmail.send_draft` registers at boot but throws on execute until the send
+ * API path lands — the dispatcher only invokes `execute` on the
+ * approved-staging resume path for gated tools, so a stubbed execute is safe
+ * to ship now and harden later.
  */
 
+import { db } from "@alfred/db";
+import { documents } from "@alfred/db/schemas";
 import { getFreshAccessToken, listCredentials, listMessages } from "@alfred/integrations/google";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
 
@@ -48,6 +50,24 @@ const gmailSendDraftInput = z
   })
   .strict();
 
+const gmailReadMessageInput = z
+  .object({
+    documentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Alfred document id for an ingested Gmail message. Prefer this when available."),
+    messageId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Provider-native Gmail message id. Use only when no Alfred document id is known."),
+  })
+  .strict()
+  .refine((value) => Boolean(value.documentId || value.messageId), {
+    message: "documentId or messageId is required",
+  });
+
 async function pickGoogleCredentialId(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");
   const active = creds.find((c) => c.status === "active");
@@ -77,6 +97,59 @@ export const gmailTools: readonly RegisteredTool[] = [
       return {
         messages: result.messages.map((m) => ({ id: m.id, threadId: m.threadId })),
         nextPageToken: result.nextPageToken ?? null,
+      };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
+    action: "read_message",
+    riskTier: "low",
+    description: "Read the cached full text and metadata for one ingested Gmail message.",
+    inputSchema: gmailReadMessageInput,
+    execute: async (input, ctx) => {
+      const where = input.documentId
+        ? and(
+            eq(documents.userId, ctx.userId),
+            eq(documents.source, "gmail"),
+            eq(documents.id, input.documentId),
+          )
+        : and(
+            eq(documents.userId, ctx.userId),
+            eq(documents.source, "gmail"),
+            eq(documents.sourceId, input.messageId!),
+          );
+      const rows = await db()
+        .select({
+          id: documents.id,
+          sourceId: documents.sourceId,
+          sourceThreadId: documents.sourceThreadId,
+          title: documents.title,
+          content: documents.content,
+          authoredAt: documents.authoredAt,
+          url: documents.url,
+          metadata: documents.metadata,
+        })
+        .from(documents)
+        .where(where)
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        return {
+          status: "not_found",
+          documentId: input.documentId ?? null,
+          messageId: input.messageId ?? null,
+        };
+      }
+      return {
+        status: "ok",
+        documentId: row.id,
+        messageId: row.sourceId,
+        threadId: row.sourceThreadId,
+        subject: row.title,
+        authoredAt: row.authoredAt?.toISOString() ?? null,
+        url: row.url,
+        metadata: row.metadata,
+        content: row.content,
       };
     },
   }),

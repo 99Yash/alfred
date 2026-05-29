@@ -618,6 +618,9 @@ importers:
 
   packages/schemas:
     dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       typescript:
         specifier: ^5
         version: 5.9.3

@@ -139,21 +139,17 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
   }
 
   const workflowInput = {
+    userId: args.userId,
+    trigger,
     brief,
     input: args.input,
     metadata,
   };
 
   const initialState = workflow.initialState(workflowInput);
-  const transcript = workflow.initialTranscript?.(workflowInput) ?? [];
+  const transcript = (await workflow.initialTranscript?.(workflowInput)) ?? [];
 
-  const dedupKey =
-    workflow.dedupKey?.({
-      userId: args.userId,
-      brief,
-      input: args.input,
-      metadata,
-    }) ?? null;
+  const dedupKey = workflow.dedupKey?.(workflowInput) ?? null;
 
   const inserted = await db()
     .insert(agentRuns)
