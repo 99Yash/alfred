@@ -19,7 +19,9 @@ export {
   type ApprovalExpiryJobData,
 } from "./expiry-queue";
 export {
+  expireStaging,
   startApprovalExpiryWorker,
   stopApprovalExpiryWorker,
+  type ExpireStagingResult,
   type StartApprovalExpiryWorkerOpts,
 } from "./expiry-worker";

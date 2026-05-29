@@ -21,6 +21,12 @@ interface DecisionOutcome {
   decision: Decision;
   status: "approved" | "rejected";
   shouldEnqueue: boolean;
+  /**
+   * Extra gated staging rows that a `cancel_run` bulk-rejected alongside
+   * `params.stagingId`. Their queued expiry/notify jobs are removed after
+   * commit so they don't linger as ghost jobs in Redis.
+   */
+  rejectedStagingIds?: string[];
 }
 
 /**
@@ -103,14 +109,14 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
           let shouldEnqueue = false;
           if (decision === "cancel_run") {
-            const cancelOutcome = await cancelRunInTx(tx, {
+            const { outcome: cancelOutcome, rejectedStagingIds } = await cancelRunInTx(tx, {
               runId: row.runId,
               reason: "cancelled_by_user",
               pendingApprovalRejectReason: reason,
             });
             const conflict = cancelOutcomeConflict(cancelOutcome);
             if (conflict) return { conflict };
-            return { runId: row.runId, decision, status: "rejected", shouldEnqueue };
+            return { runId: row.runId, decision, status: "rejected", shouldEnqueue, rejectedStagingIds };
           } else {
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
@@ -141,8 +147,14 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         if ("conflict" in outcome) return status(409, { message: outcome.conflict });
 
         emitReplicachePokes([user.id], params.stagingId);
-        await removeApprovalNotificationJob(params.stagingId);
-        await removeApprovalExpiryJob(params.stagingId);
+        // A `cancel_run` bulk-rejects every gated pending row on the run,
+        // not just this one; tear down the queued jobs for all of them so
+        // none linger as ghost jobs that fire later and no-op.
+        const stagingIdsToClear = new Set<string>([params.stagingId, ...(outcome.rejectedStagingIds ?? [])]);
+        for (const id of stagingIdsToClear) {
+          await removeApprovalNotificationJob(id);
+          await removeApprovalExpiryJob(id);
+        }
 
         let enqueued = false;
         if (outcome.shouldEnqueue) {

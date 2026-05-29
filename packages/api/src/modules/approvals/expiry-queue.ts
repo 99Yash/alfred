@@ -56,12 +56,30 @@ export async function scheduleApprovalExpiryJob(args: {
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
   try {
-    await getApprovalExpiryQueue().add(
+    const queue = getApprovalExpiryQueue();
+    const jobId = approvalExpiryJobId(args.stagingId);
+    // BullMQ `add` is a no-op when a job with this id already exists —
+    // and `removeOnComplete.age` keeps a *completed* expiry job around for
+    // up to an hour. If a crash/resume re-dispatch re-parks the same
+    // staging row inside that window, the bare `add` would silently skip
+    // and leave the row without a live expiry timer. Drop any lingering
+    // terminal job first so the re-add always installs a fresh delayed
+    // job. (A still-`delayed` job is left untouched — `add` no-ops on it,
+    // which is the intended idempotency; an `active` job is mid-expiry and
+    // must not be removed out from under the worker.)
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === "completed" || state === "failed") {
+        await existing.remove();
+      }
+    }
+    await queue.add(
       "approval.expire",
       { stagingId: args.stagingId, userId: args.userId },
       {
         delay: Math.max(0, args.delayMs),
-        jobId: approvalExpiryJobId(args.stagingId),
+        jobId,
       },
     );
     return "scheduled";

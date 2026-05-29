@@ -62,6 +62,27 @@ export async function stopApprovalExpiryWorker(): Promise<void> {
 
 async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<unknown> {
   const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
+  return expireStaging({ stagingId, userId });
+}
+
+export interface ExpireStagingResult {
+  status: "expired" | "skipped";
+  stagingId: string;
+  reason?: string;
+  runId?: string;
+  enqueued?: boolean;
+}
+
+/**
+ * Core expiry transition, callable directly (the BullMQ job is a thin
+ * wrapper). Idempotent: a row that is already non-pending returns
+ * `{ status: 'skipped' }` without touching the run.
+ */
+export async function expireStaging(args: {
+  stagingId: string;
+  userId: string;
+}): Promise<ExpireStagingResult> {
+  const { stagingId, userId } = args;
 
   // Mirror the decision API: lock the row, signal the parked run, then
   // flip status — all in one transaction so a concurrent human decision
