@@ -121,6 +121,13 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
   return result;
 }
 
+/**
+ * Bridges the brief deploy-window gap between this code shipping and the
+ * seeder re-writing builtin triggers to the new `{ source, type }` shape
+ * (ADR-0047). Only the legacy triage trigger (`source: 'gmail.ingest'`) needs
+ * this; any future event source must add its own mapping here, otherwise it
+ * falls through to `false` (no legacy form to match).
+ */
 function legacyEventTriggerCondition(args: EmitEventArgs) {
   if (args.source === "gmail" && args.type === "message_received") {
     return sql`${workflows.trigger}->>'source' = 'gmail.ingest'`;
