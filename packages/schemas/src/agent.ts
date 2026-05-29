@@ -1,3 +1,4 @@
+import { EVENT_SOURCES } from "@alfred/contracts";
 import { z } from "zod";
 
 export const runStatusSchema = z.enum([
@@ -38,6 +39,10 @@ export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("event"),
+    // Optional for tolerant reads of historical event runs written before
+    // ADR-0047 promoted source/type to first-class trigger fields.
+    source: z.string().optional(),
+    type: z.string().optional(),
     eventId: z.string(),
     payload: z.record(z.string(), z.unknown()).optional(),
   }),
@@ -54,7 +59,11 @@ export const workflowTriggerSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("event"),
-    source: z.string(),
+    // Closed enums per ADR-0047; `type` is required on writes so the
+    // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
+    // can match. Per-source type validity is enforced in `emitEvent`.
+    source: z.enum(EVENT_SOURCES),
+    type: z.string(),
     filter: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({ kind: z.literal("manual") }),

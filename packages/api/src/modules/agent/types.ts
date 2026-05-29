@@ -2,12 +2,15 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   RUN_STATUSES,
   isTerminalStatus,
+  type AgentRunTrigger,
   type ApprovalKind,
   type RunStatus,
   type WakeCondition,
   type WorkflowTrigger,
 } from "@alfred/schemas";
 import type { z } from "zod";
+
+export type MaybePromise<T> = T | Promise<T>;
 
 /**
  * Run lifecycle states (mirrors the `status` column on `agent_runs`).
@@ -74,6 +77,10 @@ export interface Step<S> {
 }
 
 export interface WorkflowInput {
+  /** User who owns this run; needed by DB-aware run initializers. */
+  userId: string;
+  /** First-class reason this run was created. */
+  trigger: AgentRunTrigger;
   /** Optional human-readable brief for the run (free text). */
   brief?: string;
   /** Workflow-defined initial input passed to `initialState`. */
@@ -113,7 +120,7 @@ export interface Workflow<S = unknown> {
   /** Build the run's initial state from the caller's input. Throw to refuse the run. */
   initialState(input: WorkflowInput): S;
   /** Optional initial transcript persisted beside `state`. Omitted by non-agent builtins. */
-  initialTranscript?(input: WorkflowInput): AgentTranscriptMessage[];
+  initialTranscript?(input: WorkflowInput): MaybePromise<AgentTranscriptMessage[]>;
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;

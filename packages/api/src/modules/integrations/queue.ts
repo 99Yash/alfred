@@ -11,9 +11,7 @@ import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
-import { enqueueRun } from "../agent/queue";
-import { createRun } from "../agent/service";
-import { TRIAGE_WORKFLOW_SLUG } from "../triage/workflow-input";
+import { emitEvent } from "../workflows/events";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -34,7 +32,7 @@ export type IngestionJobData =
       query?: string;
       maxMessages?: number;
       /**
-       * Fan triage runs over the freshly-inserted docs after this job finishes.
+       * Emit triage trigger events for freshly-inserted docs after this job finishes.
        * Default false — bulk re-ingests (30+ days of backlog) skip triage to
        * avoid burning LLM tokens on stale mail. The OAuth callback opts in
        * for the small first-connect seed (~8 messages).
@@ -133,12 +131,12 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
       );
       if (result.insertedDocumentIds.length) {
-        // Triage enqueue (optional) and the rail-update publish are
+        // Triage event emission (optional) and the rail-update publish are
         // independent writes to different tables; fan them out so a
         // large bulk seed doesn't pay the latencies in series.
         await Promise.all([
           data.triageInsertedDocs
-            ? enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest")
+            ? emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "ingest")
             : Promise.resolve(),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
@@ -148,7 +146,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     case "gmail.poll_recent": {
       // Pub/sub-driven realtime path (ADR-0037). Lists messages from Gmail's
       // search index (`newer_than:5m`), dedupes against `documents.source_id`,
-      // and fans triage on inserts. We don't touch history.list here — that
+      // and emits triage trigger events on inserts. We don't touch history.list here — that
       // path's index lags pub/sub and was the source of 1–3 min tag-latency
       // tails. Catch-up for anything missed lives on `gmail.poll_history`
       // via the 5-min sweep below.
@@ -159,13 +157,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (result.insertedDocumentIds.length) {
-        // Triage enqueue, embed fan-out, and the rail-update publish
+        // Triage event emission, embed fan-out, and the rail-update publish
         // are independent — they target different tables / queues and
         // each function swallows its own errors. Fan them out so the
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
         await Promise.all([
-          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "webhook"),
+          emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "webhook"),
           embedRealtimeInserts(result.insertedDocumentIds),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
@@ -187,7 +185,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
         await Promise.all([
-          enqueueTriageRuns(result.userId, result.insertedDocumentIds, "ingest"),
+          emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "ingest"),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
       }
@@ -276,19 +274,19 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
 }
 
 /**
- * Spawn one email-triage run per freshly-inserted Gmail document (ADR-0025
- * #1). Failures are logged-and-swallowed: we never want a triage-enqueue
- * problem to fail the ingestion job that just successfully wrote the docs.
+ * Emit one Gmail message event per freshly-inserted Gmail document. Failures
+ * are logged-and-swallowed: we never want trigger dispatch to fail the
+ * ingestion job that just successfully wrote the docs.
  *
- * `reason` is a small audit string surfaced on the run's metadata so we can
- * tell webhook-driven triages apart from manual smoke runs in the logs.
+ * `reason` is a small audit string surfaced on the run's trigger payload so
+ * we can tell webhook-driven triages apart from manual smoke runs in the logs.
  *
- * Fan-out runs in parallel — N enqueues still cost N DB INSERTs + N Redis
- * ZADDs, but they're issued concurrently so wall-clock time is bounded by
+ * Fan-out runs in parallel — N dispatches still cost N event lookups plus any
+ * matching DB INSERTs + Redis ZADDs, but they're issued concurrently so wall-clock time is bounded by
  * the slowest one rather than the sum. The realtime path almost always
  * has N≤3, but a catch-up burst after a long quiet period can have dozens.
  */
-async function enqueueTriageRuns(
+async function emitGmailMessageEvents(
   userId: string,
   documentIds: string[],
   reason: "webhook" | "manual" | "ingest" | "reply",
@@ -296,19 +294,16 @@ async function enqueueTriageRuns(
   await Promise.all(
     documentIds.map(async (documentId) => {
       try {
-        const { runId } = await createRun({
+        await emitEvent({
           userId,
-          workflowSlug: TRIAGE_WORKFLOW_SLUG,
-          input: { documentId, reason },
-          metadata: { source: "gmail", documentId },
-          // `eventId` is the document id — naturally per-message and lets
-          // History filter triages by their source doc.
-          trigger: { kind: "event", eventId: documentId, payload: { source: "gmail", reason } },
+          source: "gmail",
+          type: "message_received",
+          eventId: documentId,
+          payload: { documentId, reason },
         });
-        await enqueueRun(runId);
       } catch (err) {
         console.warn(
-          `[ingestion:worker] failed to enqueue triage for doc=${documentId}:`,
+          `[ingestion:worker] failed to emit gmail.message_received for doc=${documentId}:`,
           err instanceof Error ? err.message : String(err),
         );
       }
