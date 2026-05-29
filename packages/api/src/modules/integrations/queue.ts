@@ -92,6 +92,17 @@ export async function startIngestionWorker(opts: StartIngestionWorkerOpts = {}):
   _worker.on("error", (err) => {
     console.error("[ingestion:worker] error:", err.message);
   });
+  // Job-level failures are distinct from worker `error` events: BullMQ catches
+  // a throwing processor, marks the job failed, and retries silently. Without
+  // this listener a credential going `invalid_grant` produced 100 dead
+  // poll_history jobs and zero log lines — Gmail ingestion went dark for 36h
+  // with no signal. Log every failed attempt so the next outage is visible.
+  _worker.on("failed", (job, err) => {
+    console.error(
+      `[ingestion:worker] job failed kind=${job?.data?.kind ?? "?"} id=${job?.id ?? "?"} ` +
+        `attempt=${job?.attemptsMade ?? "?"}: ${err.message}`,
+    );
+  });
 }
 
 export async function stopIngestionWorker(): Promise<void> {
