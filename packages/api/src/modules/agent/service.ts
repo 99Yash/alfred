@@ -266,6 +266,17 @@ export interface CancelRunArgs {
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
 
+export interface CancelTxResult {
+  outcome: CancelOutcome;
+  /**
+   * Ids of the gated `action_stagings` rows this cancel bulk-rejected.
+   * The HTTP caller uses these to tear down each row's queued
+   * expiry/notification jobs (otherwise they fire later and no-op, leaving
+   * ghost jobs in Redis). Empty unless `outcome === "cancelled"`.
+   */
+  rejectedStagingIds: string[];
+}
+
 /**
  * Stop a run from any non-terminal state. Used by the approvals
  * "Reject and end run" action (Phase 5) and any future flow that needs
@@ -279,10 +290,11 @@ export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
  * rolled-back update can't leak a phantom `cancelled` event downstream.
  */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
-  return await db().transaction((tx) => cancelRunInTx(tx, args));
+  const result = await db().transaction((tx) => cancelRunInTx(tx, args));
+  return result.outcome;
 }
 
-export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelOutcome> {
+export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelTxResult> {
   const rows = await tx
     .select({
       id: agentRuns.id,
@@ -295,11 +307,11 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
     .where(eq(agentRuns.id, args.runId))
     .for("update");
   const row = rows[0];
-  if (!row) return "not_found";
+  if (!row) return { outcome: "not_found", rejectedStagingIds: [] };
   const status = runStatusSchema.parse(row.status);
 
   if (isTerminalStatus(status)) {
-    return "already_terminal";
+    return { outcome: "already_terminal", rejectedStagingIds: [] };
   }
 
   const now = new Date();
@@ -318,7 +330,7 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
     })
     .where(eq(agentRuns.id, args.runId));
 
-  await tx
+  const rejectedStagings = await tx
     .update(actionStagings)
     .set({
       status: "rejected",
@@ -333,7 +345,8 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
         eq(actionStagings.status, "pending"),
         eq(actionStagings.requiresApproval, true),
       ),
-    );
+    )
+    .returning({ id: actionStagings.id });
 
   await publishEvent({
     tx,
@@ -347,7 +360,10 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       error: args.reason,
     },
   });
-  return "cancelled";
+  return {
+    outcome: "cancelled",
+    rejectedStagingIds: rejectedStagings.map((r: { id: string }) => r.id),
+  };
 }
 
 export interface RunSummary {

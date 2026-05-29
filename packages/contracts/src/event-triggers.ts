@@ -17,9 +17,12 @@ export type EventType = {
   [S in EventSource]: EventTypeForSource<S>;
 }[EventSource];
 
-export const EVENT_TYPES = Object.freeze(
-  Object.values(EVENT_TYPES_BY_SOURCE).flat(),
-) as readonly EventType[];
+export const EVENT_TYPES = Object.freeze([
+  // De-duplicate: multiple sources share an event type (e.g. both
+  // `google.oauth.callback` and `learn-skill` emit `completed`), so a raw
+  // `.flat()` would repeat it. Keep this a canonical set of unique types.
+  ...new Set(Object.values(EVENT_TYPES_BY_SOURCE).flat()),
+]) as readonly EventType[];
 
 export function isEventSource(value: string): value is EventSource {
   return (EVENT_SOURCES as readonly string[]).includes(value);
