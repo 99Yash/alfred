@@ -11,6 +11,7 @@ import {
   type CancelOutcome,
   type SignalOutcome,
 } from "../agent";
+import { removeApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
 
 type Decision = "approve" | "reject" | "cancel_run";
@@ -141,6 +142,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
         emitReplicachePokes([user.id], params.stagingId);
         await removeApprovalNotificationJob(params.stagingId);
+        await removeApprovalExpiryJob(params.stagingId);
 
         let enqueued = false;
         if (outcome.shouldEnqueue) {

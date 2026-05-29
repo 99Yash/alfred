@@ -33,7 +33,12 @@
  */
 
 import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
-import { hashToolInput, integrationFromToolName, isToolName } from "@alfred/contracts";
+import {
+  APPROVAL_EXPIRY_MS,
+  hashToolInput,
+  integrationFromToolName,
+  isToolName,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { actionStagingStatusSchema, type ActionStagingStatus } from "@alfred/schemas";
@@ -41,6 +46,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
+import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
@@ -132,6 +138,7 @@ interface StagingRow {
   executeError: unknown;
   notifyAfterAt: Date | null;
   notifiedAt: Date | null;
+  expiresAt: Date | null;
 }
 
 const STAGING_COLUMNS = {
@@ -147,6 +154,7 @@ const STAGING_COLUMNS = {
   executeError: actionStagings.executeError,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
+  expiresAt: actionStagings.expiresAt,
 } as const;
 
 function parseStagingRow(row: StagingRow): StagingRow {
@@ -273,6 +281,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     : null;
   const notifyAfterAt =
     approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
+  // Gated rows get a hard expiry so an undecided approval can't park the
+  // run forever (Phase 5e). The `staging-expire` worker fires at this
+  // time and auto-rejects if still pending.
+  const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
 
   // INSERT first, fall back to SELECT on conflict. Drizzle returns the
   // inserted row(s) or an empty array on a no-op conflict. Either way
@@ -292,6 +304,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       requiresApproval,
       status: "pending",
       notifyAfterAt,
+      expiresAt,
     })
     .onConflictDoNothing({
       target: [actionStagings.runId, actionStagings.toolCallId],
@@ -353,6 +366,21 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
             stagingId: row.id,
             userId: args.userId,
             delayMs,
+          });
+        }
+        // Schedule the hard-expiry fallback. Idempotent on the
+        // deterministic job id, so a crash/resume re-dispatch of the same
+        // staged call won't double-schedule. Delay derives from the
+        // row's stored `expires_at` so the timer survives restarts.
+        {
+          const expiryDelayMs =
+            row.expiresAt instanceof Date
+              ? row.expiresAt.getTime() - Date.now()
+              : APPROVAL_EXPIRY_MS;
+          await scheduleApprovalExpiryJob({
+            stagingId: row.id,
+            userId: args.userId,
+            delayMs: expiryDelayMs,
           });
         }
         return {
