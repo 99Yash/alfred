@@ -108,7 +108,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   // Spawned by the parent `learn-skill` workflow once the sync phase
   // commits a revision; `event.source = 'learn-skill'` captures that
   // relationship for History filters.
-  trigger: { kind: "event", source: "learn-skill" },
+  trigger: { kind: "event", source: "learn-skill", type: "completed" },
   initialStep: "gather-context",
   stateSchema,
 
