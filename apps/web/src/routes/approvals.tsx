@@ -13,10 +13,8 @@ import { authClient } from "~/lib/auth-client";
  * loader forever for signed-out visitors, so we split them at the route —
  * `useActionStagings` stays purely about Replicache readiness.
  *
- * The fixture-driven design reference still lives at
- * `routes/-preview-approvals` for visual iteration without the auth/sync
- * plumbing. Signed-out/pending states render outside the themed app chrome
- * (see `AppShell`'s `showChrome`), so they use plain grammar like
+ * Signed-out/pending states render outside the themed app chrome (see
+ * `AppShell`'s `showChrome`), so they use plain grammar like
  * `routes/debug.events.tsx` rather than the `vs-*` tokens.
  */
 export const Route = createFileRoute("/approvals")({
