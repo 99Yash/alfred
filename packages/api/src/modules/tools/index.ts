@@ -10,6 +10,8 @@
 import { calendarTools } from "./calendar";
 import { gmailTools } from "./gmail";
 import { registerTools } from "./registry";
+import { sheetsTools } from "./sheets";
+import { slidesTools } from "./slides";
 import { systemTools } from "./system";
 
 export {
@@ -28,4 +30,6 @@ export function registerBuiltinTools(): void {
   registerTools(systemTools);
   registerTools(gmailTools);
   registerTools(calendarTools);
+  registerTools(sheetsTools);
+  registerTools(slidesTools);
 }

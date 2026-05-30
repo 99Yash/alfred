@@ -6,7 +6,9 @@ import {
   HardDrive,
   Mail,
   MessageSquare,
+  Presentation,
   Settings2,
+  Sheet,
   SquareKanban,
   Wrench,
   type LucideIcon,
@@ -19,6 +21,8 @@ const ICONS: Record<IntegrationSlug, LucideIcon> = {
   calendar: Calendar,
   drive: HardDrive,
   docs: FileText,
+  sheets: Sheet,
+  slides: Presentation,
   slack: MessageSquare,
   linear: SquareKanban,
   github: Github,
@@ -31,6 +35,8 @@ const TINTS: Partial<Record<IntegrationSlug, string>> = {
   gmail: "bg-vs-red-1 text-vs-red-4",
   calendar: "bg-vs-blue-1 text-vs-blue-4",
   docs: "bg-vs-sky-1 text-vs-sky-4",
+  sheets: "bg-vs-green-1 text-vs-green-4",
+  slides: "bg-vs-orange-1 text-vs-orange-4",
   slack: "bg-vs-purple-1 text-vs-purple-4",
 };
 
