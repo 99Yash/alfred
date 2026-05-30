@@ -169,6 +169,13 @@
       "when": 1780073162274,
       "tag": "0023_halfvec_embedding_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1780108867887,
+      "tag": "0024_rename_briefing_body_markdown",
+      "breakpoints": true
     }
   ]
 }
