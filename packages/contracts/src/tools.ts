@@ -30,8 +30,8 @@ export const GMAIL_ACTIONS = ["search", "read_message", "send_draft"] as const;
 
 export const CALENDAR_ACTIONS = ["list_events", "create_event"] as const;
 
-export const DRIVE_ACTIONS = [] as const;
-export const DOCS_ACTIONS = [] as const;
+export const DRIVE_ACTIONS = ["search_files", "get_file", "export_file", "download_file"] as const;
+export const DOCS_ACTIONS = ["get_document"] as const;
 
 export const SHEETS_ACTIONS = [
   "create_spreadsheet",
