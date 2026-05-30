@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { workflows } from "@alfred/db/schemas";
+import { user as userTable, workflows } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
 import { listWorkflows } from "../agent/registry";
 
@@ -59,4 +59,33 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
     });
 
   return { seeded: rows.length, slugs: rows.map((r) => r.slug) };
+}
+
+/**
+ * Re-seed builtin `workflows` rows for EVERY existing user.
+ *
+ * The per-user seeder runs only in the on-user-created hook, so a builtin's
+ * mutable fields (`trigger`, `name`, `description`, `allowed_integrations`)
+ * never reach pre-existing users on deploy. That gap silently broke email
+ * triage in production: the trigger shape changed in code
+ * (`gmail.poll_history` → `gmail.ingest` → `gmail`/`message_received`) but the
+ * existing user's row stayed frozen at the original value, so `emitEvent`
+ * matched zero workflows and no triage runs were created.
+ *
+ * Calling this at boot closes that drift class: the `ON CONFLICT DO UPDATE`
+ * still leaves user-owned fields (`status`, `next_run_at`) untouched, so a
+ * paused builtin stays paused — we only resync the definition-derived fields.
+ * Idempotent and cheap (single-user scale); safe to run on every boot.
+ */
+export async function seedBuiltinWorkflowsForAllUsers(): Promise<{
+  users: number;
+  rowsTouched: number;
+}> {
+  const users = await db().select({ id: userTable.id }).from(userTable);
+  let rowsTouched = 0;
+  for (const u of users) {
+    const result = await seedBuiltinWorkflowsForUser(u.id);
+    rowsTouched += result.seeded;
+  }
+  return { users: users.length, rowsTouched };
 }
