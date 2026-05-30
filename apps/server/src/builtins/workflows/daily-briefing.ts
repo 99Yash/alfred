@@ -10,6 +10,8 @@ import {
 } from "@alfred/api";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
+import { serverEnv } from "@alfred/env/server";
+import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { runBriefingAgent } from "../agents/briefing/agent";
@@ -63,7 +65,7 @@ const stateSchema = z.object({
     .object({
       subject: z.string(),
       bodyText: z.string(),
-      bodyHtml: z.string(),
+      bodyMarkdown: z.string(),
       citedDocumentIds: z.array(z.string()),
       modelId: z.string(),
       inputTokens: z.number().optional(),
@@ -168,7 +170,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             composed: {
               subject: result.briefing.subject,
               bodyText: result.briefing.bodyText,
-              bodyHtml: result.briefing.bodyHtml,
+              bodyMarkdown: result.briefing.bodyMarkdown,
               citedDocumentIds: result.briefing.citedDocumentIds,
               modelId: result.modelId,
               inputTokens: result.usage.inputTokens,
@@ -196,7 +198,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           status: ctx.state.dryRun ? "dry_run" : "composed",
           subject: ctx.state.composed.subject,
           bodyText: ctx.state.composed.bodyText,
-          bodyHtml: ctx.state.composed.bodyHtml,
+          bodyMarkdown: ctx.state.composed.bodyMarkdown,
           agentRunId: ctx.runId,
           modelId: ctx.state.composed.modelId,
           inputTokens: ctx.state.composed.inputTokens,
@@ -249,12 +251,25 @@ export const dailyBriefingWorkflow: Workflow<State> = {
 
         const prefix = ctx.state.slot === "morning" ? "briefing" : "recap";
         const idempotencyKey = `${prefix}:${ctx.userId}:${ctx.state.briefingDate}`;
+
+        // Render the agent's markdown body into the polished email shell.
+        // The template (`@alfred/mailer`) owns all styling; the model only
+        // ever produces prose markdown.
+        const webOrigin = serverEnv().CORS_ORIGIN;
+        const html = await renderBriefingEmail({
+          content: ctx.state.composed.bodyMarkdown,
+          createdAt: new Date().toISOString(),
+          logoUrl: `${webOrigin}/images/logo/dimension-desktop.png`,
+          previewText: ctx.state.composed.subject,
+          ctaUrl: ctx.state.slot === "morning" ? `${webOrigin}/chat/new` : undefined,
+        });
+
         const result = await notify({
           userId: ctx.userId,
           kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
           idempotencyKey,
           subject: ctx.state.composed.subject,
-          html: ctx.state.composed.bodyHtml,
+          html,
           text: ctx.state.composed.bodyText,
           payload: {
             briefingDate: ctx.state.briefingDate,

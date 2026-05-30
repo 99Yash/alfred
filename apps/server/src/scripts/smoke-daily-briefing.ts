@@ -16,7 +16,7 @@
  *   1. The daily-briefing workflow runs gather → compose → persist → send
  *      to completion.
  *   2. The agent calls dump_briefing exactly once and produces a non-empty
- *      subject + bodyText + bodyHtml.
+ *      subject + bodyText + bodyMarkdown.
  *   3. A `briefing_runs` row lands at status='composed' with a
  *      watermark_at anchored on the frozen "until" instant.
  *   4. (When --no-send is omitted) An `email_sends` row lands at status='sent'.
@@ -182,7 +182,7 @@ async function main() {
   );
   assert(row.subject, "briefing_runs.subject is empty");
   assert(row.bodyText, "briefing_runs.body_text is empty");
-  assert(row.bodyHtml, "briefing_runs.body_html is empty");
+  assert(row.bodyMarkdown, "briefing_runs.body_markdown is empty");
   assert(row.watermarkAt, "briefing_runs.watermark_at is null");
 
   console.log("\n========================================");

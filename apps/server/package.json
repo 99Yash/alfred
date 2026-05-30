@@ -17,6 +17,7 @@
     "@alfred/env": "workspace:*",
     "@alfred/ingestion": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/mailer": "workspace:*",
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",
     "@sentry/node": "catalog:",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@alfred/config": "workspace:*",
     "@types/node": "catalog:",
+    "@types/react": "^19.0.0",
     "tsdown": "catalog:",
     "tsx": "^4.19.2",
     "typescript": "catalog:"
