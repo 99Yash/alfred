@@ -188,7 +188,7 @@ export const BriefingEmail = ({
 BriefingEmail.PreviewProps = {
   previewText: "Your morning briefing is ready",
   ctaUrl: "http://localhost:3000/chat/new",
-  logoUrl: "http://localhost:3000/images/logo/dimension-desktop.png",
+  logoUrl: "http://localhost:3000/images/logo/alfred-logo.svg",
 } as BriefingEmailProps;
 
 export default BriefingEmail;
