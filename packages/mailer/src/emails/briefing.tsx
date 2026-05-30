@@ -195,4 +195,4 @@ export default BriefingEmail;
 
 /** Render the briefing email to an HTML string for sending. */
 export const renderBriefingEmail = (props: BriefingEmailProps): Promise<string> =>
-  Promise.resolve(render(<BriefingEmail {...props} />));
+  render(<BriefingEmail {...props} />);
