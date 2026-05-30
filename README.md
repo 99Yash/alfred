@@ -56,7 +56,7 @@ All required vars live in `apps/server/.env`. The blank template is committed to
 | `REDIS_URL`                    | Redis connection string         |
 | `BETTER_AUTH_SECRET`           | ≥32-char random string          |
 | `BETTER_AUTH_URL`              | Server base URL                 |
-| `ALFRED_ALLOWED_EMAIL`         | Only this email can sign up     |
+| `ALFRED_ALLOWED_EMAIL`         | Comma-separated emails allowed to sign up |
 | `RESEND_API_KEY`               | Transactional email (OTP codes) |
 | `RESEND_FROM_EMAIL`            | Sender address                  |
 | `ANTHROPIC_API_KEY`            | Primary LLM                     |
