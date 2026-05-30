@@ -260,7 +260,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           content: ctx.state.composed.bodyMarkdown,
           createdAt: new Date().toISOString(),
           timezone: ctx.state.timezone,
-          logoUrl: `${webOrigin}/images/logo/alfred-logo.svg`,
+          // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
+          logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
           previewText: ctx.state.composed.subject,
           ctaUrl: ctx.state.slot === "morning" ? `${webOrigin}/chat/new` : undefined,
         });
