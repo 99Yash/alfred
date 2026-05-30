@@ -259,7 +259,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         const html = await renderBriefingEmail({
           content: ctx.state.composed.bodyMarkdown,
           createdAt: new Date().toISOString(),
-          logoUrl: `${webOrigin}/images/logo/dimension-desktop.png`,
+          logoUrl: `${webOrigin}/images/logo/alfred-logo.svg`,
           previewText: ctx.state.composed.subject,
           ctaUrl: ctx.state.slot === "morning" ? `${webOrigin}/chat/new` : undefined,
         });
