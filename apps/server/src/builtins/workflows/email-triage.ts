@@ -154,10 +154,20 @@ export const emailTriageWorkflow: Workflow<State> = {
           const priorAuthoredAt = existing.documentId
             ? await getDocumentAuthoredAt(ctx.userId, existing.documentId)
             : null;
+          // Equal timestamps are NOT proof of duplication: Gmail Date headers
+          // are second-granular and distinct messages can share an authoredAt.
+          // A strictly-older message is provably not newer; an equal-timestamp
+          // message only counts as "not newer" when it's the SAME document we
+          // already tagged (re-delivered push / second ingestion source). A
+          // genuine reply in the same second is a different documentId and must
+          // re-classify.
+          const isSameStoredDocument = existing.documentId === ctx.state.documentId;
           const provablyNotNewer =
             incomingAuthoredAt != null &&
             priorAuthoredAt != null &&
-            incomingAuthoredAt.getTime() <= priorAuthoredAt.getTime();
+            (incomingAuthoredAt.getTime() < priorAuthoredAt.getTime() ||
+              (incomingAuthoredAt.getTime() === priorAuthoredAt.getTime() &&
+                isSameStoredDocument));
           if (provablyNotNewer) {
             await ctx.log(
               `classify: thread=${sourceThreadId} already tagged (${existing.category}); ` +
