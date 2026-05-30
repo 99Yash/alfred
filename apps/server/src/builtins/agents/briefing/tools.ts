@@ -39,7 +39,12 @@ export interface BriefingToolBag {
 export interface DumpedBriefing {
   subject: string;
   bodyText: string;
-  bodyHtml: string;
+  /**
+   * Markdown body. The agent writes prose markdown; the email template
+   * (`@alfred/mailer`) owns all styling and renders it to HTML at send
+   * time. The model never hand-writes HTML.
+   */
+  bodyMarkdown: string;
   /** Document ids the agent cited; used for audit logging only. */
   citedDocumentIds: string[];
   /** Free-form one-line gloss for ops logs. */
@@ -58,7 +63,7 @@ interface BuildArgs {
 const dumpInputSchema = z.object({
   subject: z.string().min(1).max(200),
   bodyText: z.string().min(1),
-  bodyHtml: z.string().min(1),
+  bodyMarkdown: z.string().min(1),
   citedDocumentIds: z.array(z.string()).default([]),
   rationale: z.string().nullable().default(null),
 });
@@ -156,13 +161,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     dump_briefing: tool({
       description:
-        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyHtml are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets) and read naturally on its own.",
+        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets) and read naturally on its own.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
         dumped = {
           subject: input.subject,
           bodyText: input.bodyText,
-          bodyHtml: input.bodyHtml,
+          bodyMarkdown: input.bodyMarkdown,
           citedDocumentIds: input.citedDocumentIds,
           rationale: input.rationale,
         };

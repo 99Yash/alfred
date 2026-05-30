@@ -1,0 +1,76 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Squircle background: indigo -> deep violet (shared brand purple) -->
+    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7B6BF6"/>
+      <stop offset="0.55" stop-color="#5B43E0"/>
+      <stop offset="1" stop-color="#3A24B0"/>
+    </linearGradient>
+
+    <!-- Light "head" gradient (from the modern face) -->
+    <linearGradient id="head" x1="180" y1="150" x2="332" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D7DBEC"/>
+    </linearGradient>
+
+    <!-- Top highlight on the head -->
+    <linearGradient id="headHi" x1="0" y1="140" x2="0" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Eye gradient (dark vertical bars) -->
+    <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#403A52"/>
+      <stop offset="1" stop-color="#15121F"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.62">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#150C38" flood-opacity="0.38"/>
+    </filter>
+
+    <clipPath id="squircle">
+      <path d="M256 24
+               C150 24 96 24 60 60
+               C24 96 24 150 24 256
+               C24 362 24 416 60 452
+               C96 488 150 488 256 488
+               C362 488 416 488 452 452
+               C488 416 488 362 488 256
+               C488 150 488 96 452 60
+               C416 24 362 24 256 24 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- App-icon container -->
+  <g clip-path="url(#squircle)">
+    <rect x="0" y="0" width="512" height="512" fill="url(#bg)"/>
+    <rect x="0" y="0" width="512" height="512" fill="url(#glow)"/>
+
+    <!-- subtle grid (echo of dimension-desktop) -->
+    <g stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2">
+      <path d="M128 0 V512 M256 0 V512 M384 0 V512 M0 128 H512 M0 256 H512 M0 384 H512"/>
+    </g>
+  </g>
+
+  <!-- Legacy nested-capsule "aperture": two concentric rings -->
+  <rect x="142" y="112" width="228" height="288" rx="104" ry="114"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="9"/>
+  <rect x="158" y="128" width="196" height="256" rx="90" ry="100"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="9"/>
+
+  <!-- Head body: legacy capsule shape carrying the modern face -->
+  <g filter="url(#soft)">
+    <rect x="176" y="146" width="160" height="220" rx="76" ry="88" fill="url(#head)"/>
+    <rect x="176" y="146" width="160" height="220" rx="76" ry="88" fill="url(#headHi)"/>
+  </g>
+
+  <!-- Modern two-eye face -->
+  <rect x="226" y="218" width="22" height="76" rx="11" fill="url(#eye)"/>
+  <rect x="264" y="218" width="22" height="76" rx="11" fill="url(#eye)"/>
+</svg>

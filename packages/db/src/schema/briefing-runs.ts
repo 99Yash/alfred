@@ -53,7 +53,13 @@ export const briefingRuns = pgTable(
     /** Composed body — read by future runs as prompt context. */
     subject: text("subject"),
     bodyText: text("body_text"),
-    bodyHtml: text("body_html"),
+    /**
+     * Markdown source of the composed body. The briefing agent emits
+     * markdown; the email HTML is rendered from this at send time
+     * (`@alfred/mailer`) and not archived here — `email_sends` records
+     * the actual delivery, and a resend re-renders from this column.
+     */
+    bodyMarkdown: text("body_markdown"),
     /**
      * Free-form audit jsonb: tool-call counts, document ids cited,
      * meeting-prep / action-item refs surfaced. Not the source of truth

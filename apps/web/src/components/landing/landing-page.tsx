@@ -67,9 +67,11 @@ export function LandingPage({
       <FloatingPillNav
         logo={
           <a href="/" className="flex items-center gap-2">
-            <span className="grid size-5 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
-              A
-            </span>
+            <img
+              src="/images/logo/alfred-logo.svg"
+              alt="Alfred"
+              className="size-6 rounded-[7px]"
+            />
             <span className="text-sm font-semibold text-white">Alfred</span>
           </a>
         }
