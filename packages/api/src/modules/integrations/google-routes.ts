@@ -8,6 +8,7 @@ import {
   GOOGLE_FEATURE_SCOPES,
   type GoogleFeature,
   installGmailWatch,
+  PUBLIC_FEATURES,
   scopesForFeatures,
   uninstallGmailWatch,
   upsertCredential,
@@ -73,13 +74,17 @@ export const googleIntegrationRoutes = new Elysia({
       .get(
         "/connect",
         async ({ user, query, set }) => {
-          // Optional `?features=briefing,triage` narrows the consent
-          // screen to a subset of capabilities. Default (no param) keeps
-          // the m7 single-prompt behavior — request every feature's
-          // scope. `include_granted_scopes=true` (in the authorize URL)
-          // means a later partial-feature call merges into the same
-          // grant rather than re-prompting from scratch.
-          let features: GoogleFeature[] | undefined;
+          // `?features=briefing,triage` selects which capabilities to
+          // request. Default (no param) is the PUBLIC set: identity +
+          // free-to-verify sensitive scopes (calendar, Workspace reads,
+          // gmail.send) — no "unverified app" warning, no user cap.
+          // Restricted Gmail/Drive features (briefing, triage, drive) must
+          // be opted into explicitly; they put consent behind Google's
+          // unverified warning + 100-user cap until the paid CASA review.
+          // `include_granted_scopes=true` (in the authorize URL) means a
+          // later opt-in call merges into the same grant rather than
+          // re-prompting from scratch.
+          let features: GoogleFeature[] = PUBLIC_FEATURES;
           if (query.features) {
             const parsed = query.features
               .split(",")
