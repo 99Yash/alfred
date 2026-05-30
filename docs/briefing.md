@@ -13,8 +13,8 @@ The pipeline:
 
 OAuth scope refactor that landed alongside m10:
 
-- `packages/integrations/src/google/oauth.ts` exposes `GOOGLE_FEATURE_SCOPES` (`briefing` / `triage` / `reply_draft`) + `scopesForFeatures(features?)`. `DEFAULT_GOOGLE_SCOPES` is now `scopesForFeatures()` — equivalent to "every feature."
-- `/api/integrations/google/connect?features=briefing,triage` narrows the consent screen; default (no param) keeps the m7 single-prompt behavior.
+- `packages/integrations/src/google/oauth.ts` exposes `GOOGLE_FEATURE_SCOPES` (`briefing` / `triage` / `reply_draft`) + `scopesForFeatures(features?)`. Scopes are tiered into `PUBLIC_FEATURES` (free-to-verify: calendar, Workspace reads, `gmail.send`) and `RESTRICTED_FEATURES` (`briefing` / `triage` / `drive` — needs the paid CASA assessment to go public). `PUBLIC_GOOGLE_SCOPES` is the public-only union; `ALL_GOOGLE_SCOPES` is every feature. `DEFAULT_GOOGLE_SCOPES` now aliases `PUBLIC_GOOGLE_SCOPES` (deprecated; prefer the explicit names).
+- `/api/integrations/google/connect` defaults (no param) to the **public** scope set — no restricted scopes, no unverified-app warning. Restricted Gmail/Drive features are explicit opt-in: `?features=briefing,triage`. A malformed/empty `features` param falls back to the public set rather than escalating.
 - `requireScopes(credentialId, features[])` from `@alfred/integrations/google` throws `MissingScopesError` (typed `code: 'MISSING_SCOPES'`) when a credential drifted; workflows that hit Gmail directly should call this. Briefing reads from local DB only and skips it.
 
 Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-briefing.ts` (forces a send for the first user, ignoring the tz/hour gate; verifies idempotent re-run).

@@ -21,7 +21,11 @@
 import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { documents, integrationCredentials } from "@alfred/db/schemas";
-import { buildAuthorizeUrl, ingestRecentGmail } from "@alfred/integrations/google";
+import {
+  ALL_GOOGLE_SCOPES,
+  buildAuthorizeUrl,
+  ingestRecentGmail,
+} from "@alfred/integrations/google";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq } from "drizzle-orm";
 
@@ -40,7 +44,10 @@ async function main() {
     return;
   }
 
-  const url = buildAuthorizeUrl({ state: "smoke-test-state" });
+  // Pass the full grant explicitly: the no-scopes default now resolves to
+  // the public (restricted-free) set, but this smoke checks the full
+  // Gmail-ingestion grant builds.
+  const url = buildAuthorizeUrl({ state: "smoke-test-state", scopes: ALL_GOOGLE_SCOPES });
   console.log("[smoke-google] authorize URL builds OK:");
   console.log(`   ${url.slice(0, 120)}…\n`);
 
