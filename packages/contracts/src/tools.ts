@@ -6,6 +6,8 @@ export const LOADABLE_INTEGRATION_SLUGS = [
   "calendar",
   "drive",
   "docs",
+  "sheets",
+  "slides",
   "slack",
   "linear",
   "github",
@@ -28,8 +30,25 @@ export const GMAIL_ACTIONS = ["search", "read_message", "send_draft"] as const;
 
 export const CALENDAR_ACTIONS = ["list_events", "create_event"] as const;
 
-export const DRIVE_ACTIONS = [] as const;
-export const DOCS_ACTIONS = [] as const;
+export const DRIVE_ACTIONS = ["search_files", "get_file", "export_file", "download_file"] as const;
+export const DOCS_ACTIONS = ["get_document"] as const;
+
+export const SHEETS_ACTIONS = [
+  "create_spreadsheet",
+  "get_values",
+  "update_values",
+  "append_values",
+  "batch_update",
+  "add_sheet",
+] as const;
+
+export const SLIDES_ACTIONS = [
+  "create_presentation",
+  "get_presentation",
+  "batch_update",
+  "add_slide",
+] as const;
+
 export const SLACK_ACTIONS = [] as const;
 export const LINEAR_ACTIONS = [] as const;
 export const GITHUB_ACTIONS = [] as const;
@@ -41,6 +60,8 @@ export const INTEGRATION_ACTIONS = {
   calendar: CALENDAR_ACTIONS,
   drive: DRIVE_ACTIONS,
   docs: DOCS_ACTIONS,
+  sheets: SHEETS_ACTIONS,
+  slides: SLIDES_ACTIONS,
   slack: SLACK_ACTIONS,
   linear: LINEAR_ACTIONS,
   github: GITHUB_ACTIONS,

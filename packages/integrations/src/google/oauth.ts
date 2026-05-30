@@ -32,8 +32,8 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  *   calendar     — calendar.readonly: list events for meeting context
  *   drive        — drive.readonly: find/list files across the user's Drive
  *   docs         — documents.readonly: read structured Doc content (headings, tables)
- *   sheets       — spreadsheets.readonly: read cell ranges + sheet metadata
- *   slides       — presentations.readonly: read deck structure + speaker notes
+ *   sheets       — spreadsheets: read + write cell ranges, create spreadsheets
+ *   slides       — presentations: read + write decks, create presentations
  *
  * Triage's `gmail.modify` already implies read access, but listing
  * `gmail.readonly` separately keeps each feature's scope row honest:
@@ -50,7 +50,11 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  * download* files; structured API access to Docs/Sheets/Slides still
  * needs each app's own scope. We grant all four together so the same
  * consent screen unlocks both "find the deck" (drive) and "read what's
- * in the deck" (slides) without a second prompt.
+ * in the deck" (slides) without a second prompt. Sheets and Slides use
+ * the full read/write scope (`spreadsheets` / `presentations`) so Alfred
+ * can create and edit them; both are still Google's *sensitive* tier
+ * (free to verify), so they stay in the public scope bucket. Docs remains
+ * read-only until a write feature needs it.
  *
  * Individual scope URLs are named below so callers can reference a
  * capability by intent (`GMAIL_MODIFY_SCOPE`) instead of by position in
@@ -63,8 +67,10 @@ export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 export const DOCS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly";
-export const SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
-export const SLIDES_READONLY_SCOPE = "https://www.googleapis.com/auth/presentations.readonly";
+/** Full read/write Sheets — create + edit spreadsheets. Sensitive (free to verify), not restricted. */
+export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+/** Full read/write Slides — create + edit presentations. Sensitive (free to verify), not restricted. */
+export const SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations";
 
 export const GOOGLE_FEATURE_SCOPES = {
   briefing: [GMAIL_READONLY_SCOPE],
@@ -73,8 +79,8 @@ export const GOOGLE_FEATURE_SCOPES = {
   calendar: [CALENDAR_READONLY_SCOPE],
   drive: [DRIVE_READONLY_SCOPE],
   docs: [DOCS_READONLY_SCOPE],
-  sheets: [SHEETS_READONLY_SCOPE],
-  slides: [SLIDES_READONLY_SCOPE],
+  sheets: [SHEETS_SCOPE],
+  slides: [SLIDES_SCOPE],
 } as const satisfies Record<string, readonly string[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;

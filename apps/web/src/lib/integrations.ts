@@ -171,35 +171,35 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
   {
     id: "google_sheets",
     name: "Google Sheets",
-    description: "Read your Google Sheets.",
+    description: "Read and edit your Google Sheets.",
     status: "available",
     category: "Productivity",
     brand: "google_sheets",
     actionLabel: "Connect",
-    capabilities: ["Read Sheet Metadata", "Read Cell Ranges", "Inspect Named Ranges"],
+    capabilities: ["Read Cell Ranges", "Create Spreadsheets", "Write & Append Rows"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Sheets to Alfred for spreadsheet-backed lookups and summaries.",
-      heading: "Read-only spreadsheet access",
+      body: "Connect Google Sheets to Alfred for spreadsheet-backed lookups, summaries, and edits.",
+      heading: "Read/write spreadsheet access",
       detail:
-        "Alfred can read cell ranges and sheet structure to answer questions or feed workflows. Updating cells is not enabled at this grant level.",
+        "Alfred can read cell ranges, create spreadsheets, and write or append rows on your behalf.",
     },
   },
   {
     id: "google_slides",
     name: "Google Slides",
-    description: "Read your Google Slides.",
+    description: "Read and edit your Google Slides.",
     status: "available",
     category: "Productivity",
     brand: "google_slides",
     actionLabel: "Connect",
-    capabilities: ["Read Presentations", "Extract Slide Text", "Read Speaker Notes"],
+    capabilities: ["Read Presentations", "Create Decks", "Add & Edit Slides"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Slides to Alfred to pull deck structure, slide text, and speaker notes into context.",
-      heading: "Read-only deck access",
+      body: "Connect Google Slides to Alfred to read deck structure and build or edit presentations.",
+      heading: "Read/write deck access",
       detail:
-        "Alfred can summarize decks and lift content into other artifacts. Editing slides is not enabled at this grant level.",
+        "Alfred can summarize decks, create presentations, and add or edit slides on your behalf.",
     },
   },
   {
@@ -279,8 +279,8 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<str
   google_calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
   google_drive: ["https://www.googleapis.com/auth/drive.readonly"],
   google_docs: ["https://www.googleapis.com/auth/documents.readonly"],
-  google_sheets: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  google_slides: ["https://www.googleapis.com/auth/presentations.readonly"],
+  google_sheets: ["https://www.googleapis.com/auth/spreadsheets"],
+  google_slides: ["https://www.googleapis.com/auth/presentations"],
   // GitHub's `read:user` is the lowest-common-denominator scope every
   // `?features=` combination grants; we use it as the connect probe.
   github: ["read:user"],
