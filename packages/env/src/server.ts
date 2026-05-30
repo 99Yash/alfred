@@ -7,7 +7,18 @@ const serverEnvSchema = z.object({
   BETTER_AUTH_URL: z.string().url(),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  ALFRED_ALLOWED_EMAIL: z.string().email(),
+  // Comma-separated allowlist of emails permitted to sign up. A single email
+  // is still valid (one-item list). Parsed into a normalized, lowercased
+  // array; the auth signup hook checks membership. See packages/auth.
+  ALFRED_ALLOWED_EMAIL: z
+    .string()
+    .transform((s) =>
+      s
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().email()).min(1)),
   RESEND_API_KEY: z.string(),
   RESEND_FROM_EMAIL: z.string(),
   ANTHROPIC_API_KEY: z.string(),
