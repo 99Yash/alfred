@@ -10,9 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
+import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
 import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as MemoryRouteImport } from './routes/memory'
@@ -37,6 +39,11 @@ const WorkflowsRoute = WorkflowsRouteImport.update({
   path: '/workflows',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
+  id: '/terms-of-service',
+  path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StyleguideRoute = StyleguideRouteImport.update({
   id: '/styleguide',
   path: '/styleguide',
@@ -50,6 +57,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
+  id: '/privacy-policy',
+  path: '/privacy-policy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -153,9 +165,11 @@ export interface FileRoutesByFullPath {
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy-policy': typeof PrivacyPolicyRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
@@ -177,9 +191,11 @@ export interface FileRoutesByTo {
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy-policy': typeof PrivacyPolicyRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
@@ -202,9 +218,11 @@ export interface FileRoutesById {
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy-policy': typeof PrivacyPolicyRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
@@ -228,9 +246,11 @@ export interface FileRouteTypes {
     | '/memory'
     | '/notes'
     | '/onboarding'
+    | '/privacy-policy'
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/terms-of-service'
     | '/workflows'
     | '/chat/$threadId'
     | '/debug/events'
@@ -252,9 +272,11 @@ export interface FileRouteTypes {
     | '/memory'
     | '/notes'
     | '/onboarding'
+    | '/privacy-policy'
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/terms-of-service'
     | '/workflows'
     | '/chat/$threadId'
     | '/debug/events'
@@ -276,9 +298,11 @@ export interface FileRouteTypes {
     | '/memory'
     | '/notes'
     | '/onboarding'
+    | '/privacy-policy'
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/terms-of-service'
     | '/workflows'
     | '/chat/$threadId'
     | '/debug/events'
@@ -301,9 +325,11 @@ export interface RootRouteChildren {
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
   OnboardingRoute: typeof OnboardingRoute
+  PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
+  TermsOfServiceRoute: typeof TermsOfServiceRoute
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   DebugEventsRoute: typeof DebugEventsRoute
   PreviewChatRoute: typeof PreviewChatRouteWithChildren
@@ -317,6 +343,13 @@ declare module '@tanstack/react-router' {
       path: '/workflows'
       fullPath: '/workflows'
       preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms-of-service': {
+      id: '/terms-of-service'
+      path: '/terms-of-service'
+      fullPath: '/terms-of-service'
+      preLoaderRoute: typeof TermsOfServiceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/styleguide': {
@@ -338,6 +371,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy-policy': {
+      id: '/privacy-policy'
+      path: '/privacy-policy'
+      fullPath: '/privacy-policy'
+      preLoaderRoute: typeof PrivacyPolicyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -547,9 +587,11 @@ const rootRouteChildren: RootRouteChildren = {
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
   OnboardingRoute: OnboardingRoute,
+  PrivacyPolicyRoute: PrivacyPolicyRoute,
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
+  TermsOfServiceRoute: TermsOfServiceRoute,
   WorkflowsRoute: WorkflowsRouteWithChildren,
   DebugEventsRoute: DebugEventsRoute,
   PreviewChatRoute: PreviewChatRouteWithChildren,
