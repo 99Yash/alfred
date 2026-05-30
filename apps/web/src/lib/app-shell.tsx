@@ -159,6 +159,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chromeless =
     location.pathname === "/" ||
     location.pathname === "/login" ||
+    location.pathname === "/privacy-policy" ||
+    location.pathname === "/terms-of-service" ||
     location.pathname.startsWith("/onboarding");
 
   /* `/preview/*` is the fixture-rich design surface. The chrome on real
