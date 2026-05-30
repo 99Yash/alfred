@@ -1,8 +1,8 @@
 # Auth
 
-`packages/auth/src/index.ts` exports `auth()` — the full Better Auth instance with Google as the sole social provider and the one-email allowlist hook. Mount it on the Elysia server via `.mount(auth().handler)`. Google is the only sign-in method; there is no email/OTP path.
+`packages/auth/src/index.ts` exports `auth()` — the full Better Auth instance with Google as the sole social provider and the email allowlist hook. Mount it on the Elysia server via `.mount(auth().handler)`. Google is the only sign-in method; there is no email/OTP path.
 
-The allowlist rejects any signup where `user.email !== ALFRED_ALLOWED_EMAIL`. It throws, which Better Auth converts to a 422. The hook runs for Google signups too — only the allowlisted Google account can sign in.
+The allowlist rejects any signup whose email is not in `ALFRED_ALLOWED_EMAIL` — a comma-separated list parsed (in `packages/env`) into a normalized, lowercased array (a single email is still valid). It throws, which Better Auth converts to a 422. The hook runs for Google signups too — only an allowlisted Google account can sign in.
 
 `packages/auth/src/session.ts` exports `sessionAuth()` — a lightweight instance for session-only verification (no social providers, no plugins). Used by `session-cache.ts`.
 
