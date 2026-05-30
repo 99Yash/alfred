@@ -36,8 +36,11 @@ export function auth() {
       user: {
         create: {
           before: async (user) => {
-            const allowedEmail = serverEnv().ALFRED_ALLOWED_EMAIL.toLowerCase();
-            if (user.email.toLowerCase() !== allowedEmail) {
+            // ALFRED_ALLOWED_EMAIL is parsed into a normalized, lowercased
+            // array (see packages/env). Signup is permitted only for an email
+            // on that allowlist.
+            const allowedEmails = serverEnv().ALFRED_ALLOWED_EMAIL;
+            if (!allowedEmails.includes(user.email.toLowerCase())) {
               throw new Error("Signup not permitted for this email address");
             }
             if (!user.name) {
