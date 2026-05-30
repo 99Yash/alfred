@@ -255,7 +255,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         // Render the agent's markdown body into the polished email shell.
         // The template (`@alfred/mailer`) owns all styling; the model only
         // ever produces prose markdown.
-        const webOrigin = serverEnv().CORS_ORIGIN;
+        const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
         const html = await renderBriefingEmail({
           content: ctx.state.composed.bodyMarkdown,
           createdAt: new Date().toISOString(),
