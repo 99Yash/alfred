@@ -311,7 +311,12 @@ export const googleIntegrationRoutes = new Elysia({
           // and the `dedupKey: () => 'cold-start'` on the workflow
           // already enforces lifetime-once, so this is mostly for
           // breadcrumb-style filtering in History.
-          trigger: { kind: "event", eventId: `google.callback:${credential.id}` },
+          trigger: {
+            kind: "event",
+            source: "google.oauth.callback",
+            type: "completed",
+            eventId: `google.callback:${credential.id}`,
+          },
         });
         await enqueueRun(runId);
       } catch (err) {
