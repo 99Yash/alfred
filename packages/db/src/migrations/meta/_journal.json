@@ -162,6 +162,13 @@
       "when": 1779777474365,
       "tag": "0022_tiresome_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1780073162274,
+      "tag": "0023_halfvec_embedding_indexes",
+      "breakpoints": true
     }
   ]
 }

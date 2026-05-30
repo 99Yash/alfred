@@ -27,9 +27,24 @@ export function firstOrNull<T>(rows: T[]): T | null {
 }
 
 /**
- * pgvector column wrapper. `toDriver` serializes `number[]` as the
- * `[a,b,c]` literal pgvector accepts on insert; `fromDriver` parses
- * the same shape back so callers receive `number[]` directly.
+ * Shortest text that round-trips to the same float32 pgvector stores.
+ * Embedding providers return JS numbers, but pgvector stores vector
+ * elements as float32, so sending float64-precision text only wastes
+ * bandwidth on writes and query literals.
+ */
+export function formatFloat32(value: number): string {
+  return Number(Math.fround(value).toPrecision(9)).toString();
+}
+
+export function formatVectorFloat32(values: number[]): string {
+  return `[${values.map(formatFloat32).join(",")}]`;
+}
+
+/**
+ * pgvector column wrapper. `toDriver` serializes `number[]` as a
+ * float32-precision `[a,b,c]` literal pgvector accepts on insert;
+ * `fromDriver` parses the same shape back so callers receive
+ * `number[]` directly.
  *
  * All embeddings in alfred are 1024-dim (ADR-0021); use this helper
  * for any new vector column.
@@ -40,7 +55,7 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return `vector(${dimensions})`;
     },
     toDriver(value: number[]): string {
-      return `[${value.join(",")}]`;
+      return formatVectorFloat32(value);
     },
     fromDriver(value: string): number[] {
       return JSON.parse(value) as number[];
