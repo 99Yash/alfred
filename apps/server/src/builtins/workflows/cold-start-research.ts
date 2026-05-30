@@ -99,7 +99,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
     "Cold-start research at signup — Sonar Deep Research → cheap-tier extract → user_facts proposals + memory_chunks (ADR-0011 + ADR-0022).",
   // Fires from the Google OAuth callback; lifetime-once is enforced by
   // the workflow's own `dedupKey: () => 'cold-start'`.
-  trigger: { kind: "event", source: "google.oauth.callback" },
+  trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
   initialStep: "gather-signals",
   stateSchema,
 

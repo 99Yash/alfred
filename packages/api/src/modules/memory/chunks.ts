@@ -1,7 +1,8 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks } from "@alfred/db/schemas";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -163,31 +164,43 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     userId: args.userId,
     idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
   });
-  const vectorLiteral = `[${queryVec.join(",")}]`;
+  const vectorLiteral = formatVectorFloat32(queryVec);
+  const candidateLimit = Math.max(limit * 5, 50);
 
-  const filters = [eq(memoryChunks.userId, args.userId)];
+  const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
   if (args.kind) filters.push(eq(memoryChunks.kind, args.kind));
 
-  const rows = await db()
+  const candidates = db()
     .select({
       chunkId: memoryChunks.id,
       kind: memoryChunks.kind,
       content: memoryChunks.content,
       source: memoryChunks.source,
-      distance: sql<number>`${memoryChunks.embedding} <=> ${vectorLiteral}::vector`,
+      distance: sql<number>`${memoryChunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
     })
     .from(memoryChunks)
     .where(and(...filters))
-    .orderBy(sql`${memoryChunks.embedding} <=> ${vectorLiteral}::vector`)
+    .orderBy(sql`${memoryChunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
+    .limit(candidateLimit)
+    .as("candidates");
+
+  const rows = await db()
+    .select({
+      chunkId: candidates.chunkId,
+      kind: candidates.kind,
+      content: candidates.content,
+      source: candidates.source,
+      distance: candidates.distance,
+    })
+    .from(candidates)
+    .orderBy(candidates.distance)
     .limit(limit);
 
-  return rows
-    .filter((r) => r.distance != null)
-    .map((r) => ({
-      chunkId: r.chunkId,
-      kind: memoryChunkKindSchema.parse(r.kind),
-      preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
-      similarity: 1 - Number(r.distance),
-      source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.chunkId}`),
-    }));
+  return rows.map((r) => ({
+    chunkId: r.chunkId,
+    kind: memoryChunkKindSchema.parse(r.kind),
+    preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
+    similarity: 1 - Number(r.distance),
+    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.chunkId}`),
+  }));
 }

@@ -256,7 +256,12 @@ export const learnSkillWorkflow: Workflow<State> = {
             // Parent-workflow-driven spawn: the eventId is the parent
             // run id so History/query surfaces can locate every doc run
             // emitted by a specific learn run.
-            trigger: { kind: "event", eventId: `learn-skill:${ctx.runId}` },
+            trigger: {
+              kind: "event",
+              source: "learn-skill",
+              type: "completed",
+              eventId: `learn-skill:${ctx.runId}`,
+            },
           });
           await enqueueRun(created.runId);
           docRunId = created.runId;
