@@ -86,6 +86,18 @@ export type {
 } from "./gmail";
 export { listEvents } from "./calendar";
 export type { CalendarEvent, CalendarAttendee, ListEventsArgs, ListEventsResult } from "./calendar";
+export { getDocument } from "./docs";
+export type { GetDocumentArgs, GetDocumentResult, DocumentHeading } from "./docs";
+export { listFiles, getFile, exportFile, downloadFile } from "./drive";
+export type {
+  DriveFile,
+  ListFilesArgs,
+  ListFilesResult,
+  GetFileArgs,
+  ExportFileArgs,
+  DownloadFileArgs,
+  FileContentResult,
+} from "./drive";
 export {
   createSpreadsheet,
   getValues,
