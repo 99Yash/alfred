@@ -85,13 +85,15 @@ const ALL_FEATURES = Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
  * Resolve the OAuth scope list for a set of features. Always includes
  * identity scopes; deduplicates the union across requested features.
  *
- * Default (no `features` arg) returns the union of every feature —
- * matches the single-consent-prompt behavior we shipped at m7.
- * `include_granted_scopes=true` on the authorize URL means an
- * incremental re-prompt later just merges into the same grant.
+ * `undefined` (no arg) returns the union of every feature. An explicit
+ * empty array returns identity scopes ONLY — it does NOT fall back to the
+ * full union. The distinction is a security boundary: a malformed request
+ * like `?features=,` parses to `[]` and must never silently escalate to the
+ * restricted grant. `include_granted_scopes=true` on the authorize URL
+ * means an incremental re-prompt later just merges into the same grant.
  */
 export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
-  const wanted = features?.length ? features : ALL_FEATURES;
+  const wanted = features ?? ALL_FEATURES;
   const set = new Set<string>(IDENTITY_SCOPES);
   for (const f of wanted) {
     for (const scope of GOOGLE_FEATURE_SCOPES[f]) set.add(scope);
@@ -129,14 +131,17 @@ export function isRestrictedFeature(f: GoogleFeature): boolean {
  * gmail.send). Once the free sensitive-scope review is done these serve
  * unlimited users with no "unverified app" warning and no user cap.
  */
-export const PUBLIC_FEATURES: GoogleFeature[] = ALL_FEATURES.filter((f) => !isRestrictedFeature(f));
+export const PUBLIC_FEATURES: readonly GoogleFeature[] = ALL_FEATURES.filter(
+  (f) => !isRestrictedFeature(f),
+);
 
 /**
  * Restricted Gmail/Drive features — opt-in only. Requesting these puts the
  * consent behind Google's unverified-app warning and the 100-user lifetime
  * cap until (and unless) the app passes the paid CASA assessment.
  */
-export const RESTRICTED_FEATURES: GoogleFeature[] = ALL_FEATURES.filter(isRestrictedFeature);
+export const RESTRICTED_FEATURES: readonly GoogleFeature[] =
+  ALL_FEATURES.filter(isRestrictedFeature);
 
 /**
  * Default grant for a PUBLIC Google connection: free-to-verify scopes only.
@@ -159,14 +164,14 @@ export const ALL_GOOGLE_SCOPES: string[] = scopesForFeatures();
  */
 export const DEFAULT_GOOGLE_SCOPES: string[] = PUBLIC_GOOGLE_SCOPES;
 
-// Guardrail: a restricted scope must never reach the public consent flow.
-// Fails at module load (caught by typecheck/tests/boot) if a future scope
-// addition silently widens the public grant.
-for (const f of PUBLIC_FEATURES) {
-  if (isRestrictedFeature(f)) {
-    throw new Error(
-      `[google.oauth] feature "${f}" is in PUBLIC_FEATURES but requests a restricted scope`,
-    );
+// Guardrail: the *resolved* public grant must contain no restricted scope.
+// Checking the final scope list (not just feature classification, which is
+// restricted-free by construction) means a regression in `scopesForFeatures`
+// or the tier sets — the path that actually reaches Google — fails loudly at
+// module load (caught by typecheck/tests/boot).
+for (const scope of PUBLIC_GOOGLE_SCOPES) {
+  if (RESTRICTED_SCOPES.has(scope)) {
+    throw new Error(`[google.oauth] restricted scope "${scope}" leaked into PUBLIC_GOOGLE_SCOPES`);
   }
 }
 

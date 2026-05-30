@@ -84,7 +84,7 @@ export const googleIntegrationRoutes = new Elysia({
           // `include_granted_scopes=true` (in the authorize URL) means a
           // later opt-in call merges into the same grant rather than
           // re-prompting from scratch.
-          let features: GoogleFeature[] = PUBLIC_FEATURES;
+          let features: readonly GoogleFeature[] = PUBLIC_FEATURES;
           if (query.features) {
             const parsed = query.features
               .split(",")
@@ -96,7 +96,11 @@ export const googleIntegrationRoutes = new Elysia({
                 message: `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
               });
             }
-            features = known;
+            // A param that parses to nothing (e.g. `?features=,` or
+            // whitespace) must not escalate — fall back to the public set
+            // rather than an empty list. Restricted scopes are only ever
+            // granted when a restricted feature is explicitly named.
+            features = known.length ? known : PUBLIC_FEATURES;
           }
 
           const nonce = randomBytes(16).toString("hex");
