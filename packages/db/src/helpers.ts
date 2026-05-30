@@ -27,10 +27,14 @@ export function firstOrNull<T>(rows: T[]): T | null {
 }
 
 /**
- * Shortest text that round-trips to the same float32 pgvector stores.
- * Embedding providers return JS numbers, but pgvector stores vector
- * elements as float32, so sending float64-precision text only wastes
- * bandwidth on writes and query literals.
+ * Format a number with just enough precision to round-trip the float32
+ * pgvector actually stores. Embedding providers return JS float64s, but
+ * pgvector stores vector elements as float32, so 9 significant digits
+ * (the round-trip width for float32) is sufficient — sending the full
+ * float64 text only wastes bandwidth on writes and query literals.
+ *
+ * Not the minimal-length form (e.g. the float32 nearest 0.1 renders as
+ * "0.100000001", not "0.1"), but trailing-zero trimming keeps it compact.
  */
 export function formatFloat32(value: number): string {
   return Number(Math.fround(value).toPrecision(9)).toString();
