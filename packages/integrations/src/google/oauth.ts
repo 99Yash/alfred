@@ -100,11 +100,75 @@ export function scopesForFeatures(features?: readonly GoogleFeature[]): string[]
 }
 
 /**
- * Default scopes when initiating a Google connection. Equivalent to
- * `scopesForFeatures()` (= union of every feature) — kept as a const
- * for readability at call sites that mean "give me the full grant."
+ * Google's OAuth verification tiers. Only the *restricted* tier triggers
+ * the recurring paid CASA security assessment when going public; the
+ * sensitive tier (gmail.send, calendar.readonly, the Workspace reads)
+ * verifies for free. We classify by scope rather than by feature because
+ * the tier is Google's, not ours — a feature is restricted iff it pulls
+ * in any restricted scope.
+ *
+ * Keeping this list explicit (vs. inferring from URL substrings) means a
+ * new scope is non-restricted only by deliberate omission, and the
+ * guardrail below fails loudly if a restricted scope lands in a feature
+ * we expose to the public consent flow.
  */
-export const DEFAULT_GOOGLE_SCOPES: string[] = scopesForFeatures();
+export const RESTRICTED_SCOPES = new Set<string>([
+  GMAIL_READONLY_SCOPE, // read message bodies
+  GMAIL_MODIFY_SCOPE, // write labels / save drafts
+  DRIVE_READONLY_SCOPE, // list + download Drive files
+]);
+
+/** A feature is restricted iff any of its scopes is in the restricted tier. */
+export function isRestrictedFeature(f: GoogleFeature): boolean {
+  return GOOGLE_FEATURE_SCOPES[f].some((s) => RESTRICTED_SCOPES.has(s));
+}
+
+/**
+ * Features safe to request from the *public* consent flow: identity plus
+ * sensitive scopes that verify for free (calendar, Workspace reads,
+ * gmail.send). Once the free sensitive-scope review is done these serve
+ * unlimited users with no "unverified app" warning and no user cap.
+ */
+export const PUBLIC_FEATURES: GoogleFeature[] = ALL_FEATURES.filter((f) => !isRestrictedFeature(f));
+
+/**
+ * Restricted Gmail/Drive features — opt-in only. Requesting these puts the
+ * consent behind Google's unverified-app warning and the 100-user lifetime
+ * cap until (and unless) the app passes the paid CASA assessment.
+ */
+export const RESTRICTED_FEATURES: GoogleFeature[] = ALL_FEATURES.filter(isRestrictedFeature);
+
+/**
+ * Default grant for a PUBLIC Google connection: free-to-verify scopes only.
+ * This is what the connect endpoint and the `buildAuthorizeUrl` fallback use
+ * so nothing requests a restricted scope by accident — restricted scopes are
+ * only ever added when a caller explicitly opts in via a restricted feature.
+ */
+export const PUBLIC_GOOGLE_SCOPES: string[] = scopesForFeatures(PUBLIC_FEATURES);
+
+/**
+ * Full grant including restricted Gmail/Drive scopes. For the owner/beta
+ * opt-in flow only — see {@link RESTRICTED_FEATURES} for the consequences.
+ */
+export const ALL_GOOGLE_SCOPES: string[] = scopesForFeatures();
+
+/**
+ * @deprecated Ambiguous name retained for back-compat — now aliases the
+ * public (restricted-free) set, NOT the full union. Use
+ * {@link PUBLIC_GOOGLE_SCOPES} or {@link ALL_GOOGLE_SCOPES} explicitly.
+ */
+export const DEFAULT_GOOGLE_SCOPES: string[] = PUBLIC_GOOGLE_SCOPES;
+
+// Guardrail: a restricted scope must never reach the public consent flow.
+// Fails at module load (caught by typecheck/tests/boot) if a future scope
+// addition silently widens the public grant.
+for (const f of PUBLIC_FEATURES) {
+  if (isRestrictedFeature(f)) {
+    throw new Error(
+      `[google.oauth] feature "${f}" is in PUBLIC_FEATURES but requests a restricted scope`,
+    );
+  }
+}
 
 export interface GoogleOAuthConfig {
   clientId: string;
