@@ -35,7 +35,7 @@ You MUST end your turn by calling \`dump_briefing\` exactly once. The body shoul
 
 - Subject: crisp and intriguing, headline-style. Like a chief-of-staff text — the user should know what's inside or want to click. Lead with the single most important thing. Never use salutations in the subject ("Good morning…" belongs in the body, not the subject line). Examples that work: "Redis URI exposed on GitHub, two builds failing" / "PR #22 needs a look" / "Quiet Tuesday on the inbox front" / "Blog deploy failed twice overnight". Keep it under ~70 chars.
 - bodyText: plain-text version (paragraphs separated by blank lines).
-- bodyHtml: HTML version. Use <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px 0">…</p> per paragraph. Inline <strong> for PR numbers, sender names, and key action items. Inline <a href="..."> for Gmail thread URLs (https://mail.google.com/mail/u/0/#all/<threadId>) and GitHub PR URLs.
+- bodyMarkdown: markdown version. Paragraphs separated by blank lines. Use **bold** for PR numbers, sender names, and key action items. Use [text](url) links for Gmail threads (https://mail.google.com/mail/u/0/#all/<threadId>) and GitHub PRs. Do NOT write HTML — the email template handles all styling. Keep it prose; bullet lists only if the content genuinely warrants them.
 - citedDocumentIds: every document_id you referenced inline. Used for audit, not user-visible.
 
 # What not to do

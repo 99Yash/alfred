@@ -165,36 +165,48 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
   });
   const vectorLiteral = formatVectorFloat32(queryVec);
+  // Pull a wider pool from the approximate halfvec index, then rerank with
+  // the full-precision vector distance below.
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(memoryChunks.userId, args.userId), isNotNull(memoryChunks.embedding)];
   if (args.kind) filters.push(eq(memoryChunks.kind, args.kind));
 
-  const candidates = db()
-    .select({
-      chunkId: memoryChunks.id,
-      kind: memoryChunks.kind,
-      content: memoryChunks.content,
-      source: memoryChunks.source,
-      distance: sql<number>`${memoryChunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
-    })
-    .from(memoryChunks)
-    .where(and(...filters))
-    .orderBy(sql`${memoryChunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
-    .limit(candidateLimit)
-    .as("candidates");
+  // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
+  // candidate pool is silently truncated unless we raise it to cover
+  // candidateLimit. SET LOCAL scopes the bump to this transaction; pgvector
+  // caps ef_search at 1000.
+  const rows = await db().transaction(async (tx) => {
+    await tx.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${Math.min(candidateLimit, 1000)}`));
 
-  const rows = await db()
-    .select({
-      chunkId: candidates.chunkId,
-      kind: candidates.kind,
-      content: candidates.content,
-      source: candidates.source,
-      distance: candidates.distance,
-    })
-    .from(candidates)
-    .orderBy(candidates.distance)
-    .limit(limit);
+    const candidates = tx
+      .select({
+        chunkId: memoryChunks.id,
+        kind: memoryChunks.kind,
+        content: memoryChunks.content,
+        source: memoryChunks.source,
+        distance: sql<number>`${memoryChunks.embedding} <=> ${vectorLiteral}::vector`.as(
+          "distance",
+        ),
+      })
+      .from(memoryChunks)
+      .where(and(...filters))
+      .orderBy(sql`${memoryChunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
+      .limit(candidateLimit)
+      .as("candidates");
+
+    return tx
+      .select({
+        chunkId: candidates.chunkId,
+        kind: candidates.kind,
+        content: candidates.content,
+        source: candidates.source,
+        distance: candidates.distance,
+      })
+      .from(candidates)
+      .orderBy(candidates.distance)
+      .limit(limit);
+  });
 
   return rows.map((r) => ({
     chunkId: r.chunkId,

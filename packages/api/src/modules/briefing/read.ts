@@ -211,7 +211,8 @@ interface RecordBriefingRunArgs {
   watermarkAt: Date;
   subject: string;
   bodyText: string;
-  bodyHtml: string;
+  /** Markdown source of the composed body; HTML is rendered at send time. */
+  bodyMarkdown: string;
   agentRunId: string;
   modelId?: string;
   inputTokens?: number;
@@ -251,7 +252,7 @@ export async function recordBriefingRun(args: RecordBriefingRunArgs): Promise<{ 
       status: args.status ?? "composed",
       subject: args.subject,
       bodyText: args.bodyText,
-      bodyHtml: args.bodyHtml,
+      bodyMarkdown: args.bodyMarkdown,
       agentRunId: args.agentRunId,
       modelId: args.modelId,
       inputTokens: args.inputTokens,

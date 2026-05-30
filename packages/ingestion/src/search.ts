@@ -50,43 +50,53 @@ export async function semanticSearch(args: SearchArgs): Promise<SearchHit[]> {
   // Match the DB vector adapter: pgvector stores float32, so avoid
   // sending float64-precision text for query literals too.
   const vectorLiteral = formatVectorFloat32(queryVec);
+  // Pull a wider pool from the approximate halfvec index, then rerank with
+  // the full-precision vector distance below.
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(chunks.userId, args.userId), isNotNull(chunks.embedding)];
   if (args.source) filters.push(eq(documents.source, args.source));
 
-  const candidates = db()
-    .select({
-      chunkId: chunks.id,
-      documentId: documents.id,
-      source: documents.source,
-      title: documents.title,
-      position: chunks.position,
-      content: chunks.content,
-      authoredAt: documents.authoredAt,
-      distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
-    })
-    .from(chunks)
-    .innerJoin(documents, eq(chunks.documentId, documents.id))
-    .where(and(...filters))
-    .orderBy(sql`${chunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
-    .limit(candidateLimit)
-    .as("candidates");
+  // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
+  // candidate pool is silently truncated unless we raise it to cover
+  // candidateLimit. SET LOCAL scopes the bump to this transaction; pgvector
+  // caps ef_search at 1000.
+  const rows = await db().transaction(async (tx) => {
+    await tx.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${Math.min(candidateLimit, 1000)}`));
 
-  const rows = await db()
-    .select({
-      chunkId: candidates.chunkId,
-      documentId: candidates.documentId,
-      source: candidates.source,
-      title: candidates.title,
-      position: candidates.position,
-      content: candidates.content,
-      authoredAt: candidates.authoredAt,
-      distance: candidates.distance,
-    })
-    .from(candidates)
-    .orderBy(candidates.distance)
-    .limit(limit);
+    const candidates = tx
+      .select({
+        chunkId: chunks.id,
+        documentId: documents.id,
+        source: documents.source,
+        title: documents.title,
+        position: chunks.position,
+        content: chunks.content,
+        authoredAt: documents.authoredAt,
+        distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
+      })
+      .from(chunks)
+      .innerJoin(documents, eq(chunks.documentId, documents.id))
+      .where(and(...filters))
+      .orderBy(sql`${chunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
+      .limit(candidateLimit)
+      .as("candidates");
+
+    return tx
+      .select({
+        chunkId: candidates.chunkId,
+        documentId: candidates.documentId,
+        source: candidates.source,
+        title: candidates.title,
+        position: candidates.position,
+        content: candidates.content,
+        authoredAt: candidates.authoredAt,
+        distance: candidates.distance,
+      })
+      .from(candidates)
+      .orderBy(candidates.distance)
+      .limit(limit);
+  });
 
   return rows.map((r) => ({
     chunkId: r.chunkId,
