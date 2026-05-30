@@ -1,6 +1,7 @@
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
+  getDocumentAuthoredAt,
   getTriage,
   loadTriageContext,
   publishEvent,
@@ -134,6 +135,56 @@ export const emailTriageWorkflow: Workflow<State> = {
         // shouldn't re-bill the LLM. A fresh run from a reply trigger writes
         // a new run_id and so will re-classify.
         const existing = await getTriage(ctx.userId, sourceThreadId);
+
+        // Already-tagged guard (ADR-0025 refinement). The thread re-classifies
+        // on a reply — but only on a genuinely NEWER message. A thread that
+        // already carries an applied Gmail label is skipped when the incoming
+        // message is provably not newer than the one we tagged from:
+        // re-delivered pub/sub pushes, out-of-order ingestion, and the same
+        // message picked up by a second ingestion source all land here and
+        // exit without burning a classify call or rewriting the Gmail label.
+        //
+        // We skip ONLY when (a) a label is actually applied and (b) we can
+        // prove ordering from both timestamps. If either `authored_at` is
+        // missing we can't order the messages, so we fall through and
+        // re-classify — missing a real reply is worse than an extra classify.
+        // A retry within the SAME run is handled below (reuse, never skip).
+        if (existing && existing.runId !== ctx.runId && existing.appliedLabelId) {
+          const incomingAuthoredAt = ctxData.document.authoredAt;
+          const priorAuthoredAt = existing.documentId
+            ? await getDocumentAuthoredAt(ctx.userId, existing.documentId)
+            : null;
+          // Equal timestamps are NOT proof of duplication: Gmail Date headers
+          // are second-granular and distinct messages can share an authoredAt.
+          // A strictly-older message is provably not newer; an equal-timestamp
+          // message only counts as "not newer" when it's the SAME document we
+          // already tagged (re-delivered push / second ingestion source). A
+          // genuine reply in the same second is a different documentId and must
+          // re-classify.
+          const isSameStoredDocument = existing.documentId === ctx.state.documentId;
+          const provablyNotNewer =
+            incomingAuthoredAt != null &&
+            priorAuthoredAt != null &&
+            (incomingAuthoredAt.getTime() < priorAuthoredAt.getTime() ||
+              (incomingAuthoredAt.getTime() === priorAuthoredAt.getTime() &&
+                isSameStoredDocument));
+          if (provablyNotNewer) {
+            await ctx.log(
+              `classify: thread=${sourceThreadId} already tagged (${existing.category}); ` +
+                `doc=${ctx.state.documentId} not newer than prior message — skipping re-process`,
+            );
+            return {
+              kind: "done",
+              state: ctx.state,
+              output: {
+                skipped: true,
+                reason: "thread-already-tagged",
+                category: existing.category,
+              },
+            };
+          }
+        }
+
         let classification: TriageClassification;
         let model: string;
         if (existing && existing.runId === ctx.runId) {

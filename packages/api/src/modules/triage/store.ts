@@ -113,6 +113,24 @@ export async function setAppliedLabelId(
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
 }
 
+/**
+ * Authored timestamp of a single document, or null if the row is absent or
+ * carries no `authored_at`. The triage already-tagged guard uses this to
+ * decide whether an incoming message is genuinely newer than the one the
+ * thread was last classified from — i.e. a reply worth re-evaluating vs a
+ * re-delivered / out-of-order / duplicate message worth skipping.
+ */
+export async function getDocumentAuthoredAt(
+  userId: string,
+  documentId: string,
+): Promise<Date | null> {
+  const rows = await db()
+    .select({ authoredAt: documents.authoredAt })
+    .from(documents)
+    .where(and(eq(documents.id, documentId), eq(documents.userId, userId)));
+  return rows[0]?.authoredAt ?? null;
+}
+
 export interface TriageDocumentContext {
   document: {
     id: string;
