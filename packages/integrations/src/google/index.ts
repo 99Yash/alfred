@@ -17,8 +17,8 @@ export {
   CALENDAR_READONLY_SCOPE,
   DRIVE_READONLY_SCOPE,
   DOCS_READONLY_SCOPE,
-  SHEETS_READONLY_SCOPE,
-  SLIDES_READONLY_SCOPE,
+  SHEETS_SCOPE,
+  SLIDES_SCOPE,
   scopesForFeatures,
 } from "./oauth";
 export type {
@@ -86,6 +86,37 @@ export type {
 } from "./gmail";
 export { listEvents } from "./calendar";
 export type { CalendarEvent, CalendarAttendee, ListEventsArgs, ListEventsResult } from "./calendar";
+export {
+  createSpreadsheet,
+  getValues,
+  updateValues,
+  appendValues,
+  batchUpdateSpreadsheet,
+  addSheet,
+} from "./sheets";
+export type {
+  ValueInputOption,
+  CellValue,
+  CreateSpreadsheetArgs,
+  CreateSpreadsheetResult,
+  GetValuesArgs,
+  GetValuesResult,
+  UpdateValuesArgs,
+  UpdateValuesResult,
+  AppendValuesArgs,
+  AppendValuesResult,
+  BatchUpdateSpreadsheetArgs,
+  BatchUpdateSpreadsheetResult,
+} from "./sheets";
+export { createPresentation, getPresentation, batchUpdatePresentation, addSlide } from "./slides";
+export type {
+  CreatePresentationArgs,
+  CreatePresentationResult,
+  GetPresentationArgs,
+  GetPresentationResult,
+  BatchUpdatePresentationArgs,
+  BatchUpdatePresentationResult,
+} from "./slides";
 export {
   ensureAlfredLabels,
   applyTriageLabel,
