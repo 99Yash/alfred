@@ -22,6 +22,7 @@ import {
   scheduleRepeatableWorkflowsJobs,
   registerBuiltinTools,
   registerOnUserCreated,
+  seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
   startAgentWorker,
   startApprovalExpiryWorker,
@@ -72,6 +73,13 @@ registerOnUserCreated(async (user) => {
   await seedBuiltinWorkflowsForUser(user.id);
   await ensureDefaultActionPolicyForUser(user.id);
 });
+// Re-seed builtin workflow rows for EVERY existing user on boot. The
+// on-user-created hook above only covers new signups, so a builtin whose
+// definition changed in code (trigger/name/description) never reached
+// pre-existing users on deploy — which silently severed prod email triage
+// when the trigger shape changed out from under a frozen `workflows` row.
+// Idempotent and leaves user-owned status/next_run_at untouched.
+await seedBuiltinWorkflowsForAllUsers();
 // Subscribe to `policy-bust:u:*` so policy edits on one server instance
 // drop every other instance's cached row before the next dispatch. Must
 // start before the agent worker so the cache is invalidation-aware on
