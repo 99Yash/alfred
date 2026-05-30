@@ -33,6 +33,8 @@ export interface BriefingEmailProps {
   content?: string;
   /** ISO timestamp of when the briefing was generated. */
   createdAt?: string;
+  /** IANA timezone (e.g. "America/New_York") for the footer timestamp. Falls back to UTC. */
+  timezone?: string;
   /** Absolute URL to the logo image. Hidden when omitted. */
   logoUrl?: string;
   /** Short line shown in the inbox preview / snippet. */
@@ -51,7 +53,7 @@ A couple of newsletters and one calendar invite landed, both triaged out. You're
 
 Have a good one.`;
 
-const formatDate = (iso: string) => {
+const formatDate = (iso: string, timeZone?: string) => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
     month: "short",
@@ -60,12 +62,17 @@ const formatDate = (iso: string) => {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    // Render in the user's timezone with an explicit label so the footer
+    // isn't silently in the (usually UTC) server timezone. Falls back to UTC.
+    timeZone: timeZone ?? "UTC",
+    timeZoneName: "short",
   });
 };
 
 export const BriefingEmail = ({
   content = DEFAULT_CONTENT,
   createdAt = new Date().toISOString(),
+  timezone,
   logoUrl,
   previewText = "Your briefing is ready",
   ctaUrl,
@@ -151,7 +158,7 @@ export const BriefingEmail = ({
                 <tr>
                   <td className="footer-cell" style={{ verticalAlign: "middle" }}>
                     <span style={{ color: "#9ca3af", fontSize: "13px" }}>
-                      Generated on {formatDate(createdAt)}
+                      Generated on {formatDate(createdAt, timezone)}
                     </span>
                   </td>
                   {ctaUrl ? (
