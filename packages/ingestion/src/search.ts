@@ -1,7 +1,8 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
  * Semantic search over the chunked corpus. Returns top-K chunks ranked
@@ -46,14 +47,15 @@ export async function semanticSearch(args: SearchArgs): Promise<SearchHit[]> {
     userId: args.userId,
     idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
   });
-  // `vector` adapter on writes serializes `[a,b,c]`; for parameter
-  // binding via drizzle's sql template we send the same string form.
-  const vectorLiteral = `[${queryVec.join(",")}]`;
+  // Match the DB vector adapter: pgvector stores float32, so avoid
+  // sending float64-precision text for query literals too.
+  const vectorLiteral = formatVectorFloat32(queryVec);
+  const candidateLimit = Math.max(limit * 5, 50);
 
-  const filters = [eq(chunks.userId, args.userId)];
+  const filters = [eq(chunks.userId, args.userId), isNotNull(chunks.embedding)];
   if (args.source) filters.push(eq(documents.source, args.source));
 
-  const rows = await db()
+  const candidates = db()
     .select({
       chunkId: chunks.id,
       documentId: documents.id,
@@ -62,12 +64,28 @@ export async function semanticSearch(args: SearchArgs): Promise<SearchHit[]> {
       position: chunks.position,
       content: chunks.content,
       authoredAt: documents.authoredAt,
-      distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`,
+      distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
     })
     .from(chunks)
     .innerJoin(documents, eq(chunks.documentId, documents.id))
     .where(and(...filters))
-    .orderBy(sql`${chunks.embedding} <=> ${vectorLiteral}::vector`)
+    .orderBy(sql`${chunks.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
+    .limit(candidateLimit)
+    .as("candidates");
+
+  const rows = await db()
+    .select({
+      chunkId: candidates.chunkId,
+      documentId: candidates.documentId,
+      source: candidates.source,
+      title: candidates.title,
+      position: candidates.position,
+      content: candidates.content,
+      authoredAt: candidates.authoredAt,
+      distance: candidates.distance,
+    })
+    .from(candidates)
+    .orderBy(candidates.distance)
     .limit(limit);
 
   return rows.map((r) => ({
