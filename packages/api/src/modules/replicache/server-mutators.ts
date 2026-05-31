@@ -1,14 +1,30 @@
-import { notes, rejectedInferences, userFacts, userPreferences } from "@alfred/db/schemas";
+import type { IntegrationRules } from "@alfred/contracts";
+import {
+  notes,
+  rejectedInferences,
+  userActionPolicies,
+  userFacts,
+  userPreferences,
+} from "@alfred/db/schemas";
 import type {
   FactConfirmArgs,
   FactEditArgs,
   FactRejectArgs,
   NoteCreateArgs,
+  PolicySetIntegrationModeArgs,
   PrefDeleteArgs,
   PrefSetArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
 import { valueSignature } from "../memory/signature";
+
+/**
+ * Baseline rules for a row that doesn't exist yet (legacy user predating the
+ * signup seed). Must keep `system: autonomy` or system tools would start
+ * gating — mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts`.
+ */
+const DEFAULT_INTEGRATION_RULES: IntegrationRules = { system: { mode: "autonomy" } };
 
 export interface ServerMutatorCtx {
   userId: string;
@@ -161,6 +177,51 @@ export const serverMutators = {
     await tx
       .delete(userPreferences)
       .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
+  },
+
+  /**
+   * Set one integration's policy mode (m13 Phase 8c). Read-merge-write so a
+   * single integration's `mode` changes without trampling other integrations'
+   * rules or per-tool overrides. Bumps `row_version` so the next pull patches
+   * the synced singleton; the dispatcher cache bust (`publishPolicyBust`)
+   * fires from the push handler *after* commit — see push.ts.
+   *
+   * Upsert handles the legacy no-row case by inserting a row seeded with the
+   * m13 defaults (incl. `system: autonomy`) plus the chosen integration, so a
+   * first-ever edit can't strip the system autonomy seed.
+   */
+  async policySetIntegrationMode(
+    tx: DbTx,
+    args: PolicySetIntegrationModeArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    const [row] = await tx
+      .select({ integrationRules: userActionPolicies.integrationRules })
+      .from(userActionPolicies)
+      .where(eq(userActionPolicies.userId, ctx.userId))
+      .limit(1);
+
+    const currentRules: IntegrationRules = row?.integrationRules ?? DEFAULT_INTEGRATION_RULES;
+    const nextRules: IntegrationRules = {
+      ...currentRules,
+      [args.slug]: { ...currentRules[args.slug], mode: args.mode },
+    };
+
+    await tx
+      .insert(userActionPolicies)
+      .values({
+        userId: ctx.userId,
+        defaultMode: "gated",
+        integrationRules: nextRules,
+        approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+      })
+      .onConflictDoUpdate({
+        target: userActionPolicies.userId,
+        set: {
+          integrationRules: nextRules,
+          rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
+        },
+      });
   },
 } as const;
 

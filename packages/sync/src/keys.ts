@@ -42,6 +42,15 @@ export const IDB_KEY = {
   SKILL_RUN: ({ id = "" }: { id?: string }) => constructIDBKey(["skillrun", id]),
   /** `actionstaging/` (prefix scan) or `actionstaging/{id}` (single row). */
   ACTION_STAGING: ({ id = "" }: { id?: string }) => constructIDBKey(["actionstaging", id]),
+  /**
+   * `actionpolicy/` (prefix scan) or `actionpolicy/{userId}` (single row).
+   *
+   * One row per user — the whole `user_action_policies` row is a single
+   * synced entity keyed by `userId` (m13 Phase 8c). The web derives each
+   * integration's mode from `integration_rules[slug].mode ?? default_mode`
+   * client-side via `resolveIntegrationMode`.
+   */
+  ACTION_POLICY: ({ id = "" }: { id?: string }) => constructIDBKey(["actionpolicy", id]),
 } as const;
 
 /** Union of every entity slug in the registry — drives generic dispatchers. */
