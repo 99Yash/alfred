@@ -166,8 +166,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             incomingAuthoredAt != null &&
             priorAuthoredAt != null &&
             (incomingAuthoredAt.getTime() < priorAuthoredAt.getTime() ||
-              (incomingAuthoredAt.getTime() === priorAuthoredAt.getTime() &&
-                isSameStoredDocument));
+              (incomingAuthoredAt.getTime() === priorAuthoredAt.getTime() && isSameStoredDocument));
           if (provablyNotNewer) {
             await ctx.log(
               `classify: thread=${sourceThreadId} already tagged (${existing.category}); ` +

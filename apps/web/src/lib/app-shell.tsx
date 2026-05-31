@@ -11,6 +11,7 @@ import {
 import { SearchPalette } from "~/components/search-palette";
 import { VsThemed, VsThemeProvider } from "~/components/ui/visitors";
 import { authClient } from "~/lib/auth-client";
+import { writeAuthHint } from "~/lib/auth-hint";
 import { client } from "~/lib/eden";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
 import { cn } from "~/lib/utils";
@@ -114,6 +115,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   /* Server-truth onboarding flag. Only fetched once we know we're authed; the
    * `enabled` keeps the query off the login screen. */
   const sessionUser = session?.user;
+
+  /* Mirror resolved auth state into a synchronous localStorage hint so `/` can
+   * decide on first paint — without blocking FCP on the session round-trip —
+   * whether to show the landing (signed-out) or hold for the redirect
+   * (signed-in). Written here because AppShell wraps every route, so the hint
+   * stays fresh no matter which route the user entered through. */
+  useEffect(() => {
+    if (isPending) return;
+    writeAuthHint(!!sessionUser);
+  }, [isPending, sessionUser]);
   const onboardingQuery = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {

@@ -1,0 +1,1 @@
+CREATE INDEX "action_stagings_recent_rejections_idx" ON "action_stagings" USING btree ("user_id","tool_name","decided_at" DESC NULLS LAST) WHERE "action_stagings"."status" = 'rejected';
