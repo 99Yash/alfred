@@ -53,8 +53,7 @@ export function FeatureGrid({ className }: { className?: string }) {
             Everything Alfred handles for you.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-balance text-[15px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[17px]">
-            One assistant, four jobs, running quietly across every tool you already use, so nothing
-            important slips by.
+            One assistant, across every tool you already use. Nothing important slips by.
           </p>
         </div>
       </FadeInOnScroll>
@@ -119,7 +118,7 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
     icon: Smartphone,
     eyebrow: "Anywhere",
     title: "Talk to it from any tool.",
-    body: "Chat with Alfred from the web, your phone, the terminal, or any iMessage thread — same memory, same context, every time.",
+    body: "Chat with Alfred from the web, your phone, the terminal, or any iMessage thread. Same memory, same context, every time.",
     bullets: [
       "iMessage, Slack, browser, and CLI",
       "Persistent memory across sessions",
@@ -235,7 +234,7 @@ function InboxRowMockup() {
       {[
         {
           name: "Anika",
-          subject: "Re: auth migration — staged today",
+          subject: "Re: auth migration, staged today",
           chip: "Drafted",
           tone: "rose" as const,
         },
