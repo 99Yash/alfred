@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { LandingPage } from "~/components/landing/landing-page";
 import { authClient } from "~/lib/auth-client";
 import { readAuthHint } from "~/lib/auth-hint";
+import { useHealth } from "~/lib/use-health";
 
 /**
  * Root index — `/`.
@@ -26,6 +27,7 @@ function IndexRoute() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
   const isAuthed = !!session?.user;
+  const { healthOk, healthLoading } = useHealth();
 
   useEffect(() => {
     if (isAuthed) void navigate({ to: "/chat", replace: true });
@@ -36,5 +38,5 @@ function IndexRoute() {
   // Session not yet resolved → defer to the hint to avoid flashing the landing
   // at a returning signed-in user before the redirect fires.
   if (isPending && readAuthHint()) return null;
-  return <LandingPage healthOk={true} healthLoading={false} />;
+  return <LandingPage healthOk={healthOk} healthLoading={healthLoading} />;
 }
