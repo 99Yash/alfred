@@ -40,7 +40,7 @@ const TAB_VALUES: ReadonlyArray<ShowcaseTab> = TABS.map((t) => t.value);
 const TAB_DURATION_MS: Record<ShowcaseTab, number> = {
   briefing: 3000,
   inbox: 5000,
-  meetings: 3500,
+  meetings: 5000,
 };
 
 /**
@@ -142,7 +142,7 @@ export function HeroShowcase({ className }: { className?: string }) {
                 >
                   {value === "briefing" && <MorningBriefingPanel active={tab === value} />}
                   {value === "inbox" && <InboxMockup active={tab === value} />}
-                  {value === "meetings" && <MeetingPrepMockup />}
+                  {value === "meetings" && <MeetingPrepMockup active={tab === value} />}
                 </Slot>
               ))}
             </div>
