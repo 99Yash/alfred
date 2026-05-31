@@ -226,7 +226,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         }
         const context = ctx.state.context as SkillDocumentationContext;
 
-        const email = composeSkillDocumentationEmail({
+        const email = await composeSkillDocumentationEmail({
           context,
           documentedBody: ctx.state.documented.body,
         });

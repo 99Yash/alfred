@@ -1,3 +1,5 @@
+import { serverEnv } from "@alfred/env/server";
+import { renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./context";
 
 /**
@@ -25,7 +27,10 @@ export interface SkillDocumentationEmailArgs {
   context: SkillDocumentationContext;
   /** The newly-composed v2 body (the documented revision). */
   documentedBody: string;
-  /** Optional URL the email links to as the "open in alfred" CTA. */
+  /**
+   * Origin the email links/logo are built from. Defaults to the configured
+   * web origin (`CORS_ORIGIN`), so the workflow doesn't have to thread it.
+   */
   alfredUrl?: string;
 }
 
@@ -35,21 +40,28 @@ export interface ComposedDocumentationEmail {
   text: string;
 }
 
-export function composeSkillDocumentationEmail(
+export async function composeSkillDocumentationEmail(
   args: SkillDocumentationEmailArgs,
-): ComposedDocumentationEmail {
+): Promise<ComposedDocumentationEmail> {
   const greetingName = firstName(args.context.user.name);
   const subject = `Skill documented: ${args.context.skill.name}`;
 
   const provenance = buildProvenanceLine(args.context);
   const preview = previewBody(args.documentedBody);
 
-  const skillUrl = args.alfredUrl
-    ? `${args.alfredUrl.replace(/\/+$/, "")}/skills/${args.context.skill.slug}`
-    : null;
+  const origin = (args.alfredUrl ?? serverEnv().CORS_ORIGIN).replace(/\/+$/, "");
+  const skillUrl = `${origin}/skills/${args.context.skill.slug}`;
+  // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
+  const logoUrl = `${origin}/images/logo/alfred-logo-email.png`;
 
   const text = renderText({ greetingName, provenance, preview, skillUrl });
-  const html = renderHtml({ greetingName, provenance, preview, skillUrl });
+  const html = await renderSkillDocumentationEmail({
+    greetingName,
+    provenance,
+    preview,
+    skillUrl,
+    logoUrl,
+  });
   return { subject, html, text };
 }
 
@@ -105,39 +117,19 @@ interface RenderArgs {
   greetingName: string;
   provenance: string;
   preview: string;
-  skillUrl: string | null;
+  skillUrl: string;
 }
 
 function renderText({ greetingName, provenance, preview, skillUrl }: RenderArgs): string {
-  const lines = [`Hi ${greetingName},`, "", provenance, "", `What's covered:`, "", preview, ""];
-  if (skillUrl) {
-    lines.push(`Review or edit: ${skillUrl}`);
-  } else {
-    lines.push(`Open Alfred to review or edit.`);
-  }
-  return lines.join("\n");
-}
-
-function renderHtml({ greetingName, provenance, preview, skillUrl }: RenderArgs): string {
-  const cta = skillUrl
-    ? `<p><a href="${escapeHtml(skillUrl)}" style="color:#2563eb;">Review or edit this skill →</a></p>`
-    : `<p>Open Alfred to review or edit.</p>`;
   return [
-    `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111;">`,
-    `  <p>Hi ${escapeHtml(greetingName)},</p>`,
-    `  <p>${escapeHtml(provenance)}</p>`,
-    `  <p style="margin-bottom: 4px;"><strong>What's covered:</strong></p>`,
-    `  <pre style="white-space: pre-wrap; font-family: inherit; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 14px;">${escapeHtml(preview)}</pre>`,
-    `  ${cta}`,
-    `</div>`,
+    `Hi ${greetingName},`,
+    "",
+    provenance,
+    "",
+    `What's covered:`,
+    "",
+    preview,
+    "",
+    `Review or edit: ${skillUrl}`,
   ].join("\n");
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

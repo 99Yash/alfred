@@ -408,6 +408,9 @@ importers:
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations
+      '@alfred/mailer':
+        specifier: workspace:*
+        version: link:../mailer
       '@alfred/schemas':
         specifier: workspace:*
         version: link:../schemas
