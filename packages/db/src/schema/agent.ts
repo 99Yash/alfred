@@ -110,6 +110,16 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_dedup_key_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
+    // Bounds the `emitEvent` non-terminal duplicate check (ADR-0047), which
+    // runs per inbound event (e.g. every triaged email). The partial WHERE
+    // must stay byte-identical to `hasNonTerminalEventRun`'s status predicate
+    // so the planner uses it; non-terminal runs are a small, self-draining
+    // set, so this stays a tiny lookup regardless of total agent_runs history.
+    // The jsonb source/type/eventId/reason predicates filter the matched
+    // handful in memory — no jsonb index needed.
+    index("agent_runs_active_event_idx")
+      .on(t.userId, t.workflowSlug)
+      .where(sql`${t.status} NOT IN ('completed', 'failed', 'cancelled')`),
   ],
 );
 
