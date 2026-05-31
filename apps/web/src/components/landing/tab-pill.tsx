@@ -1,16 +1,5 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
-import {
-  tabButtonId,
-  tabPanelId,
-  type TabPillOption,
-} from "~/components/landing/tab-pill-ids";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { tabButtonId, tabPanelId, type TabPillOption } from "~/components/landing/tab-pill-ids";
 import { cn } from "~/lib/utils";
 
 /**

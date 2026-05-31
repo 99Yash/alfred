@@ -6,11 +6,7 @@ import { InboxMockup } from "~/components/landing/inbox-mockup";
 import { MeetingPrepMockup } from "~/components/landing/meeting-prep-mockup";
 import { MorningBriefingPanel } from "~/components/landing/morning-briefing-panel";
 import { TabPill } from "~/components/landing/tab-pill";
-import {
-  tabButtonId,
-  tabPanelId,
-  type TabPillOption,
-} from "~/components/landing/tab-pill-ids";
+import { tabButtonId, tabPanelId, type TabPillOption } from "~/components/landing/tab-pill-ids";
 import { cn } from "~/lib/utils";
 
 type ShowcaseTab = "briefing" | "inbox" | "meetings";

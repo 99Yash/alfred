@@ -13,7 +13,14 @@
  * the staging row, which is enough to exercise the UI decision flow.
  */
 
-import { closeAgentQueue, closeConnections, closeRedis, createRun, enqueueRun, warmPool } from "@alfred/api";
+import {
+  closeAgentQueue,
+  closeConnections,
+  closeRedis,
+  createRun,
+  enqueueRun,
+  warmPool,
+} from "@alfred/api";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -39,7 +46,10 @@ async function pickGoogleUser(): Promise<{ id: string; email: string } | null> {
     .from(userTable)
     .innerJoin(integrationCredentials, eq(integrationCredentials.userId, userTable.id))
     .where(
-      and(eq(integrationCredentials.provider, "google"), eq(integrationCredentials.status, "active")),
+      and(
+        eq(integrationCredentials.provider, "google"),
+        eq(integrationCredentials.status, "active"),
+      ),
     )
     .limit(1);
   return rows[0] ?? null;
@@ -69,16 +79,18 @@ async function main(): Promise<void> {
     .delete(workflows)
     .where(and(eq(workflows.userId, target.id), eq(workflows.slug, WORKFLOW_SLUG)));
 
-  await db().insert(workflows).values({
-    userId: target.id,
-    slug: WORKFLOW_SLUG,
-    name: "QA gated staging",
-    brief: BRIEF,
-    trigger: { kind: "manual" },
-    allowedIntegrations: ["gmail"],
-    status: "active",
-    isBuiltin: false,
-  });
+  await db()
+    .insert(workflows)
+    .values({
+      userId: target.id,
+      slug: WORKFLOW_SLUG,
+      name: "QA gated staging",
+      brief: BRIEF,
+      trigger: { kind: "manual" },
+      allowedIntegrations: ["gmail"],
+      status: "active",
+      isBuiltin: false,
+    });
 
   const { runId } = await createRun({
     userId: target.id,
@@ -99,7 +111,11 @@ async function main(): Promise<void> {
     }
     if (row.status === "waiting") {
       const pending = await db()
-        .select({ id: actionStagings.id, toolName: actionStagings.toolName, riskTier: actionStagings.riskTier })
+        .select({
+          id: actionStagings.id,
+          toolName: actionStagings.toolName,
+          riskTier: actionStagings.riskTier,
+        })
         .from(actionStagings)
         .where(and(eq(actionStagings.runId, runId), eq(actionStagings.status, "pending")));
       if (pending.length > 0) {
@@ -111,7 +127,9 @@ async function main(): Promise<void> {
       }
     }
     if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      console.log(`[qa-gated-staging] run reached terminal status=${row.status} WITHOUT a gated stop.`);
+      console.log(
+        `[qa-gated-staging] run reached terminal status=${row.status} WITHOUT a gated stop.`,
+      );
       console.log(`[qa-gated-staging] output: ${JSON.stringify(row.output)}`);
       return;
     }

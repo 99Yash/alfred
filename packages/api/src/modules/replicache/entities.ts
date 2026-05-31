@@ -7,6 +7,8 @@ import {
   skills,
   userFacts,
   userPreferences,
+  workflows,
+  type AgentRunTrigger,
 } from "@alfred/db/schemas";
 import {
   IDB_KEY_NAMES,
@@ -196,9 +198,20 @@ const ENTITY_FETCHERS = {
       .select({
         staging: actionStagings,
         workflowSlug: agentRuns.workflowSlug,
+        // Display name + provenance are derived read-only fields for the card
+        // (ADR-0034 amendment 2026-05-31). `workflowName` left-joins so a
+        // deleted/builtin workflow row doesn't drop the staging — the
+        // serializer falls back to the slug.
+        workflowName: workflows.name,
+        trigger: agentRuns.trigger,
+        brief: agentRuns.brief,
       })
       .from(actionStagings)
       .innerJoin(agentRuns, eq(actionStagings.runId, agentRuns.id))
+      .leftJoin(
+        workflows,
+        and(eq(workflows.userId, agentRuns.userId), eq(workflows.slug, agentRuns.workflowSlug)),
+      )
       .where(
         and(
           eq(actionStagings.userId, userId),
@@ -211,17 +224,25 @@ const ENTITY_FETCHERS = {
     const recentRejections = await loadRecentRejectionsByTool(tx, userId, rows);
 
     return rows.flatMap(
-      (r: { staging: typeof actionStagings.$inferSelect; workflowSlug: string }) =>
+      (r: {
+        staging: typeof actionStagings.$inferSelect;
+        workflowSlug: string;
+        workflowName: string | null;
+        trigger: AgentRunTrigger | null;
+        brief: string | null;
+      }) =>
         toEntityRow({
           slug: "ACTION_STAGING",
           id: r.staging.id,
           rowVersion: r.staging.rowVersion,
           serialize: () =>
-            serializeActionStaging(
-              r.staging,
-              r.workflowSlug,
-              recentRejections.get(r.staging.toolName) ?? null,
-            ),
+            serializeActionStaging(r.staging, {
+              workflowSlug: r.workflowSlug,
+              workflowName: r.workflowName,
+              trigger: r.trigger,
+              brief: r.brief,
+              recentRejection: recentRejections.get(r.staging.toolName) ?? null,
+            }),
         }),
     );
   },
@@ -381,19 +402,55 @@ async function loadRecentRejectionsByTool(
   return byTool;
 }
 
+/** Brief preview cap on the synced card row — full text stays server-side. */
+const BRIEF_PREVIEW_CHARS = 280;
+
+/**
+ * Project the run trigger down to the display-only fields the card needs.
+ * Never forwards `eventId`/`payload`/document ids (ADR-0034 amendment).
+ */
+function narrowTrigger(trigger: AgentRunTrigger | null): {
+  kind: string;
+  source?: string;
+  type?: string;
+} {
+  if (!trigger) return { kind: "manual" };
+  const source = "source" in trigger ? trigger.source : undefined;
+  const type = "type" in trigger ? trigger.type : undefined;
+  return {
+    kind: trigger.kind,
+    ...(source ? { source } : {}),
+    ...(type ? { type } : {}),
+  };
+}
+
 function serializeActionStaging(
   s: typeof actionStagings.$inferSelect,
-  workflowSlug: string,
-  recentRejection: RecentRejection | null,
+  provenance: {
+    workflowSlug: string;
+    workflowName: string | null;
+    trigger: AgentRunTrigger | null;
+    brief: string | null;
+    recentRejection: RecentRejection | null;
+  },
 ): SyncedActionStaging {
   if (s.status !== "pending") {
     throw new Error(`[replicache] cannot sync action staging with status '${s.status}'`);
   }
+  const recentRejection = provenance.recentRejection;
+  const brief = provenance.brief
+    ? provenance.brief.length > BRIEF_PREVIEW_CHARS
+      ? `${provenance.brief.slice(0, BRIEF_PREVIEW_CHARS - 1)}…`
+      : provenance.brief
+    : null;
   return syncedActionStagingSchema.parse({
     id: s.id,
     userId: s.userId,
     runId: s.runId,
-    workflowSlug,
+    workflowSlug: provenance.workflowSlug,
+    workflowName: provenance.workflowName ?? provenance.workflowSlug,
+    trigger: narrowTrigger(provenance.trigger),
+    brief,
     stepId: s.stepId,
     toolCallId: s.toolCallId,
     toolName: s.toolName,
