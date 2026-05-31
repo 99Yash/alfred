@@ -1,0 +1,24 @@
+{
+  "name": "@alfred/video",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Remotion compositions that render Alfred's brand-matched hero clips (Open Runde, Alfred colors) to MP4.",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render MorningBriefing out/morning-briefing.mp4",
+    "render:all": "remotion render",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "catalog:"
+  }
+}

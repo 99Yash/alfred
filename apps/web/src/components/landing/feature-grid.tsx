@@ -8,7 +8,7 @@ import {
   Sun,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
 import { cn } from "~/lib/utils";
 
@@ -133,26 +133,30 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
  * Card chrome
  * ------------------------------------------------------------------- */
 
-const TONE_ACCENT: Record<CardTone, { text: string; bg: string; ring: string }> = {
+const TONE_ACCENT: Record<CardTone, { text: string; bg: string; ring: string; glow: string }> = {
   indigo: {
     text: "text-indigo-300",
     bg: "bg-indigo-400/[0.08]",
     ring: "ring-indigo-400/20",
+    glow: "rgb(129 140 248 / 0.16)",
   },
   peach: {
     text: "text-orange-300",
     bg: "bg-orange-400/[0.08]",
     ring: "ring-orange-400/20",
+    glow: "rgb(251 146 60 / 0.16)",
   },
   rose: {
     text: "text-rose-300",
     bg: "bg-rose-400/[0.08]",
     ring: "ring-rose-400/20",
+    glow: "rgb(251 113 133 / 0.16)",
   },
   emerald: {
     text: "text-emerald-300",
     bg: "bg-emerald-400/[0.08]",
     ring: "ring-emerald-400/20",
+    glow: "rgb(52 211 153 / 0.16)",
   },
 };
 
@@ -164,12 +168,22 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
       className={cn(
         "group relative isolate flex h-full flex-col overflow-hidden rounded-[20px]",
         "border border-neutral-800/80 bg-neutral-950/60",
-        "transition-colors duration-200 hover:border-neutral-700/80",
+        "transition-[border-color,translate] duration-200 hover:border-neutral-700/80",
+        // A whisper of lift on hover so the card feels liftable, not just tinted.
+        "hover:-translate-y-0.5 motion-reduce:hover:translate-y-0",
         // Subtle inner highlight so the card edge catches a hint of light,
         // matching the frosted-bezel rhythm used elsewhere on the page.
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
       )}
     >
+      {/* Tone-matched glow that warms the top edge on hover — the card's
+          accent bleeding up through the frosted surface. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-px h-32 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        style={{ background: `radial-gradient(60% 100% at 50% 0%, ${tone.glow}, transparent 72%)` }}
+      />
+
       {/* Copy block */}
       <div className="flex flex-col gap-3 p-7 sm:p-8">
         <span
@@ -240,13 +254,15 @@ function InboxRowMockup() {
       ].map((row) => (
         <div
           key={row.name}
-          className="flex items-center gap-3 rounded-xl border border-neutral-800/80 bg-neutral-900/60 px-3 py-2.5"
+          className="fg-row flex items-center gap-3 rounded-xl border border-neutral-800/80 bg-neutral-900/60 px-3 py-2.5"
         >
           <MiniAvatar initial={row.name[0] ?? "?"} tone={row.tone} />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2">
               <span className="text-[13px] font-medium text-white">{row.name}</span>
-              <MiniChip kind={row.chip === "Drafted" ? "drafted" : "archived"}>{row.chip}</MiniChip>
+              <MiniChip kind={row.chip === "Drafted" ? "drafted" : "archived"} className="fg-stamp">
+                {row.chip}
+              </MiniChip>
             </p>
             <p className="mt-0.5 truncate text-[12.5px] text-neutral-400">{row.subject}</p>
           </div>
@@ -264,7 +280,10 @@ function BriefingPillMockup() {
           Mumbai · 24°
         </span>
         <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10.5px] font-medium text-emerald-300 ring-1 ring-inset ring-emerald-400/20">
-          <span className="size-1.5 rounded-full bg-emerald-300" aria-hidden />
+          <span className="relative grid size-1.5 place-items-center" aria-hidden>
+            <span className="fg-ping absolute inset-0 rounded-full bg-emerald-300" />
+            <span className="relative size-1.5 rounded-full bg-emerald-300" />
+          </span>
           Synced 6:42 AM
         </span>
       </div>
@@ -288,7 +307,7 @@ function MeetingPrepMockupCard() {
         <span className="text-[11.5px] font-medium uppercase tracking-[0.16em] text-neutral-500">
           Design sync · 3:00 PM
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-300 ring-1 ring-inset ring-amber-400/20">
+        <span className="fg-tick ml-auto inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-300 ring-1 ring-inset ring-amber-400/20">
           In 8 min
         </span>
       </div>
@@ -298,11 +317,11 @@ function MeetingPrepMockupCard() {
         <span className="text-[13px] text-neutral-400">· Design</span>
       </div>
       <div className="space-y-1.5">
-        <p className="flex items-center gap-2 text-[12.5px] text-neutral-300">
+        <p className="fg-row flex items-center gap-2 text-[12.5px] text-neutral-300">
           <MiniChip kind="hint">On her mind</MiniChip>
           Auth migration ENG-341
         </p>
-        <p className="flex items-center gap-2 text-[12.5px] text-neutral-300">
+        <p className="fg-row flex items-center gap-2 text-[12.5px] text-neutral-300">
           <MiniChip kind="warn">Heads up</MiniChip>
           Slacked at midnight
         </p>
@@ -311,27 +330,86 @@ function MeetingPrepMockupCard() {
   );
 }
 
+/**
+ * The one mockup that earns a real sequence: a question goes out, Alfred
+ * "thinks" (typing dots), then the answer lands. Plays once when the card
+ * scrolls into view; reduced-motion users see the finished exchange up front.
+ */
 function ChatBubbleMockup() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [phase, setPhase] = useState<"idle" | "asked" | "typing" | "done">("idle");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setPhase("done");
+      return;
+    }
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        obs.disconnect();
+        setPhase("asked");
+        timers.push(setTimeout(() => setPhase("typing"), 620));
+        timers.push(setTimeout(() => setPhase("done"), 1640));
+      },
+      { threshold: 0.45 },
+    );
+    obs.observe(el);
+    return () => {
+      obs.disconnect();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
+
   return (
-    <div className="space-y-2">
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-[6px] bg-emerald-500/85 px-3.5 py-2 text-[13.5px] leading-[1.4] text-emerald-950">
-          What did Marcus end up shipping yesterday?
+    <div ref={ref} className="min-h-[104px] space-y-2">
+      {phase !== "idle" && (
+        <div className="fg-msg-in flex justify-end">
+          <div className="max-w-[80%] rounded-2xl rounded-br-[6px] bg-emerald-500/85 px-3.5 py-2 text-[13.5px] leading-[1.4] text-emerald-950">
+            What did Marcus end up shipping yesterday?
+          </div>
         </div>
-      </div>
-      <div className="flex items-start gap-2">
-        <span className="mt-1 grid size-6 shrink-0 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
-          A
-        </span>
-        <div className="max-w-[80%] rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 px-3.5 py-2 text-[13.5px] leading-[1.4] text-neutral-200">
-          The checkout webhook fix in <MiniPill tone="violet">#Eng</MiniPill>. Three customers
-          refunded.
+      )}
+
+      {phase === "typing" && (
+        <div className="fg-msg-in flex items-end gap-2">
+          <img
+            src="/images/logo/alfred-logo.svg"
+            alt="Alfred"
+            className="size-6 shrink-0 rounded-[7px]"
+          />
+          <div className="flex items-center gap-1 rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 px-3 py-3">
+            <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
+            <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
+            <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
+          </div>
         </div>
-      </div>
-      <p className="ml-8 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-neutral-500">
-        <MessagesSquare className="size-3" strokeWidth={2} />
-        iMessage · Slack · Web · CLI
-      </p>
+      )}
+
+      {phase === "done" && (
+        <>
+          <div className="fg-msg-in flex items-start gap-2">
+            <img
+              src="/images/logo/alfred-logo.svg"
+              alt="Alfred"
+              className="mt-1 size-6 shrink-0 rounded-[7px]"
+            />
+            <div className="max-w-[80%] rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 px-3.5 py-2 text-[13.5px] leading-[1.4] text-neutral-200">
+              The checkout webhook fix in <MiniPill tone="violet">#Eng</MiniPill>. Three customers
+              refunded.
+            </div>
+          </div>
+          <p className="fg-msg-in ml-8 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-neutral-500">
+            <MessagesSquare className="size-3" strokeWidth={2} />
+            iMessage · Slack · Web · CLI
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -367,9 +445,11 @@ function MiniAvatar({ initial, tone }: { initial: string; tone: MiniAvatarTone }
 function MiniChip({
   children,
   kind,
+  className,
 }: {
   children: ReactNode;
   kind: "drafted" | "archived" | "hint" | "warn";
+  className?: string;
 }) {
   const styles: Record<typeof kind, string> = {
     drafted: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
@@ -384,6 +464,7 @@ function MiniChip({
         "text-[10px] font-semibold uppercase tracking-[0.1em]",
         "ring-1 ring-inset",
         styles[kind],
+        className,
       )}
     >
       {children}
