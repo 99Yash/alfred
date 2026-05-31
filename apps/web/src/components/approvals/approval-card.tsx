@@ -36,14 +36,13 @@ export function ApprovalCard({
     () => draftText.trim() !== formatJson(staging.proposedInput).trim(),
     [draftText, staging.proposedInput],
   );
+  const displayInput = edited && draft.ok ? draft.value : staging.proposedInput;
   const reasonMissing = reason.trim().length === 0;
   const title = useMemo(
-    () => cardTitle(staging.toolName, staging.proposedInput),
-    [staging.toolName, staging.proposedInput],
+    () => cardTitle(staging.toolName, displayInput),
+    [staging.toolName, displayInput],
   );
 
-  // Focus the reason field the moment it reveals, so the keyboard lands where
-  // the user is looking.
   useEffect(() => {
     if (showReason) reasonRef.current?.focus();
   }, [showReason]);
@@ -63,8 +62,7 @@ export function ApprovalCard({
   };
 
   return (
-    <VsCard className="vs-card-in space-y-4">
-      {/* Header — provider mark, humanized action, provenance. */}
+    <VsCard className="space-y-4">
       <div className="flex items-start gap-3">
         <ToolIcon integration={staging.integration} />
         <div className="min-w-0 flex-1">
@@ -121,11 +119,10 @@ export function ApprovalCard({
         </div>
       ) : null}
 
-      <InputRenderer toolName={staging.toolName} input={staging.proposedInput} />
+      <InputRenderer toolName={staging.toolName} input={displayInput} />
 
-      {/* Progressive disclosure — the raw JSON editor only when asked for. */}
       {editing ? (
-        <div className="vs-card-in">
+        <div>
           <label
             htmlFor={`vs-approval-input-${staging.id}`}
             className="text-xs font-medium text-vs-fg-3"
@@ -147,9 +144,8 @@ export function ApprovalCard({
         </div>
       ) : null}
 
-      {/* Progressive disclosure — the reason composer reveals on Reject. */}
       {showReason ? (
-        <div className="vs-card-in space-y-2">
+        <div className="space-y-2">
           <label
             htmlFor={`vs-approval-reason-${staging.id}`}
             className="text-xs font-medium text-vs-fg-3"
@@ -195,7 +191,6 @@ export function ApprovalCard({
 
       {error ? <p className="text-[12px] text-vs-red-4">{error}</p> : null}
 
-      {/* Action tier — Edit (quiet) · Reject (secondary) · Approve (primary). */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <VsButton
           variant="ghost"

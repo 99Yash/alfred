@@ -83,5 +83,8 @@ export const actionStagings = pgTable(
     index("action_stagings_rejected_retry_idx")
       .on(t.runId, t.toolName, t.proposedInputHash)
       .where(sql`${t.status} = 'rejected'`),
+    index("action_stagings_recent_rejections_idx")
+      .on(t.userId, t.toolName, t.decidedAt.desc())
+      .where(sql`${t.status} = 'rejected'`),
   ],
 );

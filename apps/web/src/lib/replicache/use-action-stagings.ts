@@ -1,13 +1,16 @@
 import { IDB_KEY, syncedActionStagingSchema, type SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
-import { useReplicache } from "./context";
+import { useReplicacheStatus } from "./context";
 
 export interface ActionStagingsState {
   /** Pending approvals, newest first. Empty while loading. */
   rows: SyncedActionStaging[];
   /** True until the first subscription result lands. */
   loading: boolean;
+  /** Replicache client load failure, if sync could not start. */
+  error: string | null;
+  retry: () => void;
 }
 
 /**
@@ -20,7 +23,7 @@ export interface ActionStagingsState {
  * row should never take the whole queue down.
  */
 export function useActionStagings(): ActionStagingsState {
-  const rep = useReplicache();
+  const { rep, loadError, retry } = useReplicacheStatus();
   const [rows, setRows] = useState<SyncedActionStaging[] | null>(null);
 
   useEffect(() => {
@@ -44,5 +47,5 @@ export function useActionStagings(): ActionStagingsState {
     );
   }, [rep]);
 
-  return { rows: rows ?? [], loading: rows === null };
+  return { rows: rows ?? [], loading: rows === null && !loadError, error: loadError, retry };
 }

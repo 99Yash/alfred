@@ -31,3 +31,21 @@ createRoot(rootEl).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+scheduleObservabilityInit();
+
+function scheduleObservabilityInit() {
+  const load = () =>
+    void import("./lib/observability")
+      .then(({ initObservability }) => {
+        initObservability();
+      })
+      .catch(() => {});
+
+  const requestIdle = window.requestIdleCallback;
+  if (typeof requestIdle === "function") {
+    requestIdle(load, { timeout: 2_000 });
+    return;
+  }
+  globalThis.setTimeout(load, 1_000);
+}
