@@ -260,15 +260,19 @@ function emailLogoUrl(): string {
 }
 
 function summarizeInput(input: unknown): Array<{ label: string; value: string }> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+  if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
-  const entries = Object.entries(input as Record<string, unknown>).slice(0, 8);
+  const entries = Object.entries(input).slice(0, 8);
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
   return entries.map(([key, value]) => ({
     label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
   }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function formatValue(value: unknown): string {

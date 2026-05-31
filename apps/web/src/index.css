@@ -1376,6 +1376,82 @@
     }
   }
 
+  /* `moon-glow` — the landing statement's signature delight. A soft indigo
+   * halo breathes behind the "never sleeps" Moon icon: slow (5s), low-contrast,
+   * never demanding attention. Echoes Dimension's night time-of-day theme.
+   * The icon itself sits above the halo via the negative-z pseudo + `isolate`. */
+  .moon-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .moon-glow::before {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(165 180 252 / 0.6), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.3;
+    animation: moon-breathe 5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes moon-breathe {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.65;
+      transform: scale(1.12);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .moon-glow::before {
+      animation: none;
+      opacity: 0.4;
+      transform: none;
+    }
+  }
+
+  /* `footnote-glow` — the hero asterisk that points at the access notice.
+   * Amber-tinted to match its destination, with a slow (3.5s) halo breathing
+   * behind it so the eye catches the footnote without it shouting over the CTA.
+   * Pseudo sits behind the glyph via negative-z + `isolate`. */
+  .footnote-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .footnote-glow::before {
+    content: "";
+    position: absolute;
+    inset: -5px -4px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(251 191 36 / 0.55), transparent 68%);
+    filter: blur(3px);
+    opacity: 0.2;
+    animation: footnote-breathe 3.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes footnote-breathe {
+    0%,
+    100% {
+      opacity: 0.15;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.15);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .footnote-glow::before {
+      animation: none;
+      opacity: 0.35;
+      transform: none;
+    }
+  }
+
   /* Hero atmospheric backdrop — Dimension's exact three-stop sky gradient
    * (#4867AF → #9CAFB8 via 62% → #C49577). Base layer that always paints;
    * the day/evening/night layers below crossfade ON TOP via scroll progress. */

@@ -1,11 +1,13 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import { type ReactNode } from "react";
 import {
+  AccessNotice,
   FadeInOnScroll,
   FloatingPillNav,
   FrostButton,
   LandingCtaSection,
   LandingFooter,
+  LandingStatement,
 } from "~/components/landing";
 import { BenefitsRow } from "~/components/landing/benefits-row";
 import { FeatureGrid } from "~/components/landing/feature-grid";
@@ -58,6 +60,10 @@ export function LandingPage({
         </FadeInOnScroll>
 
         <FeatureGrid className="mt-28 sm:mt-36" />
+
+        <LandingStatement className="mt-32 sm:mt-44" />
+
+        <AccessNotice className="mt-24 sm:mt-32" />
 
         <LandingCtaSection onGetStarted={goToLogin} />
       </div>
@@ -137,8 +143,16 @@ function Hero({
 
       <FadeInOnScroll delay={140}>
         <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
-          Alfred connects to your email, calendar, and tools to triage your inbox, brief you each
-          morning, and prepare you for every meeting, quietly, in the background.
+          Alfred connects to your email
+          <a
+            href="#access"
+            aria-label="A note on Gmail access and app verification"
+            className="footnote-glow align-super text-[0.7em] font-semibold text-amber-300/90 transition-colors hover:text-amber-200"
+          >
+            *
+          </a>
+          , calendar, and tools to triage your inbox, brief you each morning, and prepare you for
+          every meeting, quietly, in the background.
         </p>
       </FadeInOnScroll>
 
