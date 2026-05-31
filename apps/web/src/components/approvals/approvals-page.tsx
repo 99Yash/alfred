@@ -61,7 +61,7 @@ function buildFacets<T extends string>(
  * params so a filtered view is shareable and survives reload.
  */
 export function ApprovalsPage() {
-  const { rows, loading } = useActionStagings();
+  const { rows, loading, error, retry } = useActionStagings();
   const { integration: selIntegration = [], risk: selRisk = [] } = useSearch({
     from: "/approvals",
   });
@@ -100,11 +100,30 @@ export function ApprovalsPage() {
   const filtering = selIntegration.length > 0 || selRisk.length > 0;
   const filterKey = `${selIntegration.join(",")}|${selRisk.join(",")}`;
 
-  // Reset the window whenever the active filter changes — a narrower view
-  // shouldn't inherit a wide scroll position.
   useEffect(() => {
     setVisible(WINDOW);
   }, [filterKey]);
+
+  useEffect(() => {
+    if (loading) return;
+    const targetId = approvalIdFromHash();
+    if (!targetId) return;
+
+    const targetIndex = filtered.findIndex((row) => row.id === targetId);
+    if (targetIndex === -1) return;
+    if (targetIndex >= visible) {
+      setVisible(targetIndex + 1);
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(approvalElementId(targetId))?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filtered, loading, visible]);
 
   const toggle = (facet: "integration" | "risk", value: string) => {
     const current = facet === "integration" ? selIntegration : selRisk;
@@ -206,6 +225,16 @@ export function ApprovalsPage() {
             <Loader2 size={16} className="animate-spin" />
             Loading approvals…
           </VsCard>
+        ) : error ? (
+          <EmptyState
+            title="Approvals sync did not load"
+            body={error}
+            action={
+              <VsButton variant="white" size="sm" onClick={retry}>
+                Retry sync
+              </VsButton>
+            }
+          />
         ) : rows.length === 0 ? (
           <EmptyState
             title="No pending approvals"
@@ -225,8 +254,9 @@ export function ApprovalsPage() {
           <div className="flex flex-col gap-3">
             {windowed.map((staging, i) => (
               <div
+                id={approvalElementId(staging.id)}
                 key={staging.id}
-                className="vs-card-in"
+                className="vs-card-in scroll-mt-6"
                 style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
               >
                 <ApprovalCard
@@ -247,6 +277,20 @@ export function ApprovalsPage() {
       </main>
     </div>
   );
+}
+
+function approvalIdFromHash(): string | null {
+  const prefix = "#approval-";
+  if (typeof window === "undefined" || !window.location.hash.startsWith(prefix)) return null;
+  try {
+    return decodeURIComponent(window.location.hash.slice(prefix.length));
+  } catch {
+    return null;
+  }
+}
+
+function approvalElementId(stagingId: string): string {
+  return `approval-${stagingId}`;
 }
 
 function FacetGroup({ children }: { children: React.ReactNode }) {

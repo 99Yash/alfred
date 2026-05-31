@@ -1,29 +1,42 @@
-import { createContext, use, useEffect, useState } from "react";
+import { createContext, use, useEffect, useMemo, useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import type { AlfredReplicache } from "./client";
 
-const ReplicacheContext = createContext<AlfredReplicache | null>(null);
+interface ReplicacheContextValue {
+  rep: AlfredReplicache | null;
+  loadError: string | null;
+  retry: () => void;
+}
+
+const ReplicacheContext = createContext<ReplicacheContextValue>({
+  rep: null,
+  loadError: null,
+  retry: () => {},
+});
 
 export function ReplicacheProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
   const [rep, setRep] = useState<AlfredReplicache | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const contextValue = useMemo<ReplicacheContextValue>(
+    () => ({ rep, loadError, retry: () => setRetryNonce((nonce) => nonce + 1) }),
+    [loadError, rep],
+  );
 
   useEffect(() => {
-    if (!userId) return;
-    // Dynamically import the client so the Replicache library stays out of the
-    // entry chunk — logged-out visitors (e.g. the landing page) never fetch it.
+    if (!userId) {
+      setRep(null);
+      setLoadError(null);
+      return;
+    }
     let cancelled = false;
     let close: (() => void) | undefined;
 
-    // The chunk load can fail (flaky network, CDN outage, stale hash after a
-    // deploy). Without a catch that's an unhandled rejection and `rep` stays
-    // null forever with no recovery until a manual reload. Retry transient
-    // failures with backoff; log loudly if it never loads. `createReplicache`
-    // is synchronous, so the instance-create + close-capture below stays
-    // atomic w.r.t. the cleanup (no leak window).
     const MAX_ATTEMPTS = 3;
     const load = async () => {
+      setLoadError(null);
       for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
         try {
           const { createReplicache } = await import("./client");
@@ -35,9 +48,10 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
         } catch (err) {
           if (cancelled) return;
           if (attempt === MAX_ATTEMPTS) {
-            console.error(
-              "[replicache] failed to load client; sync disabled until reload",
-              err,
+            setLoadError(
+              err instanceof Error
+                ? `Sync client failed to load: ${err.message}`
+                : "Sync client failed to load.",
             );
             return;
           }
@@ -52,9 +66,9 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       setRep(null);
       close?.();
     };
-  }, [userId]);
+  }, [userId, retryNonce]);
 
-  return <ReplicacheContext.Provider value={rep}>{children}</ReplicacheContext.Provider>;
+  return <ReplicacheContext.Provider value={contextValue}>{children}</ReplicacheContext.Provider>;
 }
 
 /**
@@ -62,5 +76,9 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
  * is (re)initializing. Subscription hooks must treat `null` as "not ready".
  */
 export function useReplicache(): AlfredReplicache | null {
+  return use(ReplicacheContext).rep;
+}
+
+export function useReplicacheStatus(): ReplicacheContextValue {
   return use(ReplicacheContext);
 }

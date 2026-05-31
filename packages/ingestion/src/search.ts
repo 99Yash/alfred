@@ -1,4 +1,4 @@
-import { embed } from "@alfred/ai/embeddings";
+import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
@@ -16,6 +16,11 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
  */
 export interface SearchArgs {
   query: string;
+  /**
+   * Precomputed query embedding. Use this when several retrieval surfaces
+   * share one query so callers do not double-bill the embedding API.
+   */
+  queryEmbedding?: number[];
   userId: string;
   /** Restrict to a particular source (`gmail`, `slack`, …). */
   source?: string;
@@ -42,11 +47,14 @@ export interface SearchHit {
 
 export async function semanticSearch(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
-  const queryVec = await embed(args.query, {
-    inputType: "query",
-    userId: args.userId,
-    idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
-  });
+  const queryVec =
+    args.queryEmbedding ??
+    (await embed(args.query, {
+      inputType: "query",
+      userId: args.userId,
+      idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
+    }));
+  assertQueryEmbedding(queryVec);
   // Match the DB vector adapter: pgvector stores float32, so avoid
   // sending float64-precision text for query literals too.
   const vectorLiteral = formatVectorFloat32(queryVec);
@@ -115,6 +123,12 @@ function hashQuery(q: string): string {
   let h = 0;
   for (let i = 0; i < q.length; i++) h = ((h << 5) - h + q.charCodeAt(i)) | 0;
   return Math.abs(h).toString(36);
+}
+
+function assertQueryEmbedding(v: number[]): void {
+  if (v.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(`[semantic-search] expected ${EMBEDDING_DIMENSIONS}-dim query embedding`);
+  }
 }
 
 // Re-export desc for callers that build their own queries.

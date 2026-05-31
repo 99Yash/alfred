@@ -40,6 +40,8 @@ export interface EmbedOptions extends CallAttribution {
   dimensions?: number;
   /** Forwarded to `metered()` for cost attribution + Langfuse spans. */
   idempotencyKey?: string;
+  /** Forwarded to the underlying fetch call. */
+  abortSignal?: AbortSignal;
 }
 
 interface VoyageEmbeddingResponse {
@@ -78,6 +80,7 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
     async () => {
       const res = await fetch(VOYAGE_API_BASE, {
         method: "POST",
+        signal: opts.abortSignal,
         headers: {
           Authorization: `Bearer ${env.VOYAGE_API_KEY}`,
           "Content-Type": "application/json",

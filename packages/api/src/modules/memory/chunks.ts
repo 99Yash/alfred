@@ -1,4 +1,4 @@
-import { embed } from "@alfred/ai/embeddings";
+import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks } from "@alfred/db/schemas";
@@ -134,6 +134,11 @@ export async function findPendingEmbedChunks(
 export interface RecallMemoryArgs {
   userId: string;
   query: string;
+  /**
+   * Precomputed query embedding. Use this when recall is paired with other
+   * retrieval over the same query to avoid duplicate embedding calls.
+   */
+  queryEmbedding?: number[];
   /** Restrict to a kind (`thread_summary`, …). Default any. */
   kind?: MemoryChunkKind;
   /** Top-K. Default 10. */
@@ -159,11 +164,14 @@ export interface RecallMemoryHit {
  */
 export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemoryHit[]> {
   const limit = args.limit ?? 10;
-  const queryVec = await embed(args.query, {
-    inputType: "query",
-    userId: args.userId,
-    idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
-  });
+  const queryVec =
+    args.queryEmbedding ??
+    (await embed(args.query, {
+      inputType: "query",
+      userId: args.userId,
+      idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
+    }));
+  assertQueryEmbedding(queryVec);
   const vectorLiteral = formatVectorFloat32(queryVec);
   // Pull a wider pool from the approximate halfvec index, then rerank with
   // the full-precision vector distance below.
@@ -215,4 +223,10 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     similarity: 1 - Number(r.distance),
     source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.chunkId}`),
   }));
+}
+
+function assertQueryEmbedding(v: number[]): void {
+  if (v.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(`[memory.recall] expected ${EMBEDDING_DIMENSIONS}-dim query embedding`);
+  }
 }
