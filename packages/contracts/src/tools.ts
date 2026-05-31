@@ -123,6 +123,43 @@ export function hashToolInput(toolName: ToolName, input: unknown): string {
   return `fnv1a64:${fnv1a64(`${toolName}:${canonicalJson(input)}`)}`;
 }
 
+/**
+ * Title-case a snake/underscore slug for display: `send_draft` → `Send Draft`.
+ * Shared so the email worker and the approvals card never drift.
+ */
+export function humanizeSlug(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/**
+ * Human phrase for "what does this tool do", in the imperative so it reads
+ * after "Alfred wants to …" (email subject) and as a card title. Special
+ * cases for the small known surface; everything else falls back to a generic
+ * `${action} in ${integration}` phrasing. Pure + zero-dep so both the server
+ * notification worker and the web approvals card import the one source.
+ */
+export function humanizeToolName(toolName: string): string {
+  const separator = toolName.indexOf(".");
+  const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
+  const action = separator > 0 ? toolName.slice(separator + 1) : "";
+  switch (`${integration}.${action}`) {
+    case "gmail.send_draft":
+      return "send a Gmail draft";
+    case "gmail.search":
+      return "search Gmail";
+    case "gmail.read_message":
+      return "read a Gmail message";
+    case "calendar.create_event":
+      return "create a calendar event";
+    case "calendar.list_events":
+      return "list calendar events";
+    default:
+      return action
+        ? `${humanizeSlug(action)} in ${humanizeSlug(integration)}`
+        : humanizeSlug(integration);
+  }
+}
+
 function canonicalJson(value: unknown): string {
   return stringifyCanonical(value, new WeakSet<object>());
 }

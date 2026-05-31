@@ -347,7 +347,9 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
     const allowedIntegrations = readAllowedIntegrations(input.metadata);
     const eventSeed =
-      input.trigger.kind === "event" && input.trigger.source && isIntegrationSlug(input.trigger.source)
+      input.trigger.kind === "event" &&
+      input.trigger.source &&
+      isIntegrationSlug(input.trigger.source)
         ? [input.trigger.source]
         : [];
     return {

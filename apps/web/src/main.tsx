@@ -6,19 +6,6 @@ import { ReplicacheProvider } from "./lib/replicache/context";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
 
-// Sentry (incl. the rrweb session-replay recorder) and PostHog are ~200KB gzip
-// of analytics that nothing needs before first paint. Dynamically import and
-// init them once the browser is idle so they leave the entry chunk and never
-// block the initial render.
-function deferObservability() {
-  void import("./lib/observability").then((m) => m.initObservability());
-}
-if (typeof requestIdleCallback === "function") {
-  requestIdleCallback(deferObservability);
-} else {
-  setTimeout(deferObservability, 1);
-}
-
 const queryClient = new QueryClient();
 
 const router = createRouter({

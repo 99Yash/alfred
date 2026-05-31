@@ -15,12 +15,38 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     // entry chunk — logged-out visitors (e.g. the landing page) never fetch it.
     let cancelled = false;
     let close: (() => void) | undefined;
-    void import("./client").then(({ createReplicache }) => {
-      if (cancelled) return;
-      const instance = createReplicache(userId);
-      close = instance.close;
-      setRep(instance.rep);
-    });
+
+    // The chunk load can fail (flaky network, CDN outage, stale hash after a
+    // deploy). Without a catch that's an unhandled rejection and `rep` stays
+    // null forever with no recovery until a manual reload. Retry transient
+    // failures with backoff; log loudly if it never loads. `createReplicache`
+    // is synchronous, so the instance-create + close-capture below stays
+    // atomic w.r.t. the cleanup (no leak window).
+    const MAX_ATTEMPTS = 3;
+    const load = async () => {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
+        try {
+          const { createReplicache } = await import("./client");
+          if (cancelled) return;
+          const instance = createReplicache(userId);
+          close = instance.close;
+          setRep(instance.rep);
+          return;
+        } catch (err) {
+          if (cancelled) return;
+          if (attempt === MAX_ATTEMPTS) {
+            console.error(
+              "[replicache] failed to load client; sync disabled until reload",
+              err,
+            );
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+      }
+    };
+    void load();
+
     return () => {
       cancelled = true;
       setRep(null);
