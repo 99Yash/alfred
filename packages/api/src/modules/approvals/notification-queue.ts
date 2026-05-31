@@ -1,3 +1,4 @@
+import { humanizeSlug, humanizeToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -259,21 +260,6 @@ function approvalDeepLink(stagingId: string): string {
   return `${origin}/approvals#approval-${encodeURIComponent(stagingId)}`;
 }
 
-function humanizeToolName(toolName: string): string {
-  const [integration, action] = toolName.split(".");
-  const cleanIntegration = humanize(integration ?? "tool");
-  const cleanAction = humanize(action ?? toolName);
-  if (integration === "gmail" && action === "send_draft") return "send a Gmail draft";
-  if (integration === "gmail" && action === "search") return "search Gmail";
-  if (integration === "calendar" && action === "create_event") return "create a calendar event";
-  if (integration === "calendar" && action === "list_events") return "list calendar events";
-  return `${cleanAction} in ${cleanIntegration}`;
-}
-
-function humanize(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
 function summarizeInput(input: unknown): Array<{ label: string; value: string }> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
@@ -281,7 +267,7 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
   const entries = Object.entries(input as Record<string, unknown>).slice(0, 8);
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
   return entries.map(([key, value]) => ({
-    label: humanize(key),
+    label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
   }));
 }

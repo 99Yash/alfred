@@ -100,6 +100,20 @@ export const syncedActionStagingSchema = z.object({
   userId: z.string(),
   runId: z.string(),
   workflowSlug: z.string(),
+  /** Display name from `workflows.name`; falls back to the slug. */
+  workflowName: z.string(),
+  /**
+   * Narrowed, display-only projection of `agent_runs.trigger` — enough for the
+   * card to say "Run now" vs "Triggered by Gmail message". Never the raw
+   * payload or document ids (ADR-0034 amendment 2026-05-31).
+   */
+  trigger: z.object({
+    kind: z.string(),
+    source: z.string().nullish(),
+    type: z.string().nullish(),
+  }),
+  /** Server-truncated (~280c) preview of the run's brief, for provenance. */
+  brief: z.string().nullable(),
   stepId: z.string(),
   toolCallId: z.string(),
   toolName: toolNameSchema,

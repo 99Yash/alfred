@@ -2,15 +2,22 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { LandingPage } from "~/components/landing/landing-page";
 import { authClient } from "~/lib/auth-client";
+import { readAuthHint } from "~/lib/auth-hint";
+import { useHealth } from "~/lib/use-health";
 
 /**
  * Root index — `/`.
  *
- * Authed visitors bounce to `/chat`; unauthed visitors see the marketing
- * landing in place at `/`. `/login` is reachable but no longer the default
- * for signed-out visitors. While `useSession()` resolves we render nothing
- * to avoid a one-frame flash of the landing for users who are about to be
- * routed to `/chat`.
+ * Unauthed visitors see the marketing landing in place at `/`; authed visitors
+ * bounce to `/chat`. We never block first paint on the `useSession()`
+ * round-trip — that would penalise every (overwhelmingly logged-out) marketing
+ * visitor. Instead, for the first frame before the session resolves, we trust a
+ * synchronous localStorage hint of the last known auth state:
+ *   • no hint / signed-out  → paint the landing immediately (fast FCP, no flash)
+ *   • signed-in             → hold a blank frame for the `/chat` redirect
+ *                             (no flash of the marketing page)
+ * A stale hint only ever costs a one-frame flash or a brief blank, and the
+ * resolved session immediately corrects course. See `lib/auth-hint`.
  */
 export const Route = createFileRoute("/")({
   component: IndexRoute,
@@ -19,13 +26,17 @@ export const Route = createFileRoute("/")({
 function IndexRoute() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
+  const isAuthed = !!session?.user;
+  const { healthOk, healthLoading } = useHealth();
 
   useEffect(() => {
-    if (isPending) return;
-    if (!session?.user) return;
-    void navigate({ to: "/chat", replace: true });
-  }, [isPending, session?.user, navigate]);
+    if (isAuthed) void navigate({ to: "/chat", replace: true });
+  }, [isAuthed, navigate]);
 
-  if (isPending || session?.user) return null;
-  return <LandingPage healthOk={true} healthLoading={false} />;
+  // Confirmed authed → redirect is in flight, render nothing.
+  if (isAuthed) return null;
+  // Session not yet resolved → defer to the hint to avoid flashing the landing
+  // at a returning signed-in user before the redirect fires.
+  if (isPending && readAuthHint()) return null;
+  return <LandingPage healthOk={healthOk} healthLoading={healthLoading} />;
 }

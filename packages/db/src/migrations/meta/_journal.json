@@ -176,6 +176,13 @@
       "when": 1780108867887,
       "tag": "0024_rename_briefing_body_markdown",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780195490297,
+      "tag": "0025_abnormal_galactus",
+      "breakpoints": true
     }
   ]
 }

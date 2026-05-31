@@ -116,7 +116,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             });
             const conflict = cancelOutcomeConflict(cancelOutcome);
             if (conflict) return { conflict };
-            return { runId: row.runId, decision, status: "rejected", shouldEnqueue, rejectedStagingIds };
+            return {
+              runId: row.runId,
+              decision,
+              status: "rejected",
+              shouldEnqueue,
+              rejectedStagingIds,
+            };
           } else {
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
@@ -150,7 +156,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         // A `cancel_run` bulk-rejects every gated pending row on the run,
         // not just this one; tear down the queued jobs for all of them so
         // none linger as ghost jobs that fire later and no-op.
-        const stagingIdsToClear = new Set<string>([params.stagingId, ...(outcome.rejectedStagingIds ?? [])]);
+        const stagingIdsToClear = new Set<string>([
+          params.stagingId,
+          ...(outcome.rejectedStagingIds ?? []),
+        ]);
         for (const id of stagingIdsToClear) {
           await removeApprovalNotificationJob(id);
           await removeApprovalExpiryJob(id);

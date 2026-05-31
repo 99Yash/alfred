@@ -69,10 +69,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
   await Promise.all(
     rows.map(async (row) => {
       try {
-        if (
-          row.allowedIntegrations.length > 0 &&
-          !row.allowedIntegrations.includes(args.source)
-        ) {
+        if (row.allowedIntegrations.length > 0 && !row.allowedIntegrations.includes(args.source)) {
           result.skippedNotAllowed++;
           console.warn(
             `[workflows:event] skipping workflow=${row.slug}: source=${args.source} outside allowed_integrations`,

@@ -1,3 +1,4 @@
+import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
 import { semanticSearch, type SearchHit } from "@alfred/ingestion";
@@ -98,16 +99,27 @@ export async function collectSkillDocumentationContext(args: {
 
   // Both searches use the v1 body verbatim as the query. Distill produced
   // it specifically as the canonical statement of the skill's intent.
+  //
+  // Compute the embedding once before fan-out. The document and memory
+  // lookups are independent DB reads, but the embedding API call is
+  // billable and should not be duplicated inside Promise.all.
+  const queryEmbedding = await embed(revRow.body, {
+    inputType: "query",
+    userId,
+    idempotencyKey: `skill-doc-context:${userId}:${skillRow.id}:${skillRow.currentRevisionId}`,
+  });
   const [documentHits, memoryHits] = await Promise.all([
     semanticSearch({
       query: revRow.body,
       userId,
       limit: CHUNK_HIT_LIMIT,
+      queryEmbedding,
     }),
     recallMemory({
       query: revRow.body,
       userId,
       limit: MEMORY_HIT_LIMIT,
+      queryEmbedding,
     }),
   ]);
 
