@@ -151,8 +151,8 @@ function Hero({
           >
             *
           </a>
-          , calendar, and tools to triage your inbox, brief you each morning, and prepare you for
-          every meeting, quietly, in the background.
+          , calendar, GitHub, and the tools you work in. It triages your inbox, briefs you each
+          morning, and preps you for every meeting. Quietly. In the background.
         </p>
       </FadeInOnScroll>
 

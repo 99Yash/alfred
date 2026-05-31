@@ -45,7 +45,7 @@ export function AuthPanel() {
           <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">
             Sign in to Alfred
           </h1>
-          <p className="text-sm text-vs-fg-2">Your personal assistant, on email and calendar.</p>
+          <p className="text-sm text-vs-fg-2">One private workspace for the work around you.</p>
         </div>
 
         <VsButton
@@ -67,7 +67,7 @@ export function AuthPanel() {
         ) : null}
 
         <p className="text-center text-[11px] text-vs-fg-2">
-          Alfred is private to you. Only the allowlisted Google account can sign in.
+          Alfred only signs in with your allowlisted Google account.
         </p>
       </div>
     </div>

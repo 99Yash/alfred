@@ -13,7 +13,7 @@ export function MeetingPrepMockup({ className, active }: { className?: string; a
   return (
     <ShowcaseVideo
       src="/videos/landing/meeting.mp4"
-      label="Alfred's pre-meeting brief for a 1:1 with Anika: the meeting agenda with her brief sliding in — what's on her mind, what's worth bringing up, and what to watch out for."
+      label="Alfred's pre-meeting brief for a 1:1 with Anika: the meeting agenda with her brief sliding in. What's on her mind, what's worth bringing up, and what to watch out for."
       className={className}
       active={active}
     />

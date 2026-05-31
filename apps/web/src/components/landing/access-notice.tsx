@@ -44,14 +44,14 @@ export function AccessNotice({ className }: { className?: string }) {
               </h3>
 
               <p className="text-pretty text-[14.5px] leading-[1.6] text-neutral-400 sm:text-[15px]">
-                To tag your inbox, Alfred reads your email — through the same
-                restricted Gmail scopes Google reserves for serious products.
-                The verified badge for those scopes takes a CASA security audit,
-                billed{' '}
+                To work across your inbox, Alfred reads your email through the
+                same restricted Gmail scopes Google reserves for serious
+                products. The verified badge for those scopes takes a CASA
+                security audit, billed{' '}
                 <em className="not-italic text-neutral-300">
                   every single year
-                </em>{' '}
-                — hard to justify for a project of one. So Google greets you
+                </em>
+                . Hard to justify for a project of one. So Google greets you
                 with an “unverified app” screen on the way in. The access is
                 real. Only the badge is missing.
               </p>
