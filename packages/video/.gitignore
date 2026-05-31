@@ -1,0 +1,4 @@
+# Rendered clips and verification frames — regenerate with `pnpm render`.
+out/
+# Remotion bundle cache
+.remotion/

@@ -2,6 +2,7 @@ import { humanizeSlug, humanizeToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
+import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
@@ -142,7 +143,7 @@ async function processApprovalNotificationJob(
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
   const approvalUrl = approvalDeepLink(stagingId);
-  const rendered = renderApprovalNotification({
+  const rendered = await renderApprovalNotification({
     stagingId,
     runId: row.runId,
     stepId: row.stepId,
@@ -206,70 +207,72 @@ interface RenderApprovalNotificationArgs {
   approvalUrl: string;
 }
 
-function renderApprovalNotification(args: RenderApprovalNotificationArgs): {
+async function renderApprovalNotification(args: RenderApprovalNotificationArgs): Promise<{
   subject: string;
   html: string;
   text: string;
-} {
+}> {
   const action = humanizeToolName(args.toolName);
-  const subject = `[${args.riskTier}] Alfred wants to ${action}`;
-  const fields = summarizeInput(args.proposedInput);
+  const heading = `Alfred wants to ${action}`;
+  const subject = `[${args.riskTier}] ${heading}`;
+  const inputFields = summarizeInput(args.proposedInput);
+  // Workflow / Tool / Risk lead the table, then the summarized input fields.
+  const fields: ApprovalEmailField[] = [
+    { label: "Workflow", value: args.workflowSlug },
+    { label: "Tool", value: args.toolName },
+    { label: "Risk", value: args.riskTier },
+    ...inputFields,
+  ];
   const textLines = [
     subject,
     "",
-    `Workflow: ${args.workflowSlug}`,
-    `Tool: ${args.toolName}`,
-    `Risk: ${args.riskTier}`,
+    ...fields.map((f) => `${f.label}: ${f.value}`),
     `Run: ${args.runId}`,
     `Step: ${args.stepId}`,
-    "",
-    "Key fields:",
-    ...fields.map((f) => `- ${f.label}: ${f.value}`),
     "",
     `Review: ${args.approvalUrl}`,
   ];
 
-  const htmlFields = fields
-    .map(
-      (f) =>
-        `<tr><th align="left" style="padding:6px 12px 6px 0;color:#6b7280;font-weight:500;">${escapeHtml(f.label)}</th><td style="padding:6px 0;color:#111827;">${escapeHtml(f.value)}</td></tr>`,
-    )
-    .join("");
-  const html = `
-    <div style="font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.5;color:#111827;">
-      <h1 style="font-size:18px;margin:0 0 12px;">${escapeHtml(subject)}</h1>
-      <p style="margin:0 0 16px;color:#374151;">A workflow paused for your approval before taking this action.</p>
-      <table style="border-collapse:collapse;margin:0 0 16px;">
-        <tr><th align="left" style="padding:6px 12px 6px 0;color:#6b7280;font-weight:500;">Workflow</th><td style="padding:6px 0;">${escapeHtml(args.workflowSlug)}</td></tr>
-        <tr><th align="left" style="padding:6px 12px 6px 0;color:#6b7280;font-weight:500;">Tool</th><td style="padding:6px 0;">${escapeHtml(args.toolName)}</td></tr>
-        <tr><th align="left" style="padding:6px 12px 6px 0;color:#6b7280;font-weight:500;">Risk</th><td style="padding:6px 0;">${escapeHtml(args.riskTier)}</td></tr>
-        ${htmlFields}
-      </table>
-      <p style="margin:0;">
-        <a href="${escapeHtml(args.approvalUrl)}" style="display:inline-block;border-radius:999px;background:#4f37cb;color:#ffffff;text-decoration:none;padding:10px 16px;font-weight:600;">Review in Alfred</a>
-      </p>
-      <p style="margin:16px 0 0;color:#6b7280;font-size:12px;">Run ${escapeHtml(args.runId)} · staging ${escapeHtml(args.stagingId)}</p>
-    </div>
-  `;
+  const html = await renderApprovalEmail({
+    heading,
+    riskTier: args.riskTier,
+    fields,
+    approvalUrl: args.approvalUrl,
+    runId: args.runId,
+    stagingId: args.stagingId,
+    logoUrl: emailLogoUrl(),
+  });
 
   return { subject, html, text: textLines.join("\n") };
 }
 
+function webOrigin(): string {
+  return serverEnv().CORS_ORIGIN.replace(/\/$/, "");
+}
+
 function approvalDeepLink(stagingId: string): string {
-  const origin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
-  return `${origin}/approvals#approval-${encodeURIComponent(stagingId)}`;
+  return `${webOrigin()}/approvals#approval-${encodeURIComponent(stagingId)}`;
+}
+
+// Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
+function emailLogoUrl(): string {
+  return `${webOrigin()}/images/logo/alfred-logo-email.png`;
 }
 
 function summarizeInput(input: unknown): Array<{ label: string; value: string }> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+  if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
-  const entries = Object.entries(input as Record<string, unknown>).slice(0, 8);
+  const entries = Object.entries(input).slice(0, 8);
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
   return entries.map(([key, value]) => ({
     label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
   }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function formatValue(value: unknown): string {
@@ -281,12 +284,4 @@ function formatValue(value: unknown): string {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
