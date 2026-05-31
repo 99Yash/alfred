@@ -59,36 +59,36 @@ import { z } from "zod";
  * approve, as long as I don't reject" behavior.
  */
 
+const skillDocumentationContextSchema = z.object({
+  userId: z.string(),
+  user: z.object({ name: z.string(), email: z.string() }),
+  skill: z.object({
+    id: z.string(),
+    slug: z.string(),
+    name: z.string(),
+    currentRevisionId: z.string(),
+    currentBody: z.string(),
+  }),
+  facts: z.array(
+    z.object({
+      key: z.string(),
+      value: z.unknown(),
+      confidence: z.number(),
+    }),
+  ),
+  // The hit shapes are large; persist them opaquely rather than
+  // re-validating jsonb between steps. State is checkpointed to DB
+  // and re-loaded on resume — full round-trips through zod for the
+  // raw search hits buy nothing here.
+  documentHits: z.array(z.custom<SkillDocumentationContext["documentHits"][number]>()),
+  memoryHits: z.array(z.custom<SkillDocumentationContext["memoryHits"][number]>()),
+  sourceCounts: z.record(z.string(), z.number()),
+}) satisfies z.ZodType<SkillDocumentationContext>;
+
 const stateSchema = z.object({
   skillId: z.string(),
   triggeringLearnRunId: z.string().optional(),
-  context: z
-    .object({
-      userId: z.string(),
-      user: z.object({ name: z.string(), email: z.string() }),
-      skill: z.object({
-        id: z.string(),
-        slug: z.string(),
-        name: z.string(),
-        currentRevisionId: z.string(),
-        currentBody: z.string(),
-      }),
-      facts: z.array(
-        z.object({
-          key: z.string(),
-          value: z.unknown(),
-          confidence: z.number(),
-        }),
-      ),
-      // The hit shapes are large; persist them opaquely rather than
-      // re-validating jsonb between steps. State is checkpointed to DB
-      // and re-loaded on resume — full round-trips through zod for the
-      // raw search hits buy nothing here.
-      documentHits: z.array(z.unknown()),
-      memoryHits: z.array(z.unknown()),
-      sourceCounts: z.record(z.string(), z.number()),
-    })
-    .optional(),
+  context: skillDocumentationContextSchema.optional(),
   documented: z
     .object({
       body: z.string(),
@@ -150,7 +150,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
 
         return {
           kind: "next",
-          state: { ...ctx.state, context: context as SkillDocumentationContext },
+          state: { ...ctx.state, context },
           nextStep: "compose",
         };
       },
@@ -162,10 +162,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context) {
           throw new Error("[skill-doc] compose entered without context");
         }
-        // State persists hits as z.unknown[] (jsonb passthrough); the
-        // compose helper consumes them as the typed shape that
-        // collectSkillDocumentationContext returned originally.
-        const context = ctx.state.context as SkillDocumentationContext;
+        const { context } = ctx.state;
         const composed = await composeSkillDocumentation({
           context,
           runId: ctx.runId,
@@ -189,7 +186,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context || !ctx.state.documented) {
           throw new Error("[skill-doc] persist-revision entered without context/documented");
         }
-        const context = ctx.state.context as SkillDocumentationContext;
+        const { context } = ctx.state;
         const commit = await commitSkillRevision({
           userId: ctx.userId,
           skillId: ctx.state.skillId,
@@ -224,9 +221,9 @@ export const skillDocumentationWorkflow: Workflow<State> = {
         if (!ctx.state.context || !ctx.state.documented || !ctx.state.revisionId) {
           throw new Error("[skill-doc] notify entered without context/documented/revisionId");
         }
-        const context = ctx.state.context as SkillDocumentationContext;
+        const { context } = ctx.state;
 
-        const email = composeSkillDocumentationEmail({
+        const email = await composeSkillDocumentationEmail({
           context,
           documentedBody: ctx.state.documented.body,
         });

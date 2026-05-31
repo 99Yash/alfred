@@ -1376,6 +1376,82 @@
     }
   }
 
+  /* `moon-glow` — the landing statement's signature delight. A soft indigo
+   * halo breathes behind the "never sleeps" Moon icon: slow (5s), low-contrast,
+   * never demanding attention. Echoes Dimension's night time-of-day theme.
+   * The icon itself sits above the halo via the negative-z pseudo + `isolate`. */
+  .moon-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .moon-glow::before {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(165 180 252 / 0.6), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.3;
+    animation: moon-breathe 5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes moon-breathe {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.65;
+      transform: scale(1.12);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .moon-glow::before {
+      animation: none;
+      opacity: 0.4;
+      transform: none;
+    }
+  }
+
+  /* `footnote-glow` — the hero asterisk that points at the access notice.
+   * Amber-tinted to match its destination, with a slow (3.5s) halo breathing
+   * behind it so the eye catches the footnote without it shouting over the CTA.
+   * Pseudo sits behind the glyph via negative-z + `isolate`. */
+  .footnote-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .footnote-glow::before {
+    content: "";
+    position: absolute;
+    inset: -5px -4px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(251 191 36 / 0.55), transparent 68%);
+    filter: blur(3px);
+    opacity: 0.2;
+    animation: footnote-breathe 3.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes footnote-breathe {
+    0%,
+    100% {
+      opacity: 0.15;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.15);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .footnote-glow::before {
+      animation: none;
+      opacity: 0.35;
+      transform: none;
+    }
+  }
+
   /* Hero atmospheric backdrop — Dimension's exact three-stop sky gradient
    * (#4867AF → #9CAFB8 via 62% → #C49577). Base layer that always paints;
    * the day/evening/night layers below crossfade ON TOP via scroll progress. */
@@ -1405,58 +1481,9 @@
       linear-gradient(180deg, #0c1029 0%, #1d2348 45%, #2a2452 100%);
   }
 
-  /* Lens-flare rainbow ring — appears as a chromatic halo (red-orange-yellow-
-   * green-blue spectrum) caught by the camera lens during late morning when
-   * the sun is at a low-ish angle. Heavily blurred so it reads as a smear of
-   * spectral light, not a graphic ring. Sits in screen-blend on top of the
-   * sky. Two stacked elements: an outer rainbow ring + an inner white-hot
-   * core that emerges from it. */
-  .landing-lens-flare-rainbow {
-    width: 22rem;
-    height: 22rem;
-    border-radius: 9999px;
-    /* Conic gradient drawn around the ring; the radial mask cuts a hollow
-     * centre so we get a RING, not a filled disk. */
-    background: conic-gradient(
-      from 220deg,
-      rgba(255, 60, 80, 0.55) 0%,
-      rgba(255, 150, 70, 0.55) 12%,
-      rgba(255, 220, 80, 0.55) 24%,
-      rgba(110, 220, 120, 0.55) 38%,
-      rgba(80, 170, 255, 0.55) 52%,
-      rgba(160, 120, 255, 0.55) 66%,
-      rgba(255, 90, 180, 0.55) 80%,
-      rgba(255, 60, 80, 0.55) 100%
-    );
-    -webkit-mask: radial-gradient(
-      circle at center,
-      transparent 38%,
-      #000 52%,
-      #000 70%,
-      transparent 92%
-    );
-    mask: radial-gradient(circle at center, transparent 38%, #000 52%, #000 70%, transparent 92%);
-    filter: blur(28px) saturate(1.25);
-    transform: rotate(-12deg);
-  }
-
-  /* White-hot core — a small bright disk that sits inside the rainbow ring's
-   * hollow. Adds the "blinding center of the flare" focal point. */
-  .landing-lens-flare-core {
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    width: 9rem;
-    height: 9rem;
-    border-radius: 9999px;
-    background: radial-gradient(
-      circle at center,
-      rgba(255, 245, 220, 0.85) 0%,
-      rgba(255, 220, 180, 0.4) 40%,
-      transparent 75%
-    );
-    filter: blur(18px);
-  }
+  /* The chromatic lens-flare is now a real texture (hero/sun-halo.png)
+   * blended at screen in hero-atmosphere.tsx, replacing the earlier
+   * CSS-faked conic ring + core that used to live here. */
 
   /* Hide native scrollbar on scroll containers that should feel "edge-to-edge"
    * (e.g. the landing scroll root). Mirrors dimension's `hide-scrollbar`. */
@@ -1733,6 +1760,147 @@
   @media (prefers-reduced-motion: reduce) {
     .chat-char,
     .chat-rec-dot {
+      animation: none !important;
+    }
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Feature-grid living mockups (added 2026-05-31)
+   *
+   * The "Everything Alfred handles for you" cards used to hold fully static
+   * mockups. visitors.now's equivalents breathe — a live ping dot, content
+   * that populates on reveal. These give each Alfred card ONE purposeful,
+   * quiet motion that says "Alfred is doing this for you right now".
+   *
+   * One-shot reveals are gated under `.reveal-shown` (set on each card wrapper
+   * by FadeInOnScroll's IntersectionObserver) so they fire as the card scrolls
+   * in, then rest. Base opacity stays 1 — the `backwards` fill holds the
+   * from-state through `animation-delay`, and the card's own reveal hides the
+   * pre-roll. All reduced-motion guarded at the bottom.
+   * ------------------------------------------------------------------------- */
+
+  /* Rows / takeaways populating into a card — inbox threads, meeting cues. */
+  @keyframes fg-row-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .reveal-shown .fg-row {
+    animation: fg-row-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .reveal-shown .fg-row:nth-child(1) {
+    animation-delay: 300ms;
+  }
+  .reveal-shown .fg-row:nth-child(2) {
+    animation-delay: 410ms;
+  }
+  .reveal-shown .fg-row:nth-child(3) {
+    animation-delay: 520ms;
+  }
+
+  /* Status chip "stamping" onto a row a beat after it lands — the visual
+   * tell that Alfred just finished triaging that thread. Crisp scale-in,
+   * no overshoot (bounce reads cheap against this restrained surface). */
+  @keyframes fg-stamp-in {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .reveal-shown .fg-stamp {
+    animation: fg-stamp-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    animation-delay: 720ms;
+  }
+
+  /* Live "synced" indicator — a solid dot with an expanding ring pinging out
+   * of it. visitors.now's realtime signature, dialed to Alfred's calm. The
+   * ring rides the green-300 the badge already uses. */
+  @keyframes fg-ping {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70%,
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+  .fg-ping {
+    animation: fg-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* Imminent-meeting badge breathing — low amplitude, slow, so "In 8 min"
+   * reads as a quietly ticking countdown rather than an alert. */
+  @keyframes fg-tick {
+    0%,
+    100% {
+      opacity: 0.85;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .fg-tick {
+    animation: fg-tick 2.6s ease-in-out infinite;
+  }
+
+  /* Chat message entrance — each bubble slides up as it's appended to the
+   * conversation. Driven by per-phase mount in feature-grid.tsx, so the
+   * animation plays once per bubble. */
+  @keyframes fg-msg-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .fg-msg-in {
+    animation: fg-msg-in 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Three-dot typing indicator while Alfred "thinks" before replying. */
+  @keyframes fg-typing {
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.4;
+    }
+    40% {
+      transform: translateY(-3px);
+      opacity: 1;
+    }
+  }
+  .fg-typing-dot {
+    animation: fg-typing 1.1s ease-in-out infinite;
+  }
+  .fg-typing-dot:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .fg-typing-dot:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-shown .fg-row,
+    .reveal-shown .fg-stamp,
+    .fg-ping,
+    .fg-tick,
+    .fg-msg-in,
+    .fg-typing-dot {
       animation: none !important;
     }
   }

@@ -22,7 +22,7 @@ const BENEFITS: ReadonlyArray<Benefit> = [
   {
     icon: Moon,
     lead: "Never trained on.",
-    tagline: "Your emails, your calendar, your data — never leaves to train.",
+    tagline: "Your emails, your calendar, your data. Never leaves to train.",
   },
 ];
 

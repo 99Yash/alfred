@@ -17,6 +17,7 @@
     "@alfred/env": "workspace:*",
     "@alfred/ingestion": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/mailer": "workspace:*",
     "@alfred/schemas": "workspace:*",
     "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
