@@ -82,7 +82,7 @@ BriefingEmail.PreviewProps = {
   previewText: "Your morning briefing is ready",
   ctaUrl: "http://localhost:3000/chat/new",
   logoUrl: "http://localhost:3000/images/logo/alfred-logo-email.png",
-} as BriefingEmailProps;
+} satisfies BriefingEmailProps;
 
 export default BriefingEmail;
 

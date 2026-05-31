@@ -31,9 +31,11 @@ export function LandingFooter({
           {/* Tagline column */}
           <div className="flex flex-col gap-5">
             <a href="/" className="inline-flex items-center gap-2">
-              <span className="grid size-6 place-items-center rounded-full bg-white text-[11px] font-bold text-black">
-                A
-              </span>
+              <img
+                src="/images/logo/alfred-logo.svg"
+                alt="Alfred"
+                className="size-6 rounded-[7px]"
+              />
               <span className="text-[15px] font-semibold text-white">Alfred</span>
             </a>
             <p className="max-w-sm text-[14px] leading-[1.55] text-neutral-500">

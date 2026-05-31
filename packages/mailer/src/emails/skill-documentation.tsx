@@ -74,8 +74,18 @@ export const SkillDocumentationEmail = ({
             h3: { ...bodyStyles.heading, fontSize: "14px", margin: "16px 0 8px 0" },
             p: { ...bodyStyles.paragraph, fontSize: "14px", margin: "0 0 12px 0" },
             bold: bodyStyles.strong,
-            ul: { ...bodyStyles.paragraph, fontSize: "14px", margin: "0 0 12px 0", paddingLeft: "20px" },
-            ol: { ...bodyStyles.paragraph, fontSize: "14px", margin: "0 0 12px 0", paddingLeft: "20px" },
+            ul: {
+              ...bodyStyles.paragraph,
+              fontSize: "14px",
+              margin: "0 0 12px 0",
+              paddingLeft: "20px",
+            },
+            ol: {
+              ...bodyStyles.paragraph,
+              fontSize: "14px",
+              margin: "0 0 12px 0",
+              paddingLeft: "20px",
+            },
             li: { color: "#374151", margin: "0 0 6px 0" },
             link: bodyStyles.link,
             codeInline: {
@@ -96,7 +106,7 @@ export const SkillDocumentationEmail = ({
 SkillDocumentationEmail.PreviewProps = {
   greetingName: "Yash",
   logoUrl: "http://localhost:3000/images/logo/alfred-logo-email.png",
-} as SkillDocumentationEmailProps;
+} satisfies SkillDocumentationEmailProps;
 
 export default SkillDocumentationEmail;
 

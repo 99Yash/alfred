@@ -63,7 +63,11 @@ export const ApprovalEmail = ({
       <p style={bodyStyles.paragraph}>
         A workflow paused for your approval before taking this action.
       </p>
-      <table cellPadding="0" cellSpacing="0" style={{ borderCollapse: "collapse", margin: "0 0 8px 0" }}>
+      <table
+        cellPadding="0"
+        cellSpacing="0"
+        style={{ borderCollapse: "collapse", margin: "0 0 8px 0" }}
+      >
         <tbody>
           {fields.map((f, i) => (
             <tr key={`${f.label}-${i}`}>
@@ -94,7 +98,7 @@ export const ApprovalEmail = ({
 
 ApprovalEmail.PreviewProps = {
   logoUrl: "http://localhost:3000/images/logo/alfred-logo-email.png",
-} as ApprovalEmailProps;
+} satisfies ApprovalEmailProps;
 
 export default ApprovalEmail;
 
