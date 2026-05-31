@@ -2,8 +2,11 @@ import {
   INTEGRATION_SLUGS,
   POLICY_MODES,
   TOOL_RISK_TIERS,
+  isIntegrationSlug,
   isToolName,
+  type IntegrationRule,
   type IntegrationRules,
+  type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
 import { runStatusSchema } from "@alfred/schemas";
@@ -164,26 +167,42 @@ export type SyncedFact = z.infer<typeof syncedFactSchema>;
 
 export const policyModeSchema = z.enum(POLICY_MODES);
 
-export const integrationRuleSchema = z.object({
+const rawIntegrationRuleSchema = z.object({
   mode: policyModeSchema,
-  // Per-tool overrides exist server-side (ADR-0034) but the v1 editor
-  // doesn't surface them; carried through opaquely so a future per-tool
-  // UI doesn't need a schema change.
   toolOverrides: z.record(z.string(), policyModeSchema).optional(),
 });
 
-/**
- * The whole `user_action_policies` row, synced as one entity keyed by
- * `userId` (m13 Phase 8c). `integrationRules` is cast to the contracts
- * type — the zod shape validates structure; the slug/tool-name key types
- * are enforced by `@alfred/contracts` at the call sites that build it.
- */
+function normalizeToolOverrides(
+  toolOverrides: Record<string, PolicyMode> | undefined,
+): IntegrationRule["toolOverrides"] {
+  const filtered: Partial<Record<ToolName, PolicyMode>> = {};
+  for (const [toolName, mode] of Object.entries(toolOverrides ?? {})) {
+    if (isToolName(toolName)) filtered[toolName] = mode;
+  }
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
+export const integrationRuleSchema: z.ZodType<IntegrationRule> = rawIntegrationRuleSchema.transform(
+  (rule) => {
+    const toolOverrides = normalizeToolOverrides(rule.toolOverrides);
+    return toolOverrides ? { mode: rule.mode, toolOverrides } : { mode: rule.mode };
+  },
+);
+
+function normalizeIntegrationRules(rawRules: Record<string, unknown>): IntegrationRules {
+  const rules: IntegrationRules = {};
+  for (const [slug, rawRule] of Object.entries(rawRules)) {
+    if (!isIntegrationSlug(slug)) continue;
+    const result = integrationRuleSchema.safeParse(rawRule);
+    if (result.success) rules[slug] = result.data;
+  }
+  return rules;
+}
+
 export const syncedActionPolicySchema = z.object({
   userId: z.string(),
   defaultMode: policyModeSchema,
-  integrationRules: z
-    .record(z.string(), integrationRuleSchema)
-    .transform((rules) => rules as IntegrationRules),
+  integrationRules: z.record(z.string(), z.unknown()).transform(normalizeIntegrationRules),
   approvalNotifyDelayMs: z.number(),
   rowVersion: z.number(),
 });

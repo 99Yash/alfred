@@ -1,18 +1,11 @@
-import type { IntegrationSlug, PolicyMode } from "@alfred/contracts";
-import { ShieldCheck, Zap } from "lucide-react";
+import type { LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
+import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import type { IntegrationProvider } from "~/lib/integrations";
-import { cn } from "~/lib/utils";
-import { VsCard, VsSegmented, type VsSegmentedItem } from "~/components/ui/visitors";
+import { VsButton, VsCard, VsSegmented, type VsSegmentedItem } from "~/components/ui/visitors";
 import { SectionHeading } from "./section-heading";
 
-/**
- * Catalog provider id → contracts `IntegrationSlug`. Only mapped providers
- * expose a policy control; the policy gates *tools*, which are namespaced by
- * these slugs (ADR-0043 / ADR-0034). Providers absent here (none today) simply
- * don't render the section.
- */
-const PROVIDER_TO_SLUG: Readonly<Record<string, IntegrationSlug>> = {
+const PROVIDER_TO_SLUG: Readonly<Record<string, LoadableIntegrationSlug>> = {
   google_gmail: "gmail",
   google_calendar: "calendar",
   google_drive: "drive",
@@ -25,13 +18,13 @@ const PROVIDER_TO_SLUG: Readonly<Record<string, IntegrationSlug>> = {
 };
 
 const MODE_ITEMS: ReadonlyArray<VsSegmentedItem<PolicyMode>> = [
-  { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} /> },
-  { value: "gated", label: "Gated", icon: <ShieldCheck size={13} /> },
+  { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} aria-hidden /> },
+  { value: "gated", label: "Gated", icon: <ShieldCheck size={13} aria-hidden /> },
 ];
 
 export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) {
   const slug = PROVIDER_TO_SLUG[provider.id];
-  const { modeFor, setIntegrationMode, loading } = useActionPolicy();
+  const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
 
   if (!slug) return null;
 
@@ -39,17 +32,48 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
   // control never flashes the less-safe option before the real value lands.
   const mode: PolicyMode = modeFor(slug) ?? "gated";
 
+  if (error) {
+    return (
+      <section className="space-y-3 vs-card-in" style={{ animationDelay: "150ms" }}>
+        <SectionHeading>Approval policy</SectionHeading>
+        <VsCard>
+          <div
+            className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            role="alert"
+          >
+            <div className="flex min-w-0 gap-2.5">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-vs-red-4" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-vs-fg-4">Policy unavailable</p>
+                <p className="mt-1 text-xs leading-5 text-vs-fg-3">{error}</p>
+              </div>
+            </div>
+            <VsButton
+              size="sm"
+              variant="ghost"
+              leading={<RefreshCw size={13} aria-hidden />}
+              onClick={retry}
+              className="shrink-0"
+            >
+              Retry
+            </VsButton>
+          </div>
+        </VsCard>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3 vs-card-in" style={{ animationDelay: "150ms" }}>
       <SectionHeading>Approval policy</SectionHeading>
 
       <VsCard className="space-y-3">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-vs-fg-4">
               {mode === "autonomy" ? "Full autonomy" : "Gated"}
             </p>
-            <p className="mt-1 text-[12.5px] leading-5 text-vs-fg-3">
+            <p className="mt-1 text-xs leading-5 text-vs-fg-3">
               {mode === "autonomy"
                 ? `Alfred acts on ${provider.name} without pausing for approval.`
                 : `Alfred pauses for your approval before any action on ${provider.name}, including reading messages beyond a short preview.`}
@@ -63,7 +87,8 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
               if (loading || next === mode) return;
               void setIntegrationMode(slug, next);
             }}
-            className={cn(loading && "opacity-60 pointer-events-none")}
+            disabled={loading}
+            className={loading ? "opacity-60" : undefined}
           />
         </div>
       </VsCard>

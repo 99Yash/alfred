@@ -28,6 +28,7 @@ interface VsSegmentedProps<T extends string = string> {
   items: ReadonlyArray<VsSegmentedItem<T>>;
   /** ARIA label for the tablist. */
   label?: string;
+  disabled?: boolean;
   className?: string;
 }
 
@@ -36,6 +37,7 @@ export function VsSegmented<T extends string = string>({
   onValueChange,
   items,
   label = "Options",
+  disabled = false,
   className,
 }: VsSegmentedProps<T>) {
   return (
@@ -52,7 +54,7 @@ export function VsSegmented<T extends string = string>({
           <TabsPrimitive.Trigger
             key={item.value}
             value={item.value}
-            disabled={item.disabled}
+            disabled={disabled || item.disabled}
             className={cn(
               "inline-flex items-center gap-1.5 h-7 px-3 rounded-lg",
               "text-xs font-medium whitespace-nowrap",

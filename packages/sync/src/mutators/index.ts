@@ -8,10 +8,7 @@ import {
   factRejectClient,
 } from "./facts";
 import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
-import {
-  policySetIntegrationModeArgsSchema,
-  policySetIntegrationModeClient,
-} from "./policy";
+import { policySetIntegrationModeArgsSchema, policySetIntegrationModeClient } from "./policy";
 
 export * from "./notes";
 export * from "./facts";

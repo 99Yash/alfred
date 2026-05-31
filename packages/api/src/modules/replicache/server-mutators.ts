@@ -179,32 +179,14 @@ export const serverMutators = {
       .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
   },
 
-  /**
-   * Set one integration's policy mode (m13 Phase 8c). Read-merge-write so a
-   * single integration's `mode` changes without trampling other integrations'
-   * rules or per-tool overrides. Bumps `row_version` so the next pull patches
-   * the synced singleton; the dispatcher cache bust (`publishPolicyBust`)
-   * fires from the push handler *after* commit — see push.ts.
-   *
-   * Upsert handles the legacy no-row case by inserting a row seeded with the
-   * m13 defaults (incl. `system: autonomy`) plus the chosen integration, so a
-   * first-ever edit can't strip the system autonomy seed.
-   */
   async policySetIntegrationMode(
     tx: DbTx,
     args: PolicySetIntegrationModeArgs,
     ctx: ServerMutatorCtx,
   ): Promise<void> {
-    const [row] = await tx
-      .select({ integrationRules: userActionPolicies.integrationRules })
-      .from(userActionPolicies)
-      .where(eq(userActionPolicies.userId, ctx.userId))
-      .limit(1);
-
-    const currentRules: IntegrationRules = row?.integrationRules ?? DEFAULT_INTEGRATION_RULES;
-    const nextRules: IntegrationRules = {
-      ...currentRules,
-      [args.slug]: { ...currentRules[args.slug], mode: args.mode },
+    const insertedRules: IntegrationRules = {
+      ...DEFAULT_INTEGRATION_RULES,
+      [args.slug]: { mode: args.mode },
     };
 
     await tx
@@ -212,13 +194,26 @@ export const serverMutators = {
       .values({
         userId: ctx.userId,
         defaultMode: "gated",
-        integrationRules: nextRules,
+        integrationRules: insertedRules,
         approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
       })
       .onConflictDoUpdate({
         target: userActionPolicies.userId,
         set: {
-          integrationRules: nextRules,
+          // `::text` casts are load-bearing: the driver binds these as untyped
+          // parameters and Postgres can't infer the type inside `jsonb_build_object`
+          // (VARIADIC "any") or the `->` overload, so it raises "could not determine
+          // data type of parameter". The casts pin each to text.
+          integrationRules: sql`jsonb_set(
+            ${userActionPolicies.integrationRules} ||
+              jsonb_build_object(
+                ${args.slug}::text,
+                COALESCE(${userActionPolicies.integrationRules}->${args.slug}::text, '{}'::jsonb)
+              ),
+            ARRAY[${args.slug}::text, 'mode'],
+            to_jsonb(${args.mode}::text),
+            true
+          )`,
           rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
         },
       });
