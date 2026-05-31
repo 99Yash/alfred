@@ -2,13 +2,13 @@ import { useEffect, useRef } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * Media helpers for the hero showcase tabs. Each tab's content is a
- * self-contained, full-bleed asset (clip or still) that fills the device
- * bezel — the bezel's fixed aspect (`aspect-[1.29/1]` in HeroShowcase) keeps
- * every tab the same size so the crossfade never jumps. `object-top` anchors
- * the meaningful content at the top and crops only any empty/overflow tail.
+ * Media helper for the hero showcase tabs. Each tab's content is a
+ * self-contained, full-bleed clip that fills the device bezel — the bezel's
+ * fixed aspect (`aspect-[1.29/1]` in HeroShowcase) keeps every tab the same
+ * size so the crossfade never jumps. `object-top` anchors the meaningful
+ * content at the top and crops only any empty/overflow tail.
  *
- * (These assets are brand-stopgaps sourced from dimension's site; the plan is
+ * (These clips are brand-stopgaps sourced from dimension's site; the plan is
  * to replace them with Alfred-branded clips rendered in Open Runde — see the
  * Remotion video package.)
  */
@@ -56,30 +56,6 @@ export function ShowcaseVideo({
       playsInline
       preload="metadata"
       aria-label={label}
-    />
-  );
-}
-
-/** Full-bleed product still — for a tab that doesn't (yet) have a clip. */
-export function ShowcaseImage({
-  src,
-  label,
-  className,
-  objectPosition = "top",
-}: {
-  src: string;
-  /** Alt text describing the still. */
-  label: string;
-  className?: string;
-  objectPosition?: "top" | "center";
-}) {
-  return (
-    <img
-      className={cn("h-full w-full select-none object-cover", className)}
-      style={{ objectPosition }}
-      src={src}
-      alt={label}
-      draggable={false}
     />
   );
 }
