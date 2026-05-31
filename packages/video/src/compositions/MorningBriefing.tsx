@@ -102,9 +102,7 @@ const Headline: React.FC = () => (
       Good morning, Alex.{" "}
     </FadeUp>
     <FadeUp delay={18} inline>
-      <span style={{ color: "rgba(255,255,255,0.7)" }}>
-        Four meetings, but a free afternoon.
-      </span>
+      <span style={{ color: "rgba(255,255,255,0.7)" }}>Four meetings, but a free afternoon.</span>
     </FadeUp>
   </h1>
 );
@@ -163,27 +161,22 @@ const PILL_TONES: Record<string, string> = {
   rose: "rgba(229,139,139,0.40)",
 };
 
+const PILL_BASE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "4px 12px",
+  borderRadius: 8,
+  fontSize: 26,
+  fontWeight: 500,
+  color: "white",
+  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.25)",
+};
+
 const Pill: React.FC<{ tone: keyof typeof PILL_TONES; children: ReactNode }> = ({
   tone,
   children,
-}) => (
-  <span
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "4px 12px",
-      borderRadius: 8,
-      fontSize: 26,
-      fontWeight: 500,
-      color: "white",
-      background: PILL_TONES[tone],
-      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.25)",
-    }}
-  >
-    {children}
-  </span>
-);
+}) => <span style={{ ...PILL_BASE, background: PILL_TONES[tone] }}>{children}</span>;
 
 /* ------------------------------------------------------------------ */
 /* Static style tokens                                                 */

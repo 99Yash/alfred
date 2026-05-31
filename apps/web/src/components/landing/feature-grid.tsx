@@ -383,7 +383,7 @@ function ChatBubbleMockup() {
             alt="Alfred"
             className="size-6 shrink-0 rounded-[7px]"
           />
-          <div className="flex items-center gap-1 rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 px-3 py-3">
+          <div className="flex items-center gap-1 rounded-2xl rounded-bl-[6px] border border-neutral-800/80 bg-neutral-900/80 p-3">
             <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
             <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
             <span className="fg-typing-dot size-1.5 rounded-full bg-neutral-400" />
@@ -442,6 +442,13 @@ function MiniAvatar({ initial, tone }: { initial: string; tone: MiniAvatarTone }
   );
 }
 
+const MINI_CHIP_STYLES: Record<"drafted" | "archived" | "hint" | "warn", string> = {
+  drafted: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
+  archived: "bg-neutral-800 text-neutral-400 ring-neutral-700",
+  hint: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
+  warn: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
+};
+
 function MiniChip({
   children,
   kind,
@@ -451,19 +458,13 @@ function MiniChip({
   kind: "drafted" | "archived" | "hint" | "warn";
   className?: string;
 }) {
-  const styles: Record<typeof kind, string> = {
-    drafted: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
-    archived: "bg-neutral-800 text-neutral-400 ring-neutral-700",
-    hint: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
-    warn: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
-  };
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-1.5 py-0.5",
         "text-[10px] font-semibold uppercase tracking-[0.1em]",
         "ring-1 ring-inset",
-        styles[kind],
+        MINI_CHIP_STYLES[kind],
         className,
       )}
     >
@@ -472,6 +473,12 @@ function MiniChip({
   );
 }
 
+const MINI_PILL_TONES: Record<"indigo" | "peach" | "violet", string> = {
+  indigo: "bg-indigo-400/15 text-indigo-200 ring-indigo-400/25",
+  peach: "bg-orange-400/15 text-orange-200 ring-orange-400/25",
+  violet: "bg-violet-400/15 text-violet-200 ring-violet-400/25",
+};
+
 function MiniPill({
   children,
   tone,
@@ -479,18 +486,13 @@ function MiniPill({
   children: ReactNode;
   tone: "indigo" | "peach" | "violet";
 }) {
-  const tones: Record<typeof tone, string> = {
-    indigo: "bg-indigo-400/15 text-indigo-200 ring-indigo-400/25",
-    peach: "bg-orange-400/15 text-orange-200 ring-orange-400/25",
-    violet: "bg-violet-400/15 text-violet-200 ring-violet-400/25",
-  };
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-1.5 py-[2px]",
         "text-[12px] font-medium",
         "ring-1 ring-inset",
-        tones[tone],
+        MINI_PILL_TONES[tone],
       )}
     >
       {children}
