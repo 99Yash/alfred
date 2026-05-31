@@ -36,12 +36,12 @@ export function AuthPanel() {
     <div className="flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-[360px] space-y-7">
         <div className="text-center space-y-2.5">
-          <div
+          <img
+            src="/images/logo/alfred-logo.svg"
+            alt="Alfred"
             aria-hidden
-            className="inline-flex items-center justify-center size-9 rounded-2xl bg-vs-fg-4 text-vs-bg-1 mb-1 shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
-          >
-            <span className="text-base font-medium leading-none">A</span>
-          </div>
+            className="inline-block size-9 rounded-2xl mb-1 shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+          />
           <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">
             Sign in to Alfred
           </h1>
