@@ -2,6 +2,7 @@ export type {
   MemorySource,
   FactValue,
   PreferenceValue,
+  SyncedActionPolicy,
   SyncedActionStaging,
   SyncedEntity,
   SyncedFact,

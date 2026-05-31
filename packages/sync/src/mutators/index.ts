@@ -8,10 +8,12 @@ import {
   factRejectClient,
 } from "./facts";
 import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
+import { policySetIntegrationModeArgsSchema, policySetIntegrationModeClient } from "./policy";
 
 export * from "./notes";
 export * from "./facts";
 export * from "./prefs";
+export * from "./policy";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -25,6 +27,7 @@ export const clientMutators = {
   factEdit: factEditClient,
   prefSet: prefSetClient,
   prefDelete: prefDeleteClient,
+  policySetIntegrationMode: policySetIntegrationModeClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -41,4 +44,5 @@ export const mutatorArgsSchemas = {
   factEdit: factEditArgsSchema,
   prefSet: prefSetArgsSchema,
   prefDelete: prefDeleteArgsSchema,
+  policySetIntegrationMode: policySetIntegrationModeArgsSchema,
 };

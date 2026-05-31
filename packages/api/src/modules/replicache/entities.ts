@@ -5,6 +5,7 @@ import {
   skillRevisions,
   skillRuns,
   skills,
+  userActionPolicies,
   userFacts,
   userPreferences,
   workflows,
@@ -14,6 +15,7 @@ import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
   memorySourceSchema,
+  syncedActionPolicySchema,
   syncedActionStagingSchema,
   syncedFactSchema,
   syncedNoteSchema,
@@ -22,6 +24,7 @@ import {
   syncedSkillRunSchema,
   syncedSkillSchema,
   type IDBKeys,
+  type SyncedActionPolicy,
   type SyncedActionStaging,
   type SyncedEntity,
   type SyncedFact,
@@ -246,6 +249,24 @@ const ENTITY_FETCHERS = {
         }),
     );
   },
+
+  // The per-integration policy editor (m13 Phase 8c). One row per user,
+  // synced as a single entity keyed by `userId`; the web derives each
+  // integration's mode from `integration_rules[slug] ?? default_mode`.
+  ACTION_POLICY: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(userActionPolicies)
+      .where(eq(userActionPolicies.userId, userId));
+    return rows.flatMap((p: typeof userActionPolicies.$inferSelect) =>
+      toEntityRow({
+        slug: "ACTION_POLICY",
+        id: p.userId,
+        rowVersion: p.rowVersion,
+        serialize: () => serializeActionPolicy(p),
+      }),
+    );
+  },
 } satisfies Record<IDBKeys, EntityFetcher>;
 
 export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
@@ -305,6 +326,16 @@ function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPref
     userId: p.userId,
     value: p.value,
     source: memorySourceSchema.parse(p.source),
+    rowVersion: p.rowVersion,
+  });
+}
+
+function serializeActionPolicy(p: typeof userActionPolicies.$inferSelect): SyncedActionPolicy {
+  return syncedActionPolicySchema.parse({
+    userId: p.userId,
+    defaultMode: p.defaultMode,
+    integrationRules: p.integrationRules,
+    approvalNotifyDelayMs: p.approvalNotifyDelayMs,
     rowVersion: p.rowVersion,
   });
 }

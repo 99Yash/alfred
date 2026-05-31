@@ -84,6 +84,22 @@ export interface IntegrationRule {
 
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>;
 
+/**
+ * Derive an integration's effective policy mode from a rules map + the
+ * user default. The single source for this projection — the dispatcher's
+ * `resolvePolicyMode` (server) and the policy editor (web) both call it so
+ * the displayed mode and the enforced mode can't drift. Per-tool overrides
+ * are deliberately ignored here: this is the per-integration radio's value,
+ * not a per-tool resolution (that stays in `resolvePolicyMode`).
+ */
+export function resolveIntegrationMode(
+  rules: IntegrationRules,
+  slug: IntegrationSlug,
+  defaultMode: PolicyMode,
+): PolicyMode {
+  return rules[slug]?.mode ?? defaultMode;
+}
+
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {
   const integration = toolName.slice(0, toolName.indexOf("."));
   if (isIntegrationSlug(integration)) return integration;

@@ -1,14 +1,30 @@
-import { notes, rejectedInferences, userFacts, userPreferences } from "@alfred/db/schemas";
+import type { IntegrationRules } from "@alfred/contracts";
+import {
+  notes,
+  rejectedInferences,
+  userActionPolicies,
+  userFacts,
+  userPreferences,
+} from "@alfred/db/schemas";
 import type {
   FactConfirmArgs,
   FactEditArgs,
   FactRejectArgs,
   NoteCreateArgs,
+  PolicySetIntegrationModeArgs,
   PrefDeleteArgs,
   PrefSetArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
 import { valueSignature } from "../memory/signature";
+
+/**
+ * Baseline rules for a row that doesn't exist yet (legacy user predating the
+ * signup seed). Must keep `system: autonomy` or system tools would start
+ * gating — mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts`.
+ */
+const DEFAULT_INTEGRATION_RULES: IntegrationRules = { system: { mode: "autonomy" } };
 
 export interface ServerMutatorCtx {
   userId: string;
@@ -161,6 +177,46 @@ export const serverMutators = {
     await tx
       .delete(userPreferences)
       .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
+  },
+
+  async policySetIntegrationMode(
+    tx: DbTx,
+    args: PolicySetIntegrationModeArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    const insertedRules: IntegrationRules = {
+      ...DEFAULT_INTEGRATION_RULES,
+      [args.slug]: { mode: args.mode },
+    };
+
+    await tx
+      .insert(userActionPolicies)
+      .values({
+        userId: ctx.userId,
+        defaultMode: "gated",
+        integrationRules: insertedRules,
+        approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+      })
+      .onConflictDoUpdate({
+        target: userActionPolicies.userId,
+        set: {
+          // `::text` casts are load-bearing: the driver binds these as untyped
+          // parameters and Postgres can't infer the type inside `jsonb_build_object`
+          // (VARIADIC "any") or the `->` overload, so it raises "could not determine
+          // data type of parameter". The casts pin each to text.
+          integrationRules: sql`jsonb_set(
+            ${userActionPolicies.integrationRules} ||
+              jsonb_build_object(
+                ${args.slug}::text,
+                COALESCE(${userActionPolicies.integrationRules}->${args.slug}::text, '{}'::jsonb)
+              ),
+            ARRAY[${args.slug}::text, 'mode'],
+            to_jsonb(${args.mode}::text),
+            true
+          )`,
+          rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
+        },
+      });
   },
 } as const;
 
