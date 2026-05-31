@@ -30,18 +30,33 @@ const TABS: ReadonlyArray<TabPillOption<ShowcaseTab>> = [
 ];
 
 const TAB_VALUES: ReadonlyArray<ShowcaseTab> = TABS.map((t) => t.value);
-const AUTO_ADVANCE_MS = 2000;
+
+// Per-tab dwell time, tuned to each tab's content rather than a flat
+// interval. The briefing clip does its whole reveal (greeting + ledger
+// animate in) in the first few seconds and then just holds, so it advances
+// quickly — no point sitting on a static frame. The inbox needs longer for
+// its auto-tagging sequence to actually play. The meeting-prep still just
+// needs a comfortable reading beat.
+const TAB_DURATION_MS: Record<ShowcaseTab, number> = {
+  briefing: 3000,
+  inbox: 5000,
+  meetings: 3500,
+};
 
 /**
  * Hero product showcase — three Alfred views (briefing / inbox / meeting prep)
- * that auto-loop through every two seconds with a soft crossfade + lift.
- * Inspired by visitors.now's tab-pill-above-product pattern, plus auto-cycling
- * so the page feels alive without the user clicking.
+ * that auto-loop with a soft crossfade + lift. Inspired by visitors.now's
+ * tab-pill-above-product pattern, plus auto-cycling so the page feels alive
+ * without the user clicking.
  *
  * Behavior:
- *   • Auto-advances `tab` every 2s (suspended when off-screen or hovered).
+ *   • Auto-advances after each tab's own dwell time (TAB_DURATION_MS), so a
+ *     tab's clip plays through before the next tab takes over. Suspended
+ *     when off-screen or hovered.
+ *   • The newly-active tab's clip restarts from frame 0 (see Slot/`active`),
+ *     so you always see the animation from the start, not mid-loop.
  *   • Manual click swaps tab AND resets the cycle so the new tab sits for
- *     the full interval before advancing.
+ *     its full dwell before advancing.
  *   • Respects `prefers-reduced-motion`: no transitions, no auto-advance.
  *
  * Layout:
@@ -59,10 +74,11 @@ export function HeroShowcase({ className }: { className?: string }) {
   const offScreenRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-advance every AUTO_ADVANCE_MS. The interval is always live (under
-  // reduced-motion it never starts), and each tick checks the pause refs.
-  // Resetting on `tab` is what gives manual clicks a full interval before
-  // the next auto-advance — any setTab() reschedules the next tick.
+  // Auto-advance after the current tab's dwell time. The effect re-runs on
+  // every `tab` change, so the interval period always reflects the tab now
+  // showing — effectively a self-rescheduling timeout. Each tick checks the
+  // pause refs; if paused it skips advancing and retries next period. A
+  // manual click changes `tab`, which restarts the dwell from the top.
   useEffect(() => {
     if (prefersReducedMotion()) return;
     const id = window.setInterval(() => {
@@ -72,7 +88,7 @@ export function HeroShowcase({ className }: { className?: string }) {
         const nextValue = TAB_VALUES[(idx + 1) % TAB_VALUES.length];
         return nextValue ?? current;
       });
-    }, AUTO_ADVANCE_MS);
+    }, TAB_DURATION_MS[tab]);
     return () => window.clearInterval(id);
   }, [tab]);
 
@@ -110,7 +126,13 @@ export function HeroShowcase({ className }: { className?: string }) {
 
         <div className="relative mt-6 w-full">
           <DeviceBezel>
-            <div className="relative grid">
+            {/* Fixed aspect so every tab is the same device size — the two
+             * video tabs and the DOM meeting-prep tab all fill one box, so
+             * the bezel never resizes (and the crossfade never jumps) when
+             * the tab auto-advances. 1.29:1 matches the inbox clip's native
+             * aspect exactly (full width, nothing cropped); the briefing clip
+             * is slightly taller so `object-top` trims only its empty tail. */}
+            <div className="relative grid aspect-[1.29/1]">
               {TAB_VALUES.map((value) => (
                 <Slot
                   key={value}
@@ -118,8 +140,8 @@ export function HeroShowcase({ className }: { className?: string }) {
                   id={tabPanelId(idBase, value)}
                   labelledBy={tabButtonId(idBase, value)}
                 >
-                  {value === "briefing" && <MorningBriefingPanel className="rounded-none ring-0" />}
-                  {value === "inbox" && <InboxMockup />}
+                  {value === "briefing" && <MorningBriefingPanel active={tab === value} />}
+                  {value === "inbox" && <InboxMockup active={tab === value} />}
                   {value === "meetings" && <MeetingPrepMockup />}
                 </Slot>
               ))}
@@ -150,7 +172,7 @@ function Slot({
   children: ReactNode;
 }) {
   const baseClassName =
-    "[grid-area:1/1] transition-[opacity,transform,filter] duration-500 ease-out";
+    "[grid-area:1/1] h-full overflow-hidden transition-[opacity,transform,filter] duration-500 ease-out";
   // Split the active/inactive cases into two render paths so a static
   // a11y checker can see that `aria-hidden` is never paired with a
   // focusable `tabIndex` on the same element — a focusable subtree that's

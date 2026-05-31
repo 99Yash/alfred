@@ -52,6 +52,10 @@ export function HeroAtmosphere({
   // both fades in AND back out smoothly. Inverted from the sky-layer
   // bell helpers — broader curve centered on the second/third capability.
   const lensFlare = bell(progress, 0.18, 0.16);
+  // Cloud-shadow texture sits over the daytime sky and fades out as night
+  // takes hold — color-burn over a near-black night gradient would just
+  // crush to mud, so we pull it back to near-zero there.
+  const cloudShadow = 0.5 * (1 - night);
 
   return (
     <div className={cn("relative isolate overflow-clip", className)}>
@@ -87,23 +91,32 @@ export function HeroAtmosphere({
             style={{ opacity: night }}
           />
 
-          {/* Lens-flare rainbow halo — the camera catches the sun during
-           * late-morning. Two layered conic + radial rings produce the
-           * chromatic-aberration look; both are heavily blurred so they
-           * read as soft light spectra, not graphic decoration. Inspired
-           * by dimension's blurred-oval flare at home.html:2376. */}
-          <div
-            className="pointer-events-none absolute -right-24 top-[-10%] mix-blend-screen transition-opacity duration-500"
-            style={{ opacity: lensFlare }}
+          {/* Cloud-shadow texture — a grayscale noise map blended onto the
+           * sky at color-burn so the gradient gains soft, drifting cloud
+           * depth instead of reading as a flat wash. Brand-neutral texture
+           * lifted from dimension's hero (hero/shadow-bg.png); fades out as
+           * the night layer takes over (see `cloudShadow`). */}
+          <img
+            src="/images/landing/shadow-bg.png"
+            alt=""
             aria-hidden
-          >
-            <div className="relative">
-              {/* Outer rainbow ring (chromatic spread) */}
-              <div className="landing-lens-flare-rainbow" />
-              {/* Inner white-hot core */}
-              <div className="landing-lens-flare-core" />
-            </div>
-          </div>
+            className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover mix-blend-color-burn transition-opacity duration-500"
+            style={{ opacity: cloudShadow }}
+          />
+
+          {/* Lens-flare rainbow halo — the camera catches the sun during
+           * late-morning. The real chromatic-arc texture (dimension's
+           * hero/sun-halo.png) blended at screen so only the rainbow shows
+           * over the sky; opacity is scroll-driven so it blooms in late
+           * morning and fades by midday. Replaces the earlier CSS-faked
+           * conic ring. */}
+          <img
+            src="/images/landing/sun-halo.png"
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-left-top mix-blend-screen transition-opacity duration-500"
+            style={{ opacity: lensFlare }}
+          />
 
           {/* Sun halo via paper-shader GodRays — brightest in the morning,
            * gone by evening. Sits in screen-blend mode so it just adds
