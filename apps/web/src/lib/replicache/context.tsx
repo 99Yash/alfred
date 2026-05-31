@@ -1,6 +1,6 @@
 import { createContext, use, useEffect, useState } from "react";
 import { authClient } from "~/lib/auth-client";
-import { type AlfredReplicache, createReplicache } from "./client";
+import type { AlfredReplicache } from "./client";
 
 const ReplicacheContext = createContext<AlfredReplicache | null>(null);
 
@@ -11,11 +11,20 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     if (!userId) return;
-    const { rep: instance, close } = createReplicache(userId);
-    setRep(instance);
+    // Dynamically import the client so the Replicache library stays out of the
+    // entry chunk — logged-out visitors (e.g. the landing page) never fetch it.
+    let cancelled = false;
+    let close: (() => void) | undefined;
+    void import("./client").then(({ createReplicache }) => {
+      if (cancelled) return;
+      const instance = createReplicache(userId);
+      close = instance.close;
+      setRep(instance.rep);
+    });
     return () => {
+      cancelled = true;
       setRep(null);
-      close();
+      close?.();
     };
   }, [userId]);
 

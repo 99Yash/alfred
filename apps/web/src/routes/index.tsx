@@ -6,11 +6,12 @@ import { authClient } from "~/lib/auth-client";
 /**
  * Root index — `/`.
  *
- * Authed visitors bounce to `/chat`; unauthed visitors see the marketing
- * landing in place at `/`. `/login` is reachable but no longer the default
- * for signed-out visitors. While `useSession()` resolves we render nothing
- * to avoid a one-frame flash of the landing for users who are about to be
- * routed to `/chat`.
+ * Unauthed visitors see the marketing landing in place at `/`; authed visitors
+ * bounce to `/chat`. We render the landing immediately rather than waiting for
+ * `useSession()` to resolve — blocking first paint on the get-session
+ * round-trip penalises every (overwhelmingly logged-out) marketing visitor to
+ * spare the rare authed-hits-`/` case a one-frame flash before redirect. FCP
+ * wins that trade for a public page.
  */
 export const Route = createFileRoute("/")({
   component: IndexRoute,
@@ -18,14 +19,16 @@ export const Route = createFileRoute("/")({
 
 function IndexRoute() {
   const navigate = useNavigate();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session } = authClient.useSession();
+  const isAuthed = !!session?.user;
 
   useEffect(() => {
-    if (isPending) return;
-    if (!session?.user) return;
-    void navigate({ to: "/chat", replace: true });
-  }, [isPending, session?.user, navigate]);
+    if (isAuthed) void navigate({ to: "/chat", replace: true });
+  }, [isAuthed, navigate]);
 
-  if (isPending || session?.user) return null;
+  // Hide only once we positively know the user is authed (redirect is in
+  // flight). Until then — including while the session is still pending — paint
+  // the landing.
+  if (isAuthed) return null;
   return <LandingPage healthOk={true} healthLoading={false} />;
 }
