@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
+import { publishPolicyBust } from "../action-policies";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
@@ -15,6 +16,14 @@ export type PushResponse =
 function isKnownMutator(name: string): name is MutatorName {
   return Object.prototype.hasOwnProperty.call(mutatorArgsSchemas, name);
 }
+
+/**
+ * Mutators whose successful application must also bust the dispatcher's
+ * in-process policy cache (ADR-0034 amendment). `row_version` bump alone only
+ * reaches browsers via Replicache pull; the gate runs server-side, so the
+ * cache must drop too — fired after commit alongside the poke.
+ */
+const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set(["policySetIntegrationMode"]);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbTx = any;
@@ -57,7 +66,7 @@ export async function handlePush(
   // Entire push runs inside one transaction: clientGroup bind + all mutation
   // writes + LMID advances. Per-mutation failures are isolated via savepoints.
   const outcome = await db().transaction<
-    { forbidden: true } | { forbidden: false; needsPoke: boolean }
+    { forbidden: true } | { forbidden: false; needsPoke: boolean; needsPolicyBust: boolean }
   >(async (tx) => {
     const [group] = await tx
       .select()
@@ -84,6 +93,7 @@ export async function handlePush(
     }
 
     let needsPoke = false;
+    let needsPolicyBust = false;
 
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
@@ -139,10 +149,13 @@ export async function handlePush(
       // Advance LMID regardless of success so the client doesn't re-queue forever.
       await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
 
-      if (applied) needsPoke = true;
+      if (applied) {
+        needsPoke = true;
+        if (POLICY_BUST_MUTATORS.has(mutatorName)) needsPolicyBust = true;
+      }
     }
 
-    return { forbidden: false, needsPoke };
+    return { forbidden: false, needsPoke, needsPolicyBust };
   });
 
   if (outcome.forbidden) return { forbidden: true };
@@ -157,6 +170,13 @@ export async function handlePush(
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  // Bust the dispatcher's in-process policy cache across all instances AFTER
+  // commit, so a gated→autonomy flip takes effect on the next dispatched tool
+  // call. Best-effort (publishPolicyBust swallows Redis blips internally).
+  if (outcome.needsPolicyBust) {
+    await publishPolicyBust(userId);
   }
 
   return {};

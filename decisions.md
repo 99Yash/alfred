@@ -2817,3 +2817,17 @@ The decisions are now self-contained enough to start building. Proposed mileston
 **Caveat.** A core, smoke-tested pipeline (triage) now flows through new query/match code — `smoke-triage` and `smoke-boss` are the regression guards, and the migration must keep triage's `input` shape exact. The event duplicate check is intentionally best-effort and has a check-then-insert race; duplicate runs are less damaging than blocking a legitimate re-triage. **`on_signal` dispatch (Phase 8b) is deferred**: no code emits a named signal yet, so a subscriber would be untestable dead code. Revisit when a concrete signal producer lands.
 
 **Cross-ref.** Extends ADR-0027 (trigger dispatch — `emitEvent` is its event leg), ADR-0040 (brief-only seed + sentinel `initialTranscript`), ADR-0034 (policy still gates the staged tool calls these runs make). Sibling Phase 8c decision: the per-integration policy editor syncs the `user_action_policies` row over Replicache (new `row_version` column) and dual-invalidates on mutation (`row_version` bump + `publishPolicyBust`) — recorded as an ADR-0034 amendment in `CONTEXT.md`.
+
+**Amendment (2026-05-31) — `EVENT_SOURCES` is three sources, not gmail-only; an enum value may land one milestone ahead of its producer.**
+
+The shipped `EVENT_SOURCES` (`packages/contracts/src/event-triggers.ts`) is `['gmail', 'google.oauth.callback', 'learn-skill']`, not the gmail-only set the main decision describes. Each carries a closed type: `gmail.message_received`, `google.oauth.callback.completed`, `learn-skill.completed`. The bus is the one generic `event`-trigger path for all three; the `webhook|ingest|manual` breadcrumb still rides `trigger.payload.reason`.
+
+**This does not reopen the no-dead-paths rule that deferred `on_signal`.** That rule rejected building a *dispatcher subscriber* for a signal nobody emits — runnable code that can never be exercised. A `source` enum value is the opposite: a typed const with zero runtime behavior of its own. Declaring it ahead of its producer is cheap, reversible, and lets the producer land against a stable contract instead of editing the enum and the producer in lockstep. The honest line: **an enum value may precede its producer, but every declared source must have a producer committed in the same milestone** — no source ships purely speculative.
+
+Producer status at amendment time:
+
+- **`gmail.message_received`** — live. Gmail ingestion worker emits per freshly-inserted doc (`packages/api/src/modules/integrations/queue.ts:297`).
+- **`google.oauth.callback.completed`** — live in source. Emitted on OAuth-grant completion (`packages/api/src/modules/integrations/google-routes.ts:325`) so post-connect workflows (e.g. cold-start enrichment after a new scope is granted) fire off the same bus.
+- **`learn-skill.completed`** — producer in flight. The `learn-skill` workflow exists (`LEARN_SKILL_WORKFLOW_SLUG`) and already chains to `skill-documentation`; wiring its terminal step to `emitEvent('learn-skill', 'completed')` is the remaining work, replacing the current direct enqueue with a bus emit so skill-doc generation becomes a normal event consumer.
+
+No schema or dispatch-path change — only the source/type tables widened. The duplicate-check, `<trigger_event>` resolve-at-init, auto-seed, and allowed-integration cap all apply uniformly across the three sources (a non-`gmail` source whose payload has no `documentId` simply yields a `<trigger_event unavailable>` and the run proceeds on its brief).

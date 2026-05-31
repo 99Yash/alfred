@@ -31,6 +31,12 @@ export const userActionPolicies = pgTable("user_action_policies", {
     .notNull()
     .default(sql`'{}'::jsonb`),
   approvalNotifyDelayMs: integer("approval_notify_delay_ms").notNull().default(300_000),
+  // Replicache CVR version for the per-integration policy editor (m13 Phase
+  // 8c). The whole row is one synced entity keyed by `user_id`; every policy
+  // mutation bumps this so the client pull patches, and *also* publishes
+  // `policy-bust:u:<userId>` for the dispatcher's in-process cache. Two
+  // invalidation paths, one mutation (ADR-0034 amendment).
+  rowVersion: integer("row_version").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
     .notNull()

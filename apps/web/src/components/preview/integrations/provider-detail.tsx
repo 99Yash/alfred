@@ -4,6 +4,7 @@ import { ConnectedAccounts } from "./connected-accounts";
 import { DetailHeader } from "./detail-header";
 import { HeroPreview } from "./hero-preview";
 import { Overview } from "./overview";
+import { ProviderPolicy } from "./provider-policy";
 import { RelatedSetup } from "./related-setup";
 import { TrustNotice } from "./trust-notice";
 
@@ -15,6 +16,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationProvider }) 
       <DetailHeader provider={provider} connected={connected} />
       <HeroPreview provider={provider} />
       <ConnectedAccounts provider={provider} connected={connected} />
+      <ProviderPolicy provider={provider} />
       <TrustNotice provider={provider} />
       <RelatedSetup provider={provider} />
       <Capabilities provider={provider} />
