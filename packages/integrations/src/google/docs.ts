@@ -146,9 +146,12 @@ function collectElement(
   }
 }
 
+const DOCS_FETCH_TIMEOUT_MS = 30_000;
+
 async function getJson(url: string, accessToken: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(DOCS_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
