@@ -20,6 +20,29 @@ import { isValidTimezone } from "../briefing/preferences";
 
 export const DEFAULT_WORKFLOW_TIMEZONE = "UTC";
 
+export function validateCronTrigger(
+  trigger: WorkflowTrigger,
+  opts: { timezone?: string } = {},
+): { ok: true } | { ok: false; message: string } {
+  if (trigger.kind !== "cron") return { ok: true };
+  const timezone = trigger.timezone ?? opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE;
+  if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
+    return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
+  }
+  try {
+    CronExpressionParser.parse(trigger.schedule, {
+      currentDate: new Date(),
+      tz: timezone,
+    }).next();
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "invalid cron expression",
+    };
+  }
+}
+
 /**
  * Resolve the timezone used to compute `next_run_at` for a cron workflow.
  *

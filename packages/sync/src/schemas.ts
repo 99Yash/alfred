@@ -9,7 +9,7 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { runStatusSchema } from "@alfred/schemas";
+import { runStatusSchema, workflowTriggerSchema } from "@alfred/schemas";
 import { z } from "zod";
 
 export const isoDateTimeStringSchema = z
@@ -208,6 +208,36 @@ export const syncedActionPolicySchema = z.object({
 });
 export type SyncedActionPolicy = z.infer<typeof syncedActionPolicySchema>;
 
+export const workflowStatusSchema = z.enum(["active", "draft", "paused", "archived"]);
+export type WorkflowStatus = z.infer<typeof workflowStatusSchema>;
+
+/**
+ * A workflow row as the web sees it (m13 Phase 8 event-trigger authoring).
+ * Built-ins and user-authored rows both sync — the editor only mutates
+ * user-authored ones (`isBuiltin === false`); built-ins render read-only.
+ * `trigger` carries the full discriminated union so the editor can show
+ * Schedule (cron) vs Event pickers from the live value.
+ */
+export const syncedWorkflowSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  trigger: workflowTriggerSchema,
+  brief: z.string().nullable(),
+  allowedIntegrations: z.array(z.string()),
+  status: workflowStatusSchema,
+  isBuiltin: z.boolean(),
+  lastRunAt: isoDateTimeStringSchema.nullable(),
+  lastRunStatus: z.string().nullable(),
+  nextRunAt: isoDateTimeStringSchema.nullable(),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedWorkflow = z.infer<typeof syncedWorkflowSchema>;
+
 export type SyncedEntity =
   | SyncedNote
   | SyncedPreference
@@ -216,4 +246,5 @@ export type SyncedEntity =
   | SyncedSkillRun
   | SyncedActionStaging
   | SyncedActionPolicy
+  | SyncedWorkflow
   | SyncedFact;

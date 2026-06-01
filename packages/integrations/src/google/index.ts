@@ -1,145 +1,170 @@
-export {
-  buildAuthorizeUrl,
-  exchangeCode,
-  refreshAccessToken,
-  getGoogleOAuthConfig,
-  DEFAULT_GOOGLE_SCOPES,
-  PUBLIC_GOOGLE_SCOPES,
-  ALL_GOOGLE_SCOPES,
-  PUBLIC_FEATURES,
-  RESTRICTED_FEATURES,
-  RESTRICTED_SCOPES,
-  isRestrictedFeature,
-  GOOGLE_FEATURE_SCOPES,
-  GMAIL_READONLY_SCOPE,
-  GMAIL_MODIFY_SCOPE,
-  GMAIL_SEND_SCOPE,
-  CALENDAR_READONLY_SCOPE,
-  DRIVE_READONLY_SCOPE,
-  DOCS_READONLY_SCOPE,
-  SHEETS_SCOPE,
-  SLIDES_SCOPE,
-  scopesForFeatures,
-} from "./oauth";
 export type {
-  GoogleOAuthConfig,
-  ExchangeCodeResult,
-  RefreshTokenResult,
-  GoogleFeature,
-} from "./oauth";
-export { requireScopes, featuresFromGrantedScopes, MissingScopesError } from "./scopes";
-export { upsertCredential, listCredentials, getFreshAccessToken } from "./credentials";
+	CalendarAttendee,
+	CalendarEvent,
+	ListEventsArgs,
+	ListEventsResult,
+} from "./calendar";
+export { listEvents } from "./calendar";
 export type { CredentialRow } from "./credentials";
 export {
-  ingestRecentGmail,
-  listGoogleCredentials,
-  pollGmailHistory,
-  pollGmailRecent,
-  findCredentialsNeedingPoll,
-} from "./ingestor";
+	getFreshAccessToken,
+	listCredentials,
+	upsertCredential,
+} from "./credentials";
 export type {
-  IngestRecentArgs,
-  IngestRecentResult,
-  PollHistoryArgs,
-  PollHistoryResult,
-  PollRecentArgs,
-  PollRecentResult,
-} from "./ingestor";
-export {
-  installGmailWatch,
-  uninstallGmailWatch,
-  getGmailWatchState,
-  findCredentialByEmail,
-  findExpiringGmailWatches,
-} from "./watch";
-export type { GmailWatchState } from "./watch";
-export {
-  listMessages,
-  getMessage,
-  getThreadMessageLabels,
-  extractMessageContent,
-  extractMessageHtml,
-  extractAttachments,
-  listHistory,
-  isHistoryGoneError,
-  startWatch,
-  stopWatch,
-  listLabels,
-  createLabel,
-  modifyMessageLabels,
-  batchModifyMessages,
-} from "./gmail";
-export type {
-  GmailMessage,
-  GmailMessageRef,
-  ExtractedMessage,
-  ExtractedAttachment,
-  GmailHistoryEntry,
-  ListHistoryArgs,
-  ListHistoryResult,
-  StartWatchArgs,
-  StartWatchResult,
-  GmailLabel,
-  CreateLabelArgs,
-  ModifyMessageLabelsArgs,
-  BatchModifyMessagesArgs,
-} from "./gmail";
-export { listEvents } from "./calendar";
-export type { CalendarEvent, CalendarAttendee, ListEventsArgs, ListEventsResult } from "./calendar";
+	DocumentHeading,
+	GetDocumentArgs,
+	GetDocumentResult,
+} from "./docs";
 export { getDocument } from "./docs";
-export type { GetDocumentArgs, GetDocumentResult, DocumentHeading } from "./docs";
-export { listFiles, getFile, exportFile, downloadFile } from "./drive";
 export type {
-  DriveFile,
-  ListFilesArgs,
-  ListFilesResult,
-  GetFileArgs,
-  ExportFileArgs,
-  DownloadFileArgs,
-  FileContentResult,
+	DownloadFileArgs,
+	DriveFile,
+	ExportFileArgs,
+	FileContentResult,
+	GetFileArgs,
+	ListFilesArgs,
+	ListFilesResult,
 } from "./drive";
+export { downloadFile, exportFile, getFile, listFiles } from "./drive";
+export type {
+	BatchModifyMessagesArgs,
+	CreateLabelArgs,
+	ExtractedAttachment,
+	ExtractedMessage,
+	GmailHistoryEntry,
+	GmailLabel,
+	GmailMessage,
+	GmailMessageRef,
+	ListHistoryArgs,
+	ListHistoryResult,
+	ModifyMessageLabelsArgs,
+	SendMessageArgs,
+	SendMessageResult,
+	StartWatchArgs,
+	StartWatchResult,
+} from "./gmail";
 export {
-  createSpreadsheet,
-  getValues,
-  updateValues,
-  appendValues,
-  batchUpdateSpreadsheet,
-  addSheet,
+	batchModifyMessages,
+	createLabel,
+	extractAttachments,
+	extractMessageContent,
+	extractMessageHtml,
+	getMessage,
+	getThreadMessageLabels,
+	isHistoryGoneError,
+	listHistory,
+	listLabels,
+	listMessages,
+	modifyMessageLabels,
+	sendMessage,
+	startWatch,
+	stopWatch,
+} from "./gmail";
+export type {
+	IngestRecentArgs,
+	IngestRecentResult,
+	PollHistoryArgs,
+	PollHistoryResult,
+	PollRecentArgs,
+	PollRecentResult,
+} from "./ingestor";
+export {
+	findCredentialsNeedingPoll,
+	ingestRecentGmail,
+	listGoogleCredentials,
+	pollGmailHistory,
+	pollGmailRecent,
+} from "./ingestor";
+export type {
+	AlfredLabelMap,
+	ApplyTriageLabelArgs,
+	ApplyTriageLabelResult,
+	TriageCategory,
+} from "./labels";
+export {
+	applyTriageLabel,
+	categoryFromLabelName,
+	ensureAlfredLabels,
+	findThreadSiblingsWithAlfredLabels,
+	labelNameFor,
+	TRIAGE_CATEGORIES,
+} from "./labels";
+export type {
+	ExchangeCodeResult,
+	GoogleFeature,
+	GoogleOAuthConfig,
+	RefreshTokenResult,
+} from "./oauth";
+export {
+	ALL_GOOGLE_SCOPES,
+	buildAuthorizeUrl,
+	CALENDAR_READONLY_SCOPE,
+	DEFAULT_GOOGLE_SCOPES,
+	DOCS_READONLY_SCOPE,
+	DRIVE_READONLY_SCOPE,
+	exchangeCode,
+	GMAIL_MODIFY_SCOPE,
+	GMAIL_READONLY_SCOPE,
+	GMAIL_SEND_SCOPE,
+	GOOGLE_FEATURE_SCOPES,
+	getGoogleOAuthConfig,
+	isRestrictedFeature,
+	PUBLIC_FEATURES,
+	PUBLIC_GOOGLE_SCOPES,
+	RESTRICTED_FEATURES,
+	RESTRICTED_SCOPES,
+	refreshAccessToken,
+	SHEETS_SCOPE,
+	SLIDES_SCOPE,
+	scopesForFeatures,
+} from "./oauth";
+export {
+	featuresFromGrantedScopes,
+	MissingScopesError,
+	requireScopes,
+} from "./scopes";
+export type {
+	AppendValuesArgs,
+	AppendValuesResult,
+	BatchUpdateSpreadsheetArgs,
+	BatchUpdateSpreadsheetResult,
+	CellValue,
+	CreateSpreadsheetArgs,
+	CreateSpreadsheetResult,
+	GetValuesArgs,
+	GetValuesResult,
+	UpdateValuesArgs,
+	UpdateValuesResult,
+	ValueInputOption,
+} from "./sheets";
+export {
+	addSheet,
+	appendValues,
+	batchUpdateSpreadsheet,
+	createSpreadsheet,
+	getValues,
+	updateValues,
 } from "./sheets";
 export type {
-  ValueInputOption,
-  CellValue,
-  CreateSpreadsheetArgs,
-  CreateSpreadsheetResult,
-  GetValuesArgs,
-  GetValuesResult,
-  UpdateValuesArgs,
-  UpdateValuesResult,
-  AppendValuesArgs,
-  AppendValuesResult,
-  BatchUpdateSpreadsheetArgs,
-  BatchUpdateSpreadsheetResult,
-} from "./sheets";
-export { createPresentation, getPresentation, batchUpdatePresentation, addSlide } from "./slides";
-export type {
-  CreatePresentationArgs,
-  CreatePresentationResult,
-  GetPresentationArgs,
-  GetPresentationResult,
-  BatchUpdatePresentationArgs,
-  BatchUpdatePresentationResult,
+	BatchUpdatePresentationArgs,
+	BatchUpdatePresentationResult,
+	CreatePresentationArgs,
+	CreatePresentationResult,
+	GetPresentationArgs,
+	GetPresentationResult,
 } from "./slides";
 export {
-  ensureAlfredLabels,
-  applyTriageLabel,
-  findThreadSiblingsWithAlfredLabels,
-  labelNameFor,
-  categoryFromLabelName,
-  TRIAGE_CATEGORIES,
-} from "./labels";
-export type {
-  TriageCategory,
-  AlfredLabelMap,
-  ApplyTriageLabelArgs,
-  ApplyTriageLabelResult,
-} from "./labels";
+	addSlide,
+	batchUpdatePresentation,
+	createPresentation,
+	getPresentation,
+} from "./slides";
+export type { GmailWatchState } from "./watch";
+export {
+	findCredentialByEmail,
+	findExpiringGmailWatches,
+	getGmailWatchState,
+	installGmailWatch,
+	uninstallGmailWatch,
+} from "./watch";

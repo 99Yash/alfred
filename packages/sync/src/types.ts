@@ -11,4 +11,6 @@ export type {
   SyncedSkill,
   SyncedSkillRevision,
   SyncedSkillRun,
+  SyncedWorkflow,
+  WorkflowStatus,
 } from "./schemas.js";

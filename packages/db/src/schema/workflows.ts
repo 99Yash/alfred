@@ -9,7 +9,16 @@ import {
   type WorkflowTrigger,
 } from "@alfred/schemas";
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -120,6 +129,13 @@ export const workflows = pgTable(
      * `cron-parser.next()` call.
      */
     lastScheduledAt: timestamp("last_scheduled_at", { withTimezone: true }),
+    /**
+     * Replicache CVR version. Bumped on every synced-field write (the
+     * authoring editor's `workflowUpdate` mutator) so pull diffing patches
+     * the client. Seeder writes leave it at the default — built-ins re-seed
+     * idempotently and the editor only touches user-authored rows.
+     */
+    rowVersion: integer("row_version").notNull().default(1),
     ...lifecycle_dates,
   },
   (t) => [

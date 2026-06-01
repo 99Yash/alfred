@@ -1,4 +1,9 @@
-export { DEFAULT_WORKFLOW_TIMEZONE, computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
+export {
+  DEFAULT_WORKFLOW_TIMEZONE,
+  computeNextRunAt,
+  resolveWorkflowTimezone,
+  validateCronTrigger,
+} from "./scheduling";
 export { emitEvent, type EmitEventArgs, type EmitEventResult } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
 export { dispatchDueCronWorkflows } from "./tick";

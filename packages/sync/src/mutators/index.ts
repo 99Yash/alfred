@@ -9,11 +9,13 @@ import {
 } from "./facts";
 import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
 import { policySetIntegrationModeArgsSchema, policySetIntegrationModeClient } from "./policy";
+import { workflowUpdateArgsSchema, workflowUpdateClient } from "./workflows";
 
 export * from "./notes";
 export * from "./facts";
 export * from "./prefs";
 export * from "./policy";
+export * from "./workflows";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -28,6 +30,7 @@ export const clientMutators = {
   prefSet: prefSetClient,
   prefDelete: prefDeleteClient,
   policySetIntegrationMode: policySetIntegrationModeClient,
+  workflowUpdate: workflowUpdateClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -45,4 +48,5 @@ export const mutatorArgsSchemas = {
   prefSet: prefSetArgsSchema,
   prefDelete: prefDeleteArgsSchema,
   policySetIntegrationMode: policySetIntegrationModeArgsSchema,
+  workflowUpdate: workflowUpdateArgsSchema,
 };
