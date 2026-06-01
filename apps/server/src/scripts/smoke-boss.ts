@@ -46,13 +46,14 @@ import {
 	actionStagings,
 	agentRunContext,
 	agentRuns,
+	documents,
 	integrationCredentials,
 	userActionPolicies,
 	user as userTable,
 	workflows,
 } from "@alfred/db/schemas";
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
 const WORKFLOW_SLUG = "smoke-boss";
@@ -167,16 +168,39 @@ async function createSmokeWorkflow(
 	userId: string,
 	selfEmail: string,
 ): Promise<void> {
+	// `gmail.read_message` reads from the ingested `documents` table (it does
+	// NOT hit the Gmail API), so the sub-agent can only summarize a message
+	// that's already ingested. Bake a real, recent ingested gmail document id
+	// into the brief so the sub-agent has something resolvable to read —
+	// otherwise it gets a thread/message id with no documents row and gives up.
+	const [doc] = await db()
+		.select({ id: documents.id, title: documents.title })
+		.from(documents)
+		.where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
+		.orderBy(desc(documents.authoredAt))
+		.limit(1);
+	if (!doc) {
+		throw new Error(
+			"[smoke-boss] no ingested gmail documents for this user — run gmail ingestion first",
+		);
+	}
+
 	const brief = [
-		"@gmail — You are running an end-to-end smoke test. Do all of the following in order:",
-		"1. Search my inbox for my most recent emails (gmail.search).",
-		"2. Spawn a focused sub-agent with system.spawn_sub_agent to inspect the top threads;",
-		"   instruct it to write a short summary to scratch.<itsSubId>.findings.",
-		"3. Read the sub-agent's findings with system.read_scratch and promote the verified",
-		"   summary to shared.summary with system.promote.",
-		`4. Draft an email to ${selfEmail} with the subject 'Alfred boss smoke' whose body is the`,
-		"   promoted summary, then send the draft so it goes out.",
-		"Keep it brief and finish with a one-sentence confirmation of what you did.",
+		"@gmail — This is a delegation smoke test. You are the BOSS and you MUST delegate the",
+		"reading work to a sub-agent. Do NOT call gmail.read_message yourself — that is the",
+		"sub-agent's job. Follow these steps exactly and in order:",
+		"",
+		"1. Call gmail.search with q='in:inbox newer_than:7d' to confirm inbox access. (Search only — do not read bodies.)",
+		"2. You MUST call system.spawn_sub_agent with subId 'inbox', allowedIntegrations ['gmail'], and",
+		"   this EXACT brief for the sub-agent (copy it verbatim):",
+		`     "Call gmail.read_message with documentId '${doc.id}', then write a one-sentence summary`,
+		'      of that email to the scratch key scratch.inbox.summary."',
+		"3. Then call system.read_scratch for 'scratch.inbox.summary'. If it is empty, the sub-agent",
+		"   has not finished yet — call system.read_scratch again on your next turn until it returns content.",
+		"4. Once you have the finding, call system.promote to copy 'scratch.inbox.summary' to 'shared.summary'.",
+		`5. Call gmail.send_draft to ${selfEmail} with subject 'Alfred boss smoke' and the promoted`,
+		"   summary as the body. This needs approval — proceed and wait for it.",
+		"6. Finish with one sentence confirming you delegated to a sub-agent, promoted its finding, and sent the email.",
 	].join("\n");
 
 	await db()

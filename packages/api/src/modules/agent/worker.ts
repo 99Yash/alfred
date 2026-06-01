@@ -1,5 +1,6 @@
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
+import { snapshotScratchToPostgres } from "../scratchpad";
 import { runOnce } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import { findResumableRunIds, heartbeatRun, STALE_RUN_LEASE_MS } from "./service";
@@ -71,6 +72,24 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
+    }
+    // Terminal-step scratchpad snapshot (ADR-0036): when a run completes,
+    // persist its Redis scratchpad into `agent_run_context` so the durable
+    // record survives the 30-day key TTL. Keyed by `runId` — for a top-level
+    // boss run this captures both its `shared.*` promotes and any sub-agent
+    // `scratch.*` writes (children write into the parent run's zone); for a
+    // sub-agent child the scan is an empty no-op. Idempotent (ON CONFLICT)
+    // and best-effort: a snapshot failure must not fail the completed run.
+    if (outcome.kind === "completed") {
+      try {
+        await snapshotScratchToPostgres(runId);
+      } catch (err) {
+        console.warn(
+          "[agent:worker] scratchpad snapshot failed for",
+          runId,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   } finally {
     clearInterval(heartbeat);
