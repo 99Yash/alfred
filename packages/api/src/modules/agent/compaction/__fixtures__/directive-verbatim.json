@@ -69,5 +69,9 @@
       ]
     }
   ],
-  "mustContain": ["trust gmail entirely for this conversation"]
+  "assertions": [
+    { "section": "user_directives", "contains": "trust gmail entirely for this conversation" },
+    { "section": "decisions", "absent": "trust gmail entirely for this conversation" },
+    { "section": "key_entities", "contains": "thread_alice" }
+  ]
 }
