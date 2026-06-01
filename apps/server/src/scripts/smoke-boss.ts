@@ -52,7 +52,7 @@ import {
 	workflows,
 } from "@alfred/db/schemas";
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
 const WORKFLOW_SLUG = "smoke-boss";
@@ -199,7 +199,16 @@ interface PendingStaging {
 	toolName: string;
 }
 
+async function runTreeIds(runId: string): Promise<string[]> {
+	const childRows = await db()
+		.select({ id: agentRuns.id })
+		.from(agentRuns)
+		.where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`);
+	return [runId, ...childRows.map((r) => r.id)];
+}
+
 async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
+	const runIds = await runTreeIds(runId);
 	const rows = await db()
 		.select({
 			id: actionStagings.id,
@@ -209,7 +218,7 @@ async function findPendingApprovals(runId: string): Promise<PendingStaging[]> {
 		.from(actionStagings)
 		.where(
 			and(
-				eq(actionStagings.runId, runId),
+				inArray(actionStagings.runId, runIds),
 				eq(actionStagings.status, "pending"),
 				eq(actionStagings.requiresApproval, true),
 			),
@@ -274,20 +283,23 @@ async function pollAndAutoApprove(
 }
 
 interface StagingSummary {
+	runId: string;
 	toolName: string;
 	status: string;
 	requiresApproval: boolean;
 }
 
 async function loadStagingsForRun(runId: string): Promise<StagingSummary[]> {
+	const runIds = await runTreeIds(runId);
 	return db()
 		.select({
+			runId: actionStagings.runId,
 			toolName: actionStagings.toolName,
 			status: actionStagings.status,
 			requiresApproval: actionStagings.requiresApproval,
 		})
 		.from(actionStagings)
-		.where(eq(actionStagings.runId, runId));
+		.where(inArray(actionStagings.runId, runIds));
 }
 
 async function main(): Promise<void> {

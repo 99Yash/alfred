@@ -310,7 +310,11 @@ export const serverMutators = {
 		const triggerOrStatusChanged =
 			args.trigger !== undefined || args.status !== undefined;
 		let nextRunAt: Date | null = null;
-		if (nextTrigger.kind === "cron" && nextStatus === "active") {
+		if (
+			triggerOrStatusChanged &&
+			nextTrigger.kind === "cron" &&
+			nextStatus === "active"
+		) {
 			const timezone = await resolveWorkflowTimezone(ctx.userId, nextTrigger);
 			const validation = validateCronTrigger(nextTrigger, { timezone });
 			if (!validation.ok) {
