@@ -1,33 +1,43 @@
 import type { IntegrationRules } from "@alfred/contracts";
 import {
-  notes,
-  rejectedInferences,
-  userActionPolicies,
-  userFacts,
-  userPreferences,
+	notes,
+	rejectedInferences,
+	userActionPolicies,
+	userFacts,
+	userPreferences,
+	workflows,
 } from "@alfred/db/schemas";
 import type {
-  FactConfirmArgs,
-  FactEditArgs,
-  FactRejectArgs,
-  NoteCreateArgs,
-  PolicySetIntegrationModeArgs,
-  PrefDeleteArgs,
-  PrefSetArgs,
+	FactConfirmArgs,
+	FactEditArgs,
+	FactRejectArgs,
+	NoteCreateArgs,
+	PolicySetIntegrationModeArgs,
+	PrefDeleteArgs,
+	PrefSetArgs,
+	WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
 import { valueSignature } from "../memory/signature";
+import {
+	computeNextRunAt,
+	resolveWorkflowTimezone,
+	validateCronTrigger,
+} from "../workflows";
+import { MutatorForbiddenError } from "./authz";
 
 /**
  * Baseline rules for a row that doesn't exist yet (legacy user predating the
  * signup seed). Must keep `system: autonomy` or system tools would start
  * gating — mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts`.
  */
-const DEFAULT_INTEGRATION_RULES: IntegrationRules = { system: { mode: "autonomy" } };
+const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
+	system: { mode: "autonomy" },
+};
 
 export interface ServerMutatorCtx {
-  userId: string;
+	userId: string;
 }
 
 // Typed loosely so it accepts either the pool or a Drizzle tx handle.
@@ -47,164 +57,200 @@ type DbTx = any;
  * supplied `tx` so atomicity is preserved.
  */
 export const serverMutators = {
-  async noteCreate(tx: DbTx, args: NoteCreateArgs, ctx: ServerMutatorCtx): Promise<void> {
-    await tx
-      .insert(notes)
-      .values({
-        id: args.id,
-        userId: ctx.userId,
-        text: args.text,
-        createdAt: new Date(args.createdAt),
-      })
-      .onConflictDoNothing();
-  },
+	async noteCreate(
+		tx: DbTx,
+		args: NoteCreateArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		await tx
+			.insert(notes)
+			.values({
+				id: args.id,
+				userId: ctx.userId,
+				text: args.text,
+				createdAt: new Date(args.createdAt),
+			})
+			.onConflictDoNothing();
+	},
 
-  /**
-   * Confirm a `proposed` row. No-op if the row is missing or already
-   * past the proposed state — Replicache's at-least-once delivery means
-   * confirm may arrive twice; the second is harmless.
-   */
-  async factConfirm(tx: DbTx, args: FactConfirmArgs, ctx: ServerMutatorCtx): Promise<void> {
-    await tx
-      .update(userFacts)
-      .set({ status: "confirmed", rowVersion: sql`${userFacts.rowVersion} + 1` })
-      .where(
-        and(
-          eq(userFacts.id, args.factId),
-          eq(userFacts.userId, ctx.userId),
-          eq(userFacts.status, "proposed"),
-        ),
-      );
-  },
+	/**
+	 * Confirm a `proposed` row. No-op if the row is missing or already
+	 * past the proposed state — Replicache's at-least-once delivery means
+	 * confirm may arrive twice; the second is harmless.
+	 */
+	async factConfirm(
+		tx: DbTx,
+		args: FactConfirmArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		await tx
+			.update(userFacts)
+			.set({
+				status: "confirmed",
+				rowVersion: sql`${userFacts.rowVersion} + 1`,
+			})
+			.where(
+				and(
+					eq(userFacts.id, args.factId),
+					eq(userFacts.userId, ctx.userId),
+					eq(userFacts.status, "proposed"),
+				),
+			);
+	},
 
-  /**
-   * Reject a fact: mark the row + record the (key, value) signature so
-   * the extraction sub-agent doesn't re-propose it (ADR-0019).
-   */
-  async factReject(tx: DbTx, args: FactRejectArgs, ctx: ServerMutatorCtx): Promise<void> {
-    const [old] = await tx
-      .select()
-      .from(userFacts)
-      .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
-      .limit(1);
-    if (!old) return;
+	/**
+	 * Reject a fact: mark the row + record the (key, value) signature so
+	 * the extraction sub-agent doesn't re-propose it (ADR-0019).
+	 */
+	async factReject(
+		tx: DbTx,
+		args: FactRejectArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		const [old] = await tx
+			.select()
+			.from(userFacts)
+			.where(
+				and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)),
+			)
+			.limit(1);
+		if (!old) return;
 
-    await tx
-      .update(userFacts)
-      .set({
-        status: "rejected",
-        validUntil: new Date(),
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(eq(userFacts.id, args.factId));
+		await tx
+			.update(userFacts)
+			.set({
+				status: "rejected",
+				validUntil: new Date(),
+				rowVersion: sql`${userFacts.rowVersion} + 1`,
+			})
+			.where(eq(userFacts.id, args.factId));
 
-    await tx
-      .insert(rejectedInferences)
-      .values({
-        userId: ctx.userId,
-        key: old.key,
-        valueSignature: valueSignature(old.value),
-        proposedFactId: old.id,
-        reason: args.reason ? { note: args.reason } : null,
-      })
-      .onConflictDoNothing();
-  },
+		await tx
+			.insert(rejectedInferences)
+			.values({
+				userId: ctx.userId,
+				key: old.key,
+				valueSignature: valueSignature(old.value),
+				proposedFactId: old.id,
+				reason: args.reason ? { note: args.reason } : null,
+			})
+			.onConflictDoNothing();
+	},
 
-  /**
-   * User-edit: old row → `edited`, a new `confirmed` row replaces it
-   * with `supersedes_id` linking back. Idempotent on `newFactId` —
-   * the client mints it before pushing so a retry is a no-op.
-   */
-  async factEdit(tx: DbTx, args: FactEditArgs, ctx: ServerMutatorCtx): Promise<void> {
-    const [old] = await tx
-      .select()
-      .from(userFacts)
-      .where(and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)))
-      .limit(1);
-    if (!old) return;
+	/**
+	 * User-edit: old row → `edited`, a new `confirmed` row replaces it
+	 * with `supersedes_id` linking back. Idempotent on `newFactId` —
+	 * the client mints it before pushing so a retry is a no-op.
+	 */
+	async factEdit(
+		tx: DbTx,
+		args: FactEditArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		const [old] = await tx
+			.select()
+			.from(userFacts)
+			.where(
+				and(eq(userFacts.id, args.factId), eq(userFacts.userId, ctx.userId)),
+			)
+			.limit(1);
+		if (!old) return;
 
-    const now = new Date();
-    await tx
-      .update(userFacts)
-      .set({
-        status: "edited",
-        validUntil: now,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(eq(userFacts.id, args.factId));
+		const now = new Date();
+		await tx
+			.update(userFacts)
+			.set({
+				status: "edited",
+				validUntil: now,
+				rowVersion: sql`${userFacts.rowVersion} + 1`,
+			})
+			.where(eq(userFacts.id, args.factId));
 
-    await tx
-      .insert(userFacts)
-      .values({
-        id: args.newFactId,
-        userId: ctx.userId,
-        key: old.key,
-        value: args.newValue,
-        confidence: 1,
-        status: "confirmed",
-        source: args.source ?? { kind: "user" },
-        validFrom: now,
-        validUntil: null,
-        supersedesId: old.id,
-      })
-      .onConflictDoNothing();
-  },
+		await tx
+			.insert(userFacts)
+			.values({
+				id: args.newFactId,
+				userId: ctx.userId,
+				key: old.key,
+				value: args.newValue,
+				confidence: 1,
+				status: "confirmed",
+				source: args.source ?? { kind: "user" },
+				validFrom: now,
+				validUntil: null,
+				supersedesId: old.id,
+			})
+			.onConflictDoNothing();
+	},
 
-  /**
-   * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
-   * `row_version` so the next pull patches the client.
-   *
-   * Inlined against `tx` rather than calling `setPreference()` so the
-   * write commits inside the push handler's outer transaction.
-   */
-  async prefSet(tx: DbTx, args: PrefSetArgs, ctx: ServerMutatorCtx): Promise<void> {
-    const source = args.source ?? { kind: "user" };
-    await tx
-      .insert(userPreferences)
-      .values({ userId: ctx.userId, key: args.key, value: args.value, source })
-      .onConflictDoUpdate({
-        target: [userPreferences.userId, userPreferences.key],
-        set: {
-          value: args.value,
-          source,
-          rowVersion: sql`${userPreferences.rowVersion} + 1`,
-        },
-      });
-  },
+	/**
+	 * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
+	 * `row_version` so the next pull patches the client.
+	 *
+	 * Inlined against `tx` rather than calling `setPreference()` so the
+	 * write commits inside the push handler's outer transaction.
+	 */
+	async prefSet(
+		tx: DbTx,
+		args: PrefSetArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		const source = args.source ?? { kind: "user" };
+		await tx
+			.insert(userPreferences)
+			.values({ userId: ctx.userId, key: args.key, value: args.value, source })
+			.onConflictDoUpdate({
+				target: [userPreferences.userId, userPreferences.key],
+				set: {
+					value: args.value,
+					source,
+					rowVersion: sql`${userPreferences.rowVersion} + 1`,
+				},
+			});
+	},
 
-  /** Delete a preference. No-op if missing. */
-  async prefDelete(tx: DbTx, args: PrefDeleteArgs, ctx: ServerMutatorCtx): Promise<void> {
-    await tx
-      .delete(userPreferences)
-      .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
-  },
+	/** Delete a preference. No-op if missing. */
+	async prefDelete(
+		tx: DbTx,
+		args: PrefDeleteArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		await tx
+			.delete(userPreferences)
+			.where(
+				and(
+					eq(userPreferences.userId, ctx.userId),
+					eq(userPreferences.key, args.key),
+				),
+			);
+	},
 
-  async policySetIntegrationMode(
-    tx: DbTx,
-    args: PolicySetIntegrationModeArgs,
-    ctx: ServerMutatorCtx,
-  ): Promise<void> {
-    const insertedRules: IntegrationRules = {
-      ...DEFAULT_INTEGRATION_RULES,
-      [args.slug]: { mode: args.mode },
-    };
+	async policySetIntegrationMode(
+		tx: DbTx,
+		args: PolicySetIntegrationModeArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		const insertedRules: IntegrationRules = {
+			...DEFAULT_INTEGRATION_RULES,
+			[args.slug]: { mode: args.mode },
+		};
 
-    await tx
-      .insert(userActionPolicies)
-      .values({
-        userId: ctx.userId,
-        defaultMode: "gated",
-        integrationRules: insertedRules,
-        approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-      })
-      .onConflictDoUpdate({
-        target: userActionPolicies.userId,
-        set: {
-          // `::text` casts are load-bearing: the driver binds these as untyped
-          // parameters and Postgres can't infer the type inside `jsonb_build_object`
-          // (VARIADIC "any") or the `->` overload, so it raises "could not determine
-          // data type of parameter". The casts pin each to text.
-          integrationRules: sql`jsonb_set(
+		await tx
+			.insert(userActionPolicies)
+			.values({
+				userId: ctx.userId,
+				defaultMode: "gated",
+				integrationRules: insertedRules,
+				approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+			})
+			.onConflictDoUpdate({
+				target: userActionPolicies.userId,
+				set: {
+					// `::text` casts are load-bearing: the driver binds these as untyped
+					// parameters and Postgres can't infer the type inside `jsonb_build_object`
+					// (VARIADIC "any") or the `->` overload, so it raises "could not determine
+					// data type of parameter". The casts pin each to text.
+					integrationRules: sql`jsonb_set(
             ${userActionPolicies.integrationRules} ||
               jsonb_build_object(
                 ${args.slug}::text,
@@ -214,10 +260,90 @@ export const serverMutators = {
             to_jsonb(${args.mode}::text),
             true
           )`,
-          rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
-        },
-      });
-  },
+					rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
+				},
+			});
+	},
+
+	/**
+	 * Patch a user-authored workflow (m13 Phase 8 event-trigger authoring).
+	 * Refuses built-in rows and enforces the ADR-0047 cap that an event
+	 * workflow's `allowed_integrations` (if non-empty) must include its own
+	 * trigger source — otherwise the run can't act on what fired it. Cron
+	 * denormalization (`next_run_at`, ADR-0027) is recomputed only when the
+	 * trigger or status actually changes.
+	 */
+	async workflowUpdate(
+		tx: DbTx,
+		args: WorkflowUpdateArgs,
+		ctx: ServerMutatorCtx,
+	): Promise<void> {
+		const [existing] = await tx
+			.select()
+			.from(workflows)
+			.where(
+				and(eq(workflows.userId, ctx.userId), eq(workflows.slug, args.slug)),
+			)
+			.limit(1);
+		// Unknown slug → drop silently (Replicache at-least-once; a deleted row
+		// shouldn't wedge the client). Built-in rows are read-only.
+		if (!existing) return;
+		if (existing.isBuiltin) {
+			throw new MutatorForbiddenError("cannot edit a built-in workflow");
+		}
+
+		const nextTrigger = args.trigger ?? existing.trigger;
+		const nextStatus = args.status ?? existing.status;
+		const nextAllowed =
+			args.allowedIntegrations ?? existing.allowedIntegrations;
+
+		if (
+			nextTrigger.kind === "event" &&
+			nextAllowed.length > 0 &&
+			!nextAllowed.includes(nextTrigger.source)
+		) {
+			throw new MutatorForbiddenError(
+				`allowed_integrations must include the event trigger source '${nextTrigger.source}'`,
+			);
+		}
+
+		const triggerOrStatusChanged =
+			args.trigger !== undefined || args.status !== undefined;
+		let nextRunAt: Date | null = null;
+		if (
+			triggerOrStatusChanged &&
+			nextTrigger.kind === "cron" &&
+			nextStatus === "active"
+		) {
+			const timezone = await resolveWorkflowTimezone(ctx.userId, nextTrigger);
+			const validation = validateCronTrigger(nextTrigger, { timezone });
+			if (!validation.ok) {
+				throw new MutatorForbiddenError(validation.message);
+			}
+			nextRunAt = computeNextRunAt(nextTrigger, { timezone });
+			if (!nextRunAt) {
+				throw new MutatorForbiddenError("cron schedule did not produce a next run");
+			}
+		}
+
+		await tx
+			.update(workflows)
+			.set({
+				...(args.name !== undefined ? { name: args.name } : {}),
+				...(args.description !== undefined
+					? { description: args.description }
+					: {}),
+				...(args.brief !== undefined ? { brief: args.brief } : {}),
+				...(args.allowedIntegrations !== undefined
+					? { allowedIntegrations: args.allowedIntegrations }
+					: {}),
+				...(args.status !== undefined ? { status: args.status } : {}),
+				...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
+				...(triggerOrStatusChanged ? { nextRunAt } : {}),
+				rowVersion: sql`${workflows.rowVersion} + 1`,
+			})
+			.where(eq(workflows.id, existing.id));
+	},
 } as const;
 
 export type ServerMutators = typeof serverMutators;

@@ -23,6 +23,7 @@ import {
   syncedSkillRevisionSchema,
   syncedSkillRunSchema,
   syncedSkillSchema,
+  syncedWorkflowSchema,
   type IDBKeys,
   type SyncedActionPolicy,
   type SyncedActionStaging,
@@ -33,6 +34,7 @@ import {
   type SyncedSkill,
   type SyncedSkillRevision,
   type SyncedSkillRun,
+  type SyncedWorkflow,
 } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { ZodError } from "zod";
@@ -267,6 +269,26 @@ const ENTITY_FETCHERS = {
       }),
     );
   },
+
+  // Both built-in and user-authored rows sync (m13 Phase 8). The editor
+  // only mutates `is_builtin = false` rows; built-ins render read-only.
+  // Keyed by `slug` so the editor's optimistic write addresses the row
+  // without an id lookup, matching the `/workflows/$workflow` route param.
+  WORKFLOW: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(workflows)
+      .where(eq(workflows.userId, userId))
+      .orderBy(asc(workflows.slug));
+    return rows.flatMap((w: typeof workflows.$inferSelect) =>
+      toEntityRow({
+        slug: "WORKFLOW",
+        id: w.slug,
+        rowVersion: w.rowVersion,
+        serialize: () => serializeWorkflow(w),
+      }),
+    );
+  },
 } satisfies Record<IDBKeys, EntityFetcher>;
 
 export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
@@ -337,6 +359,27 @@ function serializeActionPolicy(p: typeof userActionPolicies.$inferSelect): Synce
     integrationRules: p.integrationRules,
     approvalNotifyDelayMs: p.approvalNotifyDelayMs,
     rowVersion: p.rowVersion,
+  });
+}
+
+function serializeWorkflow(w: typeof workflows.$inferSelect): SyncedWorkflow {
+  return syncedWorkflowSchema.parse({
+    id: w.id,
+    userId: w.userId,
+    slug: w.slug,
+    name: w.name,
+    description: w.description,
+    trigger: w.trigger,
+    brief: w.brief,
+    allowedIntegrations: w.allowedIntegrations,
+    status: w.status,
+    isBuiltin: w.isBuiltin,
+    lastRunAt: toIso(w.lastRunAt),
+    lastRunStatus: w.lastRunStatus,
+    nextRunAt: toIso(w.nextRunAt),
+    rowVersion: w.rowVersion,
+    createdAt: toRequiredIso(w.createdAt, "workflows.createdAt"),
+    updatedAt: toIso(w.updatedAt),
   });
 }
 

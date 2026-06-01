@@ -50,6 +50,14 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
         description: sql`excluded.description`,
         trigger: sql`excluded.trigger`,
         allowedIntegrations: sql`excluded.allowed_integrations`,
+        // Built-ins sync via Replicache too, so the CVR needs `row_version`
+        // to move when a definition-derived field actually changes —
+        // otherwise a re-seeded trigger/name never reaches connected
+        // clients. Guard with IS DISTINCT FROM so an unchanged re-seed
+        // (every boot) doesn't churn the version or force redundant pulls.
+        rowVersion: sql`CASE WHEN (${workflows.name}, ${workflows.description}, ${workflows.trigger}, ${workflows.allowedIntegrations})
+          IS DISTINCT FROM (excluded.name, excluded.description, excluded.trigger, excluded.allowed_integrations)
+          THEN ${workflows.rowVersion} + 1 ELSE ${workflows.rowVersion} END`,
         // Crucially: `status` and `next_run_at` are NOT in the SET
         // list. A user-paused builtin stays paused across deploys; a
         // cron schedule update doesn't re-arm a builtin behind the
