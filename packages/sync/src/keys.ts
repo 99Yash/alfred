@@ -51,6 +51,15 @@ export const IDB_KEY = {
    * client-side via `resolveIntegrationMode`.
    */
   ACTION_POLICY: ({ id = "" }: { id?: string }) => constructIDBKey(["actionpolicy", id]),
+  /**
+   * `workflow/` (prefix scan) or `workflow/{slug}` (single row).
+   *
+   * Keyed by the workflow's `slug` (unique per user, the same value
+   * `agent_runs.workflow_slug` joins on and the `/workflows/$workflow`
+   * route addresses) so the authoring editor's optimistic write can
+   * target a row without an id lookup.
+   */
+  WORKFLOW: ({ id = "" }: { id?: string }) => constructIDBKey(["workflow", id]),
 } as const;
 
 /** Union of every entity slug in the registry — drives generic dispatchers. */
