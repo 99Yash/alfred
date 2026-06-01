@@ -1,6 +1,7 @@
 import {
+  COMPACTOR_FALLBACK_MODEL,
+  COMPACTOR_MODEL,
   getBossModel,
-  getCheapModel,
   getSubAgentModel,
   resolveModelContextWindow,
   type LanguageModel,
@@ -18,14 +19,15 @@ import {
  * Verified models cover every surface that consumes a context window:
  *   - `getBossModel()`  — drives the boss loop in `userAuthoredBriefWorkflow`.
  *   - `getSubAgentModel()` — drives sub-agent runs; same workflow today.
- *   - `getCheapModel()` — the compactor itself; if it can't size its own
- *      input window we have no way to bound the prior-transcript payload.
+ *   - `COMPACTOR_MODEL` / `COMPACTOR_FALLBACK_MODEL` — the compactor
+ *     primitive sizes the prior-transcript payload before calling either.
  */
 export async function verifyMeteringModels(): Promise<void> {
   const checks: Array<{ label: string; model: LanguageModel }> = [
     { label: "boss", model: getBossModel() },
     { label: "sub_agent", model: getSubAgentModel() },
-    { label: "cheap", model: getCheapModel() },
+    { label: "compactor", model: COMPACTOR_MODEL },
+    { label: "compactor_fallback", model: COMPACTOR_FALLBACK_MODEL },
   ];
 
   const failures: string[] = [];

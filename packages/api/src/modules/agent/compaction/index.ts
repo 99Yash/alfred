@@ -14,4 +14,11 @@ export {
   type CompactTranscriptArgs,
   type CompactTranscriptResult,
 } from "./compactor";
+export {
+  assertHandoffSections,
+  extractHandoffSection,
+  HANDOFF_SECTIONS,
+  type HandoffSection,
+} from "./handoff";
 export { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
+export { estimateTranscriptTokens } from "./tokens";
