@@ -1,6 +1,6 @@
-import { Sparkles } from 'lucide-react';
-import { cn } from '~/lib/utils';
-import { BriefRow } from './brief-row';
+import { Sparkles } from "lucide-react";
+import { cn } from "~/lib/utils";
+import { BriefRow } from "./brief-row";
 
 export function ShowcasePanel() {
   return (
@@ -11,7 +11,7 @@ export function ShowcasePanel() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(60% 60% at 70% 35%, color-mix(in oklch, var(--vs-purple-4) 14%, transparent), transparent 70%)',
+            "radial-gradient(60% 60% at 70% 35%, color-mix(in oklch, var(--vs-purple-4) 14%, transparent), transparent 70%)",
         }}
       />
 
@@ -23,10 +23,9 @@ export function ShowcasePanel() {
             pulled into focus.
           </h2>
           <p className="text-[13px] text-vs-fg-2">
-            Alfred brings your email, calendar, GitHub, and the tools you work
-            in into one place. It can prep the meeting, find the blocked pull
-            request, draft the reply in your tone, and keep the day moving while
-            you stay focused on the things that actually matter.
+            Alfred brings your email, calendar, GitHub, and the tools you work in into one place. It
+            can prep the meeting, find the blocked pull request, draft the reply in your tone, and
+            keep the day moving while you stay focused on the things that actually matter.
           </p>
         </div>
 
@@ -35,15 +34,15 @@ export function ShowcasePanel() {
           <div
             aria-hidden
             className={cn(
-              'absolute inset-x-3 top-3 bottom-[-12px] rounded-2xl bg-vs-bg-1',
-              'shadow-[0_1px_1px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]',
-              'opacity-70',
+              "absolute inset-x-3 top-3 bottom-[-12px] rounded-2xl bg-vs-bg-1",
+              "shadow-[0_1px_1px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
+              "opacity-70",
             )}
           />
           <div
             className={cn(
-              'relative rounded-2xl bg-vs-bg-1 p-5 space-y-4',
-              'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.10)]',
+              "relative rounded-2xl bg-vs-bg-1 p-5 space-y-4",
+              "shadow-[0_1px_1px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.10)]",
             )}
           >
             <div className="flex items-center justify-between">
@@ -55,8 +54,8 @@ export function ShowcasePanel() {
               </span>
             </div>
             <p className="text-[13px] text-vs-fg-4 leading-relaxed">
-              <span className="font-medium">Three things</span> need you today.
-              Pulled from your inbox, repos, and calendar.
+              <span className="font-medium">Three things</span> need you today. Pulled from your
+              inbox, repos, and calendar.
             </p>
             <ul className="space-y-2 text-[12.5px]">
               <BriefRow
