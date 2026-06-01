@@ -58,9 +58,13 @@ export * from "./modules/approvals/index.js";
 export * from "./modules/me/index.js";
 export {
   compactTranscript,
+  assertHandoffSections,
   COMPACTOR_SYSTEM_PROMPT,
+  extractHandoffSection,
+  HANDOFF_SECTIONS,
   type CompactTranscriptArgs,
   type CompactTranscriptResult,
+  type HandoffSection,
 } from "./modules/agent/compaction/index.js";
 export type {
   Workflow,

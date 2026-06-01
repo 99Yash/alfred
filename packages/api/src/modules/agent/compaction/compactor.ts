@@ -1,11 +1,15 @@
 import {
-  getCheapModel,
+  COMPACTOR_FALLBACK_MODEL,
+  COMPACTOR_MODEL,
   meteredGenerateText,
+  resolveModelContextWindow,
   type AttributedCall,
   type ModelMessage,
 } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
+import { estimateTranscriptTokens } from "./tokens";
 
 /**
  * Replace `prior` with a structured `<run_summary>` system message and
@@ -14,8 +18,9 @@ import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
  * result back into `agent_runs.transcript`.
  *
  * Shape contract:
- *   - One metered LLM round-trip via `getCheapModel()` with
- *     `role: 'compactor'`, capped at 2000 output tokens.
+ *   - One metered LLM round-trip via `COMPACTOR_MODEL`, falling over to
+ *     `COMPACTOR_FALLBACK_MODEL` only when the prior slice exceeds the
+ *     primary compactor's context window.
  *   - The new system message carries an ephemeral 1h Anthropic
  *     `cacheControl` annotation (ADR-0026's reserved third breakpoint).
  *     Gemini and other providers ignore the namespaced metadata
@@ -24,10 +29,10 @@ import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
  *   - `inFlightTail` is appended unchanged. The caller decides which
  *     suffix counts as "in-flight" via `state.inFlightTailStart`.
  *
- * Throws when the compactor call fails. The caller wraps this in a
- * bounded retry loop and surfaces a terminal `compactor_failed: <msg>`
- * after exhaustion — explicit failure is preferable to silently running
- * the boss with an overflowing context window.
+ * Throws `compactor_input_too_large` when the prior slice exceeds even
+ * the fallback window. The caller lets that reason surface directly.
+ * Other compactor call failures are retried by the workflow and then
+ * surfaced as `compactor_failed: <msg>`.
  */
 export interface CompactTranscriptArgs {
   prior: AgentTranscriptMessage[];
@@ -51,13 +56,17 @@ export async function compactTranscript(
   args: CompactTranscriptArgs,
 ): Promise<CompactTranscriptResult> {
   const { prior, inFlightTail, attribution } = args;
+  const model = await selectCompactorModel(prior);
 
+  const providerOptions = providerOptionsFor(model);
   const result = await meteredGenerateText(
     {
-      model: getCheapModel(),
+      model,
       maxOutputTokens: 2000,
+      temperature: 0,
       system: COMPACTOR_SYSTEM_PROMPT,
-      messages: prior as ModelMessage[],
+      messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
+      ...(providerOptions ? { providerOptions: providerOptions as Record<string, never> } : {}),
     },
     {
       ...attribution,
@@ -79,14 +88,46 @@ export async function compactTranscript(
   };
 }
 
+function transcriptPayloadMessage(
+  prior: readonly AgentTranscriptMessage[],
+): AgentTranscriptMessage {
+  return {
+    role: "user",
+    content: `Compact this Alfred transcript JSON. Preserve IDs and tool outcomes exactly where the system prompt requires them.\n\n${JSON.stringify(prior)}`,
+  };
+}
+
+async function selectCompactorModel(
+  prior: readonly AgentTranscriptMessage[],
+): Promise<typeof COMPACTOR_MODEL> {
+  const priorTokens = estimateTranscriptTokens(prior);
+  const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
+  if (priorTokens <= compactorWindow) return COMPACTOR_MODEL;
+
+  const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
+  if (priorTokens <= fallbackWindow) return COMPACTOR_FALLBACK_MODEL;
+
+  throw new Error("compactor_input_too_large");
+}
+
+function providerOptionsFor(model: typeof COMPACTOR_MODEL): Record<string, unknown> | undefined {
+  if (model !== COMPACTOR_MODEL) return undefined;
+  return {
+    anthropic: {
+      thinking: { type: "disabled" },
+    },
+  };
+}
+
 /**
  * Enforce the handoff contract: the model output must be a single
- * `<run_summary>...</run_summary>` element with no leading or trailing
- * prose. Markdown fences and surrounding whitespace are tolerated and
- * stripped — the model occasionally wraps XML in ```xml fences even when
- * told not to. Anything else throws so the caller's bounded retry loop
- * sees it (one bad cheap-tier sample shouldn't tank the run, but a
- * malformed envelope MUST NOT silently replace the prior transcript).
+ * `<run_summary>...</run_summary>` element with every required inner
+ * section present. Markdown fences and surrounding whitespace are
+ * tolerated and stripped — the model occasionally wraps XML in ```xml
+ * fences even when told not to. Anything else throws so the caller's
+ * bounded retry loop sees it (one bad compactor sample shouldn't tank
+ * the run, but a malformed envelope MUST NOT silently replace the prior
+ * transcript).
  */
 function assertRunSummary(raw: string): string {
   const trimmed = stripCodeFences(raw).trim();
@@ -96,6 +137,7 @@ function assertRunSummary(raw: string): string {
       `compactor_invalid_output: expected one <run_summary>…</run_summary> element, got: ${preview}`,
     );
   }
+  assertHandoffSections(trimmed);
   return trimmed;
 }
 
