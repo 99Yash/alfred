@@ -318,9 +318,9 @@ Goal: long boss runs maintain quality by compressing older transcript into a str
 
 ### 7a. Token counting + threshold check
 
-After every `dispatch-tools` step, the executor calls `tokenCount(agent_runs.transcript)` (AI SDK tokenizer; `@anthropic-ai/tokenizer` for Anthropic models — within ~5% is fine). If the count exceeds `compactionThresholdTokens(model.contextWindow)`, schedule a `compact-transcript` step before the next `boss-turn`.
+After every `dispatch-tools` step, the executor calls `tokenCount(agent_runs.transcript)` (AI SDK tokenizer; `@anthropic-ai/tokenizer` for Anthropic models — within ~5% is fine). If the count exceeds `compactionThresholdTokens(Math.min(bossWindow, compactorWindow))`, schedule a `compact-transcript` step before the next `boss-turn`.
 
-`model.contextWindow` reads from the new `model_prices.context_window` column.
+Both windows read from the `model_prices.context_window` column — `bossWindow` from `getBossModel()`, `compactorWindow` from `COMPACTOR_MODEL`. The threshold uses the **smaller** of the two so the prior slice handed to the compactor never exceeds what the compactor can ingest (see the ADR-0035 amendment 2026-06-01 — this matters *now*: boss is `gemini-2.5-pro` 1M, compactor is Sonnet 200k). The same `min()` threshold is used at the post-compaction overflow guard, not the boss window alone.
 
 ### 7b. In-flight tail identification
 
@@ -328,19 +328,33 @@ Use `state.inFlightTailStart`, captured by the last `boss-turn`, as the boundary
 
 ### 7c. Compactor invocation
 
+**Ownership boundary (so the primitive is safe to reuse).** `compactTranscript(...)` — the reusable primitive (CONTEXT.md "Transcript compaction") — **owns model selection and prior-window enforcement**: it resolves `compactorWindow`/`fallbackWindow` from the constants itself, picks primary-vs-fallback, and throws `compactor_input_too_large`. The caller (`userAuthoredBriefWorkflow`) **owns only the threshold trip-wire math** — when to *schedule* a `compact-transcript` step — and supplies `{ prior, inFlightTail, attribution }`. This keeps the guard out of the caller so the future chat surface can call the primitive without re-implementing (or forgetting) the policy. The trip-wire reads the compactor window via the exported `COMPACTOR_MODEL` constant; it does not duplicate the selection logic.
+
+The selection + guard live **inside** `compactTranscript`:
+
 ```ts
+// inside compactTranscript({ prior, inFlightTail, attribution }):
+const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
+const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
+const priorTokens = tokenCount(prior);
+let model = COMPACTOR_MODEL;                        // Sonnet 4.6, thinking off
+if (priorTokens > compactorWindow) {
+  if (priorTokens <= fallbackWindow) model = COMPACTOR_FALLBACK_MODEL; // Gemini 2.5 Flash, 1M
+  else throw new Error('compactor_input_too_large');
+}
+
 const result = await meteredGenerateText({
-  model: getCheapModel(),
+  model,
+  temperature: 0,                                  // extract, don't generate
   attribution: { kind: 'llm', role: 'compactor' },
   maxOutputTokens: 2000,
   system: COMPACTOR_SYSTEM_PROMPT,
-  messages: priorTranscriptToCompact,
+  messages: prior,
 });
-nextTranscript = [
-  { role: 'system', content: `<run_summary>${result.text}</run_summary>` },
-  ...inFlightTail,
-];
+return { transcript: [summaryMessage(result.text), ...inFlightTail], /* … */ };
 ```
+
+`COMPACTOR_MODEL` / `COMPACTOR_FALLBACK_MODEL` are shared constants (not a `getCompactorModel()` tier dispatcher), imported by both this call and the threshold math in 7a (which needs `compactorWindow`). Sonnet runs with extended thinking **disabled** (`providerOptions.anthropic.thinking: { type: 'disabled' }`) — the compactor is a mechanical transform, not a reasoning task.
 
 `COMPACTOR_SYSTEM_PROMPT` enforces: 2000-token cap, drop verbatim text, keep IDs + decisions + every approved/rejected/failed action with outcome + every sub-agent finding, **preserve mid-run user intent statements verbatim under `<user_directives>` — do not paraphrase**. Each `<action>` is one short line.
 
@@ -352,18 +366,49 @@ Place a third ephemeral `cacheControl` breakpoint immediately after the `<run_su
 
 ### 7e. Fault behavior
 
-Compactor call failure → run fails with `reason='compactor_failed'`, retryable. No degraded fallback (running with overflowing context = hallucination / silent truncation). Retry on next executor wake.
+Two distinct fault paths, do not conflate them:
+
+- **Compactor *call* failure** (model error / invalid envelope) → bounded in-step retry (3 attempts, 100ms then 200ms backoff) then the run fails with `reason='compactor_failed: <msg>'`. Running with overflowing context = hallucination / silent truncation, so explicit failure beats degraded output. (Already shipped.)
+- **Prior slice doesn't fit the compactor window** → *not* a failure first. Fall over to `COMPACTOR_FALLBACK_MODEL` (Gemini 2.5 Flash, 1M window); only if the slice exceeds even the fallback window does the run fail with `reason='compactor_input_too_large'`. This is the one place a degraded (lower-quality) compaction is accepted — surviving a pathological high-payload turn beats killing the run. See the ADR-0035 amendment.
 
 ### 7f. Prompt engineering pass
 
 Budget real time. ADR-0035 marks the prompt as "sketched, not engineered" — run long workflows in staging, inspect handoff outputs, tighten the prompt until directives and decisions consistently survive a compaction round-trip.
 
+**Design locked (grill-with-docs 2026-06-01):**
+
+- **Done-bar = strengthened fixture suite, staging is a final spot-check** (not the iteration loop — staging runs are ~35-40 min and compaction only fires past threshold, a terrible loop). "Consistently" = each fixture passes a flakiness gate (run N times, all green; N TBD in the next branch).
+- **Model decoupled to Sonnet 4.6 (thinking off), fallback Gemini 2.5 Flash, `min(boss,compactor)` threshold + prior-fits guard.** Full rationale in the **ADR-0035 amendment (2026-06-01)**. Tune the prompt against Sonnet, not flash-lite.
+- **Assertions: section-scoped with negatives.** Fixture schema moves from `mustContain: string[]` to `assertions: [{ section, contains | absent }]` — extract the named `<section>` block (tolerant regex, no XML-parser dep) and assert the needle is inside it; negatives assert it is *absent* from the wrong section.
+- **Fixtures: the existing three + three new (six total):** `directive-vs-decision-boundary` (both a directive and a fact present; each in its correct section, absent from the other), `superseded-directive` (both directives retained verbatim in chronological order; the later override appears in `<user_directives>` **without** a superseded marker, the earlier conflicting one appears **with** `superseded="true"` — assert both, plus a negative that the override is *not* marked superseded), `under-pressure-completeness` (transcript large enough that the 2000-token cap actually binds; all actions + directive still survive). Plus **fold ID-survival assertions into the completeness fixtures** (specific thread/message ids must reach `key_entities` or an action `key_output`) — no dedicated file.
+- **Flakiness gate: compactor at temperature 0, N=5 runs per fixture, all-green bar.** Temp 0 because the compactor extracts, it doesn't generate — improves fidelity and shrinks eval variance. All-green (not majority): a 1-in-5 flake on a load-bearing assertion is the prompt-robustness signal 7f exists to surface, not test noise to tolerate. ~30 cheap calls/suite.
+- **CI split:** `smoke-compaction.ts` stays a **manual/periodic** smoke (real Sonnet calls — matches every other smoke; keeps live-model cost/keys/flake out of CI) and is the 7f sign-off gate. A **separate pure unit test in CI** (no model) guards the contract: `COMPACTOR_SYSTEM_PROMPT` contains all 9 schema section tags + the section-extraction helper scopes a recorded sample correctly. Catches the silent section-rename regression `prompt.ts` warns about, for free.
+- **Section-extraction helper has one home:** `extractHandoffSection(runSummaryXml, section): string | null` (+ a thin `assertHandoffSections` for the contract test) lives at `packages/api/src/modules/agent/compaction/handoff.ts` and is **imported by both** `smoke-compaction.ts` and the CI unit test — the regex is written once, never duplicated across script and test.
+- **Prompt approach: pre-emptive.** Harden `COMPACTOR_SYSTEM_PROMPT` against all four known weak spots up front, then baseline the suite to see what's left — rather than baselining the current draft first. The four targets: (1) **superseded directives** — instruct: keep every directive verbatim in chronological order, and when a later directive conflicts with / revokes an earlier one, tag the earlier `<directive superseded="true">`. Both survive; only the marker disambiguates currency. (Current "preserve every directive verbatim" keeps both with no current-vs-stale signal, so the boss can act on revoked permission.) (2) **directive/decision boundary** — more than one example each, sharper pragmatic-vs-epistemic test; (3) **drop-priority under the 2000-token cap** — explicit cut-order making `<user_directives>` + action records never-drop, narrative/entity-context first to go; (4) **ID survival** — tie "every actionable ID lands in `key_entities`" firmly, not just a general "keep IDs."
+
+**Build sequence:** decouple model (`COMPACTOR_MODEL` + `COMPACTOR_FALLBACK_MODEL` consts, temp 0, thinking off) → retarget `verifyMeteringModels` to assert `context_window` rows for **both** new constants (drop the now-wrong "cheap = compactor" justification; keep the `cheap` check only if triage/extraction still uses it) → confirm `db:sync-prices` populates `context_window` for Sonnet 4.6 + Gemini 2.5 Flash → move model-selection + prior-fits guard + fallback escalation **into** `compactTranscript` (the primitive owns it; resolves both windows from the constants) → `min()` threshold trip-wire at both workflow sites (reads `compactorWindow` via `COMPACTOR_MODEL`, does not duplicate selection) → `handoff.ts` section-extraction helper → restructure the harness for section-scoped assertions + N=5 + temp 0 → write the 3 new fixtures + fold ID assertions → pre-harden the prompt → baseline run → iterate to all-green → CI unit test → staging spot-check.
+
+**Deferred from the 7f eval pass (revisit later):**
+
+- **Dedicated `pending_followups` fixture** — lower value than the directive/action/ID survival cases; the boss usually re-derives next-steps from the surviving state. Add if staging shows the boss losing its thread across a compaction.
+- **Full XML-parse validation** of the handoff — chose section-scoped regex for v1 (zero-dep, catches the misclassification failure mode). Revisit if a downstream audit/replay surface starts consuming the handoff structurally (the ADR already flags this as the eventual consumer).
+- **2000-token output cap tuning** — still ADR-0035's "v1 guess." The `under-pressure-completeness` fixture will expose whether it's too tight; dial then, not now.
+- **Boss-system-prompt "restate intent as future-compaction-friendly directives" guidance** (ADR-0035 Open item, slated for m13a boss-prompt design) — complements compactor-side preservation but is out of 7f's scope.
+
 ### Phase 7 acceptance
 
 - A run with a manually inflated transcript hits the threshold, runs `compact-transcript`, and continues with the new `agent_runs.transcript` shape `[<run_summary>, in-flight tail]`. The stable boss system prompt and tool definitions remain outside the transcript as `AlfredAgent.turn()` inputs.
 - `<user_directives>` content is preserved verbatim (not paraphrased) across a compaction.
-- One `api_call_log` row per compaction with `attribution.role='compactor'`.
-- Compactor failure surfaces as a real run failure (not silent quality loss).
+- One `api_call_log` row per compaction with `attribution.role='compactor'` — and the metered model is `COMPACTOR_MODEL` (or `COMPACTOR_FALLBACK_MODEL` on the overflow path), not `getCheapModel()`.
+- Compactor *call* failure surfaces as a real run failure (`compactor_failed`), not silent quality loss.
+
+New acceptance for the amended (2026-06-01) design — these prove the risky parts, not just generic compaction:
+
+- **`min()` threshold:** with boss window > compactor window (the live `gemini-2.5-pro` 1M / Sonnet 200k case), compaction triggers at `60% × compactorWindow` (≈120k), **not** `60% × bossWindow` (≈600k). Assert the trip-wire fires at the smaller bound.
+- **Overflow fallback:** a `prior` slice larger than `compactorWindow` but within the fallback window routes to `COMPACTOR_FALLBACK_MODEL` and completes — the metered row shows the Flash model, the run does not fail.
+- **`compactor_input_too_large`:** a `prior` slice larger than even the fallback window fails the run with that reason (no silent truncation).
+- **Post-compaction overflow guard uses `min()`:** Guard 3 thresholds on `min(boss, compactor)`, so a large in-flight tail that would pass under the boss window is caught.
+- **`verifyMeteringModels` boot guard** fails loudly if either `COMPACTOR_MODEL` or `COMPACTOR_FALLBACK_MODEL` lacks a `model_prices.context_window` row.
 
 ---
 

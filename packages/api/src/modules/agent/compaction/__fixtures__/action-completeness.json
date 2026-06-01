@@ -89,5 +89,10 @@
       "content": "Calling calendar.list_events to find free slots Thursday."
     }
   ],
-  "mustContain": ["gmail.search", "gmail.send_draft", "calendar.create_event"]
+  "assertions": [
+    { "section": "actions_completed", "contains": "gmail.search" },
+    { "section": "actions_rejected", "contains": "gmail.send_draft" },
+    { "section": "actions_failed", "contains": "calendar.create_event" },
+    { "section": "key_entities", "contains": "thread_carol_vendor" }
+  ]
 }

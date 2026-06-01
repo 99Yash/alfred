@@ -1,4 +1,5 @@
 import {
+  COMPACTOR_MODEL,
   getBossModel,
   getSubAgentModel,
   resolveModelContextWindow,
@@ -21,6 +22,7 @@ import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { compactTranscript } from "../compaction";
+import { estimateTranscriptTokens } from "../compaction/tokens";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -215,8 +217,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // tool results — large tool-call argument blobs or assistant prose
     // would otherwise sneak the estimate under the threshold.
     const isSubAgent = state.subAgent !== null;
-    const model = isSubAgent ? getSubAgentModel() : getBossModel();
-    const threshold = compactionThresholdTokens(await resolveModelContextWindow(model));
+    const threshold = await resolvePressureThresholdTokens(isSubAgent);
     const tailChars = JSON.stringify(transcript.slice(state.inFlightTailStart)).length;
     const estimated = state.lastInputTokens + Math.ceil(tailChars / 4);
 
@@ -269,9 +270,16 @@ const compactTranscriptStep: Step<BriefRunState> = {
     const prior = transcript.slice(0, state.inFlightTailStart);
     const inFlightTail = transcript.slice(state.inFlightTailStart);
 
-    // Guard 2: prior transcript is below the round-trip-worth-it floor.
+    // Guard 2: prior transcript is below the round-trip-worth-it floor
+    // and the full transcript is still under the smaller-window threshold.
+    // If the in-flight tail itself caused pressure, continue through the
+    // compactor so Guard 3 can fail loud if the tail cannot fit.
     const priorChars = JSON.stringify(prior).length;
-    if (priorChars < COMPACTION_MIN_PRIOR_CHARS) {
+    const pressureThreshold = await resolvePressureThresholdTokens(false);
+    if (
+      priorChars < COMPACTION_MIN_PRIOR_CHARS &&
+      estimateTranscriptTokens(transcript) <= pressureThreshold
+    ) {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
 
@@ -293,6 +301,9 @@ const compactTranscriptStep: Step<BriefRunState> = {
         break;
       } catch (err) {
         lastError = err;
+        if (errorMessage(err) === "compactor_input_too_large") {
+          throw err;
+        }
         if (attempt < COMPACTOR_RETRY_ATTEMPTS) {
           await sleepMs(attempt * 100);
         }
@@ -305,9 +316,8 @@ const compactTranscriptStep: Step<BriefRunState> = {
     // Guard 3: post-compaction the in-flight tail itself blows the
     // threshold. There is no further reduction we can make — fail loud
     // rather than risk hallucination from overflow.
-    const postChars = JSON.stringify(result.transcript).length;
-    const threshold = compactionThresholdTokens(await resolveModelContextWindow(getBossModel()));
-    if (Math.ceil(postChars / 4) > threshold) {
+    const postTokens = estimateTranscriptTokens(result.transcript);
+    if (postTokens > pressureThreshold) {
       throw new Error("context_overflow_post_compaction");
     }
 
@@ -323,6 +333,15 @@ const compactTranscriptStep: Step<BriefRunState> = {
     };
   },
 };
+
+async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
+  const agentWindow = await resolveModelContextWindow(
+    isSubAgent ? getSubAgentModel() : getBossModel(),
+  );
+  if (isSubAgent) return compactionThresholdTokens(agentWindow);
+  const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
+  return compactionThresholdTokens(Math.min(agentWindow, compactorWindow));
+}
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

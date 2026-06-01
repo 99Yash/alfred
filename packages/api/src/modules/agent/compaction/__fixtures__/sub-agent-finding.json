@@ -76,5 +76,9 @@
       "content": "Now drafting a short note flagging Bob's load to the user."
     }
   ],
-  "mustContain": ["sub_a"]
+  "assertions": [
+    { "section": "sub_agent_findings", "contains": "sub_a" },
+    { "section": "sub_agent_findings", "contains": "Bob has 27 calendar hours" },
+    { "section": "key_entities", "contains": "run_child_001" }
+  ]
 }
