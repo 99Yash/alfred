@@ -96,12 +96,15 @@ export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult
   return { events, timeZone: parsed.timeZone };
 }
 
+const CALENDAR_FETCH_TIMEOUT_MS = 30_000;
+
 async function getJson(url: string, accessToken: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
     },
+    signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");

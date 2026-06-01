@@ -447,6 +447,8 @@ Surfaced while grilling the Phase 5 approvals-UI polish (2026-05-31). Today `INT
 
 Decided during the Phase 8 grill: under a `gated` integration policy there is **no read/write split and no trigger-doc carve-out** — even `gmail.read_message` (reading past the inline 4k `<trigger_event>` excerpt of the very email that fired a run) stages for approval (alt (a); the trigger-doc pre-authorization alt (c) was rejected as a bespoke policy concept that per-tool overrides will subsume). This is correct behavior but **mildly surprising**, so it must be communicated where the user opts into gating: **credential-consent copy during onboarding** and/or the **`/integrations/$provider` detail page** when the autonomy/gated radio (Phase 8c) lands. One line is enough — e.g. "Gated means Alfred pauses for your approval before *any* action on this integration, including reading messages beyond a short preview." Pairs naturally with the Phase 8d risk-tier copy on the same surface. Glossary updated (`Policy mode`). Not a code blocker; it's a copy obligation owed by whichever of {onboarding credential step, Phase 8c policy editor} ships first.
 
+**RESOLVED 2026-06-01:** the Phase 8c policy editor shipped first carrying this line — `provider-policy.tsx:79` renders "Alfred pauses for your approval before any action on {provider}, including reading messages beyond a short preview." in the gated state. Obligation met; the onboarding credential step inherits the copy if/when it wants it but no longer owes it.
+
 ## Status board (update inline as work lands)
 
 - [x] **Phase 1** — Foundations: contracts package, migrations, signup hook
