@@ -7,6 +7,7 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
 import { estimateTranscriptTokens } from "./tokens";
 
@@ -120,12 +121,13 @@ function providerOptionsFor(model: typeof COMPACTOR_MODEL): Record<string, unkno
 
 /**
  * Enforce the handoff contract: the model output must be a single
- * `<run_summary>...</run_summary>` element with no leading or trailing
- * prose. Markdown fences and surrounding whitespace are tolerated and
- * stripped — the model occasionally wraps XML in ```xml fences even when
- * told not to. Anything else throws so the caller's bounded retry loop
- * sees it (one bad compactor sample shouldn't tank the run, but a
- * malformed envelope MUST NOT silently replace the prior transcript).
+ * `<run_summary>...</run_summary>` element with every required inner
+ * section present. Markdown fences and surrounding whitespace are
+ * tolerated and stripped — the model occasionally wraps XML in ```xml
+ * fences even when told not to. Anything else throws so the caller's
+ * bounded retry loop sees it (one bad compactor sample shouldn't tank
+ * the run, but a malformed envelope MUST NOT silently replace the prior
+ * transcript).
  */
 function assertRunSummary(raw: string): string {
   const trimmed = stripCodeFences(raw).trim();
@@ -135,6 +137,7 @@ function assertRunSummary(raw: string): string {
       `compactor_invalid_output: expected one <run_summary>…</run_summary> element, got: ${preview}`,
     );
   }
+  assertHandoffSections(trimmed);
   return trimmed;
 }
 
