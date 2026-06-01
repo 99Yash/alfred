@@ -136,9 +136,12 @@ export async function downloadFile(args: DownloadFileArgs): Promise<FileContentR
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
+const DRIVE_FETCH_TIMEOUT_MS = 30_000;
+
 async function getJson(url: string, accessToken: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -151,7 +154,10 @@ async function getText(
   url: string,
   accessToken: string,
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`[drive] ${res.status} ${url} :: ${body.slice(0, 500)}`);

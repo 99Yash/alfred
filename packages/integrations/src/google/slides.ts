@@ -121,6 +121,8 @@ export async function addSlide(args: {
   });
 }
 
+const SLIDES_FETCH_TIMEOUT_MS = 30_000;
+
 async function sendJson(
   method: "GET" | "POST",
   url: string,
@@ -131,7 +133,11 @@ async function sendJson(
     Authorization: `Bearer ${accessToken}`,
     Accept: "application/json",
   };
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = {
+    method,
+    headers,
+    signal: AbortSignal.timeout(SLIDES_FETCH_TIMEOUT_MS),
+  };
   if (method !== "GET") {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(payload ?? {});
