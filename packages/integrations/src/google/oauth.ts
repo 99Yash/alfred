@@ -14,6 +14,7 @@ import { z } from "zod";
 
 const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_BASE = "https://oauth2.googleapis.com/token";
+const GOOGLE_OAUTH_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Identity scopes always requested — they key our credential rows
@@ -263,6 +264,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(GOOGLE_OAUTH_FETCH_TIMEOUT_MS),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
@@ -318,6 +320,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(GOOGLE_OAUTH_FETCH_TIMEOUT_MS),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {

@@ -144,6 +144,25 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
   return out;
 }
 
+/** Per-tier counts for one integration. UX hint only (see file header). */
+export type RiskTierCounts = Record<ToolRiskTier, number>;
+
+function emptyTierCounts(): RiskTierCounts {
+  return { no_risk: 0, low: 0, medium: 0, high: 0 };
+}
+
+/**
+ * Tier breakdown for a single integration, e.g. `{ high: 1, medium: 1,
+ * low: 0, no_risk: 1 }`. Drives the integration detail page's
+ * "Gmail — 3 tools (1 high, 1 medium, 1 no-risk)" summary. The web can't
+ * import the registry, so this is exposed through the integrations API.
+ */
+export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCounts {
+  const counts = emptyTierCounts();
+  for (const t of listToolsForIntegration(slug)) counts[t.riskTier] += 1;
+  return counts;
+}
+
 /** Test-only: drop every registration. Production code never calls this. */
 export function clearToolRegistryForTests(): void {
   REGISTRY.clear();
