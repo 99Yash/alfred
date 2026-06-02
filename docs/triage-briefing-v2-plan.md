@@ -4,16 +4,16 @@ Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../decisi
 
 This is a phased plan. Each phase is "land before the next phase starts"; sub-steps inside a phase are parallel-safe. Triage and briefing tracks run in parallel where they don't share files.
 
-Cross-references: [`../CONTEXT.md`](../CONTEXT.md) (glossary: `SenderContext`, `Effective author`, `Body actor parsing`, `Bot allowlist`, `SEVERITY_SUSPECT_BOTS`, `Deepen step`, `Dossier cache TTL`, `Briefing`, `Breaking summary`, `Full briefing`, `Briefing reference`, `Gather source`, `IanaTimezone`), [`../decisions.md`](../decisions.md) (ADRs 0011, 0025, 0031, 0033, 0041, 0042), [`./triage.md`](./triage.md) (legacy doc — 6-category drift to fix in Phase 6), [`./briefing.md`](./briefing.md) (legacy m10 doc — supersede in Phase 6).
+Cross-references: [`../CONTEXT.md`](../CONTEXT.md) (glossary: `SenderContext`, `Effective author`, `Body actor parsing`, `Bot allowlist`, `SEVERITY_SUSPECT_BOTS`, `User context`, `Deepen step`, `Dossier cache TTL`, `Briefing`, `Breaking summary`, `Full briefing`, `Briefing reference`, `Gather source`, `Integration activity`, `IanaTimezone`), [`../decisions.md`](../decisions.md) (ADRs 0011, 0025, 0031, 0033, 0041, 0042), [`./triage.md`](./triage.md) (legacy doc — 6-category drift to fix in Phase 6), [`./briefing.md`](./briefing.md) (legacy m10 doc — supersede in Phase 6).
 
 ---
 
 ## Sequencing constraints (read first)
 
-1. **`@alfred/contracts` is the chokepoint again.** `SenderContext`, `BOT_SLUGS`, `IanaTimezone`, `BriefingGather`, `briefingSchema`, the `briefing` `AttributionKind` value, and the reference-kind enum all live here. Schema columns (`briefings.timezone`, `documents` triage join) type their jsonb against contracts via `.$type<T>()`. Land Phase 1 first; rebase downstream PRs on it.
-2. **Triage v2 (ADR-0042) depends on m13 phase 4 for `deepen`.** The boss brief-only `AlfredAgent` loop and `userAuthoredBriefWorkflow` sentinel are required for the escalation step. m13 phase 4 is shipped (status board green), so `deepen` is unblocked. Phase 5 of m13 (HIL surface) is *not* a prerequisite — `deepen`'s tool surface is read-only (`memory.read`, `github.list_repos`, `gmail.thread_history`); nothing routes through `action_stagings`.
+1. **`@alfred/contracts` is the chokepoint again.** `SenderContext`, `BOT_SLUGS`, `IanaTimezone`, `BriefingGather`, `briefingComposerSchema`, `fullBriefingSchema`, the `briefing` `AttributionKind` value, integration-activity item types, and the reference-kind enum all live here. Schema columns (`briefings.timezone`, `documents` triage join) type their jsonb against contracts via `.$type<T>()`. Land Phase 1 first; rebase downstream PRs on it.
+2. **Triage v2 (ADR-0042) depends on m13 phase 4 for `deepen`.** The boss brief-only `AlfredAgent` loop and `userAuthoredBriefWorkflow` sentinel are required for the escalation step. m13 phase 4 is shipped (status board green), so `deepen` is unblocked. Phase 5 of m13 (HIL surface) is *not* a prerequisite — `deepen`'s tool surface is read-only (`system.read_user_context`, `github.list_repos`, `gmail.thread_history`); nothing routes through `action_stagings`.
 3. **Briefing v2 (ADR-0041) does not depend on m13 for compose.** The composer is a single `meteredGenerateText` structured-output call, not an agent loop. It only needs `getBossModel()` and the gather payload. ADR-0041 §"Alternatives" rejected the boss-driven gather explicitly.
-4. **OAuth scope additions are user-facing.** `calendar.events.readonly` (Google) and `repo` (GitHub) require re-consent. Land the code in Phase 1, but the actual scope bumps go through the in-app integration UI as a Phase 5 user-flow step. Until the user re-consents, the matching contributors return `null` and the composer prompt's empty-case path renders.
+4. **OAuth scope additions are user-facing.** `calendar.events.readonly` (Google) and `repo` (GitHub, first `integration_activity` producer) require re-consent. Land the code in Phase 1, but the actual scope bumps go through the in-app integration UI as a Phase 5 user-flow step. Until the user re-consents, the matching contributors return `null` / empty activity arrays and the composer prompt's empty-case path renders.
 5. **`briefings` is a new table.** `briefing_runs` (m10 v1, watermark + slot model) and `briefings` (one row per user/day, idempotent on `(user_id, briefing_date)`) coexist during cutover. The morning briefing workflow flips writes to `briefings` in Phase 6; `briefing_runs` is read-only legacy after that and gets dropped in a later milestone. No data migration — both surface distinct shapes; legacy rows are diagnostics-only per the existing schema comment.
 6. **Doc drift gets fixed last.** `docs/triage.md` (6 categories) and `packages/integrations/src/google/labels.ts` (source-of-truth) reconcile in Phase 6 once the live pipeline matches. Holding cleanup until implementation lands keeps the diff size of each phase auditable.
 
@@ -21,11 +21,13 @@ Cross-references: [`../CONTEXT.md`](../CONTEXT.md) (glossary: `SenderContext`, `
 
 ## Open items to settle during the plan
 
-- **Phase 1 — `AttributionKind` location.** ADR-0041 specifies `@alfred/contracts.AttributionKind`. Today `CallKind` lives in `@alfred/ai/metering/types.ts`. Decide: move to contracts and re-export from `@alfred/ai`, or keep `@alfred/ai` as the owner and let the ADR text point there. Default plan: move to contracts so the web bundle can read the union for cost-rollup UI without pulling `@alfred/ai`. Document the choice in the Phase 1 PR.
-- **Phase 2 — `briefings.briefing_date` column type.** ADR-0041 specifies PG `date` in `string` mode (no JS `Date` noise). Confirm Drizzle's `date({ mode: 'string' })` round-trips through Replicache and Eden treaty without sneaking a `Date` in. Default plan: yes; if Eden's serializer disagrees, fall back to `text` with a `YYYY-MM-DD` check constraint.
-- **Phase 3 — `deepen` confidence-floor threshold.** ADR-0042 specifies `confidence < 0.7`. Confirm against today's classifier distribution before going live — if 50% of real emails land below 0.7, the cost calculus is wrong. Default plan: ship at 0.7, log `triage.sender_extraction` for a week, tune.
-- **Phase 4 — reference-resolver kinds at v1.** ADR-0041 closes the enum at `pr | commit | meeting | email | repo`. Validate that the gather contributors actually surface entities matching all five before sealing; if `repo` has no live use case in v1 prose, ship the closed enum minus `repo` and open it later.
-- **Phase 5 — Open-Meteo location fallback.** ADR-0041 says "falls back to the IANA timezone's principal city." Decide the table source (a hand-curated map of ~10 zones the user actually traverses vs. a library like `tz-lookup`). Default plan: hand-curated const in `@alfred/contracts/weather.ts` — 20 entries max, additions are cheap.
+- **Resolved — `AttributionKind` location.** `packages/contracts/src/metering.ts` owns `AttributionKind` and includes `'briefing'`; `@alfred/ai` re-exports it as `CallKind` for existing callers. Keep Phase 1 as verification only.
+- **Resolved — `briefings.briefing_date` column type.** `packages/db/src/schema/briefings.ts` uses `date("briefing_date", { mode: "string" })`. Keep Phase 2 acceptance focused on guarding the string round-trip, not choosing a type.
+- **Phase 3 — `deepen` shadow rollout.** ADR-0042 specifies `confidence < 0.7`, severity-suspect bots, and unknown humans as `deepen` eligibility. Severity-suspect bots execute live in v1; confidence-floor and unknown-human branches are shadow/log-only first. Promotion is per branch: `low_confidence` needs 200 triaged emails or 7 days of logs and <=15% fire rate; `unknown_human` needs <=5% fire rate plus a manual spot-check that the senders are real people worth dossier work.
+- **Phase 3 — `system.read_user_context` cache invalidation.** User context is Postgres-owned (`user_facts`, `user_preferences`, `entities`, `entity_relations`, `memory_chunks`, later `person_profiles`) with Redis as a read-through cache. Decide the first invalidation mechanism: broad delete on writes vs. versioned key. Default plan: broad delete on every memory/fact/preference/profile mutation; optimize to versioned keys only if churn becomes visible.
+- **Resolved — reference-resolver kinds at v1.** Replace the current `pr | commit | meeting | email | repo` contract shape with `activity | meeting | email`. PRs, commits, deployments, incidents, billing notices, security alerts, and future provider updates become `integration_activity` items referenced as `[[activity:<id>]]`.
+- **Resolved — Open-Meteo location fallback.** `packages/contracts/src/weather.ts` owns a hand-curated `WEATHER_FALLBACK_CITIES` `ReadonlyMap` plus `weatherFallbackFor(tz)`. Keep misses as misses; the weather contributor can return `null` rather than guessing.
+- **Deferred — email-tagging leniency.** Integration-activity backfill from service mail depends on the triage labels being a little more tolerant than the current strict classifier shape. Discuss separately after Phase 3 shadow logs show the real provider-email distribution.
 
 Decide each in the corresponding phase's PR description so reviewers know what was chosen.
 
@@ -47,16 +49,67 @@ Extend the existing 10-category file (`packages/contracts/src/triage.ts`):
 - `SenderContext` interface (`fromKind`, `bodyActor?`, `effectiveAuthor`, `botSlug?`).
 - `senderContextSchema` zod for runtime validation at workflow boundaries — body-actor `kind` is `'bot' | 'person' | 'unknown'`.
 
-### 1b. `@alfred/contracts/briefing.ts` (new file)
+### 1b. `@alfred/contracts/briefing.ts` replacement
+
+Replace the partially-landed `packages/contracts/src/briefing.ts` shape. The file already exists today with `github`, `pr | commit | repo`, and `reasoning`; Phase 1 rewrites that contract to the revised `integration_activity`, `activity | meeting | email`, and `why` / `auditSummary` shape rather than adding a second file.
 
 Zero-dep types and consts:
 
-- `GATHER_SOURCE_SLUGS = ['email', 'calendar', 'github', 'weather', 'day_of_week'] as const` + `GatherSourceSlug` type
-- `BRIEFING_REFERENCE_KINDS = ['pr', 'commit', 'meeting', 'email', 'repo'] as const` + `BriefingReferenceKind`
+- `GATHER_SOURCE_SLUGS = ['email', 'calendar', 'integration_activity', 'weather', 'day_of_week'] as const` + `GatherSourceSlug` type. This replaces the partially-landed `github` source; GitHub becomes the first `integration_activity` producer.
+- `BRIEFING_REFERENCE_KINDS = ['activity', 'meeting', 'email'] as const` + `BriefingReferenceKind`. This replaces the partially-landed `pr | commit | repo` reference kinds; provider detail lives inside `IntegrationActivityItem`.
 - `IanaTimezone` branded `string` (`string & { readonly __ianaTimezone: unique symbol }`) with `assertIanaTimezone(value)` runtime guard against `Intl.supportedValuesOf('timeZone')`
-- `BriefingGather` discriminated union per source + per-source contribution types (`EmailContribution`, `CalendarContribution`, `GithubContribution`, `WeatherContribution`, `DayOfWeekContribution`)
-- `FullBriefing` (`{ headline, sections: { source, label, body }[], reasoning }`)
-- `briefingSchema` zod schema producing `{ breakingSummary, fullBriefing }` (per ADR-0041 §"Composer output schema")
+- `IntegrationActivityItem` + `IntegrationActivityContribution`:
+
+```ts
+type IntegrationActivitySource = 'direct_api' | 'email_triage';
+type IntegrationActivityCategory =
+  | 'work'
+  | 'deploy'
+  | 'incident'
+  | 'account'
+  | 'billing'
+  | 'security'
+  | 'usage'
+  | 'other';
+
+interface IntegrationActivityItem {
+  id: string;
+  provider: IntegrationSlug;
+  source: IntegrationActivitySource;
+  activityCategory: IntegrationActivityCategory;
+  providerKind: string;
+  title: string;
+  status?: 'open' | 'succeeded' | 'failed' | 'resolved' | 'needs_attention';
+  severity?: 'info' | 'warning' | 'critical';
+  occurredAt: string;
+  url?: string;
+  relatedRepo?: string;
+  rollup?: { eventCount: number; attemptCount?: number; durationMinutes?: number };
+}
+```
+
+- `BriefingGather` discriminated union per source + per-source contribution types (`EmailContribution`, `CalendarContribution`, `IntegrationActivityContribution`, `WeatherContribution`, `DayOfWeekContribution`)
+- `BriefingComposerOutput` (`{ breakingSummary, fullBriefing: ComposerFullBriefing }`) is the model-facing structured-output type. It intentionally does **not** include `sourcePanels`.
+- Persisted `FullBriefing` (`{ headline, sections: { source, label, body, why?, references? }[], sourcePanels?, auditSummary? }`). `why` is user-facing inclusion rationale; `auditSummary` is bounded composition notes. `sourcePanels` is the normalized display model for the full-page UI, generated deterministically from `gather` + resolved references after compose; raw `gather` stays stored for audit/replay. Do not expose raw model reasoning.
+
+```ts
+interface BriefingSourcePanel {
+  source: GatherSourceSlug;
+  label: string;
+  items: Array<{
+    id: string;
+    title: string;
+    subtitle?: string;
+    status?: string;
+    severity?: 'info' | 'warning' | 'critical';
+    href?: string;
+    reference?: string; // e.g. activity:..., meeting:..., email:...
+    metadata?: Record<string, string>;
+  }>; // generated by code, not by the composer model
+}
+```
+- `briefingComposerSchema` zod schema producing the model-authored `{ breakingSummary, fullBriefing }` without `sourcePanels` (per ADR-0041 §"Composer output schema")
+- `fullBriefingSchema` / persisted type adds deterministic `sourcePanels` after compose/reference resolution.
 - `BriefingContributor<T>` interface (`source`, `collect({ userId, date, timezone })`)
 - `briefingStatusValues = ['pending', 'gathering', 'composing', 'sent', 'failed'] as const` + `BriefingStatus` type
 
@@ -80,8 +133,9 @@ These already exist (`@alfred/contracts/mentions.ts`, `tools.ts`, `transcript.ts
 
 - `pnpm check-types` clean across the workspace.
 - `apps/web` builds with no Node-only modules leaked (re-run `pnpm check:web-boundaries`).
-- `import { senderContextSchema, briefingSchema } from '@alfred/contracts'` compiles in `packages/api`, `packages/db`, `apps/web`.
+- `import { senderContextSchema, briefingComposerSchema, fullBriefingSchema } from '@alfred/contracts'` compiles in `packages/api`, `packages/db`, `apps/web`.
 - New `AttributionKind` union includes `'briefing'`; `@alfred/ai` re-export keeps the public API of `meteredGenerateText` unchanged for existing callers.
+- `packages/contracts/src/briefing.ts` no longer exposes a top-level `github` gather source or `pr` / `commit` / `repo` reference kinds; GitHub data compiles through `IntegrationActivityContribution`.
 
 ---
 
@@ -104,6 +158,7 @@ New file `packages/db/src/schema/briefings-v2.ts` (or rename existing `briefings
 - `breaking_summary text NOT NULL DEFAULT ''`
 - `full_briefing jsonb NOT NULL .$type<FullBriefing>()`
 - `model text` (compose model id; null until composed)
+- `compose_fallback boolean NOT NULL DEFAULT false` — true when deterministic fallback prose was sent because the composer model failed.
 - `email_send_id text FK -> email_sends NULL`
 - `row_version bigint NOT NULL DEFAULT 0` (Replicache bump on every status/body change)
 - `...lifecycle_dates`
@@ -114,7 +169,12 @@ Add a `briefingDateAndTz` spread helper to `packages/db/src/helpers.ts` mirrorin
 
 ### 2b. `person_profiles` cache-key amendment (ADR-0031 + ADR-0042)
 
-Confirm the existing `person_profiles` row supports `service:handle` keys (`github:coderabbitai`) alongside `email` keys. If `person_profiles.identifier` is `email`-only today, add a `kind` column (`'email' | 'service'`) + widen `identifier` semantics. Cache TTL is read-time logic (compare `identity_confidence` against `lifecycle_dates.updated_at`); no new column needed.
+ADR-0031 is not landed in the current tree: there is no `person_profiles` schema yet. Phase 2 must branch explicitly:
+
+- If ADR-0031 lands before this plan's Phase 2 PR, confirm the existing `person_profiles` row supports `service:handle` keys (`github:coderabbitai`) alongside `email` keys. If `person_profiles.identifier` is `email`-only, add a `kind` column (`'email' | 'service'`) + widen `identifier` semantics. Cache TTL is read-time logic (compare `identity_confidence` against `lifecycle_dates.updated_at`); no new column needed.
+- If ADR-0031 is still absent, do **not** pretend dossier caching exists. Either add the ADR-0031 tables in this phase or mark dossier enqueue/cache acceptance as deferred until the ADR-0031 schema PR lands. During the shadow rollout, unknown-human dossier enqueue is already disabled, so deferring this schema does not block live v1 triage.
+
+ADR-0031 people dossiers should include a bounded `public_relationships` section in `sections jsonb` for publicly attested family/cofounder/advisor/investor/collaborator context. No extra schema is needed for v1; accepted relationship facts can still use `person_profile_facts` / `entity_relations` with provenance. Keep this out of quick lookup and out of automated triage enrichment.
 
 ### 2c. `user_preferences.location` (ADR-0041 weather source)
 
@@ -135,7 +195,7 @@ For Phase 6 observability — if Phase 3's `triage.sender_extraction` log event 
 
 ## Phase 3 — Triage v2 implementation (ADR-0042)
 
-Goal: ship the layered pipeline. Deterministic extraction → cheap classifier consuming `SenderContext` → boss `deepen` escalation → label write-back. Async dossier dispatch on the side.
+Goal: ship the layered pipeline. Deterministic extraction → cheap classifier consuming `SenderContext` only → boss `deepen` escalation with optional user-context lookup → label write-back. Async dossier dispatch on the side.
 
 ### 3a. `sender-context.ts` module
 
@@ -172,34 +232,70 @@ Fixture tests in `packages/api/test/triage/sender-context.test.ts` covering at m
   - 9c: unknown service or unknown effective author → today's behavior.
 - Add the `SenderContext` payload to the classifier's user-message JSON so the model doesn't re-parse `From:`.
 
-`classify()` signature gains `senderContext: SenderContext`. The triage workflow's `classify-document` step constructs `SenderContext` first, passes it through.
+`classify()` signature gains `senderContext: SenderContext`. The triage workflow's `classify-document` step constructs `SenderContext` first, passes it through. Do **not** pass bio/profile/user-context into the cheap classifier in v1; bio-aware tagging is reserved for `deepen` so the hot path stays fast and cheap.
 
-### 3c. `deepen` workflow step
+### 3c. `system.read_user_context` tool + cache
+
+Add `system.read_user_context` before wiring `deepen`, because both the triage boss pass and future boss/sub-agent runs need the same fast profile surface.
+
+- **Contracts:** add `"read_user_context"` to `SYSTEM_ACTIONS`.
+- **Tool registration:** `packages/api/src/modules/tools/system.ts` registers `system.read_user_context` with `riskTier: 'no_risk'` and a bounded input schema:
+
+```ts
+{
+  query?: string;
+  include?: Array<'bio' | 'preferences' | 'contacts' | 'projects' | 'relationships' | 'dossiers'>;
+  subjectEmail?: string;
+  subjectHandle?: string;
+}
+```
+
+- **Source of truth:** Postgres. Build the response from confirmed `user_facts`, `user_preferences`, `entities`, `entity_relations`, semantic `memory_chunks`, and later `person_profiles` once ADR-0031 is implemented. Redis is only a read-through cache for a compact derived payload (`alfred:user-context:{userId}:v1` or equivalent); cache loss must degrade to a DB rebuild, not memory loss.
+- **Invalidation:** broad delete the user-context Redis key on fact/preference/entity/profile writes in v1. Keep the invalidation coarse until real churn says otherwise.
+- **Exposure:** system tool, not loadable `memory` integration. Boss and sub-agents may call it without `@memory`, `allowed_integrations`, or HIL approval.
+- **Output:** compact, provenance-aware, and capped. Never dump the full memory corpus; return the smallest context that answers the query/include shape.
+
+### 3d. `deepen` workflow step
 
 `packages/api/src/modules/triage/deepen.ts`. New workflow step inserted between `classify-document` and `apply-label`. Gate function:
 
 ```ts
-function shouldDeepen({ classifier, senderContext, contacts }): { fire: boolean; reason?: string } {
-  if (classifier.confidence < 0.7) return { fire: true, reason: 'low_confidence' };
+type DeepenDecision =
+  | { mode: 'execute'; reason: 'severity_suspect_bot' }
+  | { mode: 'shadow'; reason: 'low_confidence' | 'unknown_human' }
+  | { mode: 'skip' };
+
+function shouldDeepen({ classifier, senderContext, contacts }): DeepenDecision {
   if (senderContext.botSlug && SEVERITY_SUSPECT_BOTS.has(senderContext.botSlug)) {
-    return { fire: true, reason: 'severity_suspect_bot' };
+    return { mode: 'execute', reason: 'severity_suspect_bot' };
   }
+  // Shadow-only at v1: log wouldDeepen, but do not execute boss deepen yet.
+  if (classifier.confidence < 0.7) return { mode: 'shadow', reason: 'low_confidence' };
+  // Shadow-only at v1: contact/memory sparsity can over-fire this branch.
   if (senderContext.effectiveAuthor === 'person' && !contacts.has(senderEmail)) {
-    return { fire: true, reason: 'unknown_human' };
+    return { mode: 'shadow', reason: 'unknown_human' };
   }
-  return { fire: false };
+  return { mode: 'skip' };
 }
 ```
+
+Implementation maps `mode` to both notions: `wouldDeepen = mode !== 'skip'`, `wouldDeepenReason = reason`, `deepenExecuted = mode === 'execute'`, and `shadowOnly = mode === 'shadow'`. Initial v1 execution is live for `severity_suspect_bot`; `low_confidence` and `unknown_human` are shadow-only until observed rates are acceptable.
+
+Promotion gates:
+
+- `low_confidence`: after either 200 triaged emails or 7 days of logs, enable live deepen only if `wouldDeepenReason='low_confidence'` fires on <=15% of mail. If it is higher, tune the confidence threshold before enabling.
+- `unknown_human`: enable live deepen only if `wouldDeepenReason='unknown_human'` fires on <=5% of mail and a manual spot-check shows the senders are actual people worth dossier work, not newsletters, sales aliases, or weakly parsed service envelopes.
+- `severity_suspect_bot`: live from v1.
 
 Step body uses `AlfredAgent` brief-only loop (m13 ADR-0040 sentinel) with:
 
 - System prompt: the deepen brief from ADR-0042 §"`deepen` step shape".
-- Allowed tools: `memory.read`, `github.list_repos`, `gmail.thread_history`. Configured via `state.activeIntegrations = ['memory', 'github', 'gmail']` plus an allowlist on a per-tool basis (no `web_search`, no `send_*`).
+- Allowed tools: `system.read_user_context`, `github.list_repos`, `gmail.thread_history`. Configure GitHub/Gmail via `state.activeIntegrations = ['github', 'gmail']` plus an allowlist on a per-tool basis (no `web_search`, no `send_*`). `system.read_user_context` is always available through the system namespace.
 - Output schema: `{ refinedCategory: TriageCategory; severityFlag: 'severe' | 'normal' | 'low'; dossierRequest?: { personEmail: string } }`.
 
 Failure modes (timeout, model error, run failure) → log + return the cheap classifier's output unchanged. The triage workflow never blocks on `deepen` — the path through `apply-label` always runs.
 
-### 3d. Async dossier auto-trigger
+### 3e. Async dossier auto-trigger
 
 If `deepen` emits `dossierRequest` AND the refined category is in `{'urgent', 'action_needed', 'awaiting_reply'}`:
 
@@ -209,7 +305,9 @@ If `deepen` emits `dossierRequest` AND the refined category is in `{'urgent', 'a
 
 Cache helper: `packages/api/src/modules/cold-start/dossier-cache.ts` with `isDossierFresh({ personEmail, now })`. Reused by both triage and any future caller.
 
-### 3e. `triage.sender_extraction` observability event
+Initial rollout note: the unknown-human branch is shadow-only, so this auto-trigger is code-ready but does not fire from unknown-human eligibility until that branch is promoted live. If a live severity-suspect or manually-forced `deepen` emits a dossier request, the same cache/queue path applies.
+
+### 3f. `triage.sender_extraction` observability event
 
 Logged after every `extract-sender-context → classify → [deepen?]` cycle:
 
@@ -223,9 +321,11 @@ log.info('triage.sender_extraction', {
   parserHit,              // 'github' | 'calendar' | 'linear' | null
   classifierConfidence,
   classifierCategory,
-  escalated,              // boolean
-  escalationReason,       // 'low_confidence' | 'severity_suspect_bot' | 'unknown_human' | undefined
-  refinedCategory,        // present iff escalated
+  wouldDeepen,            // boolean
+  wouldDeepenReason,      // 'low_confidence' | 'severity_suspect_bot' | 'unknown_human' | undefined
+  deepenExecuted,         // boolean; v1 true only for severity_suspect_bot
+  shadowOnly,             // boolean; true for low_confidence / unknown_human during rollout
+  refinedCategory,        // present iff deepenExecuted
   dossierRequested,       // boolean
 });
 ```
@@ -237,10 +337,14 @@ Sink is the standard pino logger; Langfuse tracing already covers the `deepen` L
 - `packages/api/test/triage/sender-context.test.ts` green for the 6+ fixture cases.
 - Integration test: an email with `From: noreply@github.com` + `**coderabbitai** commented` produces `effectiveAuthor: 'bot'`, `botSlug: 'coderabbit'`, classifier emits `fyi`, no `deepen` fires.
 - Integration test: an email with `From: noreply@sentry.io` + "error spike" body produces `effectiveAuthor: 'bot'`, `botSlug: 'sentry'`, `deepen` fires (severity-suspect), refined category in `{urgent, action_needed}`.
-- Integration test: an unknown human sender (`alice@somecompany.com`) lands in `urgent` → `deepen` fires (`unknown_human`) → `dossierRequest` enqueued → `person_profiles` cache miss → `person-research` workflow row exists.
-- Re-running the same scenario within 30 days of a cached `identity_confidence: 0.8` dossier → no `person-research` enqueue.
+- Integration test: a context-sensitive service email only changes category in `deepen` after `system.read_user_context` returns relevant user-owned project/company context; the cheap classifier remains email-only.
+- Integration test: an unknown human sender (`alice@somecompany.com`) lands in `urgent` → `triage.sender_extraction` logs `wouldDeepen=true`, `wouldDeepenReason='unknown_human'`, `shadowOnly=true`, and no boss deepen/person-research enqueue occurs during the shadow rollout.
+- Integration test: a low-confidence classifier result logs `wouldDeepen=true`, `wouldDeepenReason='low_confidence'`, `shadowOnly=true`, and no boss deepen call occurs during the shadow rollout.
+- Promotion report fixture: aggregate `triage.sender_extraction` logs can compute `low_confidence` fire rate, `unknown_human` fire rate, and sample size for the 200-email / 7-day gate.
+- After the unknown-human branch is promoted live, or when a dossier request is manually forced, re-running the same scenario within 30 days of a cached `identity_confidence: 0.8` dossier → no `person-research` enqueue.
 - `triage.sender_extraction` events present in logs for every classification.
 - `deepen` model failure (mock 500) does not fail the triage workflow; `apply-label` still runs with cheap classifier output.
+- Redis miss for `system.read_user_context` rebuilds from Postgres and repopulates the cache; Redis loss does not lose user memory.
 
 ---
 
@@ -254,26 +358,36 @@ Goal: ship the cross-source gather + single-call boss compose + per-surface rend
 
 - `email.ts` — joins `email_triage` to `documents` over the prior 24h window in user tz. Returns `EmailContribution { categories: { [TriageCategory]: Array<{ documentId, threadId, subject, sender, snippet }> } }`.
 - `calendar.ts` — `googleClient.calendar.events.list` for `today` in user tz. Returns `CalendarContribution { events: Array<{ eventId, title, start, end, attendees, location }> } | null`. Returns `null` if `calendar.events.readonly` scope not granted (Phase 5 prerequisite). `null` is part of the schema; composer handles "no calendar" verbatim.
-- `github.ts` — two queries: PRs awaiting user review + commits authored yesterday. Returns `GithubContribution { prsAwaitingReview: Array<{...}>; commitsYesterday: Array<{...}> } | null`. `null` if `repo` scope missing.
+- `integration-activity.ts` — gathers normalized operational activity. v1 producers:
+  - GitHub direct API: PRs awaiting user review + commits authored yesterday, returning `IntegrationActivityItem[]` with `source='direct_api'`, `provider='github'`, and provider-scoped `providerKind` values such as `github.pr_review_requested` / `github.commit_authored`.
+  - Email triage backfill: selected severity-suspect service mail from the prior 24h can become `IntegrationActivityItem[]` with `source='email_triage'` when no direct provider API exists yet. Provider-specific examples include deployment, incident, billing, security, docs, or project-management systems, depending on connected integrations and observed email.
+  - Future producers: provider modules are added under this contributor as integrations land, rather than new top-level gather sources by default.
 - `weather.ts` — Open-Meteo fetch (no key) keyed on `user_preferences.location` or `WEATHER_FALLBACK_CITIES[timezone]`. Cached in Redis under `briefing:weather:{lat}:{lng}:{briefingDate}` for the day. Returns `WeatherContribution { current, forecast } | null`.
 - `day-of-week.ts` — pure `Intl.DateTimeFormat` + small holiday const table (US/IN at v1, expandable). Returns `DayOfWeekContribution { dayName, isWeekend, holiday? }`. Always non-null.
 
 Registry: `getBriefingContributors() → BriefingContributor<unknown>[]`. The gather step `Promise.allSettled`s them — a single source failing does not fail the gather. Failed sources land as `null` in the resulting `BriefingGather`.
 
+Activity rollup runs inside `integration-activity.ts` before the composer sees the gather. It suppresses raw event noise and emits only unresolved or notable clusters:
+
+- A failed deployment followed by a successful deployment for the same project/service/branch is suppressed by default.
+- The cluster is retained when it is still unresolved, has `severity='critical'`, required clear user attention, had >=3 failed attempts, lasted >30 minutes from first failure to recovery, or is a meaningful day-level accomplishment.
+- Retained clusters keep rollup metadata (`eventCount`, `attemptCount`, `durationMinutes`) so the composer can explain why it matters without seeing every raw event.
+- Suppressed raw event ids are kept only in logs/diagnostics, not in the prompt.
+
 ### 4b. Reference resolver + Segment types
 
 `packages/api/src/modules/briefing/references.ts`. Per ADR-0041 §"Reference resolution layer":
 
-- `Segment` discriminated union (`text | pr | commit | meeting | email | repo`).
+- `Segment` discriminated union (`text | activity | meeting | email`).
 - `resolveBriefingReferences(markdown: string, gather: BriefingGather) → { segments: Segment[]; unresolved: string[] }`. Tokenizer parses `[[<kind>:<id>]]` placeholders against the gather's enumerated entities. Unknown placeholders fall back to a plain-text `<kind>:<id>` segment and append to `unresolved`.
 - Two renderers: `renderBriefingEmailHtml(segments) → { html, text }` and `renderBriefingApp(segments) → ReactNode` (the latter in `apps/web`).
 
 Test cases (`packages/api/test/briefing/references.test.ts`):
 
-- `"Review [[pr:warden#9]]"` resolves to `[text, pr]` segments with the matching gather row.
-- `"[[pr:warden#999]]"` (not in gather) → unresolved fallback `"warden#999"` text + `unresolved: ['pr:warden#999']`.
+- `"Review [[activity:github:pr:warden#9]]"` resolves to `[text, activity]` segments with the matching gather row.
+- `"[[activity:github:pr:warden#999]]"` (not in gather) → unresolved fallback `"github:pr:warden#999"` text + `unresolved: ['activity:github:pr:warden#999']`.
 - Mixed prose `"On a quiet day... but check [[email:thr_abc]]"` segments correctly.
-- Adjacent placeholders `"[[pr:a]] and [[pr:b]]"` produce two `pr` segments separated by text `" and "`.
+- Adjacent placeholders `"[[activity:a]] and [[activity:b]]"` produce two `activity` segments separated by text `" and "`.
 
 ### 4c. Composer rewrite
 
@@ -290,10 +404,11 @@ export async function composeBriefing(args: {
 
 Implementation:
 
-- Build the system prompt per ADR-0041 §"Composer output schema" — enumerate available references explicitly, instruct to emit `[[<kind>:<id>]]` verbatim, never URLs.
-- Single `meteredGenerateText` call with `getBossModel()`, `output: zod(briefingSchema)`, `attribution: { kind: 'briefing', userId, runId }`.
+- Build the system prompt per ADR-0041 §"Composer output schema" — enumerate available references explicitly, instruct to emit `[[<kind>:<id>]]` verbatim, never URLs, and ask for source-backed `why` rationale rather than model reasoning.
+- Single `meteredGenerateText` call with `getBossModel()`, `output: zod(briefingComposerSchema)`, `attribution: { kind: 'briefing', userId, runId }`.
+- After compose/reference resolution, call `buildBriefingSourcePanels(gather, resolvedReferences)` to deterministically attach `fullBriefing.sourcePanels`. The composer model never authors source-panel rows.
 - Empty-state tone rule baked into the prompt (the "earned the quiet" canonical example).
-- Failure fallback: deterministic template render of `gather` → `breakingSummary` + a minimal `fullBriefing`. Briefing row marked `status='failed'` with `compose_fallback=true` flag on the payload.
+- Failure fallback: deterministic template render of `gather` → `breakingSummary` + a minimal `fullBriefing`. If the fallback email sends, the row reaches `status='sent'` with `compose_fallback=true`; composer degradation is not delivery failure.
 
 ### 4d. Workflow rewrite + delivery
 
@@ -310,9 +425,12 @@ Idempotency: `INSERT INTO briefings ... ON CONFLICT (user_id, briefing_date) DO 
 Briefing detail route in `apps/web/src/routes/-app/briefings/$date.tsx` (or under the existing app shell). Read via Replicache (Phase 4f). Renders:
 
 - `headline` as section title.
-- `sections[]` as collapsible cards keyed by `source` (with a small icon per `GatherSourceSlug`).
-- `reasoning` as a "Why" disclosure under the fold.
+- `sections[]` as collapsible panels keyed by `source` (with a small icon per `GatherSourceSlug`), borrowing the chat page's visual grammar from `DimensionChatThread`: prose first, compact source rows, and accordion-style detail disclosure.
+- `sections[].why` as a collapsed "Why included" row. This is user-facing rationale, not raw model reasoning.
+- `sourcePanels[]` for source/detail accordions. The web route renders these normalized panels instead of branching over raw `gather.email`, `gather.calendar`, `gather.integration_activity`, etc. Panels are generated by code after compose, so they stay faithful to source data.
+- `auditSummary` as a muted "Briefing notes" disclosure under the fold or diagnostics-only. It should mention rollup decisions like suppressed deploy noise, not chain-of-thought.
 - Reference segments rendered via `<EntityChip kind={...} />` components in `apps/web/src/components/briefing/entity-chip.tsx`. One chip variant per `BriefingReferenceKind`.
+- Email render includes only `breakingSummary` plus a bottom `View full briefing` link to this route.
 
 Briefing list route at `/briefings` — Replicache-backed scroll over the last 30 days.
 
@@ -333,15 +451,15 @@ History route `/api/briefings/history?before=...` for pulls older than 30 days. 
 - `pnpm --filter @alfred/api test briefing/references` green.
 - Manual smoke: trigger morning-briefing workflow for the dev user → `briefings` row appears with status `sent`, `breaking_summary` non-empty, `full_briefing.sections.length >= 1`, an `email_sends` row linked.
 - `breaking_summary` references resolve in the rendered email HTML to bold + icon + anchor; unresolved fallbacks log to `briefing.references.unresolved` with the placeholder content.
-- `apps/web` `/briefings/{today}` route renders the full briefing with entity chips for each placeholder kind that fired in the prose.
+- `apps/web` `/briefings/{today}` route renders the full briefing with entity chips for each placeholder kind that fired in the prose, normalized `sourcePanels`, collapsible `why` disclosures, and no raw reasoning field.
 - Replicache pull returns `briefing` rows for the last 30 days; older briefings reachable via `/api/briefings/history`.
-- Composer model failure (mock model error) flows to deterministic-template fallback; row reaches `status='failed'` with `compose_fallback=true`; email still sends.
+- Composer model failure (mock model error) flows to deterministic-template fallback; if email sends, row reaches `status='sent'` with `compose_fallback=true`.
 
 ---
 
 ## Phase 5 — OAuth scope additions + integration prerequisites
 
-Goal: light up Calendar + GitHub gather contributors and the Weather/location settings UI.
+Goal: light up Calendar + the first `integration_activity` producer (GitHub) and the Weather/location settings UI.
 
 ### 5a. Google Calendar scope
 
@@ -350,10 +468,11 @@ Goal: light up Calendar + GitHub gather contributors and the Weather/location se
 - Per `CLAUDE.md` "Auth — GCP setup", confirm the OAuth client redirect URIs and ensure the Google Calendar API is enabled in the GCP project (already required for any calendar work; verify, don't assume).
 - Re-consent prompt surfaces in the existing integrations settings page when the user enables briefing or the calendar contributor is wired.
 
-### 5b. GitHub `repo` scope
+### 5b. GitHub `repo` scope for `integration_activity`
 
 - Bump `GITHUB_OAUTH_SCOPES` in `packages/integrations/src/github/oauth.ts` from `read:user` to `read:user repo`.
-- "Reconnect" CTA on the GitHub integration tile in settings — the existing tile derives `status: "connected"` from credential row presence; add a `scopesGranted` check and surface a "Reconnect for briefing PR/commit data" affordance when `repo` is missing.
+- "Reconnect" CTA on the GitHub integration tile in settings — the existing tile derives `status: "connected"` from credential row presence; add a `scopesGranted` check and surface a "Reconnect for briefing activity data" affordance when `repo` is missing.
+- Scope tradeoff: classic OAuth `repo` is broad, but it is the pragmatic v1 route for private repo activity in a single-user app. Keep the re-consent explicit and user-facing. Revisit GitHub App / fine-grained token shape if this grows beyond personal use or the user's repo footprint makes classic `repo` uncomfortable.
 - The user has to actively re-consent — there is no silent scope upgrade.
 
 ### 5c. Weather + location
@@ -365,15 +484,15 @@ Goal: light up Calendar + GitHub gather contributors and the Weather/location se
 ### 5d. Contributor `null` paths verified
 
 - Calendar contributor returns `null` until 5a + user re-consent. Composer prompt produces "no meetings today" without crashing.
-- GitHub contributor returns `null` until 5b + user re-consent. Composer omits PR/commit references.
+- GitHub activity producer returns `[]` until 5b + user re-consent. Composer omits GitHub activity references.
 - Weather contributor returns `null` if Open-Meteo is down. Composer omits weather section.
 
 ### Phase 5 acceptance
 
 - Dev user re-consents the Google scope → next briefing run produces a non-null `CalendarContribution` in `gather`.
-- Dev user re-consents GitHub → next briefing run produces non-null `GithubContribution`.
+- Dev user re-consents GitHub → next briefing run produces non-empty `IntegrationActivityContribution.items` when there is PR/commit activity.
 - Settings page surfaces location preference; toggling it changes the next-day weather fetch coordinates.
-- Briefing for a user with no Calendar/GitHub consent still ships successfully with `gather.calendar = null` and `gather.github = null`; composer prompt handles the empty case.
+- Briefing for a user with no Calendar/GitHub consent still ships successfully with `gather.calendar = null` and `gather.integration_activity.items = []`; composer prompt handles the empty case.
 
 ---
 
@@ -424,7 +543,7 @@ Goal: prove the whole pair works end-to-end as features.
 
 - Bot review comment → `fyi`, no `deepen`.
 - Severity-suspect bot alert → escalation, refined category in `{urgent, action_needed}`.
-- Unknown human in `urgent` → escalation, `person-research` workflow enqueued.
+- Unknown human in `urgent` during shadow rollout → `wouldDeepen=true`, `shadowOnly=true`, no `deepen`, no `person-research` enqueue.
 - Cached-dossier replay → no re-enqueue within TTL.
 
 Capture the `triage.sender_extraction` log lines and assert their shape.
@@ -446,7 +565,7 @@ Falls back gracefully if any contributor returns `null` — the smoke asserts th
 
 - All valid placeholders resolve to typed segments.
 - All invalid placeholders land in `unresolved[]` with the inner label preserved as text.
-- No exceptions thrown for adversarial input (`[[]]`, `[[pr:]]`, `[[:foo]]`, nested `[[[[pr:x]]]]`).
+- No exceptions thrown for adversarial input (`[[]]`, `[[activity:]]`, `[[:foo]]`, nested `[[[[activity:x]]]]`).
 
 ### Phase 7 acceptance
 
