@@ -175,7 +175,12 @@ export const morningBriefingWorkflow: Workflow<State> = {
 
         let gather: BriefingGather;
         try {
-          gather = await gatherBriefing({ userId: ctx.userId, briefingDate, timezone });
+          gather = await gatherBriefing({
+            userId: ctx.userId,
+            briefingDate,
+            slot: ctx.state.slot,
+            timezone,
+          });
           await markBriefingGathering({ briefingId: begun.row.id, gather });
         } catch (err) {
           await markBriefingFailed(begun.row.id);
