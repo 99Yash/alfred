@@ -1,7 +1,8 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
+import type { BriefingGather, IanaTimezone } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/integrations/google";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -41,6 +42,9 @@ const SUPPRESSED_CATEGORIES = [
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];
 
+const PRIORITY_CATEGORY_SET: ReadonlySet<string> = new Set(PRIORITY_CATEGORIES);
+const SUPPRESSED_CATEGORY_SET: ReadonlySet<string> = new Set(SUPPRESSED_CATEGORIES);
+
 export interface BriefingItem {
   documentId: string;
   category: PriorityCategory;
@@ -73,6 +77,15 @@ export interface GatherBriefingDigestArgs {
   windowEnd?: Date;
   /** Cap per bucket — protects the email body length on busy days. */
   maxPerBucket?: number;
+}
+
+export interface GatherBriefingArgs {
+  userId: string;
+  /** YYYY-MM-DD calendar date in the user's timezone. */
+  briefingDate: string;
+  timezone: IanaTimezone;
+  windowStart?: Date;
+  windowEnd?: Date;
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -118,6 +131,7 @@ export async function gatherBriefingDigest(
         // be days old if a thread surfaces a backfilled message; what
         // matters for "today's briefing" is what alfred saw today.
         gte(documents.ingestedAt, windowStart),
+        lte(documents.ingestedAt, windowEnd),
       ),
     )
     .orderBy(desc(documents.authoredAt));
@@ -138,8 +152,7 @@ export async function gatherBriefingDigest(
   };
 
   for (const r of rows) {
-    if (r.authoredAt && r.authoredAt > windowEnd) continue;
-    const cat = r.category as TriageCategory;
+    const cat = r.category;
 
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
@@ -164,10 +177,9 @@ export async function gatherBriefingDigest(
     });
   }
 
-  const totalPriority = (Object.values(buckets) as BriefingItem[][]).reduce(
-    (sum, b) => sum + b.length,
-    0,
-  );
+  const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
+    return sum + buckets[category].length;
+  }, 0);
   const totalSuppressed = Object.values(suppressedCounts).reduce((sum, n) => sum + n, 0);
 
   return {
@@ -180,12 +192,41 @@ export async function gatherBriefingDigest(
   };
 }
 
-function isPriority(c: TriageCategory): c is PriorityCategory {
-  return (PRIORITY_CATEGORIES as readonly string[]).includes(c);
+export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
+  const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
+  const digest = await gatherBriefingDigest({
+    userId: args.userId,
+    windowStart: args.windowStart,
+    windowEnd,
+  });
+  const categories: BriefingGather["email"]["categories"] = {};
+  for (const category of PRIORITY_CATEGORIES) {
+    categories[category] = digest.buckets[category].map((item) => ({
+      documentId: item.documentId,
+      threadId: threadIdFromGmailUrl(item.threadUrl),
+      subject: item.subject?.trim() || "(no subject)",
+      sender: shortenFrom(item.from) ?? "Unknown sender",
+      snippet: item.snippet ?? item.rationale ?? "",
+    }));
+  }
+
+  return {
+    email: {
+      categories,
+    },
+    calendar: null,
+    integration_activity: { items: [] },
+    weather: null,
+    day_of_week: dayContribution(args.briefingDate, args.timezone),
+  };
 }
 
-function isSuppressed(c: TriageCategory): c is SuppressedCategory {
-  return (SUPPRESSED_CATEGORIES as readonly string[]).includes(c);
+function isPriority(c: string): c is PriorityCategory {
+  return PRIORITY_CATEGORY_SET.has(c);
+}
+
+function isSuppressed(c: string): c is SuppressedCategory {
+  return SUPPRESSED_CATEGORY_SET.has(c);
 }
 
 /**
@@ -196,6 +237,79 @@ function isSuppressed(c: TriageCategory): c is SuppressedCategory {
  */
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+}
+
+function threadIdFromGmailUrl(url: string | null): string {
+  if (!url) return "";
+  const tail = url.slice(url.lastIndexOf("/") + 1);
+  return decodeURIComponent(tail);
+}
+
+function dayContribution(
+  briefingDate: string,
+  timezone: IanaTimezone,
+): BriefingGather["day_of_week"] {
+  const date = new Date(`${briefingDate}T12:00:00Z`);
+  const dayName = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+  }).format(date);
+  return {
+    dayName,
+    isWeekend: dayName === "Saturday" || dayName === "Sunday",
+  };
+}
+
+function localEndOfDay(briefingDate: string, timezone: IanaTimezone): Date {
+  return localStartOfDay(addLocalDays(briefingDate, 1), timezone);
+}
+
+function localStartOfDay(localDate: string, timezone: IanaTimezone): Date {
+  let candidate = new Date(`${localDate}T00:00:00.000Z`);
+  for (let i = 0; i < 3; i += 1) {
+    candidate = new Date(Date.UTC(...dateParts(localDate)) - timezoneOffsetMs(candidate, timezone));
+  }
+  return candidate;
+}
+
+function timezoneOffsetMs(at: Date, timezone: IanaTimezone): number {
+  const value =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
+  if (!match?.groups?.sign) return 0;
+
+  const sign = match.groups.sign === "-" ? -1 : 1;
+  const hours = Number(match.groups.hours);
+  const minutes = Number(match.groups.minutes ?? "0");
+  return sign * (hours * 60 + minutes) * 60_000;
+}
+
+function addLocalDays(localDate: string, days: number): string {
+  const next = new Date(Date.UTC(...dateParts(localDate), 12));
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function dateParts(localDate: string): [number, number, number] {
+  const [year, month, day] = localDate.split("-").map(Number);
+  return [year ?? 0, (month ?? 1) - 1, day ?? 1];
+}
+
+function shortenFrom(from: string | null): string | null {
+  if (!from) return null;
+  const trimmed = from.trim();
+  const angleMatch = trimmed.match(/^"?([^"<]+?)"?\s*<([^>]+)>$/);
+  if (angleMatch) {
+    const name = angleMatch[1]?.trim();
+    if (name) return name;
+    return angleMatch[2] ?? null;
+  }
+  return trimmed;
 }
 
 export { PRIORITY_CATEGORIES, SUPPRESSED_CATEGORIES };

@@ -7,7 +7,7 @@
  *
  * Module shape mirrors triage:
  *   - `gather`     pure query helpers (no LLM)
- *   - `compose`    deterministic HTML/text template
+ *   - `compose`    v2 structured briefing composer + legacy inbox renderer
  *   - `preferences` timezone + delivery-hour resolution
  *   - `workflow-input` slug + zod schema for callers that enqueue
  */
@@ -22,17 +22,51 @@ export {
 } from "./preferences";
 export type { BriefingPreferences } from "./preferences";
 
-export { gatherBriefingDigest, PRIORITY_CATEGORIES, SUPPRESSED_CATEGORIES } from "./gather";
+export {
+  gatherBriefing,
+  gatherBriefingDigest,
+  PRIORITY_CATEGORIES,
+  SUPPRESSED_CATEGORIES,
+} from "./gather";
 export type {
   BriefingDigest,
   BriefingItem,
   PriorityCategory,
   SuppressedCategory,
   GatherBriefingDigestArgs,
+  GatherBriefingArgs,
 } from "./gather";
 
-export { composeBriefing } from "./compose";
-export type { ComposedBriefing, ComposeBriefingArgs } from "./compose";
+export { composeBriefing, composeInboxBriefing } from "./compose";
+export type {
+  ComposedBriefing,
+  ComposeBriefingArgs,
+  ComposedInboxBriefing,
+  ComposeInboxBriefingArgs,
+} from "./compose";
+
+export {
+  buildBriefingSourcePanels,
+  referencesFromSections,
+  renderBriefingEmailHtml,
+  resolveBriefingReferences,
+  type BriefingReference,
+  type BriefingSegment,
+  type RenderBriefingEmailArgs,
+  type RenderedBriefingEmail,
+  type ResolveBriefingReferencesResult,
+} from "./references";
+
+export {
+  beginBriefing,
+  markBriefingComposed,
+  markBriefingComposing,
+  markBriefingFailed,
+  markBriefingGathering,
+  markBriefingSent,
+  type BeginBriefingResult,
+  type BriefingRow,
+} from "./store";
 
 export {
   BRIEFING_WORKFLOW_SLUG,
