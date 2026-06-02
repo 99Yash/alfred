@@ -23,10 +23,10 @@ import { z } from "zod";
  *      well-formed payload.
  *
  * Stubs (`list_calendar_events`, `list_action_items`,
- * `list_meeting_preps`) return `[]` for now — calendar scope isn't wired
- * yet (briefing has gmail.readonly only), and the action-items + meeting-
- * prep agents that own those tables haven't shipped. The tool surface is
- * stable so the prompt + agent shell don't change when those land.
+ * `list_meeting_preps`) return `[]` for now — the briefing feature scope
+ * includes calendar.readonly, but the calendar/action/meeting-prep
+ * contributors still need to be wired. The tool surface is stable so the
+ * prompt + agent shell don't change when those land.
  */
 
 export interface BriefingToolBag {
@@ -126,7 +126,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_calendar_events: tool({
       description:
-        "List the user's calendar events in the briefing window. NOT YET WIRED — returns []. The briefing feature scope is gmail.readonly only; calendar.readonly lands in a follow-up. Treat an empty return as 'no calendar signal available,' not 'no events.'",
+        "List the user's calendar events in the briefing window. NOT YET WIRED — returns []. The briefing feature scope includes calendar.readonly, but this tool still needs the calendar contributor. Treat an empty return as 'no calendar signal available,' not 'no events.'",
       inputSchema: z.object({
         window: z
           .enum(["today", "today_and_tomorrow", "rest_of_today_and_tomorrow"])

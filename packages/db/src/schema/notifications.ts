@@ -14,8 +14,7 @@ import { user } from "./auth";
  * `status='duplicate'` to the caller without hitting Resend.
  *
  * Idempotency-key conventions:
- *   `briefing:{userId}:{YYYY-MM-DD-in-user-tz}`        — daily briefing
- *   `recap:{userId}:{YYYY-MM-DD-in-user-tz}`           — evening recap
+ *   `briefing:{userId}:{YYYY-MM-DD-in-user-tz}:{slot}` — slotted briefing
  *   `approval:{userId}:{runId}:{stepId}`               — HIL approval ping
  *
  * `notification_preferences` (ADR-0020's per-kind channel routing) is

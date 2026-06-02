@@ -1,3 +1,4 @@
+import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
@@ -29,7 +30,7 @@ export type BriefingJobData =
   /** Repeatable: fires hourly; fans out to matching users. */
   | { kind: "briefing.tick" }
   /** Direct trigger from the smoke script / future settings page. */
-  | { kind: "briefing.run"; userId: string; reason?: "manual" | "forced" };
+  | { kind: "briefing.run"; userId: string; slot?: BriefingSlot; reason?: "manual" | "forced" };
 
 let _queue: Queue<BriefingJobData> | undefined;
 let _worker: Worker<BriefingJobData> | undefined;
@@ -84,7 +85,7 @@ async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
     case "briefing.tick":
       return handleTick();
     case "briefing.run":
-      return handleManualRun(data.userId, data.reason ?? "manual");
+      return handleManualRun(data.userId, data.slot ?? "morning", data.reason ?? "manual");
     default: {
       const _exhaustive: never = data;
       throw new Error(`unknown briefing job kind: ${JSON.stringify(_exhaustive)}`);
@@ -101,11 +102,10 @@ interface TickResult {
 /**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
- * guard is the `email_sends` unique index in the briefing workflow's
- * `send` step — this tick is allowed to be loose. Worst case a tick
- * fires twice for the same user, the second call returns
- * `status='duplicate'` from `notify()` and the run terminates without
- * sending.
+ * guard is the slot-scoped `briefings` unique index plus the
+ * `email_sends` unique index in the workflow's `send` step — this tick
+ * is allowed to be loose. Worst case a duplicate tick resumes or skips
+ * the same terminal briefing row.
  */
 async function handleTick(): Promise<TickResult> {
   const now = new Date();
@@ -117,13 +117,34 @@ async function handleTick(): Promise<TickResult> {
     try {
       const prefs = await resolveBriefingPreferences(u.id);
       const localHour = localHourInTimezone(prefs.timezone, now);
-      if (localHour !== prefs.deliveryHour) {
-        skipped++;
+      const briefingDate = localDateInTimezone(prefs.timezone, now);
+      const slots: Array<{ slot: BriefingSlot; hour: number }> = [
+        { slot: "morning", hour: prefs.deliveryHour },
+        { slot: "evening", hour: prefs.eveningHour },
+      ];
+      const matchingSlots = slots.filter((s) => localHour === s.hour);
+      if (matchingSlots.length === 0) {
+        skipped += slots.length;
         continue;
       }
-      const briefingDate = localDateInTimezone(prefs.timezone, now);
-      await enqueueBriefingRun({ userId: u.id, briefingDate, reason: "cron" });
-      enqueued++;
+      skipped += slots.length - matchingSlots.length;
+      if (matchingSlots.length > 1) {
+        console.warn(
+          `[briefing:worker] user=${u.id} local hour=${localHour} matches ${matchingSlots
+            .map((s) => s.slot)
+            .join("+")}; enqueuing ${matchingSlots.length} briefing slots`,
+        );
+      }
+
+      for (const s of matchingSlots) {
+        await enqueueBriefingRun({
+          userId: u.id,
+          slot: s.slot,
+          briefingDate,
+          reason: "cron",
+        });
+        enqueued++;
+      }
     } catch (err) {
       // Per-user failure shouldn't take down the whole tick.
       skipped++;
@@ -142,15 +163,17 @@ async function handleTick(): Promise<TickResult> {
 
 async function handleManualRun(
   userId: string,
+  slot: BriefingSlot,
   reason: "manual" | "forced",
 ): Promise<{ runId: string }> {
   const prefs = await resolveBriefingPreferences(userId);
   const briefingDate = localDateInTimezone(prefs.timezone);
-  return enqueueBriefingRun({ userId, briefingDate, reason });
+  return enqueueBriefingRun({ userId, slot, briefingDate, reason });
 }
 
 interface EnqueueBriefingRunArgs {
   userId: string;
+  slot?: BriefingSlot;
   briefingDate: string;
   reason: "cron" | "manual" | "forced";
 }
@@ -161,11 +184,13 @@ interface EnqueueBriefingRunArgs {
  * triggers from a future settings-page button.
  */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
+  const slot = args.slot ?? "morning";
   const { runId } = await createRun({
     userId: args.userId,
     workflowSlug: BRIEFING_WORKFLOW_SLUG,
-    brief: `morning briefing for ${args.briefingDate} (${args.reason})`,
+    brief: `${slot} briefing for ${args.briefingDate} (${args.reason})`,
     input: {
+      slot,
       reason: args.reason,
       briefingDate: args.briefingDate,
     },

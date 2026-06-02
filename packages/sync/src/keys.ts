@@ -25,6 +25,8 @@ export const IDB_KEY = {
   NOTE: ({ id = "" }: { id?: string }) => constructIDBKey(["note", id]),
   /** `fact/` (prefix scan) or `fact/{id}` (single row). */
   FACT: ({ id = "" }: { id?: string }) => constructIDBKey(["fact", id]),
+  /** `briefing/` (prefix scan) or `briefing/{briefingDate}/{slot}` (single row). */
+  BRIEFING: ({ id = "" }: { id?: string }) => constructIDBKey(["briefing", id]),
   /**
    * `pref/` (prefix scan) or `pref/{key}` (single row).
    *

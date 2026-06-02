@@ -30,19 +30,17 @@ import { runBriefingAgent } from "../agents/briefing/agent";
  *                 the dump_briefing output.
  *   3. persist  — insert briefing_runs row at status='composed'. The
  *                 watermark is anchored on this row for future runs.
- *   4. send     — notify() with the slot-appropriate idempotency key
- *                 (briefing: for morning, recap: for evening, both
- *                 segmented by user + date in user tz).
+ *   4. send     — notify() with the slot-scoped briefing idempotency key
+ *                 segmented by user + date + slot.
  *
  * Why persist before send: the agent's compose work is the expensive
  * piece. If notify() fails (Resend down), we don't lose the body — a
  * future smoke or settings-page resend can pick it back up from
  * briefing_runs without re-burning the LLM call.
  *
- * Why idempotency-key namespaces differ by slot: `email_sends` already
- * documents both `briefing:` and `recap:` conventions (ADR-0020). Keeps
- * the unique index from short-circuiting an evening send because that
- * day's morning already sent.
+ * Why the idempotency key includes slot: the `email_sends` unique index
+ * stays per user+key, while morning and evening are distinct sends for
+ * the same local date.
  */
 
 const stateSchema = z.object({
@@ -249,8 +247,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           };
         }
 
-        const prefix = ctx.state.slot === "morning" ? "briefing" : "recap";
-        const idempotencyKey = `${prefix}:${ctx.userId}:${ctx.state.briefingDate}`;
+        const idempotencyKey = `briefing:${ctx.userId}:${ctx.state.briefingDate}:${ctx.state.slot}`;
 
         // Render the agent's markdown body into the polished email shell.
         // The template (`@alfred/mailer`) owns all styling; the model only
