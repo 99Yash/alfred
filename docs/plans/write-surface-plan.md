@@ -169,7 +169,7 @@ Google consent; an already-connected user re-consents in place (`include_granted
 - Re-consent the owner account once (clears the warning for that account and gets a
   refresh token outside Testing mode's 7-day expiry; the token is still revocable and
   subject to Google's normal token limits).
-- Add the "to go public" checklist to `pending-setup.md` (verify sensitive scopes
+- Add the "to go public" checklist alongside ADR-0044 (verify sensitive scopes
   + restricted-scope security assessment for `gmail.modify` + remove ADR-0009
   allowlist), per ADR-0044.
 

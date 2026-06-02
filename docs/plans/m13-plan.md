@@ -4,7 +4,7 @@ m13 fills the user-authored workflow execution gap left after the planned m12 `u
 
 This is a phased plan. Each phase is "land before the next phase starts"; sub-steps inside a phase are parallel-safe.
 
-Cross-references: [`../CONTEXT.md`](../CONTEXT.md) (glossary — `User action policy`, `Action staging`, `Tool name`, `Run scratchpad`, `Transcript compaction`, etc.), [`../decisions.md`](../decisions.md) (ADRs 0014, 0016, 0017, 0026, 0027, 0034, 0035, 0036).
+Cross-references: [`../../CONTEXT.md`](../../CONTEXT.md) (glossary — `User action policy`, `Action staging`, `Tool name`, `Run scratchpad`, `Transcript compaction`, etc.), [`../../decisions.md`](../../decisions.md) (ADRs 0014, 0016, 0017, 0026, 0027, 0034, 0035, 0036).
 
 ---
 
@@ -169,7 +169,7 @@ Add `cancelRun(runId, { reason })` beside `createRun` / `signalRun` in `packages
 
 ## Phase 4 — Agent bridge
 
-Goal: replace the current registry-miss behavior for user-authored workflows with a real `AlfredAgent` loop driving the dispatcher. **Detailed design locked in [ADR-0040](../decisions.md); this section captures the implementation slice.**
+Goal: replace the current registry-miss behavior for user-authored workflows with a real `AlfredAgent` loop driving the dispatcher. **Detailed design locked in [ADR-0040](../../decisions.md); this section captures the implementation slice.**
 
 > Note: the "m12 stub" was scoped out before m12 shipped — pre-m13 `createRun` called `requireWorkflow` and threw on miss. Phase 4 doesn't delete a stub branch; it adds a checked resolver for run creation/execution that falls back to the sentinel workflow only after validating the user-authored workflow row exists and `is_builtin=false`.
 
@@ -418,7 +418,7 @@ Goal: light up the `event` trigger kind and ship the policy editing surface. **S
 
 ### 8a. `event` trigger dispatcher — the `emitEvent` bus (ADR-0047)
 
-Generic bus, **one dispatch path**, triage unified onto it. Detailed design in [ADR-0047](../decisions.md).
+Generic bus, **one dispatch path**, triage unified onto it. Detailed design in [ADR-0047](../../decisions.md).
 
 - **`emitEvent({ userId, source, type, eventId, payload })`** in `packages/api/src/modules/workflows/` (or a new `modules/event-dispatch/`, not `modules/events/` because that already means realtime outbox/SSE): queries `workflows WHERE status='active' AND trigger->>'kind'='event' AND trigger->>'source'=… AND trigger->>'type'=…`, `createRun`s each match with uniform `input: { documentId, reason, source, type }` + `trigger: { kind:'event', source, type, eventId, payload: { documentId, reason } }`.
 - **Triage unification:** delete `enqueueTriageRuns`' hardcoded `createRun` (`packages/api/src/modules/integrations/queue.ts`); the Gmail ingestion worker calls `emitEvent` per freshly-inserted doc instead. `email-triage`'s row already has `trigger.kind='event'`; migrate its `source/type` to `gmail`/`message_received`. `initialState` reads `input.documentId/reason` **unchanged** — run behavior byte-identical.
