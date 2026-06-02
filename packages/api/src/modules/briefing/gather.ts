@@ -203,15 +203,13 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
       categories: Object.fromEntries(
         Object.entries(digest.buckets).map(([category, items]) => [
           category,
-          items
-            .filter((item) => item.threadUrl)
-            .map((item) => ({
-              documentId: item.documentId,
-              threadId: threadIdFromGmailUrl(item.threadUrl),
-              subject: item.subject?.trim() || "(no subject)",
-              sender: shortenFrom(item.from) ?? "Unknown sender",
-              snippet: item.snippet ?? item.rationale ?? "",
-            })),
+          items.map((item) => ({
+            documentId: item.documentId,
+            threadId: threadIdFromGmailUrl(item.threadUrl),
+            subject: item.subject?.trim() || "(no subject)",
+            sender: shortenFrom(item.from) ?? "Unknown sender",
+            snippet: item.snippet ?? item.rationale ?? "",
+          })),
         ]),
       ) as BriefingGather["email"]["categories"],
     },
