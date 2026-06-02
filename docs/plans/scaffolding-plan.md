@@ -1,15 +1,16 @@
 # Alfred — Scaffolding Plan (handoff doc)
 
-This document is a self-contained brief for the agent that will scaffold the alfred repo. You don't need to have participated in the design conversation — read this plus `decisions.md` and you have everything.
+This document is a self-contained brief for the agent that will scaffold the alfred repo. You don't need to have participated in the design conversation — read this plus `../../decisions.md` and you have everything.
+
+> **Historical note:** scaffolding (milestone 1) shipped 2026-04-27; this doc is kept as the original handoff. The `../milkpod/*` paths below assume alfred and milkpod are sibling repos at the time of scaffolding.
 
 ## Read first (in this order)
 
-1. **`./decisions.md`** — the 25 architectural ADRs that define the stack. The _why_ of every choice.
-2. **`./dimension-dev-recon.md`** — research on dimension.dev's architecture, used as a reference point. Do not over-mirror; ADRs explain where we deviate.
-3. **`../milkpod/CLAUDE.md`** — milkpod's repo orientation. Alfred mirrors its monorepo shape.
-4. **`../milkpod/ARCHITECTURE.md`** — milkpod's architecture (different product, same scaffolding patterns). Useful for understanding the package boundaries.
-5. **`../milkpod/AGENTS.md`** — milkpod's day-to-day conventions. Most apply to alfred verbatim.
-6. **`../milkpod/docs/`** (especially `database.md`, `package-boundaries.md`, `conventions.md`, `environment.md`, `typescript-patterns.md`) — best-practice references; transfer as-is.
+1. **`../../decisions.md`** — the 25 architectural ADRs that define the stack. The _why_ of every choice.
+2. **`../../../milkpod/CLAUDE.md`** — milkpod's repo orientation. Alfred mirrors its monorepo shape.
+3. **`../../../milkpod/ARCHITECTURE.md`** — milkpod's architecture (different product, same scaffolding patterns). Useful for understanding the package boundaries.
+4. **`../../../milkpod/AGENTS.md`** — milkpod's day-to-day conventions. Most apply to alfred verbatim.
+5. **`../../../milkpod/docs/`** (especially `database.md`, `package-boundaries.md`, `conventions.md`, `environment.md`, `typescript-patterns.md`) — best-practice references; transfer as-is.
 
 ## Goal of this milestone
 

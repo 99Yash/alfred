@@ -77,7 +77,7 @@ pnpm db:studio       # open Drizzle Studio
 
 ## Implementation milestones
 
-Progress tracked against the 15-milestone plan in [`scaffolding-plan.md`](./scaffolding-plan.md).
+Progress tracked against the 15-milestone plan in [`docs/plans/scaffolding-plan.md`](./docs/plans/scaffolding-plan.md).
 
 - [x] 1 — Scaffold (monorepo, all packages, `/health` end-to-end)
 - [ ] 2 — Auth + first Railway deploy
