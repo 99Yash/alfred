@@ -4,7 +4,7 @@ A second design language for Alfred, modeled on visitors.now. Lives alongside th
 
 **Why two systems?** Dimension-grammar (dark, layered glass, frosted hairlines) ships the landing page and the current app surfaces. Visitors-now-grammar (light, single elevation, tokenized hue scale, no ornament) is being evaluated as the new direction for data-dense app surfaces. The two coexist on this branch so we can A/B and migrate one route at a time.
 
-See [`archive/visitors-now/design-notes.md`](../../../../archive/visitors-now/design-notes.md) for the full design study that informed these primitives.
+See [`archive/visitors-now/design-notes.md`](../../../../../../archive/visitors-now/design-notes.md) for the full design study that informed these primitives.
 
 ## Opt-in model
 
