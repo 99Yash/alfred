@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { briefingRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
   extractAttachments,
   extractMessageHtml,
@@ -846,18 +846,27 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
           const rows = await db()
             .select({
-              id: briefingRuns.id,
-              slot: briefingRuns.slot,
-              briefingDate: briefingRuns.briefingDate,
-              runAt: briefingRuns.runAt,
-              subject: briefingRuns.subject,
-              status: briefingRuns.status,
+              id: briefings.id,
+              slot: briefings.slot,
+              briefingDate: briefings.briefingDate,
+              runAt: briefings.createdAt,
+              breakingSummary: briefings.breakingSummary,
+              fullBriefing: briefings.fullBriefing,
+              status: briefings.status,
             })
-            .from(briefingRuns)
-            .where(and(eq(briefingRuns.userId, u.id), eq(briefingRuns.status, "composed")))
-            .orderBy(desc(briefingRuns.runAt))
+            .from(briefings)
+            .where(
+              and(eq(briefings.userId, u.id), inArray(briefings.status, ["sent", "suppressed"])),
+            )
+            .orderBy(desc(briefings.createdAt))
             .limit(1);
           const row = rows[0];
+          const headline =
+            row?.fullBriefing &&
+            typeof row.fullBriefing === "object" &&
+            "headline" in row.fullBriefing
+              ? String(row.fullBriefing.headline)
+              : null;
           return {
             briefing: row
               ? {
@@ -865,7 +874,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                   slot: row.slot,
                   briefingDate: row.briefingDate,
                   runAt: row.runAt.toISOString(),
-                  subject: row.subject,
+                  subject: headline ?? row.breakingSummary,
                   status: row.status,
                 }
               : null,

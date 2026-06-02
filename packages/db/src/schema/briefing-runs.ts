@@ -4,6 +4,11 @@ import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
+ * Legacy-only composed-run archive. ADR-0048 makes `briefings` the
+ * canonical slotted entity and moves terminal watermarks there. Keep this
+ * table only for diagnostics and the in-flight legacy `daily-briefing`
+ * smoke path until the follow-up migration drops it.
+ *
  * One row per composed briefing. Two roles in one table:
  *
  *   1. Watermark store. `watermark_at` is the `documents.ingested_at`

@@ -27,7 +27,7 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  * Per-feature Google scopes. A feature's full required set is the
  * identity scopes plus its entry here.
  *
- *   briefing     — gmail.readonly: read user's mail to compose digests
+ *   briefing     — gmail.readonly + calendar.readonly: open-loop orientation with calendar anchoring
  *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
  *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
  *   calendar     — calendar.readonly: list events for meeting context
@@ -74,7 +74,7 @@ export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 export const SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations";
 
 export const GOOGLE_FEATURE_SCOPES = {
-  briefing: [GMAIL_READONLY_SCOPE],
+  briefing: [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE],
   triage: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
   reply_draft: [GMAIL_SEND_SCOPE],
   calendar: [CALENDAR_READONLY_SCOPE],

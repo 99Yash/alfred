@@ -2,6 +2,11 @@ import {
   INTEGRATION_SLUGS,
   POLICY_MODES,
   TOOL_RISK_TIERS,
+  briefingGatherSchema,
+  briefingSendDecisionSchema,
+  briefingSlotSchema,
+  briefingStatusSchema,
+  fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
   type IntegrationRule,
@@ -165,6 +170,27 @@ export const syncedFactSchema = z.object({
 });
 export type SyncedFact = z.infer<typeof syncedFactSchema>;
 
+export const syncedBriefingSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  briefingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  slot: briefingSlotSchema,
+  timezone: z.string(),
+  status: briefingStatusSchema,
+  sendDecision: briefingSendDecisionSchema.nullable(),
+  gateReason: z.string().nullable(),
+  gather: briefingGatherSchema.nullable(),
+  breakingSummary: z.string().nullable(),
+  fullBriefing: fullBriefingSchema.nullable(),
+  model: z.string().nullable(),
+  composeFallback: z.boolean(),
+  emailSendId: z.string().nullable(),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedBriefing = z.infer<typeof syncedBriefingSchema>;
+
 export const policyModeSchema = z.enum(POLICY_MODES);
 
 const rawIntegrationRuleSchema = z.object({
@@ -247,4 +273,5 @@ export type SyncedEntity =
   | SyncedActionStaging
   | SyncedActionPolicy
   | SyncedWorkflow
-  | SyncedFact;
+  | SyncedFact
+  | SyncedBriefing;
