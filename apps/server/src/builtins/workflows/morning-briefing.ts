@@ -10,6 +10,7 @@ import {
   markBriefingFailed,
   markBriefingGathering,
   markBriefingSent,
+  markBriefingSuppressed,
   notify,
   renderBriefingEmailHtml,
   resolveBriefingPreferences,
@@ -26,27 +27,27 @@ import {
 import { z } from "zod";
 
 /**
- * Morning briefing workflow (ADR-0041, v2 backend cutover).
+ * Slotted briefing workflow (ADR-0048 first structural pass).
  *
  * Steps:
  *   1. gather  — create/resume the `briefings` row, collect the
  *                normalized `BriefingGather`, persist it.
  *   2. compose — run the schema-bound boss-model composer, or deterministic
  *                fallback, then persist the full briefing.
- *   3. send    — render the breaking summary with resolved references and
- *                dispatch via `notify()`.
+ *   3. send    — gate the composed output, then either suppress a quiet
+ *                cron morning or render + dispatch via `notify()`.
  *
  * Idempotency:
- *   - `briefings` is unique on `(user_id, briefing_date)`, so duplicate
- *     workflow runs for a day either no-op when already sent or resume
- *     the existing in-progress row.
- *   - `notify()` is keyed by the same local briefing date. If the email
- *     send succeeded but the workflow crashed before marking `briefings`
- *     sent, retry returns `duplicate` and the row is marked sent.
+ *   - `briefings` is unique on `(user_id, briefing_date, slot)`, so
+ *     duplicate workflow runs for a slot either no-op when terminal or
+ *     resume the existing in-progress row.
+ *   - `notify()` is keyed by the same local briefing date + slot. If the
+ *     email send succeeded but the workflow crashed before marking
+ *     `briefings` sent, retry returns `duplicate` and the row is marked sent.
  *
  * Empty-day behavior:
- *   - We still send. The fallback and composer both render an honest empty
- *     day instead of suppressing delivery.
+ *   - Cron morning can suppress after compose and persist a quiet terminal
+ *     row. Evening always sends; manual/forced runs bypass suppression.
  */
 
 const composedOutputSchema = z.object({
@@ -58,6 +59,7 @@ const composedOutputSchema = z.object({
 
 const initialStateSchema = z.object({
   phase: z.literal("initial"),
+  slot: z.enum(["morning", "evening"]),
   reason: z.enum(["cron", "manual", "forced"]),
   briefingDate: z.string().optional(),
 });
@@ -110,6 +112,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
     const parsed = briefingWorkflowInputSchema.parse(input.input ?? {});
     return {
       phase: "initial",
+      slot: parsed.slot,
       reason: parsed.reason,
       // When the caller pins a date (smoke script, manual UI button, the
       // cron tick), keep it. Otherwise let `gather` compute it from tz.
@@ -128,15 +131,20 @@ export const morningBriefingWorkflow: Workflow<State> = {
         const begun = await beginBriefing({
           userId: ctx.userId,
           briefingDate,
+          slot: ctx.state.slot,
           timezone,
+          agentRunId: ctx.runId,
         });
 
-        if (begun.action === "skip_sent") {
-          await ctx.log(`gather: skip existing sent briefing id=${begun.row.id}`);
+        if (begun.action === "skip_terminal") {
+          await ctx.log(
+            `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
+          );
           return {
             kind: "done",
             state: {
               phase: "already_sent",
+              slot: ctx.state.slot,
               reason: ctx.state.reason,
               briefingDate,
               timezone,
@@ -145,7 +153,9 @@ export const morningBriefingWorkflow: Workflow<State> = {
             output: {
               briefingId: begun.row.id,
               briefingDate,
-              status: "already_sent",
+              slot: ctx.state.slot,
+              status: begun.row.status,
+              sendDecision: begun.row.sendDecision,
               emailSendId: begun.row.emailSendId,
             },
           };
@@ -159,9 +169,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
           throw err;
         }
         if (begun.action === "resume" && resumed) {
-          await ctx.log(
-            `gather: resume existing ${begun.row.status} briefing id=${begun.row.id}`,
-          );
+          await ctx.log(`gather: resume existing ${begun.row.status} briefing id=${begun.row.id}`);
           return resumed;
         }
 
@@ -183,6 +191,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
           kind: "next",
           state: {
             phase: "gathered",
+            slot: ctx.state.slot,
             reason: ctx.state.reason,
             briefingDate,
             timezone,
@@ -206,6 +215,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
           composed = await composeBriefing({
             userId: ctx.userId,
             briefingDate: state.briefingDate,
+            slot: state.slot,
             timezone,
             gather: state.gather,
             runId: ctx.runId,
@@ -250,12 +260,36 @@ export const morningBriefingWorkflow: Workflow<State> = {
       id: "send",
       async run(ctx) {
         const state = requireSendState(ctx.state);
+        const gate = decideSend(state);
+        if (gate.decision === "suppressed") {
+          await markBriefingSuppressed({
+            briefingId: state.briefingId,
+            watermarkAt: new Date(),
+            gateReason: gate.reason,
+          });
+          await ctx.log(`send: suppressed reason="${gate.reason}"`);
+          return {
+            kind: "done",
+            state,
+            output: {
+              briefingId: state.briefingId,
+              emailSendId: null,
+              status: "suppressed",
+              sendDecision: "suppressed",
+              gateReason: gate.reason,
+              briefingDate: state.briefingDate,
+              slot: state.slot,
+              composeFallback: state.composed.composeFallback,
+            },
+          };
+        }
+
         const resolved = resolveBriefingReferences(state.composed.breakingSummary, state.gather);
         const rendered = renderBriefingEmailHtml({ segments: resolved.segments });
-        const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}`;
+        const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}:${state.slot}`;
         const result = await notify({
           userId: ctx.userId,
-          kind: "briefing",
+          kind: state.slot === "morning" ? "briefing" : "evening_recap",
           idempotencyKey,
           subject: state.composed.subject,
           html: rendered.html,
@@ -263,8 +297,10 @@ export const morningBriefingWorkflow: Workflow<State> = {
           payload: {
             briefingId: state.briefingId,
             briefingDate: state.briefingDate,
+            slot: state.slot,
             timezone: state.timezone,
             reason: state.reason,
+            gateReason: gate.reason,
             model: state.composed.modelId,
             composeFallback: state.composed.composeFallback,
             resolvedReferences: resolved.resolved,
@@ -287,6 +323,8 @@ export const morningBriefingWorkflow: Workflow<State> = {
         await markBriefingSent({
           briefingId: state.briefingId,
           emailSendId: result.emailSendId,
+          watermarkAt: new Date(),
+          gateReason: gate.reason,
         });
 
         return {
@@ -296,7 +334,9 @@ export const morningBriefingWorkflow: Workflow<State> = {
             briefingId: state.briefingId,
             emailSendId: result.emailSendId,
             status: result.status,
+            sendDecision: "sent",
             briefingDate: state.briefingDate,
+            slot: state.slot,
             composeFallback: state.composed.composeFallback,
           },
         };
@@ -334,6 +374,7 @@ function resumeExistingBriefing(
     case "pending":
     case "failed":
     case "sent":
+    case "suppressed":
       return null;
     case "gathering":
     case "composing":
@@ -342,6 +383,7 @@ function resumeExistingBriefing(
         kind: "next",
         state: {
           phase: "gathered",
+          slot: row.slot,
           reason,
           briefingDate: row.briefingDate,
           timezone: row.timezone,
@@ -358,6 +400,7 @@ function resumeExistingBriefing(
         kind: "next",
         state: {
           phase: "composed",
+          slot: row.slot,
           reason,
           briefingDate: row.briefingDate,
           timezone: row.timezone,
@@ -383,6 +426,30 @@ function subjectLine(headline: string, briefingDate: string, timezone: IanaTimez
   const dateLabel = formatDateLabel(briefingDate, timezone);
   const trimmed = headline.trim();
   return trimmed ? `Alfred · ${dateLabel} · ${trimmed}` : `Alfred · ${dateLabel}`;
+}
+
+function decideSend(
+  state: z.infer<typeof composedStateSchema>,
+): { decision: "sent"; reason: string } | { decision: "suppressed"; reason: string } {
+  if (state.slot === "evening") {
+    return { decision: "sent", reason: "evening slot always sends" };
+  }
+  if (state.reason !== "cron") {
+    return { decision: "sent", reason: `${state.reason} run bypasses morning suppression` };
+  }
+
+  const counts = gatherCounts(state.gather);
+  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0) {
+    return {
+      decision: "sent",
+      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}`,
+    };
+  }
+
+  return {
+    decision: "suppressed",
+    reason: "quiet morning: no priority email, integration activity, or calendar events",
+  };
 }
 
 function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {

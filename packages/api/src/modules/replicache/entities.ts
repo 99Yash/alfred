@@ -1,6 +1,7 @@
 import {
   actionStagings,
   agentRuns,
+  briefings,
   notes,
   skillRevisions,
   skillRuns,
@@ -17,6 +18,7 @@ import {
   memorySourceSchema,
   syncedActionPolicySchema,
   syncedActionStagingSchema,
+  syncedBriefingSchema,
   syncedFactSchema,
   syncedNoteSchema,
   syncedPreferenceSchema,
@@ -27,6 +29,7 @@ import {
   type IDBKeys,
   type SyncedActionPolicy,
   type SyncedActionStaging,
+  type SyncedBriefing,
   type SyncedEntity,
   type SyncedFact,
   type SyncedNote,
@@ -56,6 +59,7 @@ type DbTx = any;
 type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const BRIEFING_PULL_WINDOW_DAYS = 30;
 
 function toEntityRow(args: {
   slug: IDBKeys;
@@ -125,6 +129,25 @@ const ENTITY_FETCHERS = {
         id: f.id,
         rowVersion: f.rowVersion,
         serialize: () => serializeFact(f),
+      }),
+    );
+  },
+
+  BRIEFING: async (tx, userId) => {
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - BRIEFING_PULL_WINDOW_DAYS);
+    const cutoffDate = cutoff.toISOString().slice(0, 10);
+    const rows = await tx
+      .select()
+      .from(briefings)
+      .where(and(eq(briefings.userId, userId), gte(briefings.briefingDate, cutoffDate)))
+      .orderBy(desc(briefings.briefingDate), asc(briefings.slot));
+    return rows.flatMap((b: typeof briefings.$inferSelect) =>
+      toEntityRow({
+        slug: "BRIEFING",
+        id: `${b.briefingDate}/${b.slot}`,
+        rowVersion: b.rowVersion,
+        serialize: () => serializeBriefing(b),
       }),
     );
   },
@@ -339,6 +362,28 @@ function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
     rowVersion: f.rowVersion,
     createdAt: toRequiredIso(f.createdAt, "userFacts.createdAt"),
     updatedAt: toIso(f.updatedAt),
+  });
+}
+
+function serializeBriefing(b: typeof briefings.$inferSelect): SyncedBriefing {
+  return syncedBriefingSchema.parse({
+    id: b.id,
+    userId: b.userId,
+    briefingDate: b.briefingDate,
+    slot: b.slot,
+    timezone: b.timezone,
+    status: b.status,
+    sendDecision: b.sendDecision ?? null,
+    gateReason: b.gateReason,
+    gather: b.gather ?? null,
+    breakingSummary: b.breakingSummary,
+    fullBriefing: b.fullBriefing ?? null,
+    model: b.model,
+    composeFallback: b.composeFallback,
+    emailSendId: b.emailSendId,
+    rowVersion: b.rowVersion,
+    createdAt: toRequiredIso(b.createdAt, "briefings.createdAt"),
+    updatedAt: toIso(b.updatedAt),
   });
 }
 

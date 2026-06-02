@@ -1,14 +1,15 @@
+import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { briefingRuns, documents, emailTriage } from "@alfred/db/schemas";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { briefingRuns, briefings, documents, emailTriage } from "@alfred/db/schemas";
+import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
  *
  * The watermark contract is the spine of this whole flow: each run for a
  * given `(user_id, slot)` consumes a delta — `documents.ingested_at >
- * last_composed_watermark_at`. The next run for *either* slot reads its
- * own slot's watermark; emails surface in whichever slot ran next.
+ * last terminal `briefings.watermark_at`. Only sent/suppressed rows
+ * advance that watermark; composed/failed rows are reprocessed.
  *
  * `list_prior_briefings` is the memory side — the agent reads its own
  * recent compositions so an evening briefing can reference what the
@@ -152,7 +153,7 @@ interface ListPriorBriefingsArgs {
   userId: string;
   limit?: number;
   /** Optional slot filter — null returns both slots interleaved. */
-  slot?: string | null;
+  slot?: BriefingSlot | null;
 }
 
 export async function listPriorBriefings(
@@ -160,48 +161,72 @@ export async function listPriorBriefings(
 ): Promise<PriorBriefingSummary[]> {
   const limit = args.limit ?? PRIOR_BRIEFINGS_DEFAULT_LIMIT;
 
-  const conditions = [eq(briefingRuns.userId, args.userId), eq(briefingRuns.status, "composed")];
-  if (args.slot) conditions.push(eq(briefingRuns.slot, args.slot));
+  const conditions = [
+    eq(briefings.userId, args.userId),
+    inArray(briefings.status, ["sent", "suppressed"]),
+  ];
+  if (args.slot) conditions.push(eq(briefings.slot, args.slot));
 
   const rows = await db()
     .select({
-      id: briefingRuns.id,
-      slot: briefingRuns.slot,
-      briefingDate: briefingRuns.briefingDate,
-      runAt: briefingRuns.runAt,
-      subject: briefingRuns.subject,
-      bodyText: briefingRuns.bodyText,
+      id: briefings.id,
+      slot: briefings.slot,
+      briefingDate: briefings.briefingDate,
+      runAt: briefings.createdAt,
+      breakingSummary: briefings.breakingSummary,
+      fullBriefing: briefings.fullBriefing,
     })
-    .from(briefingRuns)
+    .from(briefings)
     .where(and(...conditions))
-    .orderBy(desc(briefingRuns.runAt))
+    .orderBy(desc(briefings.createdAt))
     .limit(limit);
 
-  return rows;
+  return rows.map((row) => ({
+    id: row.id,
+    slot: row.slot,
+    briefingDate: row.briefingDate,
+    runAt: row.runAt,
+    subject: row.fullBriefing?.headline ?? row.breakingSummary,
+    bodyText: priorBriefingBodyText(row.fullBriefing, row.breakingSummary),
+  }));
 }
 
 /**
  * Latest watermark for a (user, slot) pair. Null when this slot has
- * never composed successfully for the user — the first-run case picks
- * up emails from the start of the day.
+ * never reached a terminal consumed state for the user — the first-run
+ * case picks up emails from the start of the day.
  */
 export async function fetchLatestWatermark(args: {
   userId: string;
-  slot: string;
+  slot: BriefingSlot;
 }): Promise<Date | null> {
   const rows = await db()
-    .select({ watermarkAt: briefingRuns.watermarkAt })
-    .from(briefingRuns)
+    .select({ watermarkAt: briefings.watermarkAt })
+    .from(briefings)
     .where(
       and(
-        eq(briefingRuns.userId, args.userId),
-        eq(briefingRuns.slot, args.slot),
-        eq(briefingRuns.status, "composed"),
+        eq(briefings.userId, args.userId),
+        eq(briefings.slot, args.slot),
+        inArray(briefings.status, ["sent", "suppressed"]),
+        isNotNull(briefings.watermarkAt),
       ),
     )
-    .orderBy(desc(briefingRuns.runAt))
+    .orderBy(desc(briefings.watermarkAt))
     .limit(1);
   return rows[0]?.watermarkAt ?? null;
+}
+
+function priorBriefingBodyText(
+  fullBriefing: (typeof briefings.$inferSelect)["fullBriefing"],
+  breakingSummary: string | null,
+): string | null {
+  if (!fullBriefing) return breakingSummary;
+  const parts = [
+    fullBriefing.headline,
+    breakingSummary,
+    ...fullBriefing.sections.map((section) => section.body),
+  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+  return parts.length ? parts.join("\n\n") : null;
 }
 
 interface RecordBriefingRunArgs {
@@ -219,27 +244,16 @@ interface RecordBriefingRunArgs {
   outputTokens?: number;
   payload?: Record<string, unknown>;
   /**
-   * `'composed'` (default) marks the row as the canonical output for
-   * (user, slot, date) and anchors the next watermark. `'dry_run'`
-   * persists the row for inspection but is invisible to
-   * `fetchLatestWatermark` (the index is partial on `status='composed'`)
-   * — used by the smoke runner for prompt iteration without consuming
-   * the email delta.
+   * Legacy `briefing_runs` status for the old smoke workflow.
+   * `'dry_run'` persists the row for inspection without sending.
    */
   status?: "composed" | "dry_run";
 }
 
 /**
- * Insert a `briefing_runs` row. Default status is `composed`; the
- * dry-run variant (`status='dry_run'`) writes the same payload but
- * stays outside the watermark + per-date uniqueness indexes (both
- * partial on `status='composed'`), so a smoke run doesn't conflict with
- * a later real run for the same day.
- *
- * Called only after the agent emits a final body via `dump_briefing`;
- * failed runs do not write here so the watermark stays anchored on the
- * last successful compose. Inserted before `notify()` so the row exists
- * even if the email send fails — the agent's work isn't lost.
+ * Legacy-only insert for the old `daily-briefing` smoke path. ADR-0048
+ * makes `briefings` canonical; new product code should write terminal
+ * sent/suppressed rows there instead.
  */
 export async function recordBriefingRun(args: RecordBriefingRunArgs): Promise<{ id: string }> {
   const rows = await db()

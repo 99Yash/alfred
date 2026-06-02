@@ -4,6 +4,7 @@ import {
   fullBriefingSchema,
   type BriefingComposerOutput,
   type BriefingGather,
+  type BriefingSlot,
   type FullBriefing,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -84,6 +85,7 @@ export interface ComposeInboxBriefingArgs {
 export interface ComposeBriefingArgs {
   userId: string;
   briefingDate: string;
+  slot: BriefingSlot;
   timezone: IanaTimezone;
   gather: BriefingGather;
   runId?: string;
@@ -125,6 +127,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         requestMeta: {
           purpose: "briefing.compose",
           briefingDate: args.briefingDate,
+          slot: args.slot,
           timezone: args.timezone,
           emailItems: countEmailItems(args.gather),
           activityItems: args.gather.integration_activity.items.length,
@@ -153,6 +156,7 @@ function buildComposerPrompt(args: ComposeBriefingArgs): string {
     {
       task: "Compose today's briefing.",
       briefingDate: args.briefingDate,
+      slot: args.slot,
       timezone: args.timezone,
       gather: composerSafeGather(args.gather),
       availableReferences: listBriefingReferenceOptions(args.gather),

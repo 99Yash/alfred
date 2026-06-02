@@ -16,8 +16,8 @@
  *      non-empty subject and idempotency key.
  *   3. An `email_sends` row lands at status='sent' with a Resend
  *      provider message id.
- *   4. Re-running the same date short-circuits to status='duplicate'
- *      (the unique index absorbs the second send).
+ *   4. Re-running the same date+slot short-circuits at the terminal
+ *      `briefings` row before a second send is attempted.
  *
  * What this does NOT verify:
  *   - The hourly cron tick fires for the correct user (covered by the
@@ -122,7 +122,7 @@ async function main() {
   );
 
   // ---- Phase 2: verify email_sends row ------------------------------------
-  const idempotencyKey = `briefing:${u.id}:${briefingDate}`;
+  const idempotencyKey = `briefing:${u.id}:${briefingDate}:morning`;
   const send = await fetchEmailSend(u.id, idempotencyKey);
   assert(send, `no email_sends row for key=${idempotencyKey}`);
   console.log(
@@ -155,8 +155,8 @@ async function main() {
     `[smoke-briefing] run 2 output: status=${out2.status} emailSendId=${out2.emailSendId}`,
   );
   assert(
-    out2.status === "duplicate",
-    `expected run 2 to short-circuit as duplicate, got ${out2.status}`,
+    out2.status === "sent",
+    `expected run 2 to short-circuit on terminal sent row, got ${out2.status}`,
   );
   assert(
     out2.emailSendId === send.id,
