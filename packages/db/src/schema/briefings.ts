@@ -1,5 +1,14 @@
 import type { BriefingGather, BriefingStatus, FullBriefing, IanaTimezone } from "@alfred/contracts";
-import { date, index, integer, jsonb, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -52,6 +61,8 @@ export const briefings = pgTable(
     fullBriefing: jsonb("full_briefing").$type<FullBriefing>(),
     /** Compose model id (e.g. 'claude-opus-4-7'). Null until composed. */
     model: text("model"),
+    /** True when deterministic fallback prose was delivered after compose-model failure. */
+    composeFallback: boolean("compose_fallback").notNull().default(false),
     /** FK to the email_sends row that delivered this briefing. Null until sent. */
     emailSendId: text("email_send_id").references(() => emailSends.id, {
       onDelete: "set null",
