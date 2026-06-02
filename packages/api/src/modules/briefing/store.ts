@@ -94,7 +94,7 @@ export async function markBriefingComposed(args: {
   composeFallback: boolean;
 }): Promise<BriefingRow> {
   return updateBriefing(args.briefingId, {
-    status: "composing",
+    status: "composed",
     breakingSummary: args.breakingSummary,
     fullBriefing: args.fullBriefing,
     model: args.model,
