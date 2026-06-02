@@ -15,12 +15,13 @@ This is a **pnpm workspace monorepo**. Packages are `@alfred/*` (never `@milkpod
 
 Progressively disclose the details:
 
-- [docs/architecture.md](./docs/architecture.md) — monorepo layout, how web/API/auth/DB coordinate, package boundaries, env vars.
-- [docs/typescript.md](./docs/typescript.md) — `moduleResolution`, `verbatimModuleSyntax`, per-package typecheck.
-- [docs/elysia.md](./docs/elysia.md) — request lifecycle, auth macro, error handler, session cache.
-- [docs/database.md](./docs/database.md) — Drizzle schema workflow, `createId`, `lifecycle_dates`, BullMQ/Redis factories.
-- [docs/auth.md](./docs/auth.md) — Better Auth + Google allowlist, GCP/GitHub OAuth setup.
-- [docs/ai-sdk.md](./docs/ai-sdk.md) — AI SDK v6 gotchas, model dispatchers, embeddings, cost attribution.
-- [docs/replicache.md](./docs/replicache.md) — sync architecture + recipe for adding a new synced entity.
-- [docs/milestones.md](./docs/milestones.md) — milestone history and current status (m1–m15).
-- Domain pipelines: [email triage](./docs/triage.md), [morning briefing](./docs/briefing.md), [cold-start research](./docs/cold-start.md).
+- [docs/reference/architecture.md](./docs/reference/architecture.md) — monorepo layout, how web/API/auth/DB coordinate, package boundaries, env vars.
+- [docs/reference/typescript.md](./docs/reference/typescript.md) — `moduleResolution`, `verbatimModuleSyntax`, per-package typecheck.
+- [docs/reference/elysia.md](./docs/reference/elysia.md) — request lifecycle, auth macro, error handler, session cache.
+- [docs/reference/database.md](./docs/reference/database.md) — Drizzle schema workflow, `createId`, `lifecycle_dates`, BullMQ/Redis factories.
+- [docs/reference/auth.md](./docs/reference/auth.md) — Better Auth + Google allowlist, GCP/GitHub OAuth setup.
+- [docs/reference/ai-sdk.md](./docs/reference/ai-sdk.md) — AI SDK v6 gotchas, model dispatchers, embeddings, cost attribution.
+- [docs/reference/replicache.md](./docs/reference/replicache.md) — sync architecture + recipe for adding a new synced entity.
+- [docs/reference/milestones.md](./docs/reference/milestones.md) — milestone history and current status (m1–m15).
+- Domain pipelines: [email triage](./docs/reference/triage.md), [morning briefing](./docs/reference/briefing.md), [cold-start research](./docs/reference/cold-start.md).
+- Active plans live in [docs/plans/](./docs/plans/) — current implementation plans (m13, triage/briefing v2, write surface) plus the original scaffolding plan.

@@ -1,10 +1,10 @@
 # Triage + briefing v2 — implementation plan
 
-Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../decisions.md#adr-0042) and [ADR-0041](../decisions.md#adr-0041) plus the inline amendments to ADR-0025, ADR-0031, ADR-0033. The two ADRs are independent but share foundations (contracts package, OAuth scopes, observability) and one cross-cutting consumer (the briefing's email gather contributor reads triage rollup).
+Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../../decisions.md#adr-0042) and [ADR-0041](../../decisions.md#adr-0041) plus the inline amendments to ADR-0025, ADR-0031, ADR-0033. The two ADRs are independent but share foundations (contracts package, OAuth scopes, observability) and one cross-cutting consumer (the briefing's email gather contributor reads triage rollup).
 
 This is a phased plan. Each phase is "land before the next phase starts"; sub-steps inside a phase are parallel-safe. Triage and briefing tracks run in parallel where they don't share files.
 
-Cross-references: [`../CONTEXT.md`](../CONTEXT.md) (glossary: `SenderContext`, `Effective author`, `Body actor parsing`, `Bot allowlist`, `SEVERITY_SUSPECT_BOTS`, `User context`, `Deepen step`, `Dossier cache TTL`, `Briefing`, `Breaking summary`, `Full briefing`, `Briefing reference`, `Gather source`, `Integration activity`, `IanaTimezone`), [`../decisions.md`](../decisions.md) (ADRs 0011, 0025, 0031, 0033, 0041, 0042), [`./triage.md`](./triage.md) (legacy doc — 6-category drift to fix in Phase 6), [`./briefing.md`](./briefing.md) (legacy m10 doc — supersede in Phase 6).
+Cross-references: [`../../CONTEXT.md`](../../CONTEXT.md) (glossary: `SenderContext`, `Effective author`, `Body actor parsing`, `Bot allowlist`, `SEVERITY_SUSPECT_BOTS`, `User context`, `Deepen step`, `Dossier cache TTL`, `Briefing`, `Breaking summary`, `Full briefing`, `Briefing reference`, `Gather source`, `Integration activity`, `IanaTimezone`), [`../../decisions.md`](../../decisions.md) (ADRs 0011, 0025, 0031, 0033, 0041, 0042), [`../reference/triage.md`](../reference/triage.md) (legacy doc — 6-category drift to fix in Phase 6), [`../reference/briefing.md`](../reference/briefing.md) (legacy m10 doc — supersede in Phase 6).
 
 ---
 
