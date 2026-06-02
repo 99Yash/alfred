@@ -1,17 +1,24 @@
 import {
   classifyEmail,
+  deepenTriageClassification,
   DEFAULT_TRIAGE_CATEGORY,
+  extractSenderContext,
   getDocumentAuthoredAt,
   getTriage,
   loadTriageContext,
   publishEvent,
+  readTriageUserContext,
   setAppliedLabelId,
+  shouldDeepen,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
   upsertTriage,
+  type DeepenDecision,
+  type SenderContextResult,
   type TriageClassification,
   type Workflow,
 } from "@alfred/api";
+import { senderContextSchema, type SenderContext } from "@alfred/contracts";
 import {
   applyTriageLabel,
   findThreadSiblingsWithAlfredLabels,
@@ -24,7 +31,9 @@ import { z } from "zod";
  * Email triage workflow (ADR-0025 #1).
  *
  * Steps:
- *   1. classify    — load doc + credential, call cheap-tier LLM, upsert
+ *   1. classify    — load doc + credential, extract SenderContext, call
+ *                    cheap-tier LLM, optionally run boss-tier `deepen` for
+ *                    live severity-suspect bot alerts, then upsert the final
  *                    `email_triage` row keyed on the Gmail thread.
  *   2. apply-label — modify Gmail labels (add chosen on the latest message,
  *                    strip alfred labels from every sibling message in the
@@ -75,6 +84,10 @@ const stateSchema = z.object({
   category: TRIAGE_CATEGORIES_SCHEMA.optional(),
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
+  senderContext: senderContextSchema.optional(),
+  deepenReason: z.enum(["severity_suspect_bot", "low_confidence", "unknown_human"]).optional(),
+  deepenExecuted: z.boolean().optional(),
+  shadowOnly: z.boolean().optional(),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -129,6 +142,13 @@ export const emailTriageWorkflow: Workflow<State> = {
             output: { skipped: true, reason: "missing-thread-id" },
           };
         }
+
+        const senderContextResult = extractSenderContext({
+          fromHeader: metadataString(ctxData.document.metadata, "from"),
+          subject: ctxData.document.title,
+          body: ctxData.document.content,
+        });
+        const senderContext = senderContextResult.context;
 
         // Idempotency: if the thread's row was written by THIS run already,
         // reuse the prior classification — a retry within the same attempt
@@ -185,13 +205,21 @@ export const emailTriageWorkflow: Workflow<State> = {
         }
 
         let classification: TriageClassification;
+        let cheapClassification: TriageClassification | null = null;
         let model: string;
+        let deepenDecision: DeepenDecision = { mode: "skip" };
+        let deepenExecuted = false;
+        let shadowOnly = false;
+        let severityFlag: "severe" | "normal" | "low" | null = null;
+        let dossierRequested = false;
+        let deepenFailure: string | null = null;
         if (existing && existing.runId === ctx.runId) {
           classification = {
             category: existing.category,
             confidence: existing.confidence,
             rationale: existing.rationale ?? "",
           };
+          cheapClassification = classification;
           model = existing.model;
           await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
         } else {
@@ -205,6 +233,7 @@ export const emailTriageWorkflow: Workflow<State> = {
                 authoredAt: ctxData.document.authoredAt,
                 metadata: ctxData.document.metadata,
               },
+              senderContext,
               runId: ctx.runId,
               stepId: "classify",
               idempotencyKey: ctx.idempotencyKey,
@@ -225,6 +254,51 @@ export const emailTriageWorkflow: Workflow<State> = {
               rationale: `Classifier failed; default applied. err=${errMsg.slice(0, 500)}`,
             };
             model = "fallback";
+          }
+
+          cheapClassification = classification;
+          deepenDecision = shouldDeepen({
+            classification,
+            senderContext,
+            senderAddress: senderContextResult.senderAddress,
+          });
+          shadowOnly = deepenDecision.mode === "shadow";
+
+          if (deepenDecision.mode === "execute") {
+            try {
+              const userContext = await readTriageUserContext(ctx.userId);
+              const deepened = await deepenTriageClassification({
+                userId: ctx.userId,
+                document: {
+                  id: ctxData.document.id,
+                  title: ctxData.document.title,
+                  content: ctxData.document.content,
+                  authoredAt: ctxData.document.authoredAt,
+                  metadata: ctxData.document.metadata,
+                },
+                classification,
+                senderContext,
+                userContext,
+                runId: ctx.runId,
+                stepId: "deepen",
+                attempt: ctx.attempt,
+                idempotencyKey: `${ctx.idempotencyKey}:deepen`,
+              });
+              classification = deepened.classification;
+              model = `${model}+deepen`;
+              deepenExecuted = true;
+              severityFlag = deepened.severityFlag;
+              dossierRequested = Boolean(deepened.dossierRequest);
+              if (deepened.dossierRequest) {
+                await ctx.log(
+                  `deepen: dossier request for ${deepened.dossierRequest.personEmail} deferred; ` +
+                    `person-research cache/workflow is not present in this tree`,
+                );
+              }
+            } catch (err) {
+              deepenFailure = err instanceof Error ? err.message : String(err);
+              await ctx.log(`deepen failed; keeping cheap classification: ${deepenFailure}`);
+            }
           }
 
           await upsertTriage({
@@ -260,6 +334,22 @@ export const emailTriageWorkflow: Workflow<State> = {
         }
 
         await ctx.log(
+          `triage.sender_extraction ${JSON.stringify(
+            senderExtractionEvent({
+              senderContextResult,
+              cheapClassification: cheapClassification ?? classification,
+              classification,
+              deepenDecision,
+              deepenExecuted,
+              shadowOnly,
+              severityFlag,
+              dossierRequested,
+              deepenFailure,
+            }),
+          )}`,
+        );
+
+        await ctx.log(
           `classify: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
             `category=${classification.category} ` +
             `confidence=${classification.confidence.toFixed(2)} model=${model}`,
@@ -273,6 +363,10 @@ export const emailTriageWorkflow: Workflow<State> = {
             category: classification.category as TriageCategory,
             confidence: classification.confidence,
             rationale: classification.rationale,
+            senderContext,
+            deepenReason: deepenDecision.reason,
+            deepenExecuted,
+            shadowOnly,
           },
           nextStep: "apply-label",
         };
@@ -345,3 +439,59 @@ export const emailTriageWorkflow: Workflow<State> = {
     },
   },
 };
+
+function metadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function senderExtractionEvent(args: {
+  senderContextResult: SenderContextResult;
+  cheapClassification: TriageClassification;
+  classification: TriageClassification;
+  deepenDecision: DeepenDecision;
+  deepenExecuted: boolean;
+  shadowOnly: boolean;
+  severityFlag: "severe" | "normal" | "low" | null;
+  dossierRequested: boolean;
+  deepenFailure: string | null;
+}): {
+  fromKind: SenderContext["fromKind"];
+  bodyActor: SenderContext["bodyActor"] | null;
+  effectiveAuthor: SenderContext["effectiveAuthor"];
+  botSlug: SenderContext["botSlug"] | null;
+  parserHit: SenderContextResult["parserHit"];
+  senderAddress: string | null;
+  senderDomain: string | null;
+  classifierConfidence: number;
+  classifierCategory: TriageCategory;
+  wouldDeepen: boolean;
+  wouldDeepenReason: DeepenDecision["reason"] | null;
+  deepenExecuted: boolean;
+  shadowOnly: boolean;
+  severityFlag: "severe" | "normal" | "low" | null;
+  refinedCategory: TriageCategory | null;
+  dossierRequested: boolean;
+  deepenFailure: string | null;
+} {
+  const { context } = args.senderContextResult;
+  return {
+    fromKind: context.fromKind,
+    bodyActor: context.bodyActor ?? null,
+    effectiveAuthor: context.effectiveAuthor,
+    botSlug: context.botSlug ?? null,
+    parserHit: args.senderContextResult.parserHit,
+    senderAddress: args.senderContextResult.senderAddress,
+    senderDomain: args.senderContextResult.senderDomain,
+    classifierConfidence: args.cheapClassification.confidence,
+    classifierCategory: args.cheapClassification.category,
+    wouldDeepen: args.deepenDecision.mode !== "skip",
+    wouldDeepenReason: args.deepenDecision.reason ?? null,
+    deepenExecuted: args.deepenExecuted,
+    shadowOnly: args.shadowOnly,
+    severityFlag: args.severityFlag,
+    refinedCategory: args.deepenExecuted ? args.classification.category : null,
+    dossierRequested: args.dossierRequested,
+    deepenFailure: args.deepenFailure,
+  };
+}
