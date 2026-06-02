@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { type SenderContext } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 
@@ -44,6 +45,12 @@ export interface ClassifyEmailArgs {
     /** Provider metadata — `from`, `to`, `cc`, `labelIds`, `snippet`. */
     metadata: Record<string, unknown>;
   };
+  /**
+   * Deterministic parse of the sender/envelope/body actor. The cheap
+   * classifier may use this typed context, but must not load broader user
+   * profile or memory; bio-aware adjudication belongs to `deepen`.
+   */
+  senderContext: SenderContext;
   /** Run/step ids forwarded to the metering log + Langfuse trace. */
   runId?: string;
   stepId?: string;
@@ -76,7 +83,11 @@ Rules:
 9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting".
 10. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' only after the Meeting gate is satisfied.
 11. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
-12. Automated alerts that demand a remediation step → 'urgent' if same-day (secret-scanning, sign-in verification, account compromise) else 'action_needed' (CI failure on user's code, code-review request, expiring-credential reminder). NOT 'fyi'.
+12. Automated/service mail:
+    12a. Bot review comments where SenderContext.effectiveAuthor='bot' and botSlug is coderabbit, copilot-review, github-actions, dependabot, or renovate are usually 'fyi'. They are advisory review noise by default, even when they contain suggested fixes.
+    12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: CVE/vulnerability, exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
+    12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
+    12d. Unknown service envelopes classify from body content alone.
 13. Confidence:
     - 0.9+: unambiguous (newsletter from a clearly subscribed sender, payment receipt with amount, secret-scanning alert from GitHub).
     - 0.7-0.9: clear category but with some overlap.
@@ -94,6 +105,9 @@ Examples (subject → category):
 - "Incident resolved: API latency" from status@vercel.com → done (explicit resolution).
 - "We updated our Privacy Policy" from a service → fyi (informational, no closure).
 - "Your payment failed — update your card" from billing@stripe.com → payment (rule 11) — bump to urgent if access breaks today.
+- "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
+- "**coderabbitai** commented: API key exposed in this PR" → urgent (secret/security exception).
+- "Errors spiking in production" from Sentry → urgent/action_needed depending on immediacy and user's project context.
 - "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
 - "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
 - "See you next week." from Apple / Inside Apple with WWDC or product-event content → marketing (public brand event, not the user's meeting).
@@ -111,6 +125,10 @@ function userPrompt(args: ClassifyEmailArgs): string {
   const to = typeof meta.to === "string" ? meta.to : null;
   const cc = typeof meta.cc === "string" ? meta.cc : null;
   const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+
+  lines.push("=== SenderContext ===");
+  lines.push(JSON.stringify(args.senderContext));
+  lines.push("");
 
   if (from) lines.push(`From: ${from}`);
   if (to) lines.push(`To: ${to}`);
@@ -161,6 +179,7 @@ export async function classifyEmail(
       maxOutputTokens: 400,
     },
     {
+      role: "triage",
       userId: args.userId,
       runId: args.runId,
       stepId: args.stepId,
@@ -173,7 +192,11 @@ export async function classifyEmail(
     },
   );
 
-  const classification = applyTriageClassificationGuardrails(result.object, args.document);
+  const classification = applyTriageClassificationGuardrails(
+    result.object,
+    args.document,
+    args.senderContext,
+  );
 
   // `modelIdsFor` resolves to the model's `modelId` — but `getCheapModel`
   // returns an opaque LanguageModel. Re-derive a stable string for the
@@ -185,7 +208,21 @@ export async function classifyEmail(
 export function applyTriageClassificationGuardrails(
   classification: TriageClassification,
   document: ClassifyEmailArgs["document"],
+  senderContext?: SenderContext,
 ): TriageClassification {
+  if (
+    senderContext &&
+    isReviewBot(senderContext) &&
+    isImportantCategory(classification.category) &&
+    !hasSevereReviewBotSignal(signalText(document))
+  ) {
+    return guardedClassification(
+      classification,
+      "fyi",
+      "recognized code-review bot comment is advisory unless the body shows security, production, or deploy severity",
+    );
+  }
+
   if (classification.category !== "meeting") return classification;
 
   const text = signalText(document);
@@ -274,6 +311,37 @@ function isPublicEventBlast(text: string, metadata: Record<string, unknown>): bo
     /\b(news|newsletter|marketing|events)@/.test(text);
 
   return publicEvent && (bulkSignal || /\bwwdc\d*\b/.test(text));
+}
+
+function isReviewBot(senderContext: SenderContext): boolean {
+  return (
+    senderContext.effectiveAuthor === "bot" &&
+    (senderContext.botSlug === "coderabbit" ||
+      senderContext.botSlug === "copilot-review" ||
+      senderContext.botSlug === "github-actions" ||
+      senderContext.botSlug === "dependabot" ||
+      senderContext.botSlug === "renovate")
+  );
+}
+
+function isImportantCategory(category: TriageCategory): boolean {
+  return category === "urgent" || category === "action_needed" || category === "awaiting_reply";
+}
+
+function hasSevereReviewBotSignal(text: string): boolean {
+  return (
+    /\bcve-\d{4}-\d+\b|\bvulnerabilit(y|ies)\b|\bsecurity advisory\b|\bexploit\b/.test(text) ||
+    /\b(secret|credential|api key|token|private key)\b.{0,80}\b(exposed|leak|leaked|committed|found)\b/.test(
+      text,
+    ) ||
+    /\b(auth bypass|privilege escalation|data loss|production outage|incident)\b/.test(text) ||
+    /\b(blocks?|blocked|failing|failed)\b.{0,80}\b(deploy|deployment|release|ship|ci|build)\b/.test(
+      text,
+    ) ||
+    /\b(action required|deadline|expires|rotate)\b.{0,80}\b(today|now|immediately|within hours)\b/.test(
+      text,
+    )
+  );
 }
 
 function truncateRationale(value: string): string {
