@@ -102,11 +102,10 @@ interface TickResult {
 /**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
- * guard is the `email_sends` unique index in the briefing workflow's
- * `send` step — this tick is allowed to be loose. Worst case a tick
- * fires twice for the same user, the second call returns
- * `status='duplicate'` from `notify()` and the run terminates without
- * sending.
+ * guard is the slot-scoped `briefings` unique index plus the
+ * `email_sends` unique index in the workflow's `send` step — this tick
+ * is allowed to be loose. Worst case a duplicate tick resumes or skips
+ * the same terminal briefing row.
  */
 async function handleTick(): Promise<TickResult> {
   const now = new Date();
@@ -123,17 +122,21 @@ async function handleTick(): Promise<TickResult> {
         { slot: "morning", hour: prefs.deliveryHour },
         { slot: "evening", hour: prefs.eveningHour },
       ];
-      if (prefs.deliveryHour === prefs.eveningHour) {
+      const matchingSlots = slots.filter((s) => localHour === s.hour);
+      if (matchingSlots.length === 0) {
+        skipped += slots.length;
+        continue;
+      }
+      skipped += slots.length - matchingSlots.length;
+      if (matchingSlots.length > 1) {
         console.warn(
-          `[briefing:worker] user=${u.id} has morning/evening at same local hour=${localHour}; enqueuing both slots`,
+          `[briefing:worker] user=${u.id} local hour=${localHour} matches ${matchingSlots
+            .map((s) => s.slot)
+            .join("+")}; enqueuing ${matchingSlots.length} briefing slots`,
         );
       }
 
-      for (const s of slots) {
-        if (localHour !== s.hour) {
-          skipped++;
-          continue;
-        }
+      for (const s of matchingSlots) {
         await enqueueBriefingRun({
           userId: u.id,
           slot: s.slot,

@@ -1,8 +1,23 @@
 import { db } from "@alfred/db";
-import { documents, emailTriage } from "@alfred/db/schemas";
-import type { BriefingGather, IanaTimezone } from "@alfred/contracts";
-import type { TriageCategory } from "@alfred/integrations/google";
+import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { weatherFallbackFor } from "@alfred/contracts";
+import type {
+  BriefingGather,
+  BriefingSlot,
+  CalendarContribution,
+  IanaTimezone,
+  WeatherContribution,
+} from "@alfred/contracts";
+import {
+  CALENDAR_READONLY_SCOPE,
+  getFreshAccessToken,
+  listEvents,
+  type CalendarEvent,
+  type TriageCategory,
+} from "@alfred/integrations/google";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { z } from "zod";
+import { getPreference } from "../memory/preferences";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -83,6 +98,7 @@ export interface GatherBriefingArgs {
   userId: string;
   /** YYYY-MM-DD calendar date in the user's timezone. */
   briefingDate: string;
+  slot?: BriefingSlot;
   timezone: IanaTimezone;
   windowStart?: Date;
   windowEnd?: Date;
@@ -90,6 +106,8 @@ export interface GatherBriefingArgs {
 
 const DEFAULT_WINDOW_HOURS = 24;
 const DEFAULT_MAX_PER_BUCKET = 8;
+const MAX_CALENDAR_EVENTS = 40;
+const WEATHER_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Pull a user's last-24h triaged email into briefing-shaped buckets.
@@ -193,12 +211,26 @@ export async function gatherBriefingDigest(
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
+  const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
-  const digest = await gatherBriefingDigest({
-    userId: args.userId,
-    windowStart: args.windowStart,
-    windowEnd,
-  });
+  const [digest, calendar, weather] = await Promise.all([
+    gatherBriefingDigest({
+      userId: args.userId,
+      windowStart: args.windowStart,
+      windowEnd,
+    }),
+    gatherCalendarContribution({
+      userId: args.userId,
+      briefingDate: args.briefingDate,
+      timezone: args.timezone,
+      slot,
+    }),
+    gatherWeatherContribution({
+      userId: args.userId,
+      briefingDate: args.briefingDate,
+      timezone: args.timezone,
+    }),
+  ]);
   const categories: BriefingGather["email"]["categories"] = {};
   for (const category of PRIORITY_CATEGORIES) {
     categories[category] = digest.buckets[category].map((item) => ({
@@ -214,11 +246,227 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
     email: {
       categories,
     },
-    calendar: null,
+    calendar,
     integration_activity: { items: [] },
-    weather: null,
+    weather,
     day_of_week: dayContribution(args.briefingDate, args.timezone),
   };
+}
+
+async function gatherCalendarContribution(args: {
+  userId: string;
+  briefingDate: string;
+  timezone: IanaTimezone;
+  slot: BriefingSlot;
+}): Promise<CalendarContribution | null> {
+  const creds = await db()
+    .select({
+      id: integrationCredentials.id,
+      scopes: integrationCredentials.scopes,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, "google"),
+        eq(integrationCredentials.status, "active"),
+      ),
+    );
+
+  const calendarCreds = creds.filter((cred) => {
+    const granted = (cred.scopes as string[] | null) ?? [];
+    return granted.includes(CALENDAR_READONLY_SCOPE);
+  });
+  if (calendarCreds.length === 0) return null;
+
+  const { timeMin, timeMax } = calendarWindow(args.briefingDate, args.timezone, args.slot);
+  const events: CalendarContribution["events"] = [];
+  let successfulReads = 0;
+
+  for (const cred of calendarCreds) {
+    try {
+      const accessToken = await getFreshAccessToken(cred.id);
+      const result = await listEvents({
+        accessToken,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: MAX_CALENDAR_EVENTS,
+      });
+      successfulReads++;
+      for (const event of result.events) {
+        events.push(calendarEventToContributionEvent(cred.id, event));
+      }
+    } catch (err) {
+      console.warn(
+        `[briefing.gather] calendar unavailable credential=${cred.id}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  if (successfulReads === 0) return null;
+  events.sort((a, b) => a.start.localeCompare(b.start));
+  return { events: events.slice(0, MAX_CALENDAR_EVENTS) };
+}
+
+function calendarWindow(
+  briefingDate: string,
+  timezone: IanaTimezone,
+  slot: BriefingSlot,
+): { timeMin: Date; timeMax: Date } {
+  const dayStart = localStartOfDay(briefingDate, timezone);
+  const windowEnd = localStartOfDay(addLocalDays(briefingDate, 2), timezone);
+  const now = new Date();
+  const timeMin = slot === "evening" && now > dayStart && now < windowEnd ? now : dayStart;
+  return { timeMin, timeMax: windowEnd };
+}
+
+function calendarEventToContributionEvent(
+  credentialId: string,
+  event: CalendarEvent,
+): CalendarContribution["events"][number] {
+  return {
+    eventId: `${credentialId}:${event.id}`,
+    title: event.summary?.trim() || "(no title)",
+    start: event.start?.dateTime ?? event.start?.date ?? "",
+    end: event.end?.dateTime ?? event.end?.date ?? "",
+    attendees: (event.attendees ?? [])
+      .map((a) => {
+        if (!a.email) return null;
+        return a.displayName ? `${a.displayName} <${a.email}>` : a.email;
+      })
+      .filter((a): a is string => a !== null),
+    ...(event.location ? { location: event.location } : {}),
+  };
+}
+
+async function gatherWeatherContribution(args: {
+  userId: string;
+  briefingDate: string;
+  timezone: IanaTimezone;
+}): Promise<WeatherContribution | null> {
+  const location = await resolveWeatherLocation(args.userId, args.timezone);
+  if (!location) return null;
+
+  try {
+    const url = new URL("https://api.open-meteo.com/v1/forecast");
+    url.searchParams.set("latitude", String(location.lat));
+    url.searchParams.set("longitude", String(location.lng));
+    url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code");
+    url.searchParams.set(
+      "daily",
+      "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code",
+    );
+    url.searchParams.set("start_date", args.briefingDate);
+    url.searchParams.set("end_date", args.briefingDate);
+    url.searchParams.set("timezone", "auto");
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`[weather] ${res.status} ${body.slice(0, 300)}`);
+    }
+    const parsed = openMeteoSchema.parse(await res.json());
+    const current = parsed.current;
+    const daily = parsed.daily;
+    if (!current) return null;
+
+    return {
+      current: {
+        temperatureC: current.temperature_2m,
+        apparentTemperatureC: current.apparent_temperature,
+        description: describeWeatherCode(current.weather_code),
+      },
+      forecast: {
+        highC: daily?.temperature_2m_max[0] ?? current.temperature_2m,
+        lowC: daily?.temperature_2m_min[0] ?? current.temperature_2m,
+        precipitationMm: daily?.precipitation_sum[0] ?? 0,
+        description: describeWeatherCode(daily?.weather_code[0] ?? current.weather_code),
+      },
+    };
+  } catch (err) {
+    console.warn(
+      `[briefing.gather] weather unavailable location=${location.label}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+const openMeteoSchema = z.object({
+  current: z
+    .object({
+      temperature_2m: z.number(),
+      apparent_temperature: z.number(),
+      weather_code: z.number().int(),
+    })
+    .optional(),
+  daily: z
+    .object({
+      temperature_2m_max: z.array(z.number()),
+      temperature_2m_min: z.array(z.number()),
+      precipitation_sum: z.array(z.number()),
+      weather_code: z.array(z.number().int()),
+    })
+    .optional(),
+});
+
+interface WeatherLocation {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
+async function resolveWeatherLocation(
+  userId: string,
+  timezone: IanaTimezone,
+): Promise<WeatherLocation | null> {
+  const pref = await getPreference(userId, "location");
+  const parsed = parseWeatherLocation(pref?.value);
+  return parsed ?? weatherFallbackFor(timezone);
+}
+
+function parseWeatherLocation(value: unknown): WeatherLocation | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const lat = parseCoord(record.lat ?? record.latitude);
+  const lng = parseCoord(record.lng ?? record.lon ?? record.longitude);
+  if (lat === null || lng === null) return null;
+  const label =
+    typeof record.label === "string"
+      ? record.label
+      : typeof record.city === "string"
+        ? record.city
+        : typeof record.name === "string"
+          ? record.name
+          : `${lat},${lng}`;
+  return { lat, lng, label };
+}
+
+function parseCoord(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function describeWeatherCode(code: number): string {
+  if (code === 0) return "clear sky";
+  if (code === 1) return "mainly clear";
+  if (code === 2) return "partly cloudy";
+  if (code === 3) return "overcast";
+  if (code >= 45 && code <= 48) return "fog";
+  if (code >= 51 && code <= 57) return "drizzle";
+  if (code >= 61 && code <= 67) return "rain";
+  if (code >= 71 && code <= 77) return "snow";
+  if (code >= 80 && code <= 82) return "rain showers";
+  if (code >= 85 && code <= 86) return "snow showers";
+  if (code >= 95 && code <= 99) return "thunderstorm";
+  return "unknown conditions";
 }
 
 function isPriority(c: string): c is PriorityCategory {
