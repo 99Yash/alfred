@@ -14,6 +14,7 @@ import {
   renderBriefingEmailHtml,
   resolveBriefingPreferences,
   resolveBriefingReferences,
+  type BriefingRow,
   type Workflow,
 } from "@alfred/api";
 import {
@@ -148,6 +149,20 @@ export const morningBriefingWorkflow: Workflow<State> = {
               emailSendId: begun.row.emailSendId,
             },
           };
+        }
+
+        let resumed: ReturnType<typeof resumeExistingBriefing> = null;
+        try {
+          resumed = resumeExistingBriefing(begun.row, ctx.state.reason);
+        } catch (err) {
+          await markBriefingFailed(begun.row.id);
+          throw err;
+        }
+        if (begun.action === "resume" && resumed) {
+          await ctx.log(
+            `gather: resume existing ${begun.row.status} briefing id=${begun.row.id}`,
+          );
+          return resumed;
         }
 
         let gather: BriefingGather;
@@ -309,6 +324,59 @@ function parseStepState<T>(schema: z.ZodType<T>, state: State, step: string, exp
 function ianaTimezone(value: string): IanaTimezone {
   assertIanaTimezone(value);
   return value;
+}
+
+function resumeExistingBriefing(
+  row: BriefingRow,
+  reason: State["reason"],
+): { kind: "next"; state: State; nextStep: "compose" | "send" } | null {
+  switch (row.status) {
+    case "pending":
+    case "failed":
+    case "sent":
+      return null;
+    case "gathering":
+    case "composing":
+      if (!row.gather) return null;
+      return {
+        kind: "next",
+        state: {
+          phase: "gathered",
+          reason,
+          briefingDate: row.briefingDate,
+          timezone: row.timezone,
+          briefingId: row.id,
+          gather: row.gather,
+        },
+        nextStep: "compose",
+      };
+    case "composed":
+      if (!row.gather || !row.breakingSummary || !row.fullBriefing) {
+        throw new Error(`[morning-briefing] composed row missing persisted output id=${row.id}`);
+      }
+      return {
+        kind: "next",
+        state: {
+          phase: "composed",
+          reason,
+          briefingDate: row.briefingDate,
+          timezone: row.timezone,
+          briefingId: row.id,
+          gather: row.gather,
+          composed: {
+            breakingSummary: row.breakingSummary,
+            subject: subjectLine(row.fullBriefing.headline, row.briefingDate, row.timezone),
+            modelId: row.model ?? "unknown",
+            composeFallback: row.composeFallback,
+          },
+        },
+        nextStep: "send",
+      };
+    default: {
+      const _exhaustive: never = row.status;
+      throw new Error(`[morning-briefing] unknown briefing status ${String(_exhaustive)}`);
+    }
+  }
 }
 
 function subjectLine(headline: string, briefingDate: string, timezone: IanaTimezone): string {

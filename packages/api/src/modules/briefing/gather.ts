@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import type { BriefingGather, IanaTimezone } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/integrations/google";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -131,6 +131,7 @@ export async function gatherBriefingDigest(
         // be days old if a thread surfaces a backfilled message; what
         // matters for "today's briefing" is what alfred saw today.
         gte(documents.ingestedAt, windowStart),
+        lte(documents.ingestedAt, windowEnd),
       ),
     )
     .orderBy(desc(documents.authoredAt));
@@ -151,7 +152,6 @@ export async function gatherBriefingDigest(
   };
 
   for (const r of rows) {
-    if (r.authoredAt && r.authoredAt > windowEnd) continue;
     const cat = r.category;
 
     if (isSuppressed(cat)) {

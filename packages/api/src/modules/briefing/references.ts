@@ -1,13 +1,20 @@
-import type {
-  BriefingGather,
-  BriefingReferenceKind,
-  BriefingSourcePanel,
-  BriefingSourcePanelItem,
-  FullBriefingSection,
-  GatherSourceSlug,
+import {
+  BRIEFING_REFERENCE_KINDS,
+  type BriefingGather,
+  type BriefingReferenceKind,
+  type BriefingSourcePanel,
+  type BriefingSourcePanelItem,
+  type FullBriefingSection,
+  type GatherSourceSlug,
 } from "@alfred/contracts";
 
 export type BriefingReference = `${BriefingReferenceKind}:${string}`;
+
+export interface BriefingReferenceOption {
+  reference: BriefingReference;
+  label: string;
+  source: GatherSourceSlug;
+}
 
 export type BriefingSegment =
   | { kind: "text"; text: string }
@@ -42,7 +49,14 @@ interface ReferenceEntity {
   source: GatherSourceSlug;
 }
 
+interface ParsedBriefingReference {
+  kind: BriefingReferenceKind;
+  id: string;
+  reference: BriefingReference;
+}
+
 const REFERENCE_RE = /\[\[([a-z_]+):([^\]\s]+)\]\]/g;
+const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERENCE_KINDS);
 
 export function resolveBriefingReferences(
   markdown: string,
@@ -60,8 +74,9 @@ export function resolveBriefingReferences(
       segments.push({ kind: "text", text: markdown.slice(cursor, start) });
     }
 
-    const raw = `${match[1]}:${match[2]}`;
-    const entity = entities.get(raw);
+    const raw = rawReferenceFromMatch(match);
+    const parsed = parseBriefingReferenceString(raw);
+    const entity = parsed ? entities.get(parsed.reference) : undefined;
     if (entity) {
       segments.push({ kind: "reference", ...entity });
       resolved.push(entity.reference);
@@ -84,14 +99,23 @@ export function referencesFromSections(sections: FullBriefingSection[]): Briefin
   const refs = new Set<BriefingReference>();
   for (const section of sections) {
     for (const reference of section.references ?? []) {
-      if (isBriefingReference(reference)) refs.add(reference);
+      const parsed = parseBriefingReferenceString(reference);
+      if (parsed) refs.add(parsed.reference);
     }
     for (const match of section.body.matchAll(REFERENCE_RE)) {
-      const raw = `${match[1]}:${match[2]}`;
-      if (isBriefingReference(raw)) refs.add(raw);
+      const parsed = parseBriefingReferenceString(rawReferenceFromMatch(match));
+      if (parsed) refs.add(parsed.reference);
     }
   }
   return [...refs];
+}
+
+export function listBriefingReferenceOptions(gather: BriefingGather): BriefingReferenceOption[] {
+  return [...buildReferenceEntityMap(gather).values()].map(({ reference, label, source }) => ({
+    reference,
+    label,
+    source,
+  }));
 }
 
 export function buildBriefingSourcePanels(
@@ -113,7 +137,7 @@ export function buildBriefingSourcePanels(
         title: event.title,
         subtitle: formatDateRange(event.start, event.end),
         href: undefined,
-        reference: `meeting:${event.eventId}`,
+        reference: briefingReference("meeting", event.eventId),
         metadata: compactMetadata({
           attendees: event.attendees.length ? String(event.attendees.length) : undefined,
           location: event.location,
@@ -132,7 +156,7 @@ export function buildBriefingSourcePanels(
       status: item.status,
       severity: item.severity,
       href: item.url,
-      reference: `activity:${item.id}`,
+      reference: briefingReference("activity", item.id),
       metadata: compactMetadata({
         category: item.activityCategory,
         occurredAt: item.occurredAt,
@@ -208,12 +232,12 @@ export function renderBriefingEmailHtml(args: RenderBriefingEmailArgs): Rendered
   };
 }
 
-function buildReferenceEntityMap(gather: BriefingGather): Map<string, ReferenceEntity> {
-  const entities = new Map<string, ReferenceEntity>();
+function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference, ReferenceEntity> {
+  const entities = new Map<BriefingReference, ReferenceEntity>();
 
   for (const items of Object.values(gather.email.categories)) {
     for (const item of items ?? []) {
-      const reference = `email:${item.documentId}` as const;
+      const reference = briefingReference("email", item.documentId);
       entities.set(reference, {
         reference,
         label: item.subject,
@@ -224,7 +248,7 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<string, ReferenceE
   }
 
   for (const item of gather.integration_activity.items) {
-    const reference = `activity:${item.id}` as const;
+    const reference = briefingReference("activity", item.id);
     entities.set(reference, {
       reference,
       label: item.title,
@@ -234,7 +258,7 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<string, ReferenceE
   }
 
   for (const event of gather.calendar?.events ?? []) {
-    const reference = `meeting:${event.eventId}` as const;
+    const reference = briefingReference("meeting", event.eventId);
     entities.set(reference, {
       reference,
       label: event.title,
@@ -257,11 +281,13 @@ function emailPanelItems(
         title: item.subject,
         subtitle: item.sender,
         href: item.threadId ? gmailThreadUrl(item.threadId) : undefined,
-        reference: `email:${item.documentId}`,
+        reference: briefingReference("email", item.documentId),
         metadata: compactMetadata({
           category,
           snippet: item.snippet,
-          referenced: referenced.has(`email:${item.documentId}`) ? "true" : undefined,
+          referenced: referenced.has(briefingReference("email", item.documentId))
+            ? "true"
+            : undefined,
         }),
       });
     }
@@ -274,17 +300,51 @@ function prioritizeReferenced(
   referenced: ReadonlySet<BriefingReference>,
 ): BriefingSourcePanelItem[] {
   return [...items].sort((a, b) => {
-    const aHit = a.reference && referenced.has(a.reference as BriefingReference) ? 1 : 0;
-    const bHit = b.reference && referenced.has(b.reference as BriefingReference) ? 1 : 0;
+    const aHit = isReferenced(a.reference, referenced) ? 1 : 0;
+    const bHit = isReferenced(b.reference, referenced) ? 1 : 0;
     return bHit - aHit;
   });
 }
 
-function isBriefingReference(value: string): value is BriefingReference {
+function rawReferenceFromMatch(match: RegExpMatchArray): string {
+  return `${match[1] ?? ""}:${match[2] ?? ""}`;
+}
+
+function parseBriefingReferenceString(value: string): ParsedBriefingReference | null {
   const separator = value.indexOf(":");
-  if (separator <= 0) return false;
+  if (separator <= 0) return null;
   const kind = value.slice(0, separator);
-  return kind === "activity" || kind === "meeting" || kind === "email";
+  const id = value.slice(separator + 1);
+  return parseBriefingReference(kind, id);
+}
+
+function parseBriefingReference(
+  kind: string,
+  id: string | undefined,
+): ParsedBriefingReference | null {
+  if (!id || !isBriefingReferenceKind(kind)) return null;
+  return {
+    kind,
+    id,
+    reference: briefingReference(kind, id),
+  };
+}
+
+function isBriefingReferenceKind(value: string): value is BriefingReferenceKind {
+  return BRIEFING_REFERENCE_KIND_SET.has(value);
+}
+
+function briefingReference(kind: BriefingReferenceKind, id: string): BriefingReference {
+  return `${kind}:${id}` as BriefingReference;
+}
+
+function isReferenced(
+  reference: string | undefined,
+  referenced: ReadonlySet<BriefingReference>,
+): boolean {
+  if (!reference) return false;
+  const parsed = parseBriefingReferenceString(reference);
+  return parsed ? referenced.has(parsed.reference) : false;
 }
 
 function compactMetadata(values: Record<string, string | undefined>): Record<string, string> {
