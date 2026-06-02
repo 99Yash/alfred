@@ -42,6 +42,9 @@ const SUPPRESSED_CATEGORIES = [
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
 export type SuppressedCategory = (typeof SUPPRESSED_CATEGORIES)[number];
 
+const PRIORITY_CATEGORY_SET: ReadonlySet<string> = new Set(PRIORITY_CATEGORIES);
+const SUPPRESSED_CATEGORY_SET: ReadonlySet<string> = new Set(SUPPRESSED_CATEGORIES);
+
 export interface BriefingItem {
   documentId: string;
   category: PriorityCategory;
@@ -149,7 +152,7 @@ export async function gatherBriefingDigest(
 
   for (const r of rows) {
     if (r.authoredAt && r.authoredAt > windowEnd) continue;
-    const cat = r.category as TriageCategory;
+    const cat = r.category;
 
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
@@ -174,10 +177,9 @@ export async function gatherBriefingDigest(
     });
   }
 
-  const totalPriority = (Object.values(buckets) as BriefingItem[][]).reduce(
-    (sum, b) => sum + b.length,
-    0,
-  );
+  const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
+    return sum + buckets[category].length;
+  }, 0);
   const totalSuppressed = Object.values(suppressedCounts).reduce((sum, n) => sum + n, 0);
 
   return {
@@ -197,21 +199,20 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
     windowStart: args.windowStart,
     windowEnd,
   });
+  const categories: BriefingGather["email"]["categories"] = {};
+  for (const category of PRIORITY_CATEGORIES) {
+    categories[category] = digest.buckets[category].map((item) => ({
+      documentId: item.documentId,
+      threadId: threadIdFromGmailUrl(item.threadUrl),
+      subject: item.subject?.trim() || "(no subject)",
+      sender: shortenFrom(item.from) ?? "Unknown sender",
+      snippet: item.snippet ?? item.rationale ?? "",
+    }));
+  }
 
   return {
     email: {
-      categories: Object.fromEntries(
-        Object.entries(digest.buckets).map(([category, items]) => [
-          category,
-          items.map((item) => ({
-            documentId: item.documentId,
-            threadId: threadIdFromGmailUrl(item.threadUrl),
-            subject: item.subject?.trim() || "(no subject)",
-            sender: shortenFrom(item.from) ?? "Unknown sender",
-            snippet: item.snippet ?? item.rationale ?? "",
-          })),
-        ]),
-      ) as BriefingGather["email"]["categories"],
+      categories,
     },
     calendar: null,
     integration_activity: { items: [] },
@@ -220,12 +221,12 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
   };
 }
 
-function isPriority(c: TriageCategory): c is PriorityCategory {
-  return (PRIORITY_CATEGORIES as readonly string[]).includes(c);
+function isPriority(c: string): c is PriorityCategory {
+  return PRIORITY_CATEGORY_SET.has(c);
 }
 
-function isSuppressed(c: TriageCategory): c is SuppressedCategory {
-  return (SUPPRESSED_CATEGORIES as readonly string[]).includes(c);
+function isSuppressed(c: string): c is SuppressedCategory {
+  return SUPPRESSED_CATEGORY_SET.has(c);
 }
 
 /**

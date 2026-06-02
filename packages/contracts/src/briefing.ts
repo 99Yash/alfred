@@ -79,6 +79,18 @@ export interface EmailContribution {
   >;
 }
 
+const emailContributionItemSchema = z.object({
+  documentId: z.string().min(1),
+  threadId: z.string(),
+  subject: z.string(),
+  sender: z.string(),
+  snippet: z.string(),
+});
+
+export const emailContributionSchema = z.object({
+  categories: z.partialRecord(triageCategorySchema, z.array(emailContributionItemSchema)),
+}) satisfies z.ZodType<EmailContribution>;
+
 export interface CalendarContribution {
   events: Array<{
     eventId: string;
@@ -89,6 +101,19 @@ export interface CalendarContribution {
     location?: string;
   }>;
 }
+
+export const calendarContributionSchema = z.object({
+  events: z.array(
+    z.object({
+      eventId: z.string().min(1),
+      title: z.string(),
+      start: z.string(),
+      end: z.string(),
+      attendees: z.array(z.string()),
+      location: z.string().optional(),
+    }),
+  ),
+}) satisfies z.ZodType<CalendarContribution>;
 
 export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage"] as const;
 export type IntegrationActivitySource = (typeof INTEGRATION_ACTIVITY_SOURCES)[number];
@@ -162,11 +187,31 @@ export interface WeatherContribution {
   };
 }
 
+export const weatherContributionSchema = z.object({
+  current: z.object({
+    temperatureC: z.number(),
+    apparentTemperatureC: z.number(),
+    description: z.string(),
+  }),
+  forecast: z.object({
+    highC: z.number(),
+    lowC: z.number(),
+    precipitationMm: z.number(),
+    description: z.string(),
+  }),
+}) satisfies z.ZodType<WeatherContribution>;
+
 export interface DayOfWeekContribution {
   dayName: string;
   isWeekend: boolean;
   holiday?: { name: string; locale: string };
 }
+
+export const dayOfWeekContributionSchema = z.object({
+  dayName: z.string(),
+  isWeekend: z.boolean(),
+  holiday: z.object({ name: z.string(), locale: z.string() }).optional(),
+}) satisfies z.ZodType<DayOfWeekContribution>;
 
 /**
  * Output of the gather step. Sources split into guaranteed vs optional:
@@ -265,6 +310,14 @@ export const integrationActivityItemSchema = z.object({
 export const integrationActivityContributionSchema = z.object({
   items: z.array(integrationActivityItemSchema),
 });
+
+export const briefingGatherSchema = z.object({
+  email: emailContributionSchema,
+  calendar: calendarContributionSchema.nullable(),
+  integration_activity: integrationActivityContributionSchema,
+  weather: weatherContributionSchema.nullable(),
+  day_of_week: dayOfWeekContributionSchema,
+}) satisfies z.ZodType<BriefingGather>;
 
 export const fullBriefingSectionSchema = z.object({
   source: gatherSourceSlugSchema,

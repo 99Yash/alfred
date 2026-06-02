@@ -16,7 +16,12 @@ import {
   resolveBriefingReferences,
   type Workflow,
 } from "@alfred/api";
-import { assertIanaTimezone, type BriefingGather, type IanaTimezone } from "@alfred/contracts";
+import {
+  assertIanaTimezone,
+  briefingGatherSchema,
+  type BriefingGather,
+  type IanaTimezone,
+} from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -43,22 +48,46 @@ import { z } from "zod";
  *     day instead of suppressing delivery.
  */
 
-const stateSchema = z.object({
+const composedOutputSchema = z.object({
+  breakingSummary: z.string(),
+  subject: z.string(),
+  modelId: z.string(),
+  composeFallback: z.boolean(),
+});
+
+const initialStateSchema = z.object({
+  phase: z.literal("initial"),
   reason: z.enum(["cron", "manual", "forced"]),
   briefingDate: z.string().optional(),
-  timezone: z.string().optional(),
-  briefingId: z.string().optional(),
-  /** Serialized `BriefingGather`; canonical copy also lives in `briefings.gather`. */
-  gatherJson: z.string().optional(),
-  composed: z
-    .object({
-      breakingSummary: z.string(),
-      subject: z.string(),
-      modelId: z.string(),
-      composeFallback: z.boolean(),
-    })
-    .optional(),
 });
+
+const alreadySentStateSchema = initialStateSchema.extend({
+  phase: z.literal("already_sent"),
+  briefingDate: z.string(),
+  timezone: z.string(),
+  briefingId: z.string(),
+});
+
+const gatheredStateSchema = initialStateSchema.extend({
+  phase: z.literal("gathered"),
+  briefingDate: z.string(),
+  timezone: z.string(),
+  briefingId: z.string(),
+  /** Step handoff copy; canonical copy also lives in `briefings.gather`. */
+  gather: briefingGatherSchema,
+});
+
+const composedStateSchema = gatheredStateSchema.extend({
+  phase: z.literal("composed"),
+  composed: composedOutputSchema,
+});
+
+const stateSchema = z.discriminatedUnion("phase", [
+  initialStateSchema,
+  alreadySentStateSchema,
+  gatheredStateSchema,
+  composedStateSchema,
+]);
 type State = z.infer<typeof stateSchema>;
 
 export const morningBriefingWorkflow: Workflow<State> = {
@@ -79,6 +108,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
   initialState(input) {
     const parsed = briefingWorkflowInputSchema.parse(input.input ?? {});
     return {
+      phase: "initial",
       reason: parsed.reason,
       // When the caller pins a date (smoke script, manual UI button, the
       // cron tick), keep it. Otherwise let `gather` compute it from tz.
@@ -105,7 +135,8 @@ export const morningBriefingWorkflow: Workflow<State> = {
           return {
             kind: "done",
             state: {
-              ...ctx.state,
+              phase: "already_sent",
+              reason: ctx.state.reason,
               briefingDate,
               timezone,
               briefingId: begun.row.id,
@@ -136,11 +167,12 @@ export const morningBriefingWorkflow: Workflow<State> = {
         return {
           kind: "next",
           state: {
-            ...ctx.state,
+            phase: "gathered",
+            reason: ctx.state.reason,
             briefingDate,
             timezone,
             briefingId: begun.row.id,
-            gatherJson: JSON.stringify(gather),
+            gather,
           },
           nextStep: "compose",
         };
@@ -150,46 +182,34 @@ export const morningBriefingWorkflow: Workflow<State> = {
     compose: {
       id: "compose",
       async run(ctx) {
-        if (
-          !ctx.state.briefingId ||
-          !ctx.state.gatherJson ||
-          !ctx.state.briefingDate ||
-          !ctx.state.timezone
-        ) {
-          throw new Error("[morning-briefing] compose entered without gather output");
-        }
-        const gather = parseGather(ctx.state.gatherJson);
-        const timezone = ianaTimezone(ctx.state.timezone);
-        await markBriefingComposing(ctx.state.briefingId);
+        const state = requireGatheredState(ctx.state);
+        const timezone = ianaTimezone(state.timezone);
+        await markBriefingComposing(state.briefingId);
 
         let composed: Awaited<ReturnType<typeof composeBriefing>>;
         try {
           composed = await composeBriefing({
             userId: ctx.userId,
-            briefingDate: ctx.state.briefingDate,
+            briefingDate: state.briefingDate,
             timezone,
-            gather,
+            gather: state.gather,
             runId: ctx.runId,
             stepId: "compose",
             idempotencyKey: ctx.idempotencyKey,
           });
           await markBriefingComposed({
-            briefingId: ctx.state.briefingId,
+            briefingId: state.briefingId,
             breakingSummary: composed.breakingSummary,
             fullBriefing: composed.fullBriefing,
             model: composed.modelId,
             composeFallback: composed.composeFallback,
           });
         } catch (err) {
-          await markBriefingFailed(ctx.state.briefingId);
+          await markBriefingFailed(state.briefingId);
           throw err;
         }
 
-        const subject = subjectLine(
-          composed.fullBriefing.headline,
-          ctx.state.briefingDate,
-          timezone,
-        );
+        const subject = subjectLine(composed.fullBriefing.headline, state.briefingDate, timezone);
         await ctx.log(
           `compose: subject="${subject}" model=${composed.modelId} fallback=${composed.composeFallback}`,
         );
@@ -197,7 +217,8 @@ export const morningBriefingWorkflow: Workflow<State> = {
         return {
           kind: "next",
           state: {
-            ...ctx.state,
+            ...state,
+            phase: "composed",
             composed: {
               breakingSummary: composed.breakingSummary,
               subject,
@@ -213,32 +234,24 @@ export const morningBriefingWorkflow: Workflow<State> = {
     send: {
       id: "send",
       async run(ctx) {
-        if (
-          !ctx.state.composed ||
-          !ctx.state.briefingDate ||
-          !ctx.state.briefingId ||
-          !ctx.state.gatherJson
-        ) {
-          throw new Error("[morning-briefing] send entered without composed output");
-        }
-        const gather = parseGather(ctx.state.gatherJson);
-        const resolved = resolveBriefingReferences(ctx.state.composed.breakingSummary, gather);
+        const state = requireSendState(ctx.state);
+        const resolved = resolveBriefingReferences(state.composed.breakingSummary, state.gather);
         const rendered = renderBriefingEmailHtml({ segments: resolved.segments });
-        const idempotencyKey = `briefing:${ctx.userId}:${ctx.state.briefingDate}`;
+        const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}`;
         const result = await notify({
           userId: ctx.userId,
           kind: "briefing",
           idempotencyKey,
-          subject: ctx.state.composed.subject,
+          subject: state.composed.subject,
           html: rendered.html,
           text: rendered.text,
           payload: {
-            briefingId: ctx.state.briefingId,
-            briefingDate: ctx.state.briefingDate,
-            timezone: ctx.state.timezone,
-            reason: ctx.state.reason,
-            model: ctx.state.composed.modelId,
-            composeFallback: ctx.state.composed.composeFallback,
+            briefingId: state.briefingId,
+            briefingDate: state.briefingDate,
+            timezone: state.timezone,
+            reason: state.reason,
+            model: state.composed.modelId,
+            composeFallback: state.composed.composeFallback,
             resolvedReferences: resolved.resolved,
             unresolvedReferences: resolved.unresolved,
           },
@@ -252,24 +265,24 @@ export const morningBriefingWorkflow: Workflow<State> = {
         );
 
         if (result.status === "failed") {
-          await markBriefingFailed(ctx.state.briefingId);
+          await markBriefingFailed(state.briefingId);
           throw new Error(`[morning-briefing] send failed: ${result.error}`);
         }
 
         await markBriefingSent({
-          briefingId: ctx.state.briefingId,
+          briefingId: state.briefingId,
           emailSendId: result.emailSendId,
         });
 
         return {
           kind: "done",
-          state: ctx.state,
+          state,
           output: {
-            briefingId: ctx.state.briefingId,
+            briefingId: state.briefingId,
             emailSendId: result.emailSendId,
             status: result.status,
-            briefingDate: ctx.state.briefingDate,
-            composeFallback: ctx.state.composed.composeFallback,
+            briefingDate: state.briefingDate,
+            composeFallback: state.composed.composeFallback,
           },
         };
       },
@@ -277,8 +290,20 @@ export const morningBriefingWorkflow: Workflow<State> = {
   },
 };
 
-function parseGather(value: string): BriefingGather {
-  return JSON.parse(value) as BriefingGather;
+function requireGatheredState(state: State): z.infer<typeof gatheredStateSchema> {
+  return parseStepState(gatheredStateSchema, state, "compose", "gather output");
+}
+
+function requireSendState(state: State): z.infer<typeof composedStateSchema> {
+  return parseStepState(composedStateSchema, state, "send", "composed output");
+}
+
+function parseStepState<T>(schema: z.ZodType<T>, state: State, step: string, expected: string): T {
+  const parsed = schema.safeParse(state);
+  if (!parsed.success) {
+    throw new Error(`[morning-briefing] ${step} entered without ${expected}`);
+  }
+  return parsed.data;
 }
 
 function ianaTimezone(value: string): IanaTimezone {
