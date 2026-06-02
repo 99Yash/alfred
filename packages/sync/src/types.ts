@@ -4,6 +4,7 @@ export type {
   PreferenceValue,
   SyncedActionPolicy,
   SyncedActionStaging,
+  SyncedBriefing,
   SyncedEntity,
   SyncedFact,
   SyncedNote,

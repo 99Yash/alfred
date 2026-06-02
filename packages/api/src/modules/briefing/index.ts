@@ -64,6 +64,7 @@ export {
   markBriefingFailed,
   markBriefingGathering,
   markBriefingSent,
+  markBriefingSuppressed,
   type BeginBriefingResult,
   type BriefingRow,
 } from "./store";

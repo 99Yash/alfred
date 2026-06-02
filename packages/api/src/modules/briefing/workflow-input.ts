@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const briefingSlotSchema = z.enum(["morning", "evening"]);
+
 /**
  * Public input schema + slugs for the briefing workflows. Mirrored from
  * the email-triage pattern: callers (cron, smoke script) import from
@@ -21,6 +23,11 @@ export const BRIEFING_WORKFLOW_SLUG = "morning-briefing";
 export const DAILY_BRIEFING_WORKFLOW_SLUG = "daily-briefing";
 
 export const briefingWorkflowInputSchema = z.object({
+  /**
+   * `morning` can suppress on quiet cron runs; `evening` always sends.
+   * Defaults to morning for existing callers that predate ADR-0048.
+   */
+  slot: briefingSlotSchema.default("morning"),
   /**
    * The user's local date this briefing is *for* (YYYY-MM-DD). Used as
    * the day-segment of the idempotency key; a duplicate enqueue with
@@ -55,7 +62,7 @@ export type BriefingWorkflowInput = z.infer<typeof briefingWorkflowInputSchema>;
  * sees the full email window. Use this for prompt iteration.
  */
 export const dailyBriefingWorkflowInputSchema = briefingWorkflowInputSchema.extend({
-  slot: z.enum(["morning", "evening"]),
+  slot: briefingSlotSchema,
   dryRun: z.boolean().default(false),
 });
 

@@ -371,7 +371,15 @@ export interface BriefingContributor<T> {
   }): Promise<T | null>;
 }
 
-// ─── Status machine ───────────────────────────────────────────────────────
+// ─── Slot + status machine ────────────────────────────────────────────────
+
+export const briefingSlotValues = ["morning", "evening"] as const;
+export type BriefingSlot = (typeof briefingSlotValues)[number];
+export const briefingSlotSchema = z.enum(briefingSlotValues);
+
+export const briefingSendDecisionValues = ["sent", "suppressed"] as const;
+export type BriefingSendDecision = (typeof briefingSendDecisionValues)[number];
+export const briefingSendDecisionSchema = z.enum(briefingSendDecisionValues);
 
 export const briefingStatusValues = [
   "pending",
@@ -379,6 +387,7 @@ export const briefingStatusValues = [
   "composing",
   "composed",
   "sent",
+  "suppressed",
   "failed",
 ] as const;
 export type BriefingStatus = (typeof briefingStatusValues)[number];
