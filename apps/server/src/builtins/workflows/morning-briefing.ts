@@ -1,75 +1,101 @@
 import {
   BRIEFING_WORKFLOW_SLUG,
+  beginBriefing,
   briefingWorkflowInputSchema,
   composeBriefing,
-  gatherBriefingDigest,
+  gatherBriefing,
   localDateInTimezone,
+  markBriefingComposed,
+  markBriefingComposing,
+  markBriefingFailed,
+  markBriefingGathering,
+  markBriefingSent,
   notify,
+  renderBriefingEmailHtml,
   resolveBriefingPreferences,
+  resolveBriefingReferences,
+  type BriefingRow,
   type Workflow,
 } from "@alfred/api";
-import { db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
-import { eq } from "drizzle-orm";
+import {
+  assertIanaTimezone,
+  briefingGatherSchema,
+  type BriefingGather,
+  type IanaTimezone,
+} from "@alfred/contracts";
 import { z } from "zod";
 
 /**
- * Morning briefing workflow (ADR-0025 #2, v1 inbox-only).
+ * Morning briefing workflow (ADR-0041, v2 backend cutover).
  *
  * Steps:
- *   1. gather  — resolve user's tz + delivery-hour, query last-24h
- *                triage data, persist digest + briefing-date in state.
- *   2. compose — render deterministic HTML/text from the digest.
- *   3. send    — dispatch via `notify()` with idempotency key
- *                `briefing:{userId}:{YYYY-MM-DD-in-user-tz}`.
+ *   1. gather  — create/resume the `briefings` row, collect the
+ *                normalized `BriefingGather`, persist it.
+ *   2. compose — run the schema-bound boss-model composer, or deterministic
+ *                fallback, then persist the full briefing.
+ *   3. send    — render the breaking summary with resolved references and
+ *                dispatch via `notify()`.
  *
  * Idempotency:
- *   - The idempotency key is computed in `gather` (not `send`) so a
- *     retry of `send` re-uses the same key even if the cron tick rolls
- *     into a new local day. This matters when the workflow is queued
- *     near a tz boundary.
- *   - `notify()` short-circuits on duplicate keys via the unique index
- *     on `email_sends`, so re-runs cost nothing.
+ *   - `briefings` is unique on `(user_id, briefing_date)`, so duplicate
+ *     workflow runs for a day either no-op when already sent or resume
+ *     the existing in-progress row.
+ *   - `notify()` is keyed by the same local briefing date. If the email
+ *     send succeeded but the workflow crashed before marking `briefings`
+ *     sent, retry returns `duplicate` and the row is marked sent.
  *
  * Empty-day behavior:
- *   - We still send. An empty-inbox briefing reads as "you're clear"
- *     and confirms the system is alive; suppressing it would feel like
- *     a missed delivery.
+ *   - We still send. The fallback and composer both render an honest empty
+ *     day instead of suppressing delivery.
  */
 
-const stateSchema = z.object({
-  reason: z.enum(["cron", "manual", "forced"]),
-  /** Computed in step 1; consumed by step 3. */
-  briefingDate: z.string().optional(),
-  timezone: z.string().optional(),
-  recipientName: z.string().nullable().optional(),
-  /** Computed in step 1; consumed by step 2. Stored as ISO so JSON state survives serialization. */
-  digestJson: z.string().optional(),
-  /** Computed in step 2; consumed by step 3. */
-  composed: z
-    .object({
-      subject: z.string(),
-      html: z.string(),
-      text: z.string(),
-    })
-    .optional(),
+const composedOutputSchema = z.object({
+  breakingSummary: z.string(),
+  subject: z.string(),
+  modelId: z.string(),
+  composeFallback: z.boolean(),
 });
-type State = z.infer<typeof stateSchema>;
 
-interface SerializedDigest {
-  windowStart: string;
-  windowEnd: string;
-  buckets: Record<string, unknown[]>;
-  suppressedCounts: Record<string, number>;
-  totalPriority: number;
-  totalSuppressed: number;
-}
+const initialStateSchema = z.object({
+  phase: z.literal("initial"),
+  reason: z.enum(["cron", "manual", "forced"]),
+  briefingDate: z.string().optional(),
+});
+
+const alreadySentStateSchema = initialStateSchema.extend({
+  phase: z.literal("already_sent"),
+  briefingDate: z.string(),
+  timezone: z.string(),
+  briefingId: z.string(),
+});
+
+const gatheredStateSchema = initialStateSchema.extend({
+  phase: z.literal("gathered"),
+  briefingDate: z.string(),
+  timezone: z.string(),
+  briefingId: z.string(),
+  /** Step handoff copy; canonical copy also lives in `briefings.gather`. */
+  gather: briefingGatherSchema,
+});
+
+const composedStateSchema = gatheredStateSchema.extend({
+  phase: z.literal("composed"),
+  composed: composedOutputSchema,
+});
+
+const stateSchema = z.discriminatedUnion("phase", [
+  initialStateSchema,
+  alreadySentStateSchema,
+  gatheredStateSchema,
+  composedStateSchema,
+]);
+type State = z.infer<typeof stateSchema>;
 
 export const morningBriefingWorkflow: Workflow<State> = {
   slug: BRIEFING_WORKFLOW_SLUG,
   name: "Morning briefing",
   description:
-    "Daily inbox-only morning briefing — last-24h priority email by triage tag, sent via Resend (ADR-0025 #2).",
+    "Daily multi-source morning briefing — normalized gather, boss-model compose, sent via Resend (ADR-0041).",
   // Declared as cron for documentation honesty, but `next_run_at` is
   // left null at seed time so the generic workflows.tick partial index
   // skips it — `briefing.tick` (packages/api/src/modules/briefing/) owns
@@ -83,6 +109,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
   initialState(input) {
     const parsed = briefingWorkflowInputSchema.parse(input.input ?? {});
     return {
+      phase: "initial",
       reason: parsed.reason,
       // When the caller pins a date (smoke script, manual UI button, the
       // cron tick), keep it. Otherwise let `gather` compute it from tz.
@@ -96,48 +123,71 @@ export const morningBriefingWorkflow: Workflow<State> = {
       async run(ctx) {
         const prefs = await resolveBriefingPreferences(ctx.userId);
         const briefingDate = ctx.state.briefingDate ?? localDateInTimezone(prefs.timezone);
+        const timezone = ianaTimezone(prefs.timezone);
 
-        const digest = await gatherBriefingDigest({ userId: ctx.userId });
+        const begun = await beginBriefing({
+          userId: ctx.userId,
+          briefingDate,
+          timezone,
+        });
 
-        // Surface for ops: easy to grep for "0/0" empty days vs noisy days.
+        if (begun.action === "skip_sent") {
+          await ctx.log(`gather: skip existing sent briefing id=${begun.row.id}`);
+          return {
+            kind: "done",
+            state: {
+              phase: "already_sent",
+              reason: ctx.state.reason,
+              briefingDate,
+              timezone,
+              briefingId: begun.row.id,
+            },
+            output: {
+              briefingId: begun.row.id,
+              briefingDate,
+              status: "already_sent",
+              emailSendId: begun.row.emailSendId,
+            },
+          };
+        }
+
+        let resumed: ReturnType<typeof resumeExistingBriefing> = null;
+        try {
+          resumed = resumeExistingBriefing(begun.row, ctx.state.reason);
+        } catch (err) {
+          await markBriefingFailed(begun.row.id);
+          throw err;
+        }
+        if (begun.action === "resume" && resumed) {
+          await ctx.log(
+            `gather: resume existing ${begun.row.status} briefing id=${begun.row.id}`,
+          );
+          return resumed;
+        }
+
+        let gather: BriefingGather;
+        try {
+          gather = await gatherBriefing({ userId: ctx.userId, briefingDate, timezone });
+          await markBriefingGathering({ briefingId: begun.row.id, gather });
+        } catch (err) {
+          await markBriefingFailed(begun.row.id);
+          throw err;
+        }
+
+        const counts = gatherCounts(gather);
         await ctx.log(
-          `gather: tz=${prefs.timezone} date=${briefingDate} priority=${digest.totalPriority} suppressed=${digest.totalSuppressed}`,
+          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}`,
         );
-
-        const userRows = await db()
-          .select({ name: user.name, email: user.email })
-          .from(user)
-          .where(eq(user.id, ctx.userId));
-        const u = userRows[0];
-        const recipientName = pickFirstName(u?.name ?? null) ?? null;
-
-        // Serialise the digest into state. Dates → ISO so JSON
-        // round-trip through the run-state column doesn't lose them.
-        const digestJson = JSON.stringify({
-          windowStart: digest.windowStart.toISOString(),
-          windowEnd: digest.windowEnd.toISOString(),
-          buckets: Object.fromEntries(
-            Object.entries(digest.buckets).map(([k, items]) => [
-              k,
-              items.map((i) => ({
-                ...i,
-                authoredAt: i.authoredAt ? i.authoredAt.toISOString() : null,
-              })),
-            ]),
-          ),
-          suppressedCounts: digest.suppressedCounts,
-          totalPriority: digest.totalPriority,
-          totalSuppressed: digest.totalSuppressed,
-        } satisfies SerializedDigest);
 
         return {
           kind: "next",
           state: {
-            ...ctx.state,
+            phase: "gathered",
+            reason: ctx.state.reason,
             briefingDate,
-            timezone: prefs.timezone,
-            recipientName,
-            digestJson,
+            timezone,
+            briefingId: begun.row.id,
+            gather,
           },
           nextStep: "compose",
         };
@@ -147,39 +197,50 @@ export const morningBriefingWorkflow: Workflow<State> = {
     compose: {
       id: "compose",
       async run(ctx) {
-        if (!ctx.state.digestJson || !ctx.state.briefingDate || !ctx.state.timezone) {
-          throw new Error("[morning-briefing] compose entered without gather output");
+        const state = requireGatheredState(ctx.state);
+        const timezone = ianaTimezone(state.timezone);
+        await markBriefingComposing(state.briefingId);
+
+        let composed: Awaited<ReturnType<typeof composeBriefing>>;
+        try {
+          composed = await composeBriefing({
+            userId: ctx.userId,
+            briefingDate: state.briefingDate,
+            timezone,
+            gather: state.gather,
+            runId: ctx.runId,
+            stepId: "compose",
+            idempotencyKey: ctx.idempotencyKey,
+          });
+          await markBriefingComposed({
+            briefingId: state.briefingId,
+            breakingSummary: composed.breakingSummary,
+            fullBriefing: composed.fullBriefing,
+            model: composed.modelId,
+            composeFallback: composed.composeFallback,
+          });
+        } catch (err) {
+          await markBriefingFailed(state.briefingId);
+          throw err;
         }
-        const parsed = JSON.parse(ctx.state.digestJson) as SerializedDigest;
-        const digest = {
-          windowStart: new Date(parsed.windowStart),
-          windowEnd: new Date(parsed.windowEnd),
-          buckets: Object.fromEntries(
-            Object.entries(parsed.buckets).map(([k, items]) => [
-              k,
-              (items as Array<Record<string, unknown>>).map((i) => ({
-                ...i,
-                authoredAt: typeof i.authoredAt === "string" ? new Date(i.authoredAt) : null,
-              })),
-            ]),
-          ) as never,
-          suppressedCounts: parsed.suppressedCounts as never,
-          totalPriority: parsed.totalPriority,
-          totalSuppressed: parsed.totalSuppressed,
-        };
 
-        const dateLabel = formatDateLabel(ctx.state.briefingDate, ctx.state.timezone);
-        const composed = composeBriefing({
-          digest,
-          recipientName: ctx.state.recipientName,
-          dateLabel,
-        });
-
-        await ctx.log(`compose: subject="${composed.subject}"`);
+        const subject = subjectLine(composed.fullBriefing.headline, state.briefingDate, timezone);
+        await ctx.log(
+          `compose: subject="${subject}" model=${composed.modelId} fallback=${composed.composeFallback}`,
+        );
 
         return {
           kind: "next",
-          state: { ...ctx.state, composed },
+          state: {
+            ...state,
+            phase: "composed",
+            composed: {
+              breakingSummary: composed.breakingSummary,
+              subject,
+              modelId: composed.modelId,
+              composeFallback: composed.composeFallback,
+            },
+          },
           nextStep: "send",
         };
       },
@@ -188,21 +249,26 @@ export const morningBriefingWorkflow: Workflow<State> = {
     send: {
       id: "send",
       async run(ctx) {
-        if (!ctx.state.composed || !ctx.state.briefingDate) {
-          throw new Error("[morning-briefing] send entered without composed output");
-        }
-        const idempotencyKey = `briefing:${ctx.userId}:${ctx.state.briefingDate}`;
+        const state = requireSendState(ctx.state);
+        const resolved = resolveBriefingReferences(state.composed.breakingSummary, state.gather);
+        const rendered = renderBriefingEmailHtml({ segments: resolved.segments });
+        const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}`;
         const result = await notify({
           userId: ctx.userId,
           kind: "briefing",
           idempotencyKey,
-          subject: ctx.state.composed.subject,
-          html: ctx.state.composed.html,
-          text: ctx.state.composed.text,
+          subject: state.composed.subject,
+          html: rendered.html,
+          text: rendered.text,
           payload: {
-            briefingDate: ctx.state.briefingDate,
-            timezone: ctx.state.timezone,
-            reason: ctx.state.reason,
+            briefingId: state.briefingId,
+            briefingDate: state.briefingDate,
+            timezone: state.timezone,
+            reason: state.reason,
+            model: state.composed.modelId,
+            composeFallback: state.composed.composeFallback,
+            resolvedReferences: resolved.resolved,
+            unresolvedReferences: resolved.unresolved,
           },
         });
 
@@ -214,16 +280,24 @@ export const morningBriefingWorkflow: Workflow<State> = {
         );
 
         if (result.status === "failed") {
+          await markBriefingFailed(state.briefingId);
           throw new Error(`[morning-briefing] send failed: ${result.error}`);
         }
 
+        await markBriefingSent({
+          briefingId: state.briefingId,
+          emailSendId: result.emailSendId,
+        });
+
         return {
           kind: "done",
-          state: ctx.state,
+          state,
           output: {
+            briefingId: state.briefingId,
             emailSendId: result.emailSendId,
             status: result.status,
-            briefingDate: ctx.state.briefingDate,
+            briefingDate: state.briefingDate,
+            composeFallback: state.composed.composeFallback,
           },
         };
       },
@@ -231,13 +305,87 @@ export const morningBriefingWorkflow: Workflow<State> = {
   },
 };
 
-function pickFirstName(name: string | null): string | null {
-  if (!name) return null;
-  const first = name.trim().split(/\s+/)[0];
-  return first || null;
+function requireGatheredState(state: State): z.infer<typeof gatheredStateSchema> {
+  return parseStepState(gatheredStateSchema, state, "compose", "gather output");
 }
 
-function formatDateLabel(briefingDate: string, timezone: string): string {
+function requireSendState(state: State): z.infer<typeof composedStateSchema> {
+  return parseStepState(composedStateSchema, state, "send", "composed output");
+}
+
+function parseStepState<T>(schema: z.ZodType<T>, state: State, step: string, expected: string): T {
+  const parsed = schema.safeParse(state);
+  if (!parsed.success) {
+    throw new Error(`[morning-briefing] ${step} entered without ${expected}`);
+  }
+  return parsed.data;
+}
+
+function ianaTimezone(value: string): IanaTimezone {
+  assertIanaTimezone(value);
+  return value;
+}
+
+function resumeExistingBriefing(
+  row: BriefingRow,
+  reason: State["reason"],
+): { kind: "next"; state: State; nextStep: "compose" | "send" } | null {
+  switch (row.status) {
+    case "pending":
+    case "failed":
+    case "sent":
+      return null;
+    case "gathering":
+    case "composing":
+      if (!row.gather) return null;
+      return {
+        kind: "next",
+        state: {
+          phase: "gathered",
+          reason,
+          briefingDate: row.briefingDate,
+          timezone: row.timezone,
+          briefingId: row.id,
+          gather: row.gather,
+        },
+        nextStep: "compose",
+      };
+    case "composed":
+      if (!row.gather || !row.breakingSummary || !row.fullBriefing) {
+        throw new Error(`[morning-briefing] composed row missing persisted output id=${row.id}`);
+      }
+      return {
+        kind: "next",
+        state: {
+          phase: "composed",
+          reason,
+          briefingDate: row.briefingDate,
+          timezone: row.timezone,
+          briefingId: row.id,
+          gather: row.gather,
+          composed: {
+            breakingSummary: row.breakingSummary,
+            subject: subjectLine(row.fullBriefing.headline, row.briefingDate, row.timezone),
+            modelId: row.model ?? "unknown",
+            composeFallback: row.composeFallback,
+          },
+        },
+        nextStep: "send",
+      };
+    default: {
+      const _exhaustive: never = row.status;
+      throw new Error(`[morning-briefing] unknown briefing status ${String(_exhaustive)}`);
+    }
+  }
+}
+
+function subjectLine(headline: string, briefingDate: string, timezone: IanaTimezone): string {
+  const dateLabel = formatDateLabel(briefingDate, timezone);
+  const trimmed = headline.trim();
+  return trimmed ? `Alfred · ${dateLabel} · ${trimmed}` : `Alfred · ${dateLabel}`;
+}
+
+function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {
   // briefingDate is a YYYY-MM-DD string already in the user's tz; we
   // want the long-form for the email body ("Saturday, May 2"). Build a
   // Date at noon-UTC of that day so DST doesn't bump us into a
@@ -249,4 +397,19 @@ function formatDateLabel(briefingDate: string, timezone: string): string {
     month: "long",
     day: "numeric",
   }).format(noonUtc);
+}
+
+function gatherCounts(gather: BriefingGather): {
+  email: number;
+  activity: number;
+  meetings: number;
+} {
+  return {
+    email: Object.values(gather.email.categories).reduce(
+      (sum, items) => sum + (items?.length ?? 0),
+      0,
+    ),
+    activity: gather.integration_activity.items.length,
+    meetings: gather.calendar?.events.length ?? 0,
+  };
 }

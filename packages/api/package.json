@@ -34,7 +34,8 @@
   "devDependencies": {
     "@alfred/config": "workspace:*",
     "@types/pg": "^8.18.0",
-    "tsdown": "catalog:"
+    "tsdown": "catalog:",
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "typescript": "^5"
