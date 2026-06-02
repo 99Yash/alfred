@@ -191,7 +191,7 @@ export async function gatherBriefingDigest(
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
-  const windowEnd = args.windowEnd ?? new Date(`${args.briefingDate}T23:59:59.999Z`);
+  const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
   const digest = await gatherBriefingDigest({
     userId: args.userId,
     windowStart: args.windowStart,
@@ -259,6 +259,46 @@ function dayContribution(
     dayName,
     isWeekend: dayName === "Saturday" || dayName === "Sunday",
   };
+}
+
+function localEndOfDay(briefingDate: string, timezone: IanaTimezone): Date {
+  return localStartOfDay(addLocalDays(briefingDate, 1), timezone);
+}
+
+function localStartOfDay(localDate: string, timezone: IanaTimezone): Date {
+  let candidate = new Date(`${localDate}T00:00:00.000Z`);
+  for (let i = 0; i < 3; i += 1) {
+    candidate = new Date(Date.UTC(...dateParts(localDate)) - timezoneOffsetMs(candidate, timezone));
+  }
+  return candidate;
+}
+
+function timezoneOffsetMs(at: Date, timezone: IanaTimezone): number {
+  const value =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
+  if (!match?.groups?.sign) return 0;
+
+  const sign = match.groups.sign === "-" ? -1 : 1;
+  const hours = Number(match.groups.hours);
+  const minutes = Number(match.groups.minutes ?? "0");
+  return sign * (hours * 60 + minutes) * 60_000;
+}
+
+function addLocalDays(localDate: string, days: number): string {
+  const next = new Date(Date.UTC(...dateParts(localDate), 12));
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function dateParts(localDate: string): [number, number, number] {
+  const [year, month, day] = localDate.split("-").map(Number);
+  return [year ?? 0, (month ?? 1) - 1, day ?? 1];
 }
 
 function shortenFrom(from: string | null): string | null {

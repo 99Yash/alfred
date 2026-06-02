@@ -324,6 +324,7 @@ export const briefingStatusValues = [
   "pending",
   "gathering",
   "composing",
+  "composed",
   "sent",
   "failed",
 ] as const;
