@@ -2,7 +2,7 @@
 
 This document is a self-contained brief for the agent that will scaffold the alfred repo. You don't need to have participated in the design conversation — read this plus `../../decisions.md` and you have everything.
 
-> **Historical note:** scaffolding (milestone 1) shipped 2026-04-27; this doc is kept as the original handoff. The `../milkpod/*` paths below assume alfred and milkpod are sibling repos at the time of scaffolding.
+> **Historical note:** scaffolding (milestone 1) shipped 2026-04-27; this doc is kept as the original handoff. The `../../../milkpod/*` paths below assume alfred and milkpod are sibling repos at the time of scaffolding.
 
 ## Read first (in this order)
 
