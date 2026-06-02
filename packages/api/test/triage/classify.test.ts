@@ -126,6 +126,32 @@ describe("applyTriageClassificationGuardrails", () => {
 
     assert.deepEqual(result, classification);
   });
+
+  test("keeps severe review bot findings when secret and exposure verb span lines", () => {
+    const classification: TriageClassification = {
+      category: "urgent",
+      confidence: 0.9,
+      rationale: "The bot found an exposed token.",
+    };
+    const result = applyTriageClassificationGuardrails(
+      classification,
+      {
+        id: "doc_coderabbit_secret_multiline",
+        title: "CodeRabbit commented on PR #42",
+        content:
+          "**coderabbitai** commented on this pull request.\n\n" +
+          "A hardcoded **token**\nwas found exposed in this diff and should be rotated.",
+        authoredAt: new Date("2026-06-02T10:28:00.000Z"),
+        metadata: {
+          from: "CodeRabbit <noreply@github.com>",
+          labelIds: ["INBOX"],
+        },
+      },
+      coderabbitSenderContext(),
+    );
+
+    assert.deepEqual(result, classification);
+  });
 });
 
 function meetingClassification(): TriageClassification {

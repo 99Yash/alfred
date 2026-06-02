@@ -331,14 +331,16 @@ function isImportantCategory(category: TriageCategory): boolean {
 function hasSevereReviewBotSignal(text: string): boolean {
   return (
     /\bcve-\d{4}-\d+\b|\bvulnerabilit(y|ies)\b|\bsecurity advisory\b|\bexploit\b/.test(text) ||
-    /\b(secret|credential|api key|token|private key)\b.{0,80}\b(exposed|leak|leaked|committed|found)\b/.test(
+    // `s` (dotall) so the noun and the exposure verb can sit on separate
+    // lines — review-bot bodies wrap, e.g. `**token**\nfound exposed`.
+    /\b(secret|credential|api key|token|private key)\b.{0,80}\b(exposed|leak|leaked|committed|found)\b/s.test(
       text,
     ) ||
     /\b(auth bypass|privilege escalation|data loss|production outage|incident)\b/.test(text) ||
-    /\b(blocks?|blocked|failing|failed)\b.{0,80}\b(deploy|deployment|release|ship|ci|build)\b/.test(
+    /\b(blocks?|blocked|failing|failed)\b.{0,80}\b(deploy|deployment|release|ship|ci|build)\b/s.test(
       text,
     ) ||
-    /\b(action required|deadline|expires|rotate)\b.{0,80}\b(today|now|immediately|within hours)\b/.test(
+    /\b(action required|deadline|expires|rotate)\b.{0,80}\b(today|now|immediately|within hours)\b/s.test(
       text,
     )
   );
