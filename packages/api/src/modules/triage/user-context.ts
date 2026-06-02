@@ -40,6 +40,7 @@ export interface TriageUserContext {
 }
 
 const FACT_LIMIT = 30;
+const PREF_LIMIT = 50;
 const ENTITY_LIMIT = 25;
 const MEMORY_LIMIT = 6;
 const MEMORY_PREVIEW_CHARS = 900;
@@ -88,7 +89,8 @@ export async function readTriageUserContext(userId: string): Promise<TriageUserC
         .select({ key: userPreferences.key, value: userPreferences.value })
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
-        .orderBy(asc(userPreferences.key)),
+        .orderBy(asc(userPreferences.key))
+        .limit(PREF_LIMIT),
       db()
         .select({
           kind: entities.kind,

@@ -1,5 +1,6 @@
 import {
   classifyEmail,
+  DEEPEN_REASONS,
   deepenTriageClassification,
   DEFAULT_TRIAGE_CATEGORY,
   extractSenderContext,
@@ -85,7 +86,7 @@ const stateSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
-  deepenReason: z.enum(["severity_suspect_bot", "low_confidence", "unknown_human"]).optional(),
+  deepenReason: z.enum(DEEPEN_REASONS).optional(),
   deepenExecuted: z.boolean().optional(),
   shadowOnly: z.boolean().optional(),
 });
@@ -331,23 +332,27 @@ export const emailTriageWorkflow: Workflow<State> = {
               `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
-        }
 
-        await ctx.log(
-          `triage.sender_extraction ${JSON.stringify(
-            senderExtractionEvent({
-              senderContextResult,
-              cheapClassification: cheapClassification ?? classification,
-              classification,
-              deepenDecision,
-              deepenExecuted,
-              shadowOnly,
-              severityFlag,
-              dossierRequested,
-              deepenFailure,
-            }),
-          )}`,
-        );
+          // Emit only on the new-classification path. On the idempotency
+          // reuse path (existing.runId === ctx.runId) the deepen state is
+          // reset to zero, so logging here would report wouldDeepen=false /
+          // deepenExecuted=false and mask the original run's decision.
+          await ctx.log(
+            `triage.sender_extraction ${JSON.stringify(
+              senderExtractionEvent({
+                senderContextResult,
+                cheapClassification: cheapClassification ?? classification,
+                classification,
+                deepenDecision,
+                deepenExecuted,
+                shadowOnly,
+                severityFlag,
+                dossierRequested,
+                deepenFailure,
+              }),
+            )}`,
+          );
+        }
 
         await ctx.log(
           `classify: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
