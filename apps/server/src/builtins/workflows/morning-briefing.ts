@@ -1,7 +1,7 @@
 import {
   BRIEFING_WORKFLOW_SLUG,
   briefingWorkflowInputSchema,
-  composeBriefing,
+  composeInboxBriefing,
   gatherBriefingDigest,
   localDateInTimezone,
   notify,
@@ -169,7 +169,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         };
 
         const dateLabel = formatDateLabel(ctx.state.briefingDate, ctx.state.timezone);
-        const composed = composeBriefing({
+        const composed = composeInboxBriefing({
           digest,
           recipientName: ctx.state.recipientName,
           dateLabel,

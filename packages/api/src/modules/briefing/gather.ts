@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
+import type { BriefingGather, IanaTimezone } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/integrations/google";
 import { and, desc, eq, gte } from "drizzle-orm";
 
@@ -73,6 +74,15 @@ export interface GatherBriefingDigestArgs {
   windowEnd?: Date;
   /** Cap per bucket — protects the email body length on busy days. */
   maxPerBucket?: number;
+}
+
+export interface GatherBriefingArgs {
+  userId: string;
+  /** YYYY-MM-DD calendar date in the user's timezone. */
+  briefingDate: string;
+  timezone: IanaTimezone;
+  windowStart?: Date;
+  windowEnd?: Date;
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -180,6 +190,38 @@ export async function gatherBriefingDigest(
   };
 }
 
+export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
+  const windowEnd = args.windowEnd ?? new Date(`${args.briefingDate}T23:59:59.999Z`);
+  const digest = await gatherBriefingDigest({
+    userId: args.userId,
+    windowStart: args.windowStart,
+    windowEnd,
+  });
+
+  return {
+    email: {
+      categories: Object.fromEntries(
+        Object.entries(digest.buckets).map(([category, items]) => [
+          category,
+          items
+            .filter((item) => item.threadUrl)
+            .map((item) => ({
+              documentId: item.documentId,
+              threadId: threadIdFromGmailUrl(item.threadUrl),
+              subject: item.subject?.trim() || "(no subject)",
+              sender: shortenFrom(item.from) ?? "Unknown sender",
+              snippet: item.snippet ?? item.rationale ?? "",
+            })),
+        ]),
+      ) as BriefingGather["email"]["categories"],
+    },
+    calendar: null,
+    integration_activity: { items: [] },
+    weather: null,
+    day_of_week: dayContribution(args.briefingDate, args.timezone),
+  };
+}
+
 function isPriority(c: TriageCategory): c is PriorityCategory {
   return (PRIORITY_CATEGORIES as readonly string[]).includes(c);
 }
@@ -196,6 +238,39 @@ function isSuppressed(c: TriageCategory): c is SuppressedCategory {
  */
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+}
+
+function threadIdFromGmailUrl(url: string | null): string {
+  if (!url) return "";
+  const tail = url.slice(url.lastIndexOf("/") + 1);
+  return decodeURIComponent(tail);
+}
+
+function dayContribution(
+  briefingDate: string,
+  timezone: IanaTimezone,
+): BriefingGather["day_of_week"] {
+  const date = new Date(`${briefingDate}T12:00:00Z`);
+  const dayName = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+  }).format(date);
+  return {
+    dayName,
+    isWeekend: dayName === "Saturday" || dayName === "Sunday",
+  };
+}
+
+function shortenFrom(from: string | null): string | null {
+  if (!from) return null;
+  const trimmed = from.trim();
+  const angleMatch = trimmed.match(/^"?([^"<]+?)"?\s*<([^>]+)>$/);
+  if (angleMatch) {
+    const name = angleMatch[1]?.trim();
+    if (name) return name;
+    return angleMatch[2] ?? null;
+  }
+  return trimmed;
 }
 
 export { PRIORITY_CATEGORIES, SUPPRESSED_CATEGORIES };
