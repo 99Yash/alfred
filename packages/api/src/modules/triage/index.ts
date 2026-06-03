@@ -9,6 +9,14 @@
 
 export { classifyEmail, triageClassificationSchema, DEFAULT_TRIAGE_CATEGORY } from "./classify";
 export type { TriageClassification, ClassifyEmailArgs } from "./classify";
+export { deepenTriageClassification, shouldDeepen, DEEPEN_REASONS } from "./deepen";
+export type {
+  DeepenDecision,
+  DeepenMode,
+  DeepenReason,
+  DeepenTriageArgs,
+  DeepenTriageResult,
+} from "./deepen";
 
 export {
   getDocumentAuthoredAt,
@@ -24,3 +32,5 @@ export type { TriageWorkflowInput } from "./workflow-input";
 
 export { extractSenderContext } from "./sender-context";
 export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
+export { readTriageUserContext } from "./user-context";
+export type { TriageUserContext } from "./user-context";

@@ -151,6 +151,11 @@ const WEAK_SERVICE_LOCAL = new Set<string>([
   "billing",
   "security",
   "updates",
+  "news",
+  "newsletter",
+  "events",
+  "event",
+  "marketing",
   "account",
   "accounts",
   "contact",
@@ -185,7 +190,8 @@ const SERVICE_LOCAL_PREFIX_RE =
   /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
 
 const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
-const SINGLE_NAME_LOCAL_RE = /^[a-z][a-z]+$/i;
+const ORG_DISPLAY_TOKEN_RE =
+  /\b(inc|incorporated|ltd|limited|llc|llp|gmbh|plc|corp|corporation|company|co|team|notifications?|depository|registrar|bank|services?|support|billing|payroll|careers?|jobs|sales|marketing|newsletter|news|alerts?)\b/i;
 
 function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
   if (!parsed) return "unknown";
@@ -198,10 +204,15 @@ function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
   // service envelope. Default to 'unknown' so the deepen gate's low-confidence
   // path catches it instead of an over-eager service classification.
   if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
-  if (displayName && /\s/.test(displayName)) return "person";
+  if (isLikelyPersonDisplayName(displayName)) return "person";
   if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
-  if (SINGLE_NAME_LOCAL_RE.test(localPart)) return "person";
   return "unknown";
+}
+
+function isLikelyPersonDisplayName(displayName: string | null): boolean {
+  if (!displayName || !/\s/.test(displayName)) return false;
+  if (ORG_DISPLAY_TOKEN_RE.test(displayName)) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

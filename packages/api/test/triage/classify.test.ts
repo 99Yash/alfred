@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { SenderContext } from "@alfred/contracts";
 import {
   applyTriageClassificationGuardrails,
   type TriageClassification,
@@ -73,6 +74,84 @@ describe("applyTriageClassificationGuardrails", () => {
 
     assert.deepEqual(result, classification);
   });
+
+  test("demotes non-severe review bot comments from action needed to fyi", () => {
+    const result = applyTriageClassificationGuardrails(
+      {
+        category: "action_needed",
+        confidence: 0.9,
+        rationale: "The bot suggested code changes.",
+      },
+      {
+        id: "doc_coderabbit",
+        title: "CodeRabbit commented on PR #42",
+        content:
+          "**coderabbitai** commented on this pull request.\n\n" +
+          "Consider extracting this repeated condition into a helper for readability.",
+        authoredAt: new Date("2026-06-02T10:28:00.000Z"),
+        metadata: {
+          from: "CodeRabbit <noreply@github.com>",
+          labelIds: ["INBOX"],
+        },
+      },
+      coderabbitSenderContext(),
+    );
+
+    assert.equal(result.category, "fyi");
+    assert.match(result.rationale, /advisory/i);
+  });
+
+  test("keeps severe review bot findings actionable", () => {
+    const classification: TriageClassification = {
+      category: "urgent",
+      confidence: 0.9,
+      rationale: "The bot found an exposed API key.",
+    };
+    const result = applyTriageClassificationGuardrails(
+      classification,
+      {
+        id: "doc_coderabbit_secret",
+        title: "CodeRabbit commented on PR #42",
+        content:
+          "**coderabbitai** commented on this pull request.\n\n" +
+          "A private API key appears to be exposed in this diff and should be rotated today.",
+        authoredAt: new Date("2026-06-02T10:28:00.000Z"),
+        metadata: {
+          from: "CodeRabbit <noreply@github.com>",
+          labelIds: ["INBOX"],
+        },
+      },
+      coderabbitSenderContext(),
+    );
+
+    assert.deepEqual(result, classification);
+  });
+
+  test("keeps severe review bot findings when secret and exposure verb span lines", () => {
+    const classification: TriageClassification = {
+      category: "urgent",
+      confidence: 0.9,
+      rationale: "The bot found an exposed token.",
+    };
+    const result = applyTriageClassificationGuardrails(
+      classification,
+      {
+        id: "doc_coderabbit_secret_multiline",
+        title: "CodeRabbit commented on PR #42",
+        content:
+          "**coderabbitai** commented on this pull request.\n\n" +
+          "A hardcoded **token**\nwas found exposed in this diff and should be rotated.",
+        authoredAt: new Date("2026-06-02T10:28:00.000Z"),
+        metadata: {
+          from: "CodeRabbit <noreply@github.com>",
+          labelIds: ["INBOX"],
+        },
+      },
+      coderabbitSenderContext(),
+    );
+
+    assert.deepEqual(result, classification);
+  });
 });
 
 function meetingClassification(): TriageClassification {
@@ -80,5 +159,14 @@ function meetingClassification(): TriageClassification {
     category: "meeting",
     confidence: 0.91,
     rationale: "The model treated the email as a meeting.",
+  };
+}
+
+function coderabbitSenderContext(): SenderContext {
+  return {
+    fromKind: "service",
+    effectiveAuthor: "bot",
+    bodyActor: { kind: "person", name: "coderabbitai", handle: "coderabbitai" },
+    botSlug: "coderabbit",
   };
 }
