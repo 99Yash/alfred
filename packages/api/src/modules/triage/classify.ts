@@ -36,7 +36,8 @@ export const triageClassificationSchema = z.object({
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
 export interface ClassifyEmailArgs {
-  userId: string;
+  /** Optional metering attribution. The classifier itself does not read user context. */
+  userId?: string;
   document: {
     id: string;
     title: string | null;

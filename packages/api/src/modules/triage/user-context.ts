@@ -46,6 +46,8 @@ const MEMORY_LIMIT = 6;
 const MEMORY_PREVIEW_CHARS = 900;
 
 export async function readTriageUserContext(userId: string): Promise<TriageUserContext> {
+  // Transitional subset reader: replace this direct DB compaction with
+  // `system.read_user_context` once that tool exists in the runtime.
   const now = new Date();
   const [profileRows, integrationRows, factRows, prefRows, entityRows, memoryRows] =
     await Promise.all([
