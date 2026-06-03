@@ -20,7 +20,8 @@ export interface DeepenDecision {
 }
 
 export interface DeepenTriageArgs {
-  userId: string;
+  /** Optional metering attribution. The caller supplies the already-bounded user context. */
+  userId?: string;
   document: {
     id: string;
     title: string | null;
@@ -114,8 +115,10 @@ export async function deepenTriageClassification(
       prompt: deepenUserPrompt(args),
       schema: deepenOutputSchema,
       schemaName: "triage_deepen",
+      schemaDescription:
+        "Refines an email triage category using sender context and compact user context.",
       temperature: 0,
-      maxOutputTokens: 500,
+      maxOutputTokens: 1_500,
     },
     {
       role: "triage",

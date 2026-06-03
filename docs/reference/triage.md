@@ -31,8 +31,11 @@ Sender/deepen flow:
 
 - `extractSenderContext({ fromHeader, subject, body })` emits typed context (`fromKind`, `effectiveAuthor`, optional `bodyActor`, optional `botSlug`) so the model does not parse service envelopes from prose.
 - The cheap classifier receives the email plus `SenderContext` only. It does **not** read user facts, preferences, profile, or memory.
-- `deepen` executes live only when `botSlug` is in `SEVERITY_SUSPECT_BOTS` (`sentry`, `stripe-billing`, `google-security`, `vercel`, `datadog`). It reads a bounded Postgres user-context slice (profile, active integrations, confirmed facts, preferences, entities, recent memory) and returns the final category/rationale. Failure falls back to the cheap output.
+- `deepen` executes live only when `botSlug` is in `SEVERITY_SUSPECT_BOTS` (`sentry`, `stripe-billing`, `google-security`, `vercel`, `datadog`). It currently reads a bounded Postgres user-context slice (profile, active integrations, confirmed facts, preferences, entities, recent memory) and returns the final category/rationale. This is a transitional subset implementation; replace the direct reader with `system.read_user_context` when that runtime tool lands. Failure falls back to the cheap output.
 - Low-confidence classifications and unknown-human important senders are shadow-logged (`triage.sender_extraction`) but do not execute boss `deepen` yet.
 - Dossier auto-trigger/cache is intentionally deferred in this tree because ADR-0031 `person_profiles` / `person-research` are not implemented; if `deepen` requests a dossier, the workflow logs that it was deferred and still labels the email.
 
-Smoke: `pnpm --filter server tsx --env-file=.env src/scripts/smoke-triage.ts` (requires a connected Google account + at least one ingested email).
+Smokes:
+
+- From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smoke-triage-v2.ts` runs fixture-based live model checks for the subset flow without Gmail/connected-account dependencies.
+- From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smoke-triage.ts` exercises the Gmail-backed end-to-end workflow and requires a connected Google account plus at least one ingested email.
