@@ -69,7 +69,6 @@ export function RailAddRow({
             submit();
           }
         }}
-        onBlur={submit}
         className={cn(
           "min-w-0 flex-1 bg-transparent text-[12px] text-white outline-none",
           "placeholder:text-white/65",

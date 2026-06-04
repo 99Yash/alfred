@@ -81,7 +81,10 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       })
       .returning({ id: todos.id });
 
-    return { status: "created" as const, todoId: row!.id };
+    if (!row) {
+      throw new Error("[suggestTodo] insert returned no row");
+    }
+    return { status: "created" as const, todoId: row.id };
   });
 
   // Poke AFTER commit so the client's pull sees the write (events contract).
