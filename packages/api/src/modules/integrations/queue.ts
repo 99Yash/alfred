@@ -44,6 +44,17 @@ export type IngestionJobData =
       credentialId: string;
     }
   | {
+      /**
+       * Install the Gmail `users.watch` channel for a freshly-connected
+       * credential so pub/sub realtime (ADR-0037) starts flowing. Enqueued
+       * by the OAuth callback — without it a new account has no watch, so
+       * mail is only caught by the 5-min `gmail.poll_sweep` fallback.
+       * Idempotent: re-installing overwrites `metadata.watch`.
+       */
+      kind: "gmail.watch_install";
+      credentialId: string;
+    }
+  | {
       kind: "gmail.poll_history";
       credentialId: string;
       /**
@@ -190,6 +201,28 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         ]);
       }
       return result;
+    }
+    case "gmail.watch_install": {
+      // Net-new watch for a just-connected credential. Distinct from
+      // `gmail.watch_renew`, which only refreshes already-installed watches
+      // nearing expiry (`findExpiringGmailWatches`) and so never covers a
+      // brand-new account. Without this, realtime (ADR-0037) never starts
+      // and the account is stuck on the 5-min poll_sweep until the watch
+      // happens to be installed some other way.
+      const env = serverEnv();
+      const topic = env.GOOGLE_PUBSUB_TOPIC;
+      if (!topic) {
+        console.warn(
+          "[ingestion:worker] gmail.watch_install: GOOGLE_PUBSUB_TOPIC not set — skipping",
+        );
+        return { installed: false, reason: "no-topic" };
+      }
+      const state = await installGmailWatch({ credentialId: data.credentialId, topicName: topic });
+      console.log(
+        `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
+          `expiresAt=${state.expiresAt}`,
+      );
+      return { installed: true, expiresAt: state.expiresAt };
     }
     case "gmail.watch_renew": {
       // Renew anything expiring within 24h. ADR-0024 caps watch life at

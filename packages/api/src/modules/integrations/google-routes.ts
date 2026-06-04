@@ -293,6 +293,24 @@ export const googleIntegrationRoutes = new Elysia({
         );
       }
 
+      // Install the Gmail watch so realtime ingestion (ADR-0037: pub/sub →
+      // poll_recent → triage) starts immediately. Without this a new account
+      // has no watch, so mail is only picked up by the 5-min poll_sweep
+      // fallback — the source of the multi-minute tag latency. Enqueued (not
+      // inline) to keep the OAuth redirect snappy; best-effort, and the
+      // watch-renew cron keeps it alive thereafter.
+      try {
+        await getIngestionQueue().add("gmail.watch_install", {
+          kind: "gmail.watch_install",
+          credentialId: credential.id,
+        });
+      } catch (err) {
+        console.warn(
+          `[google.callback] failed to enqueue watch install for ${credential.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
       // Cold-start research seed (ADR-0011 + ADR-0022): once at most per
       // user. Google is currently the only integration that contributes
       // signals beyond the bare user row, so this callback doubles as the
