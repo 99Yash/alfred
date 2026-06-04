@@ -61,8 +61,8 @@ export interface ClassifyEmailArgs {
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
-- urgent: action needed within hours, not days. Security alerts, account compromised, sign-in verification, billing failure that breaks access today, deadline today, critical CI/CD blocking ship.
-- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, click a confirm link, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review.
+- urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is action_needed (rule 15).
+- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, click a confirm link, click a sign-in/magic link, enter a one-time login code, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review.
 - follow_up: a soft check-in or nudge on a prior thread — "any update on...?", "circling back", "just following up." The sender already knows the user is aware; they're probing for status.
 - awaiting_reply: someone is asking the user a direct first question, and the only action is to write back. Pick this when no prior thread exists or the message is a fresh ask.
 - meeting: a meeting the user is expected to attend, prepare for, schedule, reschedule, or answer availability for. Direct calendar invites, agenda/prep emails for the user's meeting, room/availability negotiations, and "your meeting starts soon" pings.
@@ -74,7 +74,7 @@ const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each
 
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
-2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (security, account, billing failure, verification).
+2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (account compromise, security breach, billing failure that breaks access today). A login link or code merely expiring is NOT such a consequence — the user just requests a fresh one.
 3. Reply-shape: prefer 'awaiting_reply' over 'action_needed' when the action IS the reply.
 4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
 5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop.
@@ -95,10 +95,12 @@ Rules:
     - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
 14. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
-- "Sign-in attempt from a new device — was this you?" from security@google.com → urgent (verification required now).
+- "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
+- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → action_needed (self-initiated auth, expires harmlessly — rule 15, NOT urgent).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
 - "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
