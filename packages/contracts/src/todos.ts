@@ -72,7 +72,7 @@ export const todoSourcesSchema = z.array(todoSourceSchema).max(64);
 
 /** Canonical dedup key for a source ref. `url` is intentionally excluded. */
 export function todoSourceKey(source: TodoSource): string {
-  return `${source.provider}:${source.kind}:${source.id}`;
+  return JSON.stringify([source.provider, source.kind, source.id]);
 }
 
 /**

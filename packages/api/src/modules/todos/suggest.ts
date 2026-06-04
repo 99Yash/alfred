@@ -42,6 +42,9 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
     // scale — load candidates and resolve overlap in JS rather than a jsonb
     // containment query per incoming ref.
     if (sources.length > 0) {
+      const lockKey = `todo:suggest:${input.userId}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
       const incomingKeys = new Set(sources.map(todoSourceKey));
       const candidates = await tx
         .select({ id: todos.id, sources: todos.sources })
