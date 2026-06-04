@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { VsCard } from "~/components/ui/visitors";
 import { cn } from "~/lib/utils";
 import { BriefingProse } from "./briefing-prose";
+import { slotLabel } from "./briefing-utils";
 import {
   formatEventRange,
   parseActivitySubtitle,
@@ -12,10 +13,6 @@ import {
 
 /** Statuses that never produced prose — render a calm placeholder, not a blank. */
 const NON_TERMINAL = new Set(["pending", "gathering", "composing", "failed"]);
-
-function slotLabel(slot: string): string {
-  return slot.charAt(0).toUpperCase() + slot.slice(1);
-}
 
 /**
  * One slot of a day (morning or evening), paragraph-first per ADR-0048/0049:

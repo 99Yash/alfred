@@ -4,17 +4,7 @@ import { VsCard } from "~/components/ui/visitors";
 import { useBriefing } from "~/lib/replicache/use-briefings";
 import { cn } from "~/lib/utils";
 import { BriefingSlot } from "./briefing-slot";
-
-/** "Wednesday, June 4" from a `YYYY-MM-DD` key, rendered in local time. */
-function formatDayHeading(date: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-}
+import { formatDayHeading } from "./briefing-utils";
 
 /**
  * A day's briefing detail (ADR-0049): morning above evening, both visible
