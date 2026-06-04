@@ -30,6 +30,14 @@ interface VsSegmentedProps<T extends string = string> {
   label?: string;
   disabled?: boolean;
   className?: string;
+  /**
+   * `"default"` — opaque surface track (settings, anywhere on chrome).
+   * `"glass"` — translucent, blurred track that lets a busy backdrop
+   * (e.g. the rail's weather video) bleed through while staying legible.
+   * The active cell becomes a solid dark chip so its label reads against
+   * whatever sky is behind, matching the rail's `WeatherChip`.
+   */
+  variant?: "default" | "glass";
 }
 
 export function VsSegmented<T extends string = string>({
@@ -39,14 +47,18 @@ export function VsSegmented<T extends string = string>({
   label = "Options",
   disabled = false,
   className,
+  variant = "default",
 }: VsSegmentedProps<T>) {
+  const glass = variant === "glass";
   return (
     <TabsPrimitive.Root value={value} onValueChange={(next) => onValueChange(next as T)}>
       <TabsPrimitive.List
         aria-label={label}
         className={cn(
           "inline-flex items-center gap-1 p-1 rounded-xl",
-          "bg-vs-bg-2 ring-1 ring-vs-bg-3",
+          glass
+            ? "bg-vs-bg-1/35 ring-1 ring-vs-fg-4/12 backdrop-blur-md shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
+            : "bg-vs-bg-2 ring-1 ring-vs-bg-3",
           className,
         )}
       >
@@ -59,15 +71,28 @@ export function VsSegmented<T extends string = string>({
               "inline-flex items-center gap-1.5 h-7 px-3 rounded-lg",
               "text-xs font-medium whitespace-nowrap",
               "transition-all duration-150",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-bg-2",
               "vs-press",
-              /* off state */
-              "text-vs-fg-3 hover:text-vs-fg-4",
-              /* on state */
-              "data-[state=active]:bg-vs-bg-1 data-[state=active]:text-vs-fg-4",
-              "data-[state=active]:shadow-[var(--vs-shadow-elevated)]",
-              /* disabled */
-              "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-vs-fg-3",
+              glass
+                ? cn(
+                    "outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                    /* off state — white-based so it reads over the sky video */
+                    "text-white/70 hover:text-white",
+                    /* on state — solid dark chip echoing WeatherChip */
+                    "data-[state=active]:bg-vs-bg-1/85 data-[state=active]:text-white",
+                    "data-[state=active]:ring-1 data-[state=active]:ring-white/10",
+                    "data-[state=active]:shadow-[var(--vs-shadow-elevated)]",
+                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-white/70",
+                  )
+                : cn(
+                    "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-bg-2",
+                    /* off state */
+                    "text-vs-fg-3 hover:text-vs-fg-4",
+                    /* on state */
+                    "data-[state=active]:bg-vs-bg-1 data-[state=active]:text-vs-fg-4",
+                    "data-[state=active]:shadow-[var(--vs-shadow-elevated)]",
+                    /* disabled */
+                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-vs-fg-3",
+                  ),
             )}
           >
             {item.icon ? <span className="inline-flex shrink-0">{item.icon}</span> : null}

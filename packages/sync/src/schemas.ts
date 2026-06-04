@@ -9,6 +9,11 @@ import {
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
+  todoCreatedBySchema,
+  todoExecutorSchema,
+  todoKindSchema,
+  todoSourcesSchema,
+  todoStatusSchema,
   type IntegrationRule,
   type IntegrationRules,
   type PolicyMode,
@@ -191,6 +196,32 @@ export const syncedBriefingSchema = z.object({
 });
 export type SyncedBriefing = z.infer<typeof syncedBriefingSchema>;
 
+/**
+ * A todo row as the web sees it (ADR-0050). `dismissed` rows never reach the
+ * client; `done` rows linger 7 days (the pull window enforces both). `executor`
+ * and `kind` are forward-compat — the rail ignores them in passive v1.
+ */
+export const syncedTodoSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  status: todoStatusSchema,
+  createdBy: todoCreatedBySchema,
+  executor: todoExecutorSchema,
+  kind: todoKindSchema,
+  assist: z.string().nullable(),
+  sources: todoSourcesSchema,
+  agentRunId: z.string().nullable(),
+  completedAt: isoDateTimeStringSchema.nullable(),
+  position: z.number().nullable(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedTodo = z.infer<typeof syncedTodoSchema>;
+
 export const policyModeSchema = z.enum(POLICY_MODES);
 
 const rawIntegrationRuleSchema = z.object({
@@ -274,4 +305,5 @@ export type SyncedEntity =
   | SyncedActionPolicy
   | SyncedWorkflow
   | SyncedFact
-  | SyncedBriefing;
+  | SyncedBriefing
+  | SyncedTodo;
