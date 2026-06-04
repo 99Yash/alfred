@@ -35,7 +35,7 @@ export interface ApprovalsSearch {
 }
 
 export const Route = createFileRoute("/approvals")({
-  head: () => pageMeta({ title: "Approvals" }),
+  head: () => pageMeta({ title: "Approvals", path: "/approvals" }),
   component: ApprovalsRoute,
   validateSearch: (search): ApprovalsSearch => ({
     integration: toStringArray(search.integration),

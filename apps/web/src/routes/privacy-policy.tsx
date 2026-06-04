@@ -14,7 +14,7 @@ import { LegalPage, LegalSection } from "~/components/legal/legal-page";
  * and Drive scopes.
  */
 export const Route = createFileRoute("/privacy-policy")({
-  head: () => pageMeta({ title: "Privacy Policy" }),
+  head: () => pageMeta({ title: "Privacy Policy", path: "/privacy-policy" }),
   component: PrivacyPolicy,
 });
 

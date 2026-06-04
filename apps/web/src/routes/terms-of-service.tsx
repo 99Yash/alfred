@@ -9,7 +9,7 @@ import { LegalPage, LegalSection } from "~/components/legal/legal-page";
  * `app-shell.tsx`.
  */
 export const Route = createFileRoute("/terms-of-service")({
-  head: () => pageMeta({ title: "Terms of Service" }),
+  head: () => pageMeta({ title: "Terms of Service", path: "/terms-of-service" }),
   component: TermsOfService,
 });
 

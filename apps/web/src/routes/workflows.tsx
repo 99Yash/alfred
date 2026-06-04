@@ -15,6 +15,6 @@ import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-ro
  * in the top-right.
  */
 export const Route = createFileRoute("/workflows")({
-  head: () => pageMeta({ title: "Workflows" }),
+  head: () => pageMeta({ title: "Workflows", path: "/workflows" }),
   component: PreviewWorkflowsRoute,
 });

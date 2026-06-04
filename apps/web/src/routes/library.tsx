@@ -17,6 +17,6 @@ import { PreviewLibraryRoute } from "./-preview-library/preview-library-route";
  * accepting pointer events.
  */
 export const Route = createFileRoute("/library")({
-  head: () => pageMeta({ title: "Library" }),
+  head: () => pageMeta({ title: "Library", path: "/library" }),
   component: PreviewLibraryRoute,
 });

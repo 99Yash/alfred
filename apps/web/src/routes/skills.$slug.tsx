@@ -15,6 +15,10 @@ import { PreviewSkillDetailPage } from "./-preview-skill-detail/preview-skill-de
  * actually starting a job.
  */
 export const Route = createFileRoute("/skills/$slug")({
-  head: ({ params }) => pageMeta({ title: `${params.slug} · Skills` }),
+  head: ({ params }) =>
+    pageMeta({
+      title: `${params.slug} · Skills`,
+      path: `/skills/${encodeURIComponent(params.slug)}`,
+    }),
   component: PreviewSkillDetailPage,
 });

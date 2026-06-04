@@ -18,6 +18,6 @@ import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
  * - Heading-display gradient title → plain ink heading.
  */
 export const Route = createFileRoute("/settings")({
-  head: () => pageMeta({ title: "Settings" }),
+  head: () => pageMeta({ title: "Settings", path: "/settings" }),
   component: PreviewSettingsPage,
 });

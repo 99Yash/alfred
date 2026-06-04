@@ -11,6 +11,6 @@ import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
  * into the local list.
  */
 export const Route = createFileRoute("/notes")({
-  head: () => pageMeta({ title: "Notes" }),
+  head: () => pageMeta({ title: "Notes", path: "/notes" }),
   component: PreviewNotesPage,
 });

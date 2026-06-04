@@ -14,7 +14,7 @@ import { ChatShell } from "./-chat/chat-shell";
  * link gets its own component, mirroring the dimension chat route's pattern.
  */
 export const Route = createFileRoute("/chat")({
-  head: () => pageMeta({ title: "Chat" }),
+  head: () => pageMeta({ title: "Chat", path: "/chat" }),
   component: ChatRoute,
 });
 
