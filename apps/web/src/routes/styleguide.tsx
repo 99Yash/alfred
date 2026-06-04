@@ -67,7 +67,7 @@ import { TabPill } from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/styleguide")({
-  head: () => pageMeta({ title: "Styleguide" }),
+  head: () => pageMeta({ title: "Styleguide", path: "/styleguide" }),
   component: StyleguidePage,
 });
 

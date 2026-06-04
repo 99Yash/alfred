@@ -12,7 +12,7 @@ import { ShowcasePanel } from "./-login/showcase-panel";
  * the `user.create.before` hook in `@alfred/auth`.
  */
 export const Route = createFileRoute("/login")({
-  head: () => pageMeta({ title: "Sign in" }),
+  head: () => pageMeta({ title: "Sign in", path: "/login" }),
   component: LoginPage,
 });
 

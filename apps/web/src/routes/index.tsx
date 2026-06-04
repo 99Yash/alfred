@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { LandingPage } from "~/components/landing/landing-page";
 import { authClient } from "~/lib/auth-client";
 import { readAuthHint } from "~/lib/auth-hint";
+import { pageMeta } from "~/lib/page-meta";
 import { useHealth } from "~/lib/use-health";
 
 /**
@@ -20,6 +21,7 @@ import { useHealth } from "~/lib/use-health";
  * resolved session immediately corrects course. See `lib/auth-hint`.
  */
 export const Route = createFileRoute("/")({
+  head: () => pageMeta({ path: "/" }),
   component: IndexRoute,
 });
 

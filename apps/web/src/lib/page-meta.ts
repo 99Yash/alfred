@@ -5,7 +5,7 @@
  * single `<HeadContent />` (see `routes/__root.tsx`) and the router merges the
  * meta arrays from every matched route, deduping by `name`/`property` with the
  * deepest match winning. So the root supplies site-wide defaults and each page
- * overrides just its title + description.
+ * overrides its title, description, and route-specific URL tags.
  *
  * Static document tags (charset, viewport, icons, manifest, theme-color) stay
  * in `index.html` — they never change between routes, so there's no reason to
@@ -32,6 +32,8 @@ export interface PageMetaInput {
   title?: string;
   /** Page-specific description; falls back to the site default. */
   description?: string;
+  /** Canonical route path, e.g. `"/settings"`. Omit only for route-agnostic defaults. */
+  path?: string;
 }
 
 interface MetaTag {
@@ -50,27 +52,39 @@ function titleWithSuffix(title?: string): string {
   return title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} · ${SITE_TAGLINE}`;
 }
 
+function absoluteUrl(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return normalized === "/" ? SITE_URL : `${SITE_URL}${normalized}`;
+}
+
 /**
  * Title + description (plus their OG/Twitter mirrors) for a single page. Use
  * inside a route's `head` option:
  *
  *   export const Route = createFileRoute("/settings")({
- *     head: () => pageMeta({ title: "Settings" }),
+ *     head: () => pageMeta({ title: "Settings", path: "/settings" }),
  *     component: SettingsRoute,
  *   });
  */
-export function pageMeta({ title, description }: PageMetaInput = {}): { meta: MetaTag[] } {
+export function pageMeta({
+  title,
+  description,
+  path,
+}: PageMetaInput = {}): { meta: MetaTag[]; links: LinkTag[] } {
   const fullTitle = titleWithSuffix(title);
   const desc = description ?? SITE_DESCRIPTION;
+  const url = path ? absoluteUrl(path) : null;
   return {
     meta: [
       { title: fullTitle },
       { name: "description", content: desc },
       { property: "og:title", content: fullTitle },
       { property: "og:description", content: desc },
+      ...(url ? [{ property: "og:url", content: url }] : []),
       { name: "twitter:title", content: fullTitle },
       { name: "twitter:description", content: desc },
     ],
+    links: url ? [{ rel: "canonical", href: url }] : [],
   };
 }
 
@@ -85,11 +99,10 @@ export function siteMeta(): { meta: MetaTag[]; links: LinkTag[] } {
       ...base.meta,
       { property: "og:site_name", content: SITE_NAME },
       { property: "og:type", content: "website" },
-      { property: "og:url", content: SITE_URL },
       { property: "og:image", content: SOCIAL_IMAGE },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:image", content: SOCIAL_IMAGE },
     ],
-    links: [{ rel: "canonical", href: SITE_URL }],
+    links: [],
   };
 }

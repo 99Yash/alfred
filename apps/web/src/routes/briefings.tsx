@@ -9,6 +9,6 @@ import { PreviewBriefingsRoute } from "./-preview-briefings/preview-briefings-ro
  * the child day-detail when one is matched.
  */
 export const Route = createFileRoute("/briefings")({
-  head: () => pageMeta({ title: "Briefings" }),
+  head: () => pageMeta({ title: "Briefings", path: "/briefings" }),
   component: PreviewBriefingsRoute,
 });

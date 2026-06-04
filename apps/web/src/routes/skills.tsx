@@ -13,6 +13,6 @@ import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
  * file stays single-purpose (see `skills-page.tsx`, `skill-row.tsx`).
  */
 export const Route = createFileRoute("/skills")({
-  head: () => pageMeta({ title: "Skills" }),
+  head: () => pageMeta({ title: "Skills", path: "/skills" }),
   component: PreviewSkillsRoute,
 });

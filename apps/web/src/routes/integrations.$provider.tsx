@@ -21,6 +21,10 @@ import { PreviewIntegrationDetailPage } from "./-preview-integration-detail/prev
  *   /preview/integrations/$provider   → visitors-now grammar
  */
 export const Route = createFileRoute("/integrations/$provider")({
-  head: ({ params }) => pageMeta({ title: `${params.provider} · Integrations` }),
+  head: ({ params }) =>
+    pageMeta({
+      title: `${params.provider} · Integrations`,
+      path: `/integrations/${encodeURIComponent(params.provider)}`,
+    }),
   component: PreviewIntegrationDetailPage,
 });

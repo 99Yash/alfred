@@ -1,15 +1,24 @@
 /**
  * Browser-side weather lookup.
  *
- * Two-step fetch:
- *   1. `get.geojs.io/v1/ip/geo.json` — IP-based location (no permission
- *      prompt, no auth). Sends `Access-Control-Allow-Origin: *`, so it
- *      works from `http://localhost` and any deployed origin. Returns
- *      `latitude`/`longitude` as **strings**, so we parse them.
- *   2. `api.open-meteo.com` — current temperature + WMO weather code for
- *      the resolved coordinates. Also no auth, CORS-open.
+ * Location resolves in two tiers (see `resolveLocation`):
+ *   1. **Browser geolocation** (`navigator.geolocation`) — the device's
+ *      real GPS/WiFi position, reverse-geocoded to a city name via
+ *      BigDataCloud. Accurate to the actual location, gated by a one-time
+ *      permission prompt. Preferred when granted.
+ *   2. **IP geolocation** (`get.geojs.io/v1/ip/geo.json`) — fallback when
+ *      the user denies/dismisses the prompt, the device can't get a fix,
+ *      or geolocation is unavailable (insecure origin, no sensor). No
+ *      permission, no auth, CORS-open. Coarse: it reports whatever city
+ *      the ISP registers the IP to, which for residential connections can
+ *      be a different city entirely (e.g. a BSNL IP in Bhubaneswar that
+ *      registers to Angul). That inaccuracy is exactly why the browser
+ *      tier comes first.
  *
- * If either call fails (network, rate-limit) the caller (react-query)
+ * Weather then comes from `api.open-meteo.com` — current temperature +
+ * WMO weather code for the resolved coordinates. No auth, CORS-open.
+ *
+ * If the weather call fails (network, rate-limit) the caller (react-query)
  * surfaces it; the WeatherChip hides itself.
  *
  * History: we used `ipapi.co` originally — they now serve 429s without
@@ -70,6 +79,18 @@ interface GeoJsLocation {
   longitude?: unknown;
 }
 
+interface BigDataCloudReverse {
+  city?: unknown;
+  locality?: unknown;
+  principalSubdivision?: unknown;
+}
+
+interface ResolvedLocation {
+  lat: number;
+  lon: number;
+  city: string;
+}
+
 interface OpenMeteoResponse {
   current?: {
     temperature_2m?: unknown;
@@ -87,7 +108,53 @@ function parseCoord(value: unknown): number | null {
   return null;
 }
 
-export async function fetchWeather(): Promise<WeatherSnapshot> {
+/**
+ * Ask the browser for the device's real position. Resolves to `null`
+ * (rather than rejecting) on denial, timeout, unavailable sensor, or an
+ * insecure origin — every one of those just means "fall back to IP".
+ *
+ * `maximumAge` accepts a fix up to 10 min old so a returning user isn't
+ * re-prompted for a fresh GPS lock; `timeout` caps the wait so a device
+ * that never gets a fix doesn't hang the chip.
+ */
+function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 },
+    );
+  });
+}
+
+/**
+ * Coordinates → city name via BigDataCloud's free client endpoint (no
+ * key, CORS-open). Returns `null` on any failure so the caller can decide
+ * whether to keep the coords with a different label or fall back to IP.
+ */
+async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  try {
+    const url = new URL("https://api.bigdatacloud.net/data/reverse-geocode-client");
+    url.searchParams.set("latitude", String(lat));
+    url.searchParams.set("longitude", String(lon));
+    url.searchParams.set("localityLanguage", "en");
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as BigDataCloudReverse;
+    for (const candidate of [data.city, data.locality, data.principalSubdivision]) {
+      if (typeof candidate === "string" && candidate.length > 0) return candidate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** IP-based location via geojs. Coarse fallback — see file header. */
+async function ipLocation(): Promise<ResolvedLocation> {
   const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json");
   if (!locRes.ok) {
     throw new Error(`geojs: ${locRes.status}`);
@@ -104,6 +171,32 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   if (lat === null || lon === null || city === null) {
     throw new Error("geojs: incomplete location");
   }
+  return { lat, lon, city };
+}
+
+/**
+ * Resolve the user's location, preferring the browser's real position.
+ *
+ * When geolocation is granted we keep its coordinates even if the
+ * reverse-geocode lookup fails — accurate weather with a coordinate label
+ * still beats a wrong city. We only fall back to IP when the device gives
+ * us no fix at all.
+ */
+async function resolveLocation(): Promise<ResolvedLocation> {
+  const coords = await getBrowserCoords();
+  if (coords) {
+    const city = await reverseGeocode(coords.lat, coords.lon);
+    return {
+      lat: coords.lat,
+      lon: coords.lon,
+      city: city ?? `${coords.lat.toFixed(2)}, ${coords.lon.toFixed(2)}`,
+    };
+  }
+  return ipLocation();
+}
+
+export async function fetchWeather(): Promise<WeatherSnapshot> {
+  const { lat, lon, city } = await resolveLocation();
 
   const unit = preferredTemperatureUnit();
   const url = new URL("https://api.open-meteo.com/v1/forecast");

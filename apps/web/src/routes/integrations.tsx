@@ -19,6 +19,6 @@ import { PreviewIntegrationsRoute } from "./-preview-integrations/preview-integr
  *   /preview/integrations   → visitors-now grammar (theme-aware, hero, soft chips)
  */
 export const Route = createFileRoute("/integrations")({
-  head: () => pageMeta({ title: "Integrations" }),
+  head: () => pageMeta({ title: "Integrations", path: "/integrations" }),
   component: PreviewIntegrationsRoute,
 });

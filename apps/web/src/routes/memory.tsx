@@ -12,6 +12,6 @@ import { PreviewMemoryPage } from "./-preview-memory/preview-memory-page";
  * subscribe to in preview).
  */
 export const Route = createFileRoute("/memory")({
-  head: () => pageMeta({ title: "Memory" }),
+  head: () => pageMeta({ title: "Memory", path: "/memory" }),
   component: PreviewMemoryPage,
 });

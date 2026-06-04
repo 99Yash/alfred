@@ -31,7 +31,7 @@ function slotGist(b: SyncedBriefing): string {
  * account shows a calm first-run state.
  */
 export function PreviewBriefingsPage() {
-  const { briefings, loading } = useBriefings();
+  const { briefings, loading, error, retry } = useBriefings();
   const days = groupByDate(briefings);
 
   return (
@@ -46,7 +46,19 @@ export function PreviewBriefingsPage() {
           </p>
         </header>
 
-        {days.length > 0 ? (
+        {error ? (
+          <VsCard className="mt-10 flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+            <p className="text-sm font-medium text-vs-fg-4">Briefings could not sync</p>
+            <p className="max-w-[28rem] text-xs leading-5 text-vs-fg-3">{error}</p>
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-1 rounded-lg bg-vs-bg-2 px-3 py-1.5 text-xs font-medium text-vs-fg-4 outline-none transition-colors hover:bg-vs-bg-3 focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background"
+            >
+              Retry
+            </button>
+          </VsCard>
+        ) : days.length > 0 ? (
           <>
             <VsCard padded={false} className="mt-10">
               <ul className="divide-y divide-vs-bg-3">

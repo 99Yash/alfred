@@ -14,7 +14,7 @@ import { formatDayHeading } from "./briefing-utils";
  */
 export function PreviewBriefingDetailPage() {
   const { date } = useParams({ from: "/briefings/$date" });
-  const { slots, loading } = useBriefing(date);
+  const { slots, loading, error, retry } = useBriefing(date);
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto">
@@ -38,7 +38,19 @@ export function PreviewBriefingDetailPage() {
             </h1>
           </header>
 
-          {slots.length > 0 ? (
+          {error ? (
+            <VsCard className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+              <p className="text-sm font-medium text-vs-fg-4">Briefing could not sync</p>
+              <p className="max-w-md text-xs leading-5 text-vs-fg-3">{error}</p>
+              <button
+                type="button"
+                onClick={retry}
+                className="mt-1 rounded-lg bg-vs-bg-2 px-3 py-1.5 text-xs font-medium text-vs-fg-4 outline-none transition-colors hover:bg-vs-bg-3 focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background"
+              >
+                Retry
+              </button>
+            </VsCard>
+          ) : slots.length > 0 ? (
             <div className="space-y-4">
               {slots.map((briefing) => (
                 <BriefingSlot key={briefing.id} briefing={briefing} />

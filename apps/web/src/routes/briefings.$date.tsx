@@ -8,6 +8,10 @@ import { PreviewBriefingDetailPage } from "./-preview-briefings/preview-briefing
  * morning and evening slots stacked.
  */
 export const Route = createFileRoute("/briefings/$date")({
-  head: ({ params }) => pageMeta({ title: `Briefing · ${params.date}` }),
+  head: ({ params }) =>
+    pageMeta({
+      title: `Briefing · ${params.date}`,
+      path: `/briefings/${encodeURIComponent(params.date)}`,
+    }),
   component: PreviewBriefingDetailPage,
 });

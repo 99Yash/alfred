@@ -8,7 +8,7 @@ const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 export const Route = createFileRoute("/debug/events")({
-  head: () => pageMeta({ title: "Debug events" }),
+  head: () => pageMeta({ title: "Debug events", path: "/debug/events" }),
   component: DebugEventsPage,
 });
 

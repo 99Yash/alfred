@@ -12,7 +12,7 @@ import { ChatShell } from "./-chat/chat-shell";
  * (real thread lookup, messages, composer submit) lands in m13.
  */
 export const Route = createFileRoute("/chat/$threadId")({
-  head: () => pageMeta({ title: "Chat" }),
+  head: () => pageMeta({ title: "Chat", path: "/chat" }),
   component: ChatThreadRoute,
 });
 
