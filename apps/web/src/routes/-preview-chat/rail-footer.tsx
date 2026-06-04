@@ -1,46 +1,61 @@
+import { Link } from "@tanstack/react-router";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { RailBriefingSummary } from "./rail-content";
 
+const CTA_CLASS = cn(
+  "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",
+  "text-left",
+  "text-[var(--vs-accent-fg)]",
+  "bg-[image:var(--vs-cta-bg)]",
+  "shadow-[var(--vs-button-primary-shadow)]",
+  "vs-press transition-[box-shadow,transform,filter]",
+  "hover:brightness-[1.06]",
+  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+);
+
 /**
- * Rail footer CTA. Two variants:
+ * Rail footer CTA (ADR-0049). Both variants link into the in-app briefing
+ * surface:
  *
- *   - **Empty.** No composed briefing for the user yet. The CTA still
- *     reads "Morning briefing" with a quiet secondary line so the rail's
- *     bottom anchor stays consistent.
  *   - **Latest.** Shows the briefing's slot + when it ran ("Morning ·
- *     8:42 AM"). Click is a no-op for now — a "view briefing" surface
- *     is a follow-up; the CTA's first job is to surface that briefings
- *     are running.
+ *     8:42 AM") and deep-links to that day's detail (`/briefings/{date}`).
+ *   - **Empty.** No composed briefing yet — reads "Morning briefing" with a
+ *     quiet secondary line and links to the briefings timeline so the rail's
+ *     bottom anchor stays consistent.
  */
 export function RailFooter({ latestBriefing }: { latestBriefing: RailBriefingSummary | null }) {
   const secondary = latestBriefing ? formatBriefingSubtitle(latestBriefing) : "No briefing yet";
 
+  const inner = (
+    <>
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <Sparkles size={13} aria-hidden className="shrink-0" />
+        <span className="min-w-0 flex flex-col">
+          <span className="text-[13px] font-medium leading-tight truncate">Morning briefing</span>
+          <span className="text-[11px] leading-tight opacity-80 truncate">{secondary}</span>
+        </span>
+      </span>
+      <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />
+    </>
+  );
+
   return (
     <div className="shrink-0 p-3 border-t border-white/10">
-      <button
-        type="button"
-        aria-label={latestBriefing ? `View briefing from ${secondary}` : "Morning briefing"}
-        className={cn(
-          "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",
-          "text-left",
-          "text-[var(--vs-accent-fg)]",
-          "bg-[image:var(--vs-cta-bg)]",
-          "shadow-[var(--vs-button-primary-shadow)]",
-          "vs-press transition-[box-shadow,transform,filter]",
-          "hover:brightness-[1.06]",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        )}
-      >
-        <span className="inline-flex min-w-0 items-center gap-2">
-          <Sparkles size={13} aria-hidden className="shrink-0" />
-          <span className="min-w-0 flex flex-col">
-            <span className="text-[13px] font-medium leading-tight truncate">Morning briefing</span>
-            <span className="text-[11px] leading-tight opacity-80 truncate">{secondary}</span>
-          </span>
-        </span>
-        <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />
-      </button>
+      {latestBriefing ? (
+        <Link
+          to="/briefings/$date"
+          params={{ date: latestBriefing.briefingDate }}
+          aria-label={`View briefing from ${secondary}`}
+          className={CTA_CLASS}
+        >
+          {inner}
+        </Link>
+      ) : (
+        <Link to="/briefings" aria-label="View briefings" className={CTA_CLASS}>
+          {inner}
+        </Link>
+      )}
     </div>
   );
 }

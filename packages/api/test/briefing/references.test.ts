@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { BriefingGather } from "@alfred/contracts";
-
-import { resolveBriefingReferences } from "../../src/modules/briefing/references";
+import { resolveBriefingReferences, type BriefingGather } from "@alfred/contracts";
 
 describe("resolveBriefingReferences", () => {
   test("resolves activity placeholders from gather activity items", () => {
@@ -19,6 +17,7 @@ describe("resolveBriefingReferences", () => {
       {
         kind: "reference",
         reference: "activity:github:pr:warden#9",
+        referenceKind: "activity",
         label: "Review requested on warden#9",
         href: "https://github.com/99Yash/warden/pull/9",
         source: "integration_activity",
@@ -52,6 +51,7 @@ describe("resolveBriefingReferences", () => {
       {
         kind: "reference",
         reference: "email:thr_abc",
+        referenceKind: "email",
         label: "Quarterly check-in",
         href: "https://mail.google.com/mail/u/0/#all/gmail-thread-abc",
         source: "email",
@@ -68,6 +68,7 @@ describe("resolveBriefingReferences", () => {
       {
         kind: "reference",
         reference: "activity:a",
+        referenceKind: "activity",
         label: "Deploy started",
         href: "https://deploy.example/a",
         source: "integration_activity",
@@ -76,6 +77,7 @@ describe("resolveBriefingReferences", () => {
       {
         kind: "reference",
         reference: "activity:b",
+        referenceKind: "activity",
         label: "Deploy recovered",
         href: "https://deploy.example/b",
         source: "integration_activity",

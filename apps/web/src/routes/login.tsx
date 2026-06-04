@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { VsThemed, VsThemeProvider, VsThemeToggle } from "~/components/ui/visitors";
 import { AuthPanel } from "./-login/auth-panel";
 import { ShowcasePanel } from "./-login/showcase-panel";
@@ -11,6 +12,7 @@ import { ShowcasePanel } from "./-login/showcase-panel";
  * the `user.create.before` hook in `@alfred/auth`.
  */
 export const Route = createFileRoute("/login")({
+  head: () => pageMeta({ title: "Sign in", path: "/login" }),
   component: LoginPage,
 });
 
