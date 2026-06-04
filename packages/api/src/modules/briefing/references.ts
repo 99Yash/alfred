@@ -1,36 +1,31 @@
 import {
-  BRIEFING_REFERENCE_KINDS,
-  type BriefingGather,
-  type BriefingReferenceKind,
+  briefingReference,
+  type BriefingReference,
+  type BriefingSegment,
   type BriefingSourcePanel,
   type BriefingSourcePanelItem,
-  type FullBriefingSection,
-  type GatherSourceSlug,
+  gmailThreadUrl,
+  parseBriefingReference,
 } from "@alfred/contracts";
+import type { BriefingGather } from "@alfred/contracts";
 
-export type BriefingReference = `${BriefingReferenceKind}:${string}`;
-
-export interface BriefingReferenceOption {
-  reference: BriefingReference;
-  label: string;
-  source: GatherSourceSlug;
-}
-
-export type BriefingSegment =
-  | { kind: "text"; text: string }
-  | {
-      kind: "reference";
-      reference: BriefingReference;
-      label: string;
-      href?: string;
-      source: GatherSourceSlug;
-    };
-
-export interface ResolveBriefingReferencesResult {
-  segments: BriefingSegment[];
-  resolved: BriefingReference[];
-  unresolved: string[];
-}
+// The pure resolver (resolveBriefingReferences, referencesFromSections,
+// listBriefingReferenceOptions, parseBriefingReference, BriefingSegment, …)
+// relocated to @alfred/contracts so the web surface can resolve synced prose
+// against the synced gather without importing @alfred/api (ADR-0049). Re-export
+// it here so existing @alfred/api consumers keep their import path. The source
+// panels builder and the email HTML renderer stay server-side below.
+export {
+  type BriefingReference,
+  type BriefingReferenceOption,
+  type BriefingSegment,
+  listBriefingReferenceOptions,
+  type ParsedBriefingReference,
+  parseBriefingReference,
+  referencesFromSections,
+  resolveBriefingReferences,
+  type ResolveBriefingReferencesResult,
+} from "@alfred/contracts";
 
 export interface RenderBriefingEmailArgs {
   segments: BriefingSegment[];
@@ -40,82 +35,6 @@ export interface RenderBriefingEmailArgs {
 export interface RenderedBriefingEmail {
   html: string;
   text: string;
-}
-
-interface ReferenceEntity {
-  reference: BriefingReference;
-  label: string;
-  href?: string;
-  source: GatherSourceSlug;
-}
-
-interface ParsedBriefingReference {
-  kind: BriefingReferenceKind;
-  id: string;
-  reference: BriefingReference;
-}
-
-const REFERENCE_RE = /\[\[([a-z_]+):([^\]\s]+)\]\]/g;
-const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERENCE_KINDS);
-
-export function resolveBriefingReferences(
-  markdown: string,
-  gather: BriefingGather,
-): ResolveBriefingReferencesResult {
-  const entities = buildReferenceEntityMap(gather);
-  const segments: BriefingSegment[] = [];
-  const resolved: BriefingReference[] = [];
-  const unresolved: string[] = [];
-
-  let cursor = 0;
-  for (const match of markdown.matchAll(REFERENCE_RE)) {
-    const start = match.index ?? 0;
-    if (start > cursor) {
-      segments.push({ kind: "text", text: markdown.slice(cursor, start) });
-    }
-
-    const raw = rawReferenceFromMatch(match);
-    const parsed = parseBriefingReferenceString(raw);
-    const entity = parsed ? entities.get(parsed.reference) : undefined;
-    if (entity) {
-      segments.push({ kind: "reference", ...entity });
-      resolved.push(entity.reference);
-    } else {
-      segments.push({ kind: "text", text: raw });
-      unresolved.push(raw);
-    }
-
-    cursor = start + match[0].length;
-  }
-
-  if (cursor < markdown.length) {
-    segments.push({ kind: "text", text: markdown.slice(cursor) });
-  }
-
-  return { segments, resolved, unresolved };
-}
-
-export function referencesFromSections(sections: FullBriefingSection[]): BriefingReference[] {
-  const refs = new Set<BriefingReference>();
-  for (const section of sections) {
-    for (const reference of section.references ?? []) {
-      const parsed = parseBriefingReferenceString(reference);
-      if (parsed) refs.add(parsed.reference);
-    }
-    for (const match of section.body.matchAll(REFERENCE_RE)) {
-      const parsed = parseBriefingReferenceString(rawReferenceFromMatch(match));
-      if (parsed) refs.add(parsed.reference);
-    }
-  }
-  return [...refs];
-}
-
-export function listBriefingReferenceOptions(gather: BriefingGather): BriefingReferenceOption[] {
-  return [...buildReferenceEntityMap(gather).values()].map(({ reference, label, source }) => ({
-    reference,
-    label,
-    source,
-  }));
 }
 
 export function buildBriefingSourcePanels(
@@ -232,43 +151,6 @@ export function renderBriefingEmailHtml(args: RenderBriefingEmailArgs): Rendered
   };
 }
 
-function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference, ReferenceEntity> {
-  const entities = new Map<BriefingReference, ReferenceEntity>();
-
-  for (const items of Object.values(gather.email.categories)) {
-    for (const item of items ?? []) {
-      const reference = briefingReference("email", item.documentId);
-      entities.set(reference, {
-        reference,
-        label: item.subject,
-        source: "email",
-        href: item.threadId ? gmailThreadUrl(item.threadId) : undefined,
-      });
-    }
-  }
-
-  for (const item of gather.integration_activity.items) {
-    const reference = briefingReference("activity", item.id);
-    entities.set(reference, {
-      reference,
-      label: item.title,
-      source: "integration_activity",
-      href: item.url,
-    });
-  }
-
-  for (const event of gather.calendar?.events ?? []) {
-    const reference = briefingReference("meeting", event.eventId);
-    entities.set(reference, {
-      reference,
-      label: event.title,
-      source: "calendar",
-    });
-  }
-
-  return entities;
-}
-
 function emailPanelItems(
   gather: BriefingGather,
   referenced: ReadonlySet<BriefingReference>,
@@ -306,44 +188,12 @@ function prioritizeReferenced(
   });
 }
 
-function rawReferenceFromMatch(match: RegExpMatchArray): string {
-  return `${match[1] ?? ""}:${match[2] ?? ""}`;
-}
-
-function parseBriefingReferenceString(value: string): ParsedBriefingReference | null {
-  const separator = value.indexOf(":");
-  if (separator <= 0) return null;
-  const kind = value.slice(0, separator);
-  const id = value.slice(separator + 1);
-  return parseBriefingReference(kind, id);
-}
-
-function parseBriefingReference(
-  kind: string,
-  id: string | undefined,
-): ParsedBriefingReference | null {
-  if (!id || !isBriefingReferenceKind(kind)) return null;
-  return {
-    kind,
-    id,
-    reference: briefingReference(kind, id),
-  };
-}
-
-function isBriefingReferenceKind(value: string): value is BriefingReferenceKind {
-  return BRIEFING_REFERENCE_KIND_SET.has(value);
-}
-
-function briefingReference(kind: BriefingReferenceKind, id: string): BriefingReference {
-  return `${kind}:${id}` as BriefingReference;
-}
-
 function isReferenced(
   reference: string | undefined,
   referenced: ReadonlySet<BriefingReference>,
 ): boolean {
   if (!reference) return false;
-  const parsed = parseBriefingReferenceString(reference);
+  const parsed = parseBriefingReference(reference);
   return parsed ? referenced.has(parsed.reference) : false;
 }
 
@@ -361,10 +211,6 @@ function integrationSubtitle(provider: string, providerKind: string, relatedRepo
 function formatDateRange(start: string, end: string): string {
   if (!start || !end) return start || end;
   return `${start} - ${end}`;
-}
-
-function gmailThreadUrl(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
 function renderSegmentsText(segments: BriefingSegment[]): string {

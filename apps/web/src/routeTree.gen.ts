@@ -22,6 +22,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as ChatRouteImport } from './routes/chat'
+import { Route as BriefingsRouteImport } from './routes/briefings'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
@@ -32,6 +33,7 @@ import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
 import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
 import { Route as DebugEventsRouteImport } from './routes/debug.events'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
+import { Route as BriefingsDateRouteImport } from './routes/briefings.$date'
 import { Route as PreviewChatThreadIdRouteImport } from './routes/preview.chat.$threadId'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
@@ -99,6 +101,11 @@ const ChatRoute = ChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BriefingsRoute = BriefingsRouteImport.update({
+  id: '/briefings',
+  path: '/briefings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApprovalsRoute = ApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
@@ -149,6 +156,11 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const BriefingsDateRoute = BriefingsDateRouteImport.update({
+  id: '/$date',
+  path: '/$date',
+  getParentRoute: () => BriefingsRoute,
+} as any)
 const PreviewChatThreadIdRoute = PreviewChatThreadIdRouteImport.update({
   id: '/$threadId',
   path: '/$threadId',
@@ -158,6 +170,7 @@ const PreviewChatThreadIdRoute = PreviewChatThreadIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefings': typeof BriefingsRouteWithChildren
   '/chat': typeof ChatRouteWithChildren
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
@@ -171,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/styleguide': typeof StyleguideRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
@@ -184,6 +198,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefings': typeof BriefingsRouteWithChildren
   '/chat': typeof ChatRouteWithChildren
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
@@ -197,6 +212,7 @@ export interface FileRoutesByTo {
   '/styleguide': typeof StyleguideRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
@@ -211,6 +227,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefings': typeof BriefingsRouteWithChildren
   '/chat': typeof ChatRouteWithChildren
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
@@ -224,6 +241,7 @@ export interface FileRoutesById {
   '/styleguide': typeof StyleguideRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
+  '/briefings/$date': typeof BriefingsDateRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/debug/events': typeof DebugEventsRoute
   '/integrations/$provider': typeof IntegrationsProviderRoute
@@ -239,6 +257,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/approvals'
+    | '/briefings'
     | '/chat'
     | '/integrations'
     | '/library'
@@ -252,6 +271,7 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/terms-of-service'
     | '/workflows'
+    | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
@@ -265,6 +285,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/approvals'
+    | '/briefings'
     | '/chat'
     | '/integrations'
     | '/library'
@@ -278,6 +299,7 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/terms-of-service'
     | '/workflows'
+    | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
@@ -291,6 +313,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/approvals'
+    | '/briefings'
     | '/chat'
     | '/integrations'
     | '/library'
@@ -304,6 +327,7 @@ export interface FileRouteTypes {
     | '/styleguide'
     | '/terms-of-service'
     | '/workflows'
+    | '/briefings/$date'
     | '/chat/$threadId'
     | '/debug/events'
     | '/integrations/$provider'
@@ -318,6 +342,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApprovalsRoute: typeof ApprovalsRoute
+  BriefingsRoute: typeof BriefingsRouteWithChildren
   ChatRoute: typeof ChatRouteWithChildren
   IntegrationsRoute: typeof IntegrationsRouteWithChildren
   LibraryRoute: typeof LibraryRouteWithChildren
@@ -429,6 +454,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/briefings': {
+      id: '/briefings'
+      path: '/briefings'
+      fullPath: '/briefings'
+      preLoaderRoute: typeof BriefingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/approvals': {
       id: '/approvals'
       path: '/approvals'
@@ -499,6 +531,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/briefings/$date': {
+      id: '/briefings/$date'
+      path: '/$date'
+      fullPath: '/briefings/$date'
+      preLoaderRoute: typeof BriefingsDateRouteImport
+      parentRoute: typeof BriefingsRoute
+    }
     '/preview/chat/$threadId': {
       id: '/preview/chat/$threadId'
       path: '/$threadId'
@@ -508,6 +547,18 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface BriefingsRouteChildren {
+  BriefingsDateRoute: typeof BriefingsDateRoute
+}
+
+const BriefingsRouteChildren: BriefingsRouteChildren = {
+  BriefingsDateRoute: BriefingsDateRoute,
+}
+
+const BriefingsRouteWithChildren = BriefingsRoute._addFileChildren(
+  BriefingsRouteChildren,
+)
 
 interface ChatRouteChildren {
   ChatThreadIdRoute: typeof ChatThreadIdRoute
@@ -580,6 +631,7 @@ const PreviewChatRouteWithChildren = PreviewChatRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
+  BriefingsRoute: BriefingsRouteWithChildren,
   ChatRoute: ChatRouteWithChildren,
   IntegrationsRoute: IntegrationsRouteWithChildren,
   LibraryRoute: LibraryRouteWithChildren,
