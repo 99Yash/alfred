@@ -57,7 +57,7 @@ export function VsSegmented<T extends string = string>({
         className={cn(
           "inline-flex items-center gap-1 p-1 rounded-xl",
           glass
-            ? "bg-vs-bg-1/35 ring-1 ring-vs-fg-4/12 backdrop-blur-md shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
+            ? "bg-vs-bg-1/12 ring-1 ring-vs-fg-4/12 backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
             : "bg-vs-bg-2 ring-1 ring-vs-bg-3",
           className,
         )}
