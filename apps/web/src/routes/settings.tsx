@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
 
 /**
@@ -17,5 +18,6 @@ import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
  * - Heading-display gradient title → plain ink heading.
  */
 export const Route = createFileRoute("/settings")({
+  head: () => pageMeta({ title: "Settings", path: "/settings" }),
   component: PreviewSettingsPage,
 });

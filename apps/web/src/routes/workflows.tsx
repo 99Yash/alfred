@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-route";
 
 /**
@@ -14,5 +15,6 @@ import { PreviewWorkflowsRoute } from "./-preview-workflows/preview-workflows-ro
  * in the top-right.
  */
 export const Route = createFileRoute("/workflows")({
+  head: () => pageMeta({ title: "Workflows", path: "/workflows" }),
   component: PreviewWorkflowsRoute,
 });

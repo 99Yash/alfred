@@ -3,6 +3,7 @@ import {
   BookOpen,
   Brain,
   LogOut,
+  Newspaper,
   NotebookPen,
   PanelLeft,
   Pin,
@@ -102,6 +103,12 @@ export function AppSidebar({
             label="Workflows"
             to="/workflows"
             active={path.startsWith("/workflows")}
+          />
+          <NavLink
+            icon={Newspaper}
+            label="Briefings"
+            to="/briefings"
+            active={path.startsWith("/briefings")}
           />
           <NavLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
           <NavLink

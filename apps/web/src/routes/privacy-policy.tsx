@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { LegalPage, LegalSection } from "~/components/legal/legal-page";
 
 /**
@@ -13,6 +14,7 @@ import { LegalPage, LegalSection } from "~/components/legal/legal-page";
  * and Drive scopes.
  */
 export const Route = createFileRoute("/privacy-policy")({
+  head: () => pageMeta({ title: "Privacy Policy", path: "/privacy-policy" }),
   component: PrivacyPolicy,
 });
 
