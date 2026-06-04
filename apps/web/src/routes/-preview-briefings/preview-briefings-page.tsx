@@ -4,6 +4,7 @@ import type { SyncedBriefing } from "@alfred/sync";
 import { VsCard } from "~/components/ui/visitors";
 import { useBriefings } from "~/lib/replicache/use-briefings";
 import { briefingPlainText } from "./briefing-prose";
+import { formatDayHeading, slotLabel } from "./briefing-utils";
 
 /** Group the (already newest-first, morning-before-evening) rows by day, preserving order. */
 function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: SyncedBriefing[] }[] {
@@ -14,16 +15,6 @@ function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: Synced
     else groups.push({ date: b.briefingDate, slots: [b] });
   }
   return groups;
-}
-
-function formatDayHeading(date: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-}
-
-function slotLabel(slot: string): string {
-  return slot.charAt(0).toUpperCase() + slot.slice(1);
 }
 
 /** One-line gist of a slot for the timeline; falls back to a status note. */
