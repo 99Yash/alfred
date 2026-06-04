@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { useState } from "react";
 import { authClient } from "~/lib/auth-client";
 import { useEventStream } from "~/lib/events/use-event-stream";
@@ -7,6 +8,7 @@ const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 export const Route = createFileRoute("/debug/events")({
+  head: () => pageMeta({ title: "Debug events" }),
   component: DebugEventsPage,
 });
 

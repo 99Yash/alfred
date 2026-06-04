@@ -19,6 +19,13 @@ declare module "@tanstack/react-router" {
   }
 }
 
+// Drop the static SEO/social baseline from index.html now that the app owns the
+// head via <HeadContent />. The baseline exists only for no-JS crawlers; React
+// 19 does not dedupe metadata, so leaving these in place would double every
+// title/description/og tag. Removing them before the first render keeps exactly
+// one set of router-managed tags in the DOM.
+for (const el of document.querySelectorAll("[data-seo-baseline]")) el.remove();
+
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root element not found");
 

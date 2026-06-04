@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewBriefingDetailPage } from "./-preview-briefings/preview-briefing-detail-page";
 
 /**
@@ -7,5 +8,6 @@ import { PreviewBriefingDetailPage } from "./-preview-briefings/preview-briefing
  * morning and evening slots stacked.
  */
 export const Route = createFileRoute("/briefings/$date")({
+  head: ({ params }) => pageMeta({ title: `Briefing · ${params.date}` }),
   component: PreviewBriefingDetailPage,
 });
