@@ -1,5 +1,5 @@
 import { Cloud, CloudFog, CloudRain, CloudSnow, Sun, Zap, type LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useWeather } from "~/hooks/use-weather";
 import type { WeatherCondition } from "~/lib/weather";
 import { cn } from "~/lib/utils";
@@ -13,23 +13,40 @@ import { cn } from "~/lib/utils";
  *
  * The right slot is a 2-row slot-machine that alternates between the
  * city name and the human-readable condition every `ROLL_INTERVAL_MS`.
- * No keyframes — the inner column just translates by 100% on phase flip,
- * and the `motion-reduce` modifier kills the transition for users who
- * have asked for less motion.
+ * Borrowing Apple's Dynamic Island feel, the slot doesn't reserve a
+ * fixed max-width box (which left the shorter label stranded in dead
+ * space); instead it *measures* each label and morphs its width in
+ * lockstep with the vertical roll, so the whole pill breathes in and
+ * out to hug whatever's on screen. No keyframes, no motion library —
+ * the inner column translates by 100% while the outer slot animates
+ * `width`, both on the same easing. `motion-reduce` kills both for
+ * users who have asked for less motion.
  */
 const ROLL_INTERVAL_MS = 3500;
+const ROLL_EASE = "transition-[width,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 export function WeatherChip() {
   const { data, isLoading, isError } = useWeather();
   const conditionLabel = data ? LABEL_FOR_CONDITION[data.condition] : null;
-  const shouldRoll = conditionLabel !== null;
+
+  const items = useMemo(() => {
+    if (!data) return [] as string[];
+    return conditionLabel ? [data.city, conditionLabel] : [data.city];
+  }, [data, conditionLabel]);
+
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {
-    if (!shouldRoll) return;
-    const id = window.setInterval(() => setPhase((p) => (p === 0 ? 1 : 0)), ROLL_INTERVAL_MS);
+    if (items.length < 2) {
+      setPhase(0);
+      return;
+    }
+    const id = window.setInterval(
+      () => setPhase((p) => (p + 1) % items.length),
+      ROLL_INTERVAL_MS,
+    );
     return () => window.clearInterval(id);
-  }, [shouldRoll]);
+  }, [items.length]);
 
   // Render nothing until real data lands. The previous pulsing
   // skeleton churned the header during the (sometimes long) retry
@@ -48,34 +65,68 @@ export function WeatherChip() {
       <span className="text-[12px] font-medium text-vs-fg-4 tabular-nums">
         {data.temperature}°{data.unit}
       </span>
-      <span aria-hidden className="h-3 w-px bg-vs-bg-3/80" />
-      <TextRoller
-        items={conditionLabel ? [data.city, conditionLabel] : [data.city]}
-        phase={phase}
-      />
+      <span aria-hidden className="h-3 w-px bg-vs-fg-4/20" />
+      <TextRoller items={items} active={phase % Math.max(items.length, 1)} />
     </Plate>
   );
 }
 
-function TextRoller({ items, phase }: { items: string[]; phase: number }) {
-  const active = items.length > 1 ? phase % items.length : 0;
+function TextRoller({ items, active }: { items: string[]; active: number }) {
+  const itemRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const [widths, setWidths] = useState<number[]>([]);
+
+  // Measure each label's intrinsic width so the slot can morph to hug
+  // the active one. `useLayoutEffect` lands the measurement before
+  // paint (no auto→fixed-width snap on mount), and `document.fonts`
+  // re-measures once the webfont swaps in so we don't lock to fallback
+  // metrics.
+  const key = items.join("\0");
+  useLayoutEffect(() => {
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      setWidths(
+        itemRefs.current.map((el) => (el ? Math.ceil(el.getBoundingClientRect().width) : 0)),
+      );
+    };
+    measure();
+    document.fonts?.ready.then(measure).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  const width = widths[active];
   return (
     <span
       aria-hidden
-      className="relative inline-block h-[14px] max-w-[12ch] overflow-hidden align-middle"
+      className={cn("relative inline-block h-[14px] overflow-hidden align-middle", ROLL_EASE)}
+      style={width ? { width } : undefined}
     >
+      {/* Invisible measurers — laid out but never painted; give us each
+          label's natural width without affecting the visible slot. */}
+      <span className="invisible absolute left-0 top-0 flex flex-col items-start" aria-hidden>
+        {items.map((text, i) => (
+          <span
+            key={`m-${i}-${text}`}
+            ref={(el) => {
+              itemRefs.current[i] = el;
+            }}
+            className="block h-[14px] whitespace-nowrap text-[11px] leading-[14px]"
+          >
+            {text}
+          </span>
+        ))}
+      </span>
+      {/* Visible slot-machine column. */}
       <span
-        className={cn(
-          "flex flex-col will-change-transform",
-          "transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-          "motion-reduce:transition-none",
-        )}
+        className={cn("flex flex-col will-change-transform", ROLL_EASE)}
         style={{ transform: `translateY(-${active * 14}px)` }}
       >
         {items.map((text, i) => (
           <span
             key={`${i}-${text}`}
-            className="block h-[14px] leading-[14px] text-[11px] text-vs-fg-2 truncate"
+            className="block h-[14px] whitespace-nowrap text-[11px] leading-[14px] text-vs-fg-3"
           >
             {text}
           </span>
@@ -91,8 +142,8 @@ function Plate({ children, className, ...rest }: React.HTMLAttributes<HTMLDivEle
       {...rest}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full h-7 pl-2 pr-2.5",
-        "bg-vs-bg-1/70 ring-1 ring-vs-bg-3/70 backdrop-blur",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+        "bg-vs-bg-1/80 ring-1 ring-vs-fg-4/10 backdrop-blur-md",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
         className,
       )}
     >

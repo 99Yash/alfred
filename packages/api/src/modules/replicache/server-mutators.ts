@@ -2,6 +2,7 @@ import type { IntegrationRules } from "@alfred/contracts";
 import {
   notes,
   rejectedInferences,
+  todos,
   userActionPolicies,
   userFacts,
   userPreferences,
@@ -15,9 +16,15 @@ import type {
   PolicySetIntegrationModeArgs,
   PrefDeleteArgs,
   PrefSetArgs,
+  TodoCompleteArgs,
+  TodoCreateArgs,
+  TodoDismissArgs,
+  TodoEditArgs,
+  TodoPromoteArgs,
+  TodoReopenArgs,
   WorkflowUpdateArgs,
 } from "@alfred/sync";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
 import { valueSignature } from "../memory/signature";
 import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "../workflows";
@@ -292,6 +299,95 @@ export const serverMutators = {
         rowVersion: sql`${workflows.rowVersion} + 1`,
       })
       .where(eq(workflows.id, existing.id));
+  },
+
+  // ── Todos (ADR-0050) ──────────────────────────────────────────────────
+  // User-authored creates + user-initiated lifecycle transitions. Alfred's
+  // proposals enter server-side via the `system.suggest_todo` tool, not here.
+  // Every transition is guarded on the source status so Replicache's
+  // at-least-once redelivery is a harmless no-op the second time.
+
+  /** Add a user-authored todo. Idempotent on id (client mints it before push). */
+  async todoCreate(tx: DbTx, args: TodoCreateArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .insert(todos)
+      .values({
+        id: args.id,
+        userId: ctx.userId,
+        name: args.name,
+        description: args.description ?? null,
+        status: "open",
+        createdBy: "user",
+        createdAt: new Date(args.createdAt),
+      })
+      .onConflictDoNothing();
+  },
+
+  /** Check the box: `open → done`, stamp `completed_at`. */
+  async todoComplete(tx: DbTx, args: TodoCompleteArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({
+        status: "done",
+        completedAt: new Date(),
+        rowVersion: sql`${todos.rowVersion} + 1`,
+      })
+      .where(
+        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")),
+      );
+  },
+
+  /** Uncheck the box: `done → open`, clear `completed_at`. */
+  async todoReopen(tx: DbTx, args: TodoReopenArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({
+        status: "open",
+        completedAt: null,
+        rowVersion: sql`${todos.rowVersion} + 1`,
+      })
+      .where(
+        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")),
+      );
+  },
+
+  /** Accept a suggestion: `suggested → open`. `created_by` is preserved. */
+  async todoPromote(tx: DbTx, args: TodoPromoteArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({ status: "open", rowVersion: sql`${todos.rowVersion} + 1` })
+      .where(
+        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")),
+      );
+  },
+
+  /**
+   * Decline a suggestion or drop an open todo → terminal `dismissed`. The pull
+   * fetcher excludes `dismissed`, so the next pull deletes the client row.
+   */
+  async todoDismiss(tx: DbTx, args: TodoDismissArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({ status: "dismissed", rowVersion: sql`${todos.rowVersion} + 1` })
+      .where(
+        and(
+          eq(todos.id, args.id),
+          eq(todos.userId, ctx.userId),
+          inArray(todos.status, ["open", "suggested"]),
+        ),
+      );
+  },
+
+  /** Edit a todo's name and/or description. */
+  async todoEdit(tx: DbTx, args: TodoEditArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({
+        ...(args.name !== undefined ? { name: args.name } : {}),
+        ...(args.description !== undefined ? { description: args.description } : {}),
+        rowVersion: sql`${todos.rowVersion} + 1`,
+      })
+      .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId)));
   },
 } as const;
 

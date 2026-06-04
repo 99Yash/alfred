@@ -24,6 +24,7 @@ export const SYSTEM_ACTIONS = [
   "read_scratch",
   "write_scratch",
   "promote",
+  "suggest_todo",
 ] as const;
 
 export const GMAIL_ACTIONS = ["search", "read_message", "send_draft"] as const;
