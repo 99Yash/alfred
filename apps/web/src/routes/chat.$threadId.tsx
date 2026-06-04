@@ -1,4 +1,5 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { useEffect } from "react";
 import { useChatContext } from "~/components/chat-context";
 import { ChatShell } from "./-chat/chat-shell";
@@ -11,6 +12,7 @@ import { ChatShell } from "./-chat/chat-shell";
  * (real thread lookup, messages, composer submit) lands in m13.
  */
 export const Route = createFileRoute("/chat/$threadId")({
+  head: () => pageMeta({ title: "Chat" }),
   component: ChatThreadRoute,
 });
 

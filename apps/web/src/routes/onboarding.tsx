@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { useEffect, useState } from "react";
 import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
 import { authClient } from "~/lib/auth-client";
@@ -11,6 +12,7 @@ type OnboardingStep = 1 | 2 | 3;
  * keeps a bare `/onboarding` visit landing on Unlock; the Google callback
  * redirects with `step=2` to advance the funnel. */
 export const Route = createFileRoute("/onboarding")({
+  head: () => pageMeta({ title: "Get started" }),
   validateSearch: (search): { step: OnboardingStep; google_connected?: string } => {
     const raw = Number((search as { step?: unknown }).step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
 
 /**
@@ -10,5 +11,6 @@ import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
  * into the local list.
  */
 export const Route = createFileRoute("/notes")({
+  head: () => pageMeta({ title: "Notes" }),
   component: PreviewNotesPage,
 });

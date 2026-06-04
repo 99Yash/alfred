@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { ApprovalsPage } from "~/components/approvals/approvals-page";
 import { authClient } from "~/lib/auth-client";
 
@@ -34,6 +35,7 @@ export interface ApprovalsSearch {
 }
 
 export const Route = createFileRoute("/approvals")({
+  head: () => pageMeta({ title: "Approvals" }),
   component: ApprovalsRoute,
   validateSearch: (search): ApprovalsSearch => ({
     integration: toStringArray(search.integration),

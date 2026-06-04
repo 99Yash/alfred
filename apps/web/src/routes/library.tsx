@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewLibraryRoute } from "./-preview-library/preview-library-route";
 
 /**
@@ -16,5 +17,6 @@ import { PreviewLibraryRoute } from "./-preview-library/preview-library-route";
  * accepting pointer events.
  */
 export const Route = createFileRoute("/library")({
+  head: () => pageMeta({ title: "Library" }),
   component: PreviewLibraryRoute,
 });

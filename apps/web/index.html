@@ -11,7 +11,44 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/images/logo/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#5B43E0" />
-    <title>Alfred</title>
+
+    <!--
+      Static SEO/social baseline for crawlers and link unfurlers that DON'T run
+      JS (Slack, iMessage, Discord, WhatsApp, most Twitter/Facebook scrapers).
+      They only ever see this server-sent HTML, never the client-rendered head.
+      Once the app boots, main.tsx strips every `data-seo-baseline` tag so
+      TanStack Router's <HeadContent /> is the single source of truth at runtime
+      (React 19 does not dedupe metadata, so leaving these would double the tags
+      for JS-running consumers). Keep these values in sync with `siteMeta()` in
+      src/lib/page-meta.ts.
+      TODO: swap the og:image / twitter:image for a dedicated 1200x630 card
+      once the artwork lands (currently reuses the 512x512 app icon).
+    -->
+    <title data-seo-baseline>Alfred · The AI coworker that never sleeps.</title>
+    <meta
+      data-seo-baseline
+      name="description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <link data-seo-baseline rel="canonical" href="https://alfred.beauty" />
+    <meta data-seo-baseline property="og:site_name" content="Alfred" />
+    <meta data-seo-baseline property="og:type" content="website" />
+    <meta data-seo-baseline property="og:url" content="https://alfred.beauty" />
+    <meta data-seo-baseline property="og:title" content="Alfred · The AI coworker that never sleeps." />
+    <meta
+      data-seo-baseline
+      property="og:description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <meta data-seo-baseline property="og:image" content="https://alfred.beauty/images/logo/icon-512.png" />
+    <meta data-seo-baseline name="twitter:card" content="summary_large_image" />
+    <meta data-seo-baseline name="twitter:title" content="Alfred · The AI coworker that never sleeps." />
+    <meta
+      data-seo-baseline
+      name="twitter:description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <meta data-seo-baseline name="twitter:image" content="https://alfred.beauty/images/logo/icon-512.png" />
     <!-- Preload Open Runde so the brand font is discovered immediately rather
          than after the JS bundle parses index.css. Both weights render above
          the fold (Medium=body, Semibold=hero heading). crossorigin is required

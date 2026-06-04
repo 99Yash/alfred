@@ -18,6 +18,7 @@
  */
 
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import {
   Archive,
   ArrowRight,
@@ -66,6 +67,7 @@ import { TabPill } from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/styleguide")({
+  head: () => pageMeta({ title: "Styleguide" }),
   component: StyleguidePage,
 });
 

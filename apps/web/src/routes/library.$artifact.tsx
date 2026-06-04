@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewArtifactViewer } from "./-preview-library-artifact/preview-artifact-viewer";
 
 /**
@@ -14,5 +15,6 @@ import { PreviewArtifactViewer } from "./-preview-library-artifact/preview-artif
  * `/library`.
  */
 export const Route = createFileRoute("/library/$artifact")({
+  head: () => pageMeta({ title: "Library" }),
   component: PreviewArtifactViewer,
 });

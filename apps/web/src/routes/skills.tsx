@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
 
 /**
@@ -12,5 +13,6 @@ import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
  * file stays single-purpose (see `skills-page.tsx`, `skill-row.tsx`).
  */
 export const Route = createFileRoute("/skills")({
+  head: () => pageMeta({ title: "Skills" }),
   component: PreviewSkillsRoute,
 });

@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { useChatContext } from "~/components/chat-context";
 import { ChatShell } from "./-chat/chat-shell";
 
@@ -13,6 +14,7 @@ import { ChatShell } from "./-chat/chat-shell";
  * link gets its own component, mirroring the dimension chat route's pattern.
  */
 export const Route = createFileRoute("/chat")({
+  head: () => pageMeta({ title: "Chat" }),
   component: ChatRoute,
 });
 

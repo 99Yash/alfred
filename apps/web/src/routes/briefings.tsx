@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewBriefingsRoute } from "./-preview-briefings/preview-briefings-route";
 
 /**
@@ -8,5 +9,6 @@ import { PreviewBriefingsRoute } from "./-preview-briefings/preview-briefings-ro
  * the child day-detail when one is matched.
  */
 export const Route = createFileRoute("/briefings")({
+  head: () => pageMeta({ title: "Briefings" }),
   component: PreviewBriefingsRoute,
 });

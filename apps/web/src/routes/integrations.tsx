@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
 import { PreviewIntegrationsRoute } from "./-preview-integrations/preview-integrations-route";
 
 /**
@@ -18,5 +19,6 @@ import { PreviewIntegrationsRoute } from "./-preview-integrations/preview-integr
  *   /preview/integrations   → visitors-now grammar (theme-aware, hero, soft chips)
  */
 export const Route = createFileRoute("/integrations")({
+  head: () => pageMeta({ title: "Integrations" }),
   component: PreviewIntegrationsRoute,
 });
