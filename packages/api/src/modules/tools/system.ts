@@ -1,7 +1,8 @@
-import { INTEGRATION_SLUGS, isLoadableIntegrationSlug } from "@alfred/contracts";
+import { INTEGRATION_SLUGS, isLoadableIntegrationSlug, todoSourceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
+import { suggestTodo } from "../todos/suggest";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 
@@ -28,6 +29,31 @@ const promoteScratchInput = z
   .object({
     fromKey: scratchKey,
     toKey: scratchKey,
+  })
+  .strict();
+
+const suggestTodoInput = z
+  .object({
+    name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
+    description: z
+      .string()
+      .max(20_000)
+      .optional()
+      .describe("Optional longer context for the todo."),
+    assist: z
+      .string()
+      .max(20_000)
+      .optional()
+      .describe(
+        "Optional tip on how to approach it. State honestly if you can't act on it (no permission / integration not connected). This is not execution.",
+      ),
+    sources: z
+      .array(todoSourceSchema)
+      .max(64)
+      .optional()
+      .describe(
+        "Cross-source provenance: [{ provider, kind, id, url? }]. Include every channel this commitment spans so it dedups across surfaces.",
+      ),
   })
   .strict();
 
@@ -161,6 +187,27 @@ export const systemTools: readonly RegisteredTool[] = [
       });
       if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
       return { ok: true, promoted: true, fromKey: input.fromKey, toKey: input.toKey, entry };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "suggest_todo",
+    // no_risk + system integration (autonomy) → never gated. A suggestion has
+    // no real-world side effect, so it stays off the approvals HIL path
+    // (ADR-0050); audit lives on the todo row.
+    riskTier: "no_risk",
+    description:
+      "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating.",
+    inputSchema: suggestTodoInput,
+    execute: async (input, ctx) => {
+      return await suggestTodo({
+        userId: ctx.userId,
+        agentRunId: ctx.runId,
+        name: input.name,
+        description: input.description,
+        assist: input.assist,
+        sources: input.sources,
+      });
     },
   }),
 ];

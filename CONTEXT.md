@@ -169,6 +169,28 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **`IanaTimezone`.** Branded `string` type in `@alfred/contracts`, validated at the API boundary against `Intl.supportedValuesOf('timeZone')` (the live IANA list, ~400 zones). Persisted as `text` (no PG enum — IANA mutates per tzdata release). Used wherever the user's timezone has to round-trip through DB + API + Replicache safely, including `briefings.timezone`.
 
+## Todos
+
+**Todo.** One row in `todos`. A user-managed commitment — a checkbox item either captured by the user or proposed by Alfred. The **first persisted materialization of the open-loop model** (ADR-0048 keeps loops ephemeral at briefing compose-time; a todo is a loop the user has chosen to track). Single table, status-driven; Replicache-synced. v1 is **passive** — Alfred authors and assists but never executes (see *Agent-executable todo*). ADR-0050.
+
+**Todo status.** `suggested | open | done | dismissed`. `suggested` = Alfred-proposed, not yet accepted (renders in the *Suggestions* section). `open` = a live todo (user-added, or a promoted suggestion). `done` = completed (`completed_at` set; lingers in sync for 7 days, then only falls out of the pull window). `dismissed` = declined/dropped — on a `suggested` row it's a "no thanks" learning signal, on an `open` row it's "dropped it." Promote (`+`) flips `suggested → open`. There is **no `running`/`interrupted`/`needs_attention`/`error`** at v1 — those are dimension's agent-run states, reserved for the deferred agent-executable path.
+
+**Suggestion (todo).** A `todos` row with `status='suggested'`, **not a separate entity** (unlike dimension's `suggestedMessages`). Rendered in the rail's *Suggestions* section with a `+` to promote. Authored only by Alfred (`created_by='agent'`). Carries `assist` + `sources` like any todo.
+
+**`created_by`.** `'user' | 'agent'` on a todo. Survives promotion (a promoted suggestion stays `created_by='agent'`), so suggestion acceptance/dismissal is measurable later.
+
+**Todo `executor` / `kind`.** Forward-compat columns. v1 rows default to `executor='user'` and `kind='task'`; the columns are inert until the deferred agent-executable path needs `executor='agent'` and executor-specific variants.
+
+**`assist`.** Optional Alfred-authored text on a todo — a tip on how to approach it, degrading to an honest "I can't act on this (no permission / integration not connected)" when Alfred is clueless. Present even in passive v1; it is *not* execution.
+
+**Todo `sources`.** `jsonb` array of typed cross-source provenance refs — `[{ provider, kind, id, url? }]` (e.g. a Gmail thread *and* a Slack thread on one row). Canonical identity is `(provider, kind, id)`; `url` is display/navigation metadata. Multi-source from day one so a todo represents a real-world commitment, not one channel. `created_by`, `agent_run_id`, and `assist` round it out. Single email-only `source_thread_id` was rejected for this reason.
+
+**`system.suggest_todo`.** The source-agnostic write tool by which any agent run proposes a todo (inserts a `suggested` row). **No HIL/approval** — a suggestion has no real-world side effect, so it stays off the `action_stagings` path; audit lives on the todo row (`agent_run_id`, `created_by`, lifecycle dates). Primary caller is the briefing workflow (reusing its cross-source `gather`); triage/chat may also call it. **Idempotent on source-ref overlap**: if an existing `open`/`suggested` todo already references an incoming source, it **merges** (appends only missing refs) rather than creating a duplicate — this is the v1 cross-channel dedup guard.
+
+**Agent-executable todo (deferred).** The B-path: a todo marked `executor='agent'` that spawns an `agent_runs` run through the boss runtime, with run-state (`running`/`interrupted`/`needs_attention`/`error`) reflected on the checkbox and tool calls gated via the existing `/approvals` HIL. Dimension ships this; Alfred defers it but shapes the schema (forward-compat `executor`/`kind` columns) so it lands without a database migration. The screenshot's checkmark/camera toggle is this switch.
+
+**Cross-source auto-close (deferred).** Closing a todo automatically when the user acts on *any* connected surface (reply in Slack closes a todo opened from email). This is ADR-0048's **parked** "continuous open-loops state machine" — needs live webhooks + identity resolution across every integration. v1 completion is **manual** (check the box). The `sources` array means each todo already records which threads a future state machine would watch. Semantic dedup of genuinely-independent signals is deferred with it.
+
 ## m12 scope (locked 2026-05-11)
 
 **Authoring + dispatch only. Execution deferred to m13.**

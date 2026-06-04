@@ -15,6 +15,8 @@ import {
 import { useState, type ComponentType, type KeyboardEvent } from "react";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { useWeather } from "~/hooks/use-weather";
+import { useTodos } from "~/lib/replicache/use-todos";
+import type { SyncedTodo } from "@alfred/sync";
 import type { WeatherSnapshot } from "~/lib/weather";
 import { cn } from "~/lib/utils";
 
@@ -29,17 +31,6 @@ const RAIL_TABS: Array<{
   { mode: "emails", label: "Emails", icon: Mail },
   { mode: "meetings", label: "Meetings", icon: Video },
 ];
-
-interface TodoItem {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
-interface SuggestionItem {
-  id: string;
-  text: string;
-}
 
 interface EmailDraft {
   id: string;
@@ -57,15 +48,6 @@ interface MeetingItem {
   location?: string;
   video?: boolean;
 }
-
-const INITIAL_TODOS: ReadonlyArray<TodoItem> = [
-  { id: "t1", text: "Review unanswered briefing follow-up", done: false },
-];
-
-const INITIAL_SUGGESTIONS: ReadonlyArray<SuggestionItem> = [
-  { id: "s1", text: "Draft reply to design review thread" },
-  { id: "s2", text: "Confirm Friday's investor sync" },
-];
 
 const FIXTURE_EMAILS: ReadonlyArray<EmailDraft> = [
   {
@@ -118,10 +100,7 @@ const FIXTURE_MEETINGS: ReadonlyArray<MeetingItem> = [
 export function QuickAccessRail() {
   const [mode, setMode] = useState<RailMode>("tasks");
   const { data: weather, isLoading: weatherLoading, isError: weatherError } = useWeather();
-  const [todos, setTodos] = useState<TodoItem[]>(() => INITIAL_TODOS.map((t) => ({ ...t })));
-  const [suggestions, setSuggestions] = useState<SuggestionItem[]>(() =>
-    INITIAL_SUGGESTIONS.map((s) => ({ ...s })),
-  );
+  const { todos, suggestions, createTodo, completeTodo, reopenTodo, promoteTodo } = useTodos();
   const [draft, setDraft] = useState("");
   const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
   const onRailTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -133,19 +112,18 @@ export function QuickAccessRail() {
     setMode(RAIL_TABS[nextIndex]!.mode);
   };
 
-  const toggleTodo = (id: string) => {
-    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  const toggleTodo = (todo: SyncedTodo) => {
+    void (todo.status === "done" ? reopenTodo(todo.id) : completeTodo(todo.id));
   };
 
-  const acceptSuggestion = (suggestion: SuggestionItem) => {
-    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    setTodos((prev) => [...prev, { id: `t-${suggestion.id}`, text: suggestion.text, done: false }]);
+  const acceptSuggestion = (suggestion: SyncedTodo) => {
+    void promoteTodo(suggestion.id);
   };
 
   const addDraft = () => {
     const trimmed = draft.trim();
     if (!trimmed) return;
-    setTodos((prev) => [...prev, { id: `t-${Date.now()}`, text: trimmed, done: false }]);
+    void createTodo(trimmed);
     setDraft("");
   };
 
@@ -239,13 +217,13 @@ function TasksPanel({
   onToggleTodo,
   onAcceptSuggestion,
 }: {
-  todos: ReadonlyArray<TodoItem>;
-  suggestions: ReadonlyArray<SuggestionItem>;
+  todos: ReadonlyArray<SyncedTodo>;
+  suggestions: ReadonlyArray<SyncedTodo>;
   draft: string;
   onDraftChange: (next: string) => void;
   onAddDraft: () => void;
-  onToggleTodo: (id: string) => void;
-  onAcceptSuggestion: (suggestion: SuggestionItem) => void;
+  onToggleTodo: (todo: SyncedTodo) => void;
+  onAcceptSuggestion: (suggestion: SyncedTodo) => void;
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -269,38 +247,42 @@ function TasksPanel({
       </div>
 
       <ul className="mt-2 space-y-0.5">
-        {todos.map((todo) => (
-          <li key={todo.id}>
-            <button
-              type="button"
-              onClick={() => onToggleTodo(todo.id)}
-              className={cn(
-                "flex min-h-9 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left",
-                "text-sm text-white/90 outline-none transition-colors",
-                "hover:bg-white/[0.05] focus-visible:bg-white/[0.06]",
-              )}
-            >
-              <span
-                aria-hidden
+        {todos.map((todo) => {
+          const done = todo.status === "done";
+          return (
+            <li key={todo.id}>
+              <button
+                type="button"
+                onClick={() => onToggleTodo(todo)}
+                aria-pressed={done}
                 className={cn(
-                  "mt-0.5 grid size-4 shrink-0 place-items-center rounded-[4px] border",
-                  "transition-[background-color,border-color]",
-                  todo.done ? "border-white/60 bg-white/60" : "border-white/40 bg-transparent",
+                  "flex min-h-9 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left",
+                  "text-sm text-white/90 outline-none transition-colors",
+                  "hover:bg-white/[0.05] focus-visible:bg-white/[0.06]",
                 )}
               >
-                {todo.done ? <CheckCircle2 size={10} className="text-black/70" /> : null}
-              </span>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 leading-5 transition-colors",
-                  todo.done && "text-white/50 line-through",
-                )}
-              >
-                {todo.text}
-              </span>
-            </button>
-          </li>
-        ))}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "mt-0.5 grid size-4 shrink-0 place-items-center rounded-[4px] border",
+                    "transition-[background-color,border-color]",
+                    done ? "border-white/60 bg-white/60" : "border-white/40 bg-transparent",
+                  )}
+                >
+                  {done ? <CheckCircle2 size={10} className="text-black/70" /> : null}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 leading-5 transition-colors",
+                    done && "text-white/50 line-through",
+                  )}
+                >
+                  {todo.name}
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
       <div
@@ -355,14 +337,14 @@ function TasksPanel({
                   <span className="mt-0.5 grid size-5 place-items-center rounded-md text-white/60 transition-colors group-hover:text-white">
                     <Plus size={14} />
                   </span>
-                  <span className="max-w-[230px] text-sm leading-relaxed">{suggestion.text}</span>
+                  <span className="max-w-[230px] text-sm leading-relaxed">{suggestion.name}</span>
                 </button>
               </li>
             ))}
           </ul>
         </section>
       ) : (
-        todos.every((t) => t.done) && (
+        todos.every((t) => t.status === "done") && (
           <div className="mt-6 border-t border-white/20 pt-5">
             <RailEmpty
               tone="muted"

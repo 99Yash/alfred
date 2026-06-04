@@ -6,6 +6,8 @@ import { RailSection } from "./rail-section";
 import { SuggestionRow } from "./suggestion-row";
 
 export interface SuggestionInput {
+  /** Todo row id (ADR-0050 `suggested` row). Absent on fixture-only previews. */
+  id?: string;
   label: string;
   detail: string;
 }
@@ -15,9 +17,18 @@ const EMPTY_SUGGESTIONS: ReadonlyArray<SuggestionInput> = [];
 export function TodoFeed({
   items,
   suggestions = EMPTY_SUGGESTIONS,
+  onToggleTodo,
+  onCreateTodo,
+  onPromoteSuggestion,
 }: {
   items: ReadonlyArray<TodoItem>;
   suggestions?: ReadonlyArray<SuggestionInput>;
+  /** Check/uncheck a todo. `done` is the row's current state. */
+  onToggleTodo?: (id: string, done: boolean) => void;
+  /** Add a user-authored todo. When absent, the add row is a static affordance. */
+  onCreateTodo?: (title: string) => void;
+  /** Accept a suggestion (`suggested → open`). */
+  onPromoteSuggestion?: (id: string) => void;
 }) {
   const open = items.filter((t) => !t.done);
   const done = items.filter((t) => t.done);
@@ -27,7 +38,11 @@ export function TodoFeed({
       {open.length ? (
         <ul className="space-y-0.5">
           {open.map((todo) => (
-            <TodoRow key={todo.id} todo={todo} />
+            <TodoRow
+              key={todo.id}
+              todo={todo}
+              onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
+            />
           ))}
         </ul>
       ) : (
@@ -36,7 +51,7 @@ export function TodoFeed({
         </EmptyHint>
       )}
 
-      <RailAddRow placeholder="Add a to-do…" />
+      <RailAddRow placeholder="Add a to-do…" onSubmit={onCreateTodo} />
 
       {done.length ? (
         <div className="pt-1">
@@ -45,7 +60,11 @@ export function TodoFeed({
           </div>
           <ul className="space-y-0.5">
             {done.map((todo) => (
-              <TodoRow key={todo.id} todo={todo} />
+              <TodoRow
+                key={todo.id}
+                todo={todo}
+                onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
+              />
             ))}
           </ul>
         </div>
@@ -54,7 +73,12 @@ export function TodoFeed({
       {suggestions.length ? (
         <RailSection title="Suggestions">
           {suggestions.map((s) => (
-            <SuggestionRow key={s.label} label={s.label} detail={s.detail} />
+            <SuggestionRow
+              key={s.id ?? s.label}
+              label={s.label}
+              detail={s.detail}
+              onAccept={s.id && onPromoteSuggestion ? () => onPromoteSuggestion(s.id!) : undefined}
+            />
           ))}
         </RailSection>
       ) : null}
@@ -66,11 +90,13 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
   return <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>;
 }
 
-function TodoRow({ todo }: { todo: TodoItem }) {
+function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) {
   return (
     <li>
       <button
         type="button"
+        onClick={onToggle}
+        aria-pressed={todo.done ?? false}
         className={cn(
           "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
           "hover:bg-white/[0.07] transition-colors vs-press",

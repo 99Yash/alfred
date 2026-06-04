@@ -17,9 +17,12 @@ import { Particles } from "~/components/ui/particles";
 import { VsPill } from "~/components/ui/visitors";
 import { useVsTheme } from "~/components/ui/visitors/theme";
 import { useInbox, useMarkInboxRead, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
-import type { InboxItem } from "~/routes/-preview-chat/helpers";
+import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
+import { useTodos } from "~/lib/replicache/use-todos";
+import type { SyncedTodo } from "@alfred/sync";
+import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { authClient } from "~/lib/auth-client";
@@ -781,6 +784,27 @@ function useRailData(): RailData {
   const meetings = useMeetings();
   const briefing = useLatestBriefing();
 
+  // Live todos + Alfred's suggestions (ADR-0050), Replicache-synced.
+  const {
+    todos: liveTodos,
+    suggestions: liveSuggestions,
+    createTodo,
+    completeTodo,
+    reopenTodo,
+    promoteTodo,
+  } = useTodos();
+  const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
+  const todoSuggestions = useMemo(
+    () => liveSuggestions.map(toRailSuggestion),
+    [liveSuggestions],
+  );
+  const onToggleTodo = useCallback(
+    (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
+    [reopenTodo, completeTodo],
+  );
+  const onCreateTodo = useCallback((title: string) => void createTodo(title), [createTodo]);
+  const onPromoteSuggestion = useCallback((id: string) => void promoteTodo(id), [promoteTodo]);
+
   // Local page index walks the cached `inbox.data.pages[]`. When the user
   // advances past the last loaded page we kick off `fetchNextPage`; back
   // navigation is free because the pages stay in cache.
@@ -845,6 +869,11 @@ function useRailData(): RailData {
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
+      todos: todoItems,
+      todoSuggestions,
+      onToggleTodo,
+      onCreateTodo,
+      onPromoteSuggestion,
       inbox: inboxItems,
       inboxPagination: {
         pageIndex: safeInboxPage,
@@ -864,6 +893,11 @@ function useRailData(): RailData {
       latestBriefing: briefingData ?? null,
     }),
     [
+      todoItems,
+      todoSuggestions,
+      onToggleTodo,
+      onCreateTodo,
+      onPromoteSuggestion,
       inboxItems,
       safeInboxPage,
       inboxPageCount,
@@ -880,6 +914,31 @@ function useRailData(): RailData {
       briefingData,
     ],
   );
+}
+
+/** Map a synced todo to the rail's display shape (ADR-0050). */
+function toRailTodoItem(t: SyncedTodo): TodoItem {
+  const provider = t.sources[0]?.provider;
+  const source: TodoItem["source"] =
+    provider === "gmail"
+      ? "email"
+      : provider === "calendar"
+        ? "meeting"
+        : t.createdBy === "user"
+          ? "manual"
+          : undefined;
+  return {
+    id: t.id,
+    title: t.name,
+    done: t.status === "done",
+    source,
+    due: t.dueDate ?? undefined,
+  };
+}
+
+/** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
+function toRailSuggestion(t: SyncedTodo): SuggestionInput {
+  return { id: t.id, label: t.name, detail: t.assist ?? "" };
 }
 
 interface SessionUser {
