@@ -53,6 +53,8 @@ export const IDB_KEY = {
    * client-side via `resolveIntegrationMode`.
    */
   ACTION_POLICY: ({ id = "" }: { id?: string }) => constructIDBKey(["actionpolicy", id]),
+  /** `todo/` (prefix scan) or `todo/{id}` (single row). Flat — no day prefix. */
+  TODO: ({ id = "" }: { id?: string }) => constructIDBKey(["todo", id]),
   /**
    * `workflow/` (prefix scan) or `workflow/{slug}` (single row).
    *

@@ -6,6 +6,7 @@ import {
   skillRevisions,
   skillRuns,
   skills,
+  todos,
   userActionPolicies,
   userFacts,
   userPreferences,
@@ -25,6 +26,7 @@ import {
   syncedSkillRevisionSchema,
   syncedSkillRunSchema,
   syncedSkillSchema,
+  syncedTodoSchema,
   syncedWorkflowSchema,
   type IDBKeys,
   type SyncedActionPolicy,
@@ -37,9 +39,10 @@ import {
   type SyncedSkill,
   type SyncedSkillRevision,
   type SyncedSkillRun,
+  type SyncedTodo,
   type SyncedWorkflow,
 } from "@alfred/sync";
-import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { ZodError } from "zod";
 
 /**
@@ -60,6 +63,8 @@ type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
 
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const BRIEFING_PULL_WINDOW_DAYS = 30;
+/** Done todos linger this long in the sync window before falling out (ADR-0050). */
+const TODO_DONE_WINDOW_DAYS = 7;
 
 function toEntityRow(args: {
   slug: IDBKeys;
@@ -312,6 +317,32 @@ const ENTITY_FETCHERS = {
       }),
     );
   },
+
+  // ADR-0050. `dismissed` rows never reach the client; `done` rows linger
+  // `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the DB).
+  // `suggested` + `open` always sync.
+  TODO: async (tx, userId) => {
+    const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const rows = await tx
+      .select()
+      .from(todos)
+      .where(
+        and(
+          eq(todos.userId, userId),
+          ne(todos.status, "dismissed"),
+          or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
+        ),
+      )
+      .orderBy(asc(todos.createdAt), asc(todos.id));
+    return rows.flatMap((t: typeof todos.$inferSelect) =>
+      toEntityRow({
+        slug: "TODO",
+        id: t.id,
+        rowVersion: t.rowVersion,
+        serialize: () => serializeTodo(t),
+      }),
+    );
+  },
 } satisfies Record<IDBKeys, EntityFetcher>;
 
 export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
@@ -384,6 +415,31 @@ function serializeBriefing(b: typeof briefings.$inferSelect): SyncedBriefing {
     rowVersion: b.rowVersion,
     createdAt: toRequiredIso(b.createdAt, "briefings.createdAt"),
     updatedAt: toIso(b.updatedAt),
+  });
+}
+
+function serializeTodo(t: typeof todos.$inferSelect): SyncedTodo {
+  if (t.status === "dismissed") {
+    throw new Error("[replicache] cannot sync a dismissed todo");
+  }
+  return syncedTodoSchema.parse({
+    id: t.id,
+    userId: t.userId,
+    name: t.name,
+    description: t.description,
+    status: t.status,
+    createdBy: t.createdBy,
+    executor: t.executor,
+    kind: t.kind,
+    assist: t.assist,
+    sources: t.sources,
+    agentRunId: t.agentRunId,
+    completedAt: toIso(t.completedAt),
+    position: t.position,
+    dueDate: t.dueDate,
+    rowVersion: t.rowVersion,
+    createdAt: toRequiredIso(t.createdAt, "todos.createdAt"),
+    updatedAt: toIso(t.updatedAt),
   });
 }
 

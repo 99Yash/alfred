@@ -56,6 +56,12 @@ export interface InboxPagination {
 export interface RailData {
   todos: ReadonlyArray<TodoItem>;
   todoSuggestions?: ReadonlyArray<SuggestionInput>;
+  /** Check/uncheck a todo (ADR-0050). `done` is the row's current state. */
+  onToggleTodo?: (id: string, done: boolean) => void;
+  /** Add a user-authored todo from the rail's add row. */
+  onCreateTodo?: (title: string) => void;
+  /** Accept a suggestion (`suggested → open`). */
+  onPromoteSuggestion?: (id: string) => void;
   inbox: ReadonlyArray<InboxItem>;
   /** Optional pagination state for the inbox tab. */
   inboxPagination?: InboxPagination;
@@ -166,6 +172,7 @@ export function RailContent({
             onValueChange={onTabChange}
             items={RAIL_TABS}
             label="Today filter"
+            variant="glass"
           />
         </div>
 
@@ -182,7 +189,13 @@ export function RailContent({
            * visible edge. */}
           <div className="relative grid grid-cols-[minmax(0,1fr)]">
             <RailSlot active={tab === "todo"}>
-              <TodoFeed items={data.todos} suggestions={data.todoSuggestions} />
+              <TodoFeed
+                items={data.todos}
+                suggestions={data.todoSuggestions}
+                onToggleTodo={data.onToggleTodo}
+                onCreateTodo={data.onCreateTodo}
+                onPromoteSuggestion={data.onPromoteSuggestion}
+              />
             </RailSlot>
             <RailSlot active={tab === "inbox"}>
               <InboxFeed

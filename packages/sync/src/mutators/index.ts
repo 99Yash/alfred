@@ -10,12 +10,27 @@ import {
 import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
 import { policySetIntegrationModeArgsSchema, policySetIntegrationModeClient } from "./policy";
 import { workflowUpdateArgsSchema, workflowUpdateClient } from "./workflows";
+import {
+  todoCompleteArgsSchema,
+  todoCompleteClient,
+  todoCreateArgsSchema,
+  todoCreateClient,
+  todoDismissArgsSchema,
+  todoDismissClient,
+  todoEditArgsSchema,
+  todoEditClient,
+  todoPromoteArgsSchema,
+  todoPromoteClient,
+  todoReopenArgsSchema,
+  todoReopenClient,
+} from "./todos";
 
 export * from "./notes";
 export * from "./facts";
 export * from "./prefs";
 export * from "./policy";
 export * from "./workflows";
+export * from "./todos";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -31,6 +46,12 @@ export const clientMutators = {
   prefDelete: prefDeleteClient,
   policySetIntegrationMode: policySetIntegrationModeClient,
   workflowUpdate: workflowUpdateClient,
+  todoCreate: todoCreateClient,
+  todoComplete: todoCompleteClient,
+  todoReopen: todoReopenClient,
+  todoPromote: todoPromoteClient,
+  todoDismiss: todoDismissClient,
+  todoEdit: todoEditClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -49,4 +70,10 @@ export const mutatorArgsSchemas = {
   prefDelete: prefDeleteArgsSchema,
   policySetIntegrationMode: policySetIntegrationModeArgsSchema,
   workflowUpdate: workflowUpdateArgsSchema,
+  todoCreate: todoCreateArgsSchema,
+  todoComplete: todoCompleteArgsSchema,
+  todoReopen: todoReopenArgsSchema,
+  todoPromote: todoPromoteArgsSchema,
+  todoDismiss: todoDismissArgsSchema,
+  todoEdit: todoEditArgsSchema,
 };
