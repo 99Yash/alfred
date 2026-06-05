@@ -82,19 +82,20 @@ export function getResearchModel(): LanguageModel {
  */
 export type ChatModelTier = "standard" | "deep";
 
-const CHAT_PRIMARY: Record<ChatModelTier, () => LanguageModel> = {
-  standard: () => anthropic("claude-sonnet-4-6"),
-  deep: () => anthropic("claude-opus-4-6"),
-};
-
-const CHAT_FALLBACK: Record<ChatModelTier, () => LanguageModel> = {
-  // Gemini 2.5 Pro is the closest-intelligence Google tier for both rungs.
-  standard: () => google("gemini-2.5-pro"),
-  deep: () => google("gemini-2.5-pro"),
-};
-
+/**
+ * Spend-cap swap (mirrors `getBossModel`, 2026-05-21): while the Anthropic
+ * workspace spend cap is in effect, chat runs on Google. Gemini 2.5 Flash for
+ * `standard` (low-latency, the right feel for interactive chat — 2.5 Pro runs
+ * minutes/turn) and 2.5 Pro for `deep` escalation.
+ *
+ * Intended mapping once the cap clears (swap back by returning the
+ * `anthropic(...)` line): `standard → claude-sonnet-4-6`,
+ * `deep → claude-opus-4-6`. The Anthropic path also wants `withFallback(...,
+ * google(...))` once that wrapper is unblocked (see below).
+ */
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
-  return withFallback(CHAT_PRIMARY[tier](), CHAT_FALLBACK[tier]());
+  // return tier === "deep" ? anthropic("claude-opus-4-6") : anthropic("claude-sonnet-4-6");
+  return tier === "deep" ? google("gemini-2.5-pro") : google("gemini-2.5-flash");
 }
 
 /**
