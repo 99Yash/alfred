@@ -152,9 +152,15 @@ const STRONG_BULK_MIN_SHARE = 0.8;
  * none of these verbs, so it never trips the floor (the bug that opened v3).
  * `[\s\S]` (dotall) so the noun and verb can wrap onto separate lines, as
  * security-bot bodies do.
+ *
+ * The noun set is narrower than `hasSecurityKeyword` ON PURPOSE: the generic
+ * `credential` is excluded here (it stays in the broad hint regex) because
+ * `credential` + `exposed` over an 80-char window matches ordinary engineering
+ * prose ("the credential object is exposed to the network") and the floor is
+ * unrecoverable — a false positive force-tags an architecture email `urgent`.
  */
 const OVERRIDE_FLOOR_SECRET_RE =
-  /\b(?:secret|credential|api[ -]?key|token|private key|password)\b[\s\S]{0,80}\b(?:exposed|leaked|committed|compromised)\b/i;
+  /\b(?:secret|api[ -]?key|token|private key|password)\b[\s\S]{0,80}\b(?:exposed|leaked|committed|compromised)\b/i;
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
