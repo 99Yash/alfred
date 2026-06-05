@@ -19,7 +19,7 @@
  * WMO weather code for the resolved coordinates. No auth, CORS-open.
  *
  * If the weather call fails (network, rate-limit) the caller (react-query)
- * surfaces it; the WeatherChip hides itself.
+ * surfaces it; the weather line hides itself.
  *
  * History: we used `ipapi.co` originally — they now serve 429s without
  * CORS headers on the free tier, which the browser reports as a CORS
