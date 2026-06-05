@@ -26,16 +26,11 @@ describe("resolveBriefingReferences", () => {
   });
 
   test("keeps unknown placeholders as text and records them as unresolved", () => {
-    const result = resolveBriefingReferences(
-      "[[activity:github:pr:warden#999]]",
-      briefingGather(),
-    );
+    const result = resolveBriefingReferences("[[activity:github:pr:warden#999]]", briefingGather());
 
     assert.deepEqual(result.resolved, []);
     assert.deepEqual(result.unresolved, ["activity:github:pr:warden#999"]);
-    assert.deepEqual(result.segments, [
-      { kind: "text", text: "activity:github:pr:warden#999" },
-    ]);
+    assert.deepEqual(result.segments, [{ kind: "text", text: "activity:github:pr:warden#999" }]);
   });
 
   test("segments mixed prose with an email reference", () => {

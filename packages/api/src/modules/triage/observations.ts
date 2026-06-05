@@ -57,17 +57,43 @@ export interface ContentFlags {
   hasUnsubscribe: boolean;
   /** A currency amount (`$1,200.00`, `₹500`, `1.000,00 €`) — a payment tell. */
   hasCurrencyAmount: boolean;
-  /** Security/credential vocabulary — feeds the override-floor anomaly check. */
+  /**
+   * Security/credential vocabulary — broad on purpose (matches sign-in /
+   * password / token language). Feeds the model AND the second-pass
+   * under-classification net. This is STRICTLY BROADER than the override-floor
+   * predicate (which keys on exposure verbs only), so a self-initiated magic
+   * link sets this flag but never trips the floor.
+   */
   hasSecurityKeyword: boolean;
   /** An embedded calendar invite (iCal) — a meeting tell. */
   hasCalendarInvite: boolean;
+  /**
+   * Investor / shareholder / AGM / registrar notice language (ADR-0051 §5,
+   * Phase 3). Migrated from the deleted `applyTriageClassificationGuardrails`
+   * investor rewrite — now a NAMED FLAG fed to the model, never a category
+   * rewrite. Helps the model honor rule 9 (a corporate "meeting" is not the
+   * user's meeting).
+   */
+  hasInvestorNotice: boolean;
+  /**
+   * Public-event blast language — WWDC/keynote/webinar/conference/summit/
+   * launch/save-the-date (ADR-0051 §5, Phase 3). Migrated from the deleted
+   * public-event guardrail; a named flag, not a rewrite. Helps the model
+   * honor rule 8 (public events are marketing/newsletter/fyi, not meeting).
+   */
+  hasPublicEventLanguage: boolean;
 }
 
 const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsubscribe/i;
-const CURRENCY_RE = /(?:[$€£₹]\s?\d|(?:\b(?:usd|eur|gbp|inr)\b)\s?\d|\d[\d.,]*\s?(?:[$€£₹]|usd|eur|gbp|inr)\b)/i;
+const CURRENCY_RE =
+  /(?:[$€£₹]\s?\d|(?:\b(?:usd|eur|gbp|inr)\b)\s?\d|\d[\d.,]*\s?(?:[$€£₹]|usd|eur|gbp|inr)\b)/i;
 const SECURITY_RE =
   /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
+const INVESTOR_RE =
+  /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
+const PUBLIC_EVENT_RE =
+  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconference\b|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
 
 /** Derive cheap deterministic content flags from the email's signal text. */
 export function extractContentFlags(text: string): ContentFlags {
@@ -76,6 +102,8 @@ export function extractContentFlags(text: string): ContentFlags {
     hasCurrencyAmount: CURRENCY_RE.test(text),
     hasSecurityKeyword: SECURITY_RE.test(text),
     hasCalendarInvite: CALENDAR_RE.test(text),
+    hasInvestorNotice: INVESTOR_RE.test(text),
+    hasPublicEventLanguage: PUBLIC_EVENT_RE.test(text),
   };
 }
 

@@ -332,9 +332,7 @@ export const serverMutators = {
         completedAt: new Date(),
         rowVersion: sql`${todos.rowVersion} + 1`,
       })
-      .where(
-        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")),
-      );
+      .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")));
   },
 
   /** Uncheck the box: `done → open`, clear `completed_at`. */
@@ -346,9 +344,7 @@ export const serverMutators = {
         completedAt: null,
         rowVersion: sql`${todos.rowVersion} + 1`,
       })
-      .where(
-        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")),
-      );
+      .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
   },
 
   /** Accept a suggestion: `suggested → open`. `created_by` is preserved. */
