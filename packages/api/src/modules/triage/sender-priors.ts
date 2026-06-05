@@ -4,7 +4,7 @@ import { senderPriors } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import type IORedis from "ioredis";
-import { createRedisConnection } from "../../queue/connection";
+import { createCacheRedisConnection } from "../../queue/connection";
 
 /**
  * Sender priors store (ADR-0051 #2): a per-sender category histogram that is a
@@ -13,9 +13,11 @@ import { createRedisConnection } from "../../queue/connection";
  * Postgres is the source of truth; Redis is a read-through cache busted on
  * every increment. Because the model runs (and therefore increments) on every
  * email, the cache is mostly a within-burst optimization — but it keeps the
- * Phase-3 read off the per-email DB path. Mirrors the cache+bust shape of
- * `action-policies/resolve.ts`, with a Redis key instead of an in-process Map
- * (an in-process Map would be stale the instant the same run increments).
+ * Phase-3 read off the per-email DB path. A Redis key is used instead of an
+ * in-process Map (a Map would be stale the instant the same run increments).
+ * The cache connection is fail-fast ({@link createCacheRedisConnection}): an
+ * outage rejects immediately and we fall through to Postgres, so the cache is
+ * never a correctness or availability dependency of the classify path.
  */
 
 const CACHE_PREFIX = "alfred:sender-prior:";
@@ -83,7 +85,11 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 
 let redis: IORedis | undefined;
 function getRedis(): IORedis {
-  if (!redis) redis = createRedisConnection();
+  // Fail-fast cache connection: a Redis outage must degrade to the Postgres
+  // read, never hang the per-email triage path. The BullMQ connection's
+  // offline-queue-forever behavior would otherwise stall every classify on the
+  // cache read under an outage (the try/catch can only rescue a rejection).
+  if (!redis) redis = createCacheRedisConnection();
   return redis;
 }
 

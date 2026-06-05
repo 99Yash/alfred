@@ -66,12 +66,23 @@ function scriptedModel(first: TriageClassification, second?: TriageClassificatio
 describe("applyOverrideFloor", () => {
   test("forces urgent on an exposed-secret body regardless of model output", () => {
     const r = applyOverrideFloor(
-      classification({ category: "newsletter" }),
+      classification({ category: "newsletter", confidence: 0.8 }),
       "a private api key was leaked in this commit and must be rotated",
     );
     assert.equal(r.classification.category, "urgent");
     assert.equal(r.forced, true);
     assert.match(r.classification.rationale, /override floor/i);
+    // Forced urgent floors confidence to 0.85 (it is surfaced in the UI).
+    assert.equal(r.classification.confidence, 0.85);
+  });
+
+  test("preserves a model confidence already above the 0.85 floor (Math.max, not overwrite)", () => {
+    const r = applyOverrideFloor(
+      classification({ category: "fyi", confidence: 0.97 }),
+      "secret api key was exposed",
+    );
+    assert.equal(r.classification.category, "urgent");
+    assert.equal(r.classification.confidence, 0.97);
   });
 
   test("does NOT trip on a self-initiated magic link (auth vocab, no exposure verb)", () => {
@@ -298,6 +309,90 @@ describe("classifyEmail", () => {
     );
     const result = await classifyEmail(args({ runPass: model.runPass }));
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the key" });
+  });
+
+  test("todoSuggestion survives when the floor FORCES the category to urgent", async () => {
+    // The documented invariant the tail step relies on (email-triage.ts): the
+    // override floor changes the category but must preserve todoSuggestion, and
+    // resolveTodoSuggestion runs on the POST-floor classification.
+    const model = scriptedModel(
+      classification({
+        category: "action_needed",
+        confidence: 0.6,
+        todoSuggestion: { name: "Rotate the leaked Redis key" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_floor_todo",
+          title: "heads up",
+          content: "your private api key was leaked in the config repo",
+          authoredAt: null,
+          metadata: {},
+        },
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.audit.floorForced, true);
+    assert.equal(result.classification.category, "urgent");
+    assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the leaked Redis key" });
+    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+      name: "Rotate the leaked Redis key",
+    });
+  });
+
+  test("over-classification drives exactly one second pass through classifyEmail and tags +2pass", async () => {
+    // First pass spikes to urgent for a strong-bulk sender with no supporting
+    // signal; the over-classification net fires one second pass that corrects
+    // to newsletter and is final. Exercises the over_classification → second-
+    // pass orchestration (detectConflict alone was unit-tested; this is e2e).
+    const model = scriptedModel(
+      classification({ category: "urgent", confidence: 0.8 }),
+      classification({ category: "newsletter", confidence: 0.9 }),
+    );
+    const result = await classifyEmail(
+      args({
+        observations: observations({
+          senderPrior: {
+            key: "news@x.com",
+            categoryCounts: { newsletter: 40 },
+            lastCategory: "newsletter",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(model.calls(), 2);
+    assert.equal(result.audit.conflict?.kind, "over_classification");
+    assert.equal(result.audit.secondPass?.category, "newsletter");
+    assert.equal(result.classification.category, "newsletter");
+    assert.match(result.model, /\+2pass$/);
+  });
+
+  test("a failing second pass falls back to the FIRST pass, not the default category", async () => {
+    // Regression guard: a transient failure on the optional second pass must not
+    // propagate (the workflow would force the message to the default `fyi`,
+    // de-escalating it). The valid first pass is kept instead.
+    let calls = 0;
+    const runPass: RunPass = async ({ pass }) => {
+      calls++;
+      if (pass === "second") throw new Error("transient second-pass failure");
+      return classification({ category: "newsletter", confidence: 0.7 });
+    };
+    const result = await classifyEmail(
+      args({
+        observations: observations({
+          content: { ...observations().content, hasSecurityKeyword: true },
+        }),
+        runPass,
+      }),
+    );
+    assert.equal(calls, 2); // conflict fired, second pass attempted
+    assert.equal(result.audit.conflict?.kind, "under_classification");
+    assert.equal(result.audit.secondPass, null); // failed pass not recorded
+    assert.equal(result.classification.category, "newsletter"); // first pass preserved
+    assert.equal(result.model, "injected"); // no +2pass suffix on a failed pass
   });
 });
 

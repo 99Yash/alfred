@@ -476,12 +476,22 @@ export async function classifyEmail(
   let working = firstPass;
   let secondPass: TriageClassification | null = null;
   if (conflict) {
-    secondPass = await runPass({
-      system: SYSTEM_PROMPT,
-      prompt: userPrompt(args, conflict),
-      pass: "second",
-    });
-    working = secondPass;
+    // The second pass is an OPTIONAL re-check. A failure on it must NOT discard
+    // the already-valid first pass: if the error propagated, the workflow's
+    // catch would force the whole message to the default `fyi`, silently
+    // DE-escalating a real urgent/action_needed (the exact opposite of what the
+    // under-classification net is for). Fall back to the first pass instead.
+    try {
+      secondPass = await runPass({
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt(args, conflict),
+        pass: "second",
+      });
+      working = secondPass;
+    } catch {
+      secondPass = null;
+      working = firstPass;
+    }
   }
 
   const floorResult = applyOverrideFloor(working, floorSignalText(args.document));
@@ -515,6 +525,11 @@ function defaultRunPass(
         // Triage answers are tiny — cap hard so a misbehaving model can't burn
         // tokens on a wall-of-text rationale.
         maxOutputTokens: 400,
+        // Bound the call so a hung/slow Gemini connection can't stall the
+        // single-concurrency triage worker indefinitely. The workflow catches a
+        // timeout and falls through to the default category (better a label than
+        // a blocked queue).
+        timeout: { totalMs: 30_000 },
       },
       {
         role: "triage",

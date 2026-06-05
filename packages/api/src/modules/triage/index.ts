@@ -59,6 +59,7 @@ export type {
   IncrementSenderPriorArgs,
   SenderPriorWriteKeyArgs,
 } from "./sender-priors";
+export { isSentGmailMetadata, gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";
 export type {
   Observations,
