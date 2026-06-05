@@ -51,7 +51,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Integration write surface | Write tools are first-class; authorization = tool registry + active tool exposure bounded by `workflows.allowed_integrations` + `user action policy` (default `gated`); no structural write-block (ADR-0043, supersedes ADR-0033's no-write rule) |
 | OAuth posture | Multi-tenant-capable architecture, operated single-tenant; Google consent screen Production-unverified; least-privilege scope tiers, one restricted concession (`gmail.modify`); scope set tracks registered tools (ADR-0044) |
 | Workflow event dispatch | Generic `emitEvent` bus; triage unified onto it (no more hardcoded fan-out); `source`+`type` closed enums (`gmail.message_received`); bounded resolve-at-init `<trigger_event>` context; bounded idempotency (ADR-0047, extends ADR-0027) |
-| Todos | First **persisted** materialization of the open-loop model (ADR-0048 keeps loops ephemeral); one `todos` table, status-driven (`suggested\|open\|done\|dismissed`); hybrid authoring (user adds; Alfred proposes via `system.suggest_todo`, no HIL); multi-source `sources` provenance; v1 **passive** (agent authors + assists, never executes); agent-execution + cross-source auto-close + semantic dedup deferred (ADR-0050) |
+| Todos | First **persisted** materialization of the open-loop model (ADR-0048 keeps loops ephemeral); one `todos` table, status-driven (`suggested\|open\|done\|dismissed`); hybrid authoring (user adds; Alfred proposes via `system.suggest_todo`, no HIL); multi-source `sources` provenance; v1 **passive** (agent authors + assists, never executes); **suggestions produced real-time off the `email-triage` run, not the briefing — briefing fully decoupled** (ADR-0050 amendment 2026-06-05); agent-execution + cross-source auto-close + semantic dedup deferred (ADR-0050) |
 
 ---
 
@@ -3030,3 +3030,97 @@ This handles the **structural** case (the notification is recognizable and share
 **Open.**
 - **Suggestion production cadence** — primary caller is the briefing workflow (≈2×/day), but whether triage events should also fire `suggest_todo` live (event-driven freshness vs. proposal noise) is settled during build against observed rates, not now.
 - **Exact rail visual grammar** — section treatment, suggested-row affordance, done-fade — settled at build time against `../-dimension-ai-web` and the existing `quick-access-rail.tsx`; design detail, not architectural.
+
+**Amendment (2026-06-05) — producer model inverted: suggestions are real-time off triage, not a briefing ride-along; resolves the cadence Open.**
+
+The original ADR named the **briefing workflow** the primary `suggest_todo` caller (reuse its cross-source `gather`, avoid a second pipeline) and left **production cadence** Open. Production exposed the failure mode: a new user (`yash.k@oliv.ai`) signed up, accrued **6 `action_needed` + 5 `urgent`** triaged threads within six hours, and got **zero** todos — the `morning-briefing`/`daily-briefing` cron never fired in that window, and nothing else calls the tool. The cron-batch producer makes the rail *hostage to a ~2×/day job*; for the surface whose entire value is a live, in-the-UI commitment list, that is the wrong cadence. **Decision: todos are produced by a real-time pipeline; the briefing is removed from the todo path entirely.**
+
+- **Briefing is fully decoupled — not even a "mentioner."** It neither reads `todos` nor calls `suggest_todo`. Its action-ish mentions are **ephemeral open loops** (ADR-0048), computed from the gather/embeddings at compose-time and thrown away — a parallel feature that happens to look similar, not "todos that got mentioned." This reaffirms the CONTEXT.md boundary (ephemeral *open loop* vs. persisted *Todo*); the two never touch. Strike "primary caller is the briefing workflow" from the original Authoring section.
+- **Producer = a tail step on the `email-triage` run.** "Real-time like email tags" means the tag *is* the trigger: triage already fires per freshly-ingested Gmail doc (`emitEvent`, ADR-0047), so the suggestion is minted in the same run that classifies the mail. The todo's `agent_run_id` points at that triage run — clean provenance, **no second pipeline, no extra run, no boss**. `suggest_todo` stays the **source-agnostic seam** (its original design), so each future real-time source calls it from *its own* ingestion path: email via triage now; `integration_activity` producers (GitHub first) from their ingestion as they land. There is **no standalone cross-source gather** for todos — the briefing owns the only daily gather, and todos ride per-source events instead.
+- **Selectivity — the tag is necessary, not sufficient.** Two-stage gate: (1) deterministic category pre-filter drops `marketing`/`newsletter`/`fyi`/`done` outright; (2) a **context-sufficiency judgment** mints a suggestion only when the mail is worth acting on *and* carries enough concrete context to write a specific, actionable item. A vague ask ("something broke, please fix" with no what/where) yields **no todo even when tagged `action_needed`/`urgent`** — a bad, un-actionable rail item is worse than a missing one.
+- **Where the judgment runs — folded into the single cheap classify call, zero added cost.** Consistent with ADR-0051 ("cheap-model-always, made smart by deterministic context; no routine boss"): the context-rich `classify` call already has the full email open, so its output schema gains one optional `todoSuggestion: { name, assist? } | null`. No new LLM call, no boss escalation (ADR-0051 removed it). The quality lever for the context-sufficiency call, if flash-lite under-judges, is ADR-0051's **conditional second cheap pass** / prompt iteration — **not** a boss step.
+- **Unchanged.** One-table status model; no-HIL (a suggestion has no side effect); source-overlap **merge** as the v1 dedup guard (now more load-bearing — the same thread can surface in both a real-time triage event and, later, a cross-source activity event); 7-day done window; `executor`/`kind` inert. Noise is governed by the selectivity gate and tuned against observed accept/dismiss (`created_by` + `dismissed`), per the original noise rationale.
+
+This **resolves the cadence Open** (real-time/event-driven, not cron-batch) and reverses the producer choice; it is a producer/trigger change only — **no schema migration** to `todos` (the `todoSuggestion` field lives on the triage classifier's output, not the DB).
+
+---
+
+## ADR-0051 — Email triage v3: cheap-model-always, made smart by deterministic context (sender priors + account persona + observation/inconsistency layer); supersedes ADR-0042's classifier shape
+
+**Decision.** Triage keeps the cheap, fast model ([`getCheapModel`](packages/ai/src/provider.ts), gemini-2.5-flash-lite) on **every** email — speed and per-email cost are hard product constraints at real inbox volume. Intelligence comes not from a bigger model but from **deterministic context fed into the cheap model**: a per-sender category histogram (`sender_priors`), an account persona label (work/personal), thread state (sent-mail aware), a known-contact flag, Gmail-native signals, and cheap regex content flags. A deterministic **observation/inconsistency layer** focuses the model's attention on anomalies; a **conditional second cheap pass** re-runs the model with a detected conflict spelled out; a **small high-precision override floor** can force `urgent`/`action_needed` on unambiguous severity signals. There is **no routine boss/Sonnet escalation** — the expensive, slow agent boss is at most a vanishing edge case, ideally absent. This inverts and supersedes [ADR-0042](#adr-0042): v2 was *cheap-classify-email-only + boss-deepen-on-a-gate*; v3 is *cheap-classify-context-rich-always, no routine boss*. The latency complaint that triggered this was a delivery bug (missing Gmail watch on connect, [ADR-0037](#adr-0037)), not the model — so v3 is purely an intelligence play that keeps latency low by construction.
+
+Eight coordinated micro-decisions:
+
+1. **Cheap model on every email; never skip the model.** The prior cache is a **fed signal, not a bypass**. A 99%-newsletter sender can still send one genuinely urgent message; always-classifying catches the anomaly while staying consistent on the routine. Because the model runs every time, the prior histogram is refreshed every time — there is no staleness problem and no cache-invalidation problem to solve.
+2. **`sender_priors` as a fed histogram.** New table keyed `(user_id, sender_key)` where `sender_key` is the **exact lowercased sender address** or `service:<botSlug>` for recognized bots. Stores a raw category histogram (`category_counts`), not a verdict. **No domain-level priors in v1** (domain is where multi-type senders collide). **Human senders (`effectiveAuthor: 'person'`) are not cached** — a person's category is a property of each message, not the sender; the prior cache is explicitly a **bulk-sender** signal (newsletter/marketing/payment/digest/bot). The model reads the raw histogram and decides; there is **no `confidence`/`locked`/`source`/dominant-share gating** (those were artifacts of the rejected bypass design).
+3. **Account persona is a per-credential context label.** Single-user, multi-account: a user may connect a work Workspace account and a personal one. Detect persona from the Google **`hd` (hosted-domain)** claim — Workspace domain → `work`, absent → `personal` — store it on `integration_credentials`, allow user override on the integration detail page, and feed a one-line label into the model's context. The **rich persona *policy*** (what is work-urgent vs personal-urgent) is **deferred to its own ADR**; v1 gives the model the label + a short guidance line and lets it reason with existing `user context`.
+4. **Observation/inconsistency layer (the "make a cheap model smart" mechanism).** Two passes. **(a) Pre-model observations**, computed deterministically and always fed into the single cheap call: prior histogram, persona, thread state, known-contact flag, Gmail-native signals (`CATEGORY_*`, `IMPORTANT`, `STARRED`), and cheap regex content flags (unsubscribe footer / currency amount / security keywords / calendar invite). **(b) Conditional second cheap pass**, only on a hard, deterministically-detected conflict between the model's output and a strong expectation (prior / content flag / Gmail signal) — re-runs flash-lite with the inconsistency spelled out. Most inconsistencies are *prevented* by (a); (b) is a thin net, still sub-second, still cheap, **no boss**.
+5. **Deterministic override floor.** A **small, high-precision** set of unambiguous severity signals (exposed credential/secret, CVE, payment-failure-breaks-access-today) may **force** `urgent`/`action_needed` regardless of model output; the **model owns the category everywhere else**. The set is seeded small and grows only from observed-data evidence (mirrors ADR-0042's bot-allowlist philosophy) — explicitly **not** a large keyword ruleset, to avoid re-introducing the brittleness that mis-tagged self-initiated sign-in links as `urgent` (the bug that opened this work).
+6. **No correction loop in v1.** Do **not** extend the Gmail history sweep to reconcile user label-moves; do not build label-change attribution (its "did Alfred or the user move this?" ambiguity is a self-poisoning risk). Priors learn **only from Alfred's own classifications**. User corrections, if ever, arrive through **chat** ("that wasn't urgent") and are **deferred** to a later iteration; the schema reserves no machinery for it in v1.
+7. **Sent-mail ingestion as a shared foundation.** Ingest `in:sent` via the existing `persistMessage` path **and embed it** — triage needs only thread state, but the user wants **chat recall over sent mail** ("did I send so-and-so a doc about X?"), which needs vectors, and it feeds future style profiles ([ADR-0013](#adr-0013)). Two hard guardrails: sent mail is **never triaged/labeled** (excluded from the triage event fan-out) and **never becomes a sender prior** (you are not a sender to cache).
+8. **Thread state is a fed observation, not a hard rule.** Sent-mail awareness lets us tell the model "you last replied in this thread on `<date>`" rather than deterministically forcing `done`/`fyi`. The model owns the resulting category, dissolving the taxonomy-edge question of how "you already replied" maps onto the 10 buckets.
+
+**Pipeline.**
+
+```
+ingest doc (gmail.poll_recent / gmail.poll_history)   [+ in:sent ingested, never triaged]
+  ↓
+extract-sender-context           deterministic, ~5ms (UNCHANGED — ADR-0042 #1)
+  ↓
+gather observations              deterministic, ~ms — prior histogram, persona,
+                                 thread state, known-contact, Gmail signals, content flags
+  ↓
+classify (cheap, context-rich)   gemini-2.5-flash-lite, ~sub-second, ALWAYS
+  ↓
+[inconsistency check]            deterministic; on hard conflict → one more cheap pass
+[override floor]                 deterministic; forces urgent/action_needed on the
+                                 high-precision severity set only
+  ↓
+persist email_triage + update sender_priors histogram
+  ↓
+apply-label                      Gmail messages.modify + sibling strip (UNCHANGED)
+```
+
+**`sender_priors` shape.**
+
+```ts
+sender_priors (
+  user_id         text NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+  sender_key      text NOT NULL,        // exact lowercased email | service:<botSlug>
+  category_counts jsonb NOT NULL DEFAULT '{}',  // histogram, e.g. { newsletter: 12, marketing: 1 }
+  last_category   text,
+  display_name    text,
+  last_seen_at    timestamptz,
+  ...lifecycle_dates,
+  PRIMARY KEY (user_id, sender_key)
+)
+```
+
+**What this keeps from ADR-0042.** The deterministic `extract-sender-context` step (#1) and its `SenderContext` shape; the async dossier trigger + `person_profiles` cache (#4/#5) as a future hook; the `system.read_user_context` surface + `alfred:user-context:{userId}:v1` Redis read-through (#6) — though triage now reads that slice deterministically and hands it to the model as text rather than via a tool; and the `triage.sender_extraction` observability event (#7), extended with the new observations.
+
+**What this supersedes in ADR-0042.** #2 (cheap classifier is email-only, no bio/profile — now context-rich; alt (g) is **adopted**, not rejected); #3 (the boss `deepen` step as a brief-only `AlfredAgent` loop on a confidence/bot/contact gate — there is no routine boss step and no agent loop in triage v3).
+
+**Cost & latency (100 emails/day single user).** Steady state ≈ 100 cheap calls/day + a small fraction of second cheap passes ≈ **~$0.01–0.02/day** — same order as ADR-0042's cheap path, *minus* the ~10%/day boss-deepen line, because there is no routine boss. Latency: one cheap call (~sub-second), a rare second cheap call on conflict (still sub-second total); end-to-end user-perceived latency is dominated by realtime delivery (watch → pub/sub → poll_recent, ~sub-30s post-ADR-0037), not classification. The <10s goal holds by construction.
+
+**Alternatives.**
+
+- **(a) Cache as a model *bypass*** (deterministic resolver chain; skip the model on a confident prior). Rejected — a confident `newsletter` prior would blind triage to the one urgent message that sender ever sends. "Never skip the model" catches the anomaly; the prior is a hint, not a verdict.
+- **(b) Smart model (Sonnet-class) on every email, no cheap tier.** Rejected — slower and materially more expensive per email; unsustainable at real inbox volume for a per-message job. The needed smartness is concentrated in edge cases, deliverable via context rather than a bigger model on the 95% obvious path.
+- **(c) Cheap-always + elevate-to-boss on the cheap model's judgment** ([ADR-0042](#adr-0042)'s shape, kept). Rejected — leans on the cheap model to know when it is out of its depth (the exact judgment cheap models are weakest at) and pays slow/expensive boss latency on the most frequent *important* category (fresh human mail). Deterministic inconsistency-flagging + a focused second cheap pass gets the edge-case win without the slow tier.
+- **(d) Gmail-label correction loop** (learn from user label-moves; lock priors). Rejected for v1 — history label events don't say *who* moved the label, so attribution risks learning from Alfred's own writes and locking a sender wrong forever. Deferred to a chat-driven correction path.
+- **(e) Domain-level priors.** Rejected for v1 — domain is exactly where multi-type senders (`@bank.com` sends statements, fraud alerts, and marketing) defeat a single category. Exact-sender (role address) priors are far more stable.
+- **(f) Human-sender priors.** Rejected — a person's category is per-message; a person→category prior would actively mis-tag. Humans are reasoned per-message with a known-contact flag from `entities`.
+- **(g) Skip embedding sent mail** (thin thread-state-only ingestion). Rejected — the user wants semantic chat recall over sent mail, which needs vectors; full ingest + embed also serves style profiles.
+- **(h) Confidence/locked/source gating on priors.** Rejected — those existed to gate a bypass; with the model always running, the raw histogram fed to the model is sufficient and simpler.
+
+**Deferred (own discussions / future ADRs).**
+
+- **Persona policy** — the rich definition of work-urgent vs personal-urgent relevance. Its own ADR; v1 ships only the persona label + plumbing.
+- **Chat-driven correction** — a chat tool by which the user corrects a tag and pins a prior.
+- **Connect-time prior backfill** — pre-warming priors by classifying recent mail at connect. A nice-to-have now that cold start is not a correctness problem.
+
+**Open.**
+
+- **Inconsistency-conflict definition** — the exact deterministic conditions that trigger the second cheap pass (prior-vs-output, content-flag-vs-output, signal-vs-output). Seeded conservative; tuned from `triage.sender_extraction` logs, not specified up front.
+- **Override-floor membership** — the precise high-precision severity set. Starts minimal; grows only on observed evidence.
+- **Second-pass rate** — if the conditional second cheap pass fires on too large a fraction of mail, the conflict conditions are too loose and get tightened before they cost real latency.

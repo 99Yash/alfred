@@ -11,6 +11,7 @@ import {
   readTriageUserContext,
   setAppliedLabelId,
   shouldDeepen,
+  suggestTodo,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
   upsertTriage,
@@ -331,6 +332,40 @@ export const emailTriageWorkflow: Workflow<State> = {
             await ctx.log(
               `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
             );
+          }
+
+          // Real-time todo suggestion (ADR-0050 amendment 2026-06-05). The cheap
+          // classifier emits `todoSuggestion` when this mail is an actionable,
+          // context-complete commitment (rule 16); the tail step mints a
+          // `suggested` todo for the rail. New-classification path only — the
+          // reuse branch above already proposed on its originating run.
+          // `todoSuggestion` rides the CHEAP result (`cheapClassification`):
+          // `deepen` re-emits a classification without the field, so we read it
+          // from there, but suppress if a deepen pass downgraded the category
+          // out of the actionable set. `suggest_todo` is idempotent on source
+          // overlap, so a re-triaged thread merges rather than duplicates, and
+          // a failed suggestion is non-fatal — the label + row are the contract.
+          const todoSuggestion = cheapClassification?.todoSuggestion ?? null;
+          const todoEligible = !["marketing", "newsletter", "fyi", "done"].includes(
+            classification.category,
+          );
+          if (todoSuggestion && todoEligible) {
+            try {
+              const suggested = await suggestTodo({
+                userId: ctx.userId,
+                agentRunId: ctx.runId,
+                name: todoSuggestion.name,
+                assist: todoSuggestion.assist,
+                sources: [{ provider: "gmail", kind: "thread", id: sourceThreadId }],
+              });
+              await ctx.log(
+                `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
+              );
+            } catch (err) {
+              await ctx.log(
+                `suggest_todo failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
 
           // Emit only on the new-classification path. On the idempotency
