@@ -9,6 +9,7 @@ import {
   getTriage,
   incrementSenderPrior,
   isKnownContact,
+  isSentGmailMetadata,
   loadTriageContext,
   publishEvent,
   resolveTodoSuggestion,
@@ -319,7 +320,7 @@ export const emailTriageWorkflow: Workflow<State> = {
           // Best-effort: a prior write must never fail the label, which is the
           // contract. Phase 2 proves the plumbing; Phase 3 feeds the histogram
           // back into the classifier prompt.
-          const docIsSent = (ctxData.document.metadata as { isSent?: unknown }).isSent === true;
+          const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
           const senderKey = senderPriorWriteKeyFor({
             senderContext,
             senderAddress: senderContextResult.senderAddress,
@@ -531,7 +532,6 @@ async function gatherObservations(args: {
     .join("\n");
 
   return assembleObservations({
-    senderContext: args.senderContext,
     senderKey,
     senderPrior,
     persona: args.persona,
@@ -540,6 +540,40 @@ async function gatherObservations(args: {
     labelIds,
     signalText,
   });
+}
+
+/**
+ * Structured `triage.sender_extraction` log payload. Explicitly typed (not
+ * `Record<string, unknown>`) so a field rename or shape drift — this object is
+ * JSON-stringified and parsed by downstream tooling — fails the build instead
+ * of compiling silently. Field types are derived from the source types so they
+ * stay in lockstep.
+ */
+interface SenderExtractionEvent {
+  fromKind: SenderContext["fromKind"];
+  bodyActor: SenderContext["bodyActor"] | null;
+  effectiveAuthor: SenderContext["effectiveAuthor"];
+  botSlug: string | null;
+  parserHit: SenderContextResult["parserHit"];
+  senderAddress: SenderContextResult["senderAddress"];
+  senderDomain: SenderContextResult["senderDomain"];
+  persona: string | null;
+  senderPriorKey: string | null;
+  senderPriorCounts: Record<string, number>;
+  knownContact: boolean;
+  threadMessages: number;
+  threadNewest: Observations["thread"]["newestDirection"];
+  gmailImportant: boolean;
+  gmailCategories: string[];
+  contentFlags: Observations["content"];
+  firstPassCategory: TriageCategory | null;
+  firstPassConfidence: number | null;
+  conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
+  secondPassCategory: TriageCategory | null;
+  floorForced: boolean;
+  finalCategory: TriageCategory;
+  finalConfidence: number;
+  todoSuggested: boolean;
 }
 
 /**
@@ -553,7 +587,7 @@ function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-}): Record<string, unknown> {
+}): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;

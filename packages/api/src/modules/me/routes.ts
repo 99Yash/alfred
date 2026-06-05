@@ -27,6 +27,7 @@ import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
+import { notSentGmailDocumentWhere } from "../triage/sent-mail";
 import { sanitizeEmailHtml } from "./email-html";
 
 /**
@@ -50,17 +51,6 @@ const INBOX_MAX_LIMIT = 50;
  * compose, not display).
  */
 const RAIL_SUPPRESSED_CATEGORIES = ["newsletter", "marketing"];
-
-export function isSentGmailMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
-  const meta = metadata ?? {};
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as unknown[]) : [];
-  return meta.isSent === true || labelIds.some((label) => label === "SENT");
-}
-
-function notSentGmailDocumentWhere() {
-  return drizzleSql<boolean>`COALESCE((${documents.metadata} ->> 'isSent')::boolean, false) = false
-    AND NOT (COALESCE(${documents.metadata} -> 'labelIds', '[]'::jsonb) ? 'SENT')`;
-}
 
 export interface MeInboxItem {
   documentId: string;

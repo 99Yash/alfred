@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 
 import { mergeTodoSources, todoSourceKey, type TodoSource } from "@alfred/contracts";
 
+import { todoSourcesOverlap } from "../../src/modules/todos/suggest";
+
 // ---------------------------------------------------------------------------
 // Phase 0 — the source-overlap merge that keeps `suggestTodo` idempotent.
 //
@@ -59,19 +61,27 @@ describe("mergeTodoSources", () => {
   });
 });
 
-describe("suggestTodo overlap guard (invariant the dedup loop relies on)", () => {
-  // Mirrors the candidate-matching predicate in suggestTodo: an incoming source
-  // set overlaps a candidate when any incoming key is already on the candidate.
-  function overlaps(candidateSources: TodoSource[], incoming: TodoSource[]): boolean {
-    const incomingKeys = new Set(incoming.map(todoSourceKey));
-    return candidateSources.some((ref) => incomingKeys.has(todoSourceKey(ref)));
-  }
-
+describe("todoSourcesOverlap (the REAL predicate suggestTodo's dedup loop runs)", () => {
   test("matches a live todo carrying the same thread ref → merge path", () => {
-    assert.equal(overlaps([threadRef], [threadRef]), true);
+    assert.equal(todoSourcesOverlap([threadRef], [threadRef]), true);
   });
 
   test("does not match an unrelated todo → insert path", () => {
-    assert.equal(overlaps([{ provider: "gmail", kind: "thread", id: "other" }], [threadRef]), false);
+    assert.equal(
+      todoSourcesOverlap([{ provider: "gmail", kind: "thread", id: "other" }], [threadRef]),
+      false,
+    );
+  });
+
+  test("matches on identity even when only the url differs (url is not identity)", () => {
+    assert.equal(
+      todoSourcesOverlap([{ ...threadRef, url: "https://mail.google.com/x" }], [threadRef]),
+      true,
+    );
+  });
+
+  test("empty existing or empty incoming never overlaps", () => {
+    assert.equal(todoSourcesOverlap([], [threadRef]), false);
+    assert.equal(todoSourcesOverlap([threadRef], []), false);
   });
 });
