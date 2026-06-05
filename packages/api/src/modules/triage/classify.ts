@@ -32,6 +32,28 @@ export const triageClassificationSchema = z.object({
   confidence: z.number().min(0).max(1),
   /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(500),
+  /**
+   * Optional real-time todo proposal for the rail (ADR-0050 amendment 2026-06-05).
+   * Non-null ONLY when this email is an actionable, context-complete commitment
+   * worth tracking — the email-triage tail step turns it into a `suggested`
+   * todo via `system.suggest_todo`. Governed by rule 16: the category gate
+   * (never marketing/newsletter/fyi/done) plus a context-sufficiency test, so a
+   * vague ask ("something broke, fix it") stays `null` even when the category
+   * is `action_needed`/`urgent`. The model must always emit the key (null when
+   * no todo) — this is one field on the existing cheap call, not a second call.
+   */
+  todoSuggestion: z
+    .object({
+      /** Crisp imperative title for the rail checkbox row. */
+      name: z.string().min(1).max(120),
+      /** Optional one-liner on how to approach it, or an honest "can't act yet". */
+      assist: z.string().max(280).optional(),
+    })
+    .nullable()
+    // Optional on the TYPE so non-cheap-classifier producers (deepen, tests)
+    // need not set it; the cheap call is prompted to always emit it (null when
+    // no todo), and the triage tail step reads `?? null`.
+    .optional(),
 });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
@@ -96,6 +118,11 @@ Rules:
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
 14. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
 15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
+16. Todo suggestion (rail) — IN ADDITION to the category, decide whether this email is a commitment worth tracking on the user's todo rail. Set the \`todoSuggestion\` field, always present:
+    16a. NEVER propose for marketing, newsletter, fyi, or done → todoSuggestion is null. The category tag is NECESSARY but NOT sufficient.
+    16b. Propose ONLY when BOTH hold: (i) it is worth acting on for the day, AND (ii) the email carries enough concrete context to write a specific, self-contained action.
+    16c. If the ask is vague or you cannot say what to actually DO from the email alone — "something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing the specifics — set todoSuggestion to null EVEN WHEN the category is action_needed or urgent. A vague rail item is worse than none.
+    16d. When you do propose: \`name\` is a crisp imperative the user recognizes at a glance ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD"). \`assist\` is an optional one-liner on how to approach it, or an honest "I can't act on this yet — <reason>" when there is no path. Never invent specifics absent from the email.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
@@ -119,7 +146,7 @@ Examples (subject → category):
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
 - "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "..." }`;
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null }`;
 
 function userPrompt(args: ClassifyEmailArgs): string {
   const lines: string[] = [];
