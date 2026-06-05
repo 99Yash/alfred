@@ -794,10 +794,7 @@ function useRailData(): RailData {
     promoteTodo,
   } = useTodos();
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
-  const todoSuggestions = useMemo(
-    () => liveSuggestions.map(toRailSuggestion),
-    [liveSuggestions],
-  );
+  const todoSuggestions = useMemo(() => liveSuggestions.map(toRailSuggestion), [liveSuggestions]);
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
