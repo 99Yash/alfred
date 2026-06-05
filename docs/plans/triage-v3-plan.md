@@ -14,6 +14,10 @@ plus the surviving *SenderContext*, *Effective author*, *User context*),
 > ADR-0051 written. Ready to build. Two fixes already shipped this cycle:
 > `gmail.watch_install` on OAuth connect (the actual latency fix), and the
 > self-initiated sign-in/magic-link carve-out in the classify prompt (rule 15).
+> Last-commit delta: real-time todo suggestions are now partially live on the
+> existing v2 path (`todoSuggestion` in `classify.ts`, `suggestTodo` tail step in
+> `email-triage.ts`). Triage v3 must preserve that tail step while moving the
+> classifier to observation-rich inputs.
 
 ---
 
@@ -79,10 +83,24 @@ Raw histogram only — **no** `confidence`/`locked`/`source`/`observations`/`dom
 R-Q8h). Written on every classification. **Never** keyed on a human sender (`effectiveAuthor:
 'person'`) and **never** on the user's own sent mail.
 
+Migration contract: one Drizzle schema change + generated migration. Use `pnpm db:generate`
+then `pnpm db:migrate` locally; do not `db:push`.
+
 ### 3b. `integration_credentials.persona`
 
 Add `persona text` (`'work' | 'personal'`), auto-detected from the Google `hd` claim at
 connect, user-overridable. (R-Q7)
+
+Implementation detail: `exchangeCode()` currently verifies `sub` + `email` from the Google
+`id_token` and drops the rest. Widen the verified claims shape to expose `hd?: string`, pass
+it through `upsertCredential()`, and store both:
+
+- `persona`: `hd` present -> `work`, absent -> `personal`
+- `metadata.googleHostedDomain`: the raw `hd` value when present, for audit/debug
+
+Credential listing is REST-backed today (`GET /api/integrations/google/credentials`), so the
+override can be a small authenticated route plus the existing integration detail page. No
+Replicache row-version is required unless integration credentials become a synced entity first.
 
 ### 3c. Sent mail (R-Q8)
 
@@ -90,34 +108,143 @@ No schema change — reuses `documents` (`source='gmail'`, same `source_thread_i
 docs (`metadata.isSent`). Ingested **and embedded**; **excluded** from the triage event
 fan-out and from prior updates.
 
+Implementation detail: Gmail already stores raw `labelIds` in `documents.metadata.labelIds`.
+The sent-mail path should preserve that shape and set `metadata.isSent = labelIds includes
+"SENT"` (or equivalent `from === accountLabel` fallback). The event filter belongs in
+`emitGmailMessageEvents` / the ingestion worker boundary so sent docs never create
+`gmail.message_received` runs.
+
 ## 4. Components & files
 
 | Concern | Where | Change |
 |---|---|---|
 | Sender prior store | `packages/api/src/modules/triage/sender-priors.ts` (new) | get histogram + upsert-increment; Redis read-through (`alfred:sender-prior:{userId}:{senderKey}`) reusing the `resolve.ts` cache+bust pattern |
-| Persona detect | OAuth callback + `integration_credentials` | read `hd` claim → persona column; override endpoint on integration detail page |
+| Persona detect | `packages/integrations/src/google/oauth.ts`, `packages/api/src/modules/integrations/google-routes.ts`, `integration_credentials` | expose verified `hd` claim → persona column + metadata audit; override endpoint on integration detail page |
 | Observation gather | `packages/api/src/modules/triage/observations.ts` (new) | pure-ish assembler: priors + persona + thread state + contact flag + Gmail signals + content regex flags |
-| Classifier | `packages/api/src/modules/triage/classify.ts` | consume observations; drop the email-only prompt + the regex-guardrail pile; keep a *small* override floor + the conditional second-pass |
-| Workflow | `apps/server/src/builtins/workflows/email-triage.ts` | remove the boss `deepen` branch; add observation gather + histogram write-back; thread state via sent-mail |
-| Sent-mail ingest | `packages/integrations/src/google/ingestor.ts` + `queue.ts` | add `in:sent`; embed; exclude from triage fan-out |
+| Classifier | `packages/api/src/modules/triage/classify.ts` | consume observations; keep `todoSuggestion`; drop the email-only prompt + the regex-guardrail pile; keep a *small* override floor + the conditional second-pass |
+| Workflow | `apps/server/src/builtins/workflows/email-triage.ts` | remove the boss `deepen` branch; add observation gather + histogram write-back; preserve the `suggestTodo` tail step; thread state via sent-mail |
+| Sent-mail ingest | `packages/integrations/src/google/ingestor.ts` + `packages/api/src/modules/integrations/queue.ts` | add `in:sent`; embed; exclude sent docs from `emitGmailMessageEvents` and prior write-back |
+| Todo suggestion | `classify.ts` + `email-triage.ts` + `packages/api/src/modules/todos/suggest.ts` | keep one optional `todoSuggestion` field on the cheap call; no second LLM call; source ref remains `{ provider:'gmail', kind:'thread', id: sourceThreadId }` |
 | Observability | `triage.sender_extraction` log event | extend with the new observations + second-pass/override flags |
 
 ## 5. Phased plan (each lands before the next; sub-steps parallel-safe)
 
-- **Phase 1 — sent-mail foundation.** Ingest `in:sent` (+ embed) through `persistMessage`;
-  guardrails: never triaged, never a prior. Unblocks thread state *and* chat recall. Shippable
-  on its own (chat recall benefits immediately).
-- **Phase 2 — context layer.** `sender_priors` table + store + Redis read-through; histogram
-  write-back wired into the *existing* classifier (no prompt change yet — proves the plumbing).
-  Account persona detection + column + override. Observation assembler.
-- **Phase 3 — context-rich classifier.** Rewrite `classify` to consume observations; delete
-  the email-only prompt and the regex-guardrail pile; add the small override floor + the
-  conditional second cheap pass. This is the intelligence upgrade.
-- **Phase 4 — retire the boss deepen path.** Remove the routine boss branch from the triage
-  workflow (keep the dormant `dossierRequest` hook + `system.read_user_context` surface).
-- **Phase 5 — observability, docs, copy.** Extend `triage.sender_extraction`; supersede
-  `docs/reference/triage.md`; surface the onboarding copy (below). Tune conflict conditions
-  and override membership from real logs.
+### Phase 0 — preserve shipped todo behavior
+
+Already partially shipped in `cb10363`. Before the v3 rewrite, add/keep regression coverage
+around the current contract:
+
+- cheap classifier schema accepts `todoSuggestion: null | { name, assist? }`
+- workflow calls `suggestTodo()` only on the new-classification path
+- `marketing`/`newsletter`/`fyi`/`done` suppress suggestions even if the cheap result emitted one
+- source-overlap merge stays non-fatal and idempotent
+
+Acceptance:
+
+- A fixture `action_needed` message with a concrete ask creates or merges one `suggested` todo.
+- A fixture `fyi`/`newsletter` message with a bogus `todoSuggestion` creates no todo.
+
+### Phase 1 — sent-mail foundation
+
+Ingest `in:sent` (+ embed) through `persistMessage`; guardrails: never triaged, never a prior.
+Unblocks thread state *and* chat recall. Shippable on its own.
+
+Implementation checklist:
+
+- Add the sent query/path without disturbing existing inbox `poll_recent` latency.
+- Set `metadata.isSent` consistently from Gmail labels and/or account-label fallback.
+- Filter sent docs before `emitGmailMessageEvents`.
+- Add a thread-state reader that returns bounded observations only (`lastUserReplyAt`, newest
+  sender direction), not a category decision.
+
+Acceptance:
+
+- A sent fixture inserts a `documents` row and chunks, but no `agent_runs` email-triage run.
+- A received fixture in the same thread observes the prior sent reply in `observations`.
+- `/api/me/inbox` does not surface sent-only docs as actionable inbox items.
+
+### Phase 2 — context layer
+
+`sender_priors` table + store + Redis read-through; histogram write-back wired into the
+existing classifier (no prompt change yet — proves the plumbing). Account persona detection +
+column + override. Observation assembler.
+
+Implementation checklist:
+
+- Add `sender_priors` schema + migration.
+- Implement `getSenderPrior()` and `incrementSenderPrior()`; Postgres remains source of truth,
+  Redis is a read-through cache with bust on increment.
+- Compute sender keys exactly: lowercased email or `service:<botSlug>` only.
+- Skip prior reads/writes for `effectiveAuthor: 'person'` and `metadata.isSent`.
+- Add `integration_credentials.persona`; detect from `hd`; expose override in API/UI.
+- Assemble observations in a pure-ish module with no LLM calls.
+
+Acceptance:
+
+- Three newsletter classifications from the same service sender produce
+  `{ newsletter: 3 }` in `sender_priors.category_counts`.
+- A human sender produces no `sender_priors` row.
+- Persona auto-detect stores `work` when `hd` exists and `personal` otherwise; override persists.
+- Observation assembler returns stable JSON that can be snapshot-tested.
+
+### Phase 3 — context-rich classifier
+
+Rewrite `classify` to consume observations; delete the email-only prompt and the brittle
+guardrail pile; add the small override floor + the conditional second cheap pass. This is the
+intelligence upgrade.
+
+Implementation checklist:
+
+- Update `ClassifyEmailArgs` to include `observations`.
+- Keep `todoSuggestion` in the output schema and prompt rules.
+- Make content regexes produce named flags for the prompt and conflict checker, not hidden
+  category rewrites.
+- Add the override floor as a tiny, tested function with explicit signal names.
+- Add a second-pass wrapper that records `firstPass`, `conflict`, and `secondPass` for audit.
+
+Acceptance:
+
+- Prior-heavy newsletter sender + urgent credential-exposure body still lands `urgent`.
+- Self-initiated magic links remain `action_needed`, not `urgent`.
+- A hard deterministic conflict triggers at most one second cheap pass.
+- `todoSuggestion` still behaves per Phase 0 after the prompt rewrite.
+
+### Phase 4 — retire the boss deepen path
+
+Remove the routine boss branch from the triage workflow. Keep the dormant `dossierRequest` hook
+and `system.read_user_context` surface for non-triage/future use.
+
+Implementation checklist:
+
+- Delete `shouldDeepen` execution from `email-triage.ts`.
+- Remove/deprecate triage-only `deepen` imports and state fields.
+- Ensure classification model/cost attribution is still `role: 'triage'`.
+- Keep fallback behavior simple: failed second-pass falls back to first-pass output, not boss.
+
+Acceptance:
+
+- No `boss`/`deepen` run is created for severity-suspect bot mail.
+- Triage still writes `email_triage`, applies the Gmail label, and emits inbox update events.
+- `pnpm check:web-boundaries` still passes; no server package leaks into `apps/web`.
+
+### Phase 5 — observability, docs, copy
+
+Extend `triage.sender_extraction`; supersede `docs/reference/triage.md`; surface the onboarding
+copy (below). Tune conflict conditions and override membership from real logs.
+
+Implementation checklist:
+
+- Log sender key type, prior histogram summary, persona, thread-state summary, Gmail-signal
+  flags, content flags, override flag, second-pass reason, and todo suggestion presence.
+- Update `docs/reference/triage.md` from ADR-0042/v2 to ADR-0051/v3.
+- Add copy to the chosen Gmail connection or integration detail surface.
+- Add a short "how to tune" note: conflict conditions loosen/tighten only from observed logs.
+
+Acceptance:
+
+- `triage.sender_extraction` logs enough to debug a bad tag without reading raw email bodies.
+- The reference doc no longer describes routine boss `deepen` as the live path.
+- Smoke triage on a real dev Gmail account completes without boss calls.
 
 ## 6. Deferred (own discussions / future ADRs)
 
