@@ -85,15 +85,22 @@ export interface ContentFlags {
 }
 
 const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsubscribe/i;
+// The trailing-symbol branch keeps `\b` only on the currency CODES (`100 EUR`),
+// never on the glyphs: a `\b` after `€`/`£` never holds (non-word glyph → EOL/
+// space is not a word boundary), so anchoring the whole branch on `\b` silently
+// dropped trailing-symbol EU amounts like `1.000,00 €`.
 const CURRENCY_RE =
-  /(?:[$€£₹]\s?\d|(?:\b(?:usd|eur|gbp|inr)\b)\s?\d|\d[\d.,]*\s?(?:[$€£₹]|usd|eur|gbp|inr)\b)/i;
+  /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]*\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
 const SECURITY_RE =
   /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
 const INVESTOR_RE =
   /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
+// `conference` requires a public-event qualifier (`conference 2026`,
+// `tech conference`) — bare `\bconference\b` false-positived on personal
+// "conference call" / "conference room", nudging the model off `meeting`.
 const PUBLIC_EVENT_RE =
-  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconference\b|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
+  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconferences?\b(?!\s+(?:call|room|line|bridge|dial-?in))|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
 
 /** Derive cheap deterministic content flags from the email's signal text. */
 export function extractContentFlags(text: string): ContentFlags {

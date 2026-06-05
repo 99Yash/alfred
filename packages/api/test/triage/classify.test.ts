@@ -90,6 +90,17 @@ describe("applyOverrideFloor", () => {
     assert.deepEqual(r.classification, c);
   });
 
+  test("does NOT trip on generic 'credential ... exposed' engineering prose", () => {
+    // `credential` is excluded from the unrecoverable floor (it stays in the
+    // broad hint regex) so architecture discussion doesn't get force-tagged.
+    const r = applyOverrideFloor(
+      classification({ category: "fyi" }),
+      "the credential object is exposed to the network in this design",
+    );
+    assert.equal(r.forced, false);
+    assert.equal(r.classification.category, "fyi");
+  });
+
   test("ignores a bare CVE id (CVE is the model's call, not the floor's)", () => {
     const r = applyOverrideFloor(
       classification({ category: "fyi" }),

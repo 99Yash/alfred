@@ -190,10 +190,14 @@ export const emailTriageWorkflow: Workflow<State> = {
           // re-classify.
           const isSameStoredDocument = existing.documentId === ctx.state.documentId;
           const provablyNotNewer =
-            incomingAuthoredAt != null &&
-            priorAuthoredAt != null &&
-            (incomingAuthoredAt.getTime() < priorAuthoredAt.getTime() ||
-              (incomingAuthoredAt.getTime() === priorAuthoredAt.getTime() && isSameStoredDocument));
+            // The same stored document is by definition not newer than itself, so
+            // a re-delivered push / second ingestion source skips regardless of
+            // whether either `authored_at` is present (a missing timestamp would
+            // otherwise fall through to a wasted re-classify + stray prior bump).
+            isSameStoredDocument ||
+            (incomingAuthoredAt != null &&
+              priorAuthoredAt != null &&
+              incomingAuthoredAt.getTime() < priorAuthoredAt.getTime());
           if (provablyNotNewer) {
             await ctx.log(
               `classify: thread=${sourceThreadId} already tagged (${existing.category}); ` +

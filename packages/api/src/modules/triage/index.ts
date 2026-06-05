@@ -23,14 +23,9 @@ export type {
   ResolvedTodoSuggestion,
   RunPass,
 } from "./classify";
-export { deepenTriageClassification, shouldDeepen, DEEPEN_REASONS } from "./deepen";
-export type {
-  DeepenDecision,
-  DeepenMode,
-  DeepenReason,
-  DeepenTriageArgs,
-  DeepenTriageResult,
-} from "./deepen";
+// NOTE: `deepen.ts` is dormant — ADR-0051 removed the boss-escalation from the
+// triage workflow. It is intentionally NOT re-exported (nothing imports it
+// outside its own unit test); the file stays for the historical decision trail.
 
 export {
   getDocumentAuthoredAt,
@@ -58,7 +53,6 @@ export {
   incrementSenderPrior,
   senderPriorWriteKeyFor,
   senderKeyFor,
-  mergeHistogram,
 } from "./sender-priors";
 export type {
   SenderPrior,

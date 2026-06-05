@@ -77,14 +77,6 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
   return senderKeyFor(args.senderContext, args.senderAddress);
 }
 
-/** Pure histogram increment — returns a new object, leaves `existing` untouched. */
-export function mergeHistogram(
-  existing: Record<string, number>,
-  category: string,
-): Record<string, number> {
-  return { ...existing, [category]: (existing[category] ?? 0) + 1 };
-}
-
 // ---------------------------------------------------------------------------
 // Redis read-through cache
 // ---------------------------------------------------------------------------

@@ -127,7 +127,13 @@ export async function getDocumentAuthoredAt(
   const rows = await db()
     .select({ authoredAt: documents.authoredAt })
     .from(documents)
-    .where(and(eq(documents.id, documentId), eq(documents.userId, userId)));
+    .where(
+      and(
+        eq(documents.id, documentId),
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail"),
+      ),
+    );
   return rows[0]?.authoredAt ?? null;
 }
 

@@ -45,6 +45,8 @@ describe("extractContentFlags", () => {
   test("detects currency amounts in multiple notations", () => {
     assert.equal(extractContentFlags("Total due: $1,200.00").hasCurrencyAmount, true);
     assert.equal(extractContentFlags("Amount: 500 INR").hasCurrencyAmount, true);
+    // Trailing-symbol European amount — the regex's own documented example.
+    assert.equal(extractContentFlags("Betrag: 1.000,00 €").hasCurrencyAmount, true);
     assert.equal(extractContentFlags("no money here").hasCurrencyAmount, false);
   });
 
@@ -76,7 +78,11 @@ describe("extractContentFlags", () => {
       true,
     );
     assert.equal(extractContentFlags("Watch the WWDC26 keynote").hasPublicEventLanguage, true);
+    assert.equal(extractContentFlags("Join us at the DevTools conference").hasPublicEventLanguage, true);
     assert.equal(extractContentFlags("can you attend our 1:1?").hasPublicEventLanguage, false);
+    // `conference call`/`conference room` are personal meetings, not blasts.
+    assert.equal(extractContentFlags("can you do a conference call at 3?").hasPublicEventLanguage, false);
+    assert.equal(extractContentFlags("the team conference room is booked").hasPublicEventLanguage, false);
   });
 });
 

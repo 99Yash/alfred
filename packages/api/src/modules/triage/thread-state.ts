@@ -64,6 +64,12 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
         args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
       ),
     )
+    // Order before the cap so a >500-message thread truncates deterministically
+    // to its most recent rows — otherwise Postgres returns an arbitrary subset
+    // and `newestDirection`/`lastUserReplyAt` could be computed from stale rows.
+    // NULLS LAST so undated rows (no ordering signal) never displace a dated
+    // one out of the window. `documents_thread_idx` supports the ordering.
+    .orderBy(sql`${documents.authoredAt} desc nulls last`)
     .limit(THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;
