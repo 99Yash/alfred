@@ -78,6 +78,7 @@ export {
   TRIAGE_CATEGORIES,
 } from "./labels";
 export type {
+  AccountPersona,
   ExchangeCodeResult,
   GoogleFeature,
   GoogleOAuthConfig,
@@ -88,6 +89,7 @@ export {
   buildAuthorizeUrl,
   CALENDAR_READONLY_SCOPE,
   DEFAULT_GOOGLE_SCOPES,
+  detectPersona,
   DOCS_READONLY_SCOPE,
   DRIVE_READONLY_SCOPE,
   exchangeCode,
