@@ -119,17 +119,6 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
   return out as ToolSet;
 }
 
-function chatTier(state: ChatRunState): ChatModelTier {
-  return state.tier;
-}
-
-function appendModelMessages(
-  transcript: AgentTranscriptMessage[],
-  messages: ModelMessage[],
-): AgentTranscriptMessage[] {
-  return [...transcript, ...(messages as AgentTranscriptMessage[])];
-}
-
 function toolResultMessage(
   call: PendingToolCall,
   result: Exclude<DispatchResult, { kind: "staged" }>,
@@ -214,7 +203,7 @@ const chatTurnStep: Step<ChatRunState> = {
         id: "chat",
         system: CHAT_SYSTEM_PROMPT,
         tools: () => resolveSdkTools(state.activeIntegrations),
-        model: getChatModel(chatTier(state)),
+        model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
         // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
         providerOptions: getChatProviderOptions(),
@@ -338,7 +327,7 @@ const chatTurnStep: Step<ChatRunState> = {
         stream.finishReason,
         stream.response,
       ]);
-      const nextTranscript = appendModelMessages(transcript, response.messages);
+      const nextTranscript = [...transcript, ...(response.messages as AgentTranscriptMessage[])];
       const outcome = classifyStreamFinish({ toolCalls, finishReason });
 
       if (outcome.kind === "tool-calls") {

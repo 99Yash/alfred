@@ -73,7 +73,7 @@ export function getResearchModel(): LanguageModel {
  * The chat agent runs on Anthropic by default and escalates to Opus for
  * demanding turns:
  *   - `standard` → Claude Sonnet 4.6 — the default conversational driver.
- *   - `deep`     → Claude Opus 4.6 — escalation for hard, multi-step turns
+ *   - `deep`     → Claude Opus 4.8 — escalation for hard, multi-step turns
  *     (and the model the boss-worker harness runs on when chat fans out).
  *
  * Each tier degrades to the corresponding Google tier on Anthropic failure
@@ -90,11 +90,11 @@ export type ChatModelTier = "standard" | "deep";
  *
  * Intended mapping once the cap clears (swap back by returning the
  * `anthropic(...)` line): `standard → claude-sonnet-4-6`,
- * `deep → claude-opus-4-6`. The Anthropic path also wants `withFallback(...,
+ * `deep → claude-opus-4-8`. The Anthropic path also wants `withFallback(...,
  * google(...))` once that wrapper is unblocked (see below).
  */
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
-  // return tier === "deep" ? anthropic("claude-opus-4-6") : anthropic("claude-sonnet-4-6");
+  // return tier === "deep" ? anthropic("claude-opus-4-8") : anthropic("claude-sonnet-4-6");
   return tier === "deep" ? google("gemini-2.5-pro") : google("gemini-2.5-flash");
 }
 
