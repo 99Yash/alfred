@@ -41,6 +41,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "replicache": "catalog:",
+    "sonner": "catalog:",
     "tailwind-merge": "catalog:"
   },
   "devDependencies": {

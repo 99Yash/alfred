@@ -1,10 +1,10 @@
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
-import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { createRun, enqueueRun } from "../agent/index";
+import { createRun, enqueueRun, isUniqueViolation } from "../agent/index";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
 
 const TITLE_MAX_CHARS = 80;
@@ -74,15 +74,40 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, user.id)));
 
         const assistantMessageId = createId("msg");
-        const { runId } = await createRun({
-          userId: user.id,
-          workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
-          trigger: { kind: "manual" },
-          metadata: { threadId, assistantMessageId },
-        });
-        await enqueueRun(runId);
-
-        return { runId, assistantMessageId };
+        try {
+          const { runId } = await createRun({
+            userId: user.id,
+            workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
+            trigger: { kind: "manual" },
+            metadata: { threadId, assistantMessageId, userMessageId: body.userMessageId },
+          });
+          await enqueueRun(runId);
+          return { runId, assistantMessageId };
+        } catch (err) {
+          // The chat-turn workflow is a singleton on userMessageId — a
+          // double-submit / retry collides on the partial unique index. Treat
+          // that as success: a run for this exact turn is already in flight,
+          // so return it instead of spawning a duplicate reply.
+          if (!isUniqueViolation(err)) throw err;
+          const active = await db()
+            .select({ id: agentRuns.id, metadata: agentRuns.metadata })
+            .from(agentRuns)
+            .where(
+              and(
+                eq(agentRuns.userId, user.id),
+                eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
+                eq(agentRuns.dedupKey, `chat:${body.userMessageId}`),
+              ),
+            )
+            .limit(1);
+          const existing = active[0];
+          const existingMessageId =
+            existing &&
+            typeof (existing.metadata as Record<string, unknown>)?.assistantMessageId === "string"
+              ? ((existing.metadata as Record<string, unknown>).assistantMessageId as string)
+              : assistantMessageId;
+          return { runId: existing?.id ?? null, assistantMessageId: existingMessageId };
+        }
       },
       {
         params: t.Object({ threadId: t.String({ minLength: 1, maxLength: 120 }) }),

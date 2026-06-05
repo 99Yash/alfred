@@ -1,5 +1,6 @@
 import { createRootRouteWithContext, HeadContent, Outlet } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 import { AppShell } from "~/lib/app-shell";
 import { siteMeta } from "~/lib/page-meta";
 
@@ -19,6 +20,7 @@ function RootLayout() {
       <AppShell>
         <Outlet />
       </AppShell>
+      <Toaster theme="dark" position="top-center" richColors />
     </div>
   );
 }

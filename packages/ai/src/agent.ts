@@ -12,11 +12,7 @@ import {
   type ToolSet,
   type TypedToolCall,
 } from "ai";
-import {
-  meteredGenerateText,
-  meteredStreamText,
-  type AttributedCall,
-} from "./metering/wrappers";
+import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
 
 /**
  * Provider-options bag, structurally identical to the SDK's
@@ -113,7 +109,20 @@ export interface TurnArgs<CTX> {
   /** Per-turn attribution overrides. `runId`/`stepId`/`attempt` typically come from the executor. */
   attribution?: Partial<AttributedCall>;
   abortSignal?: AbortSignal;
+  /**
+   * Streaming circuit-breaker (`streamTurn` only). The SDK aborts the call if
+   * it stalls past these bounds. Defaults to {@link DEFAULT_STREAM_TIMEOUT}.
+   */
+  streamTimeout?: { totalMs?: number; stepMs?: number; chunkMs?: number };
 }
+
+/**
+ * Default streaming guard: a 30s gap between chunks means the stream is hung
+ * (catches a wedged provider connection without killing a legitimately long
+ * generation), with a 3-minute total ceiling as a hard backstop. Without this
+ * a hung stream holds the workflow step open indefinitely.
+ */
+const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
 
 /**
  * Discriminated result of a single turn. The executor consumes `kind`:
@@ -232,6 +241,7 @@ export class AlfredAgent<CTX = unknown> {
         temperature: this.s.temperature,
         providerOptions: this.s.providerOptions as Record<string, never> | undefined,
         abortSignal: args.abortSignal,
+        timeout: args.streamTimeout ?? DEFAULT_STREAM_TIMEOUT,
       },
       attribution,
     );

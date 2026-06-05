@@ -71,6 +71,8 @@ const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 /** Done todos linger this long in the sync window before falling out (ADR-0050). */
 const TODO_DONE_WINDOW_DAYS = 7;
+/** Most-recent chat messages synced per user — bounds the Replicache pull. */
+const CHAT_MESSAGE_PULL_LIMIT = 500;
 
 function toEntityRow(args: {
   slug: IDBKeys;
@@ -352,8 +354,9 @@ const ENTITY_FETCHERS = {
 
   // Chat (streaming-chat plan). Threads + their messages both sync so history
   // survives reloads and reaches every device. Ordered for stable client
-  // rendering; message sync is unbounded in v1 (acceptable single-user; add a
-  // recency window if volume grows).
+  // rendering; message sync is bounded to the most recent
+  // CHAT_MESSAGE_PULL_LIMIT rows so a long history doesn't pull the whole table
+  // on every pull (the client re-sorts ascending).
   CHAT_THREAD: async (tx, userId) => {
     const rows = await tx
       .select()
@@ -375,7 +378,8 @@ const ENTITY_FETCHERS = {
       .select()
       .from(chatMessages)
       .where(eq(chatMessages.userId, userId))
-      .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+      .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT);
     return rows.flatMap((m: typeof chatMessages.$inferSelect) =>
       toEntityRow({
         slug: "CHAT_MESSAGE",
