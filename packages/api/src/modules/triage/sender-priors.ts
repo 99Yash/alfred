@@ -39,7 +39,9 @@ export interface SenderPrior {
  *    is per-message; caching it would actively mis-tag (alt (f)).
  *  - Recognized bots → `service:<botSlug>` (all GitHub apps share
  *    `noreply@github.com`, so the envelope address can't distinguish them).
- *  - Other non-human senders → the exact lowercased address.
+ *  - Service senders → the exact lowercased address.
+ *  - Unknown/ambiguous senders → null. Ambiguous role mailboxes (`team@`,
+ *    `info@`, etc.) can be human-staffed and should not seed priors.
  *  - No usable address → null.
  *
  * NEVER call for the user's own sent mail — guard on `metadata.isSent` at the
@@ -51,8 +53,28 @@ export function senderKeyFor(
 ): string | null {
   if (senderContext.effectiveAuthor === "person") return null;
   if (senderContext.botSlug) return `service:${senderContext.botSlug}`;
+  if (senderContext.effectiveAuthor !== "service") return null;
   if (senderAddress) return senderAddress.toLowerCase();
   return null;
+}
+
+export interface SenderPriorWriteKeyArgs {
+  senderContext: Pick<SenderContext, "effectiveAuthor" | "botSlug">;
+  senderAddress: string | null;
+  /** Sent mail is context/search material, never a received sender to learn. */
+  isSent: boolean;
+  /** Concrete model id used for the persisted triage row. `"fallback"` is non-learnable. */
+  model: string;
+}
+
+/**
+ * Central write policy for sender-prior learning. Priors learn only from
+ * successful Alfred classifications of received bulk/service mail.
+ */
+export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | null {
+  if (args.isSent) return null;
+  if (args.model === "fallback") return null;
+  return senderKeyFor(args.senderContext, args.senderAddress);
 }
 
 /** Pure histogram increment — returns a new object, leaves `existing` untouched. */

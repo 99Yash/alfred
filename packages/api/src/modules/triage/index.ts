@@ -41,15 +41,16 @@ export type { ThreadState, GetThreadStateArgs } from "./thread-state";
 export {
   getSenderPrior,
   incrementSenderPrior,
+  senderPriorWriteKeyFor,
   senderKeyFor,
   mergeHistogram,
 } from "./sender-priors";
-export type { SenderPrior, IncrementSenderPriorArgs } from "./sender-priors";
-export {
-  assembleObservations,
-  extractGmailSignals,
-  extractContentFlags,
-} from "./observations";
+export type {
+  SenderPrior,
+  IncrementSenderPriorArgs,
+  SenderPriorWriteKeyArgs,
+} from "./sender-priors";
+export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";
 export type {
   Observations,
   GmailSignals,

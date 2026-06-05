@@ -10,7 +10,7 @@ import {
   loadTriageContext,
   publishEvent,
   readTriageUserContext,
-  senderKeyFor,
+  senderPriorWriteKeyFor,
   setAppliedLabelId,
   shouldDeepen,
   suggestTodo,
@@ -340,15 +340,18 @@ export const emailTriageWorkflow: Workflow<State> = {
           // ONLY from Alfred's own classifications and only for bulk senders:
           // skip human senders (`senderKeyFor` returns null) and the user's own
           // sent mail (defensive — sent docs are excluded from the triage
-          // fan-out upstream, so this branch shouldn't see them). Best-effort:
-          // a prior write must never fail the label, which is the contract.
-          // Phase 2 proves the plumbing; Phase 3 feeds the histogram back into
-          // the classifier prompt.
-          const docIsSent =
-            (ctxData.document.metadata as { isSent?: unknown }).isSent === true;
-          const senderKey = docIsSent
-            ? null
-            : senderKeyFor(senderContext, senderContextResult.senderAddress);
+          // fan-out upstream, so this branch shouldn't see them). Skip fallback
+          // labels too: an outage/default category is not a learning signal.
+          // Best-effort: a prior write must never fail the label, which is the
+          // contract. Phase 2 proves the plumbing; Phase 3 feeds the histogram
+          // back into the classifier prompt.
+          const docIsSent = (ctxData.document.metadata as { isSent?: unknown }).isSent === true;
+          const senderKey = senderPriorWriteKeyFor({
+            senderContext,
+            senderAddress: senderContextResult.senderAddress,
+            isSent: docIsSent,
+            model,
+          });
           if (senderKey) {
             try {
               await incrementSenderPrior({

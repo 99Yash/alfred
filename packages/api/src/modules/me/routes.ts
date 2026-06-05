@@ -51,6 +51,17 @@ const INBOX_MAX_LIMIT = 50;
  */
 const RAIL_SUPPRESSED_CATEGORIES = ["newsletter", "marketing"];
 
+export function isSentGmailMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
+  const meta = metadata ?? {};
+  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as unknown[]) : [];
+  return meta.isSent === true || labelIds.some((label) => label === "SENT");
+}
+
+function notSentGmailDocumentWhere() {
+  return drizzleSql<boolean>`COALESCE((${documents.metadata} ->> 'isSent')::boolean, false) = false
+    AND NOT (COALESCE(${documents.metadata} -> 'labelIds', '[]'::jsonb) ? 'SENT')`;
+}
+
 export interface MeInboxItem {
   documentId: string;
   /**
@@ -403,6 +414,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const baseWhere = and(
             eq(documents.userId, u.id),
             eq(documents.source, "gmail"),
+            notSentGmailDocumentWhere(),
             // Untriaged rows (left join null) and rows that aren't in the
             // suppressed list both belong in the rail.
             or(
@@ -516,6 +528,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 eq(documents.userId, u.id),
                 eq(documents.source, "gmail"),
                 eq(documents.id, params.documentId),
+                notSentGmailDocumentWhere(),
               ),
             )
             .limit(1);
