@@ -768,12 +768,56 @@
     animation: carousel-progress 3200ms linear forwards;
   }
 
+  /* Chat streaming: tool cards + streamed blocks ease in; a running tool /
+   * "thinking" label shimmers; the assistant caret blinks while a turn streams. */
+  @keyframes chat-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-chat-in {
+    animation: chat-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes chat-shimmer {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .animate-chat-shimmer {
+    animation: chat-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes chat-caret {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
+  }
+  .animate-chat-caret {
+    animation: chat-caret 1s steps(1) infinite;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-settings-panel-in,
     .animate-carousel-progress,
     .drawer-slide-in,
     .animate-toast-in,
-    .animate-menu-pop-in {
+    .animate-menu-pop-in,
+    .animate-chat-in,
+    .animate-chat-shimmer,
+    .animate-chat-caret {
       animation: none !important;
     }
   }

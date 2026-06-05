@@ -21,7 +21,11 @@ import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useTodos } from "~/lib/replicache/use-todos";
+import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useChatStream } from "~/lib/chat/use-chat-stream";
+import { useSendMessage } from "~/lib/chat/use-send-message";
 import type { SyncedTodo } from "@alfred/sync";
+import { Conversation } from "./conversation";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
@@ -103,10 +107,27 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   );
   useRightRail(railNode);
 
+  const messages = useChatMessages(threadId);
+  const stream = useChatStream(threadId);
+  const send = useSendMessage();
+  const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
+  const hasConversation = messages.length > 0 || stream !== null;
+
   return (
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
-      <EmptyHero threadId={threadId} />
+      {hasConversation ? (
+        <>
+          <Conversation messages={messages} stream={stream} />
+          <div className="shrink-0 px-4 pb-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <Composer key={threadId ?? "new"} threadId={threadId} onSend={onSend} />
+            </div>
+          </div>
+        </>
+      ) : (
+        <EmptyHero threadId={threadId} onSend={onSend} />
+      )}
     </div>
   );
 }
@@ -156,7 +177,13 @@ function TopBar({
   );
 }
 
-function EmptyHero({ threadId }: { threadId: string | undefined }) {
+function EmptyHero({
+  threadId,
+  onSend,
+}: {
+  threadId: string | undefined;
+  onSend?: (text: string) => void;
+}) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
   const now = new Date();
@@ -184,7 +211,7 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
         {/* Key by threadId so the composer (and its Tiptap editor) remounts
          * on thread switch — draft-seeding from localStorage runs once per
          * thread and the editor instance starts fresh, no per-render sync. */}
-        <Composer key={threadId ?? "new"} threadId={threadId} />
+        <Composer key={threadId ?? "new"} threadId={threadId} onSend={onSend} />
         <ConnectToolsBar />
       </div>
     </div>
@@ -364,7 +391,13 @@ const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> 
   { brand: "web", label: "Web search" },
 ];
 
-function Composer({ threadId }: { threadId: string | undefined }) {
+function Composer({
+  threadId,
+  onSend,
+}: {
+  threadId: string | undefined;
+  onSend?: (text: string) => void;
+}) {
   const { resolved: theme } = useVsTheme();
 
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
@@ -524,9 +557,8 @@ function Composer({ threadId }: { threadId: string | undefined }) {
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
-    // Stub — wired in m13. Logging on dev so the input round-trips visibly.
-    // eslint-disable-next-line no-console
-    console.info("[chat] composer submit:", { threadId, value: text.trim() });
+    const value = text.trim();
+    onSend?.(value);
     editorRef.current?.clear();
     setText("");
     setIsEmpty(true);
@@ -535,7 +567,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     } catch {
       // best-effort
     }
-  }, [canSend, draftKey, text, threadId]);
+  }, [canSend, draftKey, text, onSend]);
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

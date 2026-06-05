@@ -66,3 +66,51 @@ export function getWebSearchModel(): LanguageModel {
 export function getResearchModel(): LanguageModel {
   return perplexity("sonar-deep-research");
 }
+
+/**
+ * Interactive-chat model tiers (ADR pending; see docs/plans streaming-chat).
+ *
+ * The chat agent runs on Anthropic by default and escalates to Opus for
+ * demanding turns:
+ *   - `standard` → Claude Sonnet 4.6 — the default conversational driver.
+ *   - `deep`     → Claude Opus 4.6 — escalation for hard, multi-step turns
+ *     (and the model the boss-worker harness runs on when chat fans out).
+ *
+ * Each tier degrades to the corresponding Google tier on Anthropic failure
+ * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
+ * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
+ */
+export type ChatModelTier = "standard" | "deep";
+
+const CHAT_PRIMARY: Record<ChatModelTier, () => LanguageModel> = {
+  standard: () => anthropic("claude-sonnet-4-6"),
+  deep: () => anthropic("claude-opus-4-6"),
+};
+
+const CHAT_FALLBACK: Record<ChatModelTier, () => LanguageModel> = {
+  // Gemini 2.5 Pro is the closest-intelligence Google tier for both rungs.
+  standard: () => google("gemini-2.5-pro"),
+  deep: () => google("gemini-2.5-pro"),
+};
+
+export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
+  return withFallback(CHAT_PRIMARY[tier](), CHAT_FALLBACK[tier]());
+}
+
+/**
+ * Wrap a primary model so a failed call degrades to `fallback`.
+ *
+ * TODO(fallback): not yet wired. The intended implementation is the AI SDK's
+ * `wrapLanguageModel` middleware (`wrapGenerate`/`wrapStream` → try primary,
+ * catch, replay against the fallback) — warden's `createRetryable` pattern,
+ * see memory `feedback_ai_retry_preference`. It's blocked today by a spec
+ * mismatch: `@ai-sdk/anthropic@3` / `@ai-sdk/google` emit `LanguageModelV2`
+ * models while `wrapLanguageModel` is typed for `v3`, so the wrapper doesn't
+ * type-check. Revisit when the provider packages move to v3 (or adopt the
+ * `ai-retry` dependency). Until then this returns the primary unchanged —
+ * `getChatModel` stays the stable seam, so hardening later touches no callers.
+ * Per memory, provider fallback is resilience polish, not a launch blocker.
+ */
+export function withFallback(primary: LanguageModel, _fallback: LanguageModel): LanguageModel {
+  return primary;
+}

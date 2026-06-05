@@ -225,6 +225,51 @@ export const syncedTodoSchema = z.object({
 });
 export type SyncedTodo = z.infer<typeof syncedTodoSchema>;
 
+/**
+ * A chat thread as the web sees it (streaming-chat plan). Ordered by
+ * `lastMessageAt` in the sidebar; `title` is null until derived.
+ */
+export const syncedChatThreadSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  title: z.string().nullable(),
+  lastMessageAt: isoDateTimeStringSchema.nullable(),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedChatThread = z.infer<typeof syncedChatThreadSchema>;
+
+/** Tool card captured on a finished assistant turn (mirrors `chat.tool`). */
+export const syncedChatToolCallSchema = z.object({
+  toolCallId: z.string(),
+  toolName: z.string(),
+  status: z.enum(["succeeded", "failed"]),
+  argsPreview: z.string().optional(),
+  resultPreview: z.string().optional(),
+});
+
+/**
+ * A persisted chat message. `user` rows come from the client mutator;
+ * `assistant` rows are worker-written on turn completion (the live stream is
+ * ephemeral). `toolCalls` lets a reload re-render the cards. `content` is the
+ * final text.
+ */
+export const syncedChatMessageSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  threadId: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  status: z.enum(["complete", "failed"]),
+  toolCalls: z.array(syncedChatToolCallSchema).nullable(),
+  runId: z.string().nullable(),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedChatMessage = z.infer<typeof syncedChatMessageSchema>;
+
 export const policyModeSchema = z.enum(POLICY_MODES);
 
 const rawIntegrationRuleSchema = z.object({
@@ -309,4 +354,6 @@ export type SyncedEntity =
   | SyncedWorkflow
   | SyncedFact
   | SyncedBriefing
-  | SyncedTodo;
+  | SyncedTodo
+  | SyncedChatThread
+  | SyncedChatMessage;

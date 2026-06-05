@@ -9,6 +9,7 @@ import { events } from "./modules/events/index.js";
 import { replicache } from "./modules/replicache/index.js";
 import { agent } from "./modules/agent/index.js";
 import { approvalsRoutes } from "./modules/approvals/index.js";
+import { chatRoutes } from "./modules/chat/index.js";
 import { integrations } from "./modules/integrations/index.js";
 import { meRoutes } from "./modules/me/index.js";
 import { onboardingRoutes } from "./modules/onboarding/index.js";
@@ -34,6 +35,10 @@ export {
   getAgentQueue,
   verifyMeteringModels,
 } from "./modules/agent/index.js";
+export {
+  chatTurnWorkflow,
+  CHAT_TURN_WORKFLOW_SLUG,
+} from "./modules/agent/workflows/chat-turn.js";
 export {
   startIngestionWorker,
   stopIngestionWorker,
@@ -92,6 +97,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(events)
   .use(agent)
   .use(approvalsRoutes)
+  .use(chatRoutes)
   .use(integrations)
   .use(meRoutes)
   .use(onboardingRoutes)

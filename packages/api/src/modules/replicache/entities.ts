@@ -2,6 +2,8 @@ import {
   actionStagings,
   agentRuns,
   briefings,
+  chatMessages,
+  chatThreads,
   notes,
   skillRevisions,
   skillRuns,
@@ -20,6 +22,8 @@ import {
   syncedActionPolicySchema,
   syncedActionStagingSchema,
   syncedBriefingSchema,
+  syncedChatMessageSchema,
+  syncedChatThreadSchema,
   syncedFactSchema,
   syncedNoteSchema,
   syncedPreferenceSchema,
@@ -32,6 +36,8 @@ import {
   type SyncedActionPolicy,
   type SyncedActionStaging,
   type SyncedBriefing,
+  type SyncedChatMessage,
+  type SyncedChatThread,
   type SyncedEntity,
   type SyncedFact,
   type SyncedNote,
@@ -343,6 +349,42 @@ const ENTITY_FETCHERS = {
       }),
     );
   },
+
+  // Chat (streaming-chat plan). Threads + their messages both sync so history
+  // survives reloads and reaches every device. Ordered for stable client
+  // rendering; message sync is unbounded in v1 (acceptable single-user; add a
+  // recency window if volume grows).
+  CHAT_THREAD: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(chatThreads)
+      .where(eq(chatThreads.userId, userId))
+      .orderBy(desc(chatThreads.lastMessageAt), asc(chatThreads.id));
+    return rows.flatMap((t: typeof chatThreads.$inferSelect) =>
+      toEntityRow({
+        slug: "CHAT_THREAD",
+        id: t.id,
+        rowVersion: t.rowVersion,
+        serialize: () => serializeChatThread(t),
+      }),
+    );
+  },
+
+  CHAT_MESSAGE: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+    return rows.flatMap((m: typeof chatMessages.$inferSelect) =>
+      toEntityRow({
+        slug: "CHAT_MESSAGE",
+        id: m.id,
+        rowVersion: m.rowVersion,
+        serialize: () => serializeChatMessage(m),
+      }),
+    );
+  },
 } satisfies Record<IDBKeys, EntityFetcher>;
 
 export const SYNC_ENTITIES = IDB_KEY_NAMES.map((slug) => ({
@@ -440,6 +482,34 @@ function serializeTodo(t: typeof todos.$inferSelect): SyncedTodo {
     rowVersion: t.rowVersion,
     createdAt: toRequiredIso(t.createdAt, "todos.createdAt"),
     updatedAt: toIso(t.updatedAt),
+  });
+}
+
+function serializeChatThread(t: typeof chatThreads.$inferSelect): SyncedChatThread {
+  return syncedChatThreadSchema.parse({
+    id: t.id,
+    userId: t.userId,
+    title: t.title,
+    lastMessageAt: toIso(t.lastMessageAt),
+    rowVersion: t.rowVersion,
+    createdAt: toRequiredIso(t.createdAt, "chatThreads.createdAt"),
+    updatedAt: toIso(t.updatedAt),
+  });
+}
+
+function serializeChatMessage(m: typeof chatMessages.$inferSelect): SyncedChatMessage {
+  return syncedChatMessageSchema.parse({
+    id: m.id,
+    userId: m.userId,
+    threadId: m.threadId,
+    role: m.role,
+    content: m.content,
+    status: m.status,
+    toolCalls: m.toolCalls ?? null,
+    runId: m.runId,
+    rowVersion: m.rowVersion,
+    createdAt: toRequiredIso(m.createdAt, "chatMessages.createdAt"),
+    updatedAt: toIso(m.updatedAt),
   });
 }
 

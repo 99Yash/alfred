@@ -24,6 +24,12 @@ import {
   todoReopenArgsSchema,
   todoReopenClient,
 } from "./todos";
+import {
+  chatMessageCreateArgsSchema,
+  chatMessageCreateClient,
+  chatThreadCreateArgsSchema,
+  chatThreadCreateClient,
+} from "./chat";
 
 export * from "./notes";
 export * from "./facts";
@@ -31,6 +37,7 @@ export * from "./prefs";
 export * from "./policy";
 export * from "./workflows";
 export * from "./todos";
+export * from "./chat";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -52,6 +59,8 @@ export const clientMutators = {
   todoPromote: todoPromoteClient,
   todoDismiss: todoDismissClient,
   todoEdit: todoEditClient,
+  chatThreadCreate: chatThreadCreateClient,
+  chatMessageCreate: chatMessageCreateClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -76,4 +85,6 @@ export const mutatorArgsSchemas = {
   todoPromote: todoPromoteArgsSchema,
   todoDismiss: todoDismissArgsSchema,
   todoEdit: todoEditArgsSchema,
+  chatThreadCreate: chatThreadCreateArgsSchema,
+  chatMessageCreate: chatMessageCreateArgsSchema,
 };
