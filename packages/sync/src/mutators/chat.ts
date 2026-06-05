@@ -67,6 +67,8 @@ export async function chatMessageCreateClient(
       threadId: args.threadId,
       role: "user",
       content: args.content,
+      reasoning: null,
+      reasoningMs: null,
       status: "complete",
       toolCalls: null,
       runId: null,

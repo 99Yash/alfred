@@ -2,6 +2,7 @@ import {
   AlfredAgent,
   classifyStreamFinish,
   getChatModel,
+  getChatProviderOptions,
   getCheapModel,
   meteredGenerateText,
   tool,
@@ -67,8 +68,11 @@ const chatRunStateSchema = z.object({
   allowedIntegrations: z.array(z.string()),
   pendingToolCalls: z.array(pendingToolCallSchema),
   assistantText: z.string().default(""),
+  reasoningText: z.string().default(""),
+  reasoningMs: z.number().int().min(0).default(0),
   toolCallsLog: z.array(toolCallLogSchema).default([]),
   deltaSeq: z.number().int().min(0).default(0),
+  reasoningSeq: z.number().int().min(0).default(0),
   turnCount: z.number().int().min(0).default(0),
   started: z.boolean().default(false),
 });
@@ -211,6 +215,9 @@ const chatTurnStep: Step<ChatRunState> = {
         system: CHAT_SYSTEM_PROMPT,
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(chatTier(state)),
+        // Ask the model to expose its thinking so the turn streams
+        // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
+        providerOptions: getChatProviderOptions(),
         attribution: { kind: "llm", userId: ctx.userId, runId: ctx.runId },
       });
 
@@ -220,8 +227,10 @@ const chatTurnStep: Step<ChatRunState> = {
         attribution: { stepId: ctx.idempotencyKey, attempt: ctx.attempt, role: "boss" },
       });
 
-      // Drain the live stream → coalesce text into `chat.delta`, surface each
-      // tool call as a `chat.tool` started card.
+      // Drain the live stream → coalesce text into `chat.delta`, reasoning into
+      // `chat.reasoning`, and surface each tool call as a `chat.tool` started
+      // card. Reasoning and reply text get independent buffers + seqs so the
+      // client orders each track on its own.
       let buffer = "";
       let lastFlush = Date.now();
       const flush = async (): Promise<void> => {
@@ -243,14 +252,58 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       };
 
+      let reasoningBuffer = "";
+      let lastReasoningFlush = Date.now();
+      // First/last reasoning token timestamps → "Thought for Ns". Accumulates
+      // across turns in a tool-calling loop (reasoning can resume after a tool).
+      let reasoningStart = 0;
+      const flushReasoning = async (): Promise<void> => {
+        if (reasoningBuffer.length === 0) return;
+        state.reasoningSeq += 1;
+        const text = reasoningBuffer;
+        reasoningBuffer = "";
+        lastReasoningFlush = Date.now();
+        await publishEvent({
+          userId: ctx.userId,
+          kind: "chat.reasoning",
+          payload: {
+            runId: ctx.runId,
+            threadId: state.threadId,
+            messageId: state.messageId,
+            seq: state.reasoningSeq,
+            text,
+          },
+        });
+      };
+
       for await (const part of stream.fullStream) {
         if (part.type === "text-delta") {
+          await flushReasoning();
           state.assistantText += part.text;
           buffer += part.text;
           if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
             await flush();
           }
+        } else if (part.type === "reasoning-delta") {
+          if (reasoningStart === 0) reasoningStart = Date.now();
+          state.reasoningText += part.text;
+          reasoningBuffer += part.text;
+          if (
+            reasoningBuffer.length >= DELTA_FLUSH_CHARS ||
+            Date.now() - lastReasoningFlush >= DELTA_FLUSH_MS
+          ) {
+            await flushReasoning();
+          }
+        } else if (part.type === "reasoning-end") {
+          if (reasoningStart > 0) state.reasoningMs += Date.now() - reasoningStart;
+          reasoningStart = 0;
+          await flushReasoning();
         } else if (part.type === "tool-call") {
+          if (reasoningStart > 0) {
+            state.reasoningMs += Date.now() - reasoningStart;
+            reasoningStart = 0;
+          }
+          await flushReasoning();
           await flush();
           await publishEvent({
             userId: ctx.userId,
@@ -271,6 +324,13 @@ const chatTurnStep: Step<ChatRunState> = {
           throw part.error instanceof Error ? part.error : new Error(String(part.error));
         }
       }
+      // Some providers end the stream without a `reasoning-end`; close the
+      // duration and flush any trailing thinking before the reply flush.
+      if (reasoningStart > 0) {
+        state.reasoningMs += Date.now() - reasoningStart;
+        reasoningStart = 0;
+      }
+      await flushReasoning();
       await flush();
 
       const [toolCalls, finishReason, response] = await Promise.all([
@@ -405,6 +465,8 @@ async function finalizeAssistantMessage(
       threadId: state.threadId,
       role: "assistant",
       content: state.assistantText,
+      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "complete",
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
       runId,
@@ -569,6 +631,8 @@ async function finalizeFailedMessage(
       threadId: state.threadId,
       role: "assistant",
       content,
+      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
       runId,
@@ -617,8 +681,11 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       allowedIntegrations,
       pendingToolCalls: [],
       assistantText: "",
+      reasoningText: "",
+      reasoningMs: 0,
       toolCallsLog: [],
       deltaSeq: 0,
+      reasoningSeq: 0,
       turnCount: 0,
       started: false,
     };

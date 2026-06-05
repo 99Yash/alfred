@@ -508,6 +508,8 @@ function serializeChatMessage(m: typeof chatMessages.$inferSelect): SyncedChatMe
     threadId: m.threadId,
     role: m.role,
     content: m.content,
+    reasoning: m.reasoning ?? null,
+    reasoningMs: m.reasoningMs ?? null,
     status: m.status,
     toolCalls: m.toolCalls ?? null,
     runId: m.runId,

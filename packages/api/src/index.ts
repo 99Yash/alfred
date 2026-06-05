@@ -35,10 +35,7 @@ export {
   getAgentQueue,
   verifyMeteringModels,
 } from "./modules/agent/index.js";
-export {
-  chatTurnWorkflow,
-  CHAT_TURN_WORKFLOW_SLUG,
-} from "./modules/agent/workflows/chat-turn.js";
+export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./modules/agent/workflows/chat-turn.js";
 export {
   startIngestionWorker,
   stopIngestionWorker,

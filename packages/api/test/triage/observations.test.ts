@@ -78,11 +78,20 @@ describe("extractContentFlags", () => {
       true,
     );
     assert.equal(extractContentFlags("Watch the WWDC26 keynote").hasPublicEventLanguage, true);
-    assert.equal(extractContentFlags("Join us at the DevTools conference").hasPublicEventLanguage, true);
+    assert.equal(
+      extractContentFlags("Join us at the DevTools conference").hasPublicEventLanguage,
+      true,
+    );
     assert.equal(extractContentFlags("can you attend our 1:1?").hasPublicEventLanguage, false);
     // `conference call`/`conference room` are personal meetings, not blasts.
-    assert.equal(extractContentFlags("can you do a conference call at 3?").hasPublicEventLanguage, false);
-    assert.equal(extractContentFlags("the team conference room is booked").hasPublicEventLanguage, false);
+    assert.equal(
+      extractContentFlags("can you do a conference call at 3?").hasPublicEventLanguage,
+      false,
+    );
+    assert.equal(
+      extractContentFlags("the team conference room is booked").hasPublicEventLanguage,
+      false,
+    );
   });
 });
 

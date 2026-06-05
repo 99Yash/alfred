@@ -72,6 +72,9 @@ describe("suggestTodo overlap guard (invariant the dedup loop relies on)", () =>
   });
 
   test("does not match an unrelated todo → insert path", () => {
-    assert.equal(overlaps([{ provider: "gmail", kind: "thread", id: "other" }], [threadRef]), false);
+    assert.equal(
+      overlaps([{ provider: "gmail", kind: "thread", id: "other" }], [threadRef]),
+      false,
+    );
   });
 });

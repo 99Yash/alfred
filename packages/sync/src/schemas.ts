@@ -253,7 +253,8 @@ export const syncedChatToolCallSchema = z.object({
  * A persisted chat message. `user` rows come from the client mutator;
  * `assistant` rows are worker-written on turn completion (the live stream is
  * ephemeral). `toolCalls` lets a reload re-render the cards. `content` is the
- * final text.
+ * final text; `reasoning` is the model's thinking (null when none), and
+ * `reasoningMs` re-renders the "Thought for Ns" label on reload.
  */
 export const syncedChatMessageSchema = z.object({
   id: z.string(),
@@ -261,6 +262,11 @@ export const syncedChatMessageSchema = z.object({
   threadId: z.string(),
   role: z.enum(["user", "assistant"]),
   content: z.string(),
+  // Defaulted (not just nullable) so rows cached before these fields existed —
+  // older IndexedDB entries, older optimistic user messages — still parse
+  // instead of being dropped on read. Output type stays `string | null`.
+  reasoning: z.string().nullable().default(null),
+  reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
   runId: z.string().nullable(),
