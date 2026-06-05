@@ -40,6 +40,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
     );
   }
   const tools = (message.toolCalls ?? []) as ToolCallView[];
+  const failed = message.status === "failed";
   return (
     <div className="flex flex-col gap-2">
       {tools.length > 0 ? (
@@ -50,6 +51,11 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
         </div>
       ) : null}
       {message.content.length > 0 ? <AssistantMarkdown text={message.content} /> : null}
+      {failed ? (
+        <p className="text-[13px] text-vs-red-4" role="alert">
+          This reply didn&apos;t finish. Try sending your message again.
+        </p>
+      ) : null}
     </div>
   );
 }
