@@ -66,11 +66,10 @@ function absoluteUrl(path: string): string {
  *     component: SettingsRoute,
  *   });
  */
-export function pageMeta({
-  title,
-  description,
-  path,
-}: PageMetaInput = {}): { meta: MetaTag[]; links: LinkTag[] } {
+export function pageMeta({ title, description, path }: PageMetaInput = {}): {
+  meta: MetaTag[];
+  links: LinkTag[];
+} {
   const fullTitle = titleWithSuffix(title);
   const desc = description ?? SITE_DESCRIPTION;
   const url = path ? absoluteUrl(path) : null;
