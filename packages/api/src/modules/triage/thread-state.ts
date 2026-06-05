@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 
 /**
  * Sent-mail-aware thread state (ADR-0051 #8). A BOUNDED OBSERVATION fed to the
@@ -28,6 +28,8 @@ const EMPTY: ThreadState = {
   newestDirection: null,
   messageCount: 0,
 };
+
+const THREAD_STATE_ROW_LIMIT = 500;
 
 export interface GetThreadStateArgs {
   userId: string;
@@ -59,12 +61,12 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
         eq(documents.userId, args.userId),
         eq(documents.source, "gmail"),
         eq(documents.sourceThreadId, args.sourceThreadId),
+        args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
       ),
-    );
+    )
+    .limit(THREAD_STATE_ROW_LIMIT);
 
-  const siblings = args.excludeDocumentId
-    ? rows.filter((r) => r.id !== args.excludeDocumentId)
-    : rows;
+  const siblings = rows;
   if (siblings.length === 0) return EMPTY;
 
   let lastUserReplyAt: Date | null = null;
