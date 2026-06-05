@@ -32,10 +32,14 @@ export function Conversation({
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
+  // Re-stick to the bottom when the feed grows. `stream` is a fresh snapshot
+  // each animation frame while a turn is in flight, so this fires per drip
+  // tick during streaming and on each new durable message — but not on
+  // unrelated re-renders (which a depless effect would).
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  });
+  }, [messages, stream]);
 
   return (
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">

@@ -31,6 +31,7 @@ import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { authClient } from "~/lib/auth-client";
+import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
@@ -970,36 +971,6 @@ function toRailTodoItem(t: SyncedTodo): TodoItem {
 /** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
 function toRailSuggestion(t: SyncedTodo): SuggestionInput {
   return { id: t.id, label: t.name, detail: t.assist ?? "" };
-}
-
-interface SessionUser {
-  name?: string | null;
-  email?: string | null;
-}
-
-function firstName(user: SessionUser | null | undefined): string {
-  if (!user) return "";
-  if (user.name && user.name.trim()) {
-    const first = user.name.trim().split(/\s+/)[0] ?? "";
-    return titleCase(first);
-  }
-  if (user.email) {
-    const handle = user.email.split("@")[0] ?? "";
-    return titleCase(handle);
-  }
-  return "";
-}
-
-function titleCase(s: string): string {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function greeting(date: Date): string {
-  const h = date.getHours();
-  if (h >= 5 && h < 12) return "Good morning";
-  if (h >= 12 && h < 18) return "Good afternoon";
-  return "Good evening";
 }
 
 function formatDate(date: Date): string {

@@ -5,6 +5,7 @@ import { VsSegmented } from "~/components/ui/visitors";
 import { useWeather } from "~/hooks/use-weather";
 import { authClient } from "~/lib/auth-client";
 import { IntegrationGlyph } from "~/lib/integration-icons";
+import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { InboxItem, MeetingItem, RailTab, TodoItem } from "./helpers";
 import { InboxFeed } from "./inbox-feed";
@@ -228,27 +229,6 @@ export function RailContent({
 }
 
 /* ---- helpers ---- */
-
-interface SessionUser {
-  name?: string | null;
-  email?: string | null;
-}
-
-function firstName(user: SessionUser | null | undefined): string {
-  if (!user) return "";
-  if (user.name && user.name.trim()) {
-    const part = user.name.trim().split(/\s+/)[0] ?? "";
-    return part.charAt(0).toUpperCase() + part.slice(1);
-  }
-  return "";
-}
-
-function greeting(date: Date): string {
-  const h = date.getHours();
-  if (h >= 5 && h < 12) return "Good morning";
-  if (h >= 12 && h < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 function formatRailDate(date: Date): string {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
