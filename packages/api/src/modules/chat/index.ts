@@ -1,0 +1,95 @@
+import { db } from "@alfred/db";
+import { createId } from "@alfred/db/helpers";
+import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { and, eq, sql } from "drizzle-orm";
+import { Elysia, status, t } from "elysia";
+import { authMacro } from "../../middleware/auth";
+import { createRun, enqueueRun } from "../agent/index";
+import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
+
+const TITLE_MAX_CHARS = 80;
+
+/**
+ * Chat turn surface (streaming-chat plan). The composer first persists the
+ * user's message + thread via Replicache mutators (optimistic, multi-device),
+ * then calls this to kick the agent. To avoid a mutator-push vs run-start
+ * race, this endpoint *also* upserts the user message (idempotent on the
+ * client-minted id) so the chat-turn workflow's transcript always sees it.
+ *
+ * The reply streams over the SSE event bus (`chat.delta` / `chat.tool` /
+ * `chat.message`); the durable assistant message is written by the worker on
+ * completion. Returns the run id + the assistant message id the client should
+ * expect on the stream.
+ */
+export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox" })
+  .use(authMacro)
+  .guard({ auth: true }, (app) =>
+    app.post(
+      "/threads/:threadId/turn",
+      async ({ params, body, user }) => {
+        const threadId = params.threadId;
+        const content = body.content.trim();
+        if (content.length === 0) return status(400, { message: "content must not be empty" });
+
+        // Thread must be the caller's (or new). Reject cross-user posts.
+        const existing = await db()
+          .select({ userId: chatThreads.userId, title: chatThreads.title })
+          .from(chatThreads)
+          .where(eq(chatThreads.id, threadId))
+          .limit(1);
+        const thread = existing[0];
+        if (thread && thread.userId !== user.id) {
+          return status(404, { message: "thread not found" });
+        }
+
+        const now = new Date();
+        if (!thread) {
+          await db()
+            .insert(chatThreads)
+            .values({ id: threadId, userId: user.id, lastMessageAt: now })
+            .onConflictDoNothing();
+        }
+
+        // Idempotent user-message upsert (same id the client mutator minted).
+        await db()
+          .insert(chatMessages)
+          .values({
+            id: body.userMessageId,
+            userId: user.id,
+            threadId,
+            role: "user",
+            content,
+            status: "complete",
+          })
+          .onConflictDoNothing();
+
+        // Derive a title from the first message; bump the thread to the top.
+        await db()
+          .update(chatThreads)
+          .set({
+            title: sql`coalesce(${chatThreads.title}, ${content.slice(0, TITLE_MAX_CHARS)})`,
+            lastMessageAt: now,
+            rowVersion: sql`${chatThreads.rowVersion} + 1`,
+          })
+          .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, user.id)));
+
+        const assistantMessageId = createId("msg");
+        const { runId } = await createRun({
+          userId: user.id,
+          workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
+          trigger: { kind: "manual" },
+          metadata: { threadId, assistantMessageId },
+        });
+        await enqueueRun(runId);
+
+        return { runId, assistantMessageId };
+      },
+      {
+        params: t.Object({ threadId: t.String({ minLength: 1, maxLength: 120 }) }),
+        body: t.Object({
+          userMessageId: t.String({ minLength: 1, maxLength: 100 }),
+          content: t.String({ minLength: 1, maxLength: 100_000 }),
+        }),
+      },
+    ),
+  );

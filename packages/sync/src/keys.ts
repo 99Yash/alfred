@@ -55,6 +55,10 @@ export const IDB_KEY = {
   ACTION_POLICY: ({ id = "" }: { id?: string }) => constructIDBKey(["actionpolicy", id]),
   /** `todo/` (prefix scan) or `todo/{id}` (single row). Flat — no day prefix. */
   TODO: ({ id = "" }: { id?: string }) => constructIDBKey(["todo", id]),
+  /** `chatthread/` (prefix scan) or `chatthread/{id}` (single row). */
+  CHAT_THREAD: ({ id = "" }: { id?: string }) => constructIDBKey(["chatthread", id]),
+  /** `chatmsg/` (prefix scan) or `chatmsg/{id}` (single row). Flat — filter by threadId client-side. */
+  CHAT_MESSAGE: ({ id = "" }: { id?: string }) => constructIDBKey(["chatmsg", id]),
   /**
    * `workflow/` (prefix scan) or `workflow/{slug}` (single row).
    *

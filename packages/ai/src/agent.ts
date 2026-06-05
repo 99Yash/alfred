@@ -6,12 +6,17 @@ import {
   type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
+  type StreamTextResult,
   type SystemModelMessage,
   type Tool,
   type ToolSet,
   type TypedToolCall,
 } from "ai";
-import { meteredGenerateText, type AttributedCall } from "./metering/wrappers";
+import {
+  meteredGenerateText,
+  meteredStreamText,
+  type AttributedCall,
+} from "./metering/wrappers";
 
 /**
  * Provider-options bag, structurally identical to the SDK's
@@ -192,6 +197,46 @@ export class AlfredAgent<CTX = unknown> {
     return classifyTurnResult(result);
   }
 
+  /**
+   * Streaming sibling of `turn()`. Same single-step semantics (the SDK sends
+   * one model request and returns; `execute`-less tools mean it never
+   * dispatches), same cache/strip/metering treatment — but returns the SDK's
+   * `StreamTextResult` so the caller can consume `fullStream` for live token
+   * and tool-call deltas as they arrive.
+   *
+   * The caller is responsible for draining `fullStream` to completion, then
+   * awaiting `toolCalls` / `text` / `response` and passing them to
+   * `classifyStreamFinish` to get the same discriminated outcome `turn()`
+   * returns. Metering lands automatically when the stream finishes.
+   */
+  async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never>> {
+    const { ctx, transcript } = args;
+
+    const system = await resolve(this.s.system, ctx);
+    this.assertStableSystem(system);
+
+    const model = await resolve(this.s.model, ctx);
+    const rawTools = await this.s.tools(ctx);
+    const tools = decorateTools(rawTools, this.cacheTtl());
+
+    const attribution = this.buildAttribution(args.attribution);
+
+    return meteredStreamText(
+      {
+        model,
+        system: buildSystem(system, this.cacheTtl()),
+        messages: transcript,
+        tools,
+        stopWhen: stepCountIs(1),
+        maxOutputTokens: this.s.maxOutputTokens,
+        temperature: this.s.temperature,
+        providerOptions: this.s.providerOptions as Record<string, never> | undefined,
+        abortSignal: args.abortSignal,
+      },
+      attribution,
+    );
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
 
   private cacheTtl(): "5m" | "1h" | undefined {
@@ -318,4 +363,23 @@ function classifyTurnResult(result: GenerateTextResult<ToolSet, never>): TurnRes
 function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" | "other" {
   if (r === "length" || r === "content-filter" || r === "error") return r;
   return "other";
+}
+
+/**
+ * Classify a finished streamed turn into the same discriminated shape
+ * `turn()` returns. Call after draining `fullStream` and awaiting the
+ * result's `toolCalls` + `finishReason`.
+ */
+export type StreamFinishOutcome =
+  | { kind: "final" }
+  | { kind: "tool-calls" }
+  | { kind: "stopped"; reason: "length" | "content-filter" | "error" | "other" };
+
+export function classifyStreamFinish(input: {
+  toolCalls: TypedToolCall<ToolSet>[];
+  finishReason: FinishReason;
+}): StreamFinishOutcome {
+  if (input.toolCalls.length > 0) return { kind: "tool-calls" };
+  if (input.finishReason === "stop") return { kind: "final" };
+  return { kind: "stopped", reason: nonStopReason(input.finishReason) };
 }

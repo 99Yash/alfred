@@ -72,6 +72,58 @@ export const inboxUpdatedSchema = z.object({
   count: z.number().int().nonnegative().max(10_000).optional(),
 });
 
+/**
+ * Interactive-chat streaming events. These ride the same durable outbox →
+ * Redis → SSE pipeline as the agent lifecycle events, scoped to a chat
+ * thread + the agent run servicing the latest turn.
+ *
+ * `chat.delta` carries a *coalesced* text chunk, not a single token — the
+ * worker buffers model output and flushes every ~200ms so we don't write one
+ * outbox row per token. `seq` is monotonic per (runId, messageId) so the
+ * client can order/dedupe deltas. The assistant message is also persisted via
+ * Replicache on completion; streamed deltas are ephemeral UI reconciled
+ * against that durable copy.
+ */
+export const chatDeltaSchema = z.object({
+  runId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  messageId: z.string().min(1).max(120),
+  seq: z.number().int().nonnegative(),
+  text: z.string().max(16_000),
+});
+
+/**
+ * A tool call inside a chat turn, surfaced as a live card. `started` fires
+ * when the agent emits the call (with a preview of its input), `succeeded` /
+ * `failed` when the dispatcher returns. Write actions that need approval do
+ * NOT resolve here — they interrupt the run and emit `approval.requested`.
+ */
+export const chatToolSchema = z.object({
+  runId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  messageId: z.string().min(1).max(120),
+  toolCallId: z.string().min(1).max(200),
+  toolName: z.string().min(1).max(120),
+  status: z.enum(["started", "succeeded", "failed"]),
+  /** Trimmed JSON preview of the tool input — never the full args blob. */
+  argsPreview: z.string().max(2_000).optional(),
+  /** Trimmed preview of the tool result for the card's done state. */
+  resultPreview: z.string().max(2_000).optional(),
+});
+
+/**
+ * Lifecycle of the assistant message backing a chat turn. `started` lets the
+ * client mount the in-flight bubble keyed by `messageId`; `completed` signals
+ * the durable message has been persisted (Replicache poke incoming) so the
+ * client can reconcile the streamed bubble against the synced copy.
+ */
+export const chatMessageSchema = z.object({
+  runId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  messageId: z.string().min(1).max(120),
+  phase: z.enum(["started", "completed"]),
+});
+
 export const eventPayloadSchemas = {
   "agent.progress": agentProgressSchema,
   "agent.run": agentRunSchema,
@@ -79,6 +131,9 @@ export const eventPayloadSchemas = {
   "approval.requested": approvalRequestedSchema,
   "memory.fact_learned": memoryFactLearnedSchema,
   "inbox.updated": inboxUpdatedSchema,
+  "chat.delta": chatDeltaSchema,
+  "chat.tool": chatToolSchema,
+  "chat.message": chatMessageSchema,
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;

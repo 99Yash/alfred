@@ -1,0 +1,450 @@
+import {
+  AlfredAgent,
+  classifyStreamFinish,
+  getChatModel,
+  tool,
+  type ChatModelTier,
+  type ModelMessage,
+  type Tool,
+  type ToolSet,
+} from "@alfred/ai";
+import { isIntegrationSlug, type AgentTranscriptMessage, type ToolName } from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { emitReplicachePokes } from "../../../events/replicache-events";
+import { publishEvent } from "../../../events/publish";
+import { listToolsForIntegration } from "../../tools/registry";
+import type { Step, Workflow } from "../types";
+
+/**
+ * Interactive streaming chat (streaming-chat plan). One run services one user
+ * turn end-to-end: the agent streams its reply (token deltas + tool-call
+ * cards over the SSE event bus), tools dispatch (writes gate through the
+ * existing HIL/approval interrupt), and the finished assistant message is
+ * persisted to `chat_messages` so it survives reload and reaches every device.
+ *
+ * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.6) escalation is
+ * wired through state for a future heuristic / the boss-worker harness. The
+ * agent can `system.load_integration` to reach email/calendar/etc and
+ * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
+ *
+ * Not yet handled (deferred, noted): transcript compaction for very long
+ * threads (relies on the 1M-context models for now) and auto Opus escalation.
+ */
+export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
+
+const TURN_CAP_MAX = 24;
+/** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
+const DELTA_FLUSH_MS = 180;
+const DELTA_FLUSH_CHARS = 100;
+const PREVIEW_CHARS = 2_000;
+
+const pendingToolCallSchema = z.object({
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+  input: z.unknown(),
+});
+type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
+
+const toolCallLogSchema = z.object({
+  toolCallId: z.string(),
+  toolName: z.string(),
+  status: z.enum(["succeeded", "failed"]),
+  argsPreview: z.string().optional(),
+  resultPreview: z.string().optional(),
+});
+
+const chatRunStateSchema = z.object({
+  threadId: z.string().min(1),
+  messageId: z.string().min(1),
+  tier: z.enum(["standard", "deep"]),
+  activeIntegrations: z.array(z.string().min(1)),
+  allowedIntegrations: z.array(z.string()),
+  pendingToolCalls: z.array(pendingToolCallSchema),
+  assistantText: z.string().default(""),
+  toolCallsLog: z.array(toolCallLogSchema).default([]),
+  deltaSeq: z.number().int().min(0).default(0),
+  turnCount: z.number().int().min(0).default(0),
+  started: z.boolean().default(false),
+});
+type ChatRunState = z.infer<typeof chatRunStateSchema>;
+
+const CHAT_SYSTEM_PROMPT = [
+  "You are Alfred, the user's personal assistant. You are chatting with them directly.",
+  "Be warm, concise, and direct. Answer the question; don't pad.",
+  "Use integration tools for the user's real email, calendar, and documents. Call system.load_integration when you need an integration that isn't active yet.",
+  "For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
+  "Write actions (sending email, creating events) are gated for user approval — propose them and the user will confirm.",
+  "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+  "Finish each turn with a clear reply and no trailing tool calls.",
+].join("\n\n");
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+function preview(value: unknown): string {
+  let s: string;
+  try {
+    s = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    s = String(value);
+  }
+  s = s ?? "";
+  return s.length > PREVIEW_CHARS ? `${s.slice(0, PREVIEW_CHARS)}…` : s;
+}
+
+function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
+  const out: Partial<Record<ToolName, Tool>> = {};
+  const slugs = [...new Set(["system", ...activeIntegrations])];
+  for (const slug of slugs) {
+    if (!isIntegrationSlug(slug)) continue;
+    for (const registered of listToolsForIntegration(slug)) {
+      out[registered.name] = tool({
+        description: registered.description,
+        inputSchema: registered.inputSchema,
+      });
+    }
+  }
+  return out as ToolSet;
+}
+
+function chatTier(state: ChatRunState): ChatModelTier {
+  return state.tier;
+}
+
+function appendModelMessages(
+  transcript: AgentTranscriptMessage[],
+  messages: ModelMessage[],
+): AgentTranscriptMessage[] {
+  return [...transcript, ...(messages as AgentTranscriptMessage[])];
+}
+
+function toolResultMessage(
+  call: PendingToolCall,
+  result: Exclude<DispatchResult, { kind: "staged" }>,
+): AgentTranscriptMessage {
+  return {
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        output: dispatchResultToToolOutput(result),
+      },
+    ],
+  };
+}
+
+function dispatchResultToToolOutput(
+  result: Exclude<DispatchResult, { kind: "staged" }>,
+): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
+  switch (result.kind) {
+    case "executed":
+      return { type: "json", value: toJsonValue({ status: "executed", result: result.toolResult }) };
+    case "failed":
+      return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
+    default:
+      return { type: "json", value: toJsonValue(result.result) };
+  }
+}
+
+function toJsonValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return { unserializable: String(value) };
+  }
+}
+
+function applyLoadIntegrationEffect(
+  state: ChatRunState,
+  toolName: string,
+  result: DispatchResult,
+): void {
+  if (toolName !== "system.load_integration" || result.kind !== "executed") return;
+  const r = result.toolResult as { ok?: unknown; slug?: unknown };
+  if (r?.ok === true && typeof r.slug === "string" && isIntegrationSlug(r.slug)) {
+    state.activeIntegrations = [...new Set([...state.activeIntegrations, r.slug])];
+  }
+}
+
+// ── steps ─────────────────────────────────────────────────────────────────
+
+const chatTurnStep: Step<ChatRunState> = {
+  id: "chat-turn",
+  async run(ctx) {
+    if (ctx.state.turnCount >= TURN_CAP_MAX) {
+      throw new Error("chat_turn_limit_exceeded");
+    }
+    const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
+    const transcript = [...ctx.transcript];
+
+    if (!state.started) {
+      state.started = true;
+      await publishEvent({
+        userId: ctx.userId,
+        kind: "chat.message",
+        payload: {
+          runId: ctx.runId,
+          threadId: state.threadId,
+          messageId: state.messageId,
+          phase: "started",
+        },
+      });
+    }
+
+    const agent = new AlfredAgent({
+      id: "chat",
+      system: CHAT_SYSTEM_PROMPT,
+      tools: () => resolveSdkTools(state.activeIntegrations),
+      model: getChatModel(chatTier(state)),
+      attribution: { kind: "llm", userId: ctx.userId, runId: ctx.runId },
+    });
+
+    const stream = await agent.streamTurn({
+      ctx,
+      transcript: transcript as ModelMessage[],
+      attribution: { stepId: ctx.idempotencyKey, attempt: ctx.attempt, role: "boss" },
+    });
+
+    // Drain the live stream → coalesce text into `chat.delta`, surface each
+    // tool call as a `chat.tool` started card.
+    let buffer = "";
+    let lastFlush = Date.now();
+    const flush = async (): Promise<void> => {
+      if (buffer.length === 0) return;
+      state.deltaSeq += 1;
+      const text = buffer;
+      buffer = "";
+      lastFlush = Date.now();
+      await publishEvent({
+        userId: ctx.userId,
+        kind: "chat.delta",
+        payload: {
+          runId: ctx.runId,
+          threadId: state.threadId,
+          messageId: state.messageId,
+          seq: state.deltaSeq,
+          text,
+        },
+      });
+    };
+
+    for await (const part of stream.fullStream) {
+      if (part.type === "text-delta") {
+        state.assistantText += part.text;
+        buffer += part.text;
+        if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
+          await flush();
+        }
+      } else if (part.type === "tool-call") {
+        await flush();
+        await publishEvent({
+          userId: ctx.userId,
+          kind: "chat.tool",
+          payload: {
+            runId: ctx.runId,
+            threadId: state.threadId,
+            messageId: state.messageId,
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            status: "started",
+            argsPreview: preview(part.input),
+          },
+        });
+      }
+    }
+    await flush();
+
+    const [toolCalls, finishReason, response] = await Promise.all([
+      stream.toolCalls,
+      stream.finishReason,
+      stream.response,
+    ]);
+    const nextTranscript = appendModelMessages(transcript, response.messages);
+    const outcome = classifyStreamFinish({ toolCalls, finishReason });
+
+    if (outcome.kind === "tool-calls") {
+      state.pendingToolCalls = toolCalls.map((call) => ({
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        input: call.input,
+      }));
+      return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
+    }
+
+    // final | stopped → persist the assistant message and complete.
+    await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+    return { kind: "done", state, transcript: nextTranscript, output: { messageId: state.messageId } };
+  },
+};
+
+const dispatchToolsStep: Step<ChatRunState> = {
+  id: "dispatch-tools",
+  async run(ctx) {
+    const state: ChatRunState = {
+      ...ctx.state,
+      pendingToolCalls: [...ctx.state.pendingToolCalls],
+      activeIntegrations: [...ctx.state.activeIntegrations],
+      toolCallsLog: [...ctx.state.toolCallsLog],
+    };
+    let transcript = [...ctx.transcript];
+
+    while (state.pendingToolCalls.length > 0) {
+      const call = state.pendingToolCalls[0]!;
+      const result = await dispatchToolCall({
+        runId: ctx.runId,
+        stepId: "dispatch-tools",
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        input: call.input,
+        userId: ctx.userId,
+        caller: "boss",
+        scratchpadRunId: ctx.runId,
+        allowedIntegrations: state.allowedIntegrations,
+      });
+
+      if (result.kind === "staged") {
+        // Write action awaiting approval — park the run. The HIL approval
+        // card surfaces via `approval.requested`; resume re-enters this step.
+        return { kind: "interrupt", state, transcript, wake: result.wake };
+      }
+
+      applyLoadIntegrationEffect(state, call.toolName, result);
+
+      const status = result.kind === "executed" ? "succeeded" : "failed";
+      const resultPreview =
+        result.kind === "executed"
+          ? preview(result.toolResult)
+          : result.kind === "failed"
+            ? preview(result.error)
+            : preview(result.result);
+      state.toolCallsLog.push({
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        status,
+        resultPreview,
+      });
+      await publishEvent({
+        userId: ctx.userId,
+        kind: "chat.tool",
+        payload: {
+          runId: ctx.runId,
+          threadId: state.threadId,
+          messageId: state.messageId,
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          status,
+          resultPreview,
+        },
+      });
+
+      transcript = [...transcript, toolResultMessage(call, result)];
+      state.pendingToolCalls = state.pendingToolCalls.slice(1);
+    }
+
+    return { kind: "next", state, transcript, nextStep: "chat-turn" };
+  },
+};
+
+/**
+ * Persist the finished assistant turn and poke the client. The durable row is
+ * what survives reload / reaches other devices; the streamed deltas were
+ * ephemeral. Idempotent on messageId so a re-attempt after the executor
+ * commits doesn't double-insert.
+ */
+async function finalizeAssistantMessage(
+  userId: string,
+  runId: string,
+  state: ChatRunState,
+): Promise<void> {
+  const now = new Date();
+  await db()
+    .insert(chatMessages)
+    .values({
+      id: state.messageId,
+      userId,
+      threadId: state.threadId,
+      role: "assistant",
+      content: state.assistantText,
+      status: "complete",
+      toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+      runId,
+    })
+    .onConflictDoNothing();
+  await db()
+    .update(chatThreads)
+    .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
+    .where(and(eq(chatThreads.id, state.threadId), eq(chatThreads.userId, userId)));
+
+  await publishEvent({
+    userId,
+    kind: "chat.message",
+    payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
+  });
+  emitReplicachePokes([userId]);
+}
+
+export const chatTurnWorkflow: Workflow<ChatRunState> = {
+  slug: CHAT_TURN_WORKFLOW_SLUG,
+  name: "Chat turn",
+  trigger: { kind: "manual" },
+  initialStep: "chat-turn",
+  initialState(input) {
+    const metadata = input.metadata ?? {};
+    const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+    if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
+    const messageId =
+      typeof metadata.assistantMessageId === "string"
+        ? metadata.assistantMessageId
+        : `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${metadata.kickId ?? ""}`))}`;
+    const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
+    const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
+      ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
+      : [];
+    return {
+      threadId,
+      messageId,
+      tier,
+      activeIntegrations: [],
+      allowedIntegrations,
+      pendingToolCalls: [],
+      assistantText: "",
+      toolCallsLog: [],
+      deltaSeq: 0,
+      turnCount: 0,
+      started: false,
+    };
+  },
+  async initialTranscript(input) {
+    const metadata = input.metadata ?? {};
+    const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
+    if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
+    const rows = await db()
+      .select({ role: chatMessages.role, content: chatMessages.content })
+      .from(chatMessages)
+      .where(and(eq(chatMessages.userId, input.userId), eq(chatMessages.threadId, threadId)))
+      .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+    return rows
+      .filter((r) => r.content.length > 0)
+      .map((r) => ({ role: r.role, content: r.content }) satisfies AgentTranscriptMessage);
+  },
+  steps: {
+    "chat-turn": chatTurnStep,
+    "dispatch-tools": dispatchToolsStep,
+  },
+  stateSchema: chatRunStateSchema,
+};
+
+/** Deterministic 31-bit hash for a fallback assistant message id. */
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return h;
+}
