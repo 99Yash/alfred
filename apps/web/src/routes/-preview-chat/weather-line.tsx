@@ -35,7 +35,11 @@ export function WeatherLine() {
       aria-label={`${data.temperature} degrees ${data.unit} in ${data.city}, ${conditionLabel ?? data.condition}`}
     >
       <span className="flex shrink-0 items-center gap-1.5">
-        <Icon size={13} className={cn("shrink-0", TONE_FOR_CONDITION[data.condition])} aria-hidden />
+        <Icon
+          size={13}
+          className={cn("shrink-0", TONE_FOR_CONDITION[data.condition])}
+          aria-hidden
+        />
         <span className="font-medium text-white tabular-nums">
           {data.temperature}°{data.unit}
         </span>

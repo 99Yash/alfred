@@ -77,10 +77,7 @@ export async function metered<T>(
  */
 export function meteredStream<T>(
   meta: MeteredMeta,
-  start: (hooks: {
-    finish: (result: MeteredResult) => void;
-    fail: (message: string) => void;
-  }) => T,
+  start: (hooks: { finish: (result: MeteredResult) => void; fail: (message: string) => void }) => T,
 ): T {
   const startedAt = new Date();
   const span = startLangfuseSpan({ meta, startedAt });

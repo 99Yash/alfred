@@ -15,6 +15,12 @@ export interface StreamingMessage {
   runId: string;
   /** Drip-buffered text — eases toward the full received text for smooth typing. */
   text: string;
+  /** Drip-buffered reasoning — the model's thinking, shown in the accordion. */
+  reasoning: string;
+  /** True while thinking is still arriving (reply hasn't started) — drives the shimmer. */
+  reasoningActive: boolean;
+  /** Frozen once thinking ends, in ms — drives the "Thought for Ns" label. */
+  reasoningMs: number | null;
   tools: StreamingToolCall[];
   /** A write action is parked awaiting the user's approval. */
   awaitingApproval: boolean;
@@ -27,6 +33,12 @@ interface StreamRef {
   runId: string;
   target: string;
   shown: number;
+  reasoning: string;
+  reasoningShown: number;
+  reasoningStartTs: number | null;
+  reasoningMs: number | null;
+  /** Reply text has begun — thinking for the final answer is over. */
+  replyStarted: boolean;
   tools: Map<string, StreamingToolCall>;
   awaitingApproval: boolean;
   done: boolean;
@@ -34,10 +46,11 @@ interface StreamRef {
 
 /**
  * Assembles the in-flight assistant turn for `threadId` from the SSE event bus.
- * `chat.delta` text is buffered and eased out a few chars per animation frame
- * (the drip buffer) so bursty server flushes render as smooth typing;
- * `chat.tool` events become live cards; `approval.requested` flips the
- * awaiting-approval flag. Returns null when nothing is streaming.
+ * `chat.delta` text and `chat.reasoning` thinking are each buffered and eased
+ * out a few chars per animation frame (the drip buffer) so bursty server
+ * flushes render as smooth typing; `chat.tool` events become live cards;
+ * `approval.requested` flips the awaiting-approval flag. Returns null when
+ * nothing is streaming.
  *
  * The streamed message is ephemeral — once the durable copy syncs via
  * Replicache (same messageId), the conversation view drops this bubble.
@@ -60,22 +73,25 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           rafRef.current = null;
           return;
         }
-        if (r.shown < r.target.length) {
-          const remaining = r.target.length - r.shown;
-          r.shown += Math.max(2, Math.ceil(remaining / 8));
-          if (r.shown > r.target.length) r.shown = r.target.length;
-        }
+        const ease = (shown: number, full: number) =>
+          shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
+        r.reasoningShown = ease(r.reasoningShown, r.reasoning.length);
+        r.shown = ease(r.shown, r.target.length);
         setSnapshot({
           messageId: r.messageId,
           runId: r.runId,
           text: r.target.slice(0, r.shown),
+          reasoning: r.reasoning.slice(0, r.reasoningShown),
+          reasoningActive: r.reasoning.length > 0 && !r.replyStarted && !r.done,
+          reasoningMs: r.reasoningMs,
           tools: [...r.tools.values()],
           awaitingApproval: r.awaitingApproval,
           done: r.done,
         });
-        // Keep ticking until the text has fully caught up. Once done + caught
-        // up, stop — the snapshot stays put until the synced message lands.
-        if (!r.done || r.shown < r.target.length) {
+        // Keep ticking until both tracks have fully caught up. Once done +
+        // caught up, stop — the snapshot stays put until the synced message lands.
+        const caughtUp = r.shown >= r.target.length && r.reasoningShown >= r.reasoning.length;
+        if (!r.done || !caughtUp) {
           rafRef.current = requestAnimationFrame(tick);
         } else {
           rafRef.current = null;
@@ -94,6 +110,11 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
             runId: p.runId,
             target: "",
             shown: 0,
+            reasoning: "",
+            reasoningShown: 0,
+            reasoningStartTs: null,
+            reasoningMs: null,
+            replyStarted: false,
             tools: new Map(),
             awaitingApproval: false,
             done: false,
@@ -104,10 +125,24 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           ref.current.awaitingApproval = false;
           ensureRaf();
         }
+      } else if (frame.kind === "chat.reasoning") {
+        const p = frame.payload as EventPayload<"chat.reasoning">;
+        const r = ref.current;
+        if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (r.reasoningStartTs === null) r.reasoningStartTs = Date.now();
+        r.reasoning += p.text;
+        ensureRaf();
       } else if (frame.kind === "chat.delta") {
         const p = frame.payload as EventPayload<"chat.delta">;
         const r = ref.current;
         if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        // First reply token: thinking for the answer is over — freeze its duration.
+        if (!r.replyStarted) {
+          r.replyStarted = true;
+          if (r.reasoningStartTs !== null && r.reasoningMs === null) {
+            r.reasoningMs = Date.now() - r.reasoningStartTs;
+          }
+        }
         r.target += p.text;
         ensureRaf();
       } else if (frame.kind === "chat.tool") {

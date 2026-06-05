@@ -23,6 +23,7 @@ import { useMeetings } from "~/hooks/use-meetings";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
+import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import type { SyncedTodo } from "@alfred/sync";
 import { Conversation } from "./conversation";
@@ -109,6 +110,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   const messages = useChatMessages(threadId);
   const stream = useChatStream(threadId);
+  useRunComplete(stream);
   const send = useSendMessage();
   const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
   const hasConversation = messages.length > 0 || stream !== null;

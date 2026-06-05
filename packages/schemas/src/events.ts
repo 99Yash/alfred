@@ -93,6 +93,22 @@ export const chatDeltaSchema = z.object({
 });
 
 /**
+ * `chat.reasoning` carries a coalesced chunk of the model's thinking — the
+ * same buffer/flush treatment as `chat.delta`, on its own `seq` so the client
+ * orders reasoning independently of the reply text. Reasoning streams *before*
+ * the answer (and may interleave around tool calls); the UI renders it in a
+ * collapsible "Thinking…" accordion. Persisted alongside the durable message
+ * so a reload can re-show "Thought for Ns".
+ */
+export const chatReasoningSchema = z.object({
+  runId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  messageId: z.string().min(1).max(120),
+  seq: z.number().int().nonnegative(),
+  text: z.string().max(16_000),
+});
+
+/**
  * A tool call inside a chat turn, surfaced as a live card. `started` fires
  * when the agent emits the call (with a preview of its input), `succeeded` /
  * `failed` when the dispatcher returns. Write actions that need approval do
@@ -132,6 +148,7 @@ export const eventPayloadSchemas = {
   "memory.fact_learned": memoryFactLearnedSchema,
   "inbox.updated": inboxUpdatedSchema,
   "chat.delta": chatDeltaSchema,
+  "chat.reasoning": chatReasoningSchema,
   "chat.tool": chatToolSchema,
   "chat.message": chatMessageSchema,
 } as const satisfies Record<string, z.ZodType>;

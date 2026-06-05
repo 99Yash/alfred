@@ -66,6 +66,10 @@ export const chatMessages = pgTable(
     role: text("role").notNull().$type<ChatMessageRole>(),
     /** Final text content of the turn. */
     content: text("content").notNull().default(""),
+    /** The model's thinking for this turn (assistant only); null when the model emitted none. */
+    reasoning: text("reasoning"),
+    /** Wall-clock the model spent thinking, in ms — drives the "Thought for Ns" label on reload. */
+    reasoningMs: integer("reasoning_ms"),
     /** 'complete' once the turn finished, 'failed' on a terminal turn error. */
     status: text("status").notNull().default("complete").$type<ChatMessageStatus>(),
     /** Tool cards to re-render on reload (assistant turns only). */

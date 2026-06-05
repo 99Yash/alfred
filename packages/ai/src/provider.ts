@@ -99,6 +99,26 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
 }
 
 /**
+ * Provider options that ask the chat model to emit its reasoning, so the
+ * stream carries `reasoning-delta` parts the chat UI renders as a "Thinking…"
+ * accordion. Namespaced per provider — the SDK passes only the block matching
+ * the active model and ignores the rest, so this stays correct across the
+ * Gemini⇆Anthropic swap in `getChatModel`.
+ *
+ *   - Gemini 2.5: `thinkingConfig.includeThoughts` surfaces the thought summary
+ *     (not the raw chain); `thinkingBudget: -1` lets the model size its own
+ *     thinking. Flash thinks by default, so this only toggles *visibility*.
+ *   - Anthropic (when the cap clears): extended thinking with a modest budget —
+ *     interactive chat wants a fast first token, not a deep deliberation.
+ */
+export function getChatProviderOptions(): Record<string, Record<string, unknown>> {
+  return {
+    google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+    anthropic: { thinking: { type: "enabled", budgetTokens: 2_048 } },
+  };
+}
+
+/**
  * Wrap a primary model so a failed call degrades to `fallback`.
  *
  * TODO(fallback): not yet wired. The intended implementation is the AI SDK's

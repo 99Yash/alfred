@@ -3,6 +3,7 @@ import { Loader2, ShieldQuestion } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
+import { ReasoningSection } from "./reasoning-section";
 import { ToolCallCard } from "./tool-call-card";
 
 /**
@@ -45,6 +46,14 @@ export function Conversation({
 
         {showStream && stream ? (
           <div className="flex flex-col gap-2">
+            {stream.reasoning.length > 0 || stream.reasoningActive ? (
+              <ReasoningSection
+                reasoning={stream.reasoning}
+                active={stream.reasoningActive}
+                durationMs={stream.reasoningMs}
+              />
+            ) : null}
+
             {stream.tools.length > 0 ? (
               <div className="flex flex-col gap-1.5">
                 {stream.tools.map((t) => (
@@ -55,7 +64,9 @@ export function Conversation({
 
             {stream.text.length > 0 ? (
               <AssistantMarkdown text={stream.text} streaming={!stream.done} />
-            ) : stream.tools.length === 0 ? (
+            ) : stream.tools.length === 0 &&
+              stream.reasoning.length === 0 &&
+              !stream.reasoningActive ? (
               <ThinkingIndicator />
             ) : null}
 

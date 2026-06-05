@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { toast } from "sonner";
+import { callToast } from "~/lib/toast";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 
@@ -55,11 +55,11 @@ export function useSendMessage(): SendMessage {
         });
         if (!res.ok) {
           console.error("[chat] turn kick failed:", res.status, await res.text().catch(() => ""));
-          toast.error("Couldn't send your message. Please try again.");
+          callToast({ message: "Couldn't send your message. Please try again.", type: "danger" });
         }
       } catch (err) {
         console.error("[chat] turn kick error:", err);
-        toast.error("Couldn't send your message. Please try again.");
+        callToast({ message: "Couldn't send your message. Please try again.", type: "danger" });
       }
     },
     [rep, userId, navigate],
