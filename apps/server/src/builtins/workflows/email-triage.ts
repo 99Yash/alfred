@@ -1,23 +1,26 @@
 import {
+  assembleObservations,
   classifyEmail,
-  DEEPEN_REASONS,
-  deepenTriageClassification,
   DEFAULT_TRIAGE_CATEGORY,
   extractSenderContext,
   getDocumentAuthoredAt,
+  getSenderPrior,
+  getThreadState,
   getTriage,
   incrementSenderPrior,
+  isKnownContact,
   loadTriageContext,
   publishEvent,
-  readTriageUserContext,
+  resolveTodoSuggestion,
+  senderKeyFor,
   senderPriorWriteKeyFor,
   setAppliedLabelId,
-  shouldDeepen,
   suggestTodo,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
   upsertTriage,
-  type DeepenDecision,
+  type ClassifyAudit,
+  type Observations,
   type SenderContextResult,
   type TriageClassification,
   type Workflow,
@@ -35,10 +38,13 @@ import { z } from "zod";
  * Email triage workflow (ADR-0025 #1).
  *
  * Steps:
- *   1. classify    — load doc + credential, extract SenderContext, call
- *                    cheap-tier LLM, optionally run boss-tier `deepen` for
- *                    live severity-suspect bot alerts, then upsert the final
- *                    `email_triage` row keyed on the Gmail thread.
+ *   1. classify    — load doc + credential, extract SenderContext, gather
+ *                    deterministic observations (sender prior, persona, thread
+ *                    state, known-contact, Gmail signals, content flags), run
+ *                    the context-rich cheap classifier (which owns the
+ *                    conditional second cheap pass + override floor, ADR-0051),
+ *                    then upsert the final `email_triage` row keyed on the
+ *                    Gmail thread. No boss `deepen` escalation.
  *   2. apply-label — modify Gmail labels (add chosen on the latest message,
  *                    strip alfred labels from every sibling message in the
  *                    thread), persist `applied_label_id`. Done.
@@ -89,9 +95,6 @@ const stateSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
-  deepenReason: z.enum(DEEPEN_REASONS).optional(),
-  deepenExecuted: z.boolean().optional(),
-  shadowOnly: z.boolean().optional(),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -209,24 +212,33 @@ export const emailTriageWorkflow: Workflow<State> = {
         }
 
         let classification: TriageClassification;
-        let cheapClassification: TriageClassification | null = null;
         let model: string;
-        let deepenDecision: DeepenDecision = { mode: "skip" };
-        let deepenExecuted = false;
-        let shadowOnly = false;
-        let severityFlag: "severe" | "normal" | "low" | null = null;
-        let dossierRequested = false;
-        let deepenFailure: string | null = null;
+        let audit: ClassifyAudit | null = null;
         if (existing && existing.runId === ctx.runId) {
           classification = {
             category: existing.category,
             confidence: existing.confidence,
             rationale: existing.rationale ?? "",
           };
-          cheapClassification = classification;
           model = existing.model;
           await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
         } else {
+          // Gather deterministic observations (ADR-0051 §4a) before the model
+          // call. All reads are best-effort context; built before the try so
+          // they're available for the sender_extraction log on the fallback
+          // path too. Sender priors are read for bulk/service senders only
+          // (`senderKeyFor` returns null for humans); known-contact is the
+          // human-sender mirror (skip for bots/services — priors cover them).
+          const observations = await gatherObservations({
+            userId: ctx.userId,
+            documentId: ctx.state.documentId,
+            sourceThreadId,
+            document: ctxData.document,
+            persona: ctxData.persona,
+            senderContext,
+            senderAddress: senderContextResult.senderAddress,
+          });
+
           try {
             const result = await classifyEmail({
               userId: ctx.userId,
@@ -238,18 +250,21 @@ export const emailTriageWorkflow: Workflow<State> = {
                 metadata: ctxData.document.metadata,
               },
               senderContext,
+              observations,
               runId: ctx.runId,
               stepId: "classify",
               idempotencyKey: ctx.idempotencyKey,
             });
             classification = result.classification;
             model = result.model;
+            audit = result.audit;
           } catch (err) {
             // LLM parse / network failure → default category. Better to
             // ship a low-confidence label than block the message entirely.
             // Persist the exception text in `rationale` so the row itself
             // tells us why classification fell through — ctx.log only goes
-            // to a transient event stream.
+            // to a transient event stream. `model="fallback"` is non-learnable
+            // (senderPriorWriteKeyFor skips it).
             const errMsg = err instanceof Error ? err.message : String(err);
             await ctx.log(`classify failed; falling through to default: ${errMsg}`);
             classification = {
@@ -258,51 +273,6 @@ export const emailTriageWorkflow: Workflow<State> = {
               rationale: `Classifier failed; default applied. err=${errMsg.slice(0, 500)}`,
             };
             model = "fallback";
-          }
-
-          cheapClassification = classification;
-          deepenDecision = shouldDeepen({
-            classification,
-            senderContext,
-            senderAddress: senderContextResult.senderAddress,
-          });
-          shadowOnly = deepenDecision.mode === "shadow";
-
-          if (deepenDecision.mode === "execute") {
-            try {
-              const userContext = await readTriageUserContext(ctx.userId);
-              const deepened = await deepenTriageClassification({
-                userId: ctx.userId,
-                document: {
-                  id: ctxData.document.id,
-                  title: ctxData.document.title,
-                  content: ctxData.document.content,
-                  authoredAt: ctxData.document.authoredAt,
-                  metadata: ctxData.document.metadata,
-                },
-                classification,
-                senderContext,
-                userContext,
-                runId: ctx.runId,
-                stepId: "deepen",
-                attempt: ctx.attempt,
-                idempotencyKey: `${ctx.idempotencyKey}:deepen`,
-              });
-              classification = deepened.classification;
-              model = `${model}+deepen`;
-              deepenExecuted = true;
-              severityFlag = deepened.severityFlag;
-              dossierRequested = Boolean(deepened.dossierRequest);
-              if (deepened.dossierRequest) {
-                await ctx.log(
-                  `deepen: dossier request for ${deepened.dossierRequest.personEmail} deferred; ` +
-                    `person-research cache/workflow is not present in this tree`,
-                );
-              }
-            } catch (err) {
-              deepenFailure = err instanceof Error ? err.message : String(err);
-              await ctx.log(`deepen failed; keeping cheap classification: ${deepenFailure}`);
-            }
           }
 
           await upsertTriage({
@@ -372,17 +342,14 @@ export const emailTriageWorkflow: Workflow<State> = {
           // context-complete commitment (rule 16); the tail step mints a
           // `suggested` todo for the rail. New-classification path only — the
           // reuse branch above already proposed on its originating run.
-          // `todoSuggestion` rides the CHEAP result (`cheapClassification`):
-          // `deepen` re-emits a classification without the field, so we read it
-          // from there, but suppress if a deepen pass downgraded the category
-          // out of the actionable set. `suggest_todo` is idempotent on source
-          // overlap, so a re-triaged thread merges rather than duplicates, and
-          // a failed suggestion is non-fatal — the label + row are the contract.
-          const todoSuggestion = cheapClassification?.todoSuggestion ?? null;
-          const todoEligible = !["marketing", "newsletter", "fyi", "done"].includes(
-            classification.category,
-          );
-          if (todoSuggestion && todoEligible) {
+          // `todoSuggestion` rides the final classification (the second cheap
+          // pass re-emits it; the override floor preserves it). The category
+          // gate is the floor against a stray suggestion. `suggest_todo` is
+          // idempotent on source overlap, so a re-triaged thread merges rather
+          // than duplicates, and a failed suggestion is non-fatal — the label +
+          // row are the contract.
+          const todoSuggestion = resolveTodoSuggestion(classification);
+          if (todoSuggestion) {
             try {
               const suggested = await suggestTodo({
                 userId: ctx.userId,
@@ -401,22 +368,18 @@ export const emailTriageWorkflow: Workflow<State> = {
             }
           }
 
-          // Emit only on the new-classification path. On the idempotency
-          // reuse path (existing.runId === ctx.runId) the deepen state is
-          // reset to zero, so logging here would report wouldDeepen=false /
-          // deepenExecuted=false and mask the original run's decision.
+          // Emit only on the new-classification path (the reuse branch has no
+          // observations/audit to report). Logs the observation summary + the
+          // classify audit (first pass, conflict, second pass, floor) so a bad
+          // tag is debuggable without reading the raw email body.
           await ctx.log(
             `triage.sender_extraction ${JSON.stringify(
               senderExtractionEvent({
                 senderContextResult,
-                cheapClassification: cheapClassification ?? classification,
+                observations,
+                audit,
                 classification,
-                deepenDecision,
-                deepenExecuted,
-                shadowOnly,
-                severityFlag,
-                dossierRequested,
-                deepenFailure,
+                todoSuggested: Boolean(todoSuggestion),
               }),
             )}`,
           );
@@ -437,9 +400,6 @@ export const emailTriageWorkflow: Workflow<State> = {
             confidence: classification.confidence,
             rationale: classification.rationale,
             senderContext,
-            deepenReason: deepenDecision.reason,
-            deepenExecuted,
-            shadowOnly,
           },
           nextStep: "apply-label",
         };
@@ -518,37 +478,83 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+/**
+ * Assemble the deterministic observation object fed to the classifier
+ * (ADR-0051 §4a). Owns the IO — sender-prior read (bulk/service senders only),
+ * thread state, known-contact (human senders only), persona pass-through — then
+ * delegates to the pure `assembleObservations`. Every read is best-effort: a
+ * blip yields the empty/false default rather than failing the classify.
+ */
+async function gatherObservations(args: {
+  userId: string;
+  documentId: string;
+  sourceThreadId: string;
+  document: { title: string | null; content: string; metadata: Record<string, unknown> };
+  persona: string | null;
+  senderContext: SenderContext;
+  senderAddress: string | null;
+}): Promise<Observations> {
+  const meta = args.document.metadata;
+  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+
+  // Read key uses the same derivation as the write key (humans → null) but no
+  // sent/fallback guard: reads are harmless and the classify step only runs on
+  // received mail anyway.
+  const senderKey = senderKeyFor(args.senderContext, args.senderAddress);
+
+  const [senderPrior, thread, knownContact] = await Promise.all([
+    senderKey ? getSenderPrior(args.userId, senderKey).catch(() => null) : Promise.resolve(null),
+    getThreadState({
+      userId: args.userId,
+      sourceThreadId: args.sourceThreadId,
+      excludeDocumentId: args.documentId,
+    }).catch(() => ({ lastUserReplyAt: null, newestDirection: null, messageCount: 0 })),
+    args.senderContext.effectiveAuthor === "person" && args.senderAddress
+      ? isKnownContact(args.userId, args.senderAddress)
+      : Promise.resolve(false),
+  ]);
+
+  const signalText = [
+    metadataString(meta, "from"),
+    metadataString(meta, "to"),
+    metadataString(meta, "cc"),
+    metadataString(meta, "snippet"),
+    args.document.title,
+    args.document.content,
+    ...labelIds,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return assembleObservations({
+    senderContext: args.senderContext,
+    senderKey,
+    senderPrior,
+    persona: args.persona,
+    thread,
+    knownContact,
+    labelIds,
+    signalText,
+  });
+}
+
+/**
+ * Flatten the observation summary + classify audit into a single structured log
+ * line (`triage.sender_extraction`, ADR-0051 — Phase 5 will formalize the
+ * event). Enough to debug a bad tag without the raw email body.
+ */
 function senderExtractionEvent(args: {
   senderContextResult: SenderContextResult;
-  cheapClassification: TriageClassification;
+  observations: Observations;
+  audit: ClassifyAudit | null;
   classification: TriageClassification;
-  deepenDecision: DeepenDecision;
-  deepenExecuted: boolean;
-  shadowOnly: boolean;
-  severityFlag: "severe" | "normal" | "low" | null;
-  dossierRequested: boolean;
-  deepenFailure: string | null;
-}): {
-  fromKind: SenderContext["fromKind"];
-  bodyActor: SenderContext["bodyActor"] | null;
-  effectiveAuthor: SenderContext["effectiveAuthor"];
-  botSlug: SenderContext["botSlug"] | null;
-  parserHit: SenderContextResult["parserHit"];
-  senderAddress: string | null;
-  senderDomain: string | null;
-  classifierConfidence: number;
-  classifierCategory: TriageCategory;
-  wouldDeepen: boolean;
-  wouldDeepenReason: DeepenDecision["reason"] | null;
-  deepenExecuted: boolean;
-  shadowOnly: boolean;
-  severityFlag: "severe" | "normal" | "low" | null;
-  refinedCategory: TriageCategory | null;
-  dossierRequested: boolean;
-  deepenFailure: string | null;
-} {
+  todoSuggested: boolean;
+}): Record<string, unknown> {
   const { context } = args.senderContextResult;
+  const obs = args.observations;
+  const audit = args.audit;
   return {
+    // sender
     fromKind: context.fromKind,
     bodyActor: context.bodyActor ?? null,
     effectiveAuthor: context.effectiveAuthor,
@@ -556,15 +562,25 @@ function senderExtractionEvent(args: {
     parserHit: args.senderContextResult.parserHit,
     senderAddress: args.senderContextResult.senderAddress,
     senderDomain: args.senderContextResult.senderDomain,
-    classifierConfidence: args.cheapClassification.confidence,
-    classifierCategory: args.cheapClassification.category,
-    wouldDeepen: args.deepenDecision.mode !== "skip",
-    wouldDeepenReason: args.deepenDecision.reason ?? null,
-    deepenExecuted: args.deepenExecuted,
-    shadowOnly: args.shadowOnly,
-    severityFlag: args.severityFlag,
-    refinedCategory: args.deepenExecuted ? args.classification.category : null,
-    dossierRequested: args.dossierRequested,
-    deepenFailure: args.deepenFailure,
+    // observations
+    persona: obs.persona,
+    senderPriorKey: obs.senderPrior.key,
+    senderPriorCounts: obs.senderPrior.categoryCounts,
+    knownContact: obs.knownContact,
+    threadMessages: obs.thread.messageCount,
+    threadNewest: obs.thread.newestDirection,
+    gmailImportant: obs.gmail.important,
+    gmailCategories: obs.gmail.categories,
+    contentFlags: obs.content,
+    // classify audit (null on the fallback/default path)
+    firstPassCategory: audit?.firstPass.category ?? null,
+    firstPassConfidence: audit?.firstPass.confidence ?? null,
+    conflict: audit?.conflict?.kind ?? null,
+    secondPassCategory: audit?.secondPass?.category ?? null,
+    floorForced: audit?.floorForced ?? false,
+    // final outcome
+    finalCategory: args.classification.category,
+    finalConfidence: args.classification.confidence,
+    todoSuggested: args.todoSuggested,
   };
 }

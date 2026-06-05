@@ -408,6 +408,7 @@ async function verifyIdToken(
   if (claims.email_verified === false) {
     throw new Error("[google.oauth] id_token email is not verified");
   }
-  const hostedDomain = typeof claims.hd === "string" && claims.hd.trim() ? claims.hd.trim() : undefined;
+  const hostedDomain =
+    typeof claims.hd === "string" && claims.hd.trim() ? claims.hd.trim() : undefined;
   return { sub: claims.sub, email: claims.email, ...(hostedDomain ? { hostedDomain } : {}) };
 }

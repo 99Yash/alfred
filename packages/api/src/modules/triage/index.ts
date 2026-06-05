@@ -7,8 +7,22 @@
  * package — they all import from here.
  */
 
-export { classifyEmail, triageClassificationSchema, DEFAULT_TRIAGE_CATEGORY } from "./classify";
-export type { TriageClassification, ClassifyEmailArgs } from "./classify";
+export {
+  classifyEmail,
+  detectConflict,
+  applyOverrideFloor,
+  resolveTodoSuggestion,
+  triageClassificationSchema,
+  DEFAULT_TRIAGE_CATEGORY,
+} from "./classify";
+export type {
+  TriageClassification,
+  ClassifyEmailArgs,
+  TriageConflict,
+  ClassifyAudit,
+  ResolvedTodoSuggestion,
+  RunPass,
+} from "./classify";
 export { deepenTriageClassification, shouldDeepen, DEEPEN_REASONS } from "./deepen";
 export type {
   DeepenDecision,
@@ -38,6 +52,7 @@ export type { TriageUserContext } from "./user-context";
 // ── Triage v3 (ADR-0051): sent-mail thread state + sender priors + observations
 export { getThreadState } from "./thread-state";
 export type { ThreadState, GetThreadStateArgs } from "./thread-state";
+export { isKnownContact } from "./contacts";
 export {
   getSenderPrior,
   incrementSenderPrior,

@@ -215,7 +215,10 @@ export const syncedTodoSchema = z.object({
   agentRunId: z.string().nullable(),
   completedAt: isoDateTimeStringSchema.nullable(),
   position: z.number().nullable(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),

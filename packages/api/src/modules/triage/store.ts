@@ -144,6 +144,12 @@ export interface TriageDocumentContext {
   };
   /** Resolved Gmail credential for the doc's account. */
   credentialId: string;
+  /**
+   * Account persona for the credential (`'work' | 'personal' | null`) — fed to
+   * the triage classifier as a one-line context hint (ADR-0051 §3). Null for
+   * legacy credentials connected before persona auto-detection.
+   */
+  persona: string | null;
 }
 
 /**
@@ -169,7 +175,7 @@ export async function loadTriageContext(
   }
 
   const credRows = await db()
-    .select({ id: integrationCredentials.id })
+    .select({ id: integrationCredentials.id, persona: integrationCredentials.persona })
     .from(integrationCredentials)
     .where(
       and(
@@ -195,6 +201,7 @@ export async function loadTriageContext(
       metadata: (doc.metadata as Record<string, unknown> | null) ?? {},
     },
     credentialId: cred.id,
+    persona: cred.persona ?? null,
   };
 }
 

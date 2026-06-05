@@ -59,6 +59,25 @@ describe("extractContentFlags", () => {
   test("detects an embedded calendar invite", () => {
     assert.equal(extractContentFlags("BEGIN:VCALENDAR\nBEGIN:VEVENT").hasCalendarInvite, true);
   });
+
+  test("detects investor/shareholder/AGM notice language", () => {
+    assert.equal(
+      extractContentFlags("Notice of the 63rd Annual General Meeting for shareholders")
+        .hasInvestorNotice,
+      true,
+    );
+    assert.equal(extractContentFlags("e-voting closes via NSDL").hasInvestorNotice, true);
+    assert.equal(extractContentFlags("lunch with the team tomorrow").hasInvestorNotice, false);
+  });
+
+  test("detects public-event blast language", () => {
+    assert.equal(
+      extractContentFlags("Join our launch webinar on Thursday").hasPublicEventLanguage,
+      true,
+    );
+    assert.equal(extractContentFlags("Watch the WWDC26 keynote").hasPublicEventLanguage, true);
+    assert.equal(extractContentFlags("can you attend our 1:1?").hasPublicEventLanguage, false);
+  });
 });
 
 describe("assembleObservations", () => {
@@ -95,6 +114,8 @@ describe("assembleObservations", () => {
         hasCurrencyAmount: true,
         hasSecurityKeyword: false,
         hasCalendarInvite: false,
+        hasInvestorNotice: false,
+        hasPublicEventLanguage: false,
       },
     });
   });
