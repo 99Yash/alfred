@@ -3,6 +3,7 @@ import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
+  detectPersona,
   exchangeCode,
   getGmailWatchState,
   GOOGLE_FEATURE_SCOPES,
@@ -128,6 +129,7 @@ export const googleIntegrationRoutes = new Elysia({
             accountLabel: integrationCredentials.accountLabel,
             status: integrationCredentials.status,
             scopes: integrationCredentials.scopes,
+            persona: integrationCredentials.persona,
             expiresAt: integrationCredentials.expiresAt,
             lastRefreshedAt: integrationCredentials.lastRefreshedAt,
             createdAt: integrationCredentials.createdAt,
@@ -141,6 +143,31 @@ export const googleIntegrationRoutes = new Elysia({
           );
         return { credentials: rows };
       })
+      .patch(
+        "/:id/persona",
+        async ({ params, body, user }) => {
+          // User override for the auto-detected account persona (ADR-0051 #3).
+          // Scoped to the caller's own credential — the WHERE on user.id is the
+          // ownership check (no row updated for someone else's id).
+          const updated = await db()
+            .update(integrationCredentials)
+            .set({ persona: body.persona, updatedAt: new Date() })
+            .where(
+              and(
+                eq(integrationCredentials.id, params.id),
+                eq(integrationCredentials.userId, user.id),
+                eq(integrationCredentials.provider, "google"),
+              ),
+            )
+            .returning({ id: integrationCredentials.id, persona: integrationCredentials.persona });
+          if (!updated[0]) return status(404, { message: "Credential not found" });
+          return { credentialId: updated[0].id, persona: updated[0].persona };
+        },
+        {
+          params: t.Object({ id: t.String() }),
+          body: t.Object({ persona: t.Union([t.Literal("work"), t.Literal("personal")]) }),
+        },
+      )
       .post(
         "/:id/watch",
         async ({ params, user }) => {
@@ -271,7 +298,14 @@ export const googleIntegrationRoutes = new Elysia({
         refreshToken: tokens.refresh_token!,
         expiresAt: tokens.expiresAt,
         scopes: tokens.scopes,
-        metadata: { token_type: tokens.token_type },
+        // Persona auto-detect (ADR-0051 #3): Workspace `hd` claim → work,
+        // absent → personal. `upsertCredential` only fills it when NULL, so a
+        // user override survives this re-connect. Raw `hd` kept for audit.
+        persona: detectPersona(tokens.hostedDomain),
+        metadata: {
+          token_type: tokens.token_type,
+          ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
+        },
       });
 
       // Initial-sync seed: pull the last few messages and triage them so a

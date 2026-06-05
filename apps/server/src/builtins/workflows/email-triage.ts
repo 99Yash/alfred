@@ -6,9 +6,11 @@ import {
   extractSenderContext,
   getDocumentAuthoredAt,
   getTriage,
+  incrementSenderPrior,
   loadTriageContext,
   publishEvent,
   readTriageUserContext,
+  senderKeyFor,
   setAppliedLabelId,
   shouldDeepen,
   suggestTodo,
@@ -332,6 +334,34 @@ export const emailTriageWorkflow: Workflow<State> = {
             await ctx.log(
               `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
             );
+          }
+
+          // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
+          // ONLY from Alfred's own classifications and only for bulk senders:
+          // skip human senders (`senderKeyFor` returns null) and the user's own
+          // sent mail (defensive — sent docs are excluded from the triage
+          // fan-out upstream, so this branch shouldn't see them). Best-effort:
+          // a prior write must never fail the label, which is the contract.
+          // Phase 2 proves the plumbing; Phase 3 feeds the histogram back into
+          // the classifier prompt.
+          const docIsSent =
+            (ctxData.document.metadata as { isSent?: unknown }).isSent === true;
+          const senderKey = docIsSent
+            ? null
+            : senderKeyFor(senderContext, senderContextResult.senderAddress);
+          if (senderKey) {
+            try {
+              await incrementSenderPrior({
+                userId: ctx.userId,
+                senderKey,
+                category: classification.category,
+                displayName: metadataString(ctxData.document.metadata, "from"),
+              });
+            } catch (err) {
+              await ctx.log(
+                `sender_prior write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
 
           // Real-time todo suggestion (ADR-0050 amendment 2026-06-05). The cheap

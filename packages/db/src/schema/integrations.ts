@@ -50,6 +50,16 @@ export const integrationCredentials = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     status: text("status").notNull().default("active"),
+    /**
+     * Account persona (ADR-0051, triage v3): `'work' | 'personal'`. Auto-detected
+     * from the Google `hd` (hosted-domain) claim at connect — a Workspace domain
+     * means `work`, its absence means `personal` — and user-overridable. Fed to
+     * the triage classifier as a one-line context hint. NULL until detected
+     * (legacy rows predating the column). The rich persona *policy* (what is
+     * work-urgent vs personal-urgent) is a deferred future ADR; v1 is label +
+     * plumbing only.
+     */
+    persona: text("persona"),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     ...lifecycle_dates,
   },

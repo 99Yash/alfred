@@ -144,10 +144,12 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       if (result.insertedDocumentIds.length) {
         // Triage event emission (optional) and the rail-update publish are
         // independent writes to different tables; fan them out so a
-        // large bulk seed doesn't pay the latencies in series.
+        // large bulk seed doesn't pay the latencies in series. Triage fans
+        // over `triageDocumentIds` only — sent mail is ingested + embedded
+        // (inline in the ingestor) but never triaged/labeled (ADR-0051 #7).
         await Promise.all([
           data.triageInsertedDocs
-            ? emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "ingest")
+            ? emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest")
             : Promise.resolve(),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
@@ -174,7 +176,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
         await Promise.all([
-          emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "webhook"),
+          // Triage non-sent inserts only; embed ALL inserts (sent mail is
+          // embedded for chat recall but never triaged — ADR-0051 #7).
+          emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook"),
           embedRealtimeInserts(result.insertedDocumentIds),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
@@ -196,7 +200,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
         await Promise.all([
-          emitGmailMessageEvents(result.userId, result.insertedDocumentIds, "ingest"),
+          emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest"),
           publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
         ]);
       }

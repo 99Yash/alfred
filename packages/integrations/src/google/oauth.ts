@@ -245,6 +245,12 @@ export interface ExchangeCodeResult extends GoogleTokenResponse {
   accountId: string;
   /** Decoded `email` from the id_token — surfaced to UI as the account label. */
   accountEmail: string;
+  /**
+   * Decoded `hd` (hosted-domain) claim from the id_token, present only for
+   * Google Workspace accounts. Drives account-persona detection (ADR-0051 #3):
+   * present → `work`, absent → `personal`.
+   */
+  hostedDomain?: string;
   /** Computed expiry timestamp. */
   expiresAt: Date;
   /** Granted scopes parsed into an array. Empty when Google doesn't echo `scope` (rare). */
@@ -281,9 +287,22 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     ...parsed,
     accountId: claims.sub,
     accountEmail: claims.email,
+    ...(claims.hostedDomain ? { hostedDomain: claims.hostedDomain } : {}),
     expiresAt: new Date(Date.now() + parsed.expires_in * 1000),
     scopes: parsed.scope ? parsed.scope.split(/\s+/).filter(Boolean) : [],
   };
+}
+
+/** Account persona label (ADR-0051 #3). */
+export type AccountPersona = "work" | "personal";
+
+/**
+ * Detect account persona from the Google `hd` (hosted-domain) claim: a
+ * Workspace domain means a work account, its absence means personal. The
+ * rich persona *policy* is deferred (own ADR); this is just the label.
+ */
+export function detectPersona(hostedDomain: string | undefined): AccountPersona {
+  return hostedDomain ? "work" : "personal";
 }
 
 export interface RefreshTokenResult {
@@ -360,12 +379,14 @@ interface GoogleIdTokenClaims extends JWTPayload {
   sub?: string;
   email?: string;
   email_verified?: boolean;
+  /** Workspace hosted domain — present only for Workspace accounts. */
+  hd?: string;
 }
 
 async function verifyIdToken(
   idToken: string | undefined,
   audience: string,
-): Promise<{ sub: string; email: string }> {
+): Promise<{ sub: string; email: string; hostedDomain?: string }> {
   if (!idToken) {
     throw new Error("[google.oauth] id_token missing — request 'openid email' scopes");
   }
@@ -387,5 +408,6 @@ async function verifyIdToken(
   if (claims.email_verified === false) {
     throw new Error("[google.oauth] id_token email is not verified");
   }
-  return { sub: claims.sub, email: claims.email };
+  const hostedDomain = typeof claims.hd === "string" && claims.hd.trim() ? claims.hd.trim() : undefined;
+  return { sub: claims.sub, email: claims.email, ...(hostedDomain ? { hostedDomain } : {}) };
 }

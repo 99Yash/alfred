@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
@@ -26,6 +26,12 @@ export interface UpsertCredentialsArgs {
   expiresAt: Date;
   scopes: string[];
   metadata?: Record<string, unknown>;
+  /**
+   * Account persona (ADR-0051 #3): `'work' | 'personal'`, auto-detected from
+   * the Google `hd` claim at connect. Omitted leaves the column untouched on
+   * update so a user override survives a token re-connect.
+   */
+  persona?: string | null;
 }
 
 /**
@@ -35,6 +41,24 @@ export interface UpsertCredentialsArgs {
  * duplicate.
  */
 export async function upsertCredential(args: UpsertCredentialsArgs): Promise<{ id: string }> {
+  const updateSet: Record<string, unknown> = {
+    accessToken: args.accessToken,
+    // A re-connect issues a new refresh token; honour it.
+    refreshToken: args.refreshToken,
+    expiresAt: args.expiresAt,
+    scopes: args.scopes,
+    metadata: args.metadata ?? {},
+    status: "active",
+    accountLabel: args.accountLabel ?? null,
+    lastRefreshedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  // Persona: fill only when currently NULL, so a re-connect (which re-detects
+  // from `hd`) never clobbers a user override (ADR-0051 #3).
+  if (args.persona !== undefined) {
+    updateSet.persona = sql`COALESCE(${integrationCredentials.persona}, ${args.persona ?? null})`;
+  }
+
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -48,6 +72,7 @@ export async function upsertCredential(args: UpsertCredentialsArgs): Promise<{ i
       scopes: args.scopes,
       metadata: args.metadata ?? {},
       status: "active",
+      persona: args.persona ?? null,
     })
     .onConflictDoUpdate({
       target: [
@@ -55,18 +80,7 @@ export async function upsertCredential(args: UpsertCredentialsArgs): Promise<{ i
         integrationCredentials.provider,
         integrationCredentials.accountId,
       ],
-      set: {
-        accessToken: args.accessToken,
-        // A re-connect issues a new refresh token; honour it.
-        refreshToken: args.refreshToken,
-        expiresAt: args.expiresAt,
-        scopes: args.scopes,
-        metadata: args.metadata ?? {},
-        status: "active",
-        accountLabel: args.accountLabel ?? null,
-        lastRefreshedAt: new Date(),
-        updatedAt: new Date(),
-      },
+      set: updateSet,
     })
     .returning({ id: integrationCredentials.id });
   const row = result[0];

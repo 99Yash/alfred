@@ -18,6 +18,22 @@ plus the surviving *SenderContext*, *Effective author*, *User context*),
 > existing v2 path (`todoSuggestion` in `classify.ts`, `suggestTodo` tail step in
 > `email-triage.ts`). Triage v3 must preserve that tail step while moving the
 > classifier to observation-rich inputs.
+>
+> **Build progress (2026-06-05).** Phases 1 + 2 landed (foundation):
+> - *Phase 1* — `persistMessage` flags `metadata.isSent`; ingestor results carry
+>   `triageDocumentIds` (non-sent inserts); `queue.ts` triages that subset only
+>   while embedding all inserts; `getThreadState()` reads sent-aware thread
+>   observations. Sent mail is now ingested + embedded but never triaged/labeled.
+> - *Phase 2* — `sender_priors` table + migration `0032`; `sender-priors.ts`
+>   (`senderKeyFor`/`getSenderPrior`/`incrementSenderPrior`, Redis read-through +
+>   bust); `integration_credentials.persona` auto-detected from the Google `hd`
+>   claim (`detectPersona`), exposed via `GET /credentials` + overridable via
+>   `PATCH /credentials/:id/persona`; pure `observations.ts` assembler. Histogram
+>   write-back is wired into the existing classifier path — **no prompt change yet**.
+> - Reads (`getSenderPrior`, `getThreadState`, `assembleObservations`) are built,
+>   exported, and unit-tested but **not yet fed to the model** — that is Phase 3.
+> - Remaining: Phase 0 (todo regression coverage), Phase 3 (context-rich
+>   classifier), Phase 4 (retire boss `deepen`), Phase 5 (observability/docs/copy).
 
 ---
 
