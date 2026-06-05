@@ -41,6 +41,31 @@ export function useChatThreads(): SyncedChatThread[] {
 }
 
 /**
+ * Reactive single-thread lookup. Returns the synced thread row (for its title
+ * + activity), or null while it hasn't synced yet / for a brand-new thread.
+ */
+export function useChatThread(threadId: string | undefined): SyncedChatThread | null {
+  const rep = useReplicache();
+  const [thread, setThread] = useState<SyncedChatThread | null>(null);
+
+  useEffect(() => {
+    if (!rep || !threadId) {
+      setThread(null);
+      return;
+    }
+    return rep.subscribe(
+      async (tx: ReadTransaction) => tx.get(IDB_KEY.CHAT_THREAD({ id: threadId })),
+      (value) => {
+        const result = syncedChatThreadSchema.safeParse(value);
+        setThread(result.success ? result.data : null);
+      },
+    );
+  }, [rep, threadId]);
+
+  return thread;
+}
+
+/**
  * Reactive list of one thread's messages in chronological order. Returns an
  * empty array for a brand-new (unsent) thread.
  */

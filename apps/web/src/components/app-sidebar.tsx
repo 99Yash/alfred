@@ -270,6 +270,9 @@ function ThreadGroupBlock({
   activeId?: string;
   chatActive: boolean;
 }) {
+  // Skip the whole block — heading included — when the bucket is empty, so a
+  // user with threads in only one bucket (or none) doesn't see naked headings.
+  if (entries.length === 0) return null;
   return (
     <div className="mb-3">
       <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
