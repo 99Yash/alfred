@@ -57,7 +57,6 @@ export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
  */
 export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
-export const triageTagSourceSchema = z.enum(TRIAGE_TAG_SOURCES);
 
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
 export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];

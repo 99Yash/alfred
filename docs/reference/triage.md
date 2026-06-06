@@ -38,5 +38,4 @@ Sender/observation flow:
 
 Smokes:
 
-- From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smoke-triage-v2.ts` runs fixture-based live model checks for the subset flow without Gmail/connected-account dependencies.
 - From `apps/server`, `pnpm exec tsx --env-file=.env src/scripts/smoke-triage.ts` exercises the Gmail-backed end-to-end workflow and requires a connected Google account plus at least one ingested email.

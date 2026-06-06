@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 
+const EMPTY_TRIAGE_TAGS: ReadonlyMap<string, SyncedTriageTag> = new Map();
+
 export interface TriageTagsState {
   tagsByThreadId: ReadonlyMap<string, SyncedTriageTag>;
   loading: boolean;
@@ -19,15 +21,12 @@ export interface TriageTagsState {
  */
 export function useTriageTags(): TriageTagsState {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [tagsByThreadId, setTagsByThreadId] = useState<ReadonlyMap<string, SyncedTriageTag>>(
-    () => new Map(),
-  );
-  const [loaded, setLoaded] = useState(false);
+  const [tagsByThreadId, setTagsByThreadId] =
+    useState<ReadonlyMap<string, SyncedTriageTag> | null>(null);
 
   useEffect(() => {
     if (!rep) {
-      setTagsByThreadId(new Map());
-      setLoaded(false);
+      setTagsByThreadId(null);
       return;
     }
     const prefix = IDB_KEY.TRIAGE_TAG({});
@@ -40,7 +39,6 @@ export function useTriageTags(): TriageTagsState {
           if (result.success) next.set(result.data.threadId, result.data);
         }
         setTagsByThreadId(next);
-        setLoaded(true);
       },
     );
   }, [rep]);
@@ -54,8 +52,8 @@ export function useTriageTags(): TriageTagsState {
   );
 
   return {
-    tagsByThreadId,
-    loading: !loaded && !loadError,
+    tagsByThreadId: tagsByThreadId ?? EMPTY_TRIAGE_TAGS,
+    loading: tagsByThreadId == null && !loadError,
     error: loadError,
     retry,
     overrideTag,

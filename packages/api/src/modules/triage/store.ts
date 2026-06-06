@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
 /**
  * Persistence helpers for the thread-keyed triage table. The workflow owns
@@ -158,7 +159,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
     }
 
     const now = new Date();
-    const updateSet: Record<string, unknown> = {
+    const updateSet: PgUpdateSetSource<typeof emailTriage> = {
       category: args.category,
       confidence: args.confidence,
       rationale: args.rationale,

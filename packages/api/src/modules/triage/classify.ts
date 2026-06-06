@@ -92,24 +92,6 @@ export const triageClassificationSchema = z
         note: z.string().max(200).optional(),
       })
       .optional(),
-  })
-  .superRefine((value, ctx) => {
-    const hasSuggestion = value.todoSuggestion != null;
-    const outcome = value.todoDecision?.outcome;
-    if (hasSuggestion && outcome !== "proposed") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["todoDecision", "outcome"],
-        message: "todoSuggestion requires todoDecision.outcome='proposed'",
-      });
-    }
-    if (!hasSuggestion && outcome === "proposed") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["todoSuggestion"],
-        message: "todoDecision.outcome='proposed' requires a todoSuggestion",
-      });
-    }
   });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 

@@ -1,9 +1,7 @@
+import type { TriageTagSource } from "@alfred/contracts";
 import { index, integer, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
-
-/** Author of the current tag — see `TRIAGE_TAG_SOURCES` in `@alfred/contracts`. */
-type TriageTagSource = "auto" | "user";
 
 /**
  * Email triage classifications (ADR-0025 #1).
