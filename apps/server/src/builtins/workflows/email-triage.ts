@@ -26,7 +26,7 @@ import {
   type TriageClassification,
   type Workflow,
 } from "@alfred/api";
-import { senderContextSchema, type SenderContext } from "@alfred/contracts";
+import { senderContextSchema, type AccountPersona, type SenderContext } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 
@@ -489,7 +489,7 @@ async function gatherObservations(args: {
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: Record<string, unknown> };
-  persona: string | null;
+  persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
 }): Promise<Observations> {
@@ -551,7 +551,7 @@ interface SenderExtractionEvent {
   parserHit: SenderContextResult["parserHit"];
   senderAddress: SenderContextResult["senderAddress"];
   senderDomain: SenderContextResult["senderDomain"];
-  persona: string | null;
+  persona: AccountPersona | null;
   senderPriorKey: string | null;
   senderPriorCounts: Record<string, number>;
   knownContact: boolean;

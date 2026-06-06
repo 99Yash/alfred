@@ -107,6 +107,11 @@ export async function enqueueTriageRelabel(userId: string, sourceThreadId: strin
   await queue.add(
     "triage.relabel",
     { kind: "triage.relabel", userId, sourceThreadId },
-    { deduplication: { id: `triage.relabel.${userId}.${sourceThreadId}`, ttl: 30_000 } },
+    {
+      deduplication: {
+        id: `triage.relabel.${userId}.${sourceThreadId}`,
+        keepLastIfActive: true,
+      },
+    },
   );
 }

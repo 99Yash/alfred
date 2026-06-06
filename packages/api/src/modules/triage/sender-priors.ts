@@ -3,6 +3,7 @@ import { db } from "@alfred/db";
 import { senderPriors } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import type IORedis from "ioredis";
 import { createCacheRedisConnection } from "../../queue/connection";
 
@@ -167,7 +168,7 @@ export interface IncrementSenderPriorArgs {
  */
 export async function incrementSenderPrior(args: IncrementSenderPriorArgs): Promise<void> {
   const now = new Date();
-  const updateSet: Record<string, unknown> = {
+  const updateSet: PgUpdateSetSource<typeof senderPriors> = {
     categoryCounts: sql`jsonb_set(
       ${senderPriors.categoryCounts},
       ARRAY[${args.category}],

@@ -491,7 +491,7 @@ describe("triageClassificationSchema.todoSuggestion", () => {
     assert.equal(r.success, true);
   });
 
-  test("rejects a suggestion when todoDecision is missing or not proposed", () => {
+  test("accepts todo bookkeeping mismatches so the category survives parsing", () => {
     assert.equal(
       triageClassificationSchema.safeParse({
         category: "action_needed",
@@ -499,13 +499,10 @@ describe("triageClassificationSchema.todoSuggestion", () => {
         rationale: "x",
         todoSuggestion: { name: "Reply to Priya" },
       }).success,
-      false,
+      true,
     );
-    assert.equal(parseTodo({ name: "Reply to Priya" }, { outcome: "too_vague" }).success, false);
-  });
-
-  test("rejects proposed todoDecision without a suggestion", () => {
-    assert.equal(parseTodo(null, { outcome: "proposed" }).success, false);
+    assert.equal(parseTodo({ name: "Reply to Priya" }, { outcome: "too_vague" }).success, true);
+    assert.equal(parseTodo(null, { outcome: "proposed" }).success, true);
   });
 
   test("rejects an empty name", () => {
