@@ -52,7 +52,7 @@ export const SLIDES_ACTIONS = [
 
 export const SLACK_ACTIONS = [] as const;
 export const LINEAR_ACTIONS = [] as const;
-export const GITHUB_ACTIONS = [] as const;
+export const GITHUB_ACTIONS = ["search_pull_requests"] as const;
 export const IMESSAGE_ACTIONS = [] as const;
 
 export const INTEGRATION_ACTIONS = {
