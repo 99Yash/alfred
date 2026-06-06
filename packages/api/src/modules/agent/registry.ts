@@ -30,6 +30,14 @@ export function listWorkflows(): Workflow<unknown>[] {
   return [...registry.values()];
 }
 
+export function isInternalWorkflowSlug(slug: string): boolean {
+  return slug.startsWith("__");
+}
+
+export function listPublicWorkflows(): Workflow<unknown>[] {
+  return listWorkflows().filter((workflow) => !isInternalWorkflowSlug(workflow.slug));
+}
+
 /** Test-only: drop everything. Production code never calls this. */
 export function _resetRegistryForTests(): void {
   registry.clear();

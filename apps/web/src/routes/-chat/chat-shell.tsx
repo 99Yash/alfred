@@ -22,12 +22,19 @@ import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useTodos } from "~/lib/replicache/use-todos";
+import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useChatStream } from "~/lib/chat/use-chat-stream";
+import { useRunComplete } from "~/lib/chat/use-run-complete";
+import { useSendMessage } from "~/lib/chat/use-send-message";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
+import { Conversation, shouldShowStream } from "./conversation";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { authClient } from "~/lib/auth-client";
+import { firstName, greeting } from "~/lib/user-display";
+import { safeGet, safeRemove, safeSet } from "~/lib/storage";
 import { cn } from "~/lib/utils";
 import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
@@ -105,10 +112,35 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   );
   useRightRail(railNode);
 
+  const messages = useChatMessages(threadId);
+  const stream = useChatStream(threadId);
+  useRunComplete(stream);
+  const send = useSendMessage();
+  const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
+  const showStream = shouldShowStream(messages, stream);
+  const isStreaming = showStream && !stream.done;
+  const hasConversation = messages.length > 0 || showStream;
+
   return (
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
-      <EmptyHero threadId={threadId} />
+      {hasConversation ? (
+        <>
+          <Conversation messages={messages} stream={stream} />
+          <div className="shrink-0 px-4 pb-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <Composer
+                key={threadId ?? "new"}
+                threadId={threadId}
+                isStreaming={isStreaming}
+                onSend={onSend}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <EmptyHero threadId={threadId} isStreaming={isStreaming} onSend={onSend} />
+      )}
     </div>
   );
 }
@@ -158,7 +190,15 @@ function TopBar({
   );
 }
 
-function EmptyHero({ threadId }: { threadId: string | undefined }) {
+function EmptyHero({
+  threadId,
+  isStreaming,
+  onSend,
+}: {
+  threadId: string | undefined;
+  isStreaming: boolean;
+  onSend?: (text: string) => void;
+}) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
   const now = new Date();
@@ -186,7 +226,12 @@ function EmptyHero({ threadId }: { threadId: string | undefined }) {
         {/* Key by threadId so the composer (and its Tiptap editor) remounts
          * on thread switch — draft-seeding from localStorage runs once per
          * thread and the editor instance starts fresh, no per-render sync. */}
-        <Composer key={threadId ?? "new"} threadId={threadId} />
+        <Composer
+          key={threadId ?? "new"}
+          threadId={threadId}
+          isStreaming={isStreaming}
+          onSend={onSend}
+        />
         <ConnectToolsBar />
       </div>
     </div>
@@ -366,7 +411,15 @@ const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> 
   { brand: "web", label: "Web search" },
 ];
 
-function Composer({ threadId }: { threadId: string | undefined }) {
+function Composer({
+  threadId,
+  isStreaming,
+  onSend,
+}: {
+  threadId: string | undefined;
+  isStreaming: boolean;
+  onSend?: (text: string) => void;
+}) {
   const { resolved: theme } = useVsTheme();
 
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
@@ -377,13 +430,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
   // accept the legacy plain-string format so drafts written by the previous
   // textarea+mirror composer survive the migration.
   const initialJSON = useMemo<JSONContent | undefined>(() => {
-    if (typeof window === "undefined") return undefined;
-    let raw: string | null = null;
-    try {
-      raw = window.localStorage.getItem(draftKey);
-    } catch {
-      return undefined;
-    }
+    const raw = safeGet(draftKey);
     if (!raw) return undefined;
     try {
       const parsed = JSON.parse(raw) as JSONContent;
@@ -408,7 +455,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     return extractTextFromJSON(initialJSON);
   });
   const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
-  const canSend = !isEmpty && !mic.recording;
+  const canSend = !isEmpty && !mic.recording && !isStreaming;
 
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
@@ -488,14 +535,10 @@ function Composer({ threadId }: { threadId: string | undefined }) {
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
       setText(nextText);
       setIsEmpty(nextEmpty);
-      try {
-        if (nextEmpty) {
-          window.localStorage.removeItem(draftKey);
-        } else {
-          window.localStorage.setItem(draftKey, JSON.stringify(nextJSON));
-        }
-      } catch {
-        // Quota / private-mode — drafts are best-effort, swallow.
+      if (nextEmpty) {
+        safeRemove(draftKey);
+      } else {
+        safeSet(draftKey, JSON.stringify(nextJSON));
       }
     },
     [draftKey],
@@ -526,18 +569,13 @@ function Composer({ threadId }: { threadId: string | undefined }) {
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
-    // Stub — wired in m13. Logging on dev so the input round-trips visibly.
-    // eslint-disable-next-line no-console
-    console.info("[chat] composer submit:", { threadId, value: text.trim() });
+    const value = text.trim();
+    onSend?.(value);
     editorRef.current?.clear();
     setText("");
     setIsEmpty(true);
-    try {
-      window.localStorage.removeItem(draftKey);
-    } catch {
-      // best-effort
-    }
-  }, [canSend, draftKey, text, threadId]);
+    safeRemove(draftKey);
+  }, [canSend, draftKey, text, onSend]);
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -606,6 +644,7 @@ function Composer({ threadId }: { threadId: string | undefined }) {
           <ComposerToolbar
             mic={mic}
             canSend={canSend}
+            isStreaming={isStreaming}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
           />
@@ -618,11 +657,13 @@ function Composer({ threadId }: { threadId: string | undefined }) {
 function ComposerToolbar({
   mic,
   canSend,
+  isStreaming,
   mentionActive,
   onMentionClick,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
+  isStreaming: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
 }) {
@@ -681,7 +722,7 @@ function ComposerToolbar({
           <button
             type="submit"
             disabled={!canSend}
-            aria-label="Send"
+            aria-label={isStreaming ? "Waiting for response" : "Send"}
             className={cn(
               "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
               "vs-press transition-[opacity,filter,transform]",
@@ -969,36 +1010,6 @@ function toRailTodoItem(t: SyncedTodo): TodoItem {
 /** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
 function toRailSuggestion(t: SyncedTodo): SuggestionInput {
   return { id: t.id, label: t.name, detail: t.assist ?? "" };
-}
-
-interface SessionUser {
-  name?: string | null;
-  email?: string | null;
-}
-
-function firstName(user: SessionUser | null | undefined): string {
-  if (!user) return "";
-  if (user.name && user.name.trim()) {
-    const first = user.name.trim().split(/\s+/)[0] ?? "";
-    return titleCase(first);
-  }
-  if (user.email) {
-    const handle = user.email.split("@")[0] ?? "";
-    return titleCase(handle);
-  }
-  return "";
-}
-
-function titleCase(s: string): string {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function greeting(date: Date): string {
-  const h = date.getHours();
-  if (h >= 5 && h < 12) return "Good morning";
-  if (h >= 12 && h < 18) return "Good afternoon";
-  return "Good evening";
 }
 
 function formatDate(date: Date): string {

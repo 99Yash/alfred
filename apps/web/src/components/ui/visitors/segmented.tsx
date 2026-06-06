@@ -35,7 +35,7 @@ interface VsSegmentedProps<T extends string = string> {
    * `"glass"` — translucent, blurred track that lets a busy backdrop
    * (e.g. the rail's weather video) bleed through while staying legible.
    * The active cell becomes a solid dark chip so its label reads against
-   * whatever sky is behind, matching the rail's `WeatherChip`.
+   * whatever sky is behind.
    */
   variant?: "default" | "glass";
 }
@@ -77,7 +77,7 @@ export function VsSegmented<T extends string = string>({
                     "outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                     /* off state — white-based so it reads over the sky video */
                     "text-white/70 hover:text-white",
-                    /* on state — solid dark chip echoing WeatherChip */
+                    /* on state — solid dark glass chip over the sky video */
                     "data-[state=active]:bg-vs-bg-1/85 data-[state=active]:text-white",
                     "data-[state=active]:ring-1 data-[state=active]:ring-white/10",
                     "data-[state=active]:shadow-[var(--vs-shadow-elevated)]",

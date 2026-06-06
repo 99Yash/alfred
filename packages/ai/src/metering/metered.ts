@@ -59,6 +59,77 @@ export async function metered<T>(
   }
 }
 
+/**
+ * Streaming sibling of `metered()`. A streamed call can't be metered with a
+ * single await — `streamText` returns immediately and usage is only known
+ * once the stream finishes. So instead of wrapping a thunk, this hands the
+ * caller two callbacks to wire into the SDK's `onFinish` / `onError` hooks:
+ *
+ *   - `finish(result)` — call once when the stream completes, with the same
+ *     `MeteredResult` shape `metered()`'s extractor returns. Computes cost,
+ *     writes the `api_call_log` row, closes the Langfuse span.
+ *   - `fail(message)` — call on stream error. Writes an error row, ends the
+ *     span. The caller still rethrows/propagates as it sees fit.
+ *
+ * Both are idempotent — only the first call lands — so wiring them into both
+ * `onFinish` and a `try/catch` is safe. The span opens synchronously here so
+ * latency is measured from before the model call, matching `metered()`.
+ */
+export function meteredStream<T>(
+  meta: MeteredMeta,
+  start: (hooks: {
+    finish: (result: MeteredResult) => void;
+    fail: (message: string) => void;
+    abort: (result: MeteredResult) => void;
+  }) => T,
+): T {
+  const startedAt = new Date();
+  const span = startLangfuseSpan({ meta, startedAt });
+  let settled = false;
+  const settleWithUsage = (extracted: MeteredResult, aborted: boolean): void => {
+    if (settled) return;
+    settled = true;
+    const latencyMs = Date.now() - startedAt.getTime();
+    const responseMeta = aborted
+      ? { ...extracted.responseMeta, aborted: true }
+      : extracted.responseMeta;
+    void (async () => {
+      const price = await getPrice(meta.provider, meta.model);
+      const costUsd = computeCost(price, extracted.usage);
+      void writeLogRow({
+        meta,
+        latencyMs,
+        usage: extracted.usage,
+        costUsd,
+        responseMeta,
+        error: null,
+      });
+      span.success({ usage: extracted.usage, costUsd, output: responseMeta });
+    })();
+  };
+  const finish = (extracted: MeteredResult): void => {
+    settleWithUsage(extracted, false);
+  };
+  const abort = (extracted: MeteredResult): void => {
+    settleWithUsage(extracted, true);
+  };
+  const fail = (message: string): void => {
+    if (settled) return;
+    settled = true;
+    const latencyMs = Date.now() - startedAt.getTime();
+    void writeLogRow({
+      meta,
+      latencyMs,
+      usage: undefined,
+      costUsd: 0,
+      responseMeta: undefined,
+      error: { message },
+    });
+    span.error(message);
+  };
+  return start({ finish, fail, abort });
+}
+
 interface WriteArgs {
   meta: MeteredMeta;
   latencyMs: number;

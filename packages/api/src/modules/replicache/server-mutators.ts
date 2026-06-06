@@ -1,5 +1,7 @@
 import type { IntegrationRules } from "@alfred/contracts";
 import {
+  chatMessages,
+  chatThreads,
   emailTriage,
   notes,
   rejectedInferences,
@@ -10,6 +12,8 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import type {
+  ChatMessageCreateArgs,
+  ChatThreadCreateArgs,
   FactConfirmArgs,
   FactEditArgs,
   FactRejectArgs,
@@ -386,6 +390,56 @@ export const serverMutators = {
         rowVersion: sql`${todos.rowVersion} + 1`,
       })
       .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId)));
+  },
+
+  // ── Chat (streaming-chat plan) ────────────────────────────────────────
+  // Only the user side mutates via Replicache: opening a thread and appending
+  // the user's message. The assistant reply is worker-written on completion.
+  // Both are idempotent on id so at-least-once redelivery is a no-op.
+
+  /** Open a new chat thread. Idempotent on id (client mints it before push). */
+  async chatThreadCreate(
+    tx: DbTx,
+    args: ChatThreadCreateArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .insert(chatThreads)
+      .values({
+        id: args.id,
+        userId: ctx.userId,
+        lastMessageAt: new Date(args.createdAt),
+        createdAt: new Date(args.createdAt),
+      })
+      .onConflictDoNothing();
+  },
+
+  /** Append the user's message and float its thread to the top of the list. */
+  async chatMessageCreate(
+    tx: DbTx,
+    args: ChatMessageCreateArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .insert(chatMessages)
+      .values({
+        id: args.id,
+        userId: ctx.userId,
+        threadId: args.threadId,
+        role: "user",
+        content: args.content,
+        status: "complete",
+        createdAt: new Date(args.createdAt),
+      })
+      .onConflictDoNothing();
+    // Bump lastMessageAt only on a thread this user owns.
+    await tx
+      .update(chatThreads)
+      .set({
+        lastMessageAt: new Date(args.createdAt),
+        rowVersion: sql`${chatThreads.rowVersion} + 1`,
+      })
+      .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, ctx.userId)));
   },
 
   // ── Triage tags (rfc-triage-tags.md) ──────────────────────────────────

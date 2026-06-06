@@ -42,6 +42,7 @@ catalog:
   react-dom: ^19.0.0
   replicache: ^15.3.0
   resend: ^6.9.3
+  sonner: ^2.0.0
   tailwind-merge: ^3.3.0
   tailwindcss: ^4.1.8
   tsdown: ^0.15.5

@@ -2,15 +2,17 @@ import {
   embed,
   generateText,
   Output,
+  streamText,
   type CallWarning,
   type EmbedResult,
   type FinishReason,
   type GenerateTextResult,
   type LanguageModel,
   type LanguageModelUsage,
+  type StreamTextResult,
   type ToolSet,
 } from "ai";
-import { metered } from "./metered";
+import { metered, meteredStream } from "./metered";
 import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
 
 /**
@@ -172,6 +174,80 @@ export async function meteredGenerateObject<O>(
     finishReason: result.finishReason,
     warnings: result.warnings,
   };
+}
+
+export type StreamTextArgs = Parameters<typeof streamText>[0];
+type StreamTextFinishEvent = Parameters<NonNullable<StreamTextArgs["onFinish"]>>[0];
+type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
+type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
+
+/**
+ * Streaming counterpart to `meteredGenerateText`. Returns the SDK's
+ * `StreamTextResult` synchronously so the caller can consume `fullStream`
+ * for live token / tool-call deltas; metering lands once the stream
+ * finishes, via the SDK's `onFinish` / `onError` hooks. Produces exactly
+ * one `api_call_log` row per streamed turn, same as the non-streaming path.
+ *
+ * Any caller-supplied `onFinish` / `onError` are preserved and invoked
+ * after the metering hook runs.
+ */
+export function meteredStreamText(
+  args: StreamTextArgs,
+  attribution: AttributedCall = {},
+): StreamTextResult<ToolSet, never> {
+  const ids = resolveIds(args.model, attribution);
+  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
+  const callerOnFinish = args.onFinish;
+  const callerOnError = args.onError;
+  const callerOnAbort = args.onAbort;
+  return meteredStream(meta, ({ finish, fail, abort }) =>
+    streamText({
+      ...args,
+      onFinish: (event: StreamTextFinishEvent) => {
+        finish({
+          usage: usageFromSdk(event.totalUsage),
+          responseMeta: {
+            finishReason: event.finishReason,
+            toolCallCount: event.toolCalls?.length,
+            stepCount: event.steps?.length,
+          },
+        });
+        callerOnFinish?.(event);
+      },
+      onError: (event: StreamTextErrorEvent) => {
+        fail(event.error instanceof Error ? event.error.message : String(event.error));
+        callerOnError?.(event);
+      },
+      onAbort: (event: StreamTextAbortEvent) => {
+        abort({
+          usage: usageFromSteps(event.steps),
+          responseMeta: {
+            finishReason: "abort",
+            stepCount: event.steps.length,
+          },
+        });
+        callerOnAbort?.(event);
+      },
+    }),
+  ) as StreamTextResult<ToolSet, never>;
+}
+
+function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
+  if (steps.length === 0) return undefined;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  let sawUsage = false;
+  for (const step of steps) {
+    const usage = usageFromSdk(step.usage);
+    if (!usage) continue;
+    sawUsage = true;
+    inputTokens += usage.inputTokens ?? 0;
+    outputTokens += usage.outputTokens ?? 0;
+    cachedInputTokens += usage.cachedInputTokens ?? 0;
+  }
+  if (!sawUsage) return undefined;
+  return { inputTokens, outputTokens, cachedInputTokens };
 }
 
 export async function meteredEmbed(
