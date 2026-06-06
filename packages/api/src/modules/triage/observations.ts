@@ -1,4 +1,4 @@
-import { type SenderContext } from "@alfred/contracts";
+import type { AccountPersona } from "@alfred/contracts";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
 
@@ -89,18 +89,34 @@ const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsu
 // never on the glyphs: a `\b` after `€`/`£` never holds (non-word glyph → EOL/
 // space is not a word boundary), so anchoring the whole branch on `\b` silently
 // dropped trailing-symbol EU amounts like `1.000,00 €`.
+//
+// The integer/decimal run is bounded (`{0,20}`, not `*`): a real amount is
+// short, and an unbounded run followed by a REQUIRED trailing symbol backtracks
+// O(n²) — it re-attempts the match from every digit position when the suffix is
+// absent. `extractContentFlags` scans the full (uncapped) email body, so a
+// single inbound message with a long digit/comma run would otherwise stall the
+// triage worker (quadratic ReDoS). The bound keeps every real currency format
+// matching while making the failing-suffix backtrack linear.
 const CURRENCY_RE =
-  /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]*\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
+  /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]{0,20}\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
 const SECURITY_RE =
   /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
+// `proxy` and `registrar` are qualified to their financial sense: bare
+// `\bproxy\b`/`\bregistrar\b` false-positive on routine engineering prose
+// ("reverse proxy", "package registrar") for a developer's mail mix, setting a
+// spurious investor-notice hint. The qualifiers keep the real notices
+// ("proxy voting", "registrar and transfer agent", "registrar to the issue").
 const INVESTOR_RE =
-  /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
+  /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\s+(?:vote|voting|statement|card|form|materials?)\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\s+(?:and|&|to)\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
 // `conference` requires a public-event qualifier (`conference 2026`,
 // `tech conference`) — bare `\bconference\b` false-positived on personal
 // "conference call" / "conference room", nudging the model off `meeting`.
+// The suppressor alternatives carry a trailing `\b` so they exempt only the
+// whole personal-meeting words (`room`/`rooms`), not prefixes of unrelated
+// words ("conference calligraphy", "conference liner notes").
 const PUBLIC_EVENT_RE =
-  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconferences?\b(?!\s+(?:call|room|line|bridge|dial-?in))|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
+  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconferences?\b(?!\s+(?:call|rooms?|line|bridge|dial-?in)\b)|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
 
 /** Derive cheap deterministic content flags from the email's signal text. */
 export function extractContentFlags(text: string): ContentFlags {
@@ -126,7 +142,7 @@ export interface Observations {
     lastCategory: string | null;
   };
   /** `'work' | 'personal' | null` — null until detected on the credential. */
-  persona: string | null;
+  persona: AccountPersona | null;
   thread: ThreadState;
   /** The sender is a known contact in the user's entity graph. */
   knownContact: boolean;
@@ -135,10 +151,14 @@ export interface Observations {
 }
 
 export interface AssembleObservationsArgs {
-  senderContext: Pick<SenderContext, "effectiveAuthor" | "botSlug">;
+  /**
+   * Pre-derived prior key (or null for human/skip senders). The caller does the
+   * `senderKeyFor` derivation; the assembler does not re-derive from a
+   * `SenderContext`, so it does not take one.
+   */
   senderKey: string | null;
   senderPrior: SenderPrior | null;
-  persona: string | null;
+  persona: AccountPersona | null;
   thread: ThreadState;
   knownContact: boolean;
   labelIds: readonly string[];

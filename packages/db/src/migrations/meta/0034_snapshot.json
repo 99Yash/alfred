@@ -1,6 +1,6 @@
 {
-  "id": "c11f13f9-b0ba-43c6-ba47-40b63d8037c3",
-  "prevId": "6e657c93-3e18-4b86-a772-e7a9b497b88a",
+  "id": "46fe443c-c94d-4ece-93b8-2400b4c65a73",
+  "prevId": "ae9e519a-fb1a-44e3-8a14-f20c183e0c9c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5480,6 +5480,26 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'auto'"
+        },
+        "overridden_at": {
+          "name": "overridden_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "row_version": {
+          "name": "row_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",

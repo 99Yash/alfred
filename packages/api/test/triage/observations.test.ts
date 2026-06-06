@@ -69,7 +69,26 @@ describe("extractContentFlags", () => {
       true,
     );
     assert.equal(extractContentFlags("e-voting closes via NSDL").hasInvestorNotice, true);
+    assert.equal(extractContentFlags("Proxy voting closes tomorrow").hasInvestorNotice, true);
+    assert.equal(
+      extractContentFlags("Registrar and Transfer Agent: KFin Technologies").hasInvestorNotice,
+      true,
+    );
     assert.equal(extractContentFlags("lunch with the team tomorrow").hasInvestorNotice, false);
+    // `proxy`/`registrar` are qualified to their financial sense — routine
+    // engineering prose must not trip the investor hint.
+    assert.equal(
+      extractContentFlags("set up a reverse proxy in front of the package registrar")
+        .hasInvestorNotice,
+      false,
+    );
+  });
+
+  test("currency scan stays linear on a long adversarial digit run (ReDoS guard)", () => {
+    // A bounded `{0,20}` run keeps the failing-suffix backtrack linear: this
+    // returns immediately rather than hanging the test (it would time out if
+    // the quantifier were unbounded). Real amounts still match (above).
+    assert.equal(extractContentFlags("1".repeat(100_000) + " trailing").hasCurrencyAmount, false);
   });
 
   test("detects public-event blast language", () => {
@@ -104,7 +123,6 @@ describe("assembleObservations", () => {
 
   test("produces a stable, fully-populated observation object", () => {
     const obs = assembleObservations({
-      senderContext: { effectiveAuthor: "service" },
       senderKey: "alerts@stripe.com",
       senderPrior: { categoryCounts: { payment: 4, fyi: 1 }, lastCategory: "payment" },
       persona: "work",
@@ -137,7 +155,6 @@ describe("assembleObservations", () => {
 
   test("falls back to empty histogram + null fields when there is no prior", () => {
     const obs = assembleObservations({
-      senderContext: { effectiveAuthor: "person" },
       senderKey: null,
       senderPrior: null,
       persona: null,

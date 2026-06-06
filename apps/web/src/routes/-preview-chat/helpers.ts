@@ -1,4 +1,4 @@
-import type { TriageCategory } from "@alfred/contracts";
+import type { TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { useEffect, useState } from "react";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 
@@ -134,6 +134,8 @@ export interface InboxItem {
   threadId?: string | null;
   /** Triage category surfaced as a chip next to the timestamp. */
   category?: TriageCategory | null;
+  /** Whether the visible triage tag came from the classifier or a user override. */
+  categorySource?: TriageTagSource | null;
   /** Brand glyph for noreply senders (github, linkedin, linear, …). */
   senderBrand?: IntegrationBrand | null;
   /**

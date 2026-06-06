@@ -4,6 +4,8 @@ CREATE TABLE "chat_messages" (
 	"thread_id" text NOT NULL,
 	"role" text NOT NULL,
 	"content" text DEFAULT '' NOT NULL,
+	"reasoning" text,
+	"reasoning_ms" integer,
 	"status" text DEFAULT 'complete' NOT NULL,
 	"tool_calls" jsonb,
 	"run_id" text,

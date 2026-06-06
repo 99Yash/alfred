@@ -60,14 +60,14 @@ plus the surviving *SenderContext*, *Effective author*, *User context*),
 > **Build progress (2026-06-05, cont.).** Phase 0 landed (todo regression
 > coverage) — done *after* 3+4 since the rewrite touched the todo path:
 > - Extracted the inline workflow gate into a pure exported `resolveTodoSuggestion`
->   (the single decision point: returns the model's suggestion only when present
->   AND the category is todo-eligible). `TODO_INELIGIBLE_CATEGORIES`
->   (`marketing`/`newsletter`/`fyi`/`done`) kept separate from `PASSIVE_CATEGORIES`
->   on purpose — coincident sets, independent policies. `email-triage.ts` now
->   calls the seam; behavior unchanged.
+>   (the single decision point: returns the model's suggestion only when present,
+>   `todoDecision.outcome` is `proposed`, and the category is todo-eligible).
+>   `TODO_INELIGIBLE_CATEGORIES` is now only `marketing`/`newsletter`;
+>   `fyi`/`done` are rubric-owned because they can carry a real trailing ask.
+>   `email-triage.ts` now calls the seam.
 > - Regression coverage: `triageClassificationSchema.todoSuggestion` shape
 >   (`null | { name, assist? }` + caps); `resolveTodoSuggestion` gate (acceptance:
->   `action_needed`/`urgent` with a concrete ask passes through; all four passive
+>   `action_needed`/`urgent` with a concrete ask passes through; broadcast
 >   categories suppress a stray suggestion); source-overlap merge idempotency
 >   (`test/todos/sources.test.ts` — locks the `mergeTodoSources`/`todoSourceKey`
 >   contract the `suggestTodo` dedup guard relies on, since the DB txn has no
@@ -277,7 +277,7 @@ Implementation checklist:
 - Delete `shouldDeepen` execution from `email-triage.ts`.
 - Remove/deprecate triage-only `deepen` imports and state fields.
 - Ensure classification model/cost attribution is still `role: 'triage'`.
-- Keep fallback behavior simple: failed second-pass falls back to first-pass output, not boss.
+- Keep fallback behavior simple: failed second-pass records the failure; over-classification keeps the first pass, while under-classification conservatively escalates a passive first pass to `action_needed`.
 
 Acceptance:
 

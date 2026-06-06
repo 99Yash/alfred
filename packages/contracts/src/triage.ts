@@ -24,6 +24,11 @@ export const TRIAGE_CATEGORIES = [
 
 export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
 
+export const TRIAGE_RAIL_SUPPRESSED_CATEGORIES = [
+  "newsletter",
+  "marketing",
+] as const satisfies readonly TriageCategory[];
+
 /** Short display label for the rail chip. */
 export const TRIAGE_DISPLAY: Record<TriageCategory, string> = {
   urgent: "Urgent",
@@ -43,6 +48,19 @@ export function isTriageCategory(value: unknown): value is TriageCategory {
 }
 
 export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
+
+/**
+ * Who authored the thread's current triage tag. `auto` = the classifier wrote
+ * it (carries confidence/rationale); `user` = the user overrode it via the
+ * `triageTagOverride` Replicache mutator (carries `overriddenAt`, no classifier
+ * provenance). The discriminant for `SyncedTriageTag` — see rfc-triage-tags.md.
+ */
+export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
+export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
+
+export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
+export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
+export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);
 
 // ─── ADR-0042: SenderContext ──────────────────────────────────────────────
 

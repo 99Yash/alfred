@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq, ne, sql } from "drizzle-orm";
+import { gmailSentSql } from "./sent-mail";
 
 /**
  * Sent-mail-aware thread state (ADR-0051 #8). A BOUNDED OBSERVATION fed to the
@@ -53,7 +54,10 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     .select({
       id: documents.id,
       authoredAt: documents.authoredAt,
-      isSent: sql<boolean>`COALESCE((${documents.metadata} ->> 'isSent')::boolean, false)`,
+      // Canonical sent detection (isSent flag OR the raw SENT label) so a
+      // SENT-labelled doc without the flag is not mis-counted as received,
+      // which would corrupt newestDirection / lastUserReplyAt.
+      isSent: gmailSentSql(),
     })
     .from(documents)
     .where(
@@ -68,8 +72,10 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     // to its most recent rows — otherwise Postgres returns an arbitrary subset
     // and `newestDirection`/`lastUserReplyAt` could be computed from stale rows.
     // NULLS LAST so undated rows (no ordering signal) never displace a dated
-    // one out of the window. `documents_thread_idx` supports the ordering.
-    .orderBy(sql`${documents.authoredAt} desc nulls last`)
+    // one out of the window. `documents.id` is a deterministic tiebreaker so
+    // two messages sharing an authoredAt (same-second replies) resolve the
+    // "newest" slot identically every run. `documents_thread_idx` supports it.
+    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)
     .limit(THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;

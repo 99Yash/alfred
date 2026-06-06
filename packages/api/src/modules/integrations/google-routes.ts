@@ -1,3 +1,4 @@
+import { ACCOUNT_PERSONAS } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -165,7 +166,7 @@ export const googleIntegrationRoutes = new Elysia({
         },
         {
           params: t.Object({ id: t.String() }),
-          body: t.Object({ persona: t.Union([t.Literal("work"), t.Literal("personal")]) }),
+          body: t.Object({ persona: t.Union(ACCOUNT_PERSONAS.map((p) => t.Literal(p))) }),
         },
       )
       .post(

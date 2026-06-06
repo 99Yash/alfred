@@ -4,6 +4,7 @@ import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "../action-policies";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { enqueueTriageRelabel } from "../triage/tags";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators } from "./server-mutators";
@@ -25,8 +26,22 @@ function isKnownMutator(name: string): name is MutatorName {
  */
 const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set(["policySetIntegrationMode"]);
 
+/**
+ * Mutators whose successful application must reconcile a Gmail label after
+ * commit (rfc-triage-tags.md). The DB tag is committed in-transaction; the
+ * external Gmail write can't be, so we enqueue a `triage.relabel` job per
+ * affected thread once the transaction lands. Mirrors `POLICY_BUST_MUTATORS`.
+ */
+const RELABEL_MUTATORS: ReadonlySet<MutatorName> = new Set(["triageTagOverride"]);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbTx = any;
+type ServerMutatorResult = void | { applied?: boolean };
+
+function didMutatorApply(result: ServerMutatorResult | undefined): boolean {
+  if (typeof result !== "object" || result === null) return true;
+  return result.applied ?? true;
+}
 
 async function advanceLMID(
   tx: DbTx,
@@ -66,7 +81,13 @@ export async function handlePush(
   // Entire push runs inside one transaction: clientGroup bind + all mutation
   // writes + LMID advances. Per-mutation failures are isolated via savepoints.
   const outcome = await db().transaction<
-    { forbidden: true } | { forbidden: false; needsPoke: boolean; needsPolicyBust: boolean }
+    | { forbidden: true }
+    | {
+        forbidden: false;
+        needsPoke: boolean;
+        needsPolicyBust: boolean;
+        relabelThreads: string[];
+      }
   >(async (tx) => {
     const [group] = await tx
       .select()
@@ -94,6 +115,7 @@ export async function handlePush(
 
     let needsPoke = false;
     let needsPolicyBust = false;
+    const relabelThreads: string[] = [];
 
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
@@ -122,6 +144,7 @@ export async function handlePush(
       }
 
       let applied = false;
+      let mutatorResult: ServerMutatorResult | undefined;
       try {
         // Savepoint isolates mutator failures so one bad mutation doesn't
         // poison the whole batch.
@@ -130,10 +153,10 @@ export async function handlePush(
             tx: DbTx,
             args: unknown,
             ctx: { userId: string },
-          ) => Promise<void>;
-          await runner(subTx, parsed.data, { userId });
+          ) => Promise<ServerMutatorResult>;
+          mutatorResult = await runner(subTx, parsed.data, { userId });
         });
-        applied = true;
+        applied = didMutatorApply(mutatorResult);
       } catch (err) {
         if (err instanceof MutatorForbiddenError) {
           console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
@@ -152,10 +175,15 @@ export async function handlePush(
       if (applied) {
         needsPoke = true;
         if (POLICY_BUST_MUTATORS.has(mutatorName)) needsPolicyBust = true;
+        if (RELABEL_MUTATORS.has(mutatorName)) {
+          // `parsed.data` is the override schema's output — carries `threadId`.
+          const threadId = (parsed.data as { threadId?: unknown }).threadId;
+          if (typeof threadId === "string") relabelThreads.push(threadId);
+        }
       }
     }
 
-    return { forbidden: false, needsPoke, needsPolicyBust };
+    return { forbidden: false, needsPoke, needsPolicyBust, relabelThreads };
   });
 
   if (outcome.forbidden) return { forbidden: true };
@@ -177,6 +205,20 @@ export async function handlePush(
   // call. Best-effort (publishPolicyBust swallows Redis blips internally).
   if (outcome.needsPolicyBust) {
     await publishPolicyBust(userId);
+  }
+
+  // Reconcile each overridden thread's Gmail label off the request path. The
+  // DB tag is already committed; the relabel job converges Gmail and is
+  // idempotent, so a failed enqueue self-heals on the next override/classify.
+  for (const sourceThreadId of outcome.relabelThreads) {
+    try {
+      await enqueueTriageRelabel(userId, sourceThreadId);
+    } catch (err) {
+      console.warn(
+        "[replicache:push] triage relabel enqueue failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   return {};

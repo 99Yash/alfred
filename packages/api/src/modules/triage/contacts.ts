@@ -23,6 +23,11 @@ export async function isKnownContact(userId: string, senderAddress: string): Pro
       .where(
         and(
           eq(entities.userId, userId),
+          // Human contacts only (the documented contract): a shared-mailbox
+          // alias on an organization/product entity (e.g. support@acme.com)
+          // must not report a service sender as a known person. Also narrows
+          // the scan via the (user_id, kind, …) index prefix.
+          eq(entities.kind, "person"),
           // `aliases` is a jsonb array of strings; iterate it and compare
           // lowercased so "Alice@Work.com" stored verbatim still matches.
           sql`EXISTS (
