@@ -45,54 +45,53 @@ export const TODO_DECISION_OUTCOMES = [
 ] as const;
 export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
 
-export const triageClassificationSchema = z
-  .object({
-    category: z.enum(TRIAGE_CATEGORIES),
-    /**
-     * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
-     * 0.5 the workflow still applies the chosen label (we always pick one,
-     * to avoid leaving the message untriaged), but flags it for the briefing
-     * to optionally surface as "alfred wasn't sure."
-     */
-    confidence: z.number().min(0).max(1),
-    /** Short rationale grounded in the email — used for audit and debugging. */
-    rationale: z.string().min(1).max(500),
-    /**
-     * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
-     * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
-     * tests (rule 16) — the email-triage tail step turns it into a `suggested`
-     * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
-     * and evaluated over the whole email (a `done` closure with a significant
-     * trailing ask can still yield one); `todoDecision` reports which test fired.
-     * The model must always emit the key (null when no todo) — this is one field
-     * on the existing cheap call, not a second call.
-     */
-    todoSuggestion: z
-      .object({
-        /** Crisp imperative title for the rail checkbox row. */
-        name: z.string().min(1).max(120),
-        /** Optional one-liner on how to approach it, or an honest "can't act yet". */
-        assist: z.string().max(280).optional(),
-      })
-      .nullable()
-      // Optional on the TYPE so non-cheap-classifier producers need not set it;
-      // the cheap call is prompted to always emit it (null when no todo).
-      .optional(),
-    /**
-     * Always-present rubric trace (ADR-0050 amendment 2026-06-06). Reports which
-     * rubric test decided the call, so a wrong suggestion AND a wrong *omission*
-     * are both debuggable by dimension. Invariant: `outcome === 'proposed'` iff
-     * `todoSuggestion` is non-null. Optional on the TYPE for non-cheap-classifier
-     * producers; the cheap call is prompted to always emit it.
-     */
-    todoDecision: z
-      .object({
-        outcome: z.enum(TODO_DECISION_OUTCOMES),
-        /** Optional ≤1-clause detail for the log (e.g. "trivial survey"). */
-        note: z.string().max(200).optional(),
-      })
-      .optional(),
-  });
+export const triageClassificationSchema = z.object({
+  category: z.enum(TRIAGE_CATEGORIES),
+  /**
+   * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
+   * 0.5 the workflow still applies the chosen label (we always pick one,
+   * to avoid leaving the message untriaged), but flags it for the briefing
+   * to optionally surface as "alfred wasn't sure."
+   */
+  confidence: z.number().min(0).max(1),
+  /** Short rationale grounded in the email — used for audit and debugging. */
+  rationale: z.string().min(1).max(500),
+  /**
+   * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
+   * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
+   * tests (rule 16) — the email-triage tail step turns it into a `suggested`
+   * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
+   * and evaluated over the whole email (a `done` closure with a significant
+   * trailing ask can still yield one); `todoDecision` reports which test fired.
+   * The model must always emit the key (null when no todo) — this is one field
+   * on the existing cheap call, not a second call.
+   */
+  todoSuggestion: z
+    .object({
+      /** Crisp imperative title for the rail checkbox row. */
+      name: z.string().min(1).max(120),
+      /** Optional one-liner on how to approach it, or an honest "can't act yet". */
+      assist: z.string().max(280).optional(),
+    })
+    .nullable()
+    // Optional on the TYPE so non-cheap-classifier producers need not set it;
+    // the cheap call is prompted to always emit it (null when no todo).
+    .optional(),
+  /**
+   * Always-present rubric trace (ADR-0050 amendment 2026-06-06). Reports which
+   * rubric test decided the call, so a wrong suggestion AND a wrong *omission*
+   * are both debuggable by dimension. Invariant: `outcome === 'proposed'` iff
+   * `todoSuggestion` is non-null. Optional on the TYPE for non-cheap-classifier
+   * producers; the cheap call is prompted to always emit it.
+   */
+  todoDecision: z
+    .object({
+      outcome: z.enum(TODO_DECISION_OUTCOMES),
+      /** Optional ≤1-clause detail for the log (e.g. "trivial survey"). */
+      note: z.string().max(200).optional(),
+    })
+    .optional(),
+});
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
 /** A single cheap-model pass — the seam the second pass and tests drive. */

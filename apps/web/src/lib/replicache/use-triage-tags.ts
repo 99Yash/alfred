@@ -21,8 +21,9 @@ export interface TriageTagsState {
  */
 export function useTriageTags(): TriageTagsState {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [tagsByThreadId, setTagsByThreadId] =
-    useState<ReadonlyMap<string, SyncedTriageTag> | null>(null);
+  const [tagsByThreadId, setTagsByThreadId] = useState<ReadonlyMap<string, SyncedTriageTag> | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!rep) {

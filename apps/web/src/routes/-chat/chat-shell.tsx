@@ -1,5 +1,6 @@
-import { Link } from "@tanstack/react-router";
 import type { TriageCategory } from "@alfred/contracts";
+import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
+import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/react";
 import {
   ArrowUp,
@@ -17,36 +18,35 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Particles } from "~/components/ui/particles";
 import { VsPill } from "~/components/ui/visitors";
 import { useVsTheme } from "~/components/ui/visitors/theme";
-import { useInbox, useMarkInboxRead, INBOX_PAGE_SIZE, type InboxPage } from "~/hooks/use-inbox";
-import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
+import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
-import { useTodos } from "~/lib/replicache/use-todos";
-import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useRightRail, useSidebarState } from "~/lib/app-shell";
+import { authClient } from "~/lib/auth-client";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { useTriageTags } from "~/lib/replicache/use-triage-tags";
-import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
-import { Conversation, shouldShowStream } from "./conversation";
-import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
-import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
-import { authClient } from "~/lib/auth-client";
-import { firstName, greeting } from "~/lib/user-display";
+import { useChatMessages } from "~/lib/replicache/use-chat";
+import { useTodos } from "~/lib/replicache/use-todos";
+import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage";
+import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
-import { IconButton } from "~/routes/-preview-chat/icon-button";
+import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
+import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-content";
 import { RightRail } from "~/routes/-preview-chat/right-rail";
+import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
+import { Conversation, shouldShowStream } from "./conversation";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
+import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
 import {
   TiptapComposer,
   type SuggestionRenderState,
   type TiptapComposerHandle,
 } from "./tiptap-composer";
-import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
 
 const MODEL_LEADING = <Sparkles size={12} />;
 
@@ -401,7 +401,10 @@ function ConnectToolsBar() {
   );
 }
 
-const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> = [
+const CONNECT_BRANDS: ReadonlyArray<{
+  brand: IntegrationBrand;
+  label: string;
+}> = [
   { brand: "gmail", label: "Gmail" },
   { brand: "google_calendar", label: "Calendar" },
   { brand: "google_drive", label: "Drive" },
@@ -731,11 +734,11 @@ function ComposerToolbar({
               "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
               canSend
                 ? cn(
-                    "text-[var(--vs-accent-fg)]",
-                    "bg-[image:var(--vs-cta-bg)]",
-                    "shadow-[var(--vs-button-primary-shadow)]",
+                    "text-(--vs-accent-fg)",
+                    "bg-(image:--vs-cta-bg)",
+                    "shadow-(--vs-button-primary-shadow)",
                     "hover:brightness-[1.06]",
-                    "hover:shadow-[var(--vs-button-primary-shadow-hover)]",
+                    "hover:shadow-(--vs-button-primary-shadow-hover)",
                   )
                 : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
             )}
