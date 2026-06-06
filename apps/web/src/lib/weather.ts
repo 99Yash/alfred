@@ -19,40 +19,48 @@
  * WMO weather code for the resolved coordinates. No auth, CORS-open.
  *
  * If the weather call fails (network, rate-limit) the caller (react-query)
- * surfaces it; the WeatherChip hides itself.
+ * surfaces it; the weather line hides itself.
  *
  * History: we used `ipapi.co` originally — they now serve 429s without
  * CORS headers on the free tier, which the browser reports as a CORS
  * error. Don't reintroduce it without proxying through our API.
  */
 
-export type WeatherCondition =
-  | "clear"
-  | "partly_cloudy"
-  | "cloudy"
-  | "fog"
-  | "rain"
-  | "snow"
-  | "storm"
-  | "unknown";
+import { z } from "zod";
 
-export type TemperatureUnit = "C" | "F";
+export const weatherConditionSchema = z.enum([
+  "clear",
+  "partly_cloudy",
+  "cloudy",
+  "fog",
+  "rain",
+  "snow",
+  "storm",
+  "unknown",
+]);
+export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
 
-export interface WeatherSnapshot {
-  /** Whole-degree temperature in `unit`. */
-  temperature: number;
-  unit: TemperatureUnit;
-  /** City name (or region, when geojs can't resolve a city). */
-  city: string;
-  condition: WeatherCondition;
-  /**
-   * `true` when open-meteo reports daylight at the resolved coordinates.
-   * Drives the night-video swap in the rail. Missing data defaults to
-   * `true` (daytime) so a flaky `is_day` field never paints the surface
-   * black for a daytime user.
-   */
-  isDay: boolean;
-}
+export const temperatureUnitSchema = z.enum(["C", "F"]);
+export type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
+
+/**
+ * Schema is the source of truth for the snapshot's shape — it also validates
+ * the persisted weather cache (see `lib/storage`'s registry). Field notes:
+ *   - `temperature`: whole-degree temperature in `unit`.
+ *   - `city`: city name (or region, when geojs can't resolve a city).
+ *   - `isDay`: `true` when open-meteo reports daylight at the resolved
+ *     coordinates. Drives the night-video swap in the rail. Missing data
+ *     defaults to `true` (daytime) in `fetchWeather` so a flaky `is_day`
+ *     field never paints the surface black for a daytime user.
+ */
+export const weatherSnapshotSchema = z.object({
+  temperature: z.number(),
+  unit: temperatureUnitSchema,
+  city: z.string(),
+  condition: weatherConditionSchema,
+  isDay: z.boolean(),
+});
+export type WeatherSnapshot = z.infer<typeof weatherSnapshotSchema>;
 
 /**
  * Pick Celsius or Fahrenheit from the browser's locale. Falls back to C
@@ -71,6 +79,7 @@ function preferredTemperatureUnit(): TemperatureUnit {
 }
 
 const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
+const WEATHER_FETCH_TIMEOUT_MS = 8_000;
 
 interface GeoJsLocation {
   city?: unknown;
@@ -141,7 +150,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     url.searchParams.set("latitude", String(lat));
     url.searchParams.set("longitude", String(lon));
     url.searchParams.set("localityLanguage", "en");
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const data = (await res.json()) as BigDataCloudReverse;
     for (const candidate of [data.city, data.locality, data.principalSubdivision]) {
@@ -155,7 +164,9 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
 /** IP-based location via geojs. Coarse fallback — see file header. */
 async function ipLocation(): Promise<ResolvedLocation> {
-  const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json");
+  const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json", {
+    signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS),
+  });
   if (!locRes.ok) {
     throw new Error(`geojs: ${locRes.status}`);
   }
@@ -204,7 +215,7 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   url.searchParams.set("longitude", String(lon));
   url.searchParams.set("current", "temperature_2m,weather_code,is_day");
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
-  const wRes = await fetch(url);
+  const wRes = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
   if (!wRes.ok) {
     throw new Error(`open-meteo: ${wRes.status}`);
   }

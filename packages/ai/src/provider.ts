@@ -66,3 +66,71 @@ export function getWebSearchModel(): LanguageModel {
 export function getResearchModel(): LanguageModel {
   return perplexity("sonar-deep-research");
 }
+
+/**
+ * Interactive-chat model tiers (ADR pending; see docs/plans streaming-chat).
+ *
+ * The chat agent runs on Anthropic by default and escalates to Opus for
+ * demanding turns:
+ *   - `standard` → Claude Sonnet 4.6 — the default conversational driver.
+ *   - `deep`     → Claude Opus 4.8 — escalation for hard, multi-step turns
+ *     (and the model the boss-worker harness runs on when chat fans out).
+ *
+ * Each tier degrades to the corresponding Google tier on Anthropic failure
+ * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
+ * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
+ */
+export type ChatModelTier = "standard" | "deep";
+
+/**
+ * Spend-cap swap (mirrors `getBossModel`, 2026-05-21): while the Anthropic
+ * workspace spend cap is in effect, chat runs on Google. Gemini 2.5 Flash for
+ * `standard` (low-latency, the right feel for interactive chat — 2.5 Pro runs
+ * minutes/turn) and 2.5 Pro for `deep` escalation.
+ *
+ * Intended mapping once the cap clears (swap back by returning the
+ * `anthropic(...)` line): `standard → claude-sonnet-4-6`,
+ * `deep → claude-opus-4-8`. The Anthropic path also wants `withFallback(...,
+ * google(...))` once that wrapper is unblocked (see below).
+ */
+export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
+  // return tier === "deep" ? anthropic("claude-opus-4-8") : anthropic("claude-sonnet-4-6");
+  return tier === "deep" ? google("gemini-2.5-pro") : google("gemini-2.5-flash");
+}
+
+/**
+ * Provider options that ask the chat model to emit its reasoning, so the
+ * stream carries `reasoning-delta` parts the chat UI renders as a "Thinking…"
+ * accordion. Namespaced per provider — the SDK passes only the block matching
+ * the active model and ignores the rest, so this stays correct across the
+ * Gemini⇆Anthropic swap in `getChatModel`.
+ *
+ *   - Gemini 2.5: `thinkingConfig.includeThoughts` surfaces the thought summary
+ *     (not the raw chain); `thinkingBudget: -1` lets the model size its own
+ *     thinking. Flash thinks by default, so this only toggles *visibility*.
+ *   - Anthropic (when the cap clears): extended thinking with a modest budget —
+ *     interactive chat wants a fast first token, not a deep deliberation.
+ */
+export function getChatProviderOptions(): Record<string, Record<string, unknown>> {
+  return {
+    google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+    anthropic: { thinking: { type: "enabled", budgetTokens: 2_048 } },
+  };
+}
+
+/**
+ * Wrap a primary model so a failed call degrades to `fallback`.
+ *
+ * TODO(fallback): not yet wired. The intended implementation is the AI SDK's
+ * `wrapLanguageModel` middleware (`wrapGenerate`/`wrapStream` → try primary,
+ * catch, replay against the fallback) — warden's `createRetryable` pattern,
+ * see memory `feedback_ai_retry_preference`. It's blocked today by a spec
+ * mismatch: `@ai-sdk/anthropic@3` / `@ai-sdk/google` emit `LanguageModelV2`
+ * models while `wrapLanguageModel` is typed for `v3`, so the wrapper doesn't
+ * type-check. Revisit when the provider packages move to v3 (or adopt the
+ * `ai-retry` dependency). Until then this throws if called so future call sites
+ * do not accidentally depend on a no-op fallback.
+ */
+export function withFallback(_primary: LanguageModel, _fallback: LanguageModel): LanguageModel {
+  throw new Error("withFallback is not implemented for the current AI SDK provider versions");
+}

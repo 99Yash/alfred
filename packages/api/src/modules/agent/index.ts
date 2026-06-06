@@ -2,7 +2,7 @@ import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
-import { listWorkflows, registerWorkflow } from "./registry";
+import { listPublicWorkflows, listWorkflows, registerWorkflow } from "./registry";
 import {
   cancelRun,
   cancelRunInTx,
@@ -19,6 +19,7 @@ import { startAgentWorker, stopAgentWorker } from "./worker";
 export {
   registerWorkflow,
   listWorkflows,
+  listPublicWorkflows,
   createRun,
   getRun,
   isUniqueViolation,
@@ -51,7 +52,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
     app
       .get("/workflows", () => {
         return {
-          workflows: listWorkflows().map((w) => ({
+          workflows: listPublicWorkflows().map((w) => ({
             slug: w.slug,
             description: w.description,
             initialStep: w.initialStep,

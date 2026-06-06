@@ -2,6 +2,7 @@ import { createFileRoute, useParams } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { useEffect } from "react";
 import { useChatContext } from "~/components/chat-context";
+import { useChatThread } from "~/lib/replicache/use-chat";
 import { ChatShell } from "./-chat/chat-shell";
 
 /**
@@ -19,10 +20,15 @@ export const Route = createFileRoute("/chat/$threadId")({
 function ChatThreadRoute() {
   const { threadId } = useParams({ from: "/chat/$threadId" });
   const { activeThread, setActiveThread } = useChatContext();
+  const thread = useChatThread(threadId);
 
   useEffect(() => {
     if (threadId !== activeThread) setActiveThread(threadId);
   }, [threadId, activeThread, setActiveThread]);
 
-  return <ChatShell threadId={threadId} title={threadId} />;
+  // Title comes from the synced thread (the worker derives it from the opening
+  // exchange; the turn endpoint seeds a placeholder before that lands). Falls
+  // back to "New chat" before the thread row has synced.
+  const title = thread?.title?.trim() || "New chat";
+  return <ChatShell threadId={threadId} title={title} />;
 }

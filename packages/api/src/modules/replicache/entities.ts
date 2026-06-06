@@ -2,6 +2,8 @@ import {
   actionStagings,
   agentRuns,
   briefings,
+  chatMessages,
+  chatThreads,
   emailTriage,
   notes,
   skillRevisions,
@@ -22,6 +24,8 @@ import {
   syncedActionPolicySchema,
   syncedActionStagingSchema,
   syncedBriefingSchema,
+  syncedChatMessageSchema,
+  syncedChatThreadSchema,
   syncedFactSchema,
   syncedNoteSchema,
   syncedPreferenceSchema,
@@ -35,6 +39,8 @@ import {
   type SyncedActionPolicy,
   type SyncedActionStaging,
   type SyncedBriefing,
+  type SyncedChatMessage,
+  type SyncedChatThread,
   type SyncedEntity,
   type SyncedFact,
   type SyncedNote,
@@ -48,6 +54,7 @@ import {
 } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull, ne, notInArray, or } from "drizzle-orm";
 import { ZodError } from "zod";
+import { isInternalWorkflowSlug } from "../agent/registry";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
@@ -69,8 +76,11 @@ const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 /** Done todos linger this long in the sync window before falling out (ADR-0050). */
 const TODO_DONE_WINDOW_DAYS = 7;
+/** Most-recent chat messages synced per user — bounds the Replicache pull. */
+const CHAT_MESSAGE_PULL_LIMIT = 500;
 /** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
 const TRIAGE_TAG_WINDOW_DAYS = 30;
+
 function toEntityRow(args: {
   slug: IDBKeys;
   id: string;
@@ -313,14 +323,16 @@ const ENTITY_FETCHERS = {
       .from(workflows)
       .where(eq(workflows.userId, userId))
       .orderBy(asc(workflows.slug));
-    return rows.flatMap((w: typeof workflows.$inferSelect) =>
-      toEntityRow({
-        slug: "WORKFLOW",
-        id: w.slug,
-        rowVersion: w.rowVersion,
-        serialize: () => serializeWorkflow(w),
-      }),
-    );
+    return rows
+      .filter((w: typeof workflows.$inferSelect) => !isInternalWorkflowSlug(w.slug))
+      .flatMap((w: typeof workflows.$inferSelect) =>
+        toEntityRow({
+          slug: "WORKFLOW",
+          id: w.slug,
+          rowVersion: w.rowVersion,
+          serialize: () => serializeWorkflow(w),
+        }),
+      );
   },
 
   // ADR-0050. `dismissed` rows never reach the client; `done` rows linger
@@ -345,6 +357,44 @@ const ENTITY_FETCHERS = {
         id: t.id,
         rowVersion: t.rowVersion,
         serialize: () => serializeTodo(t),
+      }),
+    );
+  },
+
+  // Chat (streaming-chat plan). Threads + their messages both sync so history
+  // survives reloads and reaches every device. Ordered for stable client
+  // rendering; message sync is bounded to the most recent
+  // CHAT_MESSAGE_PULL_LIMIT rows so a long history doesn't pull the whole table
+  // on every pull (the client re-sorts ascending).
+  CHAT_THREAD: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(chatThreads)
+      .where(eq(chatThreads.userId, userId))
+      .orderBy(desc(chatThreads.lastMessageAt), asc(chatThreads.id));
+    return rows.flatMap((t: typeof chatThreads.$inferSelect) =>
+      toEntityRow({
+        slug: "CHAT_THREAD",
+        id: t.id,
+        rowVersion: t.rowVersion,
+        serialize: () => serializeChatThread(t),
+      }),
+    );
+  },
+
+  CHAT_MESSAGE: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT);
+    return rows.flatMap((m: typeof chatMessages.$inferSelect) =>
+      toEntityRow({
+        slug: "CHAT_MESSAGE",
+        id: m.id,
+        rowVersion: m.rowVersion,
+        serialize: () => serializeChatMessage(m),
       }),
     );
   },
@@ -477,6 +527,36 @@ function serializeTodo(t: typeof todos.$inferSelect): SyncedTodo {
     rowVersion: t.rowVersion,
     createdAt: toRequiredIso(t.createdAt, "todos.createdAt"),
     updatedAt: toIso(t.updatedAt),
+  });
+}
+
+function serializeChatThread(t: typeof chatThreads.$inferSelect): SyncedChatThread {
+  return syncedChatThreadSchema.parse({
+    id: t.id,
+    userId: t.userId,
+    title: t.title,
+    lastMessageAt: toIso(t.lastMessageAt),
+    rowVersion: t.rowVersion,
+    createdAt: toRequiredIso(t.createdAt, "chatThreads.createdAt"),
+    updatedAt: toIso(t.updatedAt),
+  });
+}
+
+function serializeChatMessage(m: typeof chatMessages.$inferSelect): SyncedChatMessage {
+  return syncedChatMessageSchema.parse({
+    id: m.id,
+    userId: m.userId,
+    threadId: m.threadId,
+    role: m.role,
+    content: m.content,
+    reasoning: m.reasoning ?? null,
+    reasoningMs: m.reasoningMs ?? null,
+    status: m.status,
+    toolCalls: m.toolCalls ?? null,
+    runId: m.runId,
+    rowVersion: m.rowVersion,
+    createdAt: toRequiredIso(m.createdAt, "chatMessages.createdAt"),
+    updatedAt: toIso(m.updatedAt),
   });
 }
 

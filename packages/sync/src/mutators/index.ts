@@ -24,6 +24,12 @@ import {
   todoReopenArgsSchema,
   todoReopenClient,
 } from "./todos";
+import {
+  chatMessageCreateArgsSchema,
+  chatMessageCreateClient,
+  chatThreadCreateArgsSchema,
+  chatThreadCreateClient,
+} from "./chat";
 import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
 export * from "./notes";
@@ -32,6 +38,7 @@ export * from "./prefs";
 export * from "./policy";
 export * from "./workflows";
 export * from "./todos";
+export * from "./chat";
 export * from "./triage-tags";
 
 /**
@@ -54,6 +61,8 @@ export const clientMutators = {
   todoPromote: todoPromoteClient,
   todoDismiss: todoDismissClient,
   todoEdit: todoEditClient,
+  chatThreadCreate: chatThreadCreateClient,
+  chatMessageCreate: chatMessageCreateClient,
   triageTagOverride: triageTagOverrideClient,
 };
 
@@ -79,5 +88,7 @@ export const mutatorArgsSchemas = {
   todoPromote: todoPromoteArgsSchema,
   todoDismiss: todoDismissArgsSchema,
   todoEdit: todoEditArgsSchema,
+  chatThreadCreate: chatThreadCreateArgsSchema,
+  chatMessageCreate: chatMessageCreateArgsSchema,
   triageTagOverride: triageTagOverrideArgsSchema,
 };
