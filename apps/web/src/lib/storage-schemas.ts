@@ -25,7 +25,9 @@ export const LOCAL_STORAGE_SCHEMAS = {
    * Best-effort "is the visitor signed in" hint for first paint. A UX hint,
    * never a security boundary (see `lib/auth-hint`).
    */
-  "alfred.maybe-authed": z.boolean().default(false),
+  "alfred.maybe-authed": z
+    .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
+    .default(false),
   /** When the run-complete chime plays (see `lib/chat/use-run-complete`). */
   "alfred.chat.soundPreference": z.enum(["always", "unfocused", "mute"]).default("unfocused"),
   /**
@@ -36,7 +38,7 @@ export const LOCAL_STORAGE_SCHEMAS = {
   "alfred.weather.cache": z
     .object({ data: weatherSnapshotSchema.nullable(), fetchedAt: z.number() })
     .default({ data: null, fetchedAt: 0 }),
-} as const;
+} as const satisfies Record<string, z.ZodDefault>;
 
 export type LocalStorageKey = keyof typeof LOCAL_STORAGE_SCHEMAS;
 export type LocalStorageValue<K extends LocalStorageKey> = z.infer<

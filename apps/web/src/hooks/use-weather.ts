@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage";
 import { fetchWeather, type WeatherSnapshot } from "~/lib/weather";
 
@@ -34,7 +35,7 @@ function writeCache(data: WeatherSnapshot): void {
  * hides only on a hard error.
  */
 export function useWeather() {
-  const cached = readCache();
+  const [cached] = useState(() => readCache());
   return useQuery<WeatherSnapshot>({
     queryKey: ["weather"],
     queryFn: async () => {

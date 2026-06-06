@@ -16,8 +16,8 @@
  *
  * It also tolerates the *legacy* raw-string values this module replaced (e.g.
  * the theme was stored as `dark`, not `"dark"`): a value that fails `JSON.parse`
- * is re-validated as the raw string before we fall back to the default, so a
- * deploy doesn't wipe everyone's persisted preferences.
+ * is re-validated as the raw string before we fall back to the default. Keys
+ * with older JSON-shaped values can add schema preprocessors for migration.
  *
  * Dynamic / per-entity keys (e.g. chat drafts keyed by thread id) don't belong
  * in the fixed registry — use the `safeGet`/`safeSet`/`safeRemove` primitives
@@ -127,10 +127,7 @@ export function setLocalStorageItem<K extends LocalStorageKey>(
 ): void {
   const result = LOCAL_STORAGE_SCHEMAS[key].safeParse(value);
   if (!result.success) {
-    console.error(
-      `[storage] refusing to write invalid value for "${key}"`,
-      result.error.issues,
-    );
+    console.error(`[storage] refusing to write invalid value for "${key}"`, result.error.issues);
     return;
   }
   safeSet(key, JSON.stringify(result.data));

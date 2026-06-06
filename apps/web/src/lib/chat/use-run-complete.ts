@@ -1,10 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { createElement, useEffect, useRef } from "react";
-import {
-  getLocalStorageItem,
-  setLocalStorageItem,
-  type LocalStorageValue,
-} from "~/lib/storage";
+import { getLocalStorageItem, setLocalStorageItem, type LocalStorageValue } from "~/lib/storage";
 import { callToast } from "~/lib/toast";
 import type { StreamingMessage } from "./use-chat-stream";
 

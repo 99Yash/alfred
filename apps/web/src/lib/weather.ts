@@ -79,6 +79,7 @@ function preferredTemperatureUnit(): TemperatureUnit {
 }
 
 const FAHRENHEIT_REGIONS = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
+const WEATHER_FETCH_TIMEOUT_MS = 8_000;
 
 interface GeoJsLocation {
   city?: unknown;
@@ -149,7 +150,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     url.searchParams.set("latitude", String(lat));
     url.searchParams.set("longitude", String(lon));
     url.searchParams.set("localityLanguage", "en");
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const data = (await res.json()) as BigDataCloudReverse;
     for (const candidate of [data.city, data.locality, data.principalSubdivision]) {
@@ -163,7 +164,9 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
 /** IP-based location via geojs. Coarse fallback — see file header. */
 async function ipLocation(): Promise<ResolvedLocation> {
-  const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json");
+  const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json", {
+    signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS),
+  });
   if (!locRes.ok) {
     throw new Error(`geojs: ${locRes.status}`);
   }
@@ -212,7 +215,7 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
   url.searchParams.set("longitude", String(lon));
   url.searchParams.set("current", "temperature_2m,weather_code,is_day");
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
-  const wRes = await fetch(url);
+  const wRes = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
   if (!wRes.ok) {
     throw new Error(`open-meteo: ${wRes.status}`);
   }

@@ -72,9 +72,10 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
           </span>
         ) : null}
       </button>
-      {open && tool.resultPreview ? (
+      {expandable ? (
         <pre
           id={panelId}
+          hidden={!open}
           className="animate-chat-in overflow-x-auto border-t border-vs-fg-a1/40 px-3 py-2 text-[12px] text-vs-fg-3"
         >
           {tool.resultPreview}
