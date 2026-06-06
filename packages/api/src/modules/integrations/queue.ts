@@ -12,6 +12,7 @@ import { serverEnv } from "@alfred/env/server";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
+import { reconcileThreadLabel } from "../triage/tags";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -65,7 +66,18 @@ export type IngestionJobData =
     }
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
-  | { kind: "gmail.embed_sweep" };
+  | { kind: "gmail.embed_sweep" }
+  | {
+      /**
+       * Reconcile one thread's Gmail label to its current `email_triage`
+       * category after a user override (rfc-triage-tags.md). Enqueued by the
+       * Replicache push handler post-commit; runs `reconcileThreadLabel`,
+       * which is idempotent under the per-thread advisory lock.
+       */
+      kind: "triage.relabel";
+      userId: string;
+      sourceThreadId: string;
+    };
 
 let _queue: Queue<IngestionJobData> | undefined;
 let _worker: Worker<IngestionJobData> | undefined;
@@ -302,6 +314,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.embed_sweep candidates=${ids.length} succeeded=${succeeded} failed=${failed}`,
       );
       return { candidates: ids.length, succeeded, failed };
+    }
+    case "triage.relabel": {
+      // One label-writer for both the classifier and user overrides
+      // (rfc-triage-tags.md, Invariant 6).
+      const result = await reconcileThreadLabel({
+        userId: data.userId,
+        sourceThreadId: data.sourceThreadId,
+      });
+      console.log(
+        `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=${result.applied}`,
+      );
+      return result;
     }
     default: {
       const _exhaustive: never = data;

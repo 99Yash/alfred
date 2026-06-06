@@ -1,6 +1,9 @@
-import { index, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+/** Author of the current tag — see `TRIAGE_TAG_SOURCES` in `@alfred/contracts`. */
+type TriageTagSource = "auto" | "user";
 
 /**
  * Email triage classifications (ADR-0025 #1).
@@ -52,6 +55,17 @@ export const emailTriage = pgTable(
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
     /** Pointer to the originating `agent_runs.id`. */
     runId: text("run_id"),
+    /**
+     * Author of the current tag (rfc-triage-tags.md). `auto` = the classifier;
+     * `user` = a `triageTagOverride` mutator. A `user` row's `confidence`/
+     * `rationale` are stale classifier artifacts and must NOT be surfaced — the
+     * synced `SyncedTriageTag` union hides them on the `user` branch.
+     */
+    source: text("source").notNull().default("auto").$type<TriageTagSource>(),
+    /** Set iff `source = 'user'` (Invariant 4). Null for classifier-authored rows. */
+    overriddenAt: timestamp("overridden_at", { withTimezone: true }),
+    /** Replicache CVR row-version — bumped by every mutator + classifier write. */
+    rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [

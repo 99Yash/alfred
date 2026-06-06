@@ -44,6 +44,16 @@ export function isTriageCategory(value: unknown): value is TriageCategory {
 
 export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
 
+/**
+ * Who authored the thread's current triage tag. `auto` = the classifier wrote
+ * it (carries confidence/rationale); `user` = the user overrode it via the
+ * `triageTagOverride` Replicache mutator (carries `overriddenAt`, no classifier
+ * provenance). The discriminant for `SyncedTriageTag` — see rfc-triage-tags.md.
+ */
+export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
+export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
+export const triageTagSourceSchema = z.enum(TRIAGE_TAG_SOURCES);
+
 // ─── ADR-0042: SenderContext ──────────────────────────────────────────────
 
 export const SENDER_KIND = ["person", "service", "unknown"] as const;

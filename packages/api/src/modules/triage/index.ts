@@ -32,9 +32,19 @@ export {
   getTriage,
   loadTriageContext,
   setAppliedLabelId,
+  triageThreadLockKey,
   upsertTriage,
+  withTriageThreadLock,
 } from "./store";
-export type { TriageRow, UpsertTriageArgs, TriageDocumentContext } from "./store";
+export type {
+  TriageRow,
+  UpsertTriageArgs,
+  UpsertTriageResult,
+  TriageDocumentContext,
+} from "./store";
+
+export { reconcileThreadLabel, enqueueTriageRelabel } from "./tags";
+export type { ReconcileResult, ReconcileThreadLabelArgs } from "./tags";
 
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 export type { TriageWorkflowInput } from "./workflow-input";
