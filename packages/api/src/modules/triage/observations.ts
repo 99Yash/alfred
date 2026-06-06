@@ -1,3 +1,4 @@
+import type { AccountPersona } from "@alfred/contracts";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
 
@@ -141,7 +142,7 @@ export interface Observations {
     lastCategory: string | null;
   };
   /** `'work' | 'personal' | null` — null until detected on the credential. */
-  persona: string | null;
+  persona: AccountPersona | null;
   thread: ThreadState;
   /** The sender is a known contact in the user's entity graph. */
   knownContact: boolean;
@@ -157,7 +158,7 @@ export interface AssembleObservationsArgs {
    */
   senderKey: string | null;
   senderPrior: SenderPrior | null;
-  persona: string | null;
+  persona: AccountPersona | null;
   thread: ThreadState;
   knownContact: boolean;
   labelIds: readonly string[];

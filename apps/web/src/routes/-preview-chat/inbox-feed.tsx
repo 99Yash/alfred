@@ -544,10 +544,17 @@ function CategoryChip({
       {TRIAGE_DISPLAY[category]}
     </>
   );
+  const sourceSuffix = source === "user" ? ", user override" : "";
 
   if (!onChange) {
     return (
-      <span className={chipClass} title={source === "user" ? "User override" : undefined}>
+      <span
+        className={chipClass}
+        title={source === "user" ? "User override" : undefined}
+        aria-label={
+          source === "user" ? `${TRIAGE_DISPLAY[category]} triage tag${sourceSuffix}` : undefined
+        }
+      >
         {contents}
       </span>
     );
@@ -561,10 +568,10 @@ function CategoryChip({
           className={cn(
             chipClass,
             "relative transition-[filter,box-shadow] hover:brightness-110",
-            "before:absolute before:-inset-3 before:content-['']",
+            "before:absolute before:-inset-1.5 before:content-['']",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
-          aria-label={`Change triage tag, currently ${TRIAGE_DISPLAY[category]}`}
+          aria-label={`Change triage tag, currently ${TRIAGE_DISPLAY[category]}${sourceSuffix}`}
         >
           {contents}
         </button>
@@ -589,7 +596,9 @@ function CategoryChip({
             >
               <span aria-hidden className={cn("size-2 rounded-full", CATEGORY_SWATCH[option])} />
               <span className="min-w-0 flex-1 truncate">{TRIAGE_DISPLAY[option]}</span>
-              {option === category ? <Check size={12} className="text-vs-fg-3" aria-hidden /> : null}
+              {option === category ? (
+                <Check size={12} className="text-vs-fg-3" aria-hidden />
+              ) : null}
             </DropdownMenuPrimitive.Item>
           ))}
         </DropdownMenuPrimitive.Content>
@@ -656,8 +665,8 @@ function InboxDetailPane({
   const displayedCategory = syncedTag?.category ?? data?.category ?? null;
   const displayedSource = syncedTag?.source ?? null;
   const changeCategory =
-    threadId && onOverrideTag
-      ? (category: TriageCategory) => onOverrideTag(threadId, category)
+    syncedTag && onOverrideTag
+      ? (category: TriageCategory) => onOverrideTag(syncedTag.threadId, category)
       : undefined;
 
   return (

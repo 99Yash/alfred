@@ -403,9 +403,9 @@ export const serverMutators = {
     tx: DbTx,
     args: TriageTagOverrideArgs,
     ctx: ServerMutatorCtx,
-  ): Promise<void> {
+  ): Promise<{ applied: boolean }> {
     const now = new Date();
-    await tx
+    const rows = await tx
       .update(emailTriage)
       .set({
         category: args.category,
@@ -415,9 +415,9 @@ export const serverMutators = {
         rowVersion: sql`${emailTriage.rowVersion} + 1`,
         updatedAt: now,
       })
-      .where(
-        and(eq(emailTriage.userId, ctx.userId), eq(emailTriage.sourceThreadId, args.threadId)),
-      );
+      .where(and(eq(emailTriage.userId, ctx.userId), eq(emailTriage.sourceThreadId, args.threadId)))
+      .returning({ sourceThreadId: emailTriage.sourceThreadId });
+    return { applied: rows.length > 0 };
   },
 } as const;
 

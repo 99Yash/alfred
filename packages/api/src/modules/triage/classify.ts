@@ -193,6 +193,9 @@ const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsle
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 const STRONG_BULK_MIN_TOTAL = 5;
 const STRONG_BULK_MIN_SHARE = 0.8;
+const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
+const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
+const MAX_RATIONALE_LEN = 500;
 
 /**
  * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
@@ -472,7 +475,7 @@ export function applyOverrideFloor(
     classification: {
       ...classification,
       category: "urgent",
-      confidence: Math.max(classification.confidence, 0.85),
+      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
       rationale: truncateRationale(
         `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
       ),
@@ -528,7 +531,8 @@ export async function classifyEmail(
   const baseModelId = useInjected ? "injected" : resolveModelId(model);
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
-  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(floorSignalText(args.document));
+  const signalText = floorSignalText(args.document);
+  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
 
   const firstPass = await runPass({
     system: SYSTEM_PROMPT,
@@ -563,7 +567,7 @@ export async function classifyEmail(
     }
   }
 
-  const floorResult = applyOverrideFloor(working, floorSignalText(args.document));
+  const floorResult = applyOverrideFloor(working, signalText);
   const classification = floorResult.classification;
 
   let model_id = baseModelId;
@@ -628,7 +632,7 @@ function defaultRunPass(
 }
 
 function truncateRationale(value: string): string {
-  return value.length > 500 ? `${value.slice(0, 497)}...` : value;
+  return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
 }
 
 function conservativeUnderClassificationFallback(
@@ -639,7 +643,7 @@ function conservativeUnderClassificationFallback(
   return {
     ...firstPass,
     category: "action_needed",
-    confidence: Math.max(firstPass.confidence, 0.6),
+    confidence: Math.max(firstPass.confidence, SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
     rationale: truncateRationale(
       `${firstPass.rationale} Second-pass failed after a security under-classification conflict; conservatively escalated to action_needed. err=${message.slice(0, 160)}`,
     ),

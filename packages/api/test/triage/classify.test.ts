@@ -555,7 +555,11 @@ describe("resolveTodoSuggestion", () => {
     test(`floor: ${category} suppresses a stray suggestion the model emitted anyway`, () => {
       assert.equal(
         resolveTodoSuggestion(
-          classification({ category, todoSuggestion: suggestion, todoDecision: { outcome: "proposed" } }),
+          classification({
+            category,
+            todoSuggestion: suggestion,
+            todoDecision: { outcome: "proposed" },
+          }),
         ),
         null,
       );
@@ -569,7 +573,11 @@ describe("resolveTodoSuggestion", () => {
     test(`rubric-owned: ${category} passes a suggestion the model proposed (no longer floored)`, () => {
       assert.deepEqual(
         resolveTodoSuggestion(
-          classification({ category, todoSuggestion: suggestion, todoDecision: { outcome: "proposed" } }),
+          classification({
+            category,
+            todoSuggestion: suggestion,
+            todoDecision: { outcome: "proposed" },
+          }),
         ),
         suggestion,
       );

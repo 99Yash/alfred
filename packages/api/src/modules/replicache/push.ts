@@ -36,6 +36,12 @@ const RELABEL_MUTATORS: ReadonlySet<MutatorName> = new Set(["triageTagOverride"]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbTx = any;
+type ServerMutatorResult = void | { applied?: boolean };
+
+function didMutatorApply(result: ServerMutatorResult | undefined): boolean {
+  if (typeof result !== "object" || result === null) return true;
+  return result.applied ?? true;
+}
 
 async function advanceLMID(
   tx: DbTx,
@@ -138,6 +144,7 @@ export async function handlePush(
       }
 
       let applied = false;
+      let mutatorResult: ServerMutatorResult | undefined;
       try {
         // Savepoint isolates mutator failures so one bad mutation doesn't
         // poison the whole batch.
@@ -146,10 +153,10 @@ export async function handlePush(
             tx: DbTx,
             args: unknown,
             ctx: { userId: string },
-          ) => Promise<void>;
-          await runner(subTx, parsed.data, { userId });
+          ) => Promise<ServerMutatorResult>;
+          mutatorResult = await runner(subTx, parsed.data, { userId });
         });
-        applied = true;
+        applied = didMutatorApply(mutatorResult);
       } catch (err) {
         if (err instanceof MutatorForbiddenError) {
           console.warn("[replicache:push] ACL rejected", mutatorName, err.message);

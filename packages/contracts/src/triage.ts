@@ -24,6 +24,11 @@ export const TRIAGE_CATEGORIES = [
 
 export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
 
+export const TRIAGE_RAIL_SUPPRESSED_CATEGORIES = [
+  "newsletter",
+  "marketing",
+] as const satisfies readonly TriageCategory[];
+
 /** Short display label for the rail chip. */
 export const TRIAGE_DISPLAY: Record<TriageCategory, string> = {
   urgent: "Urgent",
@@ -53,6 +58,10 @@ export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
 export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
 export const triageTagSourceSchema = z.enum(TRIAGE_TAG_SOURCES);
+
+export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
+export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
+export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);
 
 // ─── ADR-0042: SenderContext ──────────────────────────────────────────────
 
