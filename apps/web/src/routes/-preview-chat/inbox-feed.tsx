@@ -1,6 +1,14 @@
-import { TRIAGE_DISPLAY, type TriageCategory } from "@alfred/contracts";
+import {
+  TRIAGE_CATEGORIES,
+  TRIAGE_DISPLAY,
+  type TriageCategory,
+  type TriageTagSource,
+} from "@alfred/contracts";
+import type { SyncedTriageTag } from "@alfred/sync";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   ArrowLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -13,6 +21,7 @@ import {
   Music,
   Paperclip,
   Search,
+  Tag,
   X,
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -68,6 +77,10 @@ export interface InboxFeedProps {
   onMarkRead?: (documentIds: ReadonlyArray<string>) => void;
   /** True while a mark-read request is in flight — disables the button. */
   markReadPending?: boolean;
+  /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
+  /** Pin a thread to a user-chosen triage category. */
+  onOverrideTag?: (threadId: string, category: TriageCategory) => void;
 }
 
 export function InboxFeed({
@@ -78,6 +91,8 @@ export function InboxFeed({
   onClose,
   onMarkRead,
   markReadPending = false,
+  triageTagsByThreadId,
+  onOverrideTag,
 }: InboxFeedProps) {
   const [query, setQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -127,7 +142,14 @@ export function InboxFeed({
   // reader gets its own fetch (`useInboxDetail`), so the list-level filter
   // / pagination state stays put while the user reads.
   if (selectedId && onClose) {
-    return <InboxDetailPane documentId={selectedId} onClose={onClose} />;
+    return (
+      <InboxDetailPane
+        documentId={selectedId}
+        onClose={onClose}
+        triageTagsByThreadId={triageTagsByThreadId}
+        onOverrideTag={onOverrideTag}
+      />
+    );
   }
 
   if (!items.length && (!pagination || pagination.total === 0)) {
@@ -388,7 +410,9 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
             {item.sender}
           </span>
           <span className="ml-auto shrink-0 inline-flex items-center gap-1.5">
-            {item.category ? <CategoryChip category={item.category} /> : null}
+            {item.category ? (
+              <CategoryChip category={item.category} source={item.categorySource} />
+            ) : null}
             <span className="text-[11px] text-white/55 tabular-nums">{item.time}</span>
           </span>
         </span>
@@ -499,17 +523,87 @@ function SenderAvatar({ item }: { item: InboxItem }) {
  *  - green  — `done`
  *  - gray   — `fyi`, `newsletter`, `marketing`
  */
-function CategoryChip({ category }: { category: TriageCategory }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-md px-1.5 h-4",
-        "text-[10px] font-medium uppercase tracking-tight whitespace-nowrap",
-        CATEGORY_CHIP[category],
-      )}
-    >
+function CategoryChip({
+  category,
+  source,
+  onChange,
+}: {
+  category: TriageCategory;
+  source?: TriageTagSource | null;
+  onChange?: (category: TriageCategory) => void;
+}) {
+  const chipClass = cn(
+    "inline-flex items-center rounded-md px-1.5 h-4",
+    "text-[10px] font-medium uppercase tracking-tight whitespace-nowrap",
+    source === "user" && "gap-1 ring-1 ring-inset ring-current/25",
+    CATEGORY_CHIP[category],
+  );
+  const contents = (
+    <>
+      {source === "user" ? <Tag size={9} aria-hidden /> : null}
       {TRIAGE_DISPLAY[category]}
-    </span>
+    </>
+  );
+  const sourceSuffix = source === "user" ? ", user override" : "";
+
+  if (!onChange) {
+    return (
+      <span
+        className={chipClass}
+        title={source === "user" ? "User override" : undefined}
+        aria-label={
+          source === "user" ? `${TRIAGE_DISPLAY[category]} triage tag${sourceSuffix}` : undefined
+        }
+      >
+        {contents}
+      </span>
+    );
+  }
+
+  return (
+    <DropdownMenuPrimitive.Root>
+      <DropdownMenuPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className={cn(
+            chipClass,
+            "relative transition-[filter,box-shadow] hover:brightness-110",
+            "before:absolute before:-inset-1.5 before:content-['']",
+            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          )}
+          aria-label={`Change triage tag, currently ${TRIAGE_DISPLAY[category]}${sourceSuffix}`}
+        >
+          {contents}
+        </button>
+      </DropdownMenuPrimitive.Trigger>
+      <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.Content
+          align="start"
+          sideOffset={6}
+          className={cn(
+            "z-50 min-w-[168px] rounded-lg p-1",
+            "bg-vs-bg-1/95 text-vs-fg-4 shadow-xl ring-1 ring-white/15 backdrop-blur",
+          )}
+        >
+          {TRIAGE_CATEGORIES.map((option) => (
+            <DropdownMenuPrimitive.Item
+              key={option}
+              onSelect={() => onChange(option)}
+              className={cn(
+                "flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2",
+                "text-[12px] outline-none data-[highlighted]:bg-white/10",
+              )}
+            >
+              <span aria-hidden className={cn("size-2 rounded-full", CATEGORY_SWATCH[option])} />
+              <span className="min-w-0 flex-1 truncate">{TRIAGE_DISPLAY[option]}</span>
+              {option === category ? (
+                <Check size={12} className="text-vs-fg-3" aria-hidden />
+              ) : null}
+            </DropdownMenuPrimitive.Item>
+          ))}
+        </DropdownMenuPrimitive.Content>
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPrimitive.Root>
   );
 }
 
@@ -524,6 +618,19 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
   done: "bg-vs-green-1 text-vs-green-4",
   newsletter: "bg-vs-bg-a2 text-vs-fg-2",
   marketing: "bg-vs-bg-a2 text-vs-fg-2",
+};
+
+const CATEGORY_SWATCH: Record<TriageCategory, string> = {
+  urgent: "bg-vs-red-4",
+  action_needed: "bg-vs-amber-4",
+  awaiting_reply: "bg-vs-amber-4",
+  payment: "bg-vs-amber-4",
+  follow_up: "bg-vs-sky-4",
+  meeting: "bg-vs-sky-4",
+  fyi: "bg-vs-fg-2",
+  done: "bg-vs-green-4",
+  newsletter: "bg-vs-fg-2",
+  marketing: "bg-vs-fg-2",
 };
 
 /**
@@ -541,8 +648,26 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
  * API for the rail. Adding the editor without `sendReply` is a UI lie,
  * so v1 just reads.
  */
-function InboxDetailPane({ documentId, onClose }: { documentId: string; onClose: () => void }) {
+function InboxDetailPane({
+  documentId,
+  onClose,
+  triageTagsByThreadId,
+  onOverrideTag,
+}: {
+  documentId: string;
+  onClose: () => void;
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
+  onOverrideTag?: (threadId: string, category: TriageCategory) => void;
+}) {
   const { data, isLoading, isError } = useInboxDetail(documentId);
+  const threadId = data?.threadId ?? null;
+  const syncedTag = threadId ? triageTagsByThreadId?.get(threadId) : undefined;
+  const displayedCategory = syncedTag?.category ?? data?.category ?? null;
+  const displayedSource = syncedTag?.source ?? null;
+  const changeCategory =
+    syncedTag && onOverrideTag
+      ? (category: TriageCategory) => onOverrideTag(syncedTag.threadId, category)
+      : undefined;
 
   return (
     <div className="vs-card-in flex flex-col gap-3 px-1">
@@ -595,7 +720,13 @@ function InboxDetailPane({ documentId, onClose }: { documentId: string; onClose:
               {data.subject || "(no subject)"}
             </h3>
             <div className="flex items-center gap-2 flex-wrap">
-              {data.category ? <CategoryChip category={data.category} /> : null}
+              {displayedCategory ? (
+                <CategoryChip
+                  category={displayedCategory}
+                  source={displayedSource}
+                  onChange={changeCategory}
+                />
+              ) : null}
               <span className="text-[11px] tabular-nums text-vs-fg-2">
                 {data.messages.length} message
                 {data.messages.length === 1 ? "" : "s"}

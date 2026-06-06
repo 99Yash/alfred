@@ -46,6 +46,12 @@ export interface IngestRecentResult {
   highWaterHistoryId: string | null;
   /** Document ids that were freshly inserted this run (skipped/conflict rows excluded). */
   insertedDocumentIds: string[];
+  /**
+   * Subset of `insertedDocumentIds` eligible for triage — sent mail excluded
+   * (ADR-0051 #7: sent docs are ingested + embedded but never triaged/labeled).
+   * Embed/index over `insertedDocumentIds`; fan triage over this.
+   */
+  triageDocumentIds: string[];
   /** User who owns the credential — handy for downstream fanout (triage, indexing). */
   userId: string;
 }
@@ -81,6 +87,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let embedFailures = 0;
   let highWaterHistoryId: string | null = null;
   const insertedDocumentIds: string[] = [];
+  const triageDocumentIds: string[] = [];
 
   for (const ref of refs) {
     try {
@@ -89,6 +96,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
+        if (!result.isSent) triageDocumentIds.push(result.documentId);
         // Embed inline. Failures don't bubble — the doc row is still
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
@@ -135,6 +143,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     embedFailures,
     highWaterHistoryId,
     insertedDocumentIds,
+    triageDocumentIds,
     userId: cred.userId,
   };
 }
@@ -167,6 +176,13 @@ async function loadCredentialOrThrow(credentialId: string): Promise<CredentialCo
 interface PersistMessageResult {
   outcome: "inserted" | "skipped";
   documentId: string;
+  /**
+   * Mail the user SENT (carries Gmail's `SENT` label). Ingested + embedded
+   * like any other doc — chat recall over sent mail needs vectors (ADR-0051
+   * #7) — but the caller must keep it OUT of the triage fan-out and the
+   * sender-prior write-back (you are not a sender to triage or to cache).
+   */
+  isSent: boolean;
 }
 
 async function persistMessage(
@@ -177,6 +193,8 @@ async function persistMessage(
   const extracted = extractMessageContent(message);
   const content = buildContent(extracted);
   const contentHash = sha256(content);
+  const labelIds = message.labelIds ?? [];
+  const isSent = labelIds.includes("SENT");
 
   // The unique index on (user_id, source, source_id) makes
   // `onConflictDoNothing` an idempotent re-ingest: a Gmail message
@@ -198,7 +216,8 @@ async function persistMessage(
         from: extracted.from,
         to: extracted.to,
         cc: extracted.cc,
-        labelIds: message.labelIds ?? [],
+        labelIds,
+        isSent,
         historyId: message.historyId,
         sizeEstimate: message.sizeEstimate,
         snippet: message.snippet,
@@ -209,7 +228,7 @@ async function persistMessage(
     })
     .returning({ id: documents.id });
   if (inserted[0]) {
-    return { outcome: "inserted", documentId: inserted[0].id };
+    return { outcome: "inserted", documentId: inserted[0].id, isSent };
   }
   // Conflict: look up the existing row's id so callers can still
   // address it (handy for re-embedding a doc that exists but lost its
@@ -234,7 +253,7 @@ async function persistMessage(
         `user=${userId} sourceId=${message.id}`,
     );
   }
-  return { outcome: "skipped", documentId: existingId };
+  return { outcome: "skipped", documentId: existingId, isSent };
 }
 
 function buildContent(extracted: ReturnType<typeof extractMessageContent>): string {
@@ -362,8 +381,10 @@ export interface PollHistoryResult {
    * occasionally" not a failure.
    */
   fullResync: boolean;
-  /** Document ids that were freshly inserted this run. Caller fans triage runs over these. */
+  /** Document ids that were freshly inserted this run. */
   insertedDocumentIds: string[];
+  /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
+  triageDocumentIds: string[];
   /** User who owns the credential. */
   userId: string;
 }
@@ -405,6 +426,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       cursorAfter: recent.highWaterHistoryId,
       fullResync: true,
       insertedDocumentIds: recent.insertedDocumentIds,
+      triageDocumentIds: recent.triageDocumentIds,
       userId: cred.userId,
     };
   }
@@ -460,6 +482,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         cursorAfter: recent.highWaterHistoryId,
         fullResync: true,
         insertedDocumentIds: recent.insertedDocumentIds,
+        triageDocumentIds: recent.triageDocumentIds,
         userId: cred.userId,
       };
     }
@@ -472,6 +495,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   let chunksWritten = 0;
   let embedFailures = 0;
   const insertedDocumentIds: string[] = [];
+  const triageDocumentIds: string[] = [];
 
   for (const id of messageIds) {
     try {
@@ -480,6 +504,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
+        if (!result.isSent) triageDocumentIds.push(result.documentId);
         try {
           const embed = await embedDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
@@ -520,6 +545,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     cursorAfter: latestHistoryId,
     fullResync: false,
     insertedDocumentIds,
+    triageDocumentIds,
     userId: cred.userId,
   };
 }
@@ -553,6 +579,8 @@ export interface PollRecentResult {
   cursorBefore: string | null;
   cursorAfter: string | null;
   insertedDocumentIds: string[];
+  /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
+  triageDocumentIds: string[];
   userId: string;
 }
 
@@ -620,6 +648,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let errors = 0;
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
+  const triageDocumentIds: string[] = [];
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
@@ -628,6 +657,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
+        if (!result.isSent) triageDocumentIds.push(result.documentId);
       } else {
         // A race against pollGmailHistory or a duplicate webhook fired
         // between the pre-filter SELECT and the insert. Rare but fine.
@@ -672,6 +702,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     cursorBefore,
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
+    triageDocumentIds,
     userId: cred.userId,
   };
 }

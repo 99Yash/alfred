@@ -43,7 +43,8 @@ export function useBriefings(): BriefingsState {
           if (result.success) parsed.push(result.data);
         }
         parsed.sort((a, b) => {
-          if (a.briefingDate !== b.briefingDate) return b.briefingDate.localeCompare(a.briefingDate);
+          if (a.briefingDate !== b.briefingDate)
+            return b.briefingDate.localeCompare(a.briefingDate);
           return compareSlots(a, b);
         });
         setBriefings(parsed);

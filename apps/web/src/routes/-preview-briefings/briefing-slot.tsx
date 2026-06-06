@@ -4,12 +4,7 @@ import { VsCard } from "~/components/ui/visitors";
 import { cn } from "~/lib/utils";
 import { BriefingProse } from "./briefing-prose";
 import { slotLabel } from "./briefing-utils";
-import {
-  formatEventRange,
-  parseActivitySubtitle,
-  ProviderGlyph,
-  SourceIcon,
-} from "./source-meta";
+import { formatEventRange, parseActivitySubtitle, ProviderGlyph, SourceIcon } from "./source-meta";
 
 /** Statuses that never produced prose — render a calm placeholder, not a blank. */
 const NON_TERMINAL = new Set(["pending", "gathering", "composing", "failed"]);
@@ -67,9 +62,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
                   gather={gather}
                   className="text-sm leading-6 text-pretty text-vs-fg-3"
                 />
-                {section.why ? (
-                  <p className="text-xs italic text-vs-fg-2">{section.why}</p>
-                ) : null}
+                {section.why ? <p className="text-xs italic text-vs-fg-2">{section.why}</p> : null}
               </div>
             ))}
           </div>
@@ -158,11 +151,7 @@ function Disclosure({ summary, children }: { summary: string; children: React.Re
           "[&::-webkit-details-marker]:hidden",
         )}
       >
-        <ChevronRight
-          size={13}
-          aria-hidden
-          className="transition-transform group-open:rotate-90"
-        />
+        <ChevronRight size={13} aria-hidden className="transition-transform group-open:rotate-90" />
         {summary}
       </summary>
       {children}

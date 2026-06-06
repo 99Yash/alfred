@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import type { TriageCategory } from "@alfred/contracts";
 import type { JSONContent } from "@tiptap/react";
 import {
   ArrowUp,
@@ -21,7 +22,8 @@ import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useTodos } from "~/lib/replicache/use-todos";
-import type { SyncedTodo } from "@alfred/sync";
+import { useTriageTags } from "~/lib/replicache/use-triage-tags";
+import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
@@ -794,16 +796,14 @@ function useRailData(): RailData {
     promoteTodo,
   } = useTodos();
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
-  const todoSuggestions = useMemo(
-    () => liveSuggestions.map(toRailSuggestion),
-    [liveSuggestions],
-  );
+  const todoSuggestions = useMemo(() => liveSuggestions.map(toRailSuggestion), [liveSuggestions]);
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
   );
   const onCreateTodo = useCallback((title: string) => void createTodo(title), [createTodo]);
   const onPromoteSuggestion = useCallback((id: string) => void promoteTodo(id), [promoteTodo]);
+  const { tagsByThreadId, overrideTag } = useTriageTags();
 
   // Local page index walks the cached `inbox.data.pages[]`. When the user
   // advances past the last loaded page we kick off `fetchNextPage`; back
@@ -823,9 +823,13 @@ function useRailData(): RailData {
   // shows the last valid page without a state write. Prev/next handlers
   // read off `safeInboxPage` so a stale index can't strand the user.
   const safeInboxPage = Math.min(inboxPageIndex, inboxPageCount - 1);
-  const inboxItems = useMemo(
+  const rawInboxItems = useMemo(
     () => pages[safeInboxPage]?.items ?? EMPTY_INBOX_ITEMS,
     [pages, safeInboxPage],
+  );
+  const inboxItems = useMemo(
+    () => overlayTriageTags(rawInboxItems, tagsByThreadId),
+    [rawInboxItems, tagsByThreadId],
   );
 
   const onPrevInbox = useCallback(() => {
@@ -863,6 +867,12 @@ function useRailData(): RailData {
     },
     [markInboxReadMutate],
   );
+  const onOverrideTriageTag = useCallback(
+    (threadId: string, category: TriageCategory) => {
+      void overrideTag(threadId, category);
+    },
+    [overrideTag],
+  );
 
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
@@ -888,6 +898,8 @@ function useRailData(): RailData {
       onCloseInbox,
       onMarkInboxRead,
       markInboxReadPending: markInboxRead.isPending,
+      triageTagsByThreadId: tagsByThreadId,
+      onOverrideTriageTag,
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
       latestBriefing: briefingData ?? null,
@@ -910,10 +922,28 @@ function useRailData(): RailData {
       onCloseInbox,
       onMarkInboxRead,
       markInboxRead.isPending,
+      tagsByThreadId,
+      onOverrideTriageTag,
       meetingsData,
       briefingData,
     ],
   );
+}
+
+function overlayTriageTags(
+  items: ReadonlyArray<InboxItem>,
+  tagsByThreadId: ReadonlyMap<string, SyncedTriageTag>,
+): ReadonlyArray<InboxItem> {
+  if (tagsByThreadId.size === 0) return items;
+  let changed = false;
+  const next = items.map((item) => {
+    const tag = item.threadId ? tagsByThreadId.get(item.threadId) : undefined;
+    if (!tag) return item;
+    if (item.category === tag.category && item.categorySource === tag.source) return item;
+    changed = true;
+    return { ...item, category: tag.category, categorySource: tag.source };
+  });
+  return changed ? next : items;
 }
 
 /** Map a synced todo to the rail's display shape (ADR-0050). */

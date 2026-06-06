@@ -2,60 +2,105 @@ import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
 import { type SenderContext } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
+import type { Observations } from "./observations";
 
 /**
- * Email triage classifier (ADR-0025 #1, amended to 10 buckets).
+ * Email triage classifier — context-rich, cheap-model-always (ADR-0051).
  *
- * Cheap-tier model (Gemini 2.5 Flash by default) classifies a single email
- * into one of ten categories matching the user's numbered Gmail labels
- * (1: urgent through 10: marketing). Pure function — the workflow owns
- * persistence and Gmail label-write side effects. Output is Zod-validated
- * by the AI SDK so the model can't return shapes outside the taxonomy.
+ * Cheap-tier model (gemini-2.5-flash-lite) classifies a single email into one
+ * of ten categories matching the user's numbered Gmail labels. Intelligence
+ * comes not from a bigger model but from deterministic **observations** fed in
+ * (sender prior histogram, account persona, thread state, known-contact flag,
+ * Gmail-native signals, regex content flags — assembled by the workflow, see
+ * `observations.ts`). Two deterministic nets wrap the model:
  *
- * The taxonomy widened from 6 → 10 once the user kept the full Dimension
- * label set (see decisions.md ADR-0025 amendment). The four added buckets
- * are narrow seams against existing ones — `urgent` against `action_needed`,
- * `follow_up` against `awaiting_reply`, `done` against `fyi`, `marketing`
- * against `newsletter`. Each pair is disambiguated by an explicit rule
- * in the system prompt so the cheap-tier model can still hit acceptable
- * accuracy on 10 buckets.
+ *  - a **conditional second cheap pass** ({@link detectConflict}) re-runs the
+ *    model once with a hard conflict spelled out; the second output is final;
+ *  - a small high-precision **override floor** ({@link applyOverrideFloor})
+ *    forces `urgent` on the one unambiguous severity signal (exposed secret).
+ *
+ * `classifyEmail` owns the whole sequence and returns the final classification
+ * plus an audit object for the `triage.sender_extraction` log. There is no boss
+ * `deepen` escalation (ADR-0051 superseded ADR-0042's classifier shape).
+ *
+ * The four added buckets are narrow seams against existing ones — `urgent` vs
+ * `action_needed`, `follow_up` vs `awaiting_reply`, `done` vs `fyi`, `marketing`
+ * vs `newsletter` — each disambiguated by an explicit prompt rule.
  */
 
-export const triageClassificationSchema = z.object({
-  category: z.enum(TRIAGE_CATEGORIES),
-  /**
-   * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
-   * 0.5 the workflow still applies the chosen label (we always pick one,
-   * to avoid leaving the message untriaged), but flags it for the briefing
-   * to optionally surface as "alfred wasn't sure."
-   */
-  confidence: z.number().min(0).max(1),
-  /** Short rationale grounded in the email — used for audit and debugging. */
-  rationale: z.string().min(1).max(500),
-  /**
-   * Optional real-time todo proposal for the rail (ADR-0050 amendment 2026-06-05).
-   * Non-null ONLY when this email is an actionable, context-complete commitment
-   * worth tracking — the email-triage tail step turns it into a `suggested`
-   * todo via `system.suggest_todo`. Governed by rule 16: the category gate
-   * (never marketing/newsletter/fyi/done) plus a context-sufficiency test, so a
-   * vague ask ("something broke, fix it") stays `null` even when the category
-   * is `action_needed`/`urgent`. The model must always emit the key (null when
-   * no todo) — this is one field on the existing cheap call, not a second call.
-   */
-  todoSuggestion: z
-    .object({
-      /** Crisp imperative title for the rail checkbox row. */
-      name: z.string().min(1).max(120),
-      /** Optional one-liner on how to approach it, or an honest "can't act yet". */
-      assist: z.string().max(280).optional(),
-    })
-    .nullable()
-    // Optional on the TYPE so non-cheap-classifier producers (deepen, tests)
-    // need not set it; the cheap call is prompted to always emit it (null when
-    // no todo), and the triage tail step reads `?? null`.
-    .optional(),
-});
+/**
+ * Todo-worthiness rubric outcomes (ADR-0050 amendment 2026-06-06). Reports which
+ * of the five ordered rubric tests (rule 16) decided the todo call: `proposed`
+ * only when all pass, otherwise the FIRST test that failed. Logged to
+ * `triage.sender_extraction` so the rubric is tuned from real misses (which
+ * dimension fails on which class of mail), not by appending example #N.
+ */
+export const TODO_DECISION_OUTCOMES = [
+  "proposed",
+  "no_obligation",
+  "not_significant",
+  "would_not_forget",
+  "too_vague",
+  "already_handled",
+] as const;
+export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
+
+export const triageClassificationSchema = z
+  .object({
+    category: z.enum(TRIAGE_CATEGORIES),
+    /**
+     * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
+     * 0.5 the workflow still applies the chosen label (we always pick one,
+     * to avoid leaving the message untriaged), but flags it for the briefing
+     * to optionally surface as "alfred wasn't sure."
+     */
+    confidence: z.number().min(0).max(1),
+    /** Short rationale grounded in the email — used for audit and debugging. */
+    rationale: z.string().min(1).max(500),
+    /**
+     * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
+     * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
+     * tests (rule 16) — the email-triage tail step turns it into a `suggested`
+     * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
+     * and evaluated over the whole email (a `done` closure with a significant
+     * trailing ask can still yield one); `todoDecision` reports which test fired.
+     * The model must always emit the key (null when no todo) — this is one field
+     * on the existing cheap call, not a second call.
+     */
+    todoSuggestion: z
+      .object({
+        /** Crisp imperative title for the rail checkbox row. */
+        name: z.string().min(1).max(120),
+        /** Optional one-liner on how to approach it, or an honest "can't act yet". */
+        assist: z.string().max(280).optional(),
+      })
+      .nullable()
+      // Optional on the TYPE so non-cheap-classifier producers need not set it;
+      // the cheap call is prompted to always emit it (null when no todo).
+      .optional(),
+    /**
+     * Always-present rubric trace (ADR-0050 amendment 2026-06-06). Reports which
+     * rubric test decided the call, so a wrong suggestion AND a wrong *omission*
+     * are both debuggable by dimension. Invariant: `outcome === 'proposed'` iff
+     * `todoSuggestion` is non-null. Optional on the TYPE for non-cheap-classifier
+     * producers; the cheap call is prompted to always emit it.
+     */
+    todoDecision: z
+      .object({
+        outcome: z.enum(TODO_DECISION_OUTCOMES),
+        /** Optional ≤1-clause detail for the log (e.g. "trivial survey"). */
+        note: z.string().max(200).optional(),
+      })
+      .optional(),
+  });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
+
+/** A single cheap-model pass — the seam the second pass and tests drive. */
+export type RunPass = (input: {
+  system: string;
+  prompt: string;
+  pass: "first" | "second";
+}) => Promise<TriageClassification>;
 
 export interface ClassifyEmailArgs {
   /** Optional metering attribution. The classifier itself does not read user context. */
@@ -69,17 +114,91 @@ export interface ClassifyEmailArgs {
     metadata: Record<string, unknown>;
   };
   /**
-   * Deterministic parse of the sender/envelope/body actor. The cheap
-   * classifier may use this typed context, but must not load broader user
-   * profile or memory; bio-aware adjudication belongs to `deepen`.
+   * Deterministic parse of the sender/envelope/body actor (ADR-0042 #1,
+   * unchanged). The classifier uses this typed context but loads no broader
+   * user profile or memory.
    */
   senderContext: SenderContext;
+  /**
+   * Deterministic pre-model observations (ADR-0051 §4a). Assembled by the
+   * workflow (sender prior, persona, thread state, known-contact, Gmail
+   * signals, content flags) and fed into the prompt as hints — never verdicts.
+   */
+  observations: Observations;
   /** Run/step ids forwarded to the metering log + Langfuse trace. */
   runId?: string;
   stepId?: string;
   /** Stable per-call idempotency key — caller derives from `(runId, stepId, doc.id, attempt)`. */
   idempotencyKey?: string;
+  /**
+   * Test/seam override for the cheap model call. Production leaves this unset
+   * and the real metered `getCheapModel()` call is used; tests inject canned
+   * pass outputs to exercise the conflict/second-pass/floor logic without a
+   * live LLM (no model mocking framework in the repo).
+   */
+  runPass?: RunPass;
 }
+
+/** Why the conditional second cheap pass fired (ADR-0051 §4b, Phase 3 seed). */
+export interface TriageConflict {
+  kind: "under_classification" | "over_classification";
+  /** Human-readable conflict spelled out into the second-pass prompt + audit. */
+  message: string;
+}
+
+/** Audit trail of the full classify sequence, logged to `triage.sender_extraction`. */
+export interface ClassifyAudit {
+  firstPass: TriageClassification;
+  conflict: TriageConflict | null;
+  secondPass: TriageClassification | null;
+  secondPassFailure: { message: string } | null;
+  /** True when the override-floor signal matched, even if the model already said urgent. */
+  floorMatched: boolean;
+  /** True when the override floor forced a category change (not merely matched). */
+  floorForced: boolean;
+}
+
+const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
+const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
+/**
+ * Categories that NEVER carry a rail todo regardless of model output (ADR-0050
+ * amendment 2026-06-06). Shrunk to `{marketing, newsletter}`: these are the
+ * broadcast buckets where a genuine personal obligation would be, by definition,
+ * a MISCLASSIFICATION leaking through — so this is a CONSISTENCY GUARD against
+ * classifier leakage, not a relevance judgment. `fyi`/`done` deliberately do NOT
+ * live here: an `fyi` can carry a real obligation ("auto-renews unless you
+ * cancel") and a `done` closure can end with a significant trailing ask — both
+ * go through the rubric (rule 16), which owns the todo decision everywhere else.
+ */
+const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
+/** Categories that count toward a sender's "bulk" share for the over-classification net. */
+const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
+const STRONG_BULK_MIN_TOTAL = 5;
+const STRONG_BULK_MIN_SHARE = 0.8;
+const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
+const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
+const MAX_RATIONALE_LEN = 500;
+
+/**
+ * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
+ * EXPOSURE VERBS, deliberately narrower than the broad `hasSecurityKeyword`
+ * content flag — a self-initiated "sign in"/"your code is 123456" link contains
+ * none of these verbs, so it never trips the floor (the bug that opened v3).
+ * `[\s\S]` (dotall) so the noun and verb can wrap onto separate lines, as
+ * security-bot bodies do.
+ *
+ * The noun set is narrower than `hasSecurityKeyword` ON PURPOSE: the generic
+ * `credential` is excluded here (it stays in the broad hint regex) because
+ * `credential` + `exposed` over an 80-char window matches ordinary engineering
+ * prose ("the credential object is exposed to the network") and the floor is
+ * unrecoverable — a false positive force-tags an architecture email `urgent`.
+ */
+const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
+const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
+const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
+  String.raw`\b(?:${OVERRIDE_FLOOR_SECRET_NOUN}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_SECRET_NOUN})\b`,
+  "i",
+);
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
@@ -94,6 +213,15 @@ const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each
 - newsletter: subscription content the user opted into — weekly digests, Substack posts, professional newsletters, automated content publication.
 - marketing: promotional / sales blasts. "20% off this weekend", product launches, public brand events/webinars/keynotes, cold outbound sales, growth-team nurture sequences.
 
+How to use the Observations block:
+- The observations are DETERMINISTIC CONTEXT — hints to focus your attention, never verdicts. You still decide the category from the email itself.
+- Sender prior is this sender's past category histogram. A 99%-newsletter sender can still send one genuinely urgent message — trust the message over the prior when they disagree. The prior breaks routine ties, it does not override a clear signal.
+- Account persona (work/personal) frames what "urgent"/"action_needed" mean for this account.
+- Thread state ("you last replied on <date>") is context for follow_up vs awaiting_reply vs done — not a deterministic mapping.
+- Known contact = the sender is in the user's contacts. A direct ask from a known contact is more likely a real awaiting_reply/action_needed.
+- Gmail signals (categories, IMPORTANT, STARRED) are Gmail's own priors — lean on them when they align.
+- Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; calendar → meeting; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
+
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
 2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (account compromise, security breach, billing failure that breaks access today). A login link or code merely expiring is NOT such a consequence — the user just requests a fresh one.
@@ -102,13 +230,13 @@ Rules:
 5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop.
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
 7. Meeting gate: choose 'meeting' only when the user is a participant or likely participant in a personal/work calendar-style meeting. The words "meeting", "event", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves.
-8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user.
-9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting".
+8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
+9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.)
 10. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' only after the Meeting gate is satisfied.
 11. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
 12. Automated/service mail:
-    12a. Bot review comments where SenderContext.effectiveAuthor='bot' and botSlug is coderabbit, copilot-review, github-actions, dependabot, or renovate are usually 'fyi'. They are advisory review noise by default, even when they contain suggested fixes.
-    12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: CVE/vulnerability, exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
+    12a. Bot review comments where SenderContext.effectiveAuthor='bot' and botSlug is coderabbit, copilot-review, github-actions, dependabot, or renovate are usually 'fyi'. They are advisory review noise by default, even when they contain suggested fixes or CVE identifiers.
+    12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
     12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
     12d. Unknown service envelopes classify from body content alone.
 13. Confidence:
@@ -116,18 +244,22 @@ Rules:
     - 0.7-0.9: clear category but with some overlap.
     - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
-14. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content). Don't restate the rule.
+14. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content, a decisive observation). Don't restate the rule.
 15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
-16. Todo suggestion (rail) — IN ADDITION to the category, decide whether this email is a commitment worth tracking on the user's todo rail. Set the \`todoSuggestion\` field, always present:
-    16a. NEVER propose for marketing, newsletter, fyi, or done → todoSuggestion is null. The category tag is NECESSARY but NOT sufficient.
-    16b. Propose ONLY when BOTH hold: (i) it is worth acting on for the day, AND (ii) the email carries enough concrete context to write a specific, self-contained action.
-    16c. If the ask is vague or you cannot say what to actually DO from the email alone — "something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing the specifics — set todoSuggestion to null EVEN WHEN the category is action_needed or urgent. A vague rail item is worse than none.
-    16d. When you do propose: \`name\` is a crisp imperative the user recognizes at a glance ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD"). \`assist\` is an optional one-liner on how to approach it, or an honest "I can't act on this yet — <reason>" when there is no path. Never invent specifics absent from the email.
+16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
+    Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
+    16a. Obligation on me (gate). Is there an action the USER must take — reply, decide, send, pay, attend, prepare, fix, submit? Not the sender's job, not pure awareness. None → outcome \`no_obligation\`. (A newsletter, a shipped-order notice, an FYI-for-awareness leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.)
+    16b. Significance. Does the obligation MATTER on its face — a deadline, money, a real deliverable, a commitment to a person, a clear cost of not doing it? Real-but-trivial asks fail here: rate-your-driver, satisfaction surveys, "thoughts sometime?", optional feedback with no stake. Trivial → outcome \`not_significant\`. Judge from the email ALONE — you do NOT have the user's projects, role, or relationships available here, so do not assume personal relevance.
+    16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
+    16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
+    16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. \`name\` is a crisp imperative naming the SUBJECT, recognizable at a glance without opening the email ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD") — never a bare verb ("Log in", "Reply"). \`assist\` is OPTIONAL: include it only when it adds guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>". OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
+    16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
 - "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
-- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → action_needed (self-initiated auth, expires harmlessly — rule 15, NOT urgent).
+- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → action_needed (self-initiated auth, expires harmlessly — rule 15, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
 - "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
@@ -137,7 +269,8 @@ Examples (subject → category):
 - "Your payment failed — update your card" from billing@stripe.com → payment (rule 11) — bump to urgent if access breaks today.
 - "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
 - "**coderabbitai** commented: API key exposed in this PR" → urgent (secret/security exception).
-- "Errors spiking in production" from Sentry → urgent/action_needed depending on immediacy and user's project context.
+- "Dependabot alert: CVE-2024-1234 in lodash (moderate)" → fyi (advisory bot, no exposed secret — rule 12a).
+- "Errors spiking in production" from Sentry → urgent/action_needed depending on immediacy and the user's project context.
 - "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
 - "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
 - "See you next week." from Apple / Inside Apple with WWDC or product-event content → marketing (public brand event, not the user's meeting).
@@ -146,18 +279,72 @@ Examples (subject → category):
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
 - "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null }`;
+Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
+- "Sign in to Anthropic" / "Your login code is 123456" the user requested → no todo (16c memorability: self-initiated, nothing to remember).
+- "Rate your recent delivery" / "How did we do? Leave a quick review" → no todo (16b significance: real ask, but trivial, no stake).
+- Amazon "Your order shipped" ending "…complete this 1-question survey" → category done, no todo (16b significance).
+- Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
+- Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
+- "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
 
-function userPrompt(args: ClassifyEmailArgs): string {
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
+
+function renderObservations(obs: Observations): string {
+  const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
+  lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
+
+  const counts = obs.senderPrior.categoryCounts;
+  const keys = Object.keys(counts);
+  if (obs.senderPrior.key && keys.length) {
+    const hist = keys.map((k) => `${k}:${counts[k]}`).join(", ");
+    lines.push(
+      `Sender prior [${obs.senderPrior.key}]: { ${hist} } (last: ${obs.senderPrior.lastCategory ?? "n/a"})`,
+    );
+  } else if (obs.senderPrior.key) {
+    lines.push(`Sender prior [${obs.senderPrior.key}]: no history yet`);
+  } else {
+    lines.push(`Sender prior: n/a (human sender — judge per message)`);
+  }
+
+  lines.push(`Known contact: ${obs.knownContact ? "yes" : "no"}`);
+
+  const t = obs.thread;
+  if (t.messageCount > 0) {
+    const replied = t.lastUserReplyAt
+      ? `you last replied ${t.lastUserReplyAt.toISOString()}`
+      : "you have not replied";
+    lines.push(
+      `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
+    );
+  } else {
+    lines.push(`Thread: new (no prior messages on file)`);
+  }
+
+  const g = obs.gmail;
+  lines.push(
+    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}`,
+  );
+
+  const c = obs.content;
+  lines.push(
+    `Content flags: unsubscribe=${c.hasUnsubscribe}; currency=${c.hasCurrencyAmount}; security=${c.hasSecurityKeyword}; ` +
+      `calendar=${c.hasCalendarInvite}; investorNotice=${c.hasInvestorNotice}; publicEvent=${c.hasPublicEventLanguage}`,
+  );
+  return lines.join("\n");
+}
+
+function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): string {
   const lines: string[] = [];
   const meta = args.document.metadata;
   const from = typeof meta.from === "string" ? meta.from : null;
   const to = typeof meta.to === "string" ? meta.to : null;
   const cc = typeof meta.cc === "string" ? meta.cc : null;
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
 
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
+  lines.push("");
+
+  lines.push(renderObservations(args.observations));
   lines.push("");
 
   if (from) lines.push(`From: ${from}`);
@@ -165,219 +352,288 @@ function userPrompt(args: ClassifyEmailArgs): string {
   if (cc) lines.push(`Cc: ${cc}`);
   if (args.document.title) lines.push(`Subject: ${args.document.title}`);
   if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
-  // Gmail's own labels (CATEGORY_PROMOTIONS, CATEGORY_UPDATES, INBOX, IMPORTANT)
-  // are useful priors. Pass them so the model can lean on Gmail's own
-  // classification when our fine-grained taxonomy aligns.
-  if (labelIds.length) {
-    const userVisible = labelIds.filter(
-      (l) => l.startsWith("CATEGORY_") || l === "IMPORTANT" || l === "STARRED" || l === "INBOX",
-    );
-    if (userVisible.length) lines.push(`GmailLabels: ${userVisible.join(", ")}`);
-  }
   lines.push("");
 
   lines.push("=== Body ===");
-  // Cap to keep token budget bounded — most emails fit easily; the rare
-  // long thread gets truncated, which is fine for triage (the lede usually
-  // suffices to classify).
+  // Cap to keep token budget bounded — most emails fit easily; the rare long
+  // thread gets truncated, which is fine for triage (the lede usually suffices).
   const content =
     args.document.content.length > 6_000
       ? args.document.content.slice(0, 6_000) + "\n[…truncated]"
       : args.document.content;
   lines.push(content);
+
+  if (conflict) {
+    lines.push("");
+    lines.push("=== INCONSISTENCY DETECTED (reconsider) ===");
+    lines.push(conflict.message);
+    lines.push(
+      "A deterministic check flags your first answer as a likely error. Re-read the email and the observations: if your first classification was right, keep it and say why; otherwise correct it.",
+    );
+  }
   return lines.join("\n");
 }
 
 /**
- * Run the cheap-tier model over a single email and return its classification.
- * Output is Zod-validated by the AI SDK; parse failures bubble up so the
- * workflow can decide whether to retry or fall through to a default category.
+ * Sum a sender prior histogram and the share that falls in bulk categories.
+ * Used by the over-classification conflict net.
  */
-export async function classifyEmail(
-  args: ClassifyEmailArgs,
-): Promise<{ classification: TriageClassification; model: string }> {
-  const model = getCheapModel();
-  const result = await meteredGenerateObject<TriageClassification>(
-    {
-      model,
-      system: SYSTEM_PROMPT,
-      prompt: userPrompt(args),
-      schema: triageClassificationSchema,
-      temperature: 0,
-      // Triage answers are tiny — cap hard so a misbehaving model can't
-      // burn tokens on a wall-of-text rationale.
-      maxOutputTokens: 400,
-    },
-    {
-      role: "triage",
-      userId: args.userId,
-      runId: args.runId,
-      stepId: args.stepId,
-      idempotencyKey: args.idempotencyKey,
-      requestMeta: {
-        purpose: "triage.classify",
-        documentId: args.document.id,
-      },
-      name: "triage.classify",
-    },
-  );
-
-  const classification = applyTriageClassificationGuardrails(
-    result.object,
-    args.document,
-    args.senderContext,
-  );
-
-  // `modelIdsFor` resolves to the model's `modelId` — but `getCheapModel`
-  // returns an opaque LanguageModel. Re-derive a stable string for the
-  // `email_triage.model` column without leaking an `unknown` upstream.
-  const modelId = resolveModelId(model);
-  return { classification, model: modelId };
+function priorBulkProfile(categoryCounts: Record<string, number>): {
+  total: number;
+  bulkShare: number;
+} {
+  let total = 0;
+  let bulk = 0;
+  for (const [cat, n] of Object.entries(categoryCounts)) {
+    total += n;
+    if (BULK_PRIOR_CATEGORIES.has(cat)) bulk += n;
+  }
+  return { total, bulkShare: total > 0 ? bulk / total : 0 };
 }
 
-export function applyTriageClassificationGuardrails(
+/**
+ * Detect a hard deterministic conflict between the model's output and a strong
+ * expectation (ADR-0051 §4b, Phase 3 seed — two tightly-gated nets). Returns the
+ * conflict to spell into a single second cheap pass, or null. PURE.
+ *
+ * `floorMatches` is the override-floor predicate result — passed in so the
+ * under-classification net doesn't fire a redundant second pass when the floor
+ * will force `urgent` regardless.
+ */
+export function detectConflict(
   classification: TriageClassification,
-  document: ClassifyEmailArgs["document"],
-  senderContext?: SenderContext,
-): TriageClassification {
+  observations: Observations,
+  floorMatches: boolean,
+): TriageConflict | null {
+  // Under-classification: a security signal is present but the model chose a
+  // passive category, and the floor won't already fix it. The dangerous miss.
   if (
-    senderContext &&
-    isReviewBot(senderContext) &&
-    isImportantCategory(classification.category) &&
-    !hasSevereReviewBotSignal(signalText(document))
+    observations.content.hasSecurityKeyword &&
+    PASSIVE_CATEGORIES.has(classification.category) &&
+    !floorMatches
   ) {
-    return guardedClassification(
-      classification,
-      "fyi",
-      "recognized code-review bot comment is advisory unless the body shows security, production, or deploy severity",
-    );
+    return {
+      kind: "under_classification",
+      message: `A security-related signal was detected in the body, but you classified this as "${classification.category}" (a passive category). Security/account signals usually warrant urgent or action_needed unless this is clearly self-initiated auth or routine advisory bot noise.`,
+    };
   }
 
-  if (classification.category !== "meeting") return classification;
-
-  const text = signalText(document);
-  if (isInvestorOrShareholderNotice(text)) {
-    if (hasDirectInvestorAction(text)) {
-      return guardedClassification(
-        classification,
-        "action_needed",
-        "shareholder notice asks for a concrete user action, not a personal meeting",
-      );
+  // Over-classification: the model spiked to an important category for a sender
+  // whose prior is overwhelmingly bulk, with nothing supporting the severity.
+  if (
+    IMPORTANT_CATEGORIES.has(classification.category) &&
+    !observations.content.hasSecurityKeyword &&
+    !observations.gmail.important
+  ) {
+    const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
+    if (total >= STRONG_BULK_MIN_TOTAL && bulkShare >= STRONG_BULK_MIN_SHARE) {
+      return {
+        kind: "over_classification",
+        message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no security signal is present. Promotional-urgency language ("act now", "last chance") is not a real deadline — confirm this is genuinely actionable.`,
+      };
     }
-    return guardedClassification(
-      classification,
-      "fyi",
-      "shareholder/legal notice is informational and not a personal meeting",
-    );
   }
 
-  if (isPublicEventBlast(text, document.metadata)) {
-    return guardedClassification(
-      classification,
-      "marketing",
-      "public brand event or product announcement is not a personal meeting",
-    );
-  }
-
-  return classification;
+  return null;
 }
 
-function guardedClassification(
+/**
+ * Override floor (ADR-0051 §5, Phase 3 seed = ONE signal). Forces `urgent` when
+ * an exposed/leaked/committed secret is present, regardless of model output.
+ * PURE. Returns the (possibly forced) classification and whether it changed.
+ */
+export function applyOverrideFloor(
   classification: TriageClassification,
-  category: TriageCategory,
-  reason: string,
-): TriageClassification {
+  signalText: string,
+): { classification: TriageClassification; matched: boolean; forced: boolean } {
+  if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
+    return { classification, matched: false, forced: false };
+  }
+  if (classification.category === "urgent") {
+    // Floor agrees with the model — no change, nothing to force.
+    return { classification, matched: true, forced: false };
+  }
   return {
-    ...classification,
-    category,
-    confidence: Math.max(classification.confidence, 0.82),
-    rationale: truncateRationale(`${classification.rationale} Guardrail: ${reason}.`),
+    classification: {
+      ...classification,
+      category: "urgent",
+      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
+      rationale: truncateRationale(
+        `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
+      ),
+    },
+    matched: true,
+    forced: true,
   };
 }
 
-function signalText(document: ClassifyEmailArgs["document"]): string {
-  const meta = document.metadata;
+/** A resolved rail todo to mint — the cheap model's proposal after the gate. */
+export type ResolvedTodoSuggestion = { name: string; assist?: string };
+
+/**
+ * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
+ * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
+ * AND the category is todo-eligible; the floor ({@link TODO_INELIGIBLE_CATEGORIES},
+ * now just `{marketing, newsletter}`) suppresses a stray suggestion that leaked
+ * onto a broadcast bucket. The real todo decision is the rubric (rule 16) the
+ * model already applied; this is a thin consistency guard, not the judgment.
+ * PURE — the `email-triage` tail step calls this and, on a non-null result,
+ * writes the todo via `suggestTodo`.
+ */
+export function resolveTodoSuggestion(
+  classification: TriageClassification,
+): ResolvedTodoSuggestion | null {
+  const suggestion = classification.todoSuggestion ?? null;
+  if (!suggestion) return null;
+  if (classification.todoDecision?.outcome !== "proposed") return null;
+  if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
+  return suggestion;
+}
+
+/** Concatenated lowercased text the floor predicate scans (subject + body + snippet). */
+function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [];
-  for (const key of ["from", "to", "cc", "snippet"]) {
-    const value = meta[key];
-    if (typeof value === "string") parts.push(value);
-  }
   if (document.title) parts.push(document.title);
   parts.push(document.content);
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as unknown[]) : [];
-  for (const label of labelIds) {
-    if (typeof label === "string") parts.push(label);
-  }
+  const snippet = document.metadata.snippet;
+  if (typeof snippet === "string") parts.push(snippet);
   return parts.join("\n").toLowerCase();
 }
 
-function isInvestorOrShareholderNotice(text: string): boolean {
-  return (
-    /\bannual general meeting\b|\bagm\b|\bshareholder(s)?\b|\bproxy\b/.test(text) ||
-    /\be-?voting\b|\bevoting\b|\bannual report\b/.test(text) ||
-    /\bregistrar\b|\bdepository\b|\bnsdl\b|\bcdsl\b/.test(text)
-  );
+/**
+ * Run the context-rich classify sequence over a single email: first cheap pass
+ * → conditional second pass on a detected conflict → override floor. Returns
+ * the final classification, the resolved model id, and an audit trail.
+ */
+export async function classifyEmail(
+  args: ClassifyEmailArgs,
+): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
+  const useInjected = Boolean(args.runPass);
+  const model = useInjected ? null : getCheapModel();
+  const baseModelId = useInjected ? "injected" : resolveModelId(model);
+  const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
+
+  const signalText = floorSignalText(args.document);
+  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
+
+  const firstPass = await runPass({
+    system: SYSTEM_PROMPT,
+    prompt: userPrompt(args, null),
+    pass: "first",
+  });
+
+  const conflict = detectConflict(firstPass, args.observations, floorMatches);
+  let working = firstPass;
+  let secondPass: TriageClassification | null = null;
+  let secondPassFailure: { message: string } | null = null;
+  if (conflict) {
+    // The second pass is an OPTIONAL re-check. A failure on it must NOT discard
+    // the already-valid first pass: if the error propagated, the workflow's
+    // catch would force the whole message to the default `fyi`, silently
+    // DE-escalating a real urgent/action_needed (the exact opposite of what the
+    // under-classification net is for). Fall back to the first pass instead.
+    try {
+      secondPass = await runPass({
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt(args, conflict),
+        pass: "second",
+      });
+      working = secondPass;
+    } catch (err) {
+      secondPassFailure = { message: errorMessage(err) };
+      secondPass = null;
+      working =
+        conflict.kind === "under_classification"
+          ? conservativeUnderClassificationFallback(firstPass, secondPassFailure.message)
+          : firstPass;
+    }
+  }
+
+  const floorResult = applyOverrideFloor(working, signalText);
+  const classification = floorResult.classification;
+
+  let model_id = baseModelId;
+  if (secondPass) model_id += "+2pass";
+  if (secondPassFailure) model_id += "+2pass_failed";
+  if (floorResult.forced) model_id += "+floor";
+
+  return {
+    classification,
+    model: model_id,
+    audit: {
+      firstPass,
+      conflict,
+      secondPass,
+      secondPassFailure,
+      floorMatched: floorResult.matched,
+      floorForced: floorResult.forced,
+    },
+  };
 }
 
-function hasDirectInvestorAction(text: string): boolean {
-  return (
-    /\baction required\b/.test(text) ||
-    /\bcast your vote\b|\bplease vote\b|\bplease register\b|\bplease submit\b/.test(text) ||
-    /\b(vote|register|submit|complete|approve)\b.{0,80}\b(before|by|deadline|closes|ends|cut-?off|last date)\b/.test(
-      text,
-    )
-  );
-}
-
-function isPublicEventBlast(text: string, metadata: Record<string, unknown>): boolean {
-  const labelIds = Array.isArray(metadata.labelIds) ? (metadata.labelIds as unknown[]) : [];
-  const hasPromoLabel = labelIds.some((label) => label === "CATEGORY_PROMOTIONS");
-  const publicEvent =
-    /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconference\b|\bsummit\b/.test(text) ||
-    /\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/.test(text);
-  const bulkSignal =
-    hasPromoLabel ||
-    /\bunsubscribe\b/.test(text) ||
-    /\b(news|newsletter|marketing|events)@/.test(text);
-
-  return publicEvent && (bulkSignal || /\bwwdc\d*\b/.test(text));
-}
-
-function isReviewBot(senderContext: SenderContext): boolean {
-  return (
-    senderContext.effectiveAuthor === "bot" &&
-    (senderContext.botSlug === "coderabbit" ||
-      senderContext.botSlug === "copilot-review" ||
-      senderContext.botSlug === "github-actions" ||
-      senderContext.botSlug === "dependabot" ||
-      senderContext.botSlug === "renovate")
-  );
-}
-
-function isImportantCategory(category: TriageCategory): boolean {
-  return category === "urgent" || category === "action_needed" || category === "awaiting_reply";
-}
-
-function hasSevereReviewBotSignal(text: string): boolean {
-  return (
-    /\bcve-\d{4}-\d+\b|\bvulnerabilit(y|ies)\b|\bsecurity advisory\b|\bexploit\b/.test(text) ||
-    // `s` (dotall) so the noun and the exposure verb can sit on separate
-    // lines — review-bot bodies wrap, e.g. `**token**\nfound exposed`.
-    /\b(secret|credential|api key|token|private key)\b.{0,80}\b(exposed|leak|leaked|committed|found)\b/s.test(
-      text,
-    ) ||
-    /\b(auth bypass|privilege escalation|data loss|production outage|incident)\b/.test(text) ||
-    /\b(blocks?|blocked|failing|failed)\b.{0,80}\b(deploy|deployment|release|ship|ci|build)\b/s.test(
-      text,
-    ) ||
-    /\b(action required|deadline|expires|rotate)\b.{0,80}\b(today|now|immediately|within hours)\b/s.test(
-      text,
-    )
-  );
+/** Build the production cheap-model pass runner (metered, Zod-validated). */
+function defaultRunPass(
+  model: ReturnType<typeof getCheapModel> | null,
+  args: ClassifyEmailArgs,
+): RunPass {
+  return async ({ system, prompt, pass }) => {
+    if (!model) throw new Error("[triage] classifyEmail: no cheap model and no runPass injected");
+    const result = await meteredGenerateObject<TriageClassification>(
+      {
+        model,
+        system,
+        prompt,
+        schema: triageClassificationSchema,
+        temperature: 0,
+        // Triage answers are tiny — cap hard so a misbehaving model can't burn
+        // tokens on a wall-of-text rationale.
+        maxOutputTokens: 400,
+        // Bound the call so a hung/slow Gemini connection can't stall the
+        // single-concurrency triage worker indefinitely. The workflow catches a
+        // timeout and falls through to the default category (better a label than
+        // a blocked queue).
+        timeout: { totalMs: 30_000 },
+      },
+      {
+        role: "triage",
+        userId: args.userId,
+        runId: args.runId,
+        stepId: args.stepId,
+        // Distinct idempotency key per pass so the second pass isn't deduped
+        // against the first within the same attempt.
+        idempotencyKey: args.idempotencyKey ? `${args.idempotencyKey}:${pass}` : undefined,
+        requestMeta: {
+          purpose: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
+          documentId: args.document.id,
+        },
+        name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
+      },
+    );
+    return result.object;
+  };
 }
 
 function truncateRationale(value: string): string {
-  return value.length > 500 ? `${value.slice(0, 497)}...` : value;
+  return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
+}
+
+function conservativeUnderClassificationFallback(
+  firstPass: TriageClassification,
+  message: string,
+): TriageClassification {
+  if (!PASSIVE_CATEGORIES.has(firstPass.category)) return firstPass;
+  return {
+    ...firstPass,
+    category: "action_needed",
+    confidence: Math.max(firstPass.confidence, SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
+    rationale: truncateRationale(
+      `${firstPass.rationale} Second-pass failed after a security under-classification conflict; conservatively escalated to action_needed. err=${message.slice(0, 160)}`,
+    ),
+  };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function resolveModelId(model: unknown): string {

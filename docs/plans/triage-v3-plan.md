@@ -18,6 +18,64 @@ plus the surviving *SenderContext*, *Effective author*, *User context*),
 > existing v2 path (`todoSuggestion` in `classify.ts`, `suggestTodo` tail step in
 > `email-triage.ts`). Triage v3 must preserve that tail step while moving the
 > classifier to observation-rich inputs.
+>
+> **Build progress (2026-06-05).** Phases 1 + 2 landed (foundation):
+> - *Phase 1* — `persistMessage` flags `metadata.isSent`; ingestor results carry
+>   `triageDocumentIds` (non-sent inserts); `queue.ts` triages that subset only
+>   while embedding all inserts; `getThreadState()` reads sent-aware thread
+>   observations. Sent mail is now ingested + embedded but never triaged/labeled.
+> - *Phase 2* — `sender_priors` table + migration `0032`; `sender-priors.ts`
+>   (`senderKeyFor`/`getSenderPrior`/`incrementSenderPrior`, Redis read-through +
+>   bust); `integration_credentials.persona` auto-detected from the Google `hd`
+>   claim (`detectPersona`), exposed via `GET /credentials` + overridable via
+>   `PATCH /credentials/:id/persona`; pure `observations.ts` assembler. Histogram
+>   write-back is wired into the existing classifier path — **no prompt change yet**.
+> - Reads (`getSenderPrior`, `getThreadState`, `assembleObservations`) are built,
+>   exported, and unit-tested but **not yet fed to the model** — that is Phase 3.
+>
+> **Build progress (2026-06-05, cont.).** Phases 3 + 4 landed together (they are
+> one change — see ADR-0051 amendment 2026-06-05; the conditional second cheap
+> pass *replaces* the boss `deepen`, so running both was incoherent):
+> - *Classifier* — `classifyEmail` now consumes `observations`, owns the full
+>   sequence (first pass → `detectConflict` → conditional second cheap pass →
+>   `applyOverrideFloor`), and returns `{ classification, model, audit }`.
+>   `detectConflict` + `applyOverrideFloor` are pure exported functions; a
+>   `runPass` seam makes the two-pass loop testable without a live LLM.
+> - *Override floor* seeded to ONE signal (exposed-secret exposure-verb regex →
+>   `urgent`); CVE + payment go to the model. *Second pass* = two tightly-gated
+>   nets (under/over), max one re-run.
+> - *Guardrails* — `applyTriageClassificationGuardrails` deleted; review-bot
+>   rewrite dropped (prior + floor cover it); investor/AGM + public-event
+>   detection demoted to named `ContentFlags` (`hasInvestorNotice`,
+>   `hasPublicEventLanguage`), fed to the prompt, no rewrites.
+> - *Known-contact* — new best-effort `isKnownContact` (human senders only) over
+>   `entities.aliases`; `loadTriageContext` extended to return `persona`.
+> - *Workflow* — `email-triage.ts` removed the boss `deepen` branch, added
+>   `gatherObservations` (the IO), and the `triage.sender_extraction` log now
+>   carries the observation summary + classify audit. `deepen.ts` kept dormant
+>   (the `dossierRequest` hook + `system.read_user_context` survive). The v2
+>   `smoke-triage-v2.ts` (deepen-shaped) was deleted.
+> - 14 typechecks green; 58 api tests pass; web-boundaries + oxlint clean.
+>
+> **Build progress (2026-06-05, cont.).** Phase 0 landed (todo regression
+> coverage) — done *after* 3+4 since the rewrite touched the todo path:
+> - Extracted the inline workflow gate into a pure exported `resolveTodoSuggestion`
+>   (the single decision point: returns the model's suggestion only when present,
+>   `todoDecision.outcome` is `proposed`, and the category is todo-eligible).
+>   `TODO_INELIGIBLE_CATEGORIES` is now only `marketing`/`newsletter`;
+>   `fyi`/`done` are rubric-owned because they can carry a real trailing ask.
+>   `email-triage.ts` now calls the seam.
+> - Regression coverage: `triageClassificationSchema.todoSuggestion` shape
+>   (`null | { name, assist? }` + caps); `resolveTodoSuggestion` gate (acceptance:
+>   `action_needed`/`urgent` with a concrete ask passes through; broadcast
+>   categories suppress a stray suggestion); source-overlap merge idempotency
+>   (`test/todos/sources.test.ts` — locks the `mergeTodoSources`/`todoSourceKey`
+>   contract the `suggestTodo` dedup guard relies on, since the DB txn has no
+>   harness).
+> - 81 api tests pass (was 58); api + server typecheck green; web-boundaries +
+>   oxlint clean.
+> - Remaining: Phase 5 (extend observability/docs/copy; supersede
+>   `docs/reference/triage.md`).
 
 ---
 
@@ -219,7 +277,7 @@ Implementation checklist:
 - Delete `shouldDeepen` execution from `email-triage.ts`.
 - Remove/deprecate triage-only `deepen` imports and state fields.
 - Ensure classification model/cost attribution is still `role: 'triage'`.
-- Keep fallback behavior simple: failed second-pass falls back to first-pass output, not boss.
+- Keep fallback behavior simple: failed second-pass records the failure; over-classification keeps the first pass, while under-classification conservatively escalates a passive first pass to `action_needed`.
 
 Acceptance:
 
