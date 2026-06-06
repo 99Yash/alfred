@@ -12,10 +12,10 @@ import {
   isSentGmailMetadata,
   loadTriageContext,
   publishEvent,
+  reconcileThreadLabel,
   resolveTodoSuggestion,
   senderKeyFor,
   senderPriorWriteKeyFor,
-  setAppliedLabelId,
   suggestTodo,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
@@ -27,12 +27,7 @@ import {
   type Workflow,
 } from "@alfred/api";
 import { senderContextSchema, type SenderContext } from "@alfred/contracts";
-import {
-  applyTriageLabel,
-  findThreadSiblingsWithAlfredLabels,
-  TRIAGE_CATEGORIES,
-  type TriageCategory,
-} from "@alfred/integrations/google";
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 
 /**
@@ -51,10 +46,10 @@ import { z } from "zod";
  *                    thread), persist `applied_label_id`. Done.
  *
  * Schema model:
- *   One `email_triage` row per (userId, sourceThreadId). Each new message in
- *   a thread re-runs classify and OVERWRITES the row — the canonical alfred
- *   tag is always the latest message's outcome. No per-message audit row;
- *   audit lives on `api_call_log` (the metered LLM call) + `agent_runs`.
+ *   One `email_triage` row per (userId, sourceThreadId). New messages in an
+ *   auto-tagged thread re-run classify and overwrite the row; user-overridden
+ *   tags stay pinned. No per-message audit row; audit lives on `api_call_log`
+ *   (the metered LLM call) + `agent_runs`.
  *
  * Idempotency:
  *   - The classify step skips the LLM if the thread's existing triage row
@@ -280,7 +275,12 @@ export const emailTriageWorkflow: Workflow<State> = {
             model = "fallback";
           }
 
-          await upsertTriage({
+          // Recency-guarded, advisory-locked upsert. `written` is false when a
+          // concurrent run for a strictly-newer message already owns the row —
+          // this run lost the race, so it skips the side effects below (they'd
+          // emit signals for a tag that isn't canonical). The apply-label step
+          // converges on the row's canonical message regardless.
+          const { written } = await upsertTriage({
             userId: ctx.userId,
             sourceThreadId,
             documentId: ctx.state.documentId,
@@ -289,6 +289,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: classification.rationale,
             model,
             runId: ctx.runId,
+            authoredAt: ctxData.document.authoredAt,
           });
 
           // Tell the rail to re-fetch: the row's category chip just
@@ -299,16 +300,18 @@ export const emailTriageWorkflow: Workflow<State> = {
           // two writes still leaves a triaged row to be picked up on
           // the next poll. If publish itself throws, we log and continue
           // so a transient outbox issue doesn't fail the workflow step.
-          try {
-            await publishEvent({
-              userId: ctx.userId,
-              kind: "inbox.updated",
-              payload: { reason: "triaged", count: 1 },
-            });
-          } catch (err) {
-            await ctx.log(
-              `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
+          if (written) {
+            try {
+              await publishEvent({
+                userId: ctx.userId,
+                kind: "inbox.updated",
+                payload: { reason: "triaged", count: 1 },
+              });
+            } catch (err) {
+              await ctx.log(
+                `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
 
           // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
@@ -327,7 +330,9 @@ export const emailTriageWorkflow: Workflow<State> = {
             isSent: docIsSent,
             model,
           });
-          if (senderKey) {
+          // `written` gate: a superseded older message isn't the canonical tag,
+          // so it must not teach the sender-prior histogram.
+          if (written && senderKey) {
             try {
               await incrementSenderPrior({
                 userId: ctx.userId,
@@ -354,7 +359,9 @@ export const emailTriageWorkflow: Workflow<State> = {
           // than duplicates, and a failed suggestion is non-fatal — the label +
           // row are the contract.
           const todoSuggestion = resolveTodoSuggestion(classification);
-          if (todoSuggestion) {
+          // `written` gate: only the run that owns the canonical row proposes a
+          // todo, so a superseded older message can't mint a stray suggestion.
+          if (written && todoSuggestion) {
             try {
               const suggested = await suggestTodo({
                 userId: ctx.userId,
@@ -422,55 +429,42 @@ export const emailTriageWorkflow: Workflow<State> = {
           );
         }
 
-        const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
-        if (!ctxData) {
-          // Doc evaporated between classify and label — race condition; finish.
-          await ctx.log(`apply-label: document gone, finishing without write`);
+        const outcome = await reconcileThreadLabel({
+          userId: ctx.userId,
+          sourceThreadId,
+          fallbackDocumentId: ctx.state.documentId,
+        });
+
+        if (!outcome.applied) {
+          await ctx.log(`apply-label: skipped reason=${outcome.reason}`);
           return {
             kind: "done",
             state: ctx.state,
-            output: { category, applied: false, reason: "document-not-found" },
+            output: {
+              category: outcome.category ?? category,
+              applied: false,
+              reason: outcome.reason,
+            },
           };
         }
 
-        // Resolve siblings from Gmail (not the DB) — single source of truth
-        // for "which messages in this thread carry alfred labels right now."
-        // Survives stale DB state from older deployments and hand-labelling.
-        const siblings = await findThreadSiblingsWithAlfredLabels({
-          credentialId: ctxData.credentialId,
-          threadId: sourceThreadId,
-          excludeMessageId: ctxData.document.sourceId,
-        });
-
-        const result = await applyTriageLabel({
-          credentialId: ctxData.credentialId,
-          messageId: ctxData.document.sourceId,
-          category,
-          // Strip every other alfred label off the latest message too — handles
-          // the case where it was hand-labelled before alfred touched it.
-          stripAllAlfredLabels: true,
-          threadSiblings: siblings,
-        });
-
-        await setAppliedLabelId(ctx.userId, sourceThreadId, result.appliedLabelId);
-
         await ctx.log(
-          `apply-label: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
-            `applied=${category} (${result.appliedLabelId}) ` +
-            `removed=${result.removedLabelIds.length} ` +
-            `siblingsStripped=${result.strippedSiblings.length}/${siblings.length}`,
+          `apply-label: doc=${ctx.state.documentId} canonical=${outcome.targetDocId} ` +
+            `thread=${sourceThreadId} applied=${outcome.category} (${outcome.appliedLabelId}) ` +
+            `removed=${outcome.removedLabelIds.length} ` +
+            `siblingsStripped=${outcome.strippedSiblings.length}/${outcome.siblingCount}`,
         );
 
         return {
           kind: "done",
           state: ctx.state,
           output: {
-            category,
+            category: outcome.category,
             confidence: ctx.state.confidence,
             applied: true,
-            appliedLabelId: result.appliedLabelId,
-            removedLabelIds: result.removedLabelIds,
-            strippedSiblings: result.strippedSiblings.length,
+            appliedLabelId: outcome.appliedLabelId,
+            removedLabelIds: outcome.removedLabelIds,
+            strippedSiblings: outcome.strippedSiblings.length,
           },
         };
       },

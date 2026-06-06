@@ -1,5 +1,6 @@
 import type { IntegrationRules } from "@alfred/contracts";
 import {
+  emailTriage,
   notes,
   rejectedInferences,
   todos,
@@ -22,6 +23,7 @@ import type {
   TodoEditArgs,
   TodoPromoteArgs,
   TodoReopenArgs,
+  TriageTagOverrideArgs,
   WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -384,6 +386,37 @@ export const serverMutators = {
         rowVersion: sql`${todos.rowVersion} + 1`,
       })
       .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId)));
+  },
+
+  // ── Triage tags (rfc-triage-tags.md) ──────────────────────────────────
+  // User override of a thread's classifier tag. Writes the DB truth inline
+  // against the push `tx` (so it commits with the LMID advance); the Gmail
+  // label is reconciled AFTER commit via `enqueueTriageRelabel` (push.ts).
+  // No Gmail IO here — external IO cannot be transactional.
+
+  /**
+   * Override a thread's tag → `source='user'`. No-op if the thread has no
+   * `email_triage` row yet (override before first classify); the eventual
+   * classify writes `auto` and the user can override again.
+   */
+  async triageTagOverride(
+    tx: DbTx,
+    args: TriageTagOverrideArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    const now = new Date();
+    await tx
+      .update(emailTriage)
+      .set({
+        category: args.category,
+        source: "user",
+        overriddenAt: now,
+        rowVersion: sql`${emailTriage.rowVersion} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(eq(emailTriage.userId, ctx.userId), eq(emailTriage.sourceThreadId, args.threadId)),
+      );
   },
 } as const;
 
