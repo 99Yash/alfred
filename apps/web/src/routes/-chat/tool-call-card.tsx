@@ -1,5 +1,5 @@
 import { Check, Loader2, Wrench, X } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { cn } from "~/lib/utils";
 
 export interface ToolCallView {
@@ -21,6 +21,7 @@ function humanizeTool(toolName: string): string {
  * to a check (or error) with an expandable result preview when it lands.
  */
 export function ToolCallCard({ tool }: { tool: ToolCallView }) {
+  const panelId = useId();
   const [open, setOpen] = useState(false);
   const label = humanizeTool(tool.toolName);
   const running = tool.status === "started";
@@ -32,6 +33,8 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
       <button
         type="button"
         disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        aria-controls={expandable ? panelId : undefined}
         onClick={() => expandable && setOpen((v) => !v)}
         className={cn(
           "flex w-full items-center gap-2 px-3 py-2 text-left",
@@ -70,7 +73,10 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         ) : null}
       </button>
       {open && tool.resultPreview ? (
-        <pre className="animate-chat-in overflow-x-auto border-t border-vs-fg-a1/40 px-3 py-2 text-[12px] text-vs-fg-3">
+        <pre
+          id={panelId}
+          className="animate-chat-in overflow-x-auto border-t border-vs-fg-a1/40 px-3 py-2 text-[12px] text-vs-fg-3"
+        >
           {tool.resultPreview}
         </pre>
       ) : null}

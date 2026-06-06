@@ -313,6 +313,9 @@ importers:
       tailwind-merge:
         specifier: 'catalog:'
         version: 3.5.0
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
     devDependencies:
       '@alfred/config':
         specifier: workspace:*

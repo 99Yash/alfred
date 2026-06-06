@@ -26,33 +26,41 @@
  * error. Don't reintroduce it without proxying through our API.
  */
 
-export type WeatherCondition =
-  | "clear"
-  | "partly_cloudy"
-  | "cloudy"
-  | "fog"
-  | "rain"
-  | "snow"
-  | "storm"
-  | "unknown";
+import { z } from "zod";
 
-export type TemperatureUnit = "C" | "F";
+export const weatherConditionSchema = z.enum([
+  "clear",
+  "partly_cloudy",
+  "cloudy",
+  "fog",
+  "rain",
+  "snow",
+  "storm",
+  "unknown",
+]);
+export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
 
-export interface WeatherSnapshot {
-  /** Whole-degree temperature in `unit`. */
-  temperature: number;
-  unit: TemperatureUnit;
-  /** City name (or region, when geojs can't resolve a city). */
-  city: string;
-  condition: WeatherCondition;
-  /**
-   * `true` when open-meteo reports daylight at the resolved coordinates.
-   * Drives the night-video swap in the rail. Missing data defaults to
-   * `true` (daytime) so a flaky `is_day` field never paints the surface
-   * black for a daytime user.
-   */
-  isDay: boolean;
-}
+export const temperatureUnitSchema = z.enum(["C", "F"]);
+export type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
+
+/**
+ * Schema is the source of truth for the snapshot's shape — it also validates
+ * the persisted weather cache (see `lib/storage`'s registry). Field notes:
+ *   - `temperature`: whole-degree temperature in `unit`.
+ *   - `city`: city name (or region, when geojs can't resolve a city).
+ *   - `isDay`: `true` when open-meteo reports daylight at the resolved
+ *     coordinates. Drives the night-video swap in the rail. Missing data
+ *     defaults to `true` (daytime) in `fetchWeather` so a flaky `is_day`
+ *     field never paints the surface black for a daytime user.
+ */
+export const weatherSnapshotSchema = z.object({
+  temperature: z.number(),
+  unit: temperatureUnitSchema,
+  city: z.string(),
+  condition: weatherConditionSchema,
+  isDay: z.boolean(),
+});
+export type WeatherSnapshot = z.infer<typeof weatherSnapshotSchema>;
 
 /**
  * Pick Celsius or Fahrenheit from the browser's locale. Falls back to C

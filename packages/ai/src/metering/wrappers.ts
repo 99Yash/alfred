@@ -179,6 +179,7 @@ export async function meteredGenerateObject<O>(
 export type StreamTextArgs = Parameters<typeof streamText>[0];
 type StreamTextFinishEvent = Parameters<NonNullable<StreamTextArgs["onFinish"]>>[0];
 type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
+type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
 
 /**
  * Streaming counterpart to `meteredGenerateText`. Returns the SDK's
@@ -198,7 +199,8 @@ export function meteredStreamText(
   const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
   const callerOnFinish = args.onFinish;
   const callerOnError = args.onError;
-  return meteredStream(meta, ({ finish, fail }) =>
+  const callerOnAbort = args.onAbort;
+  return meteredStream(meta, ({ finish, fail, abort }) =>
     streamText({
       ...args,
       onFinish: (event: StreamTextFinishEvent) => {
@@ -216,8 +218,36 @@ export function meteredStreamText(
         fail(event.error instanceof Error ? event.error.message : String(event.error));
         callerOnError?.(event);
       },
+      onAbort: (event: StreamTextAbortEvent) => {
+        abort({
+          usage: usageFromSteps(event.steps),
+          responseMeta: {
+            finishReason: "abort",
+            stepCount: event.steps.length,
+          },
+        });
+        callerOnAbort?.(event);
+      },
     }),
   ) as StreamTextResult<ToolSet, never>;
+}
+
+function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
+  if (steps.length === 0) return undefined;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  let sawUsage = false;
+  for (const step of steps) {
+    const usage = usageFromSdk(step.usage);
+    if (!usage) continue;
+    sawUsage = true;
+    inputTokens += usage.inputTokens ?? 0;
+    outputTokens += usage.outputTokens ?? 0;
+    cachedInputTokens += usage.cachedInputTokens ?? 0;
+  }
+  if (!sawUsage) return undefined;
+  return { inputTokens, outputTokens, cachedInputTokens };
 }
 
 export async function meteredEmbed(

@@ -43,7 +43,8 @@
     "remark-gfm": "^4.0.0",
     "replicache": "catalog:",
     "sonner": "catalog:",
-    "tailwind-merge": "catalog:"
+    "tailwind-merge": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",

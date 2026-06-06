@@ -14,6 +14,7 @@ import {
 import { isIntegrationSlug, type AgentTranscriptMessage, type ToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
@@ -44,6 +45,7 @@ const TURN_CAP_MAX = 24;
 const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
 const PREVIEW_CHARS = 2_000;
+const TITLE_TIMEOUT_MS = 15_000;
 
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
@@ -173,6 +175,14 @@ function applyLoadIntegrationEffect(
   }
 }
 
+function splitEventText(text: string): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += CHAT_DELTA_MAX) {
+    chunks.push(text.slice(i, i + CHAT_DELTA_MAX));
+  }
+  return chunks;
+}
+
 // ── steps ─────────────────────────────────────────────────────────────────
 
 const chatTurnStep: Step<ChatRunState> = {
@@ -224,21 +234,23 @@ const chatTurnStep: Step<ChatRunState> = {
       let lastFlush = Date.now();
       const flush = async (): Promise<void> => {
         if (buffer.length === 0) return;
-        state.deltaSeq += 1;
         const text = buffer;
         buffer = "";
         lastFlush = Date.now();
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.delta",
-          payload: {
-            runId: ctx.runId,
-            threadId: state.threadId,
-            messageId: state.messageId,
-            seq: state.deltaSeq,
-            text,
-          },
-        });
+        for (const chunk of splitEventText(text)) {
+          state.deltaSeq += 1;
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.delta",
+            payload: {
+              runId: ctx.runId,
+              threadId: state.threadId,
+              messageId: state.messageId,
+              seq: state.deltaSeq,
+              text: chunk,
+            },
+          });
+        }
       };
 
       let reasoningBuffer = "";
@@ -248,21 +260,23 @@ const chatTurnStep: Step<ChatRunState> = {
       let reasoningStart = 0;
       const flushReasoning = async (): Promise<void> => {
         if (reasoningBuffer.length === 0) return;
-        state.reasoningSeq += 1;
         const text = reasoningBuffer;
         reasoningBuffer = "";
         lastReasoningFlush = Date.now();
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.reasoning",
-          payload: {
-            runId: ctx.runId,
-            threadId: state.threadId,
-            messageId: state.messageId,
-            seq: state.reasoningSeq,
-            text,
-          },
-        });
+        for (const chunk of splitEventText(text)) {
+          state.reasoningSeq += 1;
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.reasoning",
+            payload: {
+              runId: ctx.runId,
+              threadId: state.threadId,
+              messageId: state.messageId,
+              seq: state.reasoningSeq,
+              text: chunk,
+            },
+          });
+        }
       };
 
       for await (const part of stream.fullStream) {
@@ -460,7 +474,24 @@ async function finalizeAssistantMessage(
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
       runId,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: chatMessages.id,
+      set: {
+        content: state.assistantText,
+        reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+        reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
+        status: "complete",
+        toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+        runId,
+        rowVersion: sql`${chatMessages.rowVersion} + 1`,
+        updatedAt: now,
+      },
+      setWhere: and(
+        eq(chatMessages.status, "failed"),
+        eq(chatMessages.userId, userId),
+        eq(chatMessages.threadId, state.threadId),
+      ),
+    });
   await db()
     .update(chatThreads)
     .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
@@ -560,6 +591,7 @@ async function maybeGenerateThreadTitle(args: {
           .join("\n"),
         temperature: 0.3,
         maxOutputTokens: 32,
+        timeout: TITLE_TIMEOUT_MS,
       },
       { kind: "llm", userId, runId, name: "chat.thread-title" },
     );

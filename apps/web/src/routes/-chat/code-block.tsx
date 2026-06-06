@@ -2,6 +2,8 @@ import { Check, Copy } from "lucide-react";
 import {
   Children,
   isValidElement,
+  useEffect,
+  useRef,
   useState,
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -41,12 +43,23 @@ for (const [name, lang] of [
 
 function CopyButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+    },
+    [],
+  );
   const onCopy = () => {
     if (copied) return;
     navigator.clipboard.writeText(code).then(
       () => {
         setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = window.setTimeout(() => {
+          resetTimerRef.current = null;
+          setCopied(false);
+        }, 1500);
       },
       () => {
         /* clipboard can fail in insecure contexts — no-op */

@@ -1,22 +1,25 @@
 import { Sparkles } from "lucide-react";
 import { createElement, useEffect, useRef } from "react";
+import {
+  getLocalStorageItem,
+  setLocalStorageItem,
+  type LocalStorageValue,
+} from "~/lib/storage";
 import { callToast } from "~/lib/toast";
 import type { StreamingMessage } from "./use-chat-stream";
 
 /** When the completion chime plays. Defaults to unfocused-only so it acts as a notification, not a per-reply ping. */
-export type ChatSoundPreference = "always" | "unfocused" | "mute";
+export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference">;
 
 const PREF_KEY = "alfred.chat.soundPreference";
 const SFX_SRC = "/sounds/run-finished.mp3";
 
 export function getChatSoundPreference(): ChatSoundPreference {
-  if (typeof localStorage === "undefined") return "unfocused";
-  const v = localStorage.getItem(PREF_KEY);
-  return v === "always" || v === "mute" || v === "unfocused" ? v : "unfocused";
+  return getLocalStorageItem(PREF_KEY);
 }
 
 export function setChatSoundPreference(pref: ChatSoundPreference): void {
-  if (typeof localStorage !== "undefined") localStorage.setItem(PREF_KEY, pref);
+  setLocalStorageItem(PREF_KEY, pref);
 }
 
 /**

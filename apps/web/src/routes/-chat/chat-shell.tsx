@@ -32,6 +32,7 @@ import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { authClient } from "~/lib/auth-client";
 import { firstName, greeting } from "~/lib/user-display";
+import { safeGet, safeRemove, safeSet } from "~/lib/storage";
 import { cn } from "~/lib/utils";
 import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
@@ -114,6 +115,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   useRunComplete(stream);
   const send = useSendMessage();
   const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
+  const isStreaming = stream !== null && !stream.done;
   const hasConversation = messages.length > 0 || stream !== null;
 
   return (
@@ -124,12 +126,17 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           <Conversation messages={messages} stream={stream} />
           <div className="shrink-0 px-4 pb-4">
             <div className="mx-auto w-full max-w-3xl">
-              <Composer key={threadId ?? "new"} threadId={threadId} onSend={onSend} />
+              <Composer
+                key={threadId ?? "new"}
+                threadId={threadId}
+                isStreaming={isStreaming}
+                onSend={onSend}
+              />
             </div>
           </div>
         </>
       ) : (
-        <EmptyHero threadId={threadId} onSend={onSend} />
+        <EmptyHero threadId={threadId} isStreaming={isStreaming} onSend={onSend} />
       )}
     </div>
   );
@@ -182,9 +189,11 @@ function TopBar({
 
 function EmptyHero({
   threadId,
+  isStreaming,
   onSend,
 }: {
   threadId: string | undefined;
+  isStreaming: boolean;
   onSend?: (text: string) => void;
 }) {
   const { data: session } = authClient.useSession();
@@ -214,7 +223,12 @@ function EmptyHero({
         {/* Key by threadId so the composer (and its Tiptap editor) remounts
          * on thread switch — draft-seeding from localStorage runs once per
          * thread and the editor instance starts fresh, no per-render sync. */}
-        <Composer key={threadId ?? "new"} threadId={threadId} onSend={onSend} />
+        <Composer
+          key={threadId ?? "new"}
+          threadId={threadId}
+          isStreaming={isStreaming}
+          onSend={onSend}
+        />
         <ConnectToolsBar />
       </div>
     </div>
@@ -396,9 +410,11 @@ const CONNECT_BRANDS: ReadonlyArray<{ brand: IntegrationBrand; label: string }> 
 
 function Composer({
   threadId,
+  isStreaming,
   onSend,
 }: {
   threadId: string | undefined;
+  isStreaming: boolean;
   onSend?: (text: string) => void;
 }) {
   const { resolved: theme } = useVsTheme();
@@ -411,13 +427,7 @@ function Composer({
   // accept the legacy plain-string format so drafts written by the previous
   // textarea+mirror composer survive the migration.
   const initialJSON = useMemo<JSONContent | undefined>(() => {
-    if (typeof window === "undefined") return undefined;
-    let raw: string | null = null;
-    try {
-      raw = window.localStorage.getItem(draftKey);
-    } catch {
-      return undefined;
-    }
+    const raw = safeGet(draftKey);
     if (!raw) return undefined;
     try {
       const parsed = JSON.parse(raw) as JSONContent;
@@ -442,7 +452,7 @@ function Composer({
     return extractTextFromJSON(initialJSON);
   });
   const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
-  const canSend = !isEmpty && !mic.recording;
+  const canSend = !isEmpty && !mic.recording && !isStreaming;
 
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
@@ -522,14 +532,10 @@ function Composer({
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
       setText(nextText);
       setIsEmpty(nextEmpty);
-      try {
-        if (nextEmpty) {
-          window.localStorage.removeItem(draftKey);
-        } else {
-          window.localStorage.setItem(draftKey, JSON.stringify(nextJSON));
-        }
-      } catch {
-        // Quota / private-mode — drafts are best-effort, swallow.
+      if (nextEmpty) {
+        safeRemove(draftKey);
+      } else {
+        safeSet(draftKey, JSON.stringify(nextJSON));
       }
     },
     [draftKey],
@@ -565,11 +571,7 @@ function Composer({
     editorRef.current?.clear();
     setText("");
     setIsEmpty(true);
-    try {
-      window.localStorage.removeItem(draftKey);
-    } catch {
-      // best-effort
-    }
+    safeRemove(draftKey);
   }, [canSend, draftKey, text, onSend]);
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -639,6 +641,7 @@ function Composer({
           <ComposerToolbar
             mic={mic}
             canSend={canSend}
+            isStreaming={isStreaming}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
           />
@@ -651,11 +654,13 @@ function Composer({
 function ComposerToolbar({
   mic,
   canSend,
+  isStreaming,
   mentionActive,
   onMentionClick,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
+  isStreaming: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
 }) {
@@ -714,7 +719,7 @@ function ComposerToolbar({
           <button
             type="submit"
             disabled={!canSend}
-            aria-label="Send"
+            aria-label={isStreaming ? "Waiting for response" : "Send"}
             className={cn(
               "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
               "vs-press transition-[opacity,filter,transform]",

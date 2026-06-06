@@ -128,10 +128,9 @@ export function getChatProviderOptions(): Record<string, Record<string, unknown>
  * mismatch: `@ai-sdk/anthropic@3` / `@ai-sdk/google` emit `LanguageModelV2`
  * models while `wrapLanguageModel` is typed for `v3`, so the wrapper doesn't
  * type-check. Revisit when the provider packages move to v3 (or adopt the
- * `ai-retry` dependency). Until then this returns the primary unchanged —
- * `getChatModel` stays the stable seam, so hardening later touches no callers.
- * Per memory, provider fallback is resilience polish, not a launch blocker.
+ * `ai-retry` dependency). Until then this throws if called so future call sites
+ * do not accidentally depend on a no-op fallback.
  */
-export function withFallback(primary: LanguageModel, _fallback: LanguageModel): LanguageModel {
-  return primary;
+export function withFallback(_primary: LanguageModel, _fallback: LanguageModel): LanguageModel {
+  throw new Error("withFallback is not implemented for the current AI SDK provider versions");
 }

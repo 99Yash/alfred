@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const CHAT_DELTA_MAX = 16_000;
+
 /**
  * Discriminated union of every event kind that flows through the durable
  * outbox -> Redis Pub/Sub -> SSE pipeline.
@@ -89,7 +91,7 @@ export const chatDeltaSchema = z.object({
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
   seq: z.number().int().nonnegative(),
-  text: z.string().max(16_000),
+  text: z.string().max(CHAT_DELTA_MAX),
 });
 
 /**
@@ -105,7 +107,7 @@ export const chatReasoningSchema = z.object({
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
   seq: z.number().int().nonnegative(),
-  text: z.string().max(16_000),
+  text: z.string().max(CHAT_DELTA_MAX),
 });
 
 /**
