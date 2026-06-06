@@ -9,7 +9,7 @@ export function ConversationScroll({ children }: { children: ReactNode }) {
         aria-hidden
         className={cn(
           "pointer-events-none sticky bottom-0 left-0 right-0 h-10",
-          "bg-gradient-to-t from-vs-background to-transparent",
+          "bg-gradient-to-t from-app-background to-transparent",
         )}
       />
     </div>

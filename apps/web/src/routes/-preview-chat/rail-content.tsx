@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { TriageCategory } from "@alfred/contracts";
 import type { SyncedTriageTag } from "@alfred/sync";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
-import { VsSegmented } from "~/components/ui/visitors";
+import { AppSegmented } from "~/components/ui/v2";
 import { useWeather } from "~/hooks/use-weather";
 import { authClient } from "~/lib/auth-client";
 import { IntegrationGlyph } from "~/lib/integration-icons";
@@ -162,7 +162,7 @@ export function RailContent({
                 onClick={onClose}
                 className={cn(
                   "size-7 shrink-0 inline-flex items-center justify-center rounded-lg",
-                  "text-white/70 hover:bg-white/[0.07] hover:text-white transition-colors vs-press",
+                  "text-white/70 hover:bg-white/[0.07] hover:text-white transition-colors app-press",
                   "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}
               >
@@ -177,7 +177,7 @@ export function RailContent({
         </div>
 
         <div className="px-4 pb-3">
-          <VsSegmented<RailTab>
+          <AppSegmented<RailTab>
             value={tab}
             onValueChange={onTabChange}
             items={RAIL_TABS}

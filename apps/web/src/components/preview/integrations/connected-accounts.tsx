@@ -1,4 +1,4 @@
-import { VsButton, VsCard } from "~/components/ui/visitors";
+import { AppButton, AppCard } from "~/components/ui/v2";
 import type { ConnectedAccount } from "~/hooks/use-integration-status";
 import type { IntegrationProvider } from "~/lib/integrations";
 import { ColumnLabel } from "./column-label";
@@ -18,11 +18,11 @@ export function ConnectedAccounts({
   const accounts = provider.connectedAccounts ?? [];
 
   return (
-    <section className="space-y-3 vs-card-in" style={{ animationDelay: "120ms" }}>
+    <section className="space-y-3 app-card-in" style={{ animationDelay: "120ms" }}>
       <SectionHeading>Connected</SectionHeading>
 
-      <VsCard padded={false} className="overflow-hidden">
-        <div className="grid grid-cols-3 gap-4 px-4 pt-3 pb-2 border-b border-vs-bg-3/60">
+      <AppCard padded={false} className="overflow-hidden">
+        <div className="grid grid-cols-3 gap-4 px-4 pt-3 pb-2 border-b border-app-bg-3/60">
           <ColumnLabel>Account</ColumnLabel>
           <ColumnLabel>Date</ColumnLabel>
           <ColumnLabel>Status</ColumnLabel>
@@ -31,27 +31,27 @@ export function ConnectedAccounts({
         {connected && accounts.length > 0 ? (
           accounts.map((acct) => (
             <div key={acct.accountLabel} className="grid grid-cols-3 items-center gap-4 px-4 py-3">
-              <p className="min-w-0 truncate text-sm text-vs-fg-4 font-medium">
+              <p className="min-w-0 truncate text-sm text-app-fg-4 font-medium">
                 {acct.accountLabel}
               </p>
-              <p className="text-sm text-vs-fg-3 tabular-nums">
+              <p className="text-sm text-app-fg-3 tabular-nums">
                 {formatConnectedDate(acct.connectedAt)}
               </p>
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-sm text-vs-fg-3">
-                  <span className="size-1.5 rounded-full bg-vs-green-4" aria-hidden />
+                <span className="inline-flex items-center gap-1.5 text-sm text-app-fg-3">
+                  <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
                   Active
                 </span>
-                <VsButton variant="ghost" size="sm">
+                <AppButton variant="ghost" size="sm">
                   Disconnect
-                </VsButton>
+                </AppButton>
               </div>
             </div>
           ))
         ) : (
-          <div className="p-4 text-[12.5px] text-vs-fg-2">No account connected yet.</div>
+          <div className="p-4 text-[12.5px] text-app-fg-2">No account connected yet.</div>
         )}
-      </VsCard>
+      </AppCard>
     </section>
   );
 }

@@ -13,7 +13,7 @@ export function WorkflowIcon({
       aria-hidden
       className={cn(
         "grid size-9 shrink-0 place-items-center rounded-xl",
-        tone === "green" ? "bg-vs-green-1 text-vs-green-4" : "bg-vs-purple-1 text-vs-purple-4",
+        tone === "green" ? "bg-app-green-1 text-app-green-4" : "bg-app-purple-1 text-app-purple-4",
       )}
     >
       {children}

@@ -176,8 +176,8 @@ export function TiptapComposer({
           "tiptap tiptap-minimum-input composer-editor",
           "outline-none whitespace-pre-wrap break-words",
           "min-h-[64px] max-h-64 overflow-y-auto px-3 pt-2 pb-1.5",
-          "text-[15px] leading-7 font-medium tracking-tight text-vs-fg-4",
-          "caret-vs-purple-3",
+          "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
+          "caret-app-purple-3",
           className ?? "",
         ),
       },
@@ -244,9 +244,9 @@ export function TiptapComposer({
           className={cn(
             // Match the editor's first-line position (px-3 pt-2 from
             // composer-editor) so the overlay sits exactly where the cursor
-            // starts. text-vs-fg-2 keeps it readable in both themes.
+            // starts. text-app-fg-2 keeps it readable in both themes.
             "pointer-events-none absolute left-3 top-2",
-            "text-[15px] leading-7 font-medium tracking-tight text-vs-fg-2",
+            "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
             // Stardust transition — fades + slides + blurs out as the editor
             // fills. Spring-ish ease for a soft landing.
             "transition-[opacity,filter,transform] duration-300 ease-out",
@@ -283,8 +283,8 @@ function MentionChipNodeView({ node }: NodeViewProps) {
         // edge without weight.
         "inline-flex items-center gap-[3px] align-baseline",
         "px-1.5 py-px mx-[1px] rounded-[6px]",
-        "bg-vs-bg-a2 text-vs-fg-4 font-medium",
-        "ring-1 ring-inset ring-vs-fg-a1/20",
+        "bg-app-bg-a2 text-app-fg-4 font-medium",
+        "ring-1 ring-inset ring-app-fg-a1/20",
         "text-[0.92em] leading-[1.35]",
         "select-none cursor-default",
       )}
@@ -293,7 +293,7 @@ function MentionChipNodeView({ node }: NodeViewProps) {
         {option?.brand ? (
           <IntegrationGlyph brand={option.brand} size={11} />
         ) : Icon ? (
-          <Icon size={11} strokeWidth={2} className="text-vs-fg-3" />
+          <Icon size={11} strokeWidth={2} className="text-app-fg-3" />
         ) : null}
       </span>
       <span>@{label}</span>

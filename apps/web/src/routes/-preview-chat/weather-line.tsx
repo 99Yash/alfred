@@ -69,14 +69,14 @@ const ICON_FOR_CONDITION: Record<WeatherCondition, LucideIcon> = {
 };
 
 const TONE_FOR_CONDITION: Record<WeatherCondition, string> = {
-  clear: "text-vs-amber-4",
-  partly_cloudy: "text-vs-fg-3",
-  cloudy: "text-vs-fg-3",
-  fog: "text-vs-fg-3",
-  rain: "text-vs-sky-4",
-  snow: "text-vs-sky-4",
-  storm: "text-vs-purple-4",
-  unknown: "text-vs-fg-3",
+  clear: "text-app-amber-4",
+  partly_cloudy: "text-app-fg-3",
+  cloudy: "text-app-fg-3",
+  fog: "text-app-fg-3",
+  rain: "text-app-sky-4",
+  snow: "text-app-sky-4",
+  storm: "text-app-purple-4",
+  unknown: "text-app-fg-3",
 };
 
 const LABEL_FOR_CONDITION: Record<WeatherCondition, string | null> = {

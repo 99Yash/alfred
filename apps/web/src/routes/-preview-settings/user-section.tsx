@@ -13,19 +13,19 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import {
-  VsButton,
-  VsInput,
-  VsSegmented,
-  VsSwitch,
-  VsTextarea,
-  type VsSegmentedItem,
-} from "~/components/ui/visitors";
+  AppButton,
+  AppInput,
+  AppSegmented,
+  AppSwitch,
+  AppTextarea,
+  type AppSegmentedItem,
+} from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
 import { SettingCard } from "./setting-card";
 
 type CommunicationChannel = "email" | "slack" | "imessage" | "mobile";
 
-const COMMUNICATION_CHANNELS: ReadonlyArray<VsSegmentedItem<CommunicationChannel>> = [
+const COMMUNICATION_CHANNELS: ReadonlyArray<AppSegmentedItem<CommunicationChannel>> = [
   { value: "email", label: "Email", icon: <Mail size={12} /> },
   { value: "slack", label: "Slack", icon: <Slack size={12} />, disabled: true },
   { value: "imessage", label: "iMessage", icon: <MessageSquare size={12} />, disabled: true },
@@ -61,12 +61,12 @@ export function UserSection() {
         tone="purple"
         footer="Profile editing arrives with the m13 settings backend."
         action={
-          <VsButton size="sm" disabled>
+          <AppButton size="sm" disabled>
             Save
-          </VsButton>
+          </AppButton>
         }
       >
-        <VsInput
+        <AppInput
           defaultValue={name}
           placeholder="Your name"
           disabled
@@ -82,7 +82,7 @@ export function UserSection() {
         tone="sky"
         footer="Used to identify your account."
       >
-        <VsInput value={email} readOnly aria-label="Email" className="!h-10 !rounded-2xl" />
+        <AppInput value={email} readOnly aria-label="Email" className="!h-10 !rounded-2xl" />
       </SettingCard>
 
       <SettingCard
@@ -91,7 +91,7 @@ export function UserSection() {
         icon={Radio}
         tone="amber"
       >
-        <VsSegmented<CommunicationChannel>
+        <AppSegmented<CommunicationChannel>
           value={channel}
           onValueChange={setChannel}
           items={COMMUNICATION_CHANNELS}
@@ -105,7 +105,7 @@ export function UserSection() {
         icon={ShieldCheck}
         tone="green"
         noDivider
-        action={<VsSwitch checked={autoApprove} onCheckedChange={setAutoApprove} />}
+        action={<AppSwitch checked={autoApprove} onCheckedChange={setAutoApprove} />}
       />
 
       <SettingCard
@@ -115,7 +115,7 @@ export function UserSection() {
         tone="pink"
         footer="Background editing arrives with the m13 settings backend."
       >
-        <VsTextarea
+        <AppTextarea
           rows={5}
           placeholder="A few sentences about who you are, how you work, and what context you'd like Alfred to keep in mind."
           disabled
@@ -130,7 +130,7 @@ export function UserSection() {
         tone="orange"
         noDivider
         action={
-          <VsButton
+          <AppButton
             variant="destructive"
             size="md"
             onClick={onSignOut}
@@ -138,7 +138,7 @@ export function UserSection() {
             loading={signingOut}
           >
             Logout
-          </VsButton>
+          </AppButton>
         }
       />
 
@@ -149,14 +149,14 @@ export function UserSection() {
         tone="red"
         footer="Proceed with caution. This action cannot be undone."
         action={
-          <VsButton
+          <AppButton
             variant="destructive"
             size="md"
             disabled
             title="Account deletion arrives with the m13 settings backend"
           >
             Delete account
-          </VsButton>
+          </AppButton>
         }
       />
     </>

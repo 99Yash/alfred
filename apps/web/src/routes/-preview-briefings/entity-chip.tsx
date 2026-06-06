@@ -22,9 +22,9 @@ export interface EntityChipProps {
 }
 
 const TONE: Record<BriefingReferenceKind, string> = {
-  activity: "text-vs-blue-4",
-  meeting: "text-vs-purple-4",
-  email: "text-vs-fg-4",
+  activity: "text-app-blue-4",
+  meeting: "text-app-purple-4",
+  email: "text-app-fg-4",
 };
 
 const BASE =
@@ -65,8 +65,8 @@ export function EntityChip({ kind, label, href }: EntityChipProps) {
       className={cn(
         BASE,
         tone,
-        "underline decoration-vs-bg-3 underline-offset-2 transition-colors hover:decoration-current",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        "underline decoration-app-bg-3 underline-offset-2 transition-colors hover:decoration-current",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >
       {inner}

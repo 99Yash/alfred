@@ -1,18 +1,18 @@
 import type { ComponentType, ReactNode } from "react";
-import { VsCard } from "~/components/ui/visitors";
+import { AppCard } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 
 type CardTone = "purple" | "amber" | "sky" | "green" | "pink" | "orange" | "red" | "neutral";
 
 const CARD_TILE: Record<CardTone, string> = {
-  purple: "bg-vs-purple-1 text-vs-purple-4",
-  amber: "bg-vs-amber-1 text-vs-amber-4",
-  sky: "bg-vs-sky-1 text-vs-sky-4",
-  green: "bg-vs-green-1 text-vs-green-4",
-  pink: "bg-vs-pink-1 text-vs-pink-4",
-  orange: "bg-vs-orange-1 text-vs-orange-4",
-  red: "bg-vs-red-1 text-vs-red-4",
-  neutral: "bg-vs-bg-2 text-vs-fg-3",
+  purple: "bg-app-purple-1 text-app-purple-4",
+  amber: "bg-app-amber-1 text-app-amber-4",
+  sky: "bg-app-sky-1 text-app-sky-4",
+  green: "bg-app-green-1 text-app-green-4",
+  pink: "bg-app-pink-1 text-app-pink-4",
+  orange: "bg-app-orange-1 text-app-orange-4",
+  red: "bg-app-red-1 text-app-red-4",
+  neutral: "bg-app-bg-2 text-app-fg-3",
 };
 
 interface SettingCardProps {
@@ -41,7 +41,7 @@ export function SettingCard({
   children,
 }: SettingCardProps) {
   return (
-    <VsCard padded={false}>
+    <AppCard padded={false}>
       <div className="flex items-start gap-3 p-5 pb-3">
         {Icon ? (
           <span
@@ -55,8 +55,8 @@ export function SettingCard({
           </span>
         ) : null}
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-sm font-medium text-vs-fg-4">{title}</p>
-          {description ? <p className="text-xs text-vs-fg-3">{description}</p> : null}
+          <p className="text-sm font-medium text-app-fg-4">{title}</p>
+          {description ? <p className="text-xs text-app-fg-3">{description}</p> : null}
         </div>
       </div>
       {children ? (
@@ -66,13 +66,13 @@ export function SettingCard({
         <div
           className={cn(
             "flex items-center justify-between px-5 py-3",
-            !noDivider && "border-t border-vs-bg-2",
+            !noDivider && "border-t border-app-bg-2",
           )}
         >
-          <p className="text-xs text-vs-fg-2">{footer}</p>
+          <p className="text-xs text-app-fg-2">{footer}</p>
           {action}
         </div>
       ) : null}
-    </VsCard>
+    </AppCard>
   );
 }

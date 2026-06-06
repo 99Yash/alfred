@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Sparkles, type LucideIcon } from "lucide-react";
-import { VsPill } from "~/components/ui/visitors";
+import { AppPill } from "~/components/ui/v2";
 import type { PreviewSkill, PreviewSkillTint } from "~/lib/preview-skills";
 import { cn } from "~/lib/utils";
 
@@ -9,22 +9,22 @@ const TINT: Record<
   { bg: string; fg: string; ring: string; pillTone: "purple" | "sky" | "amber" | "green" }
 > = {
   violet: {
-    bg: "bg-vs-purple-1",
-    fg: "text-vs-purple-4",
-    ring: "ring-vs-purple-2",
+    bg: "bg-app-purple-1",
+    fg: "text-app-purple-4",
+    ring: "ring-app-purple-2",
     pillTone: "purple",
   },
-  sky: { bg: "bg-vs-sky-1", fg: "text-vs-sky-4", ring: "ring-vs-sky-2", pillTone: "sky" },
+  sky: { bg: "bg-app-sky-1", fg: "text-app-sky-4", ring: "ring-app-sky-2", pillTone: "sky" },
   amber: {
-    bg: "bg-vs-amber-1",
-    fg: "text-vs-amber-4",
-    ring: "ring-vs-amber-2",
+    bg: "bg-app-amber-1",
+    fg: "text-app-amber-4",
+    ring: "ring-app-amber-2",
     pillTone: "amber",
   },
   emerald: {
-    bg: "bg-vs-green-1",
-    fg: "text-vs-green-4",
-    ring: "ring-vs-green-2",
+    bg: "bg-app-green-1",
+    fg: "text-app-green-4",
+    ring: "ring-app-green-2",
     pillTone: "green",
   },
 };
@@ -50,16 +50,16 @@ export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number 
       params={{ slug: skill.slug }}
       className={cn(
         "block rounded-2xl",
-        "vs-card-in",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+        "app-card-in",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
       style={{ animationDelay: `${index * 60 + 160}ms` }}
     >
       <div
         className={cn(
-          "group relative flex items-center gap-3 rounded-2xl bg-vs-bg-1 p-4",
+          "group relative flex items-center gap-3 rounded-2xl bg-app-bg-1 p-4",
           "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
-          "transition-shadow vs-press",
+          "transition-shadow app-press",
           "hover:shadow-[0_2px_4px_rgba(0,0,0,0.07),0_0_0_1px_rgba(0,0,0,0.08)]",
         )}
       >
@@ -76,18 +76,18 @@ export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number 
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <p className="truncate text-sm font-medium text-vs-fg-4">{skill.name}</p>
-            <code className="font-mono text-[11.5px] text-vs-fg-2">/{skill.slug}</code>
+            <p className="truncate text-sm font-medium text-app-fg-4">{skill.name}</p>
+            <code className="font-mono text-[11.5px] text-app-fg-2">/{skill.slug}</code>
           </div>
-          <p className="mt-0.5 line-clamp-1 text-xs text-vs-fg-3">{skill.description}</p>
+          <p className="mt-0.5 line-clamp-1 text-xs text-app-fg-3">{skill.description}</p>
         </div>
         <div className="hidden sm:flex shrink-0 flex-col items-end gap-1.5">
           {skill.status === "active" ? (
-            <VsPill tone="green">Active</VsPill>
+            <AppPill tone="green">Active</AppPill>
           ) : (
-            <VsPill>Draft</VsPill>
+            <AppPill>Draft</AppPill>
           )}
-          <span className="text-[11px] text-vs-fg-2 tabular-nums">
+          <span className="text-[11px] text-app-fg-2 tabular-nums">
             {skill.lastRunAt ? `Ran ${formatRelative(skill.lastRunAt)}` : "Not yet learned"}
           </span>
         </div>

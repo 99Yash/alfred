@@ -11,8 +11,8 @@ import {
 } from "@alfred/sync";
 import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { VsButton, VsCard, VsPill, VsSegmented, VsTextarea } from "~/components/ui/visitors";
-import { VsInput } from "~/components/ui/visitors/input";
+import { AppButton, AppCard, AppPill, AppSegmented, AppTextarea } from "~/components/ui/v2";
+import { AppInput } from "~/components/ui/v2/input";
 import { cn } from "~/lib/utils";
 import { WorkflowIcon } from "./workflow-icon";
 
@@ -192,18 +192,18 @@ export function PlanTab({
   return (
     <div className="grid gap-4">
       {readOnly ? (
-        <div className="flex items-center gap-2 rounded-xl bg-vs-bg-2 px-3 py-2 text-xs text-vs-fg-3">
+        <div className="flex items-center gap-2 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
           <Lock size={13} />
           Built-in workflow — definition is managed by Alfred and can't be edited here.
         </div>
       ) : null}
 
-      <VsCard>
-        <label className="text-sm font-medium text-vs-fg-4" htmlFor="vs-workflow-name">
+      <AppCard>
+        <label className="text-sm font-medium text-app-fg-4" htmlFor="app-workflow-name">
           Name
         </label>
-        <VsInput
-          id="vs-workflow-name"
+        <AppInput
+          id="app-workflow-name"
           value={draft.name}
           readOnly={readOnly}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
@@ -211,14 +211,14 @@ export function PlanTab({
           aria-label="Workflow name"
         />
         {nameEmpty && !readOnly ? (
-          <p className="mt-2 text-xs text-vs-red-4">Name is required.</p>
+          <p className="mt-2 text-xs text-app-red-4">Name is required.</p>
         ) : null}
-      </VsCard>
+      </AppCard>
 
-      <VsCard>
+      <AppCard>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-vs-fg-4">When</span>
-          <VsSegmented<TriggerKind>
+          <span className="text-sm font-medium text-app-fg-4">When</span>
+          <AppSegmented<TriggerKind>
             value={draft.kind}
             onValueChange={(kind) => !readOnly && setDraft((d) => ({ ...d, kind }))}
             items={TRIGGER_TABS}
@@ -228,9 +228,9 @@ export function PlanTab({
 
         {draft.kind === "cron" ? (
           <div className="mt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-vs-fg-4">
-              <span className="text-vs-fg-3">Cron</span>
-              <VsInput
+            <div className="flex flex-wrap items-center gap-2 text-sm text-app-fg-4">
+              <span className="text-app-fg-3">Cron</span>
+              <AppInput
                 value={draft.cronSchedule}
                 readOnly={readOnly}
                 onChange={(e) => setDraft((d) => ({ ...d, cronSchedule: e.target.value }))}
@@ -238,8 +238,8 @@ export function PlanTab({
                 placeholder="0 8 * * *"
                 aria-label="Cron expression"
               />
-              <span className="text-vs-fg-3">timezone</span>
-              <VsInput
+              <span className="text-app-fg-3">timezone</span>
+              <AppInput
                 value={draft.cronTimezone}
                 readOnly={readOnly}
                 onChange={(e) => setDraft((d) => ({ ...d, cronTimezone: e.target.value }))}
@@ -248,23 +248,23 @@ export function PlanTab({
                 aria-label="Cron timezone"
               />
             </div>
-            <p className="text-xs text-vs-fg-3">
+            <p className="text-xs text-app-fg-3">
               Standard 5-field cron. Leave timezone blank to inherit your account timezone.
             </p>
             {cronInvalid ? (
-              <p className="text-xs text-vs-red-4">Use a valid 5-field cron expression.</p>
+              <p className="text-xs text-app-red-4">Use a valid 5-field cron expression.</p>
             ) : null}
             {timezoneInvalid ? (
-              <p className="text-xs text-vs-red-4">Use a valid IANA timezone, or leave it blank.</p>
+              <p className="text-xs text-app-red-4">Use a valid IANA timezone, or leave it blank.</p>
             ) : null}
           </div>
         ) : null}
 
         {draft.kind === "event" ? (
           <div className="mt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-vs-fg-4">
-              <span className="text-vs-fg-3">On</span>
-              <VsSegmented<AuthorableEventSource>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-app-fg-4">
+              <span className="text-app-fg-3">On</span>
+              <AppSegmented<AuthorableEventSource>
                 value={draft.eventSource}
                 onValueChange={(eventSource) =>
                   !readOnly &&
@@ -277,8 +277,8 @@ export function PlanTab({
                 items={AUTHORABLE_EVENT_SOURCE_OPTIONS}
                 label="Event source"
               />
-              <span className="text-vs-fg-3">when</span>
-              <VsSegmented<string>
+              <span className="text-app-fg-3">when</span>
+              <AppSegmented<string>
                 value={draft.eventType}
                 onValueChange={(eventType) => !readOnly && setDraft((d) => ({ ...d, eventType }))}
                 items={eventTypes.map((t) => ({
@@ -288,7 +288,7 @@ export function PlanTab({
                 label="Event type"
               />
             </div>
-            <p className="text-xs text-vs-fg-3">
+            <p className="text-xs text-app-fg-3">
               Alfred runs this workflow each time the selected event arrives, with the triggering
               item passed in as context.
             </p>
@@ -296,19 +296,19 @@ export function PlanTab({
         ) : null}
 
         {draft.kind === "manual" ? (
-          <p className="mt-4 text-xs leading-5 text-vs-fg-3">
+          <p className="mt-4 text-xs leading-5 text-app-fg-3">
             This workflow only runs when you trigger it with <strong>Run now</strong>. No schedule
             or event.
           </p>
         ) : null}
-      </VsCard>
+      </AppCard>
 
-      <VsCard>
-        <label className="text-sm font-medium text-vs-fg-4" htmlFor="vs-workflow-prompt">
+      <AppCard>
+        <label className="text-sm font-medium text-app-fg-4" htmlFor="app-workflow-prompt">
           Prompt
         </label>
-        <VsTextarea
-          id="vs-workflow-prompt"
+        <AppTextarea
+          id="app-workflow-prompt"
           value={draft.brief}
           readOnly={readOnly}
           onChange={(e) => setDraft((d) => ({ ...d, brief: e.target.value }))}
@@ -316,16 +316,16 @@ export function PlanTab({
           placeholder="Describe what Alfred should do. Mention integrations with @gmail, @calendar, …"
           aria-label={`${workflow.name} prompt`}
         />
-      </VsCard>
+      </AppCard>
 
-      <VsCard>
+      <AppCard>
         <div className="flex items-start gap-3">
           <WorkflowIcon tone="purple">
             <Link2 size={16} />
           </WorkflowIcon>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-vs-fg-4">Allowed integrations</p>
-            <p className="mt-1 text-xs leading-5 text-vs-fg-3">
+            <p className="text-sm font-medium text-app-fg-4">Allowed integrations</p>
+            <p className="mt-1 text-xs leading-5 text-app-fg-3">
               The cap on which integrations this workflow may load. Empty means unrestricted (any
               connected integration).
             </p>
@@ -333,7 +333,7 @@ export function PlanTab({
               {LOADABLE_INTEGRATION_SLUGS.map((slug) => {
                 const selected = draft.allowed.includes(slug);
                 return (
-                  <VsPill
+                  <AppPill
                     key={slug}
                     type="button"
                     variant={selected ? "accent" : "default"}
@@ -343,16 +343,16 @@ export function PlanTab({
                     className={cn(!selected && "opacity-70")}
                   >
                     {integrationLabel(slug)}
-                  </VsPill>
+                  </AppPill>
                 );
               })}
             </div>
           </div>
         </div>
-      </VsCard>
+      </AppCard>
 
       {eventCapViolation ? (
-        <div className="flex items-center gap-2 rounded-xl bg-vs-amber-1 px-3 py-2 text-xs text-vs-amber-4">
+        <div className="flex items-center gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-xs text-app-amber-4">
           <AlertTriangle size={13} />
           Add <strong>{integrationLabel(draft.eventSource)}</strong> to the allowed integrations, or
           clear the cap — an event workflow must be allowed to use its own trigger source.
@@ -360,7 +360,7 @@ export function PlanTab({
       ) : null}
 
       {saveError ? (
-        <div className="flex items-center gap-2 rounded-xl bg-vs-red-1 px-3 py-2 text-xs text-vs-red-4">
+        <div className="flex items-center gap-2 rounded-xl bg-app-red-1 px-3 py-2 text-xs text-app-red-4">
           <AlertTriangle size={13} />
           {saveError}
         </div>
@@ -368,7 +368,7 @@ export function PlanTab({
 
       {!readOnly ? (
         <div className="flex justify-end">
-          <VsButton
+          <AppButton
             variant="primary"
             onClick={handleSave}
             disabled={invalid || !dirty || saving}
@@ -381,7 +381,7 @@ export function PlanTab({
             }
           >
             {saving ? "Saving…" : "Submit changes"}
-          </VsButton>
+          </AppButton>
         </div>
       ) : null}
     </div>

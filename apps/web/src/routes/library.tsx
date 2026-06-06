@@ -3,7 +3,7 @@ import { pageMeta } from "~/lib/page-meta";
 import { PreviewLibraryRoute } from "./-preview-library/preview-library-route";
 
 /**
- * Visitors-now-grammar port of /library.
+ * App-grammar port of /library.
  *
  * Same data + filter behavior as the dimension page (Type popover +
  * All/Favourites pill + search) over the fixture `LIBRARY_ARTIFACTS`.

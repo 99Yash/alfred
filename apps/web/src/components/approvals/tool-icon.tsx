@@ -44,7 +44,7 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
       title={integration}
       className={cn(
         "grid size-10 shrink-0 place-items-center rounded-xl",
-        "bg-background text-vs-fg-3 shadow-soft ring-1 ring-border/60",
+        "bg-background text-app-fg-3 shadow-soft ring-1 ring-border/60",
       )}
     >
       <Glyph size={18} />

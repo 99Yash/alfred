@@ -1,6 +1,6 @@
 import type { SyncedBriefing } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
-import { VsCard } from "~/components/ui/visitors";
+import { AppCard } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { BriefingProse } from "./briefing-prose";
 import { slotLabel } from "./briefing-utils";
@@ -24,13 +24,13 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
   const auditSummary = fullBriefing?.auditSummary;
 
   return (
-    <VsCard className="space-y-4">
+    <AppCard className="space-y-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-tight text-vs-fg-2">
+        <h2 className="text-sm font-medium uppercase tracking-tight text-app-fg-2">
           {slotLabel(slot)}
         </h2>
         {status === "suppressed" ? (
-          <span className="text-[11px] text-vs-fg-2">Not emailed</span>
+          <span className="text-[11px] text-app-fg-2">Not emailed</span>
         ) : null}
       </div>
 
@@ -38,10 +38,10 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
         <BriefingProse
           markdown={breakingSummary ?? ""}
           gather={gather}
-          className="text-[15px] leading-7 text-pretty text-vs-fg-4"
+          className="text-[15px] leading-7 text-pretty text-app-fg-4"
         />
       ) : (
-        <p className="text-sm text-vs-fg-3">
+        <p className="text-sm text-app-fg-3">
           {NON_TERMINAL.has(status)
             ? "This briefing hasn't finished composing yet."
             : "No briefing content for this slot."}
@@ -53,16 +53,16 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
           <div className="space-y-4 pt-3">
             {sections.map((section, i) => (
               <div key={i} className="space-y-1">
-                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-vs-fg-2">
+                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
                   <SourceIcon source={section.source} />
                   {section.label}
                 </p>
                 <BriefingProse
                   markdown={section.body}
                   gather={gather}
-                  className="text-sm leading-6 text-pretty text-vs-fg-3"
+                  className="text-sm leading-6 text-pretty text-app-fg-3"
                 />
-                {section.why ? <p className="text-xs italic text-vs-fg-2">{section.why}</p> : null}
+                {section.why ? <p className="text-xs italic text-app-fg-2">{section.why}</p> : null}
               </div>
             ))}
           </div>
@@ -74,7 +74,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
           <div className="space-y-4 pt-3">
             {panels.map((panel) => (
               <div key={panel.source} className="space-y-1.5">
-                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-vs-fg-2">
+                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
                   <SourceIcon source={panel.source} />
                   {panel.label}
                 </p>
@@ -106,15 +106,15 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
                               href={item.href}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="text-vs-fg-4 underline decoration-vs-bg-3 underline-offset-2 hover:decoration-current"
+                              className="text-app-fg-4 underline decoration-app-bg-3 underline-offset-2 hover:decoration-current"
                             >
                               {item.title}
                             </a>
                           ) : (
-                            <span className="text-vs-fg-4">{item.title}</span>
+                            <span className="text-app-fg-4">{item.title}</span>
                           )}
                           {subtitle ? (
-                            <span className={cn("text-vs-fg-2", isTime && "tabular-nums")}>
+                            <span className={cn("text-app-fg-2", isTime && "tabular-nums")}>
                               {" · "}
                               {subtitle}
                             </span>
@@ -132,22 +132,22 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
 
       {auditSummary ? (
         <Disclosure summary="How this was put together">
-          <p className="pt-3 text-xs leading-5 text-vs-fg-3">{auditSummary}</p>
+          <p className="pt-3 text-xs leading-5 text-app-fg-3">{auditSummary}</p>
         </Disclosure>
       ) : null}
-    </VsCard>
+    </AppCard>
   );
 }
 
 /** Native collapsed-by-default disclosure with a rotating chevron. */
 function Disclosure({ summary, children }: { summary: string; children: React.ReactNode }) {
   return (
-    <details className="group border-t border-vs-bg-2 pt-3">
+    <details className="group border-t border-app-bg-2 pt-3">
       <summary
         className={cn(
-          "flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-vs-fg-3",
-          "transition-colors hover:text-vs-fg-4",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background rounded",
+          "flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-app-fg-3",
+          "transition-colors hover:text-app-fg-4",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background rounded",
           "[&::-webkit-details-marker]:hidden",
         )}
       >

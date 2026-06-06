@@ -1,6 +1,6 @@
 import { ArrowUp, FileText, Mic } from "lucide-react";
 import { useRef, useState } from "react";
-import { VsCard, VsTextarea } from "~/components/ui/visitors";
+import { AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { useDictation } from "./use-dictation";
 import { NotesShell } from "./notes-shell";
@@ -58,13 +58,13 @@ export function PreviewNotesPage() {
             createNote();
           }}
           className={cn(
-            "mt-10 w-full rounded-2xl bg-vs-bg-1 p-1",
+            "mt-10 w-full rounded-2xl bg-app-bg-1 p-1",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06)]",
-            "focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06),0_0_0_4px_var(--vs-purple-2)]",
+            "focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06),0_0_0_4px_var(--app-purple-2)]",
             "transition-shadow",
           )}
         >
-          <VsTextarea
+          <AppTextarea
             ref={textareaRef}
             variant="inline"
             value={text}
@@ -81,11 +81,11 @@ export function PreviewNotesPage() {
           />
 
           <div className="flex items-center justify-between gap-2 px-1 pb-1">
-            <p className="pl-2 text-[11.5px] text-vs-fg-2">
+            <p className="pl-2 text-[11.5px] text-app-fg-2">
               {dictation.error ? (
-                <span className="text-vs-red-4">{dictation.error}</span>
+                <span className="text-app-red-4">{dictation.error}</span>
               ) : dictation.listening ? (
-                <span className="text-vs-fg-3">
+                <span className="text-app-fg-3">
                   {dictation.interim ? dictation.interim : "Listening…"}
                 </span>
               ) : hasContent ? (
@@ -107,8 +107,8 @@ export function PreviewNotesPage() {
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-full transition-colors",
                   dictation.listening
-                    ? "text-vs-red-4 bg-vs-bg-2"
-                    : "text-vs-fg-2 hover:text-vs-fg-3",
+                    ? "text-app-red-4 bg-app-bg-2"
+                    : "text-app-fg-2 hover:text-app-fg-3",
                   "disabled:opacity-40 disabled:cursor-not-allowed",
                 )}
               >
@@ -120,8 +120,8 @@ export function PreviewNotesPage() {
                 aria-label="Save note"
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-full",
-                  "text-[var(--vs-accent-fg)] bg-[image:var(--vs-cta-bg)]",
-                  "shadow-[var(--vs-button-primary-shadow)]",
+                  "text-[var(--app-accent-fg)] bg-[image:var(--app-cta-bg)]",
+                  "shadow-[var(--app-button-primary-shadow)]",
                   "transition-[opacity,filter,transform] active:scale-[0.96]",
                   hasContent
                     ? "hover:brightness-[1.06] active:brightness-[0.96]"
@@ -136,36 +136,36 @@ export function PreviewNotesPage() {
 
         <section className="mt-12 space-y-3">
           <div className="flex items-baseline gap-2 px-1">
-            <h2 className="text-[15px] font-medium text-vs-fg-4">Recent</h2>
-            <span className="text-[12.5px] text-vs-fg-2 tabular-nums">{notes.length}</span>
+            <h2 className="text-[15px] font-medium text-app-fg-4">Recent</h2>
+            <span className="text-[12.5px] text-app-fg-2 tabular-nums">{notes.length}</span>
           </div>
 
           {notes.length === 0 ? (
-            <VsCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
               <span
-                className="grid size-10 place-items-center rounded-xl bg-vs-bg-2 text-vs-fg-3"
+                className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
                 aria-hidden
               >
                 <FileText size={18} />
               </span>
-              <p className="text-sm font-medium text-vs-fg-4">No notes yet</p>
-              <p className="max-w-[28rem] text-xs leading-5 text-vs-fg-3">
+              <p className="text-sm font-medium text-app-fg-4">No notes yet</p>
+              <p className="max-w-[28rem] text-xs leading-5 text-app-fg-3">
                 Capture something quick: a thought, a task, anything. Newest first; nothing here is
                 sent to Alfred.
               </p>
-            </VsCard>
+            </AppCard>
           ) : (
             <ul className="flex flex-col gap-2">
               {notes.map((note) => (
                 <li key={note.id}>
-                  <VsCard className="px-4 py-3">
-                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-vs-fg-4">
+                  <AppCard className="px-4 py-3">
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-app-fg-4">
                       {note.text}
                     </p>
-                    <p className="mt-2 text-[11.5px] text-vs-fg-2 tabular-nums">
+                    <p className="mt-2 text-[11.5px] text-app-fg-2 tabular-nums">
                       {formatTimestamp(note.createdAt)}
                     </p>
-                  </VsCard>
+                  </AppCard>
                 </li>
               ))}
             </ul>

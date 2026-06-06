@@ -26,12 +26,12 @@ export function LibraryEmpty({
       <div className="flex flex-col items-center">
         <span
           aria-hidden
-          className="grid size-12 place-items-center rounded-2xl bg-vs-bg-2 text-vs-fg-3"
+          className="grid size-12 place-items-center rounded-2xl bg-app-bg-2 text-app-fg-3"
         >
           <PartyPopper size={22} strokeWidth={1.5} />
         </span>
-        <p className="mt-3 text-sm font-medium text-vs-fg-4">{title}</p>
-        <p className="mt-1 max-w-[28rem] text-[12.5px] leading-relaxed text-vs-fg-3">
+        <p className="mt-3 text-sm font-medium text-app-fg-4">{title}</p>
+        <p className="mt-1 max-w-[28rem] text-[12.5px] leading-relaxed text-app-fg-3">
           {description}
         </p>
       </div>

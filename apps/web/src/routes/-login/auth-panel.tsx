@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
-import { VsButton } from "~/components/ui/visitors";
+import { AppButton } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
 import { GoogleMark } from "./google-mark";
 
@@ -42,13 +42,13 @@ export function AuthPanel() {
             aria-hidden
             className="inline-block size-9 rounded-2xl mb-1 shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
           />
-          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-vs-fg-4 leading-tight">
+          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-app-fg-4 leading-tight">
             Sign in to Alfred
           </h1>
-          <p className="text-sm text-vs-fg-2">One private workspace for the work around you.</p>
+          <p className="text-sm text-app-fg-2">One private workspace for the work around you.</p>
         </div>
 
-        <VsButton
+        <AppButton
           variant="primary"
           size="lg"
           onClick={handleGoogle}
@@ -58,15 +58,15 @@ export function AuthPanel() {
           className="w-full"
         >
           {loading ? "Redirecting…" : "Continue with Google"}
-        </VsButton>
+        </AppButton>
 
         {error ? (
-          <p role="alert" className="text-xs text-vs-red-4 text-center">
+          <p role="alert" className="text-xs text-app-red-4 text-center">
             {error}
           </p>
         ) : null}
 
-        <p className="text-center text-[11px] text-vs-fg-2">
+        <p className="text-center text-[11px] text-app-fg-2">
           Alfred only signs in with your allowlisted Google account.
         </p>
       </div>
