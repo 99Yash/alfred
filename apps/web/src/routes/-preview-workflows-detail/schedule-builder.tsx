@@ -9,29 +9,29 @@ function scheduleTimeLabel(cadence: string): string {
 
 export function ScheduleBuilder({ workflow }: { workflow: WorkflowDefinition }) {
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-vs-fg-4">
-      <span className="text-vs-fg-3">From</span>
+    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-app-fg-4">
+      <span className="text-app-fg-3">From</span>
       <FauxControl>
-        <CalendarClock size={13} className="text-vs-fg-3" />
+        <CalendarClock size={13} className="text-app-fg-3" />
         <span>Starting date</span>
-        <ChevronDown size={13} className="text-vs-fg-2" />
+        <ChevronDown size={13} className="text-app-fg-2" />
       </FauxControl>
-      <span className="text-vs-fg-3">run</span>
+      <span className="text-app-fg-3">run</span>
       <FauxControl>
         <span>every</span>
-        <ChevronDown size={13} className="text-vs-fg-2" />
+        <ChevronDown size={13} className="text-app-fg-2" />
       </FauxControl>
       <FauxControl className="w-12 justify-center">
         <span>1</span>
       </FauxControl>
       <FauxControl>
         <span>day</span>
-        <ChevronDown size={13} className="text-vs-fg-2" />
+        <ChevronDown size={13} className="text-app-fg-2" />
       </FauxControl>
-      <span className="text-vs-fg-3">at</span>
+      <span className="text-app-fg-3">at</span>
       <FauxControl>
         <span>{scheduleTimeLabel(workflow.cadence)}</span>
-        <ChevronDown size={13} className="text-vs-fg-2" />
+        <ChevronDown size={13} className="text-app-fg-2" />
       </FauxControl>
     </div>
   );

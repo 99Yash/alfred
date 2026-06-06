@@ -1,5 +1,5 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
-import { pageMeta } from "~/lib/page-meta";
+import { formatPageTitle, pageMeta } from "~/lib/page-meta";
 import { useEffect } from "react";
 import { useChatContext } from "~/components/chat-context";
 import { useChatThread } from "~/lib/replicache/use-chat";
@@ -30,5 +30,14 @@ function ChatThreadRoute() {
   // exchange; the turn endpoint seeds a placeholder before that lands). Falls
   // back to "New chat" before the thread row has synced.
   const title = thread?.title?.trim() || "New chat";
+
+  // Mirror the live thread title into the browser tab. The static route `head`
+  // can't see Replicache subscriptions, so it seeds "Chat · Alfred"; this keeps
+  // document.title in sync as the worker derives the real title post-turn.
+  // No cleanup needed — navigating away re-runs the destination route's head.
+  useEffect(() => {
+    document.title = formatPageTitle(title);
+  }, [title]);
+
   return <ChatShell threadId={threadId} title={title} />;
 }

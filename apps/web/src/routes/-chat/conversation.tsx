@@ -90,7 +90,7 @@ export function Conversation({
 
 function ThinkingIndicator() {
   return (
-    <div className="flex items-center gap-2 text-[14px] text-vs-fg-3">
+    <div className="flex items-center gap-2 text-[14px] text-app-fg-3">
       <Loader2 size={14} className="animate-spin" />
       <span className="animate-chat-shimmer">Thinking…</span>
     </div>
@@ -104,8 +104,8 @@ function ThinkingIndicator() {
  */
 function ApprovalNotice() {
   return (
-    <div className="animate-chat-in flex items-center gap-2 rounded-xl border border-vs-amber-2/60 bg-vs-amber-1/40 px-3 py-2 text-[13px] text-vs-fg-4">
-      <ShieldQuestion size={14} className="shrink-0 text-vs-amber-4" />
+    <div className="animate-chat-in flex items-center gap-2 rounded-xl border border-app-amber-2/60 bg-app-amber-1/40 px-3 py-2 text-[13px] text-app-fg-4">
+      <ShieldQuestion size={14} className="shrink-0 text-app-amber-4" />
       <span>Waiting for your approval to take this action — review it in Approvals.</span>
     </div>
   );

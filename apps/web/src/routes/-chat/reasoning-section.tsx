@@ -56,14 +56,14 @@ export function ReasoningSection({
             className={cn(
               "group/reason flex items-center gap-1 text-[13px] outline-none",
               active
-                ? "animate-chat-shimmer-mask cursor-default font-medium text-vs-fg-4"
-                : "text-vs-fg-3 transition-colors hover:text-vs-fg-4",
+                ? "animate-chat-shimmer-mask cursor-default font-medium text-app-fg-4"
+                : "text-app-fg-3 transition-colors hover:text-app-fg-4",
             )}
           >
             <span>
               {!active && durationMs != null ? (
                 <>
-                  <span className="text-vs-fg-4">Thought</span> for {formatDuration(durationMs)}
+                  <span className="text-app-fg-4">Thought</span> for {formatDuration(durationMs)}
                 </>
               ) : (
                 "Thinking"
@@ -80,11 +80,11 @@ export function ReasoningSection({
         <Accordion.Content className="overflow-hidden data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down">
           <div
             className={cn(
-              "mt-1.5 border-l-2 border-vs-fg-a1 pl-3 text-[13px] leading-relaxed text-vs-fg-3",
+              "mt-1.5 border-l-2 border-app-fg-a1 pl-3 text-[13px] leading-relaxed text-app-fg-3",
               "[&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
               "[&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-4",
-              "[&_code]:rounded [&_code]:bg-vs-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
-              "[&_strong]:font-semibold [&_strong]:text-vs-fg-4",
+              "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
+              "[&_strong]:font-semibold [&_strong]:text-app-fg-4",
             )}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{reasoning}</ReactMarkdown>

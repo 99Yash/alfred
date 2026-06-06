@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { VsCard } from "~/components/ui/visitors";
+import { AppCard } from "~/components/ui/v2";
 import { useBriefing } from "~/lib/replicache/use-briefings";
 import { cn } from "~/lib/utils";
 import { BriefingSlot } from "./briefing-slot";
@@ -23,9 +23,9 @@ export function PreviewBriefingDetailPage() {
           <Link
             to="/briefings"
             className={cn(
-              "inline-flex items-center gap-2 text-sm text-vs-fg-3",
-              "transition-colors hover:text-vs-fg-4",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background rounded",
+              "inline-flex items-center gap-2 text-sm text-app-fg-3",
+              "transition-colors hover:text-app-fg-4",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background rounded",
             )}
           >
             <ArrowLeft size={14} />
@@ -33,23 +33,23 @@ export function PreviewBriefingDetailPage() {
           </Link>
 
           <header>
-            <h1 className="text-[32px] leading-[38px] font-medium tracking-tight text-balance text-vs-fg-4">
+            <h1 className="text-[32px] leading-[38px] font-medium tracking-tight text-balance text-app-fg-4">
               {formatDayHeading(date)}
             </h1>
           </header>
 
           {error ? (
-            <VsCard className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-vs-fg-4">Briefing could not sync</p>
-              <p className="max-w-md text-xs leading-5 text-vs-fg-3">{error}</p>
+            <AppCard className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+              <p className="text-sm font-medium text-app-fg-4">Briefing could not sync</p>
+              <p className="max-w-md text-xs leading-5 text-app-fg-3">{error}</p>
               <button
                 type="button"
                 onClick={retry}
-                className="mt-1 rounded-lg bg-vs-bg-2 px-3 py-1.5 text-xs font-medium text-vs-fg-4 outline-none transition-colors hover:bg-vs-bg-3 focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background"
+                className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 outline-none transition-colors hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
               >
                 Retry
               </button>
-            </VsCard>
+            </AppCard>
           ) : slots.length > 0 ? (
             <div className="space-y-4">
               {slots.map((briefing) => (
@@ -57,17 +57,17 @@ export function PreviewBriefingDetailPage() {
               ))}
             </div>
           ) : (
-            <VsCard className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-vs-fg-4">
+            <AppCard className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+              <p className="text-sm font-medium text-app-fg-4">
                 {loading ? "Loading briefing…" : "No briefing for this day"}
               </p>
               {!loading ? (
-                <p className="max-w-md text-xs leading-5 text-vs-fg-3">
+                <p className="max-w-md text-xs leading-5 text-app-fg-3">
                   Nothing is synced for {date}. Briefings older than 30 days aren't kept on this
                   device.
                 </p>
               ) : null}
-            </VsCard>
+            </AppCard>
           )}
         </div>
       </main>

@@ -11,7 +11,7 @@ import {
   type PreviewThreadGroup,
 } from "~/components/preview-fixtures";
 import { SearchPalette } from "~/components/search-palette";
-import { VsThemed, VsThemeProvider } from "~/components/ui/visitors";
+import { AppThemed, AppThemeProvider } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
 import { writeAuthHint } from "~/lib/auth-hint";
 import { client } from "~/lib/eden";
@@ -239,9 +239,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <RightRailContext.Provider value={ctx}>
       <SidebarStateContext.Provider value={sidebarStateValue}>
         <ChatContext.Provider value={chatContextValue}>
-          <VsThemeProvider>
+          <AppThemeProvider>
             {showChrome ? (
-              <VsThemed className="min-h-dvh bg-vs-background-subtle">
+              <AppThemed className="min-h-dvh bg-app-background-subtle">
                 <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
                   <AppSidebar
                     onOpenSearch={() => setPaletteOpen(true)}
@@ -255,7 +255,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div
                       className={cn(
                         "flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
-                        "rounded-2xl bg-vs-bg-1",
+                        "rounded-2xl bg-app-bg-1",
                         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
                       )}
                     >
@@ -271,11 +271,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                     recentThreads={paletteRecentThreads}
                   />
                 ) : null}
-              </VsThemed>
+              </AppThemed>
             ) : (
               children
             )}
-          </VsThemeProvider>
+          </AppThemeProvider>
         </ChatContext.Provider>
       </SidebarStateContext.Provider>
     </RightRailContext.Provider>

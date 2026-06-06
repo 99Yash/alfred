@@ -154,7 +154,7 @@ export function InboxFeed({
 
   if (!items.length && (!pagination || pagination.total === 0)) {
     return (
-      <div className="vs-card-in px-2 py-4">
+      <div className="app-card-in px-2 py-4">
         <p className="text-[12px] leading-5 text-white/65">
           Connect Gmail to see your latest unread threads here.
         </p>
@@ -163,7 +163,7 @@ export function InboxFeed({
   }
 
   return (
-    <div className="vs-card-in space-y-2">
+    <div className="app-card-in space-y-2">
       <SearchBar
         value={query}
         onChange={(next) => {
@@ -184,12 +184,12 @@ export function InboxFeed({
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
             "text-[10.5px] uppercase tracking-tight font-medium transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-            unreadOnly ? "bg-vs-purple-4/20 text-vs-purple-4" : "text-white/60 hover:text-white/85",
+            unreadOnly ? "bg-app-purple-4/20 text-app-purple-4" : "text-white/60 hover:text-white/85",
           )}
         >
           <span
             aria-hidden
-            className={cn("size-1.5 rounded-full", unreadOnly ? "bg-vs-purple-4" : "bg-white/55")}
+            className={cn("size-1.5 rounded-full", unreadOnly ? "bg-app-purple-4" : "bg-white/55")}
           />
           Unread · {totalUnread}
         </button>
@@ -313,7 +313,7 @@ function PaginationButton({
       disabled={disabled}
       className={cn(
         "size-6 inline-flex items-center justify-center rounded-md",
-        "transition-colors vs-press",
+        "transition-colors app-press",
         "text-white/70 hover:bg-white/10 hover:text-white",
         "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-white/70",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
@@ -331,7 +331,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         "flex items-center gap-1.5 px-2 py-1.5 -mx-0.5 rounded-lg",
         // White-alpha treatment so the field reads against the rail's
         // video surface. Brighter ring at rest, near-white on focus —
-        // the vs-purple-2 ring is too dim to register on the cloudy
+        // the app-purple-2 ring is too dim to register on the cloudy
         // backdrop.
         "bg-white/[0.06] ring-1 ring-inset ring-white/15",
         "focus-within:bg-white/[0.10] focus-within:ring-white/45",
@@ -377,7 +377,7 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
     "flex items-start gap-2.5",
     interactive
       ? cn(
-          "hover:bg-white/[0.07] transition-colors vs-press",
+          "hover:bg-white/[0.07] transition-colors app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )
       : "cursor-default",
@@ -393,7 +393,7 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
         aria-hidden
         className={cn(
           "absolute left-0 top-2 bottom-2 w-[2px] rounded-full transition-colors",
-          item.unread ? "bg-vs-purple-4" : "bg-transparent",
+          item.unread ? "bg-app-purple-4" : "bg-transparent",
         )}
       />
 
@@ -582,7 +582,7 @@ function CategoryChip({
           sideOffset={6}
           className={cn(
             "z-50 min-w-[168px] rounded-lg p-1",
-            "bg-vs-bg-1/95 text-vs-fg-4 shadow-xl ring-1 ring-white/15 backdrop-blur",
+            "bg-app-bg-1/95 text-app-fg-4 shadow-xl ring-1 ring-white/15 backdrop-blur",
           )}
         >
           {TRIAGE_CATEGORIES.map((option) => (
@@ -597,7 +597,7 @@ function CategoryChip({
               <span aria-hidden className={cn("size-2 rounded-full", CATEGORY_SWATCH[option])} />
               <span className="min-w-0 flex-1 truncate">{TRIAGE_DISPLAY[option]}</span>
               {option === category ? (
-                <Check size={12} className="text-vs-fg-3" aria-hidden />
+                <Check size={12} className="text-app-fg-3" aria-hidden />
               ) : null}
             </DropdownMenuPrimitive.Item>
           ))}
@@ -608,29 +608,29 @@ function CategoryChip({
 }
 
 const CATEGORY_CHIP: Record<TriageCategory, string> = {
-  urgent: "bg-vs-red-1 text-vs-red-4",
-  action_needed: "bg-vs-amber-1 text-vs-amber-4",
-  awaiting_reply: "bg-vs-amber-1 text-vs-amber-4",
-  payment: "bg-vs-amber-1 text-vs-amber-4",
-  follow_up: "bg-vs-sky-1 text-vs-sky-4",
-  meeting: "bg-vs-sky-1 text-vs-sky-4",
-  fyi: "bg-vs-bg-a2 text-vs-fg-2",
-  done: "bg-vs-green-1 text-vs-green-4",
-  newsletter: "bg-vs-bg-a2 text-vs-fg-2",
-  marketing: "bg-vs-bg-a2 text-vs-fg-2",
+  urgent: "bg-app-red-1 text-app-red-4",
+  action_needed: "bg-app-amber-1 text-app-amber-4",
+  awaiting_reply: "bg-app-amber-1 text-app-amber-4",
+  payment: "bg-app-amber-1 text-app-amber-4",
+  follow_up: "bg-app-sky-1 text-app-sky-4",
+  meeting: "bg-app-sky-1 text-app-sky-4",
+  fyi: "bg-app-bg-a2 text-app-fg-2",
+  done: "bg-app-green-1 text-app-green-4",
+  newsletter: "bg-app-bg-a2 text-app-fg-2",
+  marketing: "bg-app-bg-a2 text-app-fg-2",
 };
 
 const CATEGORY_SWATCH: Record<TriageCategory, string> = {
-  urgent: "bg-vs-red-4",
-  action_needed: "bg-vs-amber-4",
-  awaiting_reply: "bg-vs-amber-4",
-  payment: "bg-vs-amber-4",
-  follow_up: "bg-vs-sky-4",
-  meeting: "bg-vs-sky-4",
-  fyi: "bg-vs-fg-2",
-  done: "bg-vs-green-4",
-  newsletter: "bg-vs-fg-2",
-  marketing: "bg-vs-fg-2",
+  urgent: "bg-app-red-4",
+  action_needed: "bg-app-amber-4",
+  awaiting_reply: "bg-app-amber-4",
+  payment: "bg-app-amber-4",
+  follow_up: "bg-app-sky-4",
+  meeting: "bg-app-sky-4",
+  fyi: "bg-app-fg-2",
+  done: "bg-app-green-4",
+  newsletter: "bg-app-fg-2",
+  marketing: "bg-app-fg-2",
 };
 
 /**
@@ -670,17 +670,17 @@ function InboxDetailPane({
       : undefined;
 
   return (
-    <div className="vs-card-in flex flex-col gap-3 px-1">
+    <div className="app-card-in flex flex-col gap-3 px-1">
       <div className="flex items-center justify-between gap-2 px-1">
         <button
           type="button"
           onClick={onClose}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5",
-            "text-[11px] uppercase tracking-tight font-medium text-vs-fg-3",
-            "transition-colors hover:text-vs-fg-4 hover:bg-vs-bg-a2",
-            "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-            "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+            "text-[11px] uppercase tracking-tight font-medium text-app-fg-3",
+            "transition-colors hover:text-app-fg-4 hover:bg-app-bg-a2",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
           <ArrowLeft size={12} />
@@ -692,10 +692,10 @@ function InboxDetailPane({
             target="_blank"
             rel="noreferrer noopener"
             className={cn(
-              "inline-flex items-center gap-1 text-[11px] text-vs-fg-3",
-              "transition-colors hover:text-vs-fg-4",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-              "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+              "inline-flex items-center gap-1 text-[11px] text-app-fg-3",
+              "transition-colors hover:text-app-fg-4",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+              "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
               "rounded-md px-1.5 py-1 -mx-1.5",
             )}
           >
@@ -707,16 +707,16 @@ function InboxDetailPane({
 
       {isLoading ? (
         <div className="px-2 py-8 flex items-center justify-center">
-          <Loader2 size={16} className="animate-spin text-vs-fg-3" aria-hidden />
+          <Loader2 size={16} className="animate-spin text-app-fg-3" aria-hidden />
         </div>
       ) : isError || !data ? (
         <div className="px-2 py-6 text-center">
-          <p className="text-[12px] text-vs-fg-2">Couldn't load this email.</p>
+          <p className="text-[12px] text-app-fg-2">Couldn't load this email.</p>
         </div>
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium text-vs-fg-4 break-words">
+            <h3 className="text-[14px] leading-5 font-medium text-app-fg-4 break-words">
               {data.subject || "(no subject)"}
             </h3>
             <div className="flex items-center gap-2 flex-wrap">
@@ -727,14 +727,14 @@ function InboxDetailPane({
                   onChange={changeCategory}
                 />
               ) : null}
-              <span className="text-[11px] tabular-nums text-vs-fg-2">
+              <span className="text-[11px] tabular-nums text-app-fg-2">
                 {data.messages.length} message
                 {data.messages.length === 1 ? "" : "s"}
               </span>
             </div>
           </header>
           {data.messages.length === 0 ? (
-            <p className="text-[12px] text-vs-fg-2 px-1">(no messages)</p>
+            <p className="text-[12px] text-app-fg-2 px-1">(no messages)</p>
           ) : (
             <ol className="space-y-2.5">
               {data.messages.map((m, i) => (
@@ -799,9 +799,9 @@ function ThreadMessageCard({
   return (
     <div
       className={cn(
-        "rounded-xl bg-vs-bg-a2/60 ring-1 ring-vs-bg-3/40",
+        "rounded-xl bg-app-bg-a2/60 ring-1 ring-app-bg-3/40",
         "transition-shadow",
-        isSelected && "ring-2 ring-vs-purple-2",
+        isSelected && "ring-2 ring-app-purple-2",
       )}
     >
       <button
@@ -809,29 +809,29 @@ function ThreadMessageCard({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-xl",
-          "transition-colors hover:bg-vs-bg-a2",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "transition-colors hover:bg-app-bg-a2",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )}
         aria-expanded={open}
       >
         <SenderInitialAvatar name={message.senderDisplay} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="min-w-0 truncate text-[12.5px] font-medium text-vs-fg-4">
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-app-fg-4">
               {message.senderDisplay}
             </span>
             {message.authoredAtRelative ? (
-              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-vs-fg-2">
+              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-app-fg-2">
                 {message.authoredAtRelative}
               </span>
             ) : null}
           </span>
           {!open && summary ? (
-            <span className="block truncate text-[11.5px] text-vs-fg-2 mt-0.5">{summary}</span>
+            <span className="block truncate text-[11.5px] text-app-fg-2 mt-0.5">{summary}</span>
           ) : null}
           {open && message.senderEmail ? (
-            <span className="block truncate text-[11px] text-vs-fg-2 mt-0.5">
+            <span className="block truncate text-[11px] text-app-fg-2 mt-0.5">
               {message.senderEmail}
             </span>
           ) : null}
@@ -841,7 +841,7 @@ function ThreadMessageCard({
       {open ? (
         <div className="px-2.5 pb-2.5 space-y-2">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
-          <div className="rounded-lg bg-vs-bg-1/40 ring-1 ring-vs-bg-3/30 overflow-hidden">
+          <div className="rounded-lg bg-app-bg-1/40 ring-1 ring-app-bg-3/30 overflow-hidden">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
@@ -849,7 +849,7 @@ function ThreadMessageCard({
                 <MarkdownRenderer>{message.body.trim()}</MarkdownRenderer>
               </div>
             ) : (
-              <p className="px-3 py-2.5 text-[12px] italic text-vs-fg-2">(empty body)</p>
+              <p className="px-3 py-2.5 text-[12px] italic text-app-fg-2">(empty body)</p>
             )}
           </div>
           {message.attachments.length > 0 ? (
@@ -886,7 +886,7 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-vs-bg-a2 ring-1 ring-vs-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
+    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-app-bg-a2 ring-1 ring-app-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
       <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
@@ -913,10 +913,10 @@ function ToggleButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded px-1.5 py-0.5 transition-colors vs-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        active ? "bg-vs-bg-1 text-vs-fg-4" : "text-vs-fg-2 hover:text-vs-fg-3",
+        "rounded px-1.5 py-0.5 transition-colors app-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        active ? "bg-app-bg-1 text-app-fg-4" : "text-app-fg-2 hover:text-app-fg-3",
       )}
     >
       {children}
@@ -1020,11 +1020,11 @@ function SenderInitialAvatar({ name }: { name: string }) {
 }
 
 const TONE_CLASSES = [
-  "bg-vs-purple-1 text-vs-purple-4",
-  "bg-vs-sky-1 text-vs-sky-4",
-  "bg-vs-amber-1 text-vs-amber-4",
-  "bg-vs-green-1 text-vs-green-4",
-  "bg-vs-red-1 text-vs-red-4",
+  "bg-app-purple-1 text-app-purple-4",
+  "bg-app-sky-1 text-app-sky-4",
+  "bg-app-amber-1 text-app-amber-4",
+  "bg-app-green-1 text-app-green-4",
+  "bg-app-red-1 text-app-red-4",
 ] as const;
 
 function toneFromName(name: string): string {
@@ -1054,8 +1054,8 @@ function AttachmentStrip({
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
-        <Paperclip size={11} className="text-vs-fg-2" aria-hidden />
-        <span className="text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+        <Paperclip size={11} className="text-app-fg-2" aria-hidden />
+        <span className="text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
           {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -1083,10 +1083,10 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
         <Icon size={14} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] leading-4 font-medium text-vs-fg-4">
+        <span className="block truncate text-[12px] leading-4 font-medium text-app-fg-4">
           {attachment.filename}
         </span>
-        <span className="block text-[11px] leading-4 text-vs-fg-2 tabular-nums">
+        <span className="block text-[11px] leading-4 text-app-fg-2 tabular-nums">
           {formatBytes(attachment.size)}
           {attachment.mimeType ? (
             <>
@@ -1100,17 +1100,17 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
           ) : null}
         </span>
       </span>
-      {href ? <ExternalLink size={12} className="shrink-0 text-vs-fg-2" aria-hidden /> : null}
+      {href ? <ExternalLink size={12} className="shrink-0 text-app-fg-2" aria-hidden /> : null}
     </>
   );
   const shared = cn(
     "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
-    "ring-1 ring-vs-bg-3/40 bg-vs-bg-a2/60",
+    "ring-1 ring-app-bg-3/40 bg-app-bg-a2/60",
     href
       ? cn(
-          "transition-colors hover:bg-vs-bg-a2 hover:ring-vs-bg-3/70",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "transition-colors hover:bg-app-bg-a2 hover:ring-app-bg-3/70",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )
       : "",
   );
@@ -1145,16 +1145,16 @@ function attachmentVisual(
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const mime = mimeType.toLowerCase();
   if (mime.startsWith("image/")) {
-    return { tone: "bg-vs-purple-1 text-vs-purple-4", icon: ImageIcon };
+    return { tone: "bg-app-purple-1 text-app-purple-4", icon: ImageIcon };
   }
   if (mime.startsWith("video/")) {
-    return { tone: "bg-vs-sky-1 text-vs-sky-4", icon: Film };
+    return { tone: "bg-app-sky-1 text-app-sky-4", icon: Film };
   }
   if (mime.startsWith("audio/")) {
-    return { tone: "bg-vs-sky-1 text-vs-sky-4", icon: Music };
+    return { tone: "bg-app-sky-1 text-app-sky-4", icon: Music };
   }
   if (mime === "application/pdf" || ext === "pdf") {
-    return { tone: "bg-vs-red-1 text-vs-red-4", icon: FileText };
+    return { tone: "bg-app-red-1 text-app-red-4", icon: FileText };
   }
   if (
     mime.includes("spreadsheet") ||
@@ -1163,7 +1163,7 @@ function attachmentVisual(
     ext === "xlsx" ||
     ext === "xls"
   ) {
-    return { tone: "bg-vs-green-1 text-vs-green-4", icon: FileSpreadsheet };
+    return { tone: "bg-app-green-1 text-app-green-4", icon: FileSpreadsheet };
   }
   if (
     mime.includes("word") ||
@@ -1173,9 +1173,9 @@ function attachmentVisual(
     ext === "txt" ||
     ext === "md"
   ) {
-    return { tone: "bg-vs-amber-1 text-vs-amber-4", icon: FileText };
+    return { tone: "bg-app-amber-1 text-app-amber-4", icon: FileText };
   }
-  return { tone: "bg-vs-bg-a2 text-vs-fg-3", icon: FileIcon };
+  return { tone: "bg-app-bg-a2 text-app-fg-3", icon: FileIcon };
 }
 
 function extensionFor(filename: string, mimeType: string): string {

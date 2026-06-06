@@ -3,7 +3,7 @@ import type { SyncedActionStaging } from "@alfred/sync";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { VsButton, VsCard, VsPill } from "~/components/ui/visitors";
+import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
@@ -23,10 +23,10 @@ const RISK_LABEL: Record<ToolRiskTier, string> = {
 };
 
 const RISK_DOT: Record<ToolRiskTier, string> = {
-  high: "bg-vs-red-4",
-  medium: "bg-vs-amber-4",
-  low: "bg-vs-green-4",
-  no_risk: "bg-vs-fg-2",
+  high: "bg-app-red-4",
+  medium: "bg-app-amber-4",
+  low: "bg-app-green-4",
+  no_risk: "bg-app-fg-2",
 };
 
 interface Facet<T extends string> {
@@ -150,13 +150,13 @@ export function ApprovalsPage() {
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         <header className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-balance text-[36px] leading-[42px] font-medium tracking-[-0.04em] text-vs-fg-4">
+            <h1 className="text-balance text-[36px] leading-[42px] font-medium tracking-[-0.04em] text-app-fg-4">
               Approvals
             </h1>
-            <p className="mt-2 text-sm text-vs-fg-3">
+            <p className="mt-2 text-sm text-app-fg-3">
               Gated workflow actions waiting for review.
               {filtering && rows.length > 0 ? (
-                <span className="text-vs-fg-2">
+                <span className="text-app-fg-2">
                   {" "}
                   Showing <span className="tabular-nums">{filtered.length}</span> of{" "}
                   <span className="tabular-nums">{rows.length}</span>.
@@ -164,9 +164,9 @@ export function ApprovalsPage() {
               ) : null}
             </p>
           </div>
-          <VsPill tone={rows.length > 0 ? "amber" : undefined}>
+          <AppPill tone={rows.length > 0 ? "amber" : undefined}>
             <span className="tabular-nums">{rows.length}</span> pending
-          </VsPill>
+          </AppPill>
         </header>
 
         {/* Facet bar — only render facets present in the queue. */}
@@ -208,9 +208,9 @@ export function ApprovalsPage() {
                 type="button"
                 onClick={clearFilters}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-vs-fg-3",
-                  "transition-colors hover:text-vs-fg-4 hover:bg-vs-bg-a2",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
+                  "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-app-fg-3",
+                  "transition-colors hover:text-app-fg-4 hover:bg-app-bg-a2",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
                 )}
               >
                 <X size={13} />
@@ -221,18 +221,18 @@ export function ApprovalsPage() {
         ) : null}
 
         {loading ? (
-          <VsCard className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-vs-fg-3">
+          <AppCard className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-app-fg-3">
             <Loader2 size={16} className="animate-spin" />
             Loading approvals…
-          </VsCard>
+          </AppCard>
         ) : error ? (
           <EmptyState
             title="Approvals sync did not load"
             body={error}
             action={
-              <VsButton variant="white" size="sm" onClick={retry}>
+              <AppButton variant="white" size="sm" onClick={retry}>
                 Retry sync
-              </VsButton>
+              </AppButton>
             }
           />
         ) : rows.length === 0 ? (
@@ -245,9 +245,9 @@ export function ApprovalsPage() {
             title="No approvals match these filters"
             body="Nothing in the queue matches the current filters."
             action={
-              <VsButton variant="white" size="sm" leading={<X size={14} />} onClick={clearFilters}>
+              <AppButton variant="white" size="sm" leading={<X size={14} />} onClick={clearFilters}>
                 Clear filters
-              </VsButton>
+              </AppButton>
             }
           />
         ) : (
@@ -256,7 +256,7 @@ export function ApprovalsPage() {
               <div
                 id={approvalElementId(staging.id)}
                 key={staging.id}
-                className="vs-card-in scroll-mt-6"
+                className="app-card-in scroll-mt-6"
                 style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
               >
                 <ApprovalCard
@@ -267,9 +267,9 @@ export function ApprovalsPage() {
             ))}
             {filtered.length > windowed.length ? (
               <div className="flex justify-center pt-1">
-                <VsButton variant="white" size="sm" onClick={() => setVisible((v) => v + WINDOW)}>
+                <AppButton variant="white" size="sm" onClick={() => setVisible((v) => v + WINDOW)}>
                   Show more ({filtered.length - windowed.length})
-                </VsButton>
+                </AppButton>
               </div>
             ) : null}
           </div>
@@ -321,12 +321,12 @@ function FacetChip({
       title={label}
       onClick={onClick}
       className={cn(
-        "vs-press inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium",
+        "app-press inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium",
         "transition-[background-color,box-shadow,color]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         active
-          ? "bg-vs-fg-4 text-vs-bg-1 shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
-          : "bg-vs-bg-2/70 text-vs-fg-3 hover:bg-vs-bg-2 hover:text-vs-fg-4",
+          ? "bg-app-fg-4 text-app-bg-1 shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
+          : "bg-app-bg-2/70 text-app-fg-3 hover:bg-app-bg-2 hover:text-app-fg-4",
       )}
     >
       {icon ? (
@@ -337,7 +337,7 @@ function FacetChip({
           {label}
         </>
       )}
-      <span className={cn("tabular-nums", active ? "opacity-80" : "text-vs-fg-2")}>{count}</span>
+      <span className={cn("tabular-nums", active ? "opacity-80" : "text-app-fg-2")}>{count}</span>
     </button>
   );
 }
@@ -352,17 +352,17 @@ function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <VsCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+    <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       <span
-        className="grid size-10 place-items-center rounded-xl bg-vs-bg-2 text-vs-fg-3"
+        className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
         aria-hidden
       >
         <ClipboardCheck size={18} />
       </span>
-      <p className="text-sm font-medium text-vs-fg-4">{title}</p>
-      <p className="max-w-[28rem] text-xs leading-5 text-vs-fg-3">{body}</p>
+      <p className="text-sm font-medium text-app-fg-4">{title}</p>
+      <p className="max-w-[28rem] text-xs leading-5 text-app-fg-3">{body}</p>
       {action ? <div className="mt-2">{action}</div> : null}
-    </VsCard>
+    </AppCard>
   );
 }
 

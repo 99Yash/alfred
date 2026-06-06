@@ -1,5 +1,5 @@
 /**
- * Visitors-now-grammar Pill primitive.
+ * App-grammar Pill primitive.
  *
  * The 32px-tall rounded-full selector used for "Today", "30 days", "USD",
  * etc. on visitors.now. Same shadow stack as the Button white variant.
@@ -13,7 +13,7 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-interface VsPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface AppPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leading?: ReactNode;
   /** Show a chevron-down on the right edge. Set true when the pill opens a menu. */
   chevron?: boolean;
@@ -28,17 +28,17 @@ interface VsPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>;
 }
 
-const TONE: Record<NonNullable<VsPillProps["tone"]>, string> = {
-  green: "bg-vs-green-1 text-vs-green-4",
-  red: "bg-vs-red-1 text-vs-red-4",
-  amber: "bg-vs-amber-1 text-vs-amber-4",
-  purple: "bg-vs-purple-1 text-vs-purple-4",
-  sky: "bg-vs-sky-1 text-vs-sky-4",
-  blue: "bg-vs-blue-1 text-vs-blue-4",
-  pink: "bg-vs-pink-1 text-vs-pink-4",
+const TONE: Record<NonNullable<AppPillProps["tone"]>, string> = {
+  green: "bg-app-green-1 text-app-green-4",
+  red: "bg-app-red-1 text-app-red-4",
+  amber: "bg-app-amber-1 text-app-amber-4",
+  purple: "bg-app-purple-1 text-app-purple-4",
+  sky: "bg-app-sky-1 text-app-sky-4",
+  blue: "bg-app-blue-1 text-app-blue-4",
+  pink: "bg-app-pink-1 text-app-pink-4",
 };
 
-export function VsPill({
+export function AppPill({
   className,
   leading,
   chevron,
@@ -48,7 +48,7 @@ export function VsPill({
   children,
   ref,
   ...rest
-}: VsPillProps) {
+}: AppPillProps) {
   // A pill is "accented" whenever a tone is provided, or the caller
   // explicitly sets variant="accent". Passing `tone` alone is the common
   // case — every caller wants the hue, so we shouldn't require both.
@@ -61,9 +61,9 @@ export function VsPill({
         "inline-flex items-center justify-center gap-1.5",
         "h-8 px-2.5 text-sm font-medium rounded-lg whitespace-nowrap",
         "transition-[box-shadow,background-color,transform]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
-        "vs-press",
-        isAccent && tone ? TONE[tone] : cn("bg-vs-bg-1 text-vs-fg-4", "vs-elevated"),
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+        "app-press",
+        isAccent && tone ? TONE[tone] : cn("bg-app-bg-1 text-app-fg-4", "app-elevated"),
         className,
       )}
       {...rest}
@@ -84,7 +84,7 @@ function ChevronUpDown() {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
-      className="shrink-0 text-vs-fg-2"
+      className="shrink-0 text-app-fg-2"
     >
       <path
         d="M3.5 5L6 2.5L8.5 5M3.5 7L6 9.5L8.5 7"

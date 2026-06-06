@@ -16,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { VsThemeToggle } from "~/components/ui/visitors";
+import { AppThemeToggle } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
 import { cn } from "~/lib/utils";
 import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";
@@ -65,7 +65,7 @@ export function AppSidebar({
       aria-hidden={!open}
       className={cn(
         "relative shrink-0 h-full overflow-hidden",
-        "rounded-2xl bg-vs-bg-1",
+        "rounded-2xl bg-app-bg-1",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         "flex flex-col",
         "transition-[width,opacity,margin] duration-200 ease-out",
@@ -81,8 +81,8 @@ export function AppSidebar({
             onClick={onCollapse}
             className={cn(
               "size-8 inline-flex items-center justify-center rounded-lg",
-              "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+              "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
             )}
           >
             <PanelLeft size={14} />
@@ -170,7 +170,7 @@ export function AppSidebar({
 
 function SidebarHeading({ children }: { children: ReactNode }) {
   return (
-    <div className="px-5 pt-3 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+    <div className="px-5 pt-3 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
       {children}
     </div>
   );
@@ -187,9 +187,9 @@ interface BaseNavProps {
 const navRowClass = (active = false) =>
   cn(
     "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
-    "transition-[background-color,color] duration-150 vs-press",
-    "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-    active ? "bg-vs-bg-2 text-vs-fg-4" : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+    "transition-[background-color,color] duration-150 app-press",
+    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+    active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
   );
 
 function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
@@ -200,7 +200,7 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
         aria-hidden
         className={cn(
           "shrink-0 transition-colors",
-          active ? "text-vs-fg-4" : "text-vs-fg-2 group-hover:text-vs-fg-4",
+          active ? "text-app-fg-4" : "text-app-fg-2 group-hover:text-app-fg-4",
         )}
       />
       <span className="flex-1 min-w-0 truncate text-sm font-medium">{label}</span>
@@ -209,7 +209,7 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
           className={cn(
             "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full",
             "text-[10.5px] font-medium tabular-nums",
-            "bg-vs-purple-1 text-vs-purple-4",
+            "bg-app-purple-1 text-app-purple-4",
           )}
         >
           {badge}
@@ -251,7 +251,7 @@ function KbdHint({ children }: { children: ReactNode }) {
       className={cn(
         "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
         "text-[10.5px] leading-none font-medium tabular-nums",
-        "bg-vs-bg-a2 text-vs-fg-2 font-sans",
+        "bg-app-bg-a2 text-app-fg-2 font-sans",
       )}
     >
       {children}
@@ -275,7 +275,7 @@ function ThreadGroupBlock({
   if (entries.length === 0) return null;
   return (
     <div className="mb-3">
-      <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
+      <div className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-tight font-medium text-app-fg-2">
         {label}
       </div>
       <div className="flex flex-col gap-0.5">
@@ -295,15 +295,15 @@ function ThreadRow({ entry, active }: { entry: PreviewThreadEntry; active: boole
       aria-current={active ? "page" : undefined}
       className={cn(
         "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2",
-        "transition-[background-color,color] duration-150 vs-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
-        active ? "bg-vs-bg-2 text-vs-fg-4" : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+        "transition-[background-color,color] duration-150 app-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       {entry.pinned ? (
-        <Pin size={12} aria-hidden className="shrink-0 text-vs-fg-2 group-hover:text-vs-fg-3" />
+        <Pin size={12} aria-hidden className="shrink-0 text-app-fg-2 group-hover:text-app-fg-3" />
       ) : entry.unread ? (
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-vs-purple-4" />
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-purple-4" />
       ) : (
         <span aria-hidden className="size-1.5 shrink-0" />
       )}
@@ -338,26 +338,26 @@ function UserRow() {
   };
 
   return (
-    <div className="px-3 py-2 border-t border-vs-bg-3/60 flex items-center gap-1.5">
+    <div className="px-3 py-2 border-t border-app-bg-3/60 flex items-center gap-1.5">
       <Link
         to="/settings"
         className={cn(
           "flex-1 min-w-0 inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2",
-          "hover:bg-vs-bg-a2 transition-colors vs-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "hover:bg-app-bg-a2 transition-colors app-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )}
       >
         <span
           aria-hidden
-          className="size-8 shrink-0 rounded-full bg-vs-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
+          className="size-8 shrink-0 rounded-full bg-app-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
         >
           {initial}
         </span>
         <span className="flex-1 min-w-0 text-left">
-          <span className="block text-sm font-medium text-vs-fg-4 truncate">
+          <span className="block text-sm font-medium text-app-fg-4 truncate">
             {name || "Alfred"}
           </span>
-          <span className="block text-[11px] text-vs-fg-2 truncate">{email}</span>
+          <span className="block text-[11px] text-app-fg-2 truncate">{email}</span>
         </span>
       </Link>
       <button
@@ -368,14 +368,14 @@ function UserRow() {
         title="Sign out"
         className={cn(
           "size-8 inline-flex items-center justify-center rounded-lg",
-          "text-vs-fg-2 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
+          "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
           "disabled:opacity-50 disabled:cursor-not-allowed",
-          "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )}
       >
         <LogOut size={14} aria-hidden />
       </button>
-      <VsThemeToggle />
+      <AppThemeToggle />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { VsThemed, VsThemeProvider, VsThemeToggle } from "~/components/ui/visitors";
+import { AppThemed, AppThemeProvider, AppThemeToggle } from "~/components/ui/v2";
 import { AuthPanel } from "./-login/auth-panel";
 import { ShowcasePanel } from "./-login/showcase-panel";
 
@@ -18,16 +18,16 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   return (
-    <VsThemeProvider>
-      <VsThemed className="relative min-h-dvh bg-vs-background-subtle">
+    <AppThemeProvider>
+      <AppThemed className="relative min-h-dvh bg-app-background-subtle">
         <div className="absolute top-3 right-3 z-50">
-          <VsThemeToggle />
+          <AppThemeToggle />
         </div>
         <div className="grid min-h-dvh lg:grid-cols-2">
           <AuthPanel />
           <ShowcasePanel />
         </div>
-      </VsThemed>
-    </VsThemeProvider>
+      </AppThemed>
+    </AppThemeProvider>
   );
 }

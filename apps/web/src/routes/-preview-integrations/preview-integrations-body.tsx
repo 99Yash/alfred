@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { VsInput } from "~/components/ui/visitors";
+import { AppInput } from "~/components/ui/v2";
 import { useResolvedIntegrations } from "~/hooks/use-integration-status";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import { FeaturedHero } from "./featured-hero";
@@ -46,24 +46,24 @@ export function PreviewIntegrationsBody() {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto">
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <header className="text-center space-y-3 max-w-2xl mx-auto vs-card-in">
-          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-vs-fg-4">
+        <header className="text-center space-y-3 max-w-2xl mx-auto app-card-in">
+          <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-app-fg-4">
             Integrations
           </h1>
-          <p className="text-sm text-vs-fg-3">
+          <p className="text-sm text-app-fg-3">
             Connect the tools Alfred can read, write, and act on.
           </p>
         </header>
 
         <FeaturedHero brands={connectedBrands} />
 
-        <div className="flex justify-center mt-8 vs-card-in" style={{ animationDelay: "120ms" }}>
+        <div className="flex justify-center mt-8 app-card-in" style={{ animationDelay: "120ms" }}>
           <div className="relative w-full max-w-[640px]">
             <Search
               size={14}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-vs-fg-2 pointer-events-none hidden md:block"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-app-fg-2 pointer-events-none hidden md:block"
             />
-            <VsInput
+            <AppInput
               placeholder="Search for integration"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -79,15 +79,15 @@ export function PreviewIntegrationsBody() {
           ))}
           {mcpVisible ? <MCPServerSection /> : null}
           {empty ? (
-            <p className="text-center text-sm text-vs-fg-3">
+            <p className="text-center text-sm text-app-fg-3">
               No integrations match &ldquo;{query}&rdquo;.
             </p>
           ) : null}
         </div>
 
-        <footer className="mt-16 flex items-center justify-center text-xs text-vs-fg-2 gap-2">
+        <footer className="mt-16 flex items-center justify-center text-xs text-app-fg-2 gap-2">
           <span>Comparing against</span>
-          <Link to="/integrations" className="font-medium text-vs-fg-3 hover:text-vs-fg-4">
+          <Link to="/integrations" className="font-medium text-app-fg-3 hover:text-app-fg-4">
             /integrations
           </Link>
         </footer>

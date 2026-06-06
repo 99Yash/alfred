@@ -92,10 +92,10 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
 ];
 
 export const TINT_TILE: Record<BackgroundAgentDef["tint"], string> = {
-  purple: "bg-vs-purple-1 text-vs-purple-4",
-  amber: "bg-vs-amber-1 text-vs-amber-4",
-  sky: "bg-vs-sky-1 text-vs-sky-4",
-  green: "bg-vs-green-1 text-vs-green-4",
-  pink: "bg-vs-pink-1 text-vs-pink-4",
-  orange: "bg-vs-orange-1 text-vs-orange-4",
+  purple: "bg-app-purple-1 text-app-purple-4",
+  amber: "bg-app-amber-1 text-app-amber-4",
+  sky: "bg-app-sky-1 text-app-sky-4",
+  green: "bg-app-green-1 text-app-green-4",
+  pink: "bg-app-pink-1 text-app-pink-4",
+  orange: "bg-app-orange-1 text-app-orange-4",
 };
