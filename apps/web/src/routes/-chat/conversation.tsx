@@ -6,6 +6,13 @@ import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { ToolCallCard } from "./tool-call-card";
 
+export function shouldShowStream(
+  messages: readonly SyncedChatMessage[],
+  stream: StreamingMessage | null,
+): stream is StreamingMessage {
+  return stream !== null && !messages.some((m) => m.id === stream.messageId);
+}
+
 /**
  * Scrollable message feed. Renders the synced (durable) messages, then — if a
  * turn is mid-flight and its durable copy hasn't synced yet — the live
@@ -22,8 +29,7 @@ export function Conversation({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
-  const syncedIds = new Set(messages.map((m) => m.id));
-  const showStream = stream !== null && !syncedIds.has(stream.messageId);
+  const showStream = shouldShowStream(messages, stream);
 
   // Track whether the user is parked at the bottom; only auto-scroll if so.
   const onScroll = () => {

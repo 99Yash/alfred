@@ -26,7 +26,7 @@ import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import type { SyncedTodo } from "@alfred/sync";
-import { Conversation } from "./conversation";
+import { Conversation, shouldShowStream } from "./conversation";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
@@ -115,8 +115,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   useRunComplete(stream);
   const send = useSendMessage();
   const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
-  const isStreaming = stream !== null && !stream.done;
-  const hasConversation = messages.length > 0 || stream !== null;
+  const showStream = shouldShowStream(messages, stream);
+  const isStreaming = showStream && !stream.done;
+  const hasConversation = messages.length > 0 || showStream;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col">
