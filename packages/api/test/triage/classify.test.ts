@@ -97,8 +97,24 @@ describe("applyOverrideFloor", () => {
   test("does not double-force when the model already said urgent", () => {
     const c = classification({ category: "urgent" });
     const r = applyOverrideFloor(c, "secret token exposed");
+    assert.equal(r.matched, true);
     assert.equal(r.forced, false);
     assert.deepEqual(r.classification, c);
+  });
+
+  test("trips on found/detected secret-alert wording in either order", () => {
+    const cases = [
+      "GitHub detected a secret in this repository",
+      "we found an API key in your repo",
+      "token found in repository history",
+      "a private key was detected by secret scanning",
+    ];
+    for (const text of cases) {
+      const r = applyOverrideFloor(classification({ category: "fyi" }), text);
+      assert.equal(r.matched, true, text);
+      assert.equal(r.forced, true, text);
+      assert.equal(r.classification.category, "urgent", text);
+    }
   });
 
   test("does NOT trip on generic 'credential ... exposed' engineering prose", () => {
@@ -281,6 +297,7 @@ describe("classifyEmail", () => {
     assert.equal(model.calls(), 2);
     assert.equal(result.audit.conflict?.kind, "under_classification");
     assert.equal(result.audit.secondPass?.category, "action_needed");
+    assert.equal(result.audit.secondPassFailure, null);
     assert.equal(result.classification.category, "action_needed");
     assert.match(result.model, /\+2pass$/);
   });
@@ -298,6 +315,8 @@ describe("classifyEmail", () => {
     assert.equal(model.calls(), 1);
     assert.equal(result.audit.conflict, null);
     assert.equal(result.audit.secondPass, null);
+    assert.equal(result.audit.secondPassFailure, null);
+    assert.equal(result.audit.floorMatched, false);
     assert.equal(result.audit.floorForced, false);
     assert.equal(result.classification.category, "newsletter");
     assert.equal(result.model, "injected");
@@ -305,7 +324,11 @@ describe("classifyEmail", () => {
 
   test("todoSuggestion rides the final classification through the floor", async () => {
     const model = scriptedModel(
-      classification({ category: "action_needed", todoSuggestion: { name: "Rotate the key" } }),
+      classification({
+        category: "action_needed",
+        todoSuggestion: { name: "Rotate the key" },
+        todoDecision: { outcome: "proposed" },
+      }),
     );
     const result = await classifyEmail(args({ runPass: model.runPass }));
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the key" });
@@ -320,6 +343,7 @@ describe("classifyEmail", () => {
         category: "action_needed",
         confidence: 0.6,
         todoSuggestion: { name: "Rotate the leaked Redis key" },
+        todoDecision: { outcome: "proposed" },
       }),
     );
     const result = await classifyEmail(
@@ -370,10 +394,11 @@ describe("classifyEmail", () => {
     assert.match(result.model, /\+2pass$/);
   });
 
-  test("a failing second pass falls back to the FIRST pass, not the default category", async () => {
+  test("a failing under-classification second pass records the failure and escalates conservatively", async () => {
     // Regression guard: a transient failure on the optional second pass must not
     // propagate (the workflow would force the message to the default `fyi`,
-    // de-escalating it). The valid first pass is kept instead.
+    // de-escalating it). Under-classification is the safety-critical direction,
+    // so a passive first pass is not preserved either.
     let calls = 0;
     const runPass: RunPass = async ({ pass }) => {
       calls++;
@@ -390,9 +415,38 @@ describe("classifyEmail", () => {
     );
     assert.equal(calls, 2); // conflict fired, second pass attempted
     assert.equal(result.audit.conflict?.kind, "under_classification");
-    assert.equal(result.audit.secondPass, null); // failed pass not recorded
-    assert.equal(result.classification.category, "newsletter"); // first pass preserved
-    assert.equal(result.model, "injected"); // no +2pass suffix on a failed pass
+    assert.equal(result.audit.secondPass, null);
+    assert.match(result.audit.secondPassFailure?.message ?? "", /transient second-pass failure/);
+    assert.equal(result.classification.category, "action_needed");
+    assert.match(result.classification.rationale, /conservatively escalated/i);
+    assert.equal(result.model, "injected+2pass_failed");
+  });
+
+  test("a failing over-classification second pass keeps the first pass but records the failure", async () => {
+    let calls = 0;
+    const runPass: RunPass = async ({ pass }) => {
+      calls++;
+      if (pass === "second") throw new Error("temporary outage");
+      return classification({ category: "urgent", confidence: 0.7 });
+    };
+    const result = await classifyEmail(
+      args({
+        observations: observations({
+          senderPrior: {
+            key: "news@x.com",
+            categoryCounts: { newsletter: 40 },
+            lastCategory: "newsletter",
+          },
+        }),
+        runPass,
+      }),
+    );
+    assert.equal(calls, 2);
+    assert.equal(result.audit.conflict?.kind, "over_classification");
+    assert.equal(result.audit.secondPass, null);
+    assert.match(result.audit.secondPassFailure?.message ?? "", /temporary outage/);
+    assert.equal(result.classification.category, "urgent");
+    assert.equal(result.model, "injected+2pass_failed");
   });
 });
 
@@ -404,17 +458,18 @@ describe("classifyEmail", () => {
 // ---------------------------------------------------------------------------
 
 describe("triageClassificationSchema.todoSuggestion", () => {
-  function parseTodo(todoSuggestion: unknown) {
+  function parseTodo(todoSuggestion: unknown, todoDecision: unknown = { outcome: "proposed" }) {
     return triageClassificationSchema.safeParse({
       category: "action_needed",
       confidence: 0.8,
       rationale: "x",
       todoSuggestion,
+      todoDecision,
     });
   }
 
   test("accepts null", () => {
-    assert.equal(parseTodo(null).success, true);
+    assert.equal(parseTodo(null, { outcome: "no_obligation" }).success, true);
   });
 
   test("accepts { name } with no assist", () => {
@@ -436,6 +491,23 @@ describe("triageClassificationSchema.todoSuggestion", () => {
     assert.equal(r.success, true);
   });
 
+  test("rejects a suggestion when todoDecision is missing or not proposed", () => {
+    assert.equal(
+      triageClassificationSchema.safeParse({
+        category: "action_needed",
+        confidence: 0.9,
+        rationale: "x",
+        todoSuggestion: { name: "Reply to Priya" },
+      }).success,
+      false,
+    );
+    assert.equal(parseTodo({ name: "Reply to Priya" }, { outcome: "too_vague" }).success, false);
+  });
+
+  test("rejects proposed todoDecision without a suggestion", () => {
+    assert.equal(parseTodo(null, { outcome: "proposed" }).success, false);
+  });
+
   test("rejects an empty name", () => {
     assert.equal(parseTodo({ name: "" }).success, false);
   });
@@ -454,7 +526,11 @@ describe("resolveTodoSuggestion", () => {
 
   test("acceptance: an action_needed message with a concrete ask passes the suggestion through", () => {
     const resolved = resolveTodoSuggestion(
-      classification({ category: "action_needed", todoSuggestion: suggestion }),
+      classification({
+        category: "action_needed",
+        todoSuggestion: suggestion,
+        todoDecision: { outcome: "proposed" },
+      }),
     );
     assert.deepEqual(resolved, suggestion);
   });
@@ -462,20 +538,56 @@ describe("resolveTodoSuggestion", () => {
   test("urgent with a concrete ask passes through", () => {
     assert.deepEqual(
       resolveTodoSuggestion(
-        classification({ category: "urgent", todoSuggestion: { name: "Rotate the Redis key" } }),
+        classification({
+          category: "urgent",
+          todoSuggestion: { name: "Rotate the Redis key" },
+          todoDecision: { outcome: "proposed" },
+        }),
       ),
       { name: "Rotate the Redis key" },
     );
   });
 
-  for (const category of ["marketing", "newsletter", "fyi", "done"] as const) {
-    test(`acceptance: ${category} suppresses a stray suggestion the model emitted anyway`, () => {
+  // Floor (ADR-0050 amendment 2026-06-06) = {marketing, newsletter} only: a
+  // genuine obligation on a broadcast bucket is misclassification leaking
+  // through, so suppress it as a consistency guard.
+  for (const category of ["marketing", "newsletter"] as const) {
+    test(`floor: ${category} suppresses a stray suggestion the model emitted anyway`, () => {
       assert.equal(
-        resolveTodoSuggestion(classification({ category, todoSuggestion: suggestion })),
+        resolveTodoSuggestion(
+          classification({ category, todoSuggestion: suggestion, todoDecision: { outcome: "proposed" } }),
+        ),
         null,
       );
     });
   }
+
+  // fyi/done are NO LONGER floored — the rubric (rule 16) owns them, since an
+  // fyi can carry a real obligation and a done closure can end with a real ask.
+  // When the model proposes on one (rubric passed), the suggestion goes through.
+  for (const category of ["fyi", "done"] as const) {
+    test(`rubric-owned: ${category} passes a suggestion the model proposed (no longer floored)`, () => {
+      assert.deepEqual(
+        resolveTodoSuggestion(
+          classification({ category, todoSuggestion: suggestion, todoDecision: { outcome: "proposed" } }),
+        ),
+        suggestion,
+      );
+    });
+  }
+
+  test("null when todoDecision does not confirm the proposal", () => {
+    assert.equal(
+      resolveTodoSuggestion(
+        classification({
+          category: "action_needed",
+          todoSuggestion: suggestion,
+          todoDecision: { outcome: "too_vague" },
+        }),
+      ),
+      null,
+    );
+  });
 
   test("null when the model proposed no todo (eligible category)", () => {
     assert.equal(

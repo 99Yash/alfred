@@ -116,9 +116,11 @@ export interface UpsertTriageResult {
  * (different `documentId`, older `authoredAt`), is a no-op and returns the
  * stored row with `written: false`.
  *
- * `appliedLabelId` is left untouched if the caller doesn't pass it — that lets
- * the classify step write the row before knowing the Gmail label and the
- * label-write step update just the `appliedLabelId` column.
+ * `appliedLabelId` is set exactly to the caller's value when provided; otherwise
+ * an auto rewrite clears it to `null`. The label-write step sets the fresh Gmail
+ * id after `reconcileThreadLabel` succeeds. This keeps the column a truthful
+ * "current row has been reconciled" marker instead of carrying an old label id
+ * across a category/document change.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriageResult> {
   return withTriageThreadLock(args.userId, args.sourceThreadId, async () => {
@@ -166,12 +168,10 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       runId: args.runId,
       source: "auto",
       overriddenAt: null,
+      appliedLabelId: args.appliedLabelId ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
     };
-    if (args.appliedLabelId !== undefined) {
-      updateSet.appliedLabelId = args.appliedLabelId;
-    }
 
     const result = await db()
       .insert(emailTriage)

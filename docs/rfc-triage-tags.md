@@ -1,6 +1,6 @@
 # RFC — Triage tags as a Replicache-native, user-overridable surface
 
-**Status:** Implemented v1 (Replicache read model + override mutator + async Gmail relabel)
+**Status:** Implemented v1 (Replicache read model + web hook/chip menu + override mutator + async Gmail relabel)
 **Surface:** "Tags" = the per-thread `email_triage.category` label, surfaced to the web client over Replicache so the user can **read it live** and **override it**. Replicache-native; no new HTTP routes.
 **Relates to:** ADR-0025 #1 (triage), ADR-0050/0051 (todos, triage v3), ADR-0034 (Replicache sync model).
 
@@ -40,7 +40,7 @@ A **triage tag** is the single alfred category currently on a Gmail thread. It a
 3. **An `auto` tag carries classifier provenance** (`confidence ∈ [0,1]`, `rationale`, `classifiedAt`). A `user` tag does **not** — its confidence is meaningless and must never render. → discriminated union on `source` (Phase 3).
 4. **`overridden_at` is set iff `source = 'user'`.** A NULL `overridden_at` on a `user` row, or a non-NULL one on an `auto` row, is illegal. → encoded in the union; the DB column is nullable but the serializer refuses the contradiction.
 5. **A user override is sticky.** Once `source = 'user'`, the classifier must not silently overwrite `category`. (Policy choice — see Open Question 1; the _contract_ is stable regardless of which sticky-policy we pick.)
-6. **`applied_label_id` reflects Gmail.** It is reconciled by exactly one code path (`reconcileThreadLabel`) under the per-thread advisory lock, whether the writer is the classifier or a user override. No second label-writer.
+6. **`applied_label_id` reflects Gmail.** It is reconciled by exactly one code path (`reconcileThreadLabel`) under the per-thread advisory lock, whether the writer is the classifier or a user override. A fresh classifier rewrite or user override clears it to `NULL` until that shared writer confirms the new Gmail label. No second label-writer.
 
 ### Domain failure modes
 

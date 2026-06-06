@@ -45,9 +45,9 @@ export const emailTriage = pgTable(
     /** Model identifier (`gemini-2.5-flash`, `claude-haiku-4-5`, …). */
     model: text("model").notNull(),
     /**
-     * Gmail label id currently applied to the latest message in this
-     * thread ({@link emailTriage.category} → label id). Stored so the
-     * label-write step knows what to remove on re-classification.
+     * Gmail label id last confirmed by the shared relabel writer for the current
+     * row. Null means the DB category may be newer than Gmail and still needs
+     * reconciliation; relabel strips all Alfred-owned labels before applying one.
      */
     appliedLabelId: text("applied_label_id"),
     /** Soft pointer to the latest classified `documents.id`. No FK. */

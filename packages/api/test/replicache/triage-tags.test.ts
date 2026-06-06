@@ -86,7 +86,7 @@ describe("triageTagOverrideClient", () => {
     assert.equal(value.category, "urgent");
     assert.equal(value.rowVersion, autoTag.rowVersion + 1);
     assert.equal(value.documentId, autoTag.documentId);
-    assert.equal(value.appliedLabelId, autoTag.appliedLabelId);
+    assert.equal(value.appliedLabelId, null);
     assert.equal("confidence" in value, false);
     assert.equal("rationale" in value, false);
     assert.equal("classifiedAt" in value, false);
@@ -118,12 +118,14 @@ describe("serverMutators.triageTagOverride", () => {
       category?: unknown;
       source?: unknown;
       overriddenAt?: unknown;
+      appliedLabelId?: unknown;
       updatedAt?: unknown;
       rowVersion?: unknown;
     };
     assert.equal(set.category, "action_needed");
     assert.equal(set.source, "user");
     assert.ok(set.overriddenAt instanceof Date);
+    assert.equal(set.appliedLabelId, null);
     assert.equal(set.updatedAt, set.overriddenAt);
     assert.ok(set.rowVersion);
     assert.equal(whereCalled, true);
