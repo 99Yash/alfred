@@ -9,8 +9,8 @@ export function TriggerSummary({ workflow }: { workflow: WorkflowDefinition }) {
         <Zap size={16} />
       </WorkflowIcon>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-vs-fg-4">{workflow.trigger.type} trigger</p>
-        <p className="mt-1 text-xs leading-5 text-vs-fg-3">{workflow.trigger.summary}</p>
+        <p className="text-sm font-medium text-app-fg-4">{workflow.trigger.type} trigger</p>
+        <p className="mt-1 text-xs leading-5 text-app-fg-3">{workflow.trigger.summary}</p>
       </div>
     </div>
   );

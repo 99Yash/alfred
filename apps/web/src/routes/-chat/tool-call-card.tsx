@@ -29,7 +29,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const expandable = !running && Boolean(tool.resultPreview);
 
   return (
-    <div className="animate-chat-in rounded-xl border border-vs-fg-a1/50 bg-vs-bg-2/60 text-[13px]">
+    <div className="animate-chat-in rounded-xl border border-app-fg-a1/50 bg-app-bg-2/60 text-[13px]">
       <button
         type="button"
         disabled={!expandable}
@@ -38,15 +38,15 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         onClick={() => expandable && setOpen((v) => !v)}
         className={cn(
           "flex w-full items-center gap-2 px-3 py-2 text-left",
-          expandable && "cursor-pointer rounded-xl hover:bg-vs-bg-a2",
+          expandable && "cursor-pointer rounded-xl hover:bg-app-bg-a2",
         )}
       >
         <span
           className={cn(
             "inline-flex size-5 shrink-0 items-center justify-center rounded-md",
-            running && "bg-vs-purple-2/15 text-vs-purple-4",
-            !running && !failed && "bg-vs-green-2/15 text-vs-green-4",
-            failed && "bg-vs-red-2/15 text-vs-red-4",
+            running && "bg-app-purple-2/15 text-app-purple-4",
+            !running && !failed && "bg-app-green-2/15 text-app-green-4",
+            failed && "bg-app-red-2/15 text-app-red-4",
           )}
         >
           {running ? (
@@ -57,17 +57,17 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
             <Check size={12} />
           )}
         </span>
-        <Wrench size={12} className="shrink-0 text-vs-fg-3" />
+        <Wrench size={12} className="shrink-0 text-app-fg-3" />
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            running ? "animate-chat-shimmer text-vs-fg-3" : "text-vs-fg-4",
+            running ? "animate-chat-shimmer text-app-fg-3" : "text-app-fg-4",
           )}
         >
           {running ? `Running ${label}…` : failed ? `${label} failed` : label}
         </span>
         {tool.argsPreview ? (
-          <span className="hidden max-w-[40%] truncate text-vs-fg-3 sm:inline">
+          <span className="hidden max-w-[40%] truncate text-app-fg-3 sm:inline">
             {tool.argsPreview}
           </span>
         ) : null}
@@ -76,7 +76,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         <pre
           id={panelId}
           hidden={!open}
-          className="animate-chat-in overflow-x-auto border-t border-vs-fg-a1/40 px-3 py-2 text-[12px] text-vs-fg-3"
+          className="animate-chat-in overflow-x-auto border-t border-app-fg-a1/40 px-3 py-2 text-[12px] text-app-fg-3"
         >
           {tool.resultPreview}
         </pre>

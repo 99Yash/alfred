@@ -155,7 +155,7 @@ export function MicWaveform({
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       preserveAspectRatio="none"
       aria-hidden
-      className={cn("w-full h-full text-vs-purple-3")}
+      className={cn("w-full h-full text-app-purple-3")}
     >
       {/* Echo line — a wider, faded copy of the same path drawn first so it
        * sits behind the sharp line and reads as a soft bloom around it. */}

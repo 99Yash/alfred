@@ -3,7 +3,7 @@ import { pageMeta } from "~/lib/page-meta";
 import { PreviewMemoryPage } from "./-preview-memory/preview-memory-page";
 
 /**
- * Visitors-now-grammar port of /memory.
+ * App-grammar port of /memory.
  *
  * Two sections (Proposed / Confirmed) over fixture facts. Replicache
  * subscribe + factConfirm/Reject/Edit are stubbed — actions mutate

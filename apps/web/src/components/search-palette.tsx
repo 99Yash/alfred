@@ -255,26 +255,26 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
         // overlay so the backdrop button covers the viewport.
         "fixed inset-0 z-[60] m-0 max-w-none max-h-none w-full h-full",
         "bg-transparent text-inherit border-0 p-0",
-        "flex items-start justify-center pt-[12vh] vs-fade-in",
+        "flex items-start justify-center pt-[12vh] app-fade-in",
       )}
     >
       <button
         type="button"
         aria-label="Close search"
         onClick={onClose}
-        className="absolute inset-0 bg-vs-background/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-app-background/55 backdrop-blur-[2px]"
       />
 
       <div
         className={cn(
           "relative w-full max-w-[640px] mx-4",
-          "rounded-2xl bg-vs-bg-1 ring-1 ring-vs-bg-3/80",
+          "rounded-2xl bg-app-bg-1 ring-1 ring-app-bg-3/80",
           "shadow-[0_30px_80px_rgba(0,0,0,0.32)]",
           "overflow-hidden",
         )}
       >
-        <div className="flex items-center gap-2.5 px-4 h-12 border-b border-vs-bg-3/60">
-          <Search size={15} className="text-vs-fg-2 shrink-0" aria-hidden />
+        <div className="flex items-center gap-2.5 px-4 h-12 border-b border-app-bg-3/60">
+          <Search size={15} className="text-app-fg-2 shrink-0" aria-hidden />
           <input
             ref={inputRef}
             value={query}
@@ -285,7 +285,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
             onKeyDown={onKeyDown}
             placeholder="Search chats and actions…"
             className={cn(
-              "flex-1 min-w-0 bg-transparent text-sm text-vs-fg-4 placeholder:text-vs-fg-2",
+              "flex-1 min-w-0 bg-transparent text-sm text-app-fg-4 placeholder:text-app-fg-2",
               "outline-none focus-visible:outline-none",
             )}
             aria-label="Search query"
@@ -294,7 +294,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
             className={cn(
               "shrink-0 inline-flex items-center justify-center h-[18px] px-1.5 rounded-md",
               "text-[10.5px] font-medium tabular-nums",
-              "bg-vs-bg-a2 text-vs-fg-2 font-sans",
+              "bg-app-bg-a2 text-app-fg-2 font-sans",
             )}
           >
             ESC
@@ -303,7 +303,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
         <div ref={listRef} className="max-h-[52vh] overflow-y-auto pb-2">
           {visualOrder.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-vs-fg-2">No matches.</div>
+            <div className="px-4 py-12 text-center text-sm text-app-fg-2">No matches.</div>
           ) : (
             <>
               {grouped.commands.length ? (
@@ -342,10 +342,10 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
         <div
           className={cn(
             "flex items-center justify-between gap-3 px-4 h-10",
-            "border-t border-vs-bg-3/60 bg-vs-bg-1/60",
+            "border-t border-app-bg-3/60 bg-app-bg-1/60",
           )}
         >
-          <div className="flex items-center gap-3 text-[11px] text-vs-fg-2">
+          <div className="flex items-center gap-3 text-[11px] text-app-fg-2">
             <span className="inline-flex items-center gap-1.5">
               <FootKbd>↑</FootKbd>
               <FootKbd>↓</FootKbd>
@@ -358,7 +358,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
               <span>Select</span>
             </span>
           </div>
-          <span className="text-[11px] text-vs-fg-2">
+          <span className="text-[11px] text-app-fg-2">
             {visualOrder.length} result{visualOrder.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -370,7 +370,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="pt-1">
-      <div className="px-3 pt-2 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-vs-fg-2">
+      <div className="px-3 pt-2 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
         {label}
       </div>
       <div className="space-y-0.5 px-1.5">{children}</div>
@@ -401,26 +401,26 @@ function PaletteRow({
         "group w-full flex items-center gap-3 rounded-xl h-10 px-2.5",
         "transition-colors",
         "outline-none",
-        active ? "bg-vs-bg-2 text-vs-fg-4" : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
+        active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       <span
         aria-hidden
         className={cn(
           "size-7 shrink-0 inline-flex items-center justify-center rounded-lg",
-          "bg-vs-bg-2 text-vs-fg-3",
-          active && "bg-vs-purple-1 text-vs-purple-4",
+          "bg-app-bg-2 text-app-fg-3",
+          active && "bg-app-purple-1 text-app-purple-4",
         )}
       >
         <Icon size={13} />
       </span>
       <span className="flex-1 min-w-0 text-left">
-        <span className="block text-sm font-medium text-vs-fg-4 truncate">{item.label}</span>
+        <span className="block text-sm font-medium text-app-fg-4 truncate">{item.label}</span>
         {item.hint ? (
-          <span className="block text-[11px] text-vs-fg-2 truncate">{item.hint}</span>
+          <span className="block text-[11px] text-app-fg-2 truncate">{item.hint}</span>
         ) : null}
       </span>
-      {active ? <CornerDownLeft size={12} aria-hidden className="shrink-0 text-vs-fg-2" /> : null}
+      {active ? <CornerDownLeft size={12} aria-hidden className="shrink-0 text-app-fg-2" /> : null}
     </button>
   );
 }
@@ -431,7 +431,7 @@ function FootKbd({ children }: { children: ReactNode }) {
       className={cn(
         "inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded",
         "text-[10px] leading-none font-medium tabular-nums",
-        "bg-vs-bg-a2 text-vs-fg-3 font-sans",
+        "bg-app-bg-a2 text-app-fg-3 font-sans",
       )}
     >
       {children}

@@ -2,7 +2,7 @@ import type { LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import type { IntegrationProvider } from "~/lib/integrations";
-import { VsButton, VsCard, VsSegmented, type VsSegmentedItem } from "~/components/ui/visitors";
+import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
 
 const PROVIDER_TO_SLUG: Readonly<Record<string, LoadableIntegrationSlug>> = {
@@ -17,7 +17,7 @@ const PROVIDER_TO_SLUG: Readonly<Record<string, LoadableIntegrationSlug>> = {
   linear: "linear",
 };
 
-const MODE_ITEMS: ReadonlyArray<VsSegmentedItem<PolicyMode>> = [
+const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
   { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} aria-hidden /> },
   { value: "gated", label: "Gated", icon: <ShieldCheck size={13} aria-hidden /> },
 ];
@@ -34,21 +34,21 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
 
   if (error) {
     return (
-      <section className="space-y-3 vs-card-in" style={{ animationDelay: "150ms" }}>
+      <section className="space-y-3 app-card-in" style={{ animationDelay: "150ms" }}>
         <SectionHeading>Approval policy</SectionHeading>
-        <VsCard>
+        <AppCard>
           <div
             className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
             role="alert"
           >
             <div className="flex min-w-0 gap-2.5">
-              <AlertCircle size={16} className="mt-0.5 shrink-0 text-vs-red-4" aria-hidden />
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-app-red-4" aria-hidden />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-vs-fg-4">Policy unavailable</p>
-                <p className="mt-1 text-xs leading-5 text-vs-fg-3">{error}</p>
+                <p className="text-sm font-medium text-app-fg-4">Policy unavailable</p>
+                <p className="mt-1 text-xs leading-5 text-app-fg-3">{error}</p>
               </div>
             </div>
-            <VsButton
+            <AppButton
               size="sm"
               variant="ghost"
               leading={<RefreshCw size={13} aria-hidden />}
@@ -56,30 +56,30 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
               className="shrink-0"
             >
               Retry
-            </VsButton>
+            </AppButton>
           </div>
-        </VsCard>
+        </AppCard>
       </section>
     );
   }
 
   return (
-    <section className="space-y-3 vs-card-in" style={{ animationDelay: "150ms" }}>
+    <section className="space-y-3 app-card-in" style={{ animationDelay: "150ms" }}>
       <SectionHeading>Approval policy</SectionHeading>
 
-      <VsCard className="space-y-3">
+      <AppCard className="space-y-3">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-vs-fg-4">
+            <p className="text-sm font-medium text-app-fg-4">
               {mode === "autonomy" ? "Full autonomy" : "Gated"}
             </p>
-            <p className="mt-1 text-xs leading-5 text-vs-fg-3">
+            <p className="mt-1 text-xs leading-5 text-app-fg-3">
               {mode === "autonomy"
                 ? `Alfred acts on ${provider.name} without pausing for approval.`
                 : `Alfred pauses for your approval before any action on ${provider.name}, including reading messages beyond a short preview.`}
             </p>
           </div>
-          <VsSegmented<PolicyMode>
+          <AppSegmented<PolicyMode>
             label={`${provider.name} approval policy`}
             value={mode}
             items={MODE_ITEMS}
@@ -91,7 +91,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
             className={loading ? "opacity-60" : undefined}
           />
         </div>
-      </VsCard>
+      </AppCard>
     </section>
   );
 }

@@ -1,11 +1,11 @@
 /**
- * Visitors-now-grammar Button primitive.
+ * App-grammar Button primitive.
  *
  * Recipe pulled from archive/visitors-now/design-notes.md §"Button".
  * The visual identity is in three places:
- *   1. `vs-elevated` — two-shadow stack (1px drop + 0-blur hairline).
- *   2. `vs-press`    — active:scale-99 microinteraction.
- *   3. `focus-visible:ring-2 ring-vs-purple-2 ring-offset-4` — soft purple halo.
+ *   1. `app-elevated` — two-shadow stack (1px drop + 0-blur hairline).
+ *   2. `app-press`    — active:scale-99 microinteraction.
+ *   3. `focus-visible:ring-2 ring-app-purple-2 ring-offset-4` — soft purple halo.
  *
  * No gradients, no border property, no glow. The shadow does everything.
  * Variants change fill + text color only.
@@ -14,24 +14,24 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export type VsButtonVariant =
+export type AppButtonVariant =
   | "primary" /* solid purple-4 — the brand CTA */
   | "white" /* elevated white pill — the default visitors.now button */
   | "ghost" /* transparent until hover, then bg-a2 */
   | "destructive"; /* solid red-4 */
 
-export type VsButtonSize = "sm" | "md" | "lg";
+export type AppButtonSize = "sm" | "md" | "lg";
 
-interface VsButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: VsButtonVariant;
-  size?: VsButtonSize;
+interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: AppButtonVariant;
+  size?: AppButtonSize;
   leading?: ReactNode;
   trailing?: ReactNode;
   loading?: boolean;
   ref?: Ref<HTMLButtonElement>;
 }
 
-const SIZE: Record<VsButtonSize, string> = {
+const SIZE: Record<AppButtonSize, string> = {
   sm: "h-7 px-2.5 text-[13px] gap-1.5",
   md: "h-8 px-2.5 text-sm gap-2",
   lg: "h-9 px-3 text-sm gap-2",
@@ -48,36 +48,36 @@ const SIZE: Record<VsButtonSize, string> = {
  * - ghost: invisible at rest.
  * - destructive: same recipe as primary on the red-4 token.
  */
-const VARIANT: Record<VsButtonVariant, string> = {
+const VARIANT: Record<AppButtonVariant, string> = {
   primary: cn(
-    "text-[var(--vs-accent-fg)]",
-    /* fill resolves through --vs-cta-bg which is theme-aware:
+    "text-[var(--app-accent-fg)]",
+    /* fill resolves through --app-cta-bg which is theme-aware:
      * light = saturated brand gradient, dark = dimension-style ink chip
      * with a faint accent-tinted top. */
-    "bg-[image:var(--vs-cta-bg)]",
-    /* shadow resolves through --vs-button-primary-shadow which is theme-aware:
+    "bg-[image:var(--app-cta-bg)]",
+    /* shadow resolves through --app-button-primary-shadow which is theme-aware:
      * light mode adds an accent-tinted bloom; dark mode drops it and uses
      * an inset top/bottom bevel + a tight black drop for the "embedded" feel. */
-    "shadow-[var(--vs-button-primary-shadow)]",
+    "shadow-[var(--app-button-primary-shadow)]",
     "hover:brightness-[1.06]",
-    "hover:shadow-[var(--vs-button-primary-shadow-hover)]",
+    "hover:shadow-[var(--app-button-primary-shadow-hover)]",
     "active:brightness-[0.96]",
     "disabled:cursor-not-allowed disabled:opacity-[0.85]",
-    "disabled:hover:brightness-100 disabled:hover:shadow-[var(--vs-button-primary-shadow)]",
+    "disabled:hover:brightness-100 disabled:hover:shadow-[var(--app-button-primary-shadow)]",
   ),
   white: cn(
-    "bg-vs-fg-4 text-vs-bg-1",
+    "bg-app-fg-4 text-app-bg-1",
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.10)]",
     "hover:brightness-[1.05] active:brightness-[0.95]",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ),
   ghost: cn(
-    "bg-transparent text-vs-fg-4",
-    "hover:bg-vs-bg-a2",
+    "bg-transparent text-app-fg-4",
+    "hover:bg-app-bg-a2",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ),
   destructive: cn(
-    "bg-vs-red-4 text-white",
+    "bg-app-red-4 text-white",
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
     "hover:brightness-[1.05]",
     "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_rgba(255,47,0,0.42)]",
@@ -86,7 +86,7 @@ const VARIANT: Record<VsButtonVariant, string> = {
   ),
 };
 
-export function VsButton({
+export function AppButton({
   className,
   variant = "white",
   size = "md",
@@ -98,7 +98,7 @@ export function VsButton({
   disabled,
   ref,
   ...rest
-}: VsButtonProps) {
+}: AppButtonProps) {
   return (
     <button
       ref={ref}
@@ -109,8 +109,8 @@ export function VsButton({
         "relative inline-flex items-center justify-center isolate",
         "rounded-xl font-medium whitespace-nowrap select-none",
         "transition-[filter,background-color,box-shadow,transform]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
-        "vs-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+        "app-press",
         SIZE[size],
         VARIANT[variant],
         className,

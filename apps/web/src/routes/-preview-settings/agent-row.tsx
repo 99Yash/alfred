@@ -1,4 +1,4 @@
-import { VsSwitch } from "~/components/ui/visitors";
+import { AppSwitch } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { TINT_TILE, type BackgroundAgentDef } from "./helpers";
 
@@ -25,11 +25,11 @@ export function AgentRow({
           <Icon size={14} />
         </span>
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-medium text-vs-fg-4">{agent.label}</p>
-          <p className="text-xs text-vs-fg-3 truncate">{agent.helper}</p>
+          <p className="text-sm font-medium text-app-fg-4">{agent.label}</p>
+          <p className="text-xs text-app-fg-3 truncate">{agent.helper}</p>
         </div>
       </div>
-      <VsSwitch checked={checked} onCheckedChange={onChange} />
+      <AppSwitch checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }

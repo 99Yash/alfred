@@ -6,12 +6,12 @@ import type { RailBriefingSummary } from "./rail-content";
 const CTA_CLASS = cn(
   "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",
   "text-left",
-  "text-[var(--vs-accent-fg)]",
-  "bg-[image:var(--vs-cta-bg)]",
-  "shadow-[var(--vs-button-primary-shadow)]",
-  "vs-press transition-[box-shadow,transform,filter]",
+  "text-[var(--app-accent-fg)]",
+  "bg-[image:var(--app-cta-bg)]",
+  "shadow-[var(--app-button-primary-shadow)]",
+  "app-press transition-[box-shadow,transform,filter]",
   "hover:brightness-[1.06]",
-  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
 );
 
 /**

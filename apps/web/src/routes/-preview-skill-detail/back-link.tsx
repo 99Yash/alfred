@@ -7,9 +7,9 @@ export function BackLink() {
     <Link
       to="/skills"
       className={cn(
-        "inline-flex items-center gap-1.5 text-xs text-vs-fg-3",
-        "transition-colors hover:text-vs-fg-4",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background rounded",
+        "inline-flex items-center gap-1.5 text-xs text-app-fg-3",
+        "transition-colors hover:text-app-fg-4",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background rounded",
       )}
     >
       <ArrowLeft size={12} /> All skills

@@ -1,16 +1,16 @@
 /**
- * `<VsThemeToggle>` — 3-state cycle: system → light → dark → system.
+ * `<AppThemeToggle>` — 3-state cycle: system → light → dark → system.
  *
  * Renders icon-only at h-8, suitable for a header corner. Icons are
  * inlined so the file stays a single-component module.
  */
 
 import { cn } from "~/lib/utils";
-import { useVsTheme, type VsThemeMode } from "./theme";
+import { useAppTheme, type AppThemeMode } from "./theme";
 
-export function VsThemeToggle({ className }: { className?: string }) {
-  const { mode, setMode } = useVsTheme();
-  const next: VsThemeMode = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
+export function AppThemeToggle({ className }: { className?: string }) {
+  const { mode, setMode } = useAppTheme();
+  const next: AppThemeMode = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
   const label =
     mode === "system" ? "Theme: system" : mode === "light" ? "Theme: light" : "Theme: dark";
 
@@ -21,10 +21,10 @@ export function VsThemeToggle({ className }: { className?: string }) {
       title={label}
       onClick={() => setMode(next)}
       className={cn(
-        "vs-press inline-flex items-center justify-center size-8 rounded-lg",
-        "bg-vs-bg-1 text-vs-fg-3 hover:text-vs-fg-4",
-        "shadow-[var(--vs-shadow-elevated)] hover:shadow-[var(--vs-shadow-elevated-hover)]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+        "app-press inline-flex items-center justify-center size-8 rounded-lg",
+        "bg-app-bg-1 text-app-fg-3 hover:text-app-fg-4",
+        "shadow-[var(--app-shadow-elevated)] hover:shadow-[var(--app-shadow-elevated-hover)]",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
         className,
       )}
     >

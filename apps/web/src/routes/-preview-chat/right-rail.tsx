@@ -37,7 +37,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
           tabIndex={open ? 0 : -1}
           onClick={onClose}
           className={cn(
-            "fixed inset-0 z-40 bg-vs-background/40 backdrop-blur-[2px]",
+            "fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]",
             "transition-opacity duration-200",
             open ? "opacity-100" : "opacity-0 pointer-events-none",
           )}
@@ -47,7 +47,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
           aria-hidden={!open}
           className={cn(
             "fixed top-0 right-0 bottom-0 z-50 w-[340px] max-w-[88vw]",
-            "border-l border-vs-bg-3/60 bg-transparent",
+            "border-l border-app-bg-3/60 bg-transparent",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
             "transition-transform duration-200 ease-out",
             "overflow-hidden",

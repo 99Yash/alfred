@@ -46,7 +46,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
     if (!focused) {
       callToast({
         message: "Alfred finished replying",
-        icon: createElement(Sparkles, { size: 14, className: "text-vs-purple-4" }),
+        icon: createElement(Sparkles, { size: 14, className: "text-app-purple-4" }),
       });
     }
   }, [stream?.done, stream?.messageId]);

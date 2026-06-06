@@ -14,22 +14,22 @@ import { cn } from "~/lib/utils";
 const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }> =
   {
     document: {
-      bg: "bg-vs-blue-1",
-      fg: "text-vs-blue-4",
-      ring: "ring-vs-blue-2",
+      bg: "bg-app-blue-1",
+      fg: "text-app-blue-4",
+      ring: "ring-app-blue-2",
       icon: FileText,
     },
-    pdf: { bg: "bg-vs-red-1", fg: "text-vs-red-4", ring: "ring-vs-red-2", icon: FileText },
+    pdf: { bg: "bg-app-red-1", fg: "text-app-red-4", ring: "ring-app-red-2", icon: FileText },
     presentation: {
-      bg: "bg-vs-amber-1",
-      fg: "text-vs-amber-4",
-      ring: "ring-vs-amber-2",
+      bg: "bg-app-amber-1",
+      fg: "text-app-amber-4",
+      ring: "ring-app-amber-2",
       icon: Presentation,
     },
     spreadsheet: {
-      bg: "bg-vs-green-1",
-      fg: "text-vs-green-4",
-      ring: "ring-vs-green-2",
+      bg: "bg-app-green-1",
+      fg: "text-app-green-4",
+      ring: "ring-app-green-2",
       icon: FileSpreadsheet,
     },
   };
@@ -42,15 +42,15 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
       to="/library/$artifact"
       params={{ artifact: artifact.id }}
       className={cn(
-        "group block overflow-hidden rounded-2xl bg-vs-bg-1 vs-card-in",
+        "group block overflow-hidden rounded-2xl bg-app-bg-1 app-card-in",
         "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
-        "transition-shadow vs-press",
+        "transition-shadow app-press",
         "hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.08)]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
       style={{ animationDelay: `${index * 60 + 160}ms` }}
     >
-      <div className="aspect-[4/3] bg-vs-bg-2/60 p-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
+      <div className="aspect-[4/3] bg-app-bg-2/60 p-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
         {artifact.pages[0]?.html ? (
           <ArtifactPageFrame
             html={artifact.pages[0].html}
@@ -60,18 +60,18 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
         ) : (
           <div
             className={cn(
-              "mx-auto flex h-full max-w-[210px] flex-col rounded-lg p-4 text-vs-fg-4",
+              "mx-auto flex h-full max-w-[210px] flex-col rounded-lg p-4 text-app-fg-4",
               "shadow-[0_4px_12px_rgba(0,0,0,0.10),0_0_0_1px_rgba(0,0,0,0.05)]",
-              "bg-vs-bg-1",
+              "bg-app-bg-1",
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-vs-fg-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-app-fg-2">
               {artifact.pages[0]?.kicker}
             </p>
-            <p className="mt-3 text-lg font-semibold leading-5 text-vs-fg-4">
+            <p className="mt-3 text-lg font-semibold leading-5 text-app-fg-4">
               {artifact.pages[0]?.title}
             </p>
-            <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-vs-fg-3">
+            <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-app-fg-3">
               {artifact.pages[0]?.body}
             </p>
           </div>
@@ -91,18 +91,18 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-vs-fg-4">{artifact.title}</p>
+            <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
             {artifact.favourite ? (
-              <Star size={12} aria-hidden className="shrink-0 fill-vs-amber-4 text-vs-amber-4" />
+              <Star size={12} aria-hidden className="shrink-0 fill-app-amber-4 text-app-amber-4" />
             ) : null}
           </div>
-          <p className="mt-0.5 truncate text-[12px] text-vs-fg-3">
+          <p className="mt-0.5 truncate text-[12px] text-app-fg-3">
             {artifact.typeLabel} · {artifact.updatedLabel}
           </p>
         </div>
         <span
           aria-hidden
-          className="grid size-8 shrink-0 place-items-center rounded-xl text-vs-fg-2 transition-colors group-hover:text-vs-fg-4"
+          className="grid size-8 shrink-0 place-items-center rounded-xl text-app-fg-2 transition-colors group-hover:text-app-fg-4"
         >
           <MoreHorizontal size={16} />
         </span>

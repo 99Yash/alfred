@@ -3,7 +3,7 @@ import { pageMeta } from "~/lib/page-meta";
 import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
 
 /**
- * Visitors-now-grammar port of /notes.
+ * App-grammar port of /notes.
  *
  * Composer at the top + reverse-chronological list. Replicache wiring is
  * intentionally stubbed — notes live in component state so the page can

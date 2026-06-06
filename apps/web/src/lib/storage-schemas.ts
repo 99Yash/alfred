@@ -19,8 +19,8 @@ import { z } from "zod";
 import { weatherSnapshotSchema } from "~/lib/weather";
 
 export const LOCAL_STORAGE_SCHEMAS = {
-  /** Visitors-now theme preference (see `components/ui/visitors/theme`). */
-  "vs-theme": z.enum(["system", "dark", "light"]).default("system"),
+  /** App theme preference (see `components/ui/v2/theme`). */
+  "app-theme": z.enum(["system", "dark", "light"]).default("system"),
   /**
    * Best-effort "is the visitor signed in" hint for first paint. A UX hint,
    * never a security boundary (see `lib/auth-hint`).

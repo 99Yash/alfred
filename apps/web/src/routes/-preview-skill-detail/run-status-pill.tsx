@@ -1,26 +1,26 @@
 import { CheckCircle2, XCircle } from "lucide-react";
-import { VsPill } from "~/components/ui/visitors";
+import { AppPill } from "~/components/ui/v2";
 import type { PreviewSkillRun } from "~/lib/preview-skills";
 
 export function RunStatusPill({ status }: { status: PreviewSkillRun["status"] }) {
   if (status === "completed") {
     return (
-      <VsPill tone="green">
+      <AppPill tone="green">
         <CheckCircle2 size={11} aria-hidden className="mr-1" /> Completed
-      </VsPill>
+      </AppPill>
     );
   }
   if (status === "failed") {
     return (
-      <VsPill tone="red">
+      <AppPill tone="red">
         <XCircle size={11} aria-hidden className="mr-1" /> Failed
-      </VsPill>
+      </AppPill>
     );
   }
   return (
-    <VsPill tone="amber">
-      <span aria-hidden className="size-1.5 rounded-full bg-vs-amber-4 animate-pulse mr-1" />
+    <AppPill tone="amber">
+      <span aria-hidden className="size-1.5 rounded-full bg-app-amber-4 animate-pulse mr-1" />
       Running
-    </VsPill>
+    </AppPill>
   );
 }

@@ -1,6 +1,6 @@
 import { Command, RotateCw } from "lucide-react";
 import { useState } from "react";
-import { VsTextarea } from "~/components/ui/visitors";
+import { AppTextarea } from "~/components/ui/v2";
 import type { PreviewSkill } from "~/lib/preview-skills";
 import { cn } from "~/lib/utils";
 import { EmptyMemoryCard } from "./empty-memory-card";
@@ -28,16 +28,16 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
     <div className="space-y-8">
       <section className="space-y-3">
         <div className="space-y-1">
-          <h3 className="text-xs font-medium text-vs-fg-4">Using Integrations</h3>
-          <p className="text-xs text-vs-fg-3">
+          <h3 className="text-xs font-medium text-app-fg-4">Using Integrations</h3>
+          <p className="text-xs text-app-fg-3">
             {skill.integrations.length > 0
               ? `${skill.integrations.join(", ")}. You can mention integrations using @ in the prompt.`
               : "You can mention integrations using @ in the prompt."}
           </p>
         </div>
         <div className="space-y-2">
-          <h2 className="text-[15px] font-medium text-vs-fg-4">Prompt</h2>
-          <VsTextarea
+          <h2 className="text-[15px] font-medium text-app-fg-4">Prompt</h2>
+          <AppTextarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={onKeyDown}
@@ -47,16 +47,16 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
             rows={6}
             className="font-mono text-[12.5px] min-h-[140px]"
           />
-          <div className="flex items-center justify-end gap-2 text-[11.5px] text-vs-fg-3">
-            <RotateCw size={11} className="text-vs-fg-2" />
+          <div className="flex items-center justify-end gap-2 text-[11.5px] text-app-fg-3">
+            <RotateCw size={11} className="text-app-fg-2" />
             <button
               type="button"
               onClick={onRelearn}
               disabled={learning || !prompt.trim()}
               className={cn(
                 "transition-colors",
-                "hover:text-vs-fg-4",
-                "disabled:text-vs-fg-2 disabled:cursor-not-allowed",
+                "hover:text-app-fg-4",
+                "disabled:text-app-fg-2 disabled:cursor-not-allowed",
               )}
             >
               {skill.memoryBody ? "Re-learn" : "Learn"}
@@ -73,11 +73,11 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
         <div
           className={cn(
             "flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs",
-            "bg-vs-amber-1 shadow-[0_0_0_1px_var(--vs-amber-2)]",
-            "text-vs-amber-4",
+            "bg-app-amber-1 shadow-[0_0_0_1px_var(--app-amber-2)]",
+            "text-app-amber-4",
           )}
         >
-          <span className="size-2 rounded-full bg-vs-amber-4 animate-pulse" aria-hidden />
+          <span className="size-2 rounded-full bg-app-amber-4 animate-pulse" aria-hidden />
           <span className="font-medium">Learning…</span>
           <span className="opacity-80">distilling the prompt into memory.</span>
         </div>
@@ -85,9 +85,9 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
 
       <section className="space-y-3">
         <div className="flex items-baseline gap-2 px-1">
-          <h2 className="text-[15px] font-medium text-vs-fg-4">Memory update</h2>
+          <h2 className="text-[15px] font-medium text-app-fg-4">Memory update</h2>
           {skill.memoryBody ? (
-            <span className="text-[11px] text-vs-fg-2 tabular-nums">
+            <span className="text-[11px] text-app-fg-2 tabular-nums">
               Updated {formatRelative(skill.updatedAt)}
             </span>
           ) : null}

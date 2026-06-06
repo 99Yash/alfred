@@ -1,6 +1,6 @@
 import { Bell, Bot, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { VsSwitch } from "~/components/ui/visitors";
+import { AppSwitch } from "~/components/ui/v2";
 import { SettingCard } from "./setting-card";
 
 export function PreferencesSection() {
@@ -14,8 +14,8 @@ export function PreferencesSection() {
         icon={Bot}
         tone="purple"
       >
-        <div className="inline-flex items-center gap-2 rounded-xl px-3 h-9 bg-vs-bg-2 text-sm text-vs-fg-3">
-          <Sparkles size={13} className="text-vs-fg-2" />
+        <div className="inline-flex items-center gap-2 rounded-xl px-3 h-9 bg-app-bg-2 text-sm text-app-fg-3">
+          <Sparkles size={13} className="text-app-fg-2" />
           <span>Alfred (default)</span>
         </div>
       </SettingCard>
@@ -26,7 +26,7 @@ export function PreferencesSection() {
         icon={Bell}
         tone="amber"
         noDivider
-        action={<VsSwitch checked={productUpdates} onCheckedChange={setProductUpdates} />}
+        action={<AppSwitch checked={productUpdates} onCheckedChange={setProductUpdates} />}
       />
     </>
   );

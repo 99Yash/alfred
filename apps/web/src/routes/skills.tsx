@@ -3,7 +3,7 @@ import { pageMeta } from "~/lib/page-meta";
 import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
 
 /**
- * Visitors-now-grammar port of /skills.
+ * App-grammar port of /skills.
  *
  * The dimension version subscribes to Replicache + POSTs through Eden
  * to create a draft. This preview uses fixture skills + a no-op CTA so

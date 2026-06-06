@@ -1,7 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import { Clock, MoreHorizontal, Share2 } from "lucide-react";
 import { useState } from "react";
-import { VsButton, VsCard, VsPill, VsSegmented } from "~/components/ui/visitors";
+import { AppButton, AppCard, AppPill, AppSegmented } from "~/components/ui/v2";
 import { findPreviewSkill } from "~/lib/preview-skills";
 import { BackLink } from "./back-link";
 import { DetailShell } from "./detail-shell";
@@ -26,12 +26,12 @@ export function PreviewSkillDetailPage() {
     return (
       <DetailShell>
         <BackLink />
-        <VsCard className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-          <p className="text-sm font-medium text-vs-fg-4">Skill not found</p>
-          <p className="text-xs text-vs-fg-3">
-            No skill with slug <code className="font-mono text-vs-fg-4">{slug}</code>.
+        <AppCard className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+          <p className="text-sm font-medium text-app-fg-4">Skill not found</p>
+          <p className="text-xs text-app-fg-3">
+            No skill with slug <code className="font-mono text-app-fg-4">{slug}</code>.
           </p>
-        </VsCard>
+        </AppCard>
       </DetailShell>
     );
   }
@@ -43,31 +43,31 @@ export function PreviewSkillDetailPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-[28px] leading-[34px] font-medium tracking-tight text-vs-fg-4">
+            <h1 className="text-[28px] leading-[34px] font-medium tracking-tight text-app-fg-4">
               {skill.name}
             </h1>
             {skill.status === "active" ? (
-              <VsPill tone="green">Active</VsPill>
+              <AppPill tone="green">Active</AppPill>
             ) : (
-              <VsPill>Draft</VsPill>
+              <AppPill>Draft</AppPill>
             )}
           </div>
-          <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-vs-fg-3 tabular-nums">
-            <Clock size={12} className="text-vs-fg-2" />
+          <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-app-fg-3 tabular-nums">
+            <Clock size={12} className="text-app-fg-2" />
             {skill.lastRunAt ? `Last run at ${formatLastRun(skill.lastRunAt)}` : "Never run"}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <VsButton variant="ghost" size="md" aria-label="More skill actions">
+          <AppButton variant="ghost" size="md" aria-label="More skill actions">
             <MoreHorizontal size={16} />
-          </VsButton>
-          <VsButton variant="ghost" size="md" leading={SHARE_LEADING}>
+          </AppButton>
+          <AppButton variant="ghost" size="md" leading={SHARE_LEADING}>
             Share
-          </VsButton>
+          </AppButton>
         </div>
       </header>
 
-      <VsSegmented<DetailTab>
+      <AppSegmented<DetailTab>
         value={tab}
         onValueChange={setTab}
         items={
@@ -79,7 +79,7 @@ export function PreviewSkillDetailPage() {
                   label: (
                     <>
                       History
-                      <span className="ml-1 text-[11px] text-vs-fg-2 tabular-nums">
+                      <span className="ml-1 text-[11px] text-app-fg-2 tabular-nums">
                         {skill.runs.length}
                       </span>
                     </>

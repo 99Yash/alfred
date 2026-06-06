@@ -21,7 +21,7 @@ export function SuggestionRow({
       aria-label={onAccept ? `Add suggestion: ${label}` : undefined}
       className={cn(
         "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-        "hover:bg-white/[0.07] transition-colors vs-press",
+        "hover:bg-white/[0.07] transition-colors app-press",
         "flex items-center gap-2.5",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
       )}

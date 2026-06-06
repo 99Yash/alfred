@@ -28,11 +28,11 @@ export function Capabilities({ provider }: { provider: IntegrationProvider }) {
   const tierCounts = useIntegrationTierCounts(integrationSlugForProvider(provider.id));
 
   return (
-    <section className="space-y-3 vs-card-in" style={{ animationDelay: "300ms" }}>
+    <section className="space-y-3 app-card-in" style={{ animationDelay: "300ms" }}>
       <div className="flex items-baseline justify-between gap-3">
         <SectionHeading>Capabilities</SectionHeading>
         {tierCounts ? (
-          <span className="text-xs text-vs-fg-3 tabular-nums">{summarizeTiers(tierCounts)}</span>
+          <span className="text-xs text-app-fg-3 tabular-nums">{summarizeTiers(tierCounts)}</span>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
