@@ -20,6 +20,8 @@ import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "~/lib/utils";
 
+// PrismLight only highlights registered grammars. Keep this list intentionally
+// small for bundle size; unknown fenced languages render as plain text.
 for (const [name, lang] of [
   ["js", tsx],
   ["jsx", tsx],
