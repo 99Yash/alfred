@@ -16,7 +16,7 @@ import { authClient } from "~/lib/auth-client";
  *
  * Signed-out/pending states render outside the themed app chrome (see
  * `AppShell`'s `showChrome`), so they use plain grammar like
- * `routes/debug.events.tsx` rather than the `vs-*` tokens.
+ * `routes/debug.events.tsx` rather than the `app-*` tokens.
  */
 /** Normalize a search value to a string[] (single value or repeated key). */
 function toStringArray(value: unknown): string[] | undefined {

@@ -1,6 +1,6 @@
 import { ArrowUp, AtSign, Mic, Paperclip, Plus } from "lucide-react";
 import type { ReactNode } from "react";
-import { VsPill } from "~/components/ui/visitors";
+import { AppPill } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 
 const ADD_TOOL_LEADING = <Plus size={12} />;
@@ -16,7 +16,7 @@ export function ComposerDock({
   return (
     <div className="shrink-0 pb-5 pt-1">
       <div className="mx-auto w-full max-w-3xl px-6">
-        <div className={cn("rounded-3xl bg-vs-bg-1 p-2 vs-elevated")}>
+        <div className={cn("rounded-3xl bg-app-bg-1 p-2 app-elevated")}>
           <textarea
             aria-label="Ask Alfred"
             value={value}
@@ -24,7 +24,7 @@ export function ComposerDock({
             placeholder="Ask Alfred…"
             rows={2}
             className={cn(
-              "block w-full resize-none bg-transparent px-2.5 pt-2 text-sm text-vs-fg-4 placeholder:text-vs-fg-2",
+              "block w-full resize-none bg-transparent px-2.5 pt-2 text-sm text-app-fg-4 placeholder:text-app-fg-2",
               "outline-none focus-visible:outline-none",
             )}
           />
@@ -37,9 +37,9 @@ export function ComposerDock({
               <ComposerIcon label="Mention source">
                 <AtSign size={14} />
               </ComposerIcon>
-              <VsPill className="h-7 px-2.5 text-[12px]" leading={ADD_TOOL_LEADING} chevron>
+              <AppPill className="h-7 px-2.5 text-[12px]" leading={ADD_TOOL_LEADING} chevron>
                 Add tool
-              </VsPill>
+              </AppPill>
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -52,16 +52,16 @@ export function ComposerDock({
                 aria-label="Send message"
                 className={cn(
                   "size-8 inline-flex items-center justify-center rounded-lg",
-                  "vs-press transition-[box-shadow,transform,filter]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+                  "app-press transition-[box-shadow,transform,filter]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
                   canSend
                     ? cn(
-                        "text-[var(--vs-accent-fg)]",
-                        "bg-[image:var(--vs-cta-bg)]",
-                        "shadow-[var(--vs-button-primary-shadow)]",
+                        "text-[var(--app-accent-fg)]",
+                        "bg-[image:var(--app-cta-bg)]",
+                        "shadow-[var(--app-button-primary-shadow)]",
                         "hover:brightness-[1.06]",
                       )
-                    : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
+                    : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
                 )}
               >
                 <ArrowUp size={15} strokeWidth={2.25} />
@@ -69,7 +69,7 @@ export function ComposerDock({
             </div>
           </div>
         </div>
-        <p className="mt-2 text-center text-[11px] text-vs-fg-2">
+        <p className="mt-2 text-center text-[11px] text-app-fg-2">
           Alfred can call tools across Gmail, Calendar, and your memory.
         </p>
       </div>
@@ -84,8 +84,8 @@ function ComposerIcon({ label, children }: { label: string; children: ReactNode 
       aria-label={label}
       className={cn(
         "size-8 inline-flex items-center justify-center rounded-lg",
-        "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4 transition-colors vs-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+        "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >
       {children}

@@ -48,7 +48,13 @@ interface LinkTag {
   href: string;
 }
 
-function titleWithSuffix(title?: string): string {
+/**
+ * Build the full document title for a page-specific segment:
+ * `"Settings"` → `"Settings · Alfred"`, or the site default when omitted.
+ * Exported so routes can mirror reactive titles into `document.title`
+ * (e.g. a chat tab tracking its derived thread title).
+ */
+export function formatPageTitle(title?: string): string {
   return title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} · ${SITE_TAGLINE}`;
 }
 
@@ -70,7 +76,7 @@ export function pageMeta({ title, description, path }: PageMetaInput = {}): {
   meta: MetaTag[];
   links: LinkTag[];
 } {
-  const fullTitle = titleWithSuffix(title);
+  const fullTitle = formatPageTitle(title);
   const desc = description ?? SITE_DESCRIPTION;
   const url = path ? absoluteUrl(path) : null;
   return {

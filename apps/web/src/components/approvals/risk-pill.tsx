@@ -1,5 +1,5 @@
 import type { ToolRiskTier } from "@alfred/contracts";
-import { VsPill } from "~/components/ui/visitors";
+import { AppPill } from "~/components/ui/v2";
 
 const TONE: Record<ToolRiskTier, "red" | "amber" | "green" | undefined> = {
   high: "red",
@@ -16,5 +16,5 @@ const LABEL: Record<ToolRiskTier, string> = {
 };
 
 export function RiskPill({ riskTier }: { riskTier: ToolRiskTier }) {
-  return <VsPill tone={TONE[riskTier]}>{LABEL[riskTier]}</VsPill>;
+  return <AppPill tone={TONE[riskTier]}>{LABEL[riskTier]}</AppPill>;
 }

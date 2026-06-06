@@ -2,7 +2,7 @@
  * Internal styleguide — Before/After preview of Alfred's two design grammars.
  *
  * Visit /styleguide on a dev build and toggle between:
- *   • After — the Visitors-revamp landing grammar (FrostButton, EyebrowChip,
+ *   • After — the App-revamp landing grammar (FrostButton, EyebrowChip,
  *     AuroraGlow, DeviceBezel, FeatureGrid, etc.) used by the marketing
  *     surface in components/landing/*.
  *   • Before — the Dimension primitives still powering the in-app surfaces
@@ -13,7 +13,7 @@
  *
  * Add new primitives to the appropriate half as they're built. Cross-reference
  * references/dimension-dev/dimension-design-reference-2026-05-18.md §2 for the
- * Dimension recipes; the Visitors half is the source of truth for the new
+ * Dimension recipes; the App half is the source of truth for the new
  * marketing direction (see components/landing/landing-page.tsx).
  */
 
@@ -71,10 +71,10 @@ export const Route = createFileRoute("/styleguide")({
   component: StyleguidePage,
 });
 
-type StyleguideMode = "visitors" | "dimension";
+type StyleguideMode = "app" | "dimension";
 
 function StyleguidePage() {
-  const [mode, setMode] = useState<StyleguideMode>("visitors");
+  const [mode, setMode] = useState<StyleguideMode>("app");
 
   return (
     <div className="h-full overflow-y-auto bg-[#0a0a0a] text-gray-950">
@@ -85,7 +85,7 @@ function StyleguidePage() {
             Alfred UI styleguide
           </h1>
           <p className="text-sm text-gray-800 max-w-prose">
-            Toggle between the new <strong className="text-white">Visitors revamp</strong> landing
+            Toggle between the new <strong className="text-white">App revamp</strong> landing
             grammar and the <strong className="text-white">Dimension</strong> primitives that still
             power the in-app surfaces. Both halves are kept side-by-side on purpose — Dimension
             recipes (gray ramp, frost-border, lavender headings) carry forward into the new
@@ -98,8 +98,8 @@ function StyleguidePage() {
               onValueChange={(next) => setMode(next as StyleguideMode)}
               items={[
                 {
-                  value: "visitors",
-                  label: "After · Visitors revamp",
+                  value: "app",
+                  label: "After · App revamp",
                   icon: <Sparkles size={14} />,
                 },
                 { value: "dimension", label: "Before · Dimension", icon: <MoonStar size={14} /> },
@@ -108,7 +108,7 @@ function StyleguidePage() {
           </div>
         </header>
 
-        {mode === "visitors" ? <VisitorsHalf /> : <DimensionHalf />}
+        {mode === "app" ? <AppHalf /> : <DimensionHalf />}
       </div>
     </div>
   );
@@ -154,7 +154,7 @@ function HalfBanner({
   title,
   body,
 }: {
-  tone: "visitors" | "dimension";
+  tone: "app" | "dimension";
   eyebrow: string;
   title: string;
   body: string;
@@ -163,7 +163,7 @@ function HalfBanner({
     <div
       className={cn(
         "rounded-3xl border px-6 py-5",
-        tone === "visitors"
+        tone === "app"
           ? "border-indigo-400/25 bg-indigo-400/[0.04]"
           : "border-white/10 bg-white/[0.02]",
       )}
@@ -171,7 +171,7 @@ function HalfBanner({
       <p
         className={cn(
           "text-[11.5px] font-semibold uppercase tracking-[0.18em]",
-          tone === "visitors" ? "text-indigo-300" : "text-gray-700",
+          tone === "app" ? "text-indigo-300" : "text-gray-700",
         )}
       >
         {eyebrow}
@@ -1023,22 +1023,22 @@ function TypographySection() {
 }
 
 /* ========================================================================== */
-/* Visitors half — landing-grammar primitives. Wrap in LandingBackground so   */
+/* App half — landing-grammar primitives. Wrap in LandingBackground so   */
 /* every preview reads on the new #0a0a0a canvas with its faint grid.         */
 /* ========================================================================== */
 
-function VisitorsHalf() {
+function AppHalf() {
   return (
     <div className="space-y-16">
       <HalfBanner
-        tone="visitors"
+        tone="app"
         eyebrow="After"
-        title="Visitors revamp"
+        title="App revamp"
         body="The marketing-landing grammar: Open Runde, tighter negative tracking, indigo/violet accents, frost-glass buttons, frost-pill nav, device-bezel mockups, scroll-triggered fades. Everything here lives in apps/web/src/components/landing/."
       />
 
-      <VisitorsTokensSection />
-      <VisitorsHeroTypographySection />
+      <AppTokensSection />
+      <AppHeroTypographySection />
       <FrostButtonSection />
       <EyebrowChipSection />
       <TopAnnouncementSection />
@@ -1059,11 +1059,11 @@ function VisitorsHalf() {
 }
 
 /**
- * Shared canvas wrapper for visitors-half previews — matches the actual
+ * Shared canvas wrapper for app-half previews — matches the actual
  * landing background (#0a0a0a + 80px grid + Open Runde) so primitives like
  * FrostButton read identically to the production page.
  */
-function VisitorsCanvas({
+function AppCanvas({
   children,
   className,
   height,
@@ -1081,11 +1081,11 @@ function VisitorsCanvas({
 
 /* ----------------------------- Tokens ----------------------------- */
 
-function VisitorsTokensSection() {
+function AppTokensSection() {
   return (
     <Section
-      id="visitors-tokens"
-      title="Tokens — visitors palette"
+      id="app-tokens"
+      title="Tokens — app palette"
       recipe="Background is #0a0a0a (slightly bluer than Dimension's rgb(12,12,12)). Accents lean indigo/violet for ambient warmth, with emerald/amber as status colors. Type stack locks Open Runde at the landing root."
     >
       <Row label="canvas">
@@ -1148,14 +1148,14 @@ function VisitorsTokensSection() {
 
 /* ----------------------------- Hero typography ----------------------------- */
 
-function VisitorsHeroTypographySection() {
+function AppHeroTypographySection() {
   return (
     <Section
-      id="visitors-hero-typography"
+      id="app-hero-typography"
       title="Hero typography"
       recipe="Three sizes carry the landing: 6xl hero headline, 4xl/5xl section heading, 15–18px sub. All semibold, white, with negative tracking to bring letters closer."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="space-y-5 text-center">
           <h1
             className={cn(
@@ -1173,7 +1173,7 @@ function VisitorsHeroTypographySection() {
             Get Started
           </p>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1187,7 +1187,7 @@ function FrostButtonSection() {
       title="FrostButton"
       recipe="Frost-border pill with a radial top-left specular and a hover after-overlay. Dark tone (default) is translucent white-on-black; light tone is bright fill with dark text (Dimension's original CTA recipe)."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="space-y-6">
           <Row label="dark · sizes">
             <FrostButton tone="dark" size="sm">
@@ -1237,7 +1237,7 @@ function FrostButtonSection() {
             </FrostButton>
           </Row>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1247,11 +1247,11 @@ function FrostButtonSection() {
 function EyebrowChipSection() {
   return (
     <Section
-      id="visitors-eyebrow-chip"
+      id="app-eyebrow-chip"
       title="EyebrowChip"
       recipe="Small bordered pill above hero headlines. Four accents — neutral, indigo, emerald, amber — paired with a leading icon or a status dot."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <EyebrowChip icon={<Sparkles className="size-3.5" strokeWidth={2} />} accent="indigo">
             Personal AI assistant
@@ -1266,7 +1266,7 @@ function EyebrowChipSection() {
             Checking server…
           </EyebrowChip>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1317,11 +1317,11 @@ function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
 function TopAnnouncementSection() {
   return (
     <Section
-      id="visitors-top-announcement"
+      id="app-top-announcement"
       title="TopAnnouncement"
       recipe="Pinned at top of page in production (fixed positioning). Previewed inline here. Blurred glass pill with a status dot + arrow that translates on hover."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="relative flex flex-col items-center gap-4">
           {/* Inline simulation — strip the `fixed` positioning so the pill
               renders within the styleguide column. */}
@@ -1351,7 +1351,7 @@ function TopAnnouncementSection() {
             components/landing/top-announcement.tsx — production renders fixed at top:5.
           </p>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1361,11 +1361,11 @@ function TopAnnouncementSection() {
 function FloatingPillNavSection() {
   return (
     <Section
-      id="visitors-floating-nav"
+      id="app-floating-nav"
       title="FloatingPillNav"
       recipe="Bottom-pinned in production via `fixed`. Previewed inline here as a relative pill so it docks within the styleguide column."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="flex items-center justify-center py-8">
           {/* Inline simulation — mirrors FloatingPillNav's structure but
               strips the fixed positioning that would otherwise pin it to
@@ -1410,7 +1410,7 @@ function FloatingPillNavSection() {
             </div>
           </nav>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1421,11 +1421,11 @@ function TabPillSection() {
   const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
   return (
     <Section
-      id="visitors-tab-pill"
+      id="app-tab-pill"
       title="TabPill"
       recipe="Dark frosted segmented pill with a sliding indigo→violet→fuchsia indicator. Sits above the hero device bezel; auto-cycles in HeroShowcase."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="relative flex justify-center py-4">
           <AuroraGlow intensity="subtle" />
           <TabPill
@@ -1438,7 +1438,7 @@ function TabPillSection() {
             ]}
           />
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1448,11 +1448,11 @@ function TabPillSection() {
 function AuroraGlowSection() {
   return (
     <Section
-      id="visitors-aurora-glow"
+      id="app-aurora-glow"
       title="AuroraGlow"
       recipe="Two stacked radial gradients — wide indigo halo + tighter violet hot-spot. Sits behind the device bezel to make the mockup feel lit from above. intensity: default | subtle."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div className="relative h-48 rounded-2xl border border-white/10 bg-black/40">
             <AuroraGlow intensity="default" />
@@ -1467,7 +1467,7 @@ function AuroraGlowSection() {
             </div>
           </div>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1477,11 +1477,11 @@ function AuroraGlowSection() {
 function DeviceBezelSection() {
   return (
     <Section
-      id="visitors-device-bezel"
+      id="app-device-bezel"
       title="DeviceBezel"
       recipe="Triple-nested rounded bezel (3rem → 2.5rem → 2rem) with two layered borders + a vertical gradient fill. Frames any mockup so it reads as a physical screen."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="relative">
           <AuroraGlow intensity="subtle" />
           <DeviceBezel>
@@ -1490,7 +1490,7 @@ function DeviceBezelSection() {
             </div>
           </DeviceBezel>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1500,13 +1500,13 @@ function DeviceBezelSection() {
 function BenefitsRowSection() {
   return (
     <Section
-      id="visitors-benefits-row"
+      id="app-benefits-row"
       title="BenefitsRow"
       recipe="3-up grid — small indigo-tinted icon tile + bold lead + muted tagline. Fades each column in 80ms apart on scroll."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <BenefitsRow />
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1516,11 +1516,11 @@ function BenefitsRowSection() {
 function FeatureCardSection() {
   return (
     <Section
-      id="visitors-feature-card"
+      id="app-feature-card"
       title="Feature card"
       recipe="Rounded-[20px] card with a tone-tinted icon tile, colored eyebrow, big title, body, three checkmark bullets, and a stylized mockup. Tones: indigo / peach / rose / emerald."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FeatureCardDemo
             tone="indigo"
@@ -1545,7 +1545,7 @@ function FeatureCardSection() {
             ]}
           />
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1616,11 +1616,11 @@ function FeatureCardDemo({
 function OperationalPillSection() {
   return (
     <Section
-      id="visitors-operational-pill"
+      id="app-operational-pill"
       title="Operational pill"
       recipe="Footer status indicator — green ping-dot when API is reachable, amber when degraded. No separate status page; the dot is the affordance."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="flex flex-wrap gap-6">
           <span className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-neutral-400">
             <span className="relative grid size-2 place-items-center" aria-hidden>
@@ -1636,7 +1636,7 @@ function OperationalPillSection() {
             Degraded
           </span>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1647,11 +1647,11 @@ function FadeInOnScrollSection() {
   const [key, setKey] = useState(0);
   return (
     <Section
-      id="visitors-fade-in"
+      id="app-fade-in"
       title="FadeInOnScroll"
       recipe="IntersectionObserver-driven wrapper — children start translated/blurred and fade in on first viewport entry. Stagger with `delay` for sequenced reveals."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <div className="space-y-4">
           <button
             type="button"
@@ -1678,7 +1678,7 @@ function FadeInOnScrollSection() {
             </FadeInOnScroll>
           </div>
         </div>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1688,13 +1688,13 @@ function FadeInOnScrollSection() {
 function HeroShowcaseSection() {
   return (
     <Section
-      id="visitors-hero-showcase"
+      id="app-hero-showcase"
       title="HeroShowcase"
       recipe="The whole hero composition — TabPill + AuroraGlow + DeviceBezel + auto-cycling Briefing / Inbox / MeetingPrep slots. Pauses on hover and when off-screen."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <HeroShowcase />
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1704,15 +1704,15 @@ function HeroShowcaseSection() {
 function MorningBriefingSection() {
   return (
     <Section
-      id="visitors-morning-briefing"
+      id="app-morning-briefing"
       title="MorningBriefingPanel"
       recipe="Hero-grade briefing surface: integration tile row, greeting headline with inline pictographs, hairline divider, content pills (indigo / violet / peach / rose / amber)."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <DeviceBezel>
           <MorningBriefingPanel className="rounded-none ring-0" />
         </DeviceBezel>
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1722,13 +1722,13 @@ function MorningBriefingSection() {
 function LandingCtaSectionPreview() {
   return (
     <Section
-      id="visitors-cta"
+      id="app-cta"
       title="LandingCtaSection"
       recipe="Centered closing CTA. Uppercase eyebrow → big headline → muted sub → light FrostButton with arrow."
     >
-      <VisitorsCanvas>
+      <AppCanvas>
         <LandingCtaSection onGetStarted={() => undefined} />
-      </VisitorsCanvas>
+      </AppCanvas>
     </Section>
   );
 }
@@ -1736,7 +1736,7 @@ function LandingCtaSectionPreview() {
 function LandingFooterPreview() {
   return (
     <Section
-      id="visitors-footer"
+      id="app-footer"
       title="LandingFooter"
       recipe="Dark, quiet footer — tagline column with operational pill + copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
     >

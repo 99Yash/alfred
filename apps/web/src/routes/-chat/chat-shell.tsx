@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Particles } from "~/components/ui/particles";
-import { VsPill } from "~/components/ui/visitors";
-import { useVsTheme } from "~/components/ui/visitors/theme";
+import { AppPill } from "~/components/ui/v2";
+import { useAppTheme } from "~/components/ui/v2/theme";
 import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
@@ -158,7 +158,7 @@ function TopBar({
   return (
     <header
       className={cn(
-        "vs-frost-header sticky top-0 z-10",
+        "app-frost-header sticky top-0 z-10",
         "flex h-14 shrink-0 items-center justify-between gap-3 px-5",
       )}
     >
@@ -168,7 +168,7 @@ function TopBar({
             <PanelLeft size={14} />
           </IconButton>
         ) : null}
-        <h1 className="truncate text-sm font-medium text-vs-fg-4">{title}</h1>
+        <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
       </div>
       <div className="flex items-center gap-1.5">
         <IconButton label="Share thread">
@@ -177,7 +177,7 @@ function TopBar({
         <IconButton label="Thread settings">
           <Ellipsis size={14} />
         </IconButton>
-        <span aria-hidden className="mx-1 h-5 w-px bg-vs-bg-3" />
+        <span aria-hidden className="mx-1 h-5 w-px bg-app-bg-3" />
         <IconButton
           label={railOpen ? "Hide today panel" : "Show today panel"}
           onClick={onToggleRail}
@@ -209,12 +209,12 @@ function EmptyHero({
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center">
-        <p className="text-[11px] uppercase tracking-tight font-medium text-vs-fg-2">
+        <p className="text-[11px] uppercase tracking-tight font-medium text-app-fg-2">
           {formatDate(now)}
         </p>
-        <h2 className="mt-3 text-3xl md:text-4xl font-medium tracking-[-0.04em] text-vs-fg-4 text-center">
+        <h2 className="mt-3 text-3xl md:text-4xl font-medium tracking-[-0.04em] text-app-fg-4 text-center">
           {greeting(now)}
-          {name ? <span className="text-vs-fg-3">, {name}</span> : null}
+          {name ? <span className="text-app-fg-3">, {name}</span> : null}
         </h2>
       </div>
 
@@ -288,17 +288,17 @@ function MentionPalette({
       ref={rootRef}
       className={cn(
         "absolute bottom-full left-0 right-0 mb-2 z-20",
-        "vs-elevated rounded-2xl bg-vs-bg-1 p-1.5",
+        "app-elevated rounded-2xl bg-app-bg-1 p-1.5",
         "max-h-72 overflow-y-auto",
         // Subtle entry — slide up + fade. Tailwind's `animate-in` keyframes
-        // ship with the project (used elsewhere as `vs-card-in`); fall back
+        // ship with the project (used elsewhere as `app-card-in`); fall back
         // to a plain fade so it never appears static.
         "transition-opacity duration-150 ease-out",
       )}
     >
       <p
         id={labelId}
-        className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-vs-fg-2"
+        className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-app-fg-2"
       >
         Mention a source
       </p>
@@ -324,25 +324,25 @@ function MentionPalette({
               className={cn(
                 "w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
                 "transition-colors",
-                isActive ? "bg-vs-bg-a2" : "hover:bg-vs-bg-a2",
+                isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
                 "outline-none",
               )}
             >
-              <span className="grid size-6 shrink-0 place-items-center rounded-md bg-vs-bg-2">
+              <span className="grid size-6 shrink-0 place-items-center rounded-md bg-app-bg-2">
                 {opt.brand ? (
                   <IntegrationGlyph brand={opt.brand} size={14} />
                 ) : Icon ? (
-                  <Icon size={13} className="text-vs-fg-3" />
+                  <Icon size={13} className="text-app-fg-3" />
                 ) : null}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium text-vs-fg-4 truncate">
+                <span className="block text-[13px] font-medium text-app-fg-4 truncate">
                   {opt.label}
                 </span>
-                <span className="block text-[11px] text-vs-fg-2 truncate">{opt.subtitle}</span>
+                <span className="block text-[11px] text-app-fg-2 truncate">{opt.subtitle}</span>
               </span>
               {isActive ? (
-                <span className="text-[10px] text-vs-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-vs-bg-2">
+                <span className="text-[10px] text-app-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-app-bg-2">
                   ↵
                 </span>
               ) : null}
@@ -366,14 +366,14 @@ function ConnectToolsBar() {
         // showing through.
         "group mt-4 flex items-center gap-3 px-1.5",
         "rounded-md outline-none",
-        "focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-        "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+        "focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
     >
       <span
         className={cn(
-          "text-[13px] font-medium text-vs-fg-2",
-          "transition-colors duration-200 group-hover:text-vs-fg-4",
+          "text-[13px] font-medium text-app-fg-2",
+          "transition-colors duration-200 group-hover:text-app-fg-4",
         )}
       >
         Connect your tools
@@ -423,7 +423,7 @@ function Composer({
   isStreaming: boolean;
   onSend?: (text: string) => void;
 }) {
-  const { resolved: theme } = useVsTheme();
+  const { resolved: theme } = useAppTheme();
 
   // Persist drafts per thread (and a shared "new chat" bucket for the empty
   // /chat hero). Survives refresh; cleared on submit.
@@ -598,15 +598,15 @@ function Composer({
       ) : null}
       <div
         className={cn(
-          "vs-elevated relative rounded-3xl p-2 overflow-hidden",
-          // Transparent surface — particles + the vs-elevated hairline carry
+          "app-elevated relative rounded-3xl p-2 overflow-hidden",
+          // Transparent surface — particles + the app-elevated hairline carry
           // the composer's visual identity now, no solid fill needed.
-          // Light mode gets a stronger inset ring on top of vs-elevated's 0.05
+          // Light mode gets a stronger inset ring on top of app-elevated's 0.05
           // hairline so the edge reads against the white page; dark relies on
-          // vs-elevated's existing inset white ring.
-          theme === "light" && "ring-1 ring-inset ring-vs-fg-a1/50",
-          "focus-within:ring-2 focus-within:ring-vs-purple-2 focus-within:ring-offset-4",
-          "focus-within:ring-offset-vs-background transition-shadow",
+          // app-elevated's existing inset white ring.
+          theme === "light" && "ring-1 ring-inset ring-app-fg-a1/50",
+          "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
+          "focus-within:ring-offset-app-background transition-shadow",
         )}
       >
         {/* Ambient drifting particles inside the composer surface. Sits
@@ -684,16 +684,16 @@ function ComposerToolbar({
         >
           <AtSign size={14} />
         </ComposerIcon>
-        <VsPill
-          className="h-7 px-2 text-[12px] text-vs-fg-3"
+        <AppPill
+          className="h-7 px-2 text-[12px] text-app-fg-3"
           leading={MODEL_LEADING}
           chevron
           disabled
           title="Model picker — coming with m13"
         >
           Auto
-        </VsPill>
-        {mic.error ? <span className="text-[11px] text-vs-red-4 pl-1">{mic.error}</span> : null}
+        </AppPill>
+        {mic.error ? <span className="text-[11px] text-app-red-4 pl-1">{mic.error}</span> : null}
       </div>
 
       <div className="flex items-center gap-1">
@@ -711,12 +711,12 @@ function ComposerToolbar({
             aria-label="Stop recording"
             className={cn(
               "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "vs-press transition-[opacity,filter,transform]",
-              "bg-vs-red-4 text-white",
+              "app-press transition-[opacity,filter,transform]",
+              "bg-app-red-4 text-white",
               "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
               "hover:brightness-[1.05]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             )}
           >
             <Square size={12} strokeWidth={2.5} fill="currentColor" />
@@ -728,19 +728,19 @@ function ComposerToolbar({
             aria-label={isStreaming ? "Waiting for response" : "Send"}
             className={cn(
               "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "vs-press transition-[opacity,filter,transform]",
+              "app-press transition-[opacity,filter,transform]",
               "enabled:hover:scale-[1.04] active:scale-[0.97]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
               canSend
                 ? cn(
-                    "text-(--vs-accent-fg)",
-                    "bg-(image:--vs-cta-bg)",
-                    "shadow-(--vs-button-primary-shadow)",
+                    "text-(--app-accent-fg)",
+                    "bg-(image:--app-cta-bg)",
+                    "shadow-(--app-button-primary-shadow)",
                     "hover:brightness-[1.06]",
-                    "hover:shadow-(--vs-button-primary-shadow-hover)",
+                    "hover:shadow-(--app-button-primary-shadow-hover)",
                   )
-                : "bg-vs-bg-2 text-vs-fg-2 cursor-not-allowed",
+                : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
             )}
           >
             <ArrowUp size={16} strokeWidth={2.25} />
@@ -762,10 +762,10 @@ function RecordingPanel({
 }) {
   return (
     <div className="relative h-[64px] px-3 pt-2 pb-1.5 flex items-center gap-3">
-      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-tight font-medium text-vs-fg-3 shrink-0">
-        <span aria-hidden className="chat-rec-dot size-1.5 rounded-full bg-vs-red-4" />
-        <span className="tabular-nums text-vs-fg-4">{formatElapsed(elapsed)}</span>
-        <span className="text-vs-fg-2">Listening</span>
+      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-tight font-medium text-app-fg-3 shrink-0">
+        <span aria-hidden className="chat-rec-dot size-1.5 rounded-full bg-app-red-4" />
+        <span className="tabular-nums text-app-fg-4">{formatElapsed(elapsed)}</span>
+        <span className="text-app-fg-2">Listening</span>
       </span>
       <div className="flex-1 h-12">
         <MicWaveform levelsRef={levelsRef} active={active} />
@@ -796,12 +796,12 @@ function ComposerIcon({
       onClick={onClick}
       className={cn(
         "size-8 inline-flex items-center justify-center rounded-full",
-        "transition-colors vs-press",
+        "transition-colors app-press",
         active
-          ? "bg-vs-purple-1 text-vs-purple-4"
-          : "text-vs-fg-3 hover:bg-vs-bg-a2 hover:text-vs-fg-4",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-vs-fg-3",
-        "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-vs-background",
+          ? "bg-app-purple-1 text-app-purple-4"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-app-fg-3",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >
       {children}

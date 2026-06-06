@@ -1,6 +1,6 @@
 import { Filter, Search, Star } from "lucide-react";
 import { useMemo, useState } from "react";
-import { VsInput, VsSegmented } from "~/components/ui/visitors";
+import { AppInput, AppSegmented } from "~/components/ui/v2";
 import {
   artifactMatchesType,
   LIBRARY_ARTIFACTS,
@@ -53,20 +53,20 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
       )}
     >
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <header className="space-y-3 text-center vs-card-in">
-          <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-vs-fg-4">
+        <header className="space-y-3 text-center app-card-in">
+          <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-app-fg-4">
             Library
           </h1>
-          <p className="text-sm text-vs-fg-3">Browse all your created artifacts.</p>
+          <p className="text-sm text-app-fg-3">Browse all your created artifacts.</p>
         </header>
 
         <div
-          className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between vs-card-in"
+          className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between app-card-in"
           style={{ animationDelay: "100ms" }}
         >
           <div className="flex items-center gap-2">
             <TypeFilterPopover selectedTypes={types} onSelectedTypesChange={setTypes} />
-            <VsSegmented<LibraryFilter>
+            <AppSegmented<LibraryFilter>
               value={filter}
               onValueChange={setFilter}
               items={FILTER_TABS}
@@ -77,9 +77,9 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
             <Search
               size={14}
               aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-vs-fg-2"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-fg-2"
             />
-            <VsInput
+            <AppInput
               placeholder="Search artifacts"
               value={query}
               onChange={(e) => setQuery(e.target.value)}

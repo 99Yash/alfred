@@ -76,7 +76,7 @@ const PROVIDER_COLOR: Partial<Record<IntegrationSlug, string>> = {
  */
 export function ProviderGlyph({ provider, size = 14 }: { provider: string; size?: number }) {
   const brand = PROVIDER_BRAND[provider as IntegrationSlug];
-  if (!brand) return <Activity size={size} aria-hidden className="text-vs-fg-2" />;
+  if (!brand) return <Activity size={size} aria-hidden className="text-app-fg-2" />;
   return (
     <IntegrationGlyph
       brand={brand}

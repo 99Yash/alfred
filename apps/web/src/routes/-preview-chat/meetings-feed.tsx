@@ -26,7 +26,7 @@ export function MeetingsFeed({
 }) {
   if (!items.length && !lookahead.length) {
     return (
-      <div className="vs-card-in px-2 py-4">
+      <div className="app-card-in px-2 py-4">
         <p className="text-[12px] leading-5 text-white/55">
           {calendarConnected
             ? "Nothing on your calendar today."
@@ -37,7 +37,7 @@ export function MeetingsFeed({
   }
 
   return (
-    <div className="vs-card-in space-y-2">
+    <div className="app-card-in space-y-2">
       {items.length ? (
         <>
           <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
@@ -70,7 +70,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
         type="button"
         className={cn(
           "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-white/[0.07] transition-colors vs-press",
+          "hover:bg-white/[0.07] transition-colors app-press",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -81,7 +81,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
             "mt-0.5 inline-flex flex-col items-center justify-center shrink-0 rounded-md",
             "h-10 w-10 leading-none",
             isNext
-              ? "bg-vs-amber-1 text-vs-amber-4 ring-1 ring-vs-amber-2"
+              ? "bg-app-amber-1 text-app-amber-4 ring-1 ring-app-amber-2"
               : "bg-white/10 text-white/70",
           )}
         >
@@ -101,7 +101,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
                 className={cn(
                   "shrink-0 rounded-full px-1.5 py-0.5",
                   "text-[9.5px] uppercase tracking-tight font-medium",
-                  "bg-vs-amber-1 text-vs-amber-4",
+                  "bg-app-amber-1 text-app-amber-4",
                 )}
               >
                 Next

@@ -3,10 +3,10 @@ import { cn } from "~/lib/utils";
 export function ConfidenceChip({ confidence }: { confidence: number }) {
   const tone =
     confidence >= 0.75
-      ? cn("bg-vs-green-1 text-vs-green-4")
+      ? cn("bg-app-green-1 text-app-green-4")
       : confidence >= 0.5
-        ? cn("bg-vs-amber-1 text-vs-amber-4")
-        : cn("bg-vs-red-1 text-vs-red-4");
+        ? cn("bg-app-amber-1 text-app-amber-4")
+        : cn("bg-app-red-1 text-app-red-4");
   const pct = (confidence * 100).toFixed(0);
   return (
     <span

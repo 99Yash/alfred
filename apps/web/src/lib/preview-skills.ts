@@ -3,7 +3,7 @@
  *
  * Shared between the list and detail pages so a slug clicked on the
  * list lands on the matching content. No Replicache wiring — these
- * are static demos of the visitors-now grammar.
+ * are static demos of the app grammar.
  *
  * Memory bodies are markdown so the detail page can render them with
  * the same styling once real skills land.

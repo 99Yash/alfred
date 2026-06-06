@@ -13,9 +13,9 @@ export function ActionPill({
     <span
       className={cn(
         "inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2.5 text-xs font-medium",
-        status === "connected" && "bg-vs-green-1 text-vs-green-4",
-        status === "available" && "bg-vs-bg-2 text-vs-fg-3",
-        status === "soon" && "bg-vs-bg-2 text-vs-fg-2",
+        status === "connected" && "bg-app-green-1 text-app-green-4",
+        status === "available" && "bg-app-bg-2 text-app-fg-3",
+        status === "soon" && "bg-app-bg-2 text-app-fg-2",
       )}
     >
       {children}

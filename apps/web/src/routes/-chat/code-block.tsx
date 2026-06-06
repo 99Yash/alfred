@@ -71,9 +71,9 @@ function CopyButton({ code }: { code: string }) {
       type="button"
       onClick={onCopy}
       aria-label={copied ? "Copied" : "Copy code"}
-      className="flex size-6 items-center justify-center rounded text-vs-fg-3 transition-colors hover:bg-vs-bg-3 hover:text-vs-fg-4"
+      className="flex size-6 items-center justify-center rounded text-app-fg-3 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4"
     >
-      {copied ? <Check size={13} className="text-vs-green-4" /> : <Copy size={13} />}
+      {copied ? <Check size={13} className="text-app-green-4" /> : <Copy size={13} />}
     </button>
   );
 }
@@ -92,9 +92,9 @@ function extract(children: ReactNode): { code: string; language?: string } {
 export function CodeBlock({ children }: ComponentPropsWithoutRef<"pre">) {
   const { code, language } = extract(children);
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-vs-fg-a1/50 bg-[#0b0b0f]">
-      <div className="flex items-center justify-between border-b border-vs-fg-a1/40 px-3 py-1">
-        <span className="font-mono text-[11px] lowercase text-vs-fg-3">{language ?? "text"}</span>
+    <div className="my-2 overflow-hidden rounded-lg border border-app-fg-a1/50 bg-[#0b0b0f]">
+      <div className="flex items-center justify-between border-b border-app-fg-a1/40 px-3 py-1">
+        <span className="font-mono text-[11px] lowercase text-app-fg-3">{language ?? "text"}</span>
         <CopyButton code={code} />
       </div>
       <SyntaxHighlighter

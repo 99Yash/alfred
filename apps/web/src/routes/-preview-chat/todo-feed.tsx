@@ -34,7 +34,7 @@ export function TodoFeed({
   const done = items.filter((t) => t.done);
 
   return (
-    <div className="vs-card-in space-y-4 px-1 pt-1">
+    <div className="app-card-in space-y-4 px-1 pt-1">
       {open.length ? (
         <ul className="space-y-0.5">
           {open.map((todo) => (
@@ -99,7 +99,7 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
         aria-pressed={todo.done ?? false}
         className={cn(
           "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-white/[0.07] transition-colors vs-press",
+          "hover:bg-white/[0.07] transition-colors app-press",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -110,7 +110,7 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
             "mt-0.5 size-4 shrink-0 rounded-md inline-flex items-center justify-center",
             "border transition-colors",
             todo.done
-              ? "bg-vs-purple-4 border-vs-purple-4 text-white"
+              ? "bg-app-purple-4 border-app-purple-4 text-white"
               : "border-white/25 group-hover:border-white/50 bg-transparent",
           )}
         >
@@ -128,10 +128,10 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
           {todo.due || todo.source ? (
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/55">
               {todo.source === "email" ? (
-                <Mail size={10} className="text-vs-sky-4" aria-hidden />
+                <Mail size={10} className="text-app-sky-4" aria-hidden />
               ) : null}
               {todo.source === "meeting" ? (
-                <Calendar size={10} className="text-vs-amber-4" aria-hidden />
+                <Calendar size={10} className="text-app-amber-4" aria-hidden />
               ) : null}
               {todo.due ? <span>{todo.due}</span> : null}
             </span>

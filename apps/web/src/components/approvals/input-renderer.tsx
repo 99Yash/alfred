@@ -13,24 +13,24 @@ export function InputRenderer({ toolName, input }: { toolName: ToolName; input: 
 
   if (!fields) {
     return (
-      <pre className="max-h-72 overflow-auto rounded-xl bg-vs-bg-2/60 p-3 font-mono text-[12px] leading-5 text-vs-fg-4 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
+      <pre className="max-h-72 overflow-auto rounded-xl bg-app-bg-2/60 p-3 font-mono text-[12px] leading-5 text-app-fg-4 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
         {formatJson(input)}
       </pre>
     );
   }
 
   return (
-    <div className="grid gap-2 rounded-xl bg-vs-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] sm:grid-cols-2">
+    <div className="grid gap-2 rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] sm:grid-cols-2">
       {fields.map((field) => (
         <div key={field.label} className={field.multiline ? "sm:col-span-2" : undefined}>
-          <p className="text-[11px] font-medium uppercase tracking-tight text-vs-fg-2">
+          <p className="text-[11px] font-medium uppercase tracking-tight text-app-fg-2">
             {field.label}
           </p>
           <p
             className={
               field.multiline
-                ? "mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-vs-fg-4"
-                : "mt-1 break-words text-xs leading-5 text-vs-fg-4"
+                ? "mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-app-fg-4"
+                : "mt-1 break-words text-xs leading-5 text-app-fg-4"
             }
           >
             {field.value.trim() || "—"}

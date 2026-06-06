@@ -9,10 +9,10 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
   if (related.length === 0) return null;
 
   return (
-    <section className="space-y-3 vs-card-in" style={{ animationDelay: "240ms" }}>
+    <section className="space-y-3 app-card-in" style={{ animationDelay: "240ms" }}>
       <div>
         <SectionHeading>Complete your Google setup</SectionHeading>
-        <p className="mt-1 text-[12.5px] leading-5 text-vs-fg-3">
+        <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">
           To access Docs, Slides, and Sheets, connect each integration.
         </p>
       </div>
@@ -23,22 +23,22 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
             to="/integrations/$provider"
             params={{ provider: item.id }}
             className={cn(
-              "vs-card-in flex items-center gap-3 rounded-2xl bg-vs-bg-1 px-3 py-2.5",
-              "shadow-[var(--vs-shadow-elevated)] transition-shadow vs-press",
-              "hover:shadow-[var(--vs-shadow-elevated-hover)]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-vs-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-vs-background",
+              "app-card-in flex items-center gap-3 rounded-2xl bg-app-bg-1 px-3 py-2.5",
+              "shadow-[var(--app-shadow-elevated)] transition-shadow app-press",
+              "hover:shadow-[var(--app-shadow-elevated-hover)]",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             )}
             style={{ animationDelay: `${260 + idx * 40}ms` }}
           >
             <IntegrationIcon brand={item.brand} size="md" title={item.name} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-vs-fg-4">{item.name}</p>
-              <p className="truncate text-[12.5px] text-vs-fg-3">{item.description}</p>
+              <p className="truncate text-sm font-medium text-app-fg-4">{item.name}</p>
+              <p className="truncate text-[12.5px] text-app-fg-3">{item.description}</p>
             </div>
             <span
               className={cn(
                 "inline-flex h-7 items-center rounded-full px-3 text-[12px] font-medium",
-                "bg-vs-bg-2 text-vs-fg-4 ring-1 ring-vs-bg-3",
+                "bg-app-bg-2 text-app-fg-4 ring-1 ring-app-bg-3",
               )}
             >
               {item.actionLabel}
