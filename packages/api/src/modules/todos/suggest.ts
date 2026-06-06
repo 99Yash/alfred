@@ -21,6 +21,19 @@ export type SuggestTodoResult =
   | { ok: true; status: "merged"; todoId: string; addedSources: number };
 
 /**
+ * Structural dedup predicate: does a candidate todo's existing sources overlap
+ * the incoming set by identity `(provider, kind, id)`? This is the exact guard
+ * {@link suggestTodo}'s merge loop runs — exported and pure so it can be tested
+ * directly (the DB transaction has no test harness), instead of a re-implemented
+ * copy drifting from the real path. `url` is not part of identity.
+ */
+export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[]): boolean {
+  if (existing.length === 0 || incoming.length === 0) return false;
+  const incomingKeys = new Set(incoming.map(todoSourceKey));
+  return existing.some((ref) => incomingKeys.has(todoSourceKey(ref)));
+}
+
+/**
  * Insert a `suggested` todo on behalf of an agent run (ADR-0050). The source-
  * agnostic write path for `system.suggest_todo`.
  *
@@ -45,7 +58,6 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       const lockKey = `todo:suggest:${input.userId}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
-      const incomingKeys = new Set(sources.map(todoSourceKey));
       const candidates = await tx
         .select({ id: todos.id, sources: todos.sources })
         .from(todos)
@@ -53,7 +65,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
 
       for (const candidate of candidates) {
         const existing = candidate.sources ?? [];
-        if (!existing.some((ref) => incomingKeys.has(todoSourceKey(ref)))) continue;
+        if (!todoSourcesOverlap(existing, sources)) continue;
 
         const merged = mergeTodoSources(existing, sources);
         const addedSources = merged.length - existing.length;

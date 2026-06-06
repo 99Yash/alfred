@@ -1,6 +1,9 @@
+import type { AccountPersona } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
+
+export type { AccountPersona } from "@alfred/contracts";
 
 /**
  * OAuth 2.0 authorization-code helpers for Google. We avoid the
@@ -292,9 +295,6 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     scopes: parsed.scope ? parsed.scope.split(/\s+/).filter(Boolean) : [],
   };
 }
-
-/** Account persona label (ADR-0051 #3). */
-export type AccountPersona = "work" | "personal";
 
 /**
  * Detect account persona from the Google `hd` (hosted-domain) claim: a

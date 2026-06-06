@@ -15,6 +15,7 @@ export type {
   SyncedSkillRevision,
   SyncedSkillRun,
   SyncedTodo,
+  SyncedTriageTag,
   SyncedWorkflow,
   WorkflowStatus,
 } from "./schemas.js";

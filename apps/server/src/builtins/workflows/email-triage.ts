@@ -9,12 +9,13 @@ import {
   getTriage,
   incrementSenderPrior,
   isKnownContact,
+  isSentGmailMetadata,
   loadTriageContext,
   publishEvent,
+  reconcileThreadLabel,
   resolveTodoSuggestion,
   senderKeyFor,
   senderPriorWriteKeyFor,
-  setAppliedLabelId,
   suggestTodo,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
@@ -25,13 +26,8 @@ import {
   type TriageClassification,
   type Workflow,
 } from "@alfred/api";
-import { senderContextSchema, type SenderContext } from "@alfred/contracts";
-import {
-  applyTriageLabel,
-  findThreadSiblingsWithAlfredLabels,
-  TRIAGE_CATEGORIES,
-  type TriageCategory,
-} from "@alfred/integrations/google";
+import { senderContextSchema, type AccountPersona, type SenderContext } from "@alfred/contracts";
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 
 /**
@@ -50,10 +46,10 @@ import { z } from "zod";
  *                    thread), persist `applied_label_id`. Done.
  *
  * Schema model:
- *   One `email_triage` row per (userId, sourceThreadId). Each new message in
- *   a thread re-runs classify and OVERWRITES the row — the canonical alfred
- *   tag is always the latest message's outcome. No per-message audit row;
- *   audit lives on `api_call_log` (the metered LLM call) + `agent_runs`.
+ *   One `email_triage` row per (userId, sourceThreadId). New messages in an
+ *   auto-tagged thread re-run classify and overwrite the row; user-overridden
+ *   tags stay pinned. No per-message audit row; audit lives on `api_call_log`
+ *   (the metered LLM call) + `agent_runs`.
  *
  * Idempotency:
  *   - The classify step skips the LLM if the thread's existing triage row
@@ -279,7 +275,12 @@ export const emailTriageWorkflow: Workflow<State> = {
             model = "fallback";
           }
 
-          await upsertTriage({
+          // Recency-guarded, advisory-locked upsert. `written` is false when a
+          // concurrent run for a strictly-newer message already owns the row —
+          // this run lost the race, so it skips the side effects below (they'd
+          // emit signals for a tag that isn't canonical). The apply-label step
+          // converges on the row's canonical message regardless.
+          const { written } = await upsertTriage({
             userId: ctx.userId,
             sourceThreadId,
             documentId: ctx.state.documentId,
@@ -288,6 +289,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: classification.rationale,
             model,
             runId: ctx.runId,
+            authoredAt: ctxData.document.authoredAt,
           });
 
           // Tell the rail to re-fetch: the row's category chip just
@@ -298,16 +300,18 @@ export const emailTriageWorkflow: Workflow<State> = {
           // two writes still leaves a triaged row to be picked up on
           // the next poll. If publish itself throws, we log and continue
           // so a transient outbox issue doesn't fail the workflow step.
-          try {
-            await publishEvent({
-              userId: ctx.userId,
-              kind: "inbox.updated",
-              payload: { reason: "triaged", count: 1 },
-            });
-          } catch (err) {
-            await ctx.log(
-              `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
+          if (written) {
+            try {
+              await publishEvent({
+                userId: ctx.userId,
+                kind: "inbox.updated",
+                payload: { reason: "triaged", count: 1 },
+              });
+            } catch (err) {
+              await ctx.log(
+                `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
 
           // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
@@ -319,14 +323,16 @@ export const emailTriageWorkflow: Workflow<State> = {
           // Best-effort: a prior write must never fail the label, which is the
           // contract. Phase 2 proves the plumbing; Phase 3 feeds the histogram
           // back into the classifier prompt.
-          const docIsSent = (ctxData.document.metadata as { isSent?: unknown }).isSent === true;
+          const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
           const senderKey = senderPriorWriteKeyFor({
             senderContext,
             senderAddress: senderContextResult.senderAddress,
             isSent: docIsSent,
             model,
           });
-          if (senderKey) {
+          // `written` gate: a superseded older message isn't the canonical tag,
+          // so it must not teach the sender-prior histogram.
+          if (written && senderKey) {
             try {
               await incrementSenderPrior({
                 userId: ctx.userId,
@@ -353,7 +359,9 @@ export const emailTriageWorkflow: Workflow<State> = {
           // than duplicates, and a failed suggestion is non-fatal — the label +
           // row are the contract.
           const todoSuggestion = resolveTodoSuggestion(classification);
-          if (todoSuggestion) {
+          // `written` gate: only the run that owns the canonical row proposes a
+          // todo, so a superseded older message can't mint a stray suggestion.
+          if (written && todoSuggestion) {
             try {
               const suggested = await suggestTodo({
                 userId: ctx.userId,
@@ -421,55 +429,42 @@ export const emailTriageWorkflow: Workflow<State> = {
           );
         }
 
-        const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
-        if (!ctxData) {
-          // Doc evaporated between classify and label — race condition; finish.
-          await ctx.log(`apply-label: document gone, finishing without write`);
+        const outcome = await reconcileThreadLabel({
+          userId: ctx.userId,
+          sourceThreadId,
+          fallbackDocumentId: ctx.state.documentId,
+        });
+
+        if (!outcome.applied) {
+          await ctx.log(`apply-label: skipped reason=${outcome.reason}`);
           return {
             kind: "done",
             state: ctx.state,
-            output: { category, applied: false, reason: "document-not-found" },
+            output: {
+              category: outcome.category ?? category,
+              applied: false,
+              reason: outcome.reason,
+            },
           };
         }
 
-        // Resolve siblings from Gmail (not the DB) — single source of truth
-        // for "which messages in this thread carry alfred labels right now."
-        // Survives stale DB state from older deployments and hand-labelling.
-        const siblings = await findThreadSiblingsWithAlfredLabels({
-          credentialId: ctxData.credentialId,
-          threadId: sourceThreadId,
-          excludeMessageId: ctxData.document.sourceId,
-        });
-
-        const result = await applyTriageLabel({
-          credentialId: ctxData.credentialId,
-          messageId: ctxData.document.sourceId,
-          category,
-          // Strip every other alfred label off the latest message too — handles
-          // the case where it was hand-labelled before alfred touched it.
-          stripAllAlfredLabels: true,
-          threadSiblings: siblings,
-        });
-
-        await setAppliedLabelId(ctx.userId, sourceThreadId, result.appliedLabelId);
-
         await ctx.log(
-          `apply-label: doc=${ctx.state.documentId} thread=${sourceThreadId} ` +
-            `applied=${category} (${result.appliedLabelId}) ` +
-            `removed=${result.removedLabelIds.length} ` +
-            `siblingsStripped=${result.strippedSiblings.length}/${siblings.length}`,
+          `apply-label: doc=${ctx.state.documentId} canonical=${outcome.targetDocId} ` +
+            `thread=${sourceThreadId} applied=${outcome.category} (${outcome.appliedLabelId}) ` +
+            `removed=${outcome.removedLabelIds.length} ` +
+            `siblingsStripped=${outcome.strippedSiblings.length}/${outcome.siblingCount}`,
         );
 
         return {
           kind: "done",
           state: ctx.state,
           output: {
-            category,
+            category: outcome.category,
             confidence: ctx.state.confidence,
             applied: true,
-            appliedLabelId: result.appliedLabelId,
-            removedLabelIds: result.removedLabelIds,
-            strippedSiblings: result.strippedSiblings.length,
+            appliedLabelId: outcome.appliedLabelId,
+            removedLabelIds: outcome.removedLabelIds,
+            strippedSiblings: outcome.strippedSiblings.length,
           },
         };
       },
@@ -494,7 +489,7 @@ async function gatherObservations(args: {
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: Record<string, unknown> };
-  persona: string | null;
+  persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
 }): Promise<Observations> {
@@ -531,7 +526,6 @@ async function gatherObservations(args: {
     .join("\n");
 
   return assembleObservations({
-    senderContext: args.senderContext,
     senderKey,
     senderPrior,
     persona: args.persona,
@@ -540,6 +534,45 @@ async function gatherObservations(args: {
     labelIds,
     signalText,
   });
+}
+
+/**
+ * Structured `triage.sender_extraction` log payload. Explicitly typed (not
+ * `Record<string, unknown>`) so a field rename or shape drift — this object is
+ * JSON-stringified and parsed by downstream tooling — fails the build instead
+ * of compiling silently. Field types are derived from the source types so they
+ * stay in lockstep.
+ */
+interface SenderExtractionEvent {
+  fromKind: SenderContext["fromKind"];
+  bodyActor: SenderContext["bodyActor"] | null;
+  effectiveAuthor: SenderContext["effectiveAuthor"];
+  botSlug: string | null;
+  parserHit: SenderContextResult["parserHit"];
+  senderAddress: SenderContextResult["senderAddress"];
+  senderDomain: SenderContextResult["senderDomain"];
+  persona: AccountPersona | null;
+  senderPriorKey: string | null;
+  senderPriorCounts: Record<string, number>;
+  knownContact: boolean;
+  threadMessages: number;
+  threadNewest: Observations["thread"]["newestDirection"];
+  gmailImportant: boolean;
+  gmailCategories: string[];
+  contentFlags: Observations["content"];
+  firstPassCategory: TriageCategory | null;
+  firstPassConfidence: number | null;
+  conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
+  secondPassCategory: TriageCategory | null;
+  secondPassFailure: string | null;
+  floorMatched: boolean;
+  floorForced: boolean;
+  finalCategory: TriageCategory;
+  finalConfidence: number;
+  todoSuggested: boolean;
+  /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
+  todoOutcome: string | null;
+  todoNote: string | null;
 }
 
 /**
@@ -553,7 +586,7 @@ function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-}): Record<string, unknown> {
+}): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
@@ -581,10 +614,14 @@ function senderExtractionEvent(args: {
     firstPassConfidence: audit?.firstPass.confidence ?? null,
     conflict: audit?.conflict?.kind ?? null,
     secondPassCategory: audit?.secondPass?.category ?? null,
+    secondPassFailure: audit?.secondPassFailure?.message ?? null,
+    floorMatched: audit?.floorMatched ?? false,
     floorForced: audit?.floorForced ?? false,
     // final outcome
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,
     todoSuggested: args.todoSuggested,
+    todoOutcome: args.classification.todoDecision?.outcome ?? null,
+    todoNote: args.classification.todoDecision?.note ?? null,
   };
 }

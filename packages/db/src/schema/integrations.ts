@@ -1,3 +1,4 @@
+import type { AccountPersona } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
@@ -59,7 +60,7 @@ export const integrationCredentials = pgTable(
      * work-urgent vs personal-urgent) is a deferred future ADR; v1 is label +
      * plumbing only.
      */
-    persona: text("persona"),
+    persona: text("persona").$type<AccountPersona>(),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     ...lifecycle_dates,
   },

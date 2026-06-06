@@ -1,3 +1,4 @@
+import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -27,6 +28,7 @@ import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { isValidTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
+import { notSentGmailDocumentWhere } from "../triage/sent-mail";
 import { sanitizeEmailHtml } from "./email-html";
 
 /**
@@ -42,26 +44,6 @@ import { sanitizeEmailHtml } from "./email-html";
 
 const INBOX_DEFAULT_LIMIT = 8;
 const INBOX_MAX_LIMIT = 50;
-/**
- * Triage categories the rail Inbox tab hides. Newsletters + marketing are
- * still ingested (briefing watermark + search), they just don't deserve a
- * slot in the rail-of-twelve. Mirrors `SUPPRESSED_CATEGORIES` in the
- * briefing module without importing it (the briefing list is filtered for
- * compose, not display).
- */
-const RAIL_SUPPRESSED_CATEGORIES = ["newsletter", "marketing"];
-
-export function isSentGmailMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
-  const meta = metadata ?? {};
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as unknown[]) : [];
-  return meta.isSent === true || labelIds.some((label) => label === "SENT");
-}
-
-function notSentGmailDocumentWhere() {
-  return drizzleSql<boolean>`COALESCE((${documents.metadata} ->> 'isSent')::boolean, false) = false
-    AND NOT (COALESCE(${documents.metadata} -> 'labelIds', '[]'::jsonb) ? 'SENT')`;
-}
-
 export interface MeInboxItem {
   documentId: string;
   /**
@@ -419,7 +401,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             // suppressed list both belong in the rail.
             or(
               isNull(emailTriage.category),
-              notInArray(emailTriage.category, RAIL_SUPPRESSED_CATEGORIES),
+              notInArray(emailTriage.category, [...TRIAGE_RAIL_SUPPRESSED_CATEGORIES]),
             ),
           );
 

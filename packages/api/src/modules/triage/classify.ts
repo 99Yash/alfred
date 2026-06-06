@@ -28,40 +28,71 @@ import type { Observations } from "./observations";
  * vs `newsletter` — each disambiguated by an explicit prompt rule.
  */
 
-export const triageClassificationSchema = z.object({
-  category: z.enum(TRIAGE_CATEGORIES),
-  /**
-   * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
-   * 0.5 the workflow still applies the chosen label (we always pick one,
-   * to avoid leaving the message untriaged), but flags it for the briefing
-   * to optionally surface as "alfred wasn't sure."
-   */
-  confidence: z.number().min(0).max(1),
-  /** Short rationale grounded in the email — used for audit and debugging. */
-  rationale: z.string().min(1).max(500),
-  /**
-   * Optional real-time todo proposal for the rail (ADR-0050 amendment 2026-06-05).
-   * Non-null ONLY when this email is an actionable, context-complete commitment
-   * worth tracking — the email-triage tail step turns it into a `suggested`
-   * todo via `system.suggest_todo`. Governed by rule 16: the category gate
-   * (never marketing/newsletter/fyi/done) plus a context-sufficiency test, so a
-   * vague ask ("something broke, fix it") stays `null` even when the category
-   * is `action_needed`/`urgent`. The model must always emit the key (null when
-   * no todo) — this is one field on the existing cheap call, not a second call.
-   */
-  todoSuggestion: z
-    .object({
-      /** Crisp imperative title for the rail checkbox row. */
-      name: z.string().min(1).max(120),
-      /** Optional one-liner on how to approach it, or an honest "can't act yet". */
-      assist: z.string().max(280).optional(),
-    })
-    .nullable()
-    // Optional on the TYPE so non-cheap-classifier producers (tests) need not
-    // set it; the cheap call is prompted to always emit it (null when no todo),
-    // and the triage tail step reads `?? null`.
-    .optional(),
-});
+/**
+ * Todo-worthiness rubric outcomes (ADR-0050 amendment 2026-06-06). Reports which
+ * of the five ordered rubric tests (rule 16) decided the todo call: `proposed`
+ * only when all pass, otherwise the FIRST test that failed. Logged to
+ * `triage.sender_extraction` so the rubric is tuned from real misses (which
+ * dimension fails on which class of mail), not by appending example #N.
+ */
+export const TODO_DECISION_OUTCOMES = [
+  "proposed",
+  "no_obligation",
+  "not_significant",
+  "would_not_forget",
+  "too_vague",
+  "already_handled",
+] as const;
+export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
+
+export const triageClassificationSchema = z
+  .object({
+    category: z.enum(TRIAGE_CATEGORIES),
+    /**
+     * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
+     * 0.5 the workflow still applies the chosen label (we always pick one,
+     * to avoid leaving the message untriaged), but flags it for the briefing
+     * to optionally surface as "alfred wasn't sure."
+     */
+    confidence: z.number().min(0).max(1),
+    /** Short rationale grounded in the email — used for audit and debugging. */
+    rationale: z.string().min(1).max(500),
+    /**
+     * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
+     * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
+     * tests (rule 16) — the email-triage tail step turns it into a `suggested`
+     * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
+     * and evaluated over the whole email (a `done` closure with a significant
+     * trailing ask can still yield one); `todoDecision` reports which test fired.
+     * The model must always emit the key (null when no todo) — this is one field
+     * on the existing cheap call, not a second call.
+     */
+    todoSuggestion: z
+      .object({
+        /** Crisp imperative title for the rail checkbox row. */
+        name: z.string().min(1).max(120),
+        /** Optional one-liner on how to approach it, or an honest "can't act yet". */
+        assist: z.string().max(280).optional(),
+      })
+      .nullable()
+      // Optional on the TYPE so non-cheap-classifier producers need not set it;
+      // the cheap call is prompted to always emit it (null when no todo).
+      .optional(),
+    /**
+     * Always-present rubric trace (ADR-0050 amendment 2026-06-06). Reports which
+     * rubric test decided the call, so a wrong suggestion AND a wrong *omission*
+     * are both debuggable by dimension. Invariant: `outcome === 'proposed'` iff
+     * `todoSuggestion` is non-null. Optional on the TYPE for non-cheap-classifier
+     * producers; the cheap call is prompted to always emit it.
+     */
+    todoDecision: z
+      .object({
+        outcome: z.enum(TODO_DECISION_OUTCOMES),
+        /** Optional ≤1-clause detail for the log (e.g. "trivial survey"). */
+        note: z.string().max(200).optional(),
+      })
+      .optional(),
+  });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
 /** A single cheap-model pass — the seam the second pass and tests drive. */
@@ -120,6 +151,9 @@ export interface ClassifyAudit {
   firstPass: TriageClassification;
   conflict: TriageConflict | null;
   secondPass: TriageClassification | null;
+  secondPassFailure: { message: string } | null;
+  /** True when the override-floor signal matched, even if the model already said urgent. */
+  floorMatched: boolean;
   /** True when the override floor forced a category change (not merely matched). */
   floorForced: boolean;
 }
@@ -127,23 +161,23 @@ export interface ClassifyAudit {
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
 const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
 /**
- * Categories that NEVER carry a rail todo, even when the cheap model emits a
- * `todoSuggestion` anyway (rule 16a category gate). The deterministic floor
- * against a stray suggestion on passive mail. Mirrors PASSIVE_CATEGORIES today
- * but kept SEPARATE on purpose: the todo gate and the conflict-net passive set
- * are independent policies that happen to coincide, and either could move
- * without the other.
+ * Categories that NEVER carry a rail todo regardless of model output (ADR-0050
+ * amendment 2026-06-06). Shrunk to `{marketing, newsletter}`: these are the
+ * broadcast buckets where a genuine personal obligation would be, by definition,
+ * a MISCLASSIFICATION leaking through — so this is a CONSISTENCY GUARD against
+ * classifier leakage, not a relevance judgment. `fyi`/`done` deliberately do NOT
+ * live here: an `fyi` can carry a real obligation ("auto-renews unless you
+ * cancel") and a `done` closure can end with a significant trailing ask — both
+ * go through the rubric (rule 16), which owns the todo decision everywhere else.
  */
-const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>([
-  "marketing",
-  "newsletter",
-  "fyi",
-  "done",
-]);
+const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
 /** Categories that count toward a sender's "bulk" share for the over-classification net. */
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 const STRONG_BULK_MIN_TOTAL = 5;
 const STRONG_BULK_MIN_SHARE = 0.8;
+const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
+const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
+const MAX_RATIONALE_LEN = 500;
 
 /**
  * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
@@ -159,8 +193,12 @@ const STRONG_BULK_MIN_SHARE = 0.8;
  * prose ("the credential object is exposed to the network") and the floor is
  * unrecoverable — a false positive force-tags an architecture email `urgent`.
  */
-const OVERRIDE_FLOOR_SECRET_RE =
-  /\b(?:secret|api[ -]?key|token|private key|password)\b[\s\S]{0,80}\b(?:exposed|leaked|committed|compromised)\b/i;
+const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
+const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
+const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
+  String.raw`\b(?:${OVERRIDE_FLOOR_SECRET_NOUN}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_SECRET_NOUN})\b`,
+  "i",
+);
 
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
@@ -208,19 +246,20 @@ Rules:
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
 14. Rationale: 1-2 sentences citing concrete cues (sender, subject phrasing, body content, a decisive observation). Don't restate the rule.
 15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
-16. Todo suggestion (rail) — IN ADDITION to the category, decide whether this email is a commitment worth tracking on the user's todo rail. A todo earns its place ONLY if it is something the user could plausibly FORGET or DROP and would be glad to see tracked. Most actionable mail does not clear this bar. Set the \`todoSuggestion\` field, always present:
-    16a. NEVER propose (todoSuggestion is null) for:
-        - marketing, newsletter, fyi, or done categories — the category tag is NECESSARY but NOT sufficient;
-        - self-initiated authentication mail (rule 15's class: sign-in / magic links, one-time login codes, email-address verification the user just requested). The user triggered it, already knows about it, and the link or code expires harmlessly — there is nothing to remember. A "log in" todo is pure noise;
-        - anything the user is self-evidently already mid-flow on, or that resolves itself without the user tracking it.
-    16b. Propose ONLY when BOTH hold: (i) it is worth acting on for the day, AND (ii) the email carries enough concrete context to write a specific, self-contained action.
-    16c. If the ask is vague or you cannot say what to actually DO from the email alone — "something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing the specifics — set todoSuggestion to null EVEN WHEN the category is action_needed or urgent. A vague rail item is worse than none.
-    16d. When you do propose: \`name\` is a crisp imperative naming the SUBJECT, so the user knows what it is at a glance without opening the email ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD") — never a bare verb ("Log in", "Reply"). \`assist\` is OPTIONAL: include it only when it adds real guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>" when there is no path. OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
+16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
+    Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
+    16a. Obligation on me (gate). Is there an action the USER must take — reply, decide, send, pay, attend, prepare, fix, submit? Not the sender's job, not pure awareness. None → outcome \`no_obligation\`. (A newsletter, a shipped-order notice, an FYI-for-awareness leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.)
+    16b. Significance. Does the obligation MATTER on its face — a deadline, money, a real deliverable, a commitment to a person, a clear cost of not doing it? Real-but-trivial asks fail here: rate-your-driver, satisfaction surveys, "thoughts sometime?", optional feedback with no stake. Trivial → outcome \`not_significant\`. Judge from the email ALONE — you do NOT have the user's projects, role, or relationships available here, so do not assume personal relevance.
+    16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
+    16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
+    16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. \`name\` is a crisp imperative naming the SUBJECT, recognizable at a glance without opening the email ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD") — never a bare verb ("Log in", "Reply"). \`assist\` is OPTIONAL: include it only when it adds guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>". OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
+    16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
 - "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
-- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → action_needed (self-initiated auth, expires harmlessly — rule 15, NOT urgent), and todoSuggestion is null (rule 16a — the user already knows, nothing to track).
+- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → action_needed (self-initiated auth, expires harmlessly — rule 15, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
 - "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
@@ -240,7 +279,15 @@ Examples (subject → category):
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
 - "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null }`;
+Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
+- "Sign in to Anthropic" / "Your login code is 123456" the user requested → no todo (16c memorability: self-initiated, nothing to remember).
+- "Rate your recent delivery" / "How did we do? Leave a quick review" → no todo (16b significance: real ask, but trivial, no stake).
+- Amazon "Your order shipped" ending "…complete this 1-question survey" → category done, no todo (16b significance).
+- Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
+- Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
+- "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
+
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
 
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
@@ -398,23 +445,24 @@ export function detectConflict(
 export function applyOverrideFloor(
   classification: TriageClassification,
   signalText: string,
-): { classification: TriageClassification; forced: boolean } {
+): { classification: TriageClassification; matched: boolean; forced: boolean } {
   if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
-    return { classification, forced: false };
+    return { classification, matched: false, forced: false };
   }
   if (classification.category === "urgent") {
     // Floor agrees with the model — no change, nothing to force.
-    return { classification, forced: false };
+    return { classification, matched: true, forced: false };
   }
   return {
     classification: {
       ...classification,
       category: "urgent",
-      confidence: Math.max(classification.confidence, 0.85),
+      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
       rationale: truncateRationale(
-        `${classification.rationale} Override floor: an exposed secret/credential was detected — forced urgent.`,
+        `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
       ),
     },
+    matched: true,
     forced: true,
   };
 }
@@ -423,20 +471,21 @@ export function applyOverrideFloor(
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
 /**
- * Resolve the rail todo to mint from a FINAL classification (Phase 0 contract,
- * ADR-0050 amendment 2026-06-05). Returns the suggestion ONLY when the cheap
- * model proposed one AND the category is todo-eligible; the category gate
- * ({@link TODO_INELIGIBLE_CATEGORIES}) suppresses a stray suggestion the model
- * emitted on `marketing`/`newsletter`/`fyi`/`done` mail. PURE — the
- * `email-triage` tail step calls this and, on a non-null result, writes the
- * todo via `suggestTodo`. The single decision point so the gate is testable
- * without a workflow harness and stays in lockstep with the prompt's rule 16a.
+ * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
+ * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
+ * AND the category is todo-eligible; the floor ({@link TODO_INELIGIBLE_CATEGORIES},
+ * now just `{marketing, newsletter}`) suppresses a stray suggestion that leaked
+ * onto a broadcast bucket. The real todo decision is the rubric (rule 16) the
+ * model already applied; this is a thin consistency guard, not the judgment.
+ * PURE — the `email-triage` tail step calls this and, on a non-null result,
+ * writes the todo via `suggestTodo`.
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
 ): ResolvedTodoSuggestion | null {
   const suggestion = classification.todoSuggestion ?? null;
   if (!suggestion) return null;
+  if (classification.todoDecision?.outcome !== "proposed") return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
   return suggestion;
 }
@@ -464,7 +513,8 @@ export async function classifyEmail(
   const baseModelId = useInjected ? "injected" : resolveModelId(model);
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
-  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(floorSignalText(args.document));
+  const signalText = floorSignalText(args.document);
+  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
 
   const firstPass = await runPass({
     system: SYSTEM_PROMPT,
@@ -475,26 +525,49 @@ export async function classifyEmail(
   const conflict = detectConflict(firstPass, args.observations, floorMatches);
   let working = firstPass;
   let secondPass: TriageClassification | null = null;
+  let secondPassFailure: { message: string } | null = null;
   if (conflict) {
-    secondPass = await runPass({
-      system: SYSTEM_PROMPT,
-      prompt: userPrompt(args, conflict),
-      pass: "second",
-    });
-    working = secondPass;
+    // The second pass is an OPTIONAL re-check. A failure on it must NOT discard
+    // the already-valid first pass: if the error propagated, the workflow's
+    // catch would force the whole message to the default `fyi`, silently
+    // DE-escalating a real urgent/action_needed (the exact opposite of what the
+    // under-classification net is for). Fall back to the first pass instead.
+    try {
+      secondPass = await runPass({
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt(args, conflict),
+        pass: "second",
+      });
+      working = secondPass;
+    } catch (err) {
+      secondPassFailure = { message: errorMessage(err) };
+      secondPass = null;
+      working =
+        conflict.kind === "under_classification"
+          ? conservativeUnderClassificationFallback(firstPass, secondPassFailure.message)
+          : firstPass;
+    }
   }
 
-  const floorResult = applyOverrideFloor(working, floorSignalText(args.document));
+  const floorResult = applyOverrideFloor(working, signalText);
   const classification = floorResult.classification;
 
   let model_id = baseModelId;
   if (secondPass) model_id += "+2pass";
+  if (secondPassFailure) model_id += "+2pass_failed";
   if (floorResult.forced) model_id += "+floor";
 
   return {
     classification,
     model: model_id,
-    audit: { firstPass, conflict, secondPass, floorForced: floorResult.forced },
+    audit: {
+      firstPass,
+      conflict,
+      secondPass,
+      secondPassFailure,
+      floorMatched: floorResult.matched,
+      floorForced: floorResult.forced,
+    },
   };
 }
 
@@ -515,6 +588,11 @@ function defaultRunPass(
         // Triage answers are tiny — cap hard so a misbehaving model can't burn
         // tokens on a wall-of-text rationale.
         maxOutputTokens: 400,
+        // Bound the call so a hung/slow Gemini connection can't stall the
+        // single-concurrency triage worker indefinitely. The workflow catches a
+        // timeout and falls through to the default category (better a label than
+        // a blocked queue).
+        timeout: { totalMs: 30_000 },
       },
       {
         role: "triage",
@@ -536,7 +614,26 @@ function defaultRunPass(
 }
 
 function truncateRationale(value: string): string {
-  return value.length > 500 ? `${value.slice(0, 497)}...` : value;
+  return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
+}
+
+function conservativeUnderClassificationFallback(
+  firstPass: TriageClassification,
+  message: string,
+): TriageClassification {
+  if (!PASSIVE_CATEGORIES.has(firstPass.category)) return firstPass;
+  return {
+    ...firstPass,
+    category: "action_needed",
+    confidence: Math.max(firstPass.confidence, SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
+    rationale: truncateRationale(
+      `${firstPass.rationale} Second-pass failed after a security under-classification conflict; conservatively escalated to action_needed. err=${message.slice(0, 160)}`,
+    ),
+  };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function resolveModelId(model: unknown): string {

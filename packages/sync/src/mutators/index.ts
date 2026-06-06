@@ -30,6 +30,7 @@ import {
   chatThreadCreateArgsSchema,
   chatThreadCreateClient,
 } from "./chat";
+import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
 export * from "./notes";
 export * from "./facts";
@@ -38,6 +39,7 @@ export * from "./policy";
 export * from "./workflows";
 export * from "./todos";
 export * from "./chat";
+export * from "./triage-tags";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -61,6 +63,7 @@ export const clientMutators = {
   todoEdit: todoEditClient,
   chatThreadCreate: chatThreadCreateClient,
   chatMessageCreate: chatMessageCreateClient,
+  triageTagOverride: triageTagOverrideClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -87,4 +90,5 @@ export const mutatorArgsSchemas = {
   todoEdit: todoEditArgsSchema,
   chatThreadCreate: chatThreadCreateArgsSchema,
   chatMessageCreate: chatMessageCreateArgsSchema,
+  triageTagOverride: triageTagOverrideArgsSchema,
 };
