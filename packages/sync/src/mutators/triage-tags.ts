@@ -50,7 +50,7 @@ export async function triageTagOverrideClient(
     userId: tag.userId,
     category: args.category,
     documentId: tag.documentId,
-    appliedLabelId: tag.appliedLabelId,
+    appliedLabelId: null,
     rowVersion: tag.rowVersion + 1,
     updatedAt: now,
     overriddenAt: now,

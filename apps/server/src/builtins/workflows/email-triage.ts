@@ -564,10 +564,15 @@ interface SenderExtractionEvent {
   firstPassConfidence: number | null;
   conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
   secondPassCategory: TriageCategory | null;
+  secondPassFailure: string | null;
+  floorMatched: boolean;
   floorForced: boolean;
   finalCategory: TriageCategory;
   finalConfidence: number;
   todoSuggested: boolean;
+  /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
+  todoOutcome: string | null;
+  todoNote: string | null;
 }
 
 /**
@@ -609,10 +614,14 @@ function senderExtractionEvent(args: {
     firstPassConfidence: audit?.firstPass.confidence ?? null,
     conflict: audit?.conflict?.kind ?? null,
     secondPassCategory: audit?.secondPass?.category ?? null,
+    secondPassFailure: audit?.secondPassFailure?.message ?? null,
+    floorMatched: audit?.floorMatched ?? false,
     floorForced: audit?.floorForced ?? false,
     // final outcome
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,
     todoSuggested: args.todoSuggested,
+    todoOutcome: args.classification.todoDecision?.outcome ?? null,
+    todoNote: args.classification.todoDecision?.note ?? null,
   };
 }

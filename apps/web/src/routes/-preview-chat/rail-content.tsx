@@ -1,5 +1,7 @@
 import { ListChecks, X } from "lucide-react";
 import type { ReactNode } from "react";
+import type { TriageCategory } from "@alfred/contracts";
+import type { SyncedTriageTag } from "@alfred/sync";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { VsSegmented } from "~/components/ui/visitors";
 import { useWeather } from "~/hooks/use-weather";
@@ -80,6 +82,10 @@ export interface RailData {
   onMarkInboxRead?: (documentIds: ReadonlyArray<string>) => void;
   /** True while a mark-read mutation is in flight — disables the button. */
   markInboxReadPending?: boolean;
+  /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
+  /** Pin a thread to a user-chosen triage category. */
+  onOverrideTriageTag?: (threadId: string, category: TriageCategory) => void;
   meetings: ReadonlyArray<MeetingItem>;
   meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
   /**
@@ -206,6 +212,8 @@ export function RailContent({
                 onClose={data.onCloseInbox}
                 onMarkRead={data.onMarkInboxRead}
                 markReadPending={data.markInboxReadPending}
+                triageTagsByThreadId={data.triageTagsByThreadId}
+                onOverrideTag={data.onOverrideTriageTag}
               />
             </RailSlot>
             <RailSlot active={tab === "meetings"}>

@@ -411,6 +411,7 @@ export const serverMutators = {
         category: args.category,
         source: "user",
         overriddenAt: now,
+        appliedLabelId: null,
         rowVersion: sql`${emailTriage.rowVersion} + 1`,
         updatedAt: now,
       })
