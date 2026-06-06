@@ -63,7 +63,10 @@ function presentTool(tool: ToolCallView): ToolPresentation {
   const slug = tool.toolName.includes(".") ? tool.toolName.slice(0, tool.toolName.indexOf(".")) : "";
 
   if (tool.toolName === "system.load_integration") {
-    const target = asString(args?.slug);
+    // argsPreview carries the slug live; on reload only resultPreview
+    // (`{"ok":true,"slug":"github"}`) is persisted, so fall back to it.
+    const result = parsePreview(tool.resultPreview);
+    const target = asString(args?.slug) ?? asString(result?.slug);
     const provider = target ? getIntegrationProvider(target) : undefined;
     const name = provider?.name ?? "integration";
     return {
