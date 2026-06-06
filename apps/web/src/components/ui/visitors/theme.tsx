@@ -32,8 +32,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  getLocalStorageItem,
+  setLocalStorageItem,
+  subscribeToStorage,
+  type LocalStorageValue,
+} from "~/lib/storage";
 
-export type VsThemeMode = "system" | "dark" | "light";
+/** The persisted theme choice — defined once, in the `vs-theme` storage schema. */
+export type VsThemeMode = LocalStorageValue<"vs-theme">;
 export type VsResolvedTheme = "dark" | "light";
 
 export interface VsThemeContextValue {
@@ -49,14 +56,7 @@ export const VsThemeContext = createContext<VsThemeContextValue | null>(null);
 const STORAGE_KEY = "vs-theme";
 
 function readPersistedMode(): VsThemeMode {
-  if (typeof window === "undefined") return "system";
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw === "dark" || raw === "light" || raw === "system") return raw;
-  } catch {
-    /* localStorage might be denied in some contexts; just fall through. */
-  }
-  return "system";
+  return getLocalStorageItem(STORAGE_KEY);
 }
 
 function getSystemPreference(): VsResolvedTheme {
@@ -81,13 +81,13 @@ export function VsThemeProvider({ children }: { children: ReactNode }) {
 
   const resolved: VsResolvedTheme = mode === "system" ? systemPref : mode;
 
+  // Keep the user's choice in sync across tabs — the `storage` event fires in
+  // every *other* tab when one writes, so a theme change here lands there too.
+  useEffect(() => subscribeToStorage(STORAGE_KEY, setModeState), []);
+
   const setMode = useCallback((next: VsThemeMode) => {
     setModeState(next);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
+    setLocalStorageItem(STORAGE_KEY, next);
   }, []);
 
   const value = useMemo<VsThemeContextValue>(

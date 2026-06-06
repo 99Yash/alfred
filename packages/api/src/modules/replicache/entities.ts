@@ -50,6 +50,7 @@ import {
 } from "@alfred/sync";
 import { and, asc, desc, eq, gte, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { ZodError } from "zod";
+import { isInternalWorkflowSlug } from "../agent/registry";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
@@ -316,14 +317,16 @@ const ENTITY_FETCHERS = {
       .from(workflows)
       .where(eq(workflows.userId, userId))
       .orderBy(asc(workflows.slug));
-    return rows.flatMap((w: typeof workflows.$inferSelect) =>
-      toEntityRow({
-        slug: "WORKFLOW",
-        id: w.slug,
-        rowVersion: w.rowVersion,
-        serialize: () => serializeWorkflow(w),
-      }),
-    );
+    return rows
+      .filter((w: typeof workflows.$inferSelect) => !isInternalWorkflowSlug(w.slug))
+      .flatMap((w: typeof workflows.$inferSelect) =>
+        toEntityRow({
+          slug: "WORKFLOW",
+          id: w.slug,
+          rowVersion: w.rowVersion,
+          serialize: () => serializeWorkflow(w),
+        }),
+      );
   },
 
   // ADR-0050. `dismissed` rows never reach the client; `done` rows linger

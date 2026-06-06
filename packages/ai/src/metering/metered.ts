@@ -77,15 +77,22 @@ export async function metered<T>(
  */
 export function meteredStream<T>(
   meta: MeteredMeta,
-  start: (hooks: { finish: (result: MeteredResult) => void; fail: (message: string) => void }) => T,
+  start: (hooks: {
+    finish: (result: MeteredResult) => void;
+    fail: (message: string) => void;
+    abort: (result: MeteredResult) => void;
+  }) => T,
 ): T {
   const startedAt = new Date();
   const span = startLangfuseSpan({ meta, startedAt });
   let settled = false;
-  const finish = (extracted: MeteredResult): void => {
+  const settleWithUsage = (extracted: MeteredResult, aborted: boolean): void => {
     if (settled) return;
     settled = true;
     const latencyMs = Date.now() - startedAt.getTime();
+    const responseMeta = aborted
+      ? { ...extracted.responseMeta, aborted: true }
+      : extracted.responseMeta;
     void (async () => {
       const price = await getPrice(meta.provider, meta.model);
       const costUsd = computeCost(price, extracted.usage);
@@ -94,11 +101,17 @@ export function meteredStream<T>(
         latencyMs,
         usage: extracted.usage,
         costUsd,
-        responseMeta: extracted.responseMeta,
+        responseMeta,
         error: null,
       });
-      span.success({ usage: extracted.usage, costUsd, output: extracted.responseMeta });
+      span.success({ usage: extracted.usage, costUsd, output: responseMeta });
     })();
+  };
+  const finish = (extracted: MeteredResult): void => {
+    settleWithUsage(extracted, false);
+  };
+  const abort = (extracted: MeteredResult): void => {
+    settleWithUsage(extracted, true);
   };
   const fail = (message: string): void => {
     if (settled) return;
@@ -114,7 +127,7 @@ export function meteredStream<T>(
     });
     span.error(message);
   };
-  return start({ finish, fail });
+  return start({ finish, fail, abort });
 }
 
 interface WriteArgs {

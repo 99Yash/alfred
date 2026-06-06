@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { user as userTable, workflows } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
-import { listWorkflows } from "../agent/registry";
+import { listPublicWorkflows } from "../agent/registry";
 
 /**
  * Seed one `workflows` row per registered builtin for a given user.
@@ -24,7 +24,7 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
   seeded: number;
   slugs: string[];
 }> {
-  const builtins = listWorkflows();
+  const builtins = listPublicWorkflows();
   if (builtins.length === 0) return { seeded: 0, slugs: [] };
 
   const rows = builtins.map((wf) => ({

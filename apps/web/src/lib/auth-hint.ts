@@ -13,22 +13,16 @@
  * This is a UX hint, never a security boundary — a wrong guess only costs a
  * one-frame flash or a brief blank, and the next resolved session corrects it.
  */
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage";
+
 const KEY = "alfred.maybe-authed";
 
 export function readAuthHint(): boolean {
-  try {
-    return localStorage.getItem(KEY) === "1";
-  } catch {
-    // Private mode / storage disabled — no hint means "show the landing",
-    // which is the safe, fast default for the common signed-out visitor.
-    return false;
-  }
+  // SSR / private mode resolves to the schema default (`false`), i.e. "show the
+  // landing" — the safe, fast default for the common signed-out visitor.
+  return getLocalStorageItem(KEY);
 }
 
 export function writeAuthHint(authed: boolean): void {
-  try {
-    localStorage.setItem(KEY, authed ? "1" : "0");
-  } catch {
-    // Ignore — storage unavailable; we just lose flash-avoidance on next load.
-  }
+  setLocalStorageItem(KEY, authed);
 }

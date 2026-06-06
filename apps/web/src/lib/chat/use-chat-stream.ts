@@ -62,10 +62,12 @@ interface StreamRef {
 export function useChatStream(threadId: string | undefined): StreamingMessage | null {
   const [snapshot, setSnapshot] = useState<StreamingMessage | null>(null);
   const ref = useRef<StreamRef | null>(null);
+  const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     ref.current = null;
+    lastSnapshotRef.current = null;
     setSnapshot(null);
     if (!threadId) return;
 
@@ -81,7 +83,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
         r.reasoningShown = ease(r.reasoningShown, r.reasoning.length);
         r.shown = ease(r.shown, r.target.length);
-        setSnapshot({
+        const nextSnapshot: StreamingMessage = {
           messageId: r.messageId,
           runId: r.runId,
           text: r.target.slice(0, r.shown),
@@ -91,11 +93,16 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           tools: [...r.tools.values()],
           awaitingApproval: r.awaitingApproval,
           done: r.done,
-        });
-        // Keep ticking until both tracks have fully caught up. Once done +
-        // caught up, stop — the snapshot stays put until the synced message lands.
+        };
+        if (!streamSnapshotsEqual(lastSnapshotRef.current, nextSnapshot)) {
+          lastSnapshotRef.current = nextSnapshot;
+          setSnapshot(nextSnapshot);
+        }
+        // Keep ticking only while the eased buffers are catching up. Future
+        // SSE frames call `ensureRaf()` again, including approval/completed
+        // state changes, so an approval wait does not spin at 60fps.
         const caughtUp = r.shown >= r.target.length && r.reasoningShown >= r.reasoning.length;
-        if (!r.done || !caughtUp) {
+        if (!caughtUp) {
           rafRef.current = requestAnimationFrame(tick);
         } else {
           rafRef.current = null;
@@ -192,4 +199,35 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
   }, [threadId]);
 
   return snapshot;
+}
+
+function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {
+  if (!a) return false;
+  if (
+    a.messageId !== b.messageId ||
+    a.runId !== b.runId ||
+    a.text !== b.text ||
+    a.reasoning !== b.reasoning ||
+    a.reasoningActive !== b.reasoningActive ||
+    a.reasoningMs !== b.reasoningMs ||
+    a.awaitingApproval !== b.awaitingApproval ||
+    a.done !== b.done ||
+    a.tools.length !== b.tools.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < a.tools.length; i += 1) {
+    const left = a.tools[i]!;
+    const right = b.tools[i]!;
+    if (
+      left.toolCallId !== right.toolCallId ||
+      left.toolName !== right.toolName ||
+      left.status !== right.status ||
+      left.argsPreview !== right.argsPreview ||
+      left.resultPreview !== right.resultPreview
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

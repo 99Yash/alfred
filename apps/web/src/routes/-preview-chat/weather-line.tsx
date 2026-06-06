@@ -15,14 +15,20 @@ import { cn } from "~/lib/utils";
  * max-width, no width-morphing — the row is stable regardless of the
  * strings it's handed.
  *
- * Data comes from `useWeather()` (open-meteo + ip-based geolocation). The
- * line hides itself entirely while loading or on error — the rail's video
- * already says "weather here", so an empty row beats a churning skeleton.
+ * Data comes from `useWeather()` (open-meteo + ip-based geolocation),
+ * which seeds itself from a localStorage cache so a reload usually paints
+ * the line immediately. While a cold load is in flight we reserve the
+ * row's height (an invisible placeholder) so the date and feed below
+ * don't jump when data lands. A hard error collapses the row — the rail's
+ * video already reads as "weather here".
  */
 export function WeatherLine() {
-  const { data, isLoading, isError } = useWeather();
-  if (isLoading || isError || !data) {
+  const { data, isError } = useWeather();
+  if (isError) {
     return null;
+  }
+  if (!data) {
+    return <div className="mt-2 h-[13px]" aria-hidden />;
   }
 
   const Icon = ICON_FOR_CONDITION[data.condition];
