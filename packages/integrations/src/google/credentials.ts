@@ -1,3 +1,4 @@
+import type { AccountPersona } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -31,7 +32,7 @@ export interface UpsertCredentialsArgs {
    * the Google `hd` claim at connect. Omitted leaves the column untouched on
    * update so a user override survives a token re-connect.
    */
-  persona?: string | null;
+  persona?: AccountPersona | null;
 }
 
 /**

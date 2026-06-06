@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
-import type { TriageCategory, TriageTagSource } from "@alfred/contracts";
+import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 
 /**
@@ -193,12 +193,15 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       .onConflictDoUpdate({
         target: [emailTriage.userId, emailTriage.sourceThreadId],
         set: updateSet,
+        setWhere: sql`${emailTriage.source} <> 'user'`,
       })
       .returning();
     const row = result[0];
     if (!row) {
+      const stored = await getTriage(args.userId, args.sourceThreadId);
+      if (stored) return { row: stored, written: false };
       throw new Error(
-        `[triage] upsert returned no row for user=${args.userId} thread=${args.sourceThreadId}`,
+        `[triage] upsert skipped but no stored row for user=${args.userId} thread=${args.sourceThreadId}`,
       );
     }
     return { row: rowToTriage(row), written: true };
@@ -266,7 +269,7 @@ export interface TriageDocumentContext {
    * the triage classifier as a one-line context hint (ADR-0051 §3). Null for
    * legacy credentials connected before persona auto-detection.
    */
-  persona: string | null;
+  persona: AccountPersona | null;
 }
 
 /**

@@ -29,12 +29,13 @@ function makeClientTx(initial: Record<string, unknown> = {}): {
   return { tx, store };
 }
 
-function makeUpdateTx(): {
+function makeUpdateTx(returnRows: unknown[] = [{ sourceThreadId: "thread_1" }]): {
   tx: unknown;
-  calls: () => { setValue: unknown; whereCalled: boolean };
+  calls: () => { setValue: unknown; whereCalled: boolean; returningCalled: boolean };
 } {
   let setValue: unknown;
   let whereCalled = false;
+  let returningCalled = false;
   return {
     tx: {
       update(_table: unknown) {
@@ -42,15 +43,21 @@ function makeUpdateTx(): {
           set(value: unknown) {
             setValue = value;
             return {
-              async where(_condition: unknown): Promise<void> {
+              where(_condition: unknown) {
                 whereCalled = true;
+                return {
+                  async returning(_selection: unknown): Promise<unknown[]> {
+                    returningCalled = true;
+                    return returnRows;
+                  },
+                };
               },
             };
           },
         };
       },
     },
-    calls: () => ({ setValue, whereCalled }),
+    calls: () => ({ setValue, whereCalled, returningCalled }),
   };
 }
 
@@ -107,13 +114,13 @@ describe("serverMutators.triageTagOverride", () => {
   test("sets the row to a user-authored tag and bumps the CVR version", async () => {
     const { tx, calls } = makeUpdateTx();
 
-    await serverMutators.triageTagOverride(
+    const result = await serverMutators.triageTagOverride(
       tx,
       { threadId: baseTag.threadId, category: "action_needed" },
       { userId: baseTag.userId },
     );
 
-    const { setValue, whereCalled } = calls();
+    const { setValue, whereCalled, returningCalled } = calls();
     const set = setValue as {
       category?: unknown;
       source?: unknown;
@@ -129,5 +136,21 @@ describe("serverMutators.triageTagOverride", () => {
     assert.equal(set.updatedAt, set.overriddenAt);
     assert.ok(set.rowVersion);
     assert.equal(whereCalled, true);
+    assert.equal(returningCalled, true);
+    assert.deepEqual(result, { applied: true });
+  });
+
+  test("reports no-op when the override update matched no triage row", async () => {
+    const { tx, calls } = makeUpdateTx([]);
+
+    const result = await serverMutators.triageTagOverride(
+      tx,
+      { threadId: "missing_thread", category: "urgent" },
+      { userId: baseTag.userId },
+    );
+
+    assert.equal(calls().whereCalled, true);
+    assert.equal(calls().returningCalled, true);
+    assert.deepEqual(result, { applied: false });
   });
 });

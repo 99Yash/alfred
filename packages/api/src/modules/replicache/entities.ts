@@ -14,6 +14,7 @@ import {
   workflows,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
+import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
@@ -70,9 +71,6 @@ const BRIEFING_PULL_WINDOW_DAYS = 30;
 const TODO_DONE_WINDOW_DAYS = 7;
 /** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
 const TRIAGE_TAG_WINDOW_DAYS = 30;
-/** Categories the rail hides — auto tags in these don't sync (Open Question 2). */
-const TRIAGE_TAG_SUPPRESSED = ["newsletter", "marketing"];
-
 function toEntityRow(args: {
   slug: IDBKeys;
   id: string;
@@ -367,7 +365,7 @@ const ENTITY_FETCHERS = {
             and(
               eq(emailTriage.source, "auto"),
               gte(emailTriage.classifiedAt, cutoff),
-              notInArray(emailTriage.category, TRIAGE_TAG_SUPPRESSED),
+              notInArray(emailTriage.category, [...TRIAGE_RAIL_SUPPRESSED_CATEGORIES]),
             ),
           ),
         ),
