@@ -1,24 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AppSidebar } from "~/components/app-sidebar";
-import { ChatContext } from "~/components/chat-context";
 import {
-  PREVIEW_APPROVALS_BADGE,
-  PREVIEW_CHAT_THREADS,
-  PREVIEW_RECENT_THREADS,
-  type PreviewThreadEntry,
-  type PreviewThreadGroup,
-} from "~/components/preview-fixtures";
-import { SearchPalette } from "~/components/search-palette";
-import { AppThemed, AppThemeProvider } from "~/components/ui/v2";
+  createContext,
+  lazy,
+  Suspense,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ChatContext } from "~/components/chat-context";
+import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth-client";
 import { writeAuthHint } from "~/lib/auth-hint";
 import { client } from "~/lib/eden";
-import { useEventBridge } from "~/lib/events/use-event-bridge";
-import { useChatThreads } from "~/lib/replicache/use-chat";
-import { cn } from "~/lib/utils";
-import type { SyncedChatThread } from "@alfred/sync";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -74,6 +71,7 @@ export function useSidebarState(): SidebarStateValue {
  * -------------------------------------------------------------------------- */
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
+const LazyAuthedAppShell = lazy(() => import("./authed-app-shell"));
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {
@@ -95,19 +93,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
   const location = useLocation();
   const navigate = useNavigate();
-  // Single per-session SSE connection that drives React Query
-  // invalidations (inbox.updated → ["me","inbox"]). Mounted here so it
-  // outlives route changes.
-  useEventBridge();
   const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const sidebarMode = useSidebarMode();
   const [sidebarOpen, setSidebarOpen] = useState(() => sidebarMode === "inline");
   const [activeThread, setActiveThread] = useState<string>("");
-
-  // Live chat threads (Replicache-synced), grouped by recency for the sidebar.
-  const chatThreads = useChatThreads();
-  const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
 
   // Snap the sidebar back to each mode's default when the viewport
   // crosses the breakpoint — wide viewports get it open inline, narrow
@@ -182,16 +172,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     location.pathname === "/terms-of-service" ||
     location.pathname.startsWith("/onboarding");
 
-  /* `/preview/*` is the fixture-rich design surface. Real routes now feed the
-   * sidebar live Replicache-synced chat threads (grouped by recency); the
-   * approvals badge + palette recent threads still await their own wiring, so
-   * they stay empty on real routes. The preview routes pass demo fixtures so
-   * the design surface stays loud regardless. */
-  const isPreviewRoute = location.pathname.startsWith("/preview/");
-  const sidebarThreads = isPreviewRoute ? PREVIEW_CHAT_THREADS : realThreads;
-  const sidebarApprovalsBadge = isPreviewRoute ? PREVIEW_APPROVALS_BADGE : undefined;
-  const paletteRecentThreads = isPreviewRoute ? PREVIEW_RECENT_THREADS : undefined;
-
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && !chromeless;
   useEffect(() => {
@@ -241,37 +221,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ChatContext.Provider value={chatContextValue}>
           <AppThemeProvider>
             {showChrome ? (
-              <AppThemed className="min-h-dvh bg-app-background-subtle">
-                <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
-                  <AppSidebar
-                    onOpenSearch={() => setPaletteOpen(true)}
-                    activeThread={activeThread}
-                    threads={sidebarThreads}
-                    approvalsBadge={sidebarApprovalsBadge}
-                    open={sidebarOpen}
-                    onCollapse={() => setSidebarOpen(false)}
-                  />
-                  <main className="flex flex-1 min-w-0 relative gap-1.5">
-                    <div
-                      className={cn(
-                        "flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
-                        "rounded-2xl bg-app-bg-1",
-                        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-                      )}
-                    >
-                      {mainContent}
-                    </div>
-                    {rightRailNode}
-                  </main>
-                </div>
-
-                {paletteOpen ? (
-                  <SearchPalette
-                    onClose={() => setPaletteOpen(false)}
-                    recentThreads={paletteRecentThreads}
-                  />
-                ) : null}
-              </AppThemed>
+              <Suspense fallback={<AuthedShellFallback />}>
+                <LazyAuthedAppShell
+                  pathname={location.pathname}
+                  mainContent={mainContent}
+                  rightRailNode={rightRailNode}
+                  paletteOpen={paletteOpen}
+                  setPaletteOpen={setPaletteOpen}
+                  activeThread={activeThread}
+                  sidebarOpen={sidebarOpen}
+                  setSidebarOpen={setSidebarOpen}
+                />
+              </Suspense>
             ) : (
               children
             )}
@@ -282,36 +243,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Bucket synced chat threads into the sidebar's Today / Yesterday / Earlier
- * groups by last activity (falling back to creation time for a thread that
- * has no messages yet). `useChatThreads` already sorts newest-first, so each
- * bucket preserves that order. Empty buckets render nothing (the group block
- * skips itself), so a user with no threads gets a clean sidebar.
- */
-function groupChatThreads(
-  threads: ReadonlyArray<SyncedChatThread>,
-): Record<PreviewThreadGroup, PreviewThreadEntry[]> {
-  const groups: Record<PreviewThreadGroup, PreviewThreadEntry[]> = {
-    today: [],
-    yesterday: [],
-    earlier: [],
-  };
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfYesterday = new Date(startOfToday);
-  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-
-  for (const thread of threads) {
-    const when = thread.lastMessageAt ?? thread.createdAt;
-    const ts = new Date(when).getTime();
-    const entry: PreviewThreadEntry = {
-      id: thread.id,
-      title: thread.title?.trim() || "New chat",
-    };
-    if (Number.isNaN(ts) || ts >= startOfToday.getTime()) groups.today.push(entry);
-    else if (ts >= startOfYesterday.getTime()) groups.yesterday.push(entry);
-    else groups.earlier.push(entry);
-  }
-  return groups;
+function AuthedShellFallback() {
+  return <div className="min-h-dvh bg-app-background-subtle" aria-hidden />;
 }

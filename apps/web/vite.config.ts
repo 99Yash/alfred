@@ -13,6 +13,23 @@ export default defineConfig({
         // them as separate requests. Merge sub-20KB chunks into their importers
         // to collapse that waterfall.
         experimentalMinChunkSize: 20_000,
+        // Carve heavy, rarely-changing vendors out of the always-loaded entry
+        // chunk into stable buckets. Without this, react + router + query +
+        // replicache + auth all land in one ~580KB entry that every route
+        // (including the public landing) pays for on first paint. Splitting
+        // them keeps each below the 500KB warning and lets the browser cache
+        // vendor code across app deploys.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+            return "react-vendor";
+          }
+          if (id.includes("@tanstack")) return "tanstack";
+          if (id.includes("replicache")) return "replicache";
+          if (id.includes("better-auth") || id.includes("better-call")) {
+            return "auth";
+          }
+        },
       },
     },
   },
