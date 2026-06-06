@@ -111,41 +111,58 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
       rafRef.current = requestAnimationFrame(tick);
     };
 
+    /**
+     * Return the in-flight stream state for `messageId`, creating it if needed.
+     * The `chat.message` "started" event normally mounts this, but on a fresh
+     * thread the navigation `/chat` → `/chat/<id>` reopens the SSE stream and
+     * "started" can fire in that gap (the bus has no replay). Initializing from
+     * the first event of any kind — reasoning, delta, or tool — keeps the turn
+     * from rendering blank when "started" is missed. A different `messageId`
+     * or `runId` means a new turn, so we reset.
+     */
+    const ensureStreamRef = (messageId: string, runId: string): StreamRef => {
+      const existing = ref.current;
+      if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
+      const fresh: StreamRef = {
+        messageId,
+        runId,
+        target: "",
+        shown: 0,
+        reasoning: "",
+        reasoningShown: 0,
+        reasoningStartTs: null,
+        reasoningMs: null,
+        replyStarted: false,
+        deltaSeq: 0,
+        reasoningSeq: 0,
+        tools: new Map(),
+        awaitingApproval: false,
+        done: false,
+      };
+      ref.current = fresh;
+      return fresh;
+    };
+
     const onFrame = (frame: EventStreamFrame) => {
       if (frame.kind === "chat.message") {
         const p = frame.payload as EventPayload<"chat.message">;
         if (p.threadId !== threadId) return;
         if (p.phase === "started") {
-          if (ref.current?.messageId === p.messageId && ref.current.runId === p.runId) {
-            ensureRaf();
-            return;
-          }
-          ref.current = {
-            messageId: p.messageId,
-            runId: p.runId,
-            target: "",
-            shown: 0,
-            reasoning: "",
-            reasoningShown: 0,
-            reasoningStartTs: null,
-            reasoningMs: null,
-            replyStarted: false,
-            deltaSeq: 0,
-            reasoningSeq: 0,
-            tools: new Map(),
-            awaitingApproval: false,
-            done: false,
-          };
+          ensureStreamRef(p.messageId, p.runId);
           ensureRaf();
-        } else if (p.phase === "completed" && ref.current?.messageId === p.messageId) {
+        } else if (
+          p.phase === "completed" &&
+          ref.current?.messageId === p.messageId &&
+          ref.current.runId === p.runId
+        ) {
           ref.current.done = true;
           ref.current.awaitingApproval = false;
           ensureRaf();
         }
       } else if (frame.kind === "chat.reasoning") {
         const p = frame.payload as EventPayload<"chat.reasoning">;
-        const r = ref.current;
-        if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (p.threadId !== threadId) return;
+        const r = ensureStreamRef(p.messageId, p.runId);
         if (p.seq <= r.reasoningSeq) return;
         r.reasoningSeq = p.seq;
         if (r.reasoningStartTs === null) r.reasoningStartTs = Date.now();
@@ -153,8 +170,8 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         ensureRaf();
       } else if (frame.kind === "chat.delta") {
         const p = frame.payload as EventPayload<"chat.delta">;
-        const r = ref.current;
-        if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (p.threadId !== threadId) return;
+        const r = ensureStreamRef(p.messageId, p.runId);
         if (p.seq <= r.deltaSeq) return;
         r.deltaSeq = p.seq;
         // First reply token: thinking for the answer is over — freeze its duration.
@@ -168,8 +185,8 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         ensureRaf();
       } else if (frame.kind === "chat.tool") {
         const p = frame.payload as EventPayload<"chat.tool">;
-        const r = ref.current;
-        if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (p.threadId !== threadId) return;
+        const r = ensureStreamRef(p.messageId, p.runId);
         const prev = r.tools.get(p.toolCallId);
         r.tools.set(p.toolCallId, {
           toolCallId: p.toolCallId,
