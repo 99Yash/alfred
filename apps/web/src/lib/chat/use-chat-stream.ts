@@ -39,6 +39,10 @@ interface StreamRef {
   reasoningMs: number | null;
   /** Reply text has begun — thinking for the final answer is over. */
   replyStarted: boolean;
+  /** Last appended server seq for reply text; guards against replay duplicates. */
+  deltaSeq: number;
+  /** Last appended server seq for reasoning text; guards against replay duplicates. */
+  reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
   awaitingApproval: boolean;
   done: boolean;
@@ -105,6 +109,10 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.message">;
         if (p.threadId !== threadId) return;
         if (p.phase === "started") {
+          if (ref.current?.messageId === p.messageId && ref.current.runId === p.runId) {
+            ensureRaf();
+            return;
+          }
           ref.current = {
             messageId: p.messageId,
             runId: p.runId,
@@ -115,6 +123,8 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
             reasoningStartTs: null,
             reasoningMs: null,
             replyStarted: false,
+            deltaSeq: 0,
+            reasoningSeq: 0,
             tools: new Map(),
             awaitingApproval: false,
             done: false,
@@ -129,6 +139,8 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.reasoning">;
         const r = ref.current;
         if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (p.seq <= r.reasoningSeq) return;
+        r.reasoningSeq = p.seq;
         if (r.reasoningStartTs === null) r.reasoningStartTs = Date.now();
         r.reasoning += p.text;
         ensureRaf();
@@ -136,6 +148,8 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.delta">;
         const r = ref.current;
         if (!r || p.threadId !== threadId || p.messageId !== r.messageId) return;
+        if (p.seq <= r.deltaSeq) return;
+        r.deltaSeq = p.seq;
         // First reply token: thinking for the answer is over — freeze its duration.
         if (!r.replyStarted) {
           r.replyStarted = true;
