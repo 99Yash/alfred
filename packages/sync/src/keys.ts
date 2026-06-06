@@ -56,6 +56,14 @@ export const IDB_KEY = {
   /** `todo/` (prefix scan) or `todo/{id}` (single row). Flat — no day prefix. */
   TODO: ({ id = "" }: { id?: string }) => constructIDBKey(["todo", id]),
   /**
+   * `triagetag/` (prefix scan) or `triagetag/{threadId}` (single row).
+   *
+   * Keyed by the Gmail `source_thread_id` (one tag per thread) so the override
+   * mutator's optimistic write addresses the row without an id lookup, matching
+   * how `email_triage` is keyed (rfc-triage-tags.md).
+   */
+  TRIAGE_TAG: ({ id = "" }: { id?: string }) => constructIDBKey(["triagetag", id]),
+  /**
    * `workflow/` (prefix scan) or `workflow/{slug}` (single row).
    *
    * Keyed by the workflow's `slug` (unique per user, the same value

@@ -24,6 +24,7 @@ import {
   todoReopenArgsSchema,
   todoReopenClient,
 } from "./todos";
+import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
 export * from "./notes";
 export * from "./facts";
@@ -31,6 +32,7 @@ export * from "./prefs";
 export * from "./policy";
 export * from "./workflows";
 export * from "./todos";
+export * from "./triage-tags";
 
 /**
  * Client-side mutator bodies, keyed by the name Replicache uses to dispatch
@@ -52,6 +54,7 @@ export const clientMutators = {
   todoPromote: todoPromoteClient,
   todoDismiss: todoDismissClient,
   todoEdit: todoEditClient,
+  triageTagOverride: triageTagOverrideClient,
 };
 
 export type ClientMutators = typeof clientMutators;
@@ -76,4 +79,5 @@ export const mutatorArgsSchemas = {
   todoPromote: todoPromoteArgsSchema,
   todoDismiss: todoDismissArgsSchema,
   todoEdit: todoEditArgsSchema,
+  triageTagOverride: triageTagOverrideArgsSchema,
 };

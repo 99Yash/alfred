@@ -14,6 +14,7 @@ import {
   todoKindSchema,
   todoSourcesSchema,
   todoStatusSchema,
+  triageCategorySchema,
   type IntegrationRule,
   type IntegrationRules,
   type PolicyMode,
@@ -215,12 +216,58 @@ export const syncedTodoSchema = z.object({
   agentRunId: z.string().nullable(),
   completedAt: isoDateTimeStringSchema.nullable(),
   position: z.number().nullable(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
 export type SyncedTodo = z.infer<typeof syncedTodoSchema>;
+
+/**
+ * A thread's triage tag, synced read-only to the client and overridable via
+ * the `triageTagOverride` mutator (ADR-0025 #1, rfc-triage-tags.md).
+ *
+ * Discriminated on `source` so illegal mixes are unrepresentable (Invariants
+ * 3 & 4): an `auto` tag carries classifier provenance (`confidence`,
+ * `rationale`, `classifiedAt`) and never `overriddenAt`; a `user` tag carries
+ * `overriddenAt` and none of the classifier fields — so a confidence score can
+ * never render on a tag the user pinned by hand.
+ *
+ * `id` is the Gmail `source_thread_id` (the IDB key); it travels as `threadId`.
+ */
+const triageTagSharedSchema = {
+  /** Gmail `source_thread_id` — also the IDB key. */
+  threadId: z.string(),
+  userId: z.string(),
+  category: triageCategorySchema,
+  /** Soft pointer to the latest classified `documents.id` (client deep-link/join). */
+  documentId: z.string().nullable(),
+  /** Gmail label id currently on the thread's canonical message, or null pre-reconcile. */
+  appliedLabelId: z.string().nullable(),
+  rowVersion: z.number(),
+  updatedAt: isoDateTimeStringSchema.nullable(),
+};
+
+export const syncedTriageTagSchema = z.discriminatedUnion("source", [
+  z.object({
+    source: z.literal("auto"),
+    /** [0,1] classifier confidence — surfaced for low-confidence soft-confirms. */
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().nullable(),
+    classifiedAt: isoDateTimeStringSchema,
+    ...triageTagSharedSchema,
+  }),
+  z.object({
+    source: z.literal("user"),
+    /** When the user overrode the tag (Invariant 4: present iff source='user'). */
+    overriddenAt: isoDateTimeStringSchema,
+    ...triageTagSharedSchema,
+  }),
+]);
+export type SyncedTriageTag = z.infer<typeof syncedTriageTagSchema>;
 
 export const policyModeSchema = z.enum(POLICY_MODES);
 
@@ -306,4 +353,5 @@ export type SyncedEntity =
   | SyncedWorkflow
   | SyncedFact
   | SyncedBriefing
-  | SyncedTodo;
+  | SyncedTodo
+  | SyncedTriageTag;

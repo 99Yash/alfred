@@ -23,7 +23,8 @@ import { cn } from "~/lib/utils";
  * users who have asked for less motion.
  */
 const ROLL_INTERVAL_MS = 3500;
-const ROLL_EASE = "transition-[width,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+const ROLL_EASE =
+  "transition-[width,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 export function WeatherChip() {
   const { data, isLoading, isError } = useWeather();
@@ -41,10 +42,7 @@ export function WeatherChip() {
       setPhase(0);
       return;
     }
-    const id = window.setInterval(
-      () => setPhase((p) => (p + 1) % items.length),
-      ROLL_INTERVAL_MS,
-    );
+    const id = window.setInterval(() => setPhase((p) => (p + 1) % items.length), ROLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [items.length]);
 

@@ -1,4 +1,5 @@
-import { index, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import type { TriageTagSource } from "@alfred/contracts";
+import { index, integer, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -42,9 +43,9 @@ export const emailTriage = pgTable(
     /** Model identifier (`gemini-2.5-flash`, `claude-haiku-4-5`, …). */
     model: text("model").notNull(),
     /**
-     * Gmail label id currently applied to the latest message in this
-     * thread ({@link emailTriage.category} → label id). Stored so the
-     * label-write step knows what to remove on re-classification.
+     * Gmail label id last confirmed by the shared relabel writer for the current
+     * row. Null means the DB category may be newer than Gmail and still needs
+     * reconciliation; relabel strips all Alfred-owned labels before applying one.
      */
     appliedLabelId: text("applied_label_id"),
     /** Soft pointer to the latest classified `documents.id`. No FK. */
@@ -52,6 +53,17 @@ export const emailTriage = pgTable(
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
     /** Pointer to the originating `agent_runs.id`. */
     runId: text("run_id"),
+    /**
+     * Author of the current tag (rfc-triage-tags.md). `auto` = the classifier;
+     * `user` = a `triageTagOverride` mutator. A `user` row's `confidence`/
+     * `rationale` are stale classifier artifacts and must NOT be surfaced — the
+     * synced `SyncedTriageTag` union hides them on the `user` branch.
+     */
+    source: text("source").notNull().default("auto").$type<TriageTagSource>(),
+    /** Set iff `source = 'user'` (Invariant 4). Null for classifier-authored rows. */
+    overriddenAt: timestamp("overridden_at", { withTimezone: true }),
+    /** Replicache CVR row-version — bumped by every mutator + classifier write. */
+    rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [

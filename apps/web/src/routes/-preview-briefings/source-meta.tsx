@@ -116,5 +116,7 @@ export function formatEventRange(subtitle: string, timeZone: string): string {
 
   // Same calendar day → time range only; otherwise prefix the start's date.
   const sameDay = day(startDate) === day(endDate);
-  return sameDay ? `${time(startDate)} – ${time(endDate)}` : `${day(startDate)}, ${time(startDate)} – ${day(endDate)}, ${time(endDate)}`;
+  return sameDay
+    ? `${time(startDate)} – ${time(endDate)}`
+    : `${day(startDate)}, ${time(startDate)} – ${day(endDate)}, ${time(endDate)}`;
 }
