@@ -132,7 +132,20 @@ function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
   }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      (pos) => {
+        const { latitude: lat, longitude: lon } = pos.coords;
+        // "Null Island" guard: a fix at (0,0) is a no-data sentinel from
+        // the OS location service, not a real position — reverse-geocoding
+        // it labels the rail "Atlantic Ocean" (seen in the wild: Chrome
+        // returns it before macOS Location Services has a fix, and the
+        // 30-min cache then pins the bogus snapshot). Treat it as "no
+        // fix" so the caller falls back to IP geolocation instead.
+        if (Math.abs(lat) < 0.1 && Math.abs(lon) < 0.1) {
+          resolve(null);
+          return;
+        }
+        resolve({ lat, lon });
+      },
       () => resolve(null),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 },
     );

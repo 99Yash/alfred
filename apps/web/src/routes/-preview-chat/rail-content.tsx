@@ -1,5 +1,5 @@
 import { ListChecks, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { TriageCategory } from "@alfred/contracts";
 import type { SyncedTriageTag } from "@alfred/sync";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
@@ -125,6 +125,17 @@ export function RailContent({
   const { data: session } = authClient.useSession();
   const { data: weather } = useWeather();
   const now = new Date();
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  // CSS can't interpolate between in-flow and `absolute`, so on a tab
+  // switch the grid row snaps to the incoming feed's height while the
+  // 300ms crossfade is still running. If the outgoing feed was scrolled,
+  // the browser clamps scrollTop to an arbitrary offset in that same
+  // frame. Reset to the top before paint (layout effect) so the first
+  // painted frame of the crossfade is always the coherent
+  // top-of-old-feed → top-of-new-feed view, never a clamped mid-scroll.
+  useLayoutEffect(() => {
+    if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
+  }, [tab]);
   return (
     <>
       {/* Full-bleed condition-aware video behind the rail content. */}
@@ -190,10 +201,10 @@ export function RailContent({
 
         {/* Stacked feeds — all three render in the same grid cell so the
          * outgoing feed crossfades + lifts while the new feed settles in.
-         * Same pattern as `HeroShowcase`'s `Slot`. The scroll container's
-         * height is the MAX of all feeds, so a tab swap never re-flows
-         * the rail. */}
-        <div className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+         * Same pattern as `HeroShowcase`'s `Slot`. Only the active feed
+         * is in flow (inactive slots overlay absolutely — see `RailSlot`),
+         * so the scrollable height always tracks the visible feed. */}
+        <div ref={feedScrollRef} className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-3">
           {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
            * feed to the rail's width — otherwise the grid auto-sizes to its
            * widest child (the inbox rows), `truncate` stops working, and
