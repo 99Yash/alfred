@@ -34,26 +34,45 @@ export interface FieldOption {
   label: string;
 }
 
-export interface FieldSpec {
+interface BaseFieldSpec {
   /** Object key in the tool input. */
   key: string;
   /** Human label for the control. */
   label: string;
   /** The schema's `.describe()` text, shown as helper/title text. */
   description?: string;
-  kind: FieldKind;
-  /** Present for `select`. */
-  options?: FieldOption[];
-  min?: number;
-  max?: number;
-  step?: number;
   /** Field is not in the schema's `required` set. */
   optional: boolean;
   /** Schema default, pre-filled when the proposed input omits the key. */
   default?: unknown;
-  /** Render full-width (textarea, array, json). */
-  multiline?: boolean;
 }
+
+export type FieldSpec =
+  | (BaseFieldSpec & {
+      kind: "select";
+      options: FieldOption[];
+      multiline?: false;
+    })
+  | (BaseFieldSpec & {
+      kind: "number" | "integer";
+      min?: number;
+      max?: number;
+      step?: number;
+      multiline?: false;
+    })
+  | (BaseFieldSpec & {
+      kind: "boolean";
+      multiline?: false;
+    })
+  | (BaseFieldSpec & {
+      kind: "text" | "email" | "datetime";
+      multiline?: false;
+    })
+  | (BaseFieldSpec & {
+      kind: "textarea" | "string_array" | "json";
+      /** Render full-width. */
+      multiline: true;
+    });
 
 type JsonSchema = Record<string, unknown>;
 
@@ -107,11 +126,10 @@ function primaryType(schema: JsonSchema): string | undefined {
 }
 
 function fieldFromProperty(key: string, prop: JsonSchema, required: boolean): FieldSpec {
-  const base: FieldSpec = {
+  const base: BaseFieldSpec = {
     key,
     label: humanizeKey(key),
     description: asString(prop.description),
-    kind: "text",
     optional: !required,
     default: prop.default,
   };
@@ -193,7 +211,9 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
   if (!properties) return null;
 
   const required = new Set(
-    Array.isArray(resolved.required) ? resolved.required.filter((v): v is string => typeof v === "string") : [],
+    Array.isArray(resolved.required)
+      ? resolved.required.filter((v): v is string => typeof v === "string")
+      : [],
   );
 
   return Object.entries(properties).map(([key, prop]) =>

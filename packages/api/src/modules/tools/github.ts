@@ -19,7 +19,12 @@ import { liveTool, type RegisteredTool } from "./registry";
 
 type SearchPullRequestsInput = z.infer<typeof searchPullRequestsInput>;
 
-async function accessTokenFor(userId: string): Promise<string> {
+interface GithubToolCredential {
+  accessToken: string;
+  accountLogin: string;
+}
+
+async function credentialFor(userId: string): Promise<GithubToolCredential> {
   const creds = await listGithubCredentials(userId);
   const active = creds.find((c) => c.status === "active");
   if (!active) {
@@ -27,7 +32,16 @@ async function accessTokenFor(userId: string): Promise<string> {
       `[github.tools] user ${userId} has no active github credential — connect GitHub in settings`,
     );
   }
-  return getGithubAccessToken(active.id);
+  const accountLogin = active.accountLabel?.trim();
+  if (!accountLogin) {
+    throw new Error(
+      `[github.tools] user ${userId} has no github login on the active credential — reconnect GitHub in settings`,
+    );
+  }
+  return {
+    accessToken: await getGithubAccessToken(active.id),
+    accountLogin,
+  };
 }
 
 /** ISO date (YYYY-MM-DD) N days before now — for `closed:>=`/`created:>=` filters. */
@@ -41,9 +55,21 @@ export function buildPullRequestSearchQuery(
 ): string {
   const parts: string[] = ["is:pr"];
   parts.push(`author:${input.author}`);
-  if (input.state === "open") parts.push("is:open");
-  else if (input.state === "closed") parts.push("is:closed");
-  else if (input.state === "merged") parts.push("is:merged");
+  switch (input.state) {
+    case "open":
+      parts.push("is:open");
+      break;
+    case "closed":
+      parts.push("is:closed");
+      break;
+    case "merged":
+      parts.push("is:merged");
+      break;
+    case "all":
+      break;
+    default:
+      assertNever(input.state);
+  }
   if (input.closedWithinDays !== undefined) {
     parts.push(`closed:>=${daysAgoIsoDate(input.closedWithinDays, nowMs)}`);
   }
@@ -55,6 +81,10 @@ export function buildPullRequestSearchQuery(
   return parts.join(" ");
 }
 
+export function resolvePullRequestAuthor(author: string, accountLogin: string): string {
+  return author === "@me" ? accountLogin : author;
+}
+
 export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
@@ -64,9 +94,14 @@ export const githubTools: readonly RegisteredTool[] = [
       "Search the user's GitHub pull requests by author, state, and time window. Returns an exact total count plus the matching PRs. For 'how many PRs did I close in the past week', use state:'closed', closedWithinDays:7 (author defaults to @me).",
     inputSchema: searchPullRequestsInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      const q = buildPullRequestSearchQuery(input);
-      const result = await searchPullRequests({ accessToken, q, perPage: input.perPage });
+      const credential = await credentialFor(ctx.userId);
+      const author = resolvePullRequestAuthor(input.author, credential.accountLogin);
+      const q = buildPullRequestSearchQuery({ ...input, author });
+      const result = await searchPullRequests({
+        accessToken: credential.accessToken,
+        q,
+        perPage: input.perPage,
+      });
       return {
         totalCount: result.totalCount,
         query: q,
@@ -76,3 +111,7 @@ export const githubTools: readonly RegisteredTool[] = [
     },
   }),
 ];
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled pull-request state: ${String(value)}`);
+}

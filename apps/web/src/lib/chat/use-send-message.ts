@@ -1,8 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { callToast } from "~/lib/toast";
+import { z } from "zod";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
+import { callToast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
 
 const API_URL =
@@ -10,10 +11,10 @@ const API_URL =
 
 export type SendMessage = (threadId: string | undefined, text: string) => Promise<void>;
 
-interface TurnKickResponse {
-  runId: string | null;
-  assistantMessageId: string;
-}
+const turnKickResponseSchema = z.object({
+  runId: z.string().nullable(),
+  assistantMessageId: z.string().min(1),
+});
 
 /**
  * Send a chat turn. Persists the user message via Replicache (optimistic +
@@ -74,12 +75,12 @@ export function useSendMessage(): SendMessage {
           return;
         }
 
-        const payload = (await res.json().catch(() => null)) as TurnKickResponse | null;
-        if (payload?.assistantMessageId) {
+        const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
+        if (payload.success) {
           attachChatAssistantTiming({
             userMessageId,
-            assistantMessageId: payload.assistantMessageId,
-            runId: payload.runId,
+            assistantMessageId: payload.data.assistantMessageId,
+            runId: payload.data.runId,
             detail: { status: res.status },
           });
         } else {

@@ -9,10 +9,9 @@ import { openEventStream } from "./stream";
  * Mount once at the app shell — additional consumers (`useInbox`, etc.)
  * just read from React Query as usual.
  *
- * Not a global singleton: other consumers (e.g. `/debug/events` via
- * `useEventStream`) open their own `EventSource`. Consolidating to a
- * shared bus is a separate refactor; for now each subscriber pays its
- * own connection cost — fine at single-user scale.
+ * `openEventStream` multiplexes subscribers onto one shared EventSource, so
+ * mounting this beside chat/debug listeners does not spend another browser SSE
+ * connection slot.
  *
  * Current bindings:
  *   - `inbox.updated` → invalidate `["me","inbox"]` so the rail re-fetches.

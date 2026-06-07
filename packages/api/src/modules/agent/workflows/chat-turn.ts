@@ -354,7 +354,10 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (state.assistantText.trim().length === 0) {
-        throw new Error("chat_turn_empty_assistant_message");
+        // Terminal provider anomaly: no tool calls and no assistant text leaves
+        // nothing useful to retry from this completed stream, so fail the run
+        // once and persist a legible failed assistant message for the client.
+        throw new Error("Assistant finished without producing a response.");
       }
 
       // final | stopped → persist the assistant message and complete.

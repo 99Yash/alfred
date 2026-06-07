@@ -1,10 +1,11 @@
 import { toolInputFields, type FieldSpec, type ToolName } from "@alfred/contracts";
 import { useEffect, useState } from "react";
 import { AppInput, AppSwitch, AppTextarea } from "~/components/ui/v2";
+import { asRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { formatJson, parseJson } from "./format";
 
-type JsonRecord = Record<string, unknown>;
+type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
 
 /**
  * Editable view of a staged tool's proposed input. Every control is derived
@@ -107,116 +108,110 @@ function FieldControl({
   onChange,
 }: {
   id: string;
-  field: FieldSpec;
+  field: FieldControlSpec;
   value: unknown;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
-  if (field.kind === "select") {
-    return (
-      <select
-        id={id}
-        value={typeof value === "string" ? value : ""}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        className={cn(
-          "h-9 w-full rounded-xl bg-app-bg-1 px-3 text-sm text-app-fg-4",
-          "app-elevated outline-none transition-shadow",
-          "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-          "disabled:cursor-not-allowed disabled:opacity-60",
-        )}
-      >
-        {field.optional ? <option value="">Any</option> : null}
-        {(field.options ?? []).map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    );
+  switch (field.kind) {
+    case "select":
+      return (
+        <select
+          id={id}
+          value={typeof value === "string" ? value : ""}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          className={cn(
+            "h-9 w-full rounded-xl bg-app-bg-1 px-3 text-sm text-app-fg-4",
+            "app-elevated outline-none transition-shadow",
+            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+            "disabled:cursor-not-allowed disabled:opacity-60",
+          )}
+        >
+          {field.optional ? <option value="">Any</option> : null}
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    case "number":
+    case "integer":
+      return (
+        <AppInput
+          id={id}
+          type="number"
+          inputMode={field.kind === "integer" ? "numeric" : "decimal"}
+          min={field.min}
+          max={field.max}
+          step={field.step ?? (field.kind === "integer" ? 1 : undefined)}
+          value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
+          disabled={disabled}
+          onChange={(e) => {
+            const next = e.target.value.trim();
+            onChange(next === "" ? undefined : Number(next));
+          }}
+        />
+      );
+    case "datetime":
+      return (
+        <AppInput
+          id={id}
+          type="datetime-local"
+          value={toDateTimeLocal(value)}
+          disabled={disabled}
+          onChange={(e) => {
+            const next = e.target.value;
+            onChange(next ? new Date(next).toISOString() : undefined);
+          }}
+        />
+      );
+    case "string_array":
+      return (
+        <AppTextarea
+          id={id}
+          value={Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : ""}
+          rows={3}
+          disabled={disabled}
+          placeholder="One per line"
+          onChange={(e) => {
+            const items = e.target.value
+              .split("\n")
+              .map((item) => item.trim())
+              .filter(Boolean);
+            onChange(items.length > 0 ? items : undefined);
+          }}
+          className="min-h-24"
+        />
+      );
+    case "json":
+      return <JsonField id={id} value={value} disabled={disabled} onChange={onChange} />;
+    case "textarea":
+      return (
+        <AppTextarea
+          id={id}
+          value={typeof value === "string" ? value : ""}
+          rows={3}
+          disabled={disabled}
+          onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
+          className="min-h-24"
+        />
+      );
+    case "email":
+    case "text":
+      return (
+        <AppInput
+          id={id}
+          type={field.kind === "email" ? "email" : "text"}
+          value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
+          disabled={disabled}
+          onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
+        />
+      );
+    default:
+      return assertNever(field);
   }
-
-  if (field.kind === "number" || field.kind === "integer") {
-    return (
-      <AppInput
-        id={id}
-        type="number"
-        inputMode={field.kind === "integer" ? "numeric" : "decimal"}
-        min={field.min}
-        max={field.max}
-        step={field.step ?? (field.kind === "integer" ? 1 : undefined)}
-        value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
-        disabled={disabled}
-        onChange={(e) => {
-          const next = e.target.value.trim();
-          onChange(next === "" ? undefined : Number(next));
-        }}
-      />
-    );
-  }
-
-  if (field.kind === "datetime") {
-    return (
-      <AppInput
-        id={id}
-        type="datetime-local"
-        value={toDateTimeLocal(value)}
-        disabled={disabled}
-        onChange={(e) => {
-          const next = e.target.value;
-          onChange(next ? new Date(next).toISOString() : undefined);
-        }}
-      />
-    );
-  }
-
-  if (field.kind === "string_array") {
-    return (
-      <AppTextarea
-        id={id}
-        value={Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : ""}
-        rows={3}
-        disabled={disabled}
-        placeholder="One per line"
-        onChange={(e) => {
-          const items = e.target.value
-            .split(/[,\n]/)
-            .map((item) => item.trim())
-            .filter(Boolean);
-          onChange(items.length > 0 ? items : undefined);
-        }}
-        className="min-h-24"
-      />
-    );
-  }
-
-  if (field.kind === "json") {
-    return <JsonField id={id} value={value} disabled={disabled} onChange={onChange} />;
-  }
-
-  if (field.kind === "textarea") {
-    return (
-      <AppTextarea
-        id={id}
-        value={typeof value === "string" ? value : ""}
-        rows={3}
-        disabled={disabled}
-        onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
-        className="min-h-24"
-      />
-    );
-  }
-
-  // text + email
-  return (
-    <AppInput
-      id={id}
-      type={field.kind === "email" ? "email" : "text"}
-      value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
-      disabled={disabled}
-      onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
-    />
-  );
 }
 
 /** A single object/array field edited as JSON text, committed only when valid. */
@@ -233,6 +228,10 @@ function JsonField({
 }) {
   const [text, setText] = useState(() => formatJson(value));
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setText(formatJson(value));
+    setError(null);
+  }, [value]);
 
   return (
     <div>
@@ -305,10 +304,6 @@ function JsonFallbackEditor({
   );
 }
 
-function asRecord(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
-}
-
 function emptyToUndefined(value: string, optional: boolean): string | undefined {
   if (value.trim().length === 0 && optional) return undefined;
   return value;
@@ -320,4 +315,8 @@ function toDateTimeLocal(value: unknown): string {
   if (!Number.isFinite(date.getTime())) return "";
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled field kind: ${JSON.stringify(value)}`);
 }

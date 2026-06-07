@@ -2,6 +2,7 @@ import { Check, ChevronRight, Sparkles, Wrench, X, type LucideIcon } from "lucid
 import { useId, useState } from "react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations";
+import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 
 export interface ToolCallView {
@@ -16,17 +17,6 @@ export interface ToolCallView {
 function humanizeTool(toolName: string): string {
   const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
   return last.replace(/_/g, " ");
-}
-
-/** Best-effort parse of the server-stringified args/result preview. */
-function parsePreview(value: string | undefined): Record<string, unknown> | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function asString(value: unknown): string | undefined {
@@ -59,13 +49,15 @@ interface ToolPresentation {
  * instead of a `{"slug":"…"}` blob.
  */
 function presentTool(tool: ToolCallView): ToolPresentation {
-  const args = parsePreview(tool.argsPreview);
-  const slug = tool.toolName.includes(".") ? tool.toolName.slice(0, tool.toolName.indexOf(".")) : "";
+  const args = parseJsonRecord(tool.argsPreview);
+  const slug = tool.toolName.includes(".")
+    ? tool.toolName.slice(0, tool.toolName.indexOf("."))
+    : "";
 
   if (tool.toolName === "system.load_integration") {
     // argsPreview carries the slug live; on reload only resultPreview
     // (`{"ok":true,"slug":"github"}`) is persisted, so fall back to it.
-    const result = parsePreview(tool.resultPreview);
+    const result = parseJsonRecord(tool.resultPreview);
     const target = asString(args?.slug) ?? asString(result?.slug);
     const provider = target ? getIntegrationProvider(target) : undefined;
     const name = provider?.name ?? "integration";
@@ -115,7 +107,7 @@ function presentTool(tool: ToolCallView): ToolPresentation {
 
 /** Pull a clean reason out of a failed tool's result preview. */
 function failureReason(resultPreview: string | undefined): string | undefined {
-  const parsed = parsePreview(resultPreview);
+  const parsed = parseJsonRecord(resultPreview);
   if (!parsed) return resultPreview;
   const error = parsed.error;
   if (error && typeof error === "object") {
@@ -142,13 +134,20 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const failed = tool.status === "failed";
   const expandable = !running && Boolean(tool.resultPreview);
 
-  const { brand, fallbackIcon: FallbackIcon, running: runningLabel, done, detail } =
-    presentTool(tool);
+  const {
+    brand,
+    fallbackIcon: FallbackIcon,
+    running: runningLabel,
+    done,
+    detail,
+  } = presentTool(tool);
   const title = running ? runningLabel : failed ? `${done} failed` : done;
   // Inline: always the human "what" (brief / integration). The "why" of a
   // failure goes in the expandable, cleaned up from the raw result JSON.
   const secondary = detail;
-  const panelText = failed ? (failureReason(tool.resultPreview) ?? tool.resultPreview) : tool.resultPreview;
+  const panelText = failed
+    ? (failureReason(tool.resultPreview) ?? tool.resultPreview)
+    : tool.resultPreview;
 
   return (
     <div className="animate-chat-in text-[13px]">
@@ -161,9 +160,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         className={cn(
           "-mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left",
           "transition-colors duration-150",
-          expandable
-            ? "cursor-pointer hover:bg-app-bg-a2"
-            : "cursor-default",
+          expandable ? "cursor-pointer hover:bg-app-bg-a2" : "cursor-default",
         )}
       >
         <span
@@ -203,10 +200,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
             <ChevronRight
               size={14}
               aria-hidden
-              className={cn(
-                "text-app-fg-2 transition-transform duration-200",
-                open && "rotate-90",
-              )}
+              className={cn("text-app-fg-2 transition-transform duration-200", open && "rotate-90")}
             />
           ) : null}
         </span>

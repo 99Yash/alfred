@@ -19,8 +19,6 @@ export interface EventStreamFrame extends Pick<EventFrame, "id" | "kind" | "crea
 }
 
 export interface OpenEventStreamOptions {
-  /** Outbox row id to replay from. Optional. EventSource also auto-passes Last-Event-ID on reconnect. */
-  since?: number;
   onFrame: (frame: EventStreamFrame) => void;
   onError?: (err: Event) => void;
 }
@@ -42,12 +40,8 @@ interface SharedEventStream {
 
 let sharedStream: SharedEventStream | null = null;
 
-function eventStreamUrl(since?: number): URL {
-  const url = new URL(`${API_URL}/api/events/`);
-  if (typeof since === "number" && Number.isFinite(since)) {
-    url.searchParams.set("since", String(since));
-  }
-  return url;
+function eventStreamUrl(): URL {
+  return new URL(`${API_URL}/api/events/`);
 }
 
 function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null {
@@ -65,11 +59,10 @@ function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null
 }
 
 function createEventSource(
-  since: number | undefined,
   onFrame: (frame: EventStreamFrame) => void,
   onError: (err: Event) => void,
 ): EventSource {
-  const source = new EventSource(eventStreamUrl(since).toString(), { withCredentials: true });
+  const source = new EventSource(eventStreamUrl().toString(), { withCredentials: true });
 
   for (const kind of EVENT_KINDS) {
     source.addEventListener(kind, (msg) => {
@@ -85,21 +78,15 @@ function createEventSource(
 /**
  * Open an SSE connection to /api/events. Returns a `close()` to tear down.
  *
- * The browser EventSource handles auto-reconnect with exponential backoff and
- * automatically sends `Last-Event-ID` from the most recent `id:` line, so the
- * server can replay events the client missed across drops.
+ * All callers share one connection. Browser EventSource handles auto-reconnect
+ * and automatically sends `Last-Event-ID` from the most recent `id:` line, so
+ * the server can replay events missed across drops.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
-  if (typeof opts.since === "number" && Number.isFinite(opts.since)) {
-    const source = createEventSource(opts.since, opts.onFrame, (err) => opts.onError?.(err));
-    return () => source.close();
-  }
-
   if (!sharedStream) {
     const subscribers = new Map<number, EventStreamSubscriber>();
     sharedStream = {
       source: createEventSource(
-        undefined,
         (frame) => {
           for (const subscriber of subscribers.values()) {
             subscriber.onFrame(frame);

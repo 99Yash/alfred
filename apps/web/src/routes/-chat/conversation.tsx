@@ -1,9 +1,10 @@
 import type { SyncedChatMessage } from "@alfred/sync";
 import { Loader2, ShieldQuestion } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
@@ -35,7 +36,10 @@ export function Conversation({
   const stickRef = useRef(true);
 
   const showStream = shouldShowStream(messages, stream);
-  const followUps = showStream ? [] : buildFollowUpSuggestions(messages);
+  const followUps = useMemo(
+    () => (showStream ? [] : buildFollowUpSuggestions(messages)),
+    [messages, showStream],
+  );
 
   // Track whether the user is parked at the bottom; only auto-scroll if so.
   const onScroll = () => {
@@ -180,7 +184,7 @@ function buildFollowUpSuggestions(messages: readonly SyncedChatMessage[]): Follo
 
 function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   if (tool.status !== "succeeded") return null;
-  const result = parsePreview(tool.resultPreview);
+  const result = parseJsonRecord(tool.resultPreview);
   if (!result) return null;
 
   if (tool.toolName === "github.search_pull_requests") {
@@ -201,16 +205,6 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   }
 
   return null;
-}
-
-function parsePreview(value: string | undefined): Record<string, unknown> | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
 }
 
 function FollowUpSuggestions({
