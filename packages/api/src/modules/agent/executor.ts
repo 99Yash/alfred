@@ -297,7 +297,18 @@ async function commitStepSuccess(
         .set({
           state: result.state as object,
           currentStep: result.nextStep,
-          attempt: 0, // fresh attempt counter for the next step
+          // Monotonic per-run execution counter, NOT reset to 0. The
+          // `agent_steps` row identity is `(run_id, step_id, attempt)`, and a
+          // workflow that loops back into a step it already ran (e.g. chat-turn
+          // -> dispatch-tools -> chat-turn) would re-enter at attempt 0 and
+          // collide with the earlier visit's row. That collision made
+          // `tryInsertStepRow` return false -> `runOnce` reported
+          // `step_already_committed` and the worker did NOT re-enqueue, so the
+          // run stalled ~60-90s until the stale-lease sweep reclaimed it with
+          // attempt+1. Carrying the counter forward keeps every step execution
+          // unique, so each loop iteration runs immediately. (attempt is only
+          // used for attribution/idempotency keys, never as a retry cap.)
+          attempt: attempt + 1,
           status: "runnable",
           lastCheckpointAt: now,
           updatedAt: now,

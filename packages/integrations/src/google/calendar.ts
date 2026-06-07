@@ -4,10 +4,10 @@ import { z } from "zod";
  * Thin Google Calendar v3 REST client. Same shape as `gmail.ts` —
  * we call JSON endpoints directly so we don't pull `googleapis` (~2MB).
  *
- * The current surface covers what the chat right rail needs: list
- * "today's events" for the primary calendar, ordered by start time.
- * Anything fancier (multi-calendar, ranges, free/busy, scheduling
- * writes) waits until a workflow asks for it.
+ * The current surface covers what chat/workflows need first: list event
+ * windows from the primary calendar and create approved events. Anything
+ * fancier (multi-calendar discovery, free/busy, recurring edits) waits
+ * until a workflow asks for it.
  */
 
 const API_BASE = "https://www.googleapis.com/calendar/v3";
@@ -96,6 +96,47 @@ export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult
   return { events, timeZone: parsed.timeZone };
 }
 
+export interface CreateEventArgs {
+  accessToken: string;
+  /** Calendar id; `primary` is the user's main calendar. */
+  calendarId?: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  /** RFC3339 start timestamp. */
+  start: string;
+  /** RFC3339 end timestamp. */
+  end: string;
+  /** IANA timezone. Optional when start/end carry explicit offsets. */
+  timeZone?: string;
+  attendees?: string[];
+}
+
+export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent> {
+  const calendarId = encodeURIComponent(args.calendarId ?? "primary");
+  const url = new URL(`${API_BASE}/calendars/${calendarId}/events`);
+  if (args.attendees && args.attendees.length > 0) {
+    url.searchParams.set("sendUpdates", "all");
+  }
+
+  const payload = {
+    summary: args.summary,
+    description: args.description,
+    location: args.location,
+    start: {
+      dateTime: args.start,
+      timeZone: args.timeZone,
+    },
+    end: {
+      dateTime: args.end,
+      timeZone: args.timeZone,
+    },
+    attendees: args.attendees?.map((email) => ({ email })),
+  };
+  const json = await postJson(url.toString(), args.accessToken, payload);
+  return eventSchema.parse(json);
+}
+
 const CALENDAR_FETCH_TIMEOUT_MS = 30_000;
 
 async function getJson(url: string, accessToken: string): Promise<unknown> {
@@ -109,6 +150,24 @@ async function getJson(url: string, accessToken: string): Promise<unknown> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`[calendar] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+  }
+  return await res.json();
+}
+
+async function postJson(url: string, accessToken: string, payload: unknown): Promise<unknown> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
+    signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`[calendar] POST ${res.status} ${url} :: ${body.slice(0, 500)}`);
   }
   return await res.json();
 }

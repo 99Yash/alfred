@@ -52,6 +52,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | OAuth posture | Multi-tenant-capable architecture, operated single-tenant; Google consent screen Production-unverified; least-privilege scope tiers, one restricted concession (`gmail.modify`); scope set tracks registered tools (ADR-0044) |
 | Workflow event dispatch | Generic `emitEvent` bus; triage unified onto it (no more hardcoded fan-out); `source`+`type` closed enums (`gmail.message_received`); bounded resolve-at-init `<trigger_event>` context; bounded idempotency (ADR-0047, extends ADR-0027) |
 | Todos | First **persisted** materialization of the open-loop model (ADR-0048 keeps loops ephemeral); one `todos` table, status-driven (`suggested\|open\|done\|dismissed`); hybrid authoring (user adds; Alfred proposes via `system.suggest_todo`, no HIL); multi-source `sources` provenance; v1 **passive** (agent authors + assists, never executes); **suggestions produced real-time off the `email-triage` run, not the briefing — briefing fully decoupled** (ADR-0050 amendment 2026-06-05); **todo-worthiness is an orthogonal rubric** (obligation → significance → memorability → actionability → already-handled), category floor shrunk to `{marketing, newsletter}`, decision traced via `todoDecision` (ADR-0050 amendment 2026-06-06); agent-execution + cross-source auto-close + semantic dedup + personal-relevance significance deferred (ADR-0050) |
+| Integration loading | Deterministic, not prompt-inferred. v1 uses **eager connected tool declaration**: declare full schemas for connected ∩ `allowed_integrations` at run start (small bounded surface today), with an always-on connected summary for human-readable grounding. The **dispatcher is the security floor**: resolves bare/qualified names and **hard-enforces** `allowed_integrations` + scope-aware connection health before any registered tool executes. Closes the ADR-0043 exposure-only cap hole; supersedes the prompt-only "infer/load integration" instruction of ADR-0026/0040. Lazy/catalog/auto-activate is deferred until schema volume proves it is needed (ADR-0053) |
 
 ---
 
@@ -736,7 +737,7 @@ Both flow through `metered()` (`kind=web_search`).
 | **Google Drive / Docs** | `changes.watch`                                        | Every 15min                               | Less time-sensitive; longer interval.                                                                    |
 | **Slack**               | Events API (subscribe to message + channel events)     | None (Slack discourages polling)          | Public URL needed for Events API delivery.                                                               |
 | **Linear**              | Webhooks per project/team                              | None                                      | Webhook + signature verify; webhooks reliable.                                                           |
-| **GitHub**              | App webhooks per repo/org                              | None                                      | GitHub App architecture for org-wide visibility.                                                         |
+| **GitHub**              | App webhooks per repo/org (deferred — see ADR-0052)    | `/notifications` two-tier poll (~10min)   | **v1 polls** the authenticated API on the existing `repo` scope (ADR-0052); GitHub App webhooks are the deferred real-time upgrade, criterion = one-click connect, zero post-auth setup. |
 | **iMessage**            | None (no API)                                          | N/A                                       | Local export ingestion only; deferred to a follow-up ADR (no clean ingestion path).                      |
 | **Notion**              | None (no public webhook API)                           | Every 10min via `last_edited_time` filter | Polling-only; expensive at high page counts but unavoidable.                                             |
 | **MCP servers**         | None (spec doesn't define push)                        | None                                      | Tools are call-on-demand; stateless from our side.                                                       |
@@ -2931,7 +2932,7 @@ Seven coordinated micro-decisions:
 
 - **Advance reminders** — commitments with a future date-of-impact, surfaced N days out, off the morning/evening cadence. A separate workflow and discussion.
 - **Anomaly detection** — "a meeting you agreed to that isn't on the calendar yet." Highest magic, highest annoyance risk (a wrong nag burns trust fast); deliberately deferred. Shares the noise failure mode that anchored-recall (decision #4) was designed to avoid.
-- **Continuous open-loops state machine** — webhook-driven reconciliation so the inbox is correct *between* briefings, not just at compose time. The right end-state; today is compose-time, read-only only.
+- **Continuous open-loops state machine** — webhook-driven reconciliation so the inbox is correct *between* briefings, not just at compose time. The right end-state; today is compose-time, read-only only. **(GitHub slice un-parked for persisted `todos` — see ADR-0052. Polling, not yet webhooks; the briefing's ephemeral-loop reconciliation here is unchanged but inherits ADR-0052's signals.)**
 
 **Open.**
 
@@ -3160,3 +3161,113 @@ Building the context-rich classifier (plan Phase 3) forced the three Open items 
 4. **The `applyTriageClassificationGuardrails` rewrites are deleted — regexes demoted to named content flags.** Per §5's anti-brittleness stance, no deterministic post-model category rewrite survives. The review-bot rewrite is dropped outright (covered by the `service:<botSlug>` prior histogram, which converges to `{fyi: N}`, plus the override floor for genuine severity). The investor/AGM and public-event detection regexes survive **as named `ContentFlags` (`hasInvestorNotice`, `hasPublicEventLanguage`) fed to the prompt** — the model decides; the flags never rewrite. The `extract-sender-context` step and `SenderContext` shape are unchanged.
 
 5. **`classifyEmail` owns the full sequence and returns an audit object.** `classifyEmail(args + observations)` runs first pass → `detectConflict` → conditional second pass → `applyOverrideFloor` internally and returns `{ classification, model, audit }` (audit: `firstPass`, `conflict`, `secondPass`, `secondPassFailure`, `floorMatched`, `floorForced`, observation summary) for the `triage.sender_extraction` log. `detectConflict` and `applyOverrideFloor` are pure exported functions, unit-tested directly; the second-pass loop takes an injectable model-runner seam so "at most one second pass" is testable without a live LLM. The workflow assembles observations (the IO: `getSenderPrior`, `getThreadState`, persona via an extended `loadTriageContext`, and a new best-effort `isKnownContact` for human senders only), calls classify once, persists, logs the audit, applies the label.
+
+---
+
+## ADR-0052 — GitHub loop reconciliation: API-native produce + reconcile of persisted todos, polling v1, GitHub App webhooks deferred
+
+**Decision.** Un-park the GitHub slice of ADR-0048-D's "continuous open-loops state machine." A GitHub poller **produces** and **reconciles** persisted `todos` (ADR-0050) directly from the authenticated GitHub API — no email-derived identity. v1 polls; real-time webhooks via a GitHub App are the deferred upgrade. Scope is **persisted todos only**; the ephemeral briefing-loop reconciliation of ADR-0048 is untouched and inherits these signals for free.
+
+**Important framing.** OAuth's `repo` scope already grants read across all the user's repos — sufficient to reconcile by *polling* today. It does **not** grant clean org-wide *push*; that is the GitHub App (ADR-0024). So produce and reconcile are the *same plumbing* once reconcile reads GitHub directly — **"reconcile-only" is not a coherent v1**, because the only way a todo acquires GitHub identity is GitHub producing it. (A literal reconcile-only would have forced the brittle email-PR-URL-parse path back in just to have something to match — rejected, alt-a.)
+
+**Architectural shape.**
+
+- **Two-tier poll.** `GET /notifications` (the structured mirror of GitHub's notification emails) detects + produces across *all* object types — `PullRequest`, `Issue`, `RepositoryVulnerabilityAlert` (Dependabot), `CheckSuite` (CI), `Discussion`, `Release` — each carrying `reason`, `subject.type`, `subject.title`, native identity. Per-object state endpoints (`/pulls/{n}`, `/issues/{n}`, `/dependabot/alerts/{n}`) provide the **authoritative** close signal. Closure requires a *positive* terminal signal (ADR-0048-D); absence — rate-limit, missing scope, API error — **never closes** (loop stays live).
+- **Worthiness gate (deterministic, no LLM).** Produce on `review_requested | assign | security_alert`. On `author | mention`, a bounded **tier-2 state check** produces only if *changes-requested / required-check-failing / unresolved-review-threads > 0* (this is the bucket that catches "address the review comments on PR #N"). Drop `subscribed | comment | ci_activity | manual | state_change` — these still feed *reconcile*. GitHub's structured `reason` is what lets the gate be rules-over-data, not an LLM rubric (contrast email triage v3, ADR-0051).
+- **Title (cheap LLM, gated).** Gate-surviving items get a cheap-model-authored title trimmed to read like a todo. The LLM fires **only post-gate** — never per-notification — so cost is bounded to actionable items. `subject.title` is the input anchor.
+- **Lifecycle.** Produce `suggested`. **Auto-`dismissed`** for an un-promoted suggestion whose object goes terminal (low stakes — never on the committed list). **Auto-`done`** for a promoted (`open`) todo (higher stakes) — surfaced in the **evening briefing's "loops closed" recap** (ADR-0048 #5), never silent. `done` lingers 7 days, re-openable via the existing status mutator. The risk asymmetry is the whole point: dismissing an unaccepted suggestion is near-free; completing an accepted todo must be visible.
+- **Dedup / suppression.** `system.suggest_todo`'s source-ref dedup handles re-polls (same `(github, <type>, <id>)` ref merges, never duplicates). Cross-surface duplicates are prevented by **verified-sender suppression**: a **DKIM/SPF/DMARC-verified `github.com` notification**, when GitHub is connected, makes triage **skip the todo-worthiness step** (the poller owns that loop). **Fail-safe toward surfacing** — uncertain verification falls through to normal triage; a wrongly-suppressed email drops a real todo (unrecoverable) while a wrongly-surfaced one is one dismiss to fix. GitHub not connected → triage unchanged.
+- **Storage.** Poll cursor reuses `ingestion_state` (`stream='github_notifications'`; `Last-Modified` / `since` / `X-Poll-Interval` in `state`, typed + zod-parsed). New `todos.closed_by` (`'user' | 'reconciler'`) + `closed_reason` (`pr_merged | pr_closed | issue_closed | alert_dismissed | alert_fixed | review_threads_resolved`) columns, `.$type<>()`-guarded (matching `sources: .$type<TodoSource[]>()`). This single field powers **audit + evening-recap + the auto-dismiss client animation** (reconciler-closed rows linger briefly in the Replicache pull window — today `dismissed` isn't synced, so the row would otherwise blink out; Replicache ships the diff, the client reads `closed_by='reconciler'` and animates). `webhook_events` (ADR-0024) deferred to the App migration, where `provider_event_id` dedup earns its keep. New `@alfred/contracts` types mirror the GitHub API (`GithubNotificationReason`, `GithubSubjectType`, `GithubNotificationsCursor`, `TodoClosedReason`) and are zod-validated at the fetch boundary (`.$type<>()` is compile-time only).
+- **Cadence + scope.** One ~10-min BullMQ repeatable job honoring `X-Poll-Interval` (min ~60s); each tick produces (new notifications) + reconciles (`suggested|open` todos with a github source ref). Scopes add `notifications` (+ `security_events` for Dependabot detail) — one-click re-consent.
+
+**Why.** The pain — suggestions that stay live after the PR merged — is unsolvable while identity is email-derived (PR-only, brittle, spoofable). GitHub's authenticated API gives native identity across every object type, the deterministic gate keeps it inference-free except for titling, and positive-signal-only closure honors ADR-0048-D's trust contract. Polling on the existing `repo` scope ships it with no migration.
+
+**Alternatives.** (a) **Email-derived reconcile** (append a parsed `github:pull_request` source to email-born todos) — rejected: PR-only (misses issues/Dependabot/CI/mentions), brittle, spoofable, and a dead-end the API obsoletes. (b) **Literal reconcile-only v1** — rejected: incoherent under API-native identity (nothing to reconcile). (c) **Deterministic `subject.title` titles, no LLM** — rejected by user preference: a cheap model buys real "reads-like-a-todo" quality at gated, bounded cost. (d) **GitHub App webhooks at v1** — deferred: polling needs no migration; the App is purely the latency upgrade.
+
+**Parked / committed end-state.**
+
+- **(B) Integration-as-producer, generalized beyond GitHub** — the committed direction. Integrations whose email notifications are blocked/absent must still surface loops directly; the binding constraint is **cross-surface dedup convergence** (the same object seen via two surfaces resolves to one todo). GitHub is the first instance.
+- **GitHub App webhooks (real-time)** — replaces polling. Acceptance criterion: **one-click connect, zero post-auth setup** (the install flow's repo selection is GitHub-hosted, nothing configured in Alfred).
+- **LLM title enrichment tuning** — refined from real data, the way the email worthiness rubric is tuned from `triage.sender_extraction` logs rather than example-patched.
+
+**Open.**
+
+- The **lingering window** length for reconciler-closed suggestions in the Replicache pull (long enough to animate on next tab visit, short enough not to clutter).
+- Whether the **tier-2 state check** batches (GraphQL) or fans out REST calls under the per-tick rate budget.
+
+---
+
+## ADR-0053 — Deterministic connected tool declaration + dispatch-enforced gates; supersedes the prompt-only load instruction of ADR-0026/0040
+
+**Decision.** The agent no longer relies on the model *inferring* when, and which, integration to load. The prompt-only instruction ([ADR-0040](#adr-0040) #6, mirrored in the chat preamble) is the bug: the boss is blind when an integration is inactive, so it can emit a bare action such as `list_events`, receive "Tool 'list_events' is not declared", and then ask the user to load Calendar. Observed in chat `454bad3d`.
+
+The v1 fix is deliberately simpler than the original lazy-loading design:
+
+1. **Declare connected ∩ allowed tools eagerly at run start.** The current real surface is small and code-controlled (Gmail, Calendar, Drive, Docs, Sheets, Slides, GitHub; Slack/Linear/iMessage are empty stubs). Declaring those full schemas gives the model the argument contracts immediately and removes the mid-conversation load round trip.
+2. **Keep a connected summary in the system preamble.** A frozen, one-line-per-integration summary (`slug — actions — short desc`, with health markers) remains useful grounding and exact-slug copy, but it is no longer the only way the boss learns tools exist.
+3. **Make the dispatcher the security floor.** `dispatchToolCall` must resolve bare/qualified names and hard-enforce `allowed_integrations` + scope-aware connection health before any registered non-system tool can execute. This closes ADR-0043's exposure-only hole: qualified calls cannot bypass the declared-tool surface.
+
+Lazy catalog + `system.load_integration` + dispatcher auto-activation is deferred. It is a future optimization only if the connected schema surface becomes materially large; v1 should not pre-pay that complexity while N is small.
+
+**Micro-decisions.**
+
+1. **Eager connected declaration.** At run start, compute usable integrations as connected ∩ allowed ∩ non-empty-action slugs. Seed `agent_runs.state.activeIntegrations` with that set, and let the existing `resolveSdkTools` path declare their full schemas every turn. Empty `allowed_integrations` means unrestricted among connected loadable integrations; non-empty remains a hard cap. The old strict `@`-mention seed remains historical ADR context and can become a future hint for lazy mode, but it is not the v1 declaration boundary.
+
+2. **Connected summary is frozen grounding copy.** Snapshot a short connected summary into run state at creation. The `AlfredAgent` `system` resolver may concatenate that frozen string with `BOSS_SYSTEM_PROMPT`, `CHAT_SYSTEM_PROMPT`, or `SUB_AGENT_SYSTEM_PROMPT`, but it must not perform live DB/health reads during a turn. This is cache-stable by construction; the old strict-pin runtime check is not a cross-turn backstop because agents are rebuilt per step.
+
+3. **Scope-aware health is first-class.** `integrationHealth(userId, slug)` is not just `integrationCredentials.status`. For Google-backed slugs it must also check the scopes required by that slug (`gmail`, `calendar`, `drive`, `docs`, `sheets`, `slides`). A Calendar-only Google credential makes Calendar usable but does not make Sheets usable. With multiple Google rows, reduce to: any active row with required scopes wins; otherwise a relevant but unhealthy/insufficient row reports `needs_reauth`; otherwise `needs_connect`. Treat any non-`active` row status as unusable.
+
+4. **Dispatch name resolution happens before the `isToolName` guard.** Bare actions such as `list_events` resolve to a qualified `ToolName` before `getTool`. Ambiguous actions such as `batch_update` return a structured `ambiguous_tool` result rather than guessing. The resolver should distinguish three outcomes: unknown, qualified, ambiguous.
+
+5. **Dispatch hard gate.** For every resolved non-system integration: first enforce `allowedIntegrations` (`not_allowed`), then scope-aware health (`needs_connect` / `needs_reauth`), then the existing schema parse, policy resolution, staging, and execute path. Gated results must use the same actionable envelope shape as existing tool failures: `{ status, message, integration?, candidates? }`, so both chat and workflow bosses can relay useful text.
+
+6. **No v1 auto-activate path.** Because usable connected ∩ allowed integrations are declared from run start, there is no inactive-but-executable happy path to recover. This avoids adding `activate` metadata to `DispatchResult`, avoids transcript/staging disagreement between bare and resolved names, and avoids classifying recovered calls as failures.
+
+7. **`system.load_integration` becomes compatibility/deferred surface.** It may remain registered for old prompts and future lazy mode, but v1 should not depend on it for normal tool visibility. If it is kept, it must call the same `integrationHealth` helper and return structured `needs_connect` / `needs_reauth` failures instead of `{ ok: true }` on a connected-but-wrong-scope Google credential.
+
+8. **User action policy remains orthogonal.** Auto-declared write tools still flow through `resolvePolicyMode` and staging. Eager declaration is not eager execution; `autonomy | gated` remains the write safety layer.
+
+**Dispatch floor (pseudocode).**
+
+```
+resolution = resolveToolName(args.toolName, { allowedIntegrations })
+if resolution.kind == 'unknown':
+  return { kind: 'unknown_tool', result: { status: 'unknown_tool', message: ... } }
+if resolution.kind == 'ambiguous':
+  return { kind: 'ambiguous_tool', result: { status: 'ambiguous_tool', message: ..., candidates } }
+
+name = resolution.toolName
+intg = integrationFromToolName(name)
+if intg != 'system':
+  if allowed.length && !allowed.includes(intg):
+    return { kind: 'not_allowed', result: { status: 'not_allowed', message: ... } }
+  health = integrationHealth(userId, intg)
+  if health.status != 'active':
+    return { kind: health.status, result: { status: health.status, message: health.message } }
+
+// existing getTool(name) / safeParse / policy / staging / execute path
+```
+
+**What this amends.**
+
+- **ADR-0026 / ADR-0040 #4 & #6** — strict `@`-mention lazy loading is superseded for v1. Tool declaration is now deterministic from connected ∩ allowed credentials at run start, while prompts stop asking the model to infer load steps.
+- **ADR-0043** — the "active exposure bounded by `allowed_integrations`" layer becomes dispatch-enforced rather than exposure-only.
+
+**Alternatives.**
+
+- (a) **Lazy catalog + two-step `load_integration` + dispatcher auto-activate.** Rejected for v1 after measuring the current surface: the schema cost is small, Gemini currently ignores explicit `cacheControl`, and the auto-activate path adds state/result/transcript complexity for little benefit. Keep it as the future relaxation if integration count or schema size grows.
+- (b) **One-step universal `system.call_tool(name, input)` meta-tool.** Rejected. It removes normal JSON-schema tool declarations, making argument formation worse for complex tools.
+- (c) **Cheap-classifier pre-seed.** Rejected as a primary trigger. A model call is not a deterministic loading boundary.
+- (d) **Prompt-only plus `system.list_integrations`.** Rejected. It is the old probabilistic design with an extra discovery turn.
+
+**Deferred.**
+
+- **Lazy mode** once real schema volume justifies it. If revived, it must preserve the dispatch gate, scope-aware health helper, structured result envelopes, and resolved-name audit consistency described here.
+- **Per-tool (L3) trust** (`IntegrationRule.toolOverrides`) — still orthogonal to loading.
+- **Mid-run catalog freshness** — connecting or revoking an integration mid-conversation refreshes on the next run unless this proves painful.
+
+**Open.**
+
+- **Catalog description source** — hand-authored one-liners vs. reusing each tool group's existing description. Use short per-integration blurbs and skip empty-action stubs.
+- **Ambiguity tie-breaks** — v1 can return `ambiguous_tool`; smarter tie-breaks can come later if ambiguous bares become common.
+- **Audit artifact for blocked calls** — dispatch gates currently short-circuit before staging. Decide during implementation whether `not_allowed` / `needs_connect` / `needs_reauth` should create an audit row, or whether transcript tool results are enough.

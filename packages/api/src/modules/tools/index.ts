@@ -10,6 +10,7 @@
 import { calendarTools } from "./calendar";
 import { docsTools } from "./docs";
 import { driveTools } from "./drive";
+import { githubTools } from "./github";
 import { gmailTools } from "./gmail";
 import { registerTools } from "./registry";
 import { sheetsTools } from "./sheets";
@@ -35,6 +36,7 @@ export function registerBuiltinTools(): void {
   registerTools(gmailTools);
   registerTools(calendarTools);
   registerTools(driveTools);
+  registerTools(githubTools);
   registerTools(docsTools);
   registerTools(sheetsTools);
   registerTools(slidesTools);

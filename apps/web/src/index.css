@@ -1730,6 +1730,38 @@
     box-shadow: var(--app-shadow-elevated-hover);
   }
 
+  /* `app-toast` — the floating frosted notification used by callToast().
+   * A translucent panel with backdrop blur, a theme-aware hairline (the
+   * elevated-shadow ring) and a soft drop so it reads as lifted above the
+   * chat. Because the card is stamped with `.app` + the resolved
+   * `data-app-theme`, every token flips with the user's theme even though
+   * sonner renders it outside the themed subtree. */
+  .app-toast {
+    background-color: color-mix(in srgb, var(--app-bg-2) 88%, transparent);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow:
+      var(--app-shadow-elevated),
+      0 16px 40px -16px rgba(0, 0, 0, 0.55);
+    color: var(--app-fg-4);
+  }
+  /* Soft tinted disc behind the leading icon. */
+  .app-toast-icon {
+    background-color: var(--app-bg-a2);
+  }
+  /* Danger variant — a faint red wash with a red hairline; text inherits the
+   * theme-aware red-4 accent so it stays legible in both modes. */
+  .app-toast--danger {
+    background-color: color-mix(in srgb, var(--app-red-1) 90%, transparent);
+    box-shadow:
+      0 0 0 1px var(--app-red-2),
+      0 16px 40px -16px rgba(0, 0, 0, 0.55);
+    color: var(--app-red-4);
+  }
+  .app-toast--danger .app-toast-icon {
+    background-color: color-mix(in srgb, var(--app-red-2) 65%, transparent);
+  }
+
   /* `app-frost-header` — masked backdrop-blur that fades to no-blur at the
    * very top. Page background shows through the top edge, blur kicks in
    * over content lower down. Use on any sticky header. */

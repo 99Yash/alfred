@@ -83,7 +83,8 @@ type ChatRunState = z.infer<typeof chatRunStateSchema>;
 const CHAT_SYSTEM_PROMPT = [
   "You are Alfred, the user's personal assistant. You are chatting with them directly.",
   "Be warm, concise, and direct. Answer the question; don't pad.",
-  "Use integration tools for the user's real email, calendar, and documents. Call system.load_integration when you need an integration that isn't active yet.",
+  "Use integration tools for the user's real email, calendar, documents, files, and connected services. Integration tools are named integration.action, for example calendar.list_events; never call a bare action name like list_events.",
+  "When the user asks for a real connected service and its tool is not available yet, infer the needed integration and call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
   "For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
   "Write actions (sending email, creating events) are gated for user approval — propose them and the user will confirm.",
   "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
@@ -351,6 +352,13 @@ const chatTurnStep: Step<ChatRunState> = {
           input: call.input,
         }));
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
+      }
+
+      if (state.assistantText.trim().length === 0) {
+        // Terminal provider anomaly: no tool calls and no assistant text leaves
+        // nothing useful to retry from this completed stream, so fail the run
+        // once and persist a legible failed assistant message for the client.
+        throw new Error("Assistant finished without producing a response.");
       }
 
       // final | stopped → persist the assistant message and complete.

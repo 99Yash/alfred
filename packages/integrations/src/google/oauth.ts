@@ -33,7 +33,7 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  *   briefing     — gmail.readonly + calendar.readonly: open-loop orientation with calendar anchoring
  *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
  *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
- *   calendar     — calendar.readonly: list events for meeting context
+ *   calendar     — calendar.events: read events and create/update events
  *   drive        — drive.readonly: find/list files across the user's Drive
  *   docs         — documents.readonly: read structured Doc content (headings, tables)
  *   sheets       — spreadsheets: read + write cell ranges, create spreadsheets
@@ -69,6 +69,7 @@ export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.reado
 export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+export const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 export const DOCS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly";
 /** Full read/write Sheets — create + edit spreadsheets. Sensitive (free to verify), not restricted. */
@@ -80,7 +81,7 @@ export const GOOGLE_FEATURE_SCOPES = {
   briefing: [GMAIL_READONLY_SCOPE, CALENDAR_READONLY_SCOPE],
   triage: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
   reply_draft: [GMAIL_SEND_SCOPE],
-  calendar: [CALENDAR_READONLY_SCOPE],
+  calendar: [CALENDAR_EVENTS_SCOPE],
   drive: [DRIVE_READONLY_SCOPE],
   docs: [DOCS_READONLY_SCOPE],
   sheets: [SHEETS_SCOPE],
@@ -114,7 +115,7 @@ export function scopesForFeatures(features?: readonly GoogleFeature[]): string[]
 /**
  * Google's OAuth verification tiers. Only the *restricted* tier triggers
  * the recurring paid CASA security assessment when going public; the
- * sensitive tier (gmail.send, calendar.readonly, the Workspace reads)
+ * sensitive tier (gmail.send, calendar.events, the Workspace reads)
  * verifies for free. We classify by scope rather than by feature because
  * the tier is Google's, not ours — a feature is restricted iff it pulls
  * in any restricted scope.

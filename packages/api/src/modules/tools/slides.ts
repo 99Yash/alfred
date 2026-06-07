@@ -12,6 +12,12 @@
  */
 
 import {
+  slidesAddSlideInput,
+  slidesBatchUpdateInput,
+  slidesCreateInput,
+  slidesGetInput,
+} from "@alfred/contracts";
+import {
   addSlide,
   batchUpdatePresentation,
   createPresentation,
@@ -19,46 +25,7 @@ import {
   getPresentation,
   listCredentials,
 } from "@alfred/integrations/google";
-import { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
-
-const presentationId = z.string().min(1).max(200).describe("The target presentation's id.");
-
-const slidesCreateInput = z
-  .object({
-    title: z.string().min(1).max(500).describe("Title for the new presentation."),
-  })
-  .strict();
-
-const slidesGetInput = z
-  .object({
-    presentationId,
-  })
-  .strict();
-
-const slidesBatchUpdateInput = z
-  .object({
-    presentationId,
-    requests: z
-      .array(z.record(z.string(), z.unknown()))
-      .min(1)
-      .describe(
-        "Raw Slides API `Request` objects (createSlide, insertText, createShape, …) from https://developers.google.com/slides/api/reference/rest/v1/presentations/request.",
-      ),
-  })
-  .strict();
-
-const slidesAddSlideInput = z
-  .object({
-    presentationId,
-    layout: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe("Predefined layout, e.g. `BLANK`, `TITLE_AND_BODY`. Defaults to BLANK."),
-  })
-  .strict();
 
 async function pickGoogleCredentialId(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");

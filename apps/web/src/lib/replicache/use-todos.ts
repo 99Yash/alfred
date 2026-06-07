@@ -1,13 +1,13 @@
 import { IDB_KEY, type SyncedTodo, syncedTodoSchema } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth-client";
 import { useReplicacheStatus } from "./context";
 
 export interface TodosState {
-  /** Live todos (`open` first, then `done`), creation-ordered within each. */
+  /** Live todos (`open` first, then `done`), newest-created first within each. */
   todos: SyncedTodo[];
-  /** Alfred's pending proposals (`suggested`), creation-ordered. */
+  /** Alfred's pending proposals (`suggested`), newest-created first. */
   suggestions: SyncedTodo[];
   loading: boolean;
   error: string | null;
@@ -42,7 +42,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   if (a.position != null && b.position != null && a.position !== b.position) {
     return a.position - b.position;
   }
-  return a.createdAt.localeCompare(b.createdAt);
+  return b.createdAt.localeCompare(a.createdAt);
 }
 
 /**
@@ -131,10 +131,17 @@ export function useTodos(): TodosState {
     [rep],
   );
 
-  const all = rows ?? [];
+  const { todos, suggestions } = useMemo(() => {
+    const all = rows ?? [];
+    return {
+      todos: all.filter((t) => t.status === "open" || t.status === "done"),
+      suggestions: all.filter((t) => t.status === "suggested"),
+    };
+  }, [rows]);
+
   return {
-    todos: all.filter((t) => t.status === "open" || t.status === "done"),
-    suggestions: all.filter((t) => t.status === "suggested"),
+    todos,
+    suggestions,
     loading: rows === null && !loadError,
     error: loadError,
     retry,
