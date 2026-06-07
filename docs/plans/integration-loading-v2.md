@@ -1,19 +1,19 @@
-# Deterministic integration loading (catalog + dispatch floor)
+# Deterministic connected tools (eager declaration + dispatch floor)
 
 **Date:** 2026-06-07
-**ADR:** [ADR-0053](../../decisions.md#adr-0053--deterministic-integration-loading-always-on-connected-catalog--dispatcher-enforced-auto-load-supersedes-the-prompt-only-load-instruction-of-adr-00260040)
-**Trigger:** Chat `454bad3d`. A clean GitHub turn was followed by a calendar follow-up that emitted a bare `list_events` → `undeclaredToolMessage` ("Tool 'list_events' is not declared") → the boss gave up and asked the user to load Calendar (which the preamble forbids).
+**ADR:** [ADR-0053](../../decisions.md#adr-0053--deterministic-connected-tool-declaration--dispatch-enforced-gates-supersedes-the-prompt-only-load-instruction-of-adr-00260040)
+**Trigger:** Chat `454bad3d`. A clean GitHub turn was followed by a calendar follow-up that emitted bare `list_events` -> `undeclaredToolMessage` ("Tool 'list_events' is not declared") -> the boss gave up and asked the user to load Calendar.
 
 ---
 
 ## TL;DR
 
-Integration loading was prompt-only and probabilistic: the boss is **blind** (no tool for an inactive integration, no signal it exists), so "infer the needed integration and call `system.load_integration`" is a guess. Fix is two moves that keep lazy loading intact:
+The bug has two separable parts:
 
-1. **Connected catalog** in the preamble — kills the blindness (names + descriptions, snapshotted at run start, cheap, cache-stable).
-2. **Dispatch floor** — plain code in `dispatchToolCall` that resolves names, hard-enforces connected + allowed, and auto-activates a permitted-but-inactive integration in the same pass.
+1. **Visibility/loading:** v1 should not make the model infer load steps. Declare full schemas for connected ∩ allowed integrations at run start. The current real surface is small: Gmail, Calendar, Drive, Docs, Sheets, Slides, GitHub. Slack/Linear/iMessage have no actions yet.
+2. **Security boundary:** `dispatchToolCall` must hard-enforce `allowedIntegrations` + scope-aware connection health before executing any non-system registered tool. This closes the ADR-0043 exposure-only hole even if a model emits a qualified tool directly.
 
-Schemas stay lazy (only *active* integrations declare full schemas). Three axes: `connected ⊇ catalog ⊇ active`.
+Lazy catalog + two-step `load_integration` + auto-activation is deferred until schema volume proves it is worth the complexity.
 
 ---
 
@@ -24,62 +24,130 @@ Schemas stay lazy (only *active* integrations declare full schemas). Three axes:
 | Tool name types, action lists | `packages/contracts/src/tools.ts` |
 | Registry (`getTool`, `listToolsForIntegration`) | `packages/api/src/modules/tools/registry.ts` |
 | `system.load_integration` execute | `packages/api/src/modules/tools/system.ts` |
-| Dispatcher (`dispatchToolCall`, `undeclaredToolMessage`, `integrationActionSuggestion`) | `packages/api/src/modules/dispatch/index.ts` |
-| Boss preamble, `resolveSdkTools`, dispatch-tools step body | `packages/api/src/modules/agent/workflows/user-authored-brief.ts` |
-| Chat preamble, `[]` seed, `applyLoadIntegrationEffect` | `packages/api/src/modules/agent/workflows/chat-turn.ts` |
+| Dispatcher (`dispatchToolCall`, `undeclaredToolMessage`, name resolution) | `packages/api/src/modules/dispatch/index.ts` |
+| Boss preamble, `resolveSdkTools`, workflow run seed | `packages/api/src/modules/agent/workflows/user-authored-brief.ts` |
+| Chat preamble, current `[]` seed | `packages/api/src/modules/agent/workflows/chat-turn.ts` |
 | `integrationCredentials.status` | `packages/db/src/schema/integrations.ts` |
-| Connected-integrations query precedent | `packages/api/src/modules/skills/context.ts:60` |
+| Google scope mapping | `packages/integrations/src/google/oauth.ts` |
+| Existing Google scope filters | `packages/api/src/modules/me/routes.ts` |
 
 ---
 
-## Phase 1 — Connection-health helper (shared gate)
+## Phase 1 - Scope-aware integration health
 
-One source of truth for "is this integration usable right now?" reused by the catalog, the dispatcher, and `load_integration`.
+Add one source of truth for "can this user use this integration slug right now?"
 
-- New helper, e.g. `integrationHealth(userId, slug): 'active' | 'needs_reauth' | 'absent'`, querying `integrationCredentials` (distinct provider + status), with the **provider→slug fan-out** for Google (one `google` credential backs `gmail`/`calendar`/`drive`/`docs`/`sheets`/`slides`). Mirror the distinct-provider query in `skills/context.ts:60`.
-- Likely lives beside the registry or a small `integrations/health.ts`; must be callable from both `dispatch/` and `tools/system.ts` without a cycle.
+- New helper, e.g. `integrationHealth(userId, slug): { status: 'active' | 'needs_connect' | 'needs_reauth'; message?: string }`.
+- Treat non-`active` credential status as unusable.
+- Make Google fan-out slug-aware:
+  - `gmail` requires Gmail scopes.
+  - `calendar` requires Calendar scopes.
+  - `drive`, `docs`, `sheets`, `slides` require their service scopes.
+  - A Calendar-only Google credential must not make Sheets/Slides/Drive active.
+- Multiple Google rows reduce by:
+  - any active row with required slug scopes -> `active`;
+  - otherwise a relevant but unhealthy or insufficient row -> `needs_reauth`;
+  - otherwise -> `needs_connect`.
+- Skip empty-action stubs (`slack`, `linear`, `imessage`) in connected summaries and eager declaration.
+- Keep this helper importable from `dispatch/`, `tools/system.ts`, and the run-seeding/catalog builder without cycles.
 
-## Phase 2 — `load_integration` validates connected + health
+Tests:
 
-`packages/api/src/modules/tools/system.ts` — its `execute` checks only the allowlist cap today and returns `{ ok: true, slug }`.
+- Calendar-only Google credential -> `calendar` active, `sheets` not active.
+- Non-active Google credential with relevant scopes -> `needs_reauth`.
+- No credential -> `needs_connect`.
+- GitHub active credential -> `github` active.
 
-- After the allowlist check, call `integrationHealth`. Return `{ ok: false, status: 'needs_connect' | 'needs_reauth', slug }` when not usable.
-- The dispatch-tools step body's `applySystemToolEffect` / `applyLoadIntegrationEffect` already only activate on `ok === true`, so a failed load simply won't activate — no state change needed there.
+## Phase 2 - Eager connected tool declaration
 
-## Phase 3 — Dispatch floor (the deterministic guarantee)
+Replace strict `@`-mention seeding as the v1 declaration boundary.
 
-`packages/api/src/modules/dispatch/index.ts`, inside `dispatchToolCall`, before `getTool`:
+- At run creation, compute `declaredIntegrations = connectedHealthySlugs ∩ allowedIntegrations`, where empty `allowedIntegrations` means all connected healthy loadable slugs.
+- Seed `agent_runs.state.activeIntegrations` with that full set for:
+  - user-authored workflows;
+  - chat runs;
+  - sub-agents, scoped to their `allowedIntegrations`.
+- Leave `@`-mentions as prompt/intent hints only; they no longer decide whether a connected allowed tool schema is visible.
+- Keep `resolveSdkTools` unchanged if possible: it already declares tools for `activeIntegrations`.
 
-1. **Name resolution.** Reuse `integrationActionSuggestion` to map a bare action (`list_events`) → qualified `ToolName`. Ambiguous bare names (today only `batch_update` ∈ `sheets`+`slides`): tie-break to the active integration, else the unique connected integration owning the action, else return `{ kind: 'ambiguous_tool', candidates }`. Key the rest of dispatch on the resolved name.
-2. **Hard gating** (skip for `integration === 'system'`): `not_allowed` if outside `allowedIntegrations` (non-empty), then `needs_connect` / `needs_reauth` from `integrationHealth`. Structured results, not throws.
-3. **Auto-activate signal.** If permitted + healthy but inactive, mark the slug for activation. Per ADR-0040 #5, the **state mutation happens in the dispatch-tools step body**, not in dispatch internals — so dispatch returns the activation in its result (extend `DispatchResult`, or surface via the same channel the step body reads for `load_integration`), and the step body appends to `state.activeIntegrations`.
-- Add the new structured result kinds (`needs_connect`, `needs_reauth`, `ambiguous_tool`) to the dispatch result union + the tool-result message rendering so the boss sees a clean, actionable string.
+Tests:
 
-## Phase 4 — Connected catalog in the preamble
+- Workflow allowed `[gmail]` with Gmail+Calendar connected declares only Gmail tools.
+- Empty allowlist with Gmail+GitHub connected declares both.
+- Empty-action integrations are not declared.
 
-- **Builder:** `buildConnectedCatalog(userId, allowed)` → the one-line-per-integration string (see ADR pseudocode), using `integrationHealth` for the `(needs reauth)` marker. Description source: a short per-integration blurb (not per-action) — keep it one line each.
-- **Snapshot at run start** into `state` (e.g. `state.connectedCatalog: string`) so it is byte-stable across turns. For workflows, snapshot in `initialState`; for chat, in the run seed where `activeIntegrations: []` is set today (`chat-turn.ts:709`).
-- **Render via the `system` resolver.** Change `system: BOSS_SYSTEM_PROMPT` (static) to a function returning `PREAMBLE + "\n\n" + state.connectedCatalog`. `AlfredAgent` already resolves `system` per turn; the snapshot keeps it stable so strict-pin holds. Do the same for the chat preamble.
-- **Delete the blind lines:** "When a needed allowed integration is not active yet, call `system.load_integration` yourself…" (boss) and "infer the needed integration and call `system.load_integration`…" (chat). Replace with a short pointer to the catalog + the rejection/summary rules that remain.
+## Phase 3 - Connected summary in the preamble
 
-## Phase 5 — Sub-agents + chat parity
+Keep a short, frozen grounding summary even though schemas are eager.
 
-- Sub-agents inherit the dispatch floor for free; give them a catalog scoped to their allowed set (same builder, sub-agent's `allowedIntegrations`).
-- Confirm chat's cold `[]` seed now carries a real catalog and that `applyLoadIntegrationEffect` plus the new auto-activate path both feed `state.activeIntegrations` consistently.
+- Build at run start from connected ∩ allowed slugs.
+- Format one line per non-empty integration: `slug — action, action — short description`.
+- Include health markers for unusable-but-known credentials (`needs reauth`) if showing them helps the boss explain reconnects.
+- Snapshot into run state, e.g. `state.connectedSummary`.
+- Render via `system` resolver by concatenating the frozen string with `BOSS_SYSTEM_PROMPT`, `CHAT_SYSTEM_PROMPT`, or `SUB_AGENT_SYSTEM_PROMPT`.
+- Do not do live DB/health reads in the resolver. The resolver must be pure over state.
+- Remove prompt lines that tell the model to infer needed integrations and call `system.load_integration` just to proceed.
+
+Tests:
+
+- Two consecutive turns for the same run produce byte-identical system text when state is unchanged.
+- The summary respects `allowedIntegrations` and does not leak disallowed slugs.
+
+## Phase 4 - Dispatch floor
+
+`packages/api/src/modules/dispatch/index.ts`
+
+Insert name resolution and gating before the existing `isToolName`/`getTool` path.
+
+1. **Resolve names.**
+   - Qualified names pass through if valid.
+   - Bare action names resolve to a qualified `ToolName` only when unique.
+   - Ambiguous names such as `batch_update` return `ambiguous_tool` with candidates.
+   - Unknown names keep existing `unknown_tool` behavior.
+2. **Gate non-system tools.**
+   - `not_allowed` if outside non-empty `allowedIntegrations`.
+   - `needs_connect` / `needs_reauth` from `integrationHealth`.
+3. **Return actionable envelopes.**
+   - New results must include `{ status, message, ... }`, not only `{ kind }`.
+   - Add explicit handling in both workflow `dispatchResultToToolOutput` functions. Prefer `assertNever` over chat's current broad default.
+4. **Do not auto-activate in v1.**
+   - Eager declaration means there is no inactive-but-usable path to recover.
+   - Avoid adding `activate` metadata or mutating state from dispatch results.
+
+Tests:
+
+- Qualified disallowed tool returns `not_allowed` and does not execute.
+- Qualified unavailable tool returns `needs_connect` / `needs_reauth` and does not execute.
+- Bare `list_events` resolves to `calendar.list_events`.
+- Bare `batch_update` returns `ambiguous_tool`.
+- Gated write tool still stages when policy says `gated`; eager declaration does not bypass approval.
+
+## Phase 5 - `system.load_integration` compatibility
+
+`system.load_integration` can stay registered for old prompts and future lazy mode, but normal v1 visibility should not depend on it.
+
+- Validate with the same `integrationHealth` helper.
+- Return structured `needs_connect` / `needs_reauth` failures for unusable credentials.
+- On success, no-op if the integration is already in `activeIntegrations`.
+
+Tests:
+
+- `load_integration('sheets')` with Calendar-only Google credential returns `needs_connect` or `needs_reauth`, not `ok: true`.
+- Successful load remains idempotent.
 
 ---
 
 ## Testing
 
-- **Reproduce the bug first** (regression target): a two-turn chat — GitHub PR count, then "list my events tomorrow morning" — must now load Calendar and answer, with **no** "not declared" and **no** "would you like me to load…".
-- **Unit:** name resolution (bare→qualified; `batch_update` ambiguity tie-break); `integrationHealth` provider→slug fan-out; gating returns the right structured kind for absent/needs_reauth/not_allowed.
-- **Smoke:** extend the `smoke-brief-execution.ts` pattern (ADR-0040 #8) — a brief that names a tool whose integration is connected-but-inactive should auto-activate via the dispatch floor (no explicit `load_integration` turn) and reach `executed`.
-- **Cache sanity:** the catalog snapshot is byte-identical across a run's turns (strict-pin does not throw). Note all agent loops currently run on Gemini (ignores `cacheControl`), so cache *payoff* is latent until the Anthropic swap-back — verify correctness, not cache hits, for now.
+- **Regression:** two-turn chat: GitHub PR count, then "list my events tomorrow morning" must answer with Calendar tools visible from the start of the second run/turn path, with no "not declared" and no "would you like me to load..." message.
+- **Security:** workflow scoped `allowed=[gmail]` cannot execute `calendar.create_event` even if the model emits the qualified name.
+- **Scope:** Calendar-only Google credential does not advertise or execute Sheets.
+- **Approvals:** eager-declared write tools still stage under `gated` policy.
+- **System stability:** connected summary snapshot is byte-identical across turns unless run state changes intentionally.
 
 ## Risks / open
 
-- **Provider→slug fan-out** is the fiddly bit — one Google credential, six service slugs. Get `integrationHealth` right or the catalog/gates misreport Google services.
-- **`DispatchResult` shape change** ripples to the tool-result renderer and any History/approvals projections that switch on `kind`. Audit those switch sites.
-- **Ambiguity** beyond `batch_update`: resolve lazily as collisions appear; don't pre-enumerate.
-- **Mid-run connect** won't refresh the snapshot until the next run — accepted (ADR-0053 Deferred).
-- **Per-tool (L3) trust** stays out of scope — orthogonal to loading.
+- **Blocked-call audit:** dispatch gates short-circuit before staging today. Decide whether `not_allowed` / `needs_connect` / `needs_reauth` need action-staging audit rows or transcript tool results are enough.
+- **Catalog freshness:** mid-run connection changes refresh on the next run unless this becomes painful.
+- **Lazy mode:** defer until real schema volume justifies it. If revived, keep the dispatch gate and scope-aware health helper unchanged.
+- **Typeahead:** unrelated UI nit from the review; current custom select has listbox + arrow/Home/End but not type-to-jump.

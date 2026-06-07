@@ -1,3 +1,4 @@
+import { toolLabel } from "@alfred/contracts";
 import { Check, ChevronRight, Sparkles, Wrench, X, type LucideIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
@@ -13,7 +14,10 @@ export interface ToolCallView {
   resultPreview?: string;
 }
 
-/** "google_calendar.list_events" → "list events" (the verb the user cares about). */
+/**
+ * Fallback for a tool not in the co-located registry (e.g. a future or
+ * web-scoped tool): `"google_calendar.list_events"` → `"list events"`.
+ */
 function humanizeTool(toolName: string): string {
   const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
   return last.replace(/_/g, " ");
@@ -23,14 +27,6 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** Friendly, present-tense verb phrases for the system meta-tools. */
-const SYSTEM_TOOL_LABELS: Record<string, { running: string; done: string }> = {
-  read_scratch: { running: "Reading notes", done: "Read notes" },
-  write_scratch: { running: "Saving notes", done: "Saved notes" },
-  promote: { running: "Recording a finding", done: "Recorded a finding" },
-  suggest_todo: { running: "Suggesting a to-do", done: "Suggested a to-do" },
-};
-
 interface ToolPresentation {
   brand?: IntegrationBrand;
   fallbackIcon: LucideIcon;
@@ -38,6 +34,8 @@ interface ToolPresentation {
   running: string;
   /** Label shown once it lands. */
   done: string;
+  /** Label shown when the call fails. Falls back to `${done} failed`. */
+  failed?: string;
   /** Human-readable secondary line (brief, target, etc.) — not raw JSON. */
   detail?: string;
 }
@@ -66,6 +64,7 @@ function presentTool(tool: ToolCallView): ToolPresentation {
       fallbackIcon: Wrench,
       running: `Connecting to ${name}`,
       done: `Connected to ${name}`,
+      failed: `Couldn't connect to ${name}`,
     };
   }
 
@@ -79,28 +78,42 @@ function presentTool(tool: ToolCallView): ToolPresentation {
       fallbackIcon: Sparkles,
       running: "Delegating a sub-task",
       done: "Delegated a sub-task",
+      failed: "Couldn't delegate a sub-task",
       detail: asString(args?.brief),
     };
   }
 
+  // Every registered tool gets its verbs from the co-located registry; the
+  // fallback only fires for an unregistered name (e.g. a web-scoped tool).
+  const label = toolLabel(tool.toolName);
+  const failed = label ? `Couldn't ${label.title}` : undefined;
+
   if (slug === "system" || slug === "") {
-    const action = tool.toolName.includes(".")
-      ? tool.toolName.slice(tool.toolName.indexOf(".") + 1)
-      : tool.toolName;
-    const known = SYSTEM_TOOL_LABELS[action];
-    if (known) return { fallbackIcon: Wrench, running: known.running, done: known.done };
+    if (label) return { fallbackIcon: Wrench, running: label.running, done: label.done, failed };
     const verb = humanizeTool(tool.toolName);
-    return { fallbackIcon: Wrench, running: verb, done: verb };
+    return { fallbackIcon: Wrench, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
-  // Integration-scoped tool, e.g. `github.list_pull_requests`.
+  // Integration-scoped tool, e.g. `github.search_pull_requests`.
   const provider = getIntegrationProvider(slug);
+  const brand = provider?.brand ?? (slug === "web" ? "web" : undefined);
+  if (label) {
+    return {
+      brand,
+      fallbackIcon: Wrench,
+      running: label.running,
+      done: label.done,
+      failed,
+      detail: provider?.name,
+    };
+  }
   const verb = humanizeTool(tool.toolName);
   return {
-    brand: provider?.brand ?? (slug === "web" ? "web" : undefined),
+    brand,
     fallbackIcon: Wrench,
     running: verb,
     done: verb,
+    failed: `Couldn't ${verb}`,
     detail: provider?.name,
   };
 }
@@ -139,9 +152,10 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
     fallbackIcon: FallbackIcon,
     running: runningLabel,
     done,
+    failed: failedLabel,
     detail,
   } = presentTool(tool);
-  const title = running ? runningLabel : failed ? `${done} failed` : done;
+  const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
   // Inline: always the human "what" (brief / integration). The "why" of a
   // failure goes in the expandable, cleaned up from the raw result JSON.
   const secondary = detail;
