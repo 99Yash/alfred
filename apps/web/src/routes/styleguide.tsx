@@ -1795,7 +1795,7 @@ function ThemePanes({
         <div
           key={theme}
           data-app-theme={theme}
-          className="app rounded-2xl p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+          className="app rounded-2xl p-5 shadow-[0_0_0_1px_var(--app-fg-a1)]"
         >
           <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-app-fg-2">
             {theme}
