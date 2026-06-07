@@ -2013,6 +2013,7 @@ const V2_STAGING_EVENT: SyncedActionStaging = {
   toolName: "calendar.create_event",
   integration: "calendar",
   riskTier: "low",
+  brief: "Add design-review invite for Thursday 2pm and update Maya's invite.",
   proposedInput: {
     summary: "Design review",
     start: "2026-06-11T14:00:00.000Z",
