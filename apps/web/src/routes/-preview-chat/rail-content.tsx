@@ -65,6 +65,8 @@ export interface RailData {
   onCreateTodo?: (title: string) => void;
   /** Accept a suggestion (`suggested → open`). */
   onPromoteSuggestion?: (id: string) => void;
+  /** Decline a suggestion (`suggested → dismissed`). */
+  onDismissSuggestion?: (id: string) => void;
   inbox: ReadonlyArray<InboxItem>;
   /** Optional pagination state for the inbox tab. */
   inboxPagination?: InboxPagination;
@@ -205,6 +207,7 @@ export function RailContent({
                 onToggleTodo={data.onToggleTodo}
                 onCreateTodo={data.onCreateTodo}
                 onPromoteSuggestion={data.onPromoteSuggestion}
+                onDismissSuggestion={data.onDismissSuggestion}
               />
             </RailSlot>
             <RailSlot active={tab === "inbox"}>

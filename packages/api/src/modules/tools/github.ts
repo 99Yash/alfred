@@ -21,7 +21,7 @@ type SearchPullRequestsInput = z.infer<typeof searchPullRequestsInput>;
 
 interface GithubToolCredential {
   accessToken: string;
-  accountLogin: string;
+  accountLogin: string | null;
 }
 
 async function credentialFor(userId: string): Promise<GithubToolCredential> {
@@ -32,15 +32,9 @@ async function credentialFor(userId: string): Promise<GithubToolCredential> {
       `[github.tools] user ${userId} has no active github credential — connect GitHub in settings`,
     );
   }
-  const accountLogin = active.accountLabel?.trim();
-  if (!accountLogin) {
-    throw new Error(
-      `[github.tools] user ${userId} has no github login on the active credential — reconnect GitHub in settings`,
-    );
-  }
   return {
     accessToken: await getGithubAccessToken(active.id),
-    accountLogin,
+    accountLogin: active.accountLabel?.trim() || null,
   };
 }
 
@@ -81,8 +75,18 @@ export function buildPullRequestSearchQuery(
   return parts.join(" ");
 }
 
-export function resolvePullRequestAuthor(author: string, accountLogin: string): string {
-  return author === "@me" ? accountLogin : author;
+export function resolvePullRequestAuthor(
+  author: string,
+  accountLogin: string | null,
+  userId = "unknown",
+): string {
+  if (author !== "@me") return author;
+  if (!accountLogin) {
+    throw new Error(
+      `[github.tools] user ${userId} has no github login on the active credential — reconnect GitHub in settings`,
+    );
+  }
+  return accountLogin;
 }
 
 export const githubTools: readonly RegisteredTool[] = [
@@ -95,7 +99,7 @@ export const githubTools: readonly RegisteredTool[] = [
     inputSchema: searchPullRequestsInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
-      const author = resolvePullRequestAuthor(input.author, credential.accountLogin);
+      const author = resolvePullRequestAuthor(input.author, credential.accountLogin, ctx.userId);
       const q = buildPullRequestSearchQuery({ ...input, author });
       const result = await searchPullRequests({
         accessToken: credential.accessToken,

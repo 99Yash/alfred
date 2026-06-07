@@ -20,6 +20,7 @@ export function TodoFeed({
   onToggleTodo,
   onCreateTodo,
   onPromoteSuggestion,
+  onDismissSuggestion,
 }: {
   items: ReadonlyArray<TodoItem>;
   suggestions?: ReadonlyArray<SuggestionInput>;
@@ -29,6 +30,8 @@ export function TodoFeed({
   onCreateTodo?: (title: string) => void;
   /** Accept a suggestion (`suggested → open`). */
   onPromoteSuggestion?: (id: string) => void;
+  /** Decline a suggestion (`suggested → dismissed`). */
+  onDismissSuggestion?: (id: string) => void;
 }) {
   const [openListRef] = useAutoAnimate<HTMLUListElement>();
   const [doneListRef] = useAutoAnimate<HTMLUListElement>();
@@ -86,6 +89,7 @@ export function TodoFeed({
               label={s.label}
               detail={s.detail}
               onAccept={s.id && onPromoteSuggestion ? () => onPromoteSuggestion(s.id!) : undefined}
+              onDismiss={s.id && onDismissSuggestion ? () => onDismissSuggestion(s.id!) : undefined}
             />
           ))}
         </div>

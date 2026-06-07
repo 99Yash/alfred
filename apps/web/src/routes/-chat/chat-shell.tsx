@@ -32,6 +32,7 @@ import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage";
+import { callToast } from "~/lib/toast";
 import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
@@ -875,9 +876,21 @@ function useRailData(): RailData {
     completeTodo,
     reopenTodo,
     promoteTodo,
+    dismissTodo,
   } = useTodos();
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
-  const todoSuggestions = useMemo(() => liveSuggestions.map(toRailSuggestion), [liveSuggestions]);
+  // Dismissing a suggestion hides it immediately and only commits the
+  // (terminal) `dismissed` mutation after the undo window closes — so "Undo"
+  // is a local cancel, not a server round-trip (`dismissed` rows never sync
+  // back, so there'd be nothing to restore).
+  const { hiddenSuggestionIds, onDismissSuggestion } = useSuggestionDismissal(
+    liveSuggestions,
+    dismissTodo,
+  );
+  const todoSuggestions = useMemo(
+    () => liveSuggestions.filter((s) => !hiddenSuggestionIds.has(s.id)).map(toRailSuggestion),
+    [liveSuggestions, hiddenSuggestionIds],
+  );
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
@@ -965,6 +978,7 @@ function useRailData(): RailData {
       onToggleTodo,
       onCreateTodo,
       onPromoteSuggestion,
+      onDismissSuggestion,
       inbox: inboxItems,
       inboxPagination: {
         pageIndex: safeInboxPage,
@@ -991,6 +1005,7 @@ function useRailData(): RailData {
       onToggleTodo,
       onCreateTodo,
       onPromoteSuggestion,
+      onDismissSuggestion,
       inboxItems,
       safeInboxPage,
       inboxPageCount,
@@ -1050,6 +1065,82 @@ function toRailTodoItem(t: SyncedTodo): TodoItem {
 /** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
 function toRailSuggestion(t: SyncedTodo): SuggestionInput {
   return { id: t.id, label: t.name, detail: t.assist ?? "" };
+}
+
+const SUGGESTION_UNDO_MS = 5000;
+
+/**
+ * Deferred-commit dismissal for todo suggestions. Hiding is immediate (the id
+ * joins `hiddenSuggestionIds`, which the caller filters out), but the terminal
+ * `todoDismiss` mutation only fires after the undo window — so "Undo" cancels
+ * the pending commit locally. (`dismissed` rows never sync back, so there is no
+ * server-side row to restore once committed.) A still-pending dismissal is
+ * committed on unmount so navigating away doesn't silently lose it.
+ */
+function useSuggestionDismissal(
+  suggestions: ReadonlyArray<SyncedTodo>,
+  dismissTodo: (id: string) => Promise<void>,
+): {
+  hiddenSuggestionIds: ReadonlySet<string>;
+  onDismissSuggestion: (id: string) => void;
+} {
+  const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // Keep the latest dismiss fn in a ref so the unmount-commit effect can stay
+  // dependency-free (and never fire its cleanup mid-session).
+  const dismissRef = useRef(dismissTodo);
+  dismissRef.current = dismissTodo;
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const [id, handle] of pending) {
+        clearTimeout(handle);
+        void dismissRef.current(id);
+      }
+      pending.clear();
+    };
+  }, []);
+
+  const cancel = useCallback((id: string) => {
+    const handle = timers.current.get(id);
+    if (handle) clearTimeout(handle);
+    timers.current.delete(id);
+    setHiddenSuggestionIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const onDismissSuggestion = useCallback(
+    (id: string) => {
+      if (timers.current.has(id)) return;
+      const label = suggestions.find((s) => s.id === id)?.name;
+      setHiddenSuggestionIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      const handle = setTimeout(() => {
+        timers.current.delete(id);
+        void dismissRef.current(id);
+      }, SUGGESTION_UNDO_MS);
+      timers.current.set(id, handle);
+      callToast({
+        message: "Suggestion dismissed",
+        description: label,
+        duration: SUGGESTION_UNDO_MS,
+        action: { label: "Undo", onClick: () => cancel(id) },
+      });
+    },
+    [suggestions, cancel],
+  );
+
+  return { hiddenSuggestionIds, onDismissSuggestion };
 }
 
 function formatDate(date: Date): string {
