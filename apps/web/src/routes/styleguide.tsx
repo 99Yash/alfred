@@ -17,6 +17,7 @@
  * marketing direction (see components/landing/landing-page.tsx).
  */
 
+import type { SyncedActionStaging } from "@alfred/sync";
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import {
@@ -51,6 +52,15 @@ import { StatusDot } from "~/components/ui/status-dot";
 import { Switch } from "~/components/ui/switch";
 import { Tabs } from "~/components/ui/tabs";
 import { Textarea } from "~/components/ui/textarea";
+import {
+  AppButton,
+  AppCard,
+  AppDateTimePicker,
+  AppInput,
+  AppPill,
+  AppSelect,
+} from "~/components/ui/v2";
+import { ChatApprovalTray } from "./-chat/approval-tray";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
 import { AuroraGlow } from "~/components/landing/aurora-glow";
@@ -71,7 +81,7 @@ export const Route = createFileRoute("/styleguide")({
   component: StyleguidePage,
 });
 
-type StyleguideMode = "app" | "dimension";
+type StyleguideMode = "app" | "v2" | "dimension";
 
 function StyleguidePage() {
   const [mode, setMode] = useState<StyleguideMode>("app");
@@ -102,13 +112,14 @@ function StyleguidePage() {
                   label: "After · App revamp",
                   icon: <Sparkles size={14} />,
                 },
+                { value: "v2", label: "In-app · App grammar", icon: <Check size={14} /> },
                 { value: "dimension", label: "Before · Dimension", icon: <MoonStar size={14} /> },
               ]}
             />
           </div>
         </header>
 
-        {mode === "app" ? <AppHalf /> : <DimensionHalf />}
+        {mode === "app" ? <AppHalf /> : mode === "v2" ? <V2Half /> : <DimensionHalf />}
       </div>
     </div>
   );
@@ -1743,6 +1754,299 @@ function LandingFooterPreview() {
       <div className="overflow-hidden rounded-2xl border border-white/10">
         <LandingFooter onGetStarted={() => undefined} healthOk={true} />
       </div>
+    </Section>
+  );
+}
+
+/* ========================================================================== */
+/* V2 half — the app-grammar primitives that power the authenticated app      */
+/* (components/ui/v2 + the chat approval tray). Every preview renders twice,  */
+/* once per forced theme, so light/dark regressions are visible side by side. */
+/* ========================================================================== */
+
+function V2Half() {
+  return (
+    <div className="space-y-16">
+      <HalfBanner
+        tone="app"
+        eyebrow="In-app"
+        title="App grammar (v2)"
+        body="The visitors.now-derived grammar from components/ui/v2 — AppButton, AppCard, AppPill, AppInput — plus the chat approval tray, rendered with mock staging data. Each block renders in forced light and forced dark so both themes stay honest."
+      />
+      <V2ButtonSection />
+      <V2SurfaceSection />
+      <V2FrostOverlaySection />
+      <V2ApprovalTraySection />
+    </div>
+  );
+}
+
+/** Side-by-side forced light / forced dark panes for an app-grammar preview. */
+function ThemePanes({
+  render,
+  stacked = false,
+}: {
+  render: (theme: "light" | "dark") => ReactNode;
+  stacked?: boolean;
+}) {
+  return (
+    <div className={cn("grid grid-cols-1 gap-4", !stacked && "lg:grid-cols-2")}>
+      {(["light", "dark"] as const).map((theme) => (
+        <div
+          key={theme}
+          data-app-theme={theme}
+          className="app rounded-2xl p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+        >
+          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-app-fg-2">
+            {theme}
+          </p>
+          {render(theme)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function V2Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[88px_1fr] items-center gap-3">
+      <div className="text-[12px] tabular-nums text-app-fg-2">{label}</div>
+      <div className="flex flex-wrap items-center gap-2.5">{children}</div>
+    </div>
+  );
+}
+
+function V2ButtonSection() {
+  return (
+    <Section
+      id="v2-button"
+      title="AppButton"
+      recipe="components/ui/v2/button.tsx — primary fill + shadow resolve through --app-cta-bg / --app-button-primary-shadow, which are theme-aware. Dark primary is the 'polished obsidian' chip."
+    >
+      <ThemePanes
+        render={() => (
+          <div className="space-y-4">
+            <V2Row label="primary">
+              <AppButton variant="primary">Approve</AppButton>
+              <AppButton variant="primary" leading={<Check size={14} />}>
+                Allow once
+              </AppButton>
+              <AppButton variant="primary" disabled>
+                Disabled
+              </AppButton>
+            </V2Row>
+            <V2Row label="white">
+              <AppButton variant="white">New chat</AppButton>
+              <AppButton variant="white" leading={<Plus size={14} />}>
+                Add
+              </AppButton>
+              <AppButton variant="white" disabled>
+                Disabled
+              </AppButton>
+            </V2Row>
+            <V2Row label="ghost">
+              <AppButton variant="ghost">Adjust</AppButton>
+              <AppButton variant="ghost">Reject</AppButton>
+              <AppButton variant="ghost" disabled>
+                Disabled
+              </AppButton>
+            </V2Row>
+            <V2Row label="destructive">
+              <AppButton variant="destructive">Reject</AppButton>
+              <AppButton variant="destructive" disabled>
+                Disabled
+              </AppButton>
+            </V2Row>
+            <V2Row label="sizes">
+              <AppButton variant="primary" size="sm">
+                sm
+              </AppButton>
+              <AppButton variant="primary" size="md">
+                md
+              </AppButton>
+              <AppButton variant="primary" size="lg">
+                lg
+              </AppButton>
+            </V2Row>
+          </div>
+        )}
+      />
+    </Section>
+  );
+}
+
+function V2SurfaceSection() {
+  return (
+    <Section
+      id="v2-surfaces"
+      title="AppCard · AppPill · AppInput"
+      recipe="Surfaces use the two-shadow elevation stack (drop + hairline). No border property anywhere."
+    >
+      <ThemePanes
+        render={() => (
+          <div className="space-y-4">
+            <AppCard padded className="max-w-md">
+              <div className="text-sm font-medium text-app-fg-4">Morning briefing</div>
+              <div className="mt-1 text-[12.5px] text-app-fg-3">
+                Daily summary of your inbox before 7am.
+              </div>
+            </AppCard>
+            <div className="flex flex-wrap items-center gap-2">
+              <AppPill>Today</AppPill>
+              <AppPill leading={<Mail size={13} />}>Gmail</AppPill>
+              <AppPill chevron>30 days</AppPill>
+            </div>
+            <div className="max-w-md">
+              <AppInput placeholder="Search threads" />
+            </div>
+          </div>
+        )}
+      />
+    </Section>
+  );
+}
+
+function V2FrostOverlaySection() {
+  const [selectValue, setSelectValue] = useState<string | undefined>("primary");
+  const [pickerValue, setPickerValue] = useState<string | undefined>("2026-06-11T14:00:00.000Z");
+  return (
+    <Section
+      id="v2-frost-overlay"
+      title="app-frost-overlay"
+      recipe="Dimension's frost-popover recipe in app tokens: translucent bg-2 color-mix + blur(20px) saturate(1.2) + top-left radial sheen + elevated hairline + layered drop. Used by the approval tray and the AppSelect / AppDateTimePicker popovers (open them below)."
+    >
+      <ThemePanes
+        render={(theme) => (
+          <div className="space-y-4">
+            {/* Busy backdrop so the backdrop-blur is actually visible. */}
+            <div className="relative overflow-hidden rounded-2xl p-6">
+              <div
+                aria-hidden
+                className="absolute inset-0"
+                style={{
+                  background:
+                    theme === "dark"
+                      ? "radial-gradient(80% 120% at 20% 0%, #4f37cb55, transparent 60%), radial-gradient(70% 100% at 85% 90%, #b5b3f933, transparent 55%), repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 14px)"
+                      : "radial-gradient(80% 120% at 20% 0%, #918df655, transparent 60%), radial-gradient(70% 100% at 85% 90%, #6b62f233, transparent 55%), repeating-linear-gradient(45deg, rgba(0,0,0,0.05) 0 2px, transparent 2px 14px)",
+                }}
+              />
+              <div className="app-frost-overlay relative max-w-sm rounded-2xl p-4">
+                <p className="text-sm font-medium text-app-fg-4">Frosted surface</p>
+                <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">
+                  The pattern behind this panel stays readable through the blur — that depth is the
+                  whole point of the recipe.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="w-44">
+                <AppSelect
+                  value={selectValue}
+                  onChange={setSelectValue}
+                  options={[
+                    { value: "primary", label: "Primary calendar" },
+                    { value: "team", label: "Team calendar" },
+                    { value: "personal", label: "Personal" },
+                  ]}
+                  label="Calendar"
+                />
+              </div>
+              <div className="w-60">
+                <AppDateTimePicker value={pickerValue} onChange={setPickerValue} />
+              </div>
+            </div>
+          </div>
+        )}
+      />
+    </Section>
+  );
+}
+
+/* Mock stagings for the approval tray preview. Shapes mirror
+ * packages/sync/src/schemas.ts syncedActionStagingSchema. */
+const V2_STAGING_EMAIL: SyncedActionStaging = {
+  id: "stg_styleguide_email",
+  userId: "user_styleguide",
+  runId: "run_styleguide",
+  workflowSlug: "inbox-triage",
+  workflowName: "Inbox triage",
+  trigger: { kind: "manual" },
+  brief: "Reply to Maya about moving the design review to Thursday.",
+  stepId: "step_1",
+  toolCallId: "call_1",
+  toolName: "gmail.send_draft",
+  integration: "gmail",
+  riskTier: "medium",
+  proposedInput: {
+    to: ["maya@acme.com"],
+    subject: "Re: Design review timing",
+    bodyText: [
+      "Thursday at 2pm works on my end — moving the invite now. Shout if that clashes with anything on your side.",
+      "",
+      "Quick recap of what we'll cover so nobody preps the wrong thing:",
+      "— Where the new onboarding flow landed after last week's usability pass",
+      "— The two open questions on the billing page copy",
+      "— Whether we ship the dark-mode toggle this cycle or hold it for the brand refresh",
+      "",
+      "I'll bring the Figma links and the latest numbers from the beta cohort. If you want anything else on the agenda, reply here and I'll fold it in before I send the invite update.",
+      "",
+      "Best,",
+      "Yash",
+    ].join("\n"),
+  },
+  requiresApproval: true,
+  status: "pending",
+  expiresAt: null,
+  notifyAfterAt: null,
+  notifiedAt: null,
+  recentRejection: null,
+  rowVersion: 1,
+  createdAt: "2026-06-07T08:30:00.000Z",
+  updatedAt: null,
+};
+
+const V2_STAGING_EVENT: SyncedActionStaging = {
+  ...V2_STAGING_EMAIL,
+  id: "stg_styleguide_event",
+  stepId: "step_2",
+  toolCallId: "call_2",
+  toolName: "calendar.create_event",
+  integration: "calendar",
+  riskTier: "low",
+  proposedInput: {
+    summary: "Design review",
+    start: "2026-06-11T14:00:00.000Z",
+    end: "2026-06-11T14:45:00.000Z",
+    attendees: ["maya@acme.com"],
+  },
+  recentRejection: {
+    runId: "run_styleguide_prev",
+    reason: "Wrong week — the review moved.",
+    decidedAt: "2026-06-06T18:10:00.000Z",
+  },
+  createdAt: "2026-06-07T08:31:00.000Z",
+};
+
+function V2ApprovalTraySection() {
+  return (
+    <Section
+      id="v2-approval-tray"
+      title="Chat approval tray"
+      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (step nav, risk pills, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio."
+    >
+      <ThemePanes
+        stacked
+        render={(theme) => (
+          <div className="mx-auto w-full max-w-3xl">
+            <ChatApprovalTray
+              runId={`run_styleguide_${theme}`}
+              approvals={[V2_STAGING_EMAIL, V2_STAGING_EVENT]}
+              awaitingApproval
+              preview
+            />
+          </div>
+        )}
+      />
     </Section>
   );
 }
