@@ -17,7 +17,7 @@ import {
   requireScopes,
   sendMessage,
 } from "@alfred/integrations/google";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
 
@@ -96,7 +96,8 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "search",
     riskTier: "no_risk",
-    description: "Search Gmail messages using Gmail query operators and return message ids.",
+    description:
+      "Search Gmail messages using Gmail query operators and return message ids plus cached subject metadata when available.",
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const credentialId = await pickGoogleCredentialId(ctx.userId);
@@ -106,11 +107,43 @@ export const gmailTools: readonly RegisteredTool[] = [
         q: input.q,
         maxResults: input.maxResults,
       });
+      const messageIds = result.messages.map((m) => m.id).filter((id) => id.length > 0);
+      const cachedRows =
+        messageIds.length > 0
+          ? await db()
+              .select({
+                id: documents.id,
+                sourceId: documents.sourceId,
+                title: documents.title,
+                authoredAt: documents.authoredAt,
+                url: documents.url,
+              })
+              .from(documents)
+              .where(
+                and(
+                  eq(documents.userId, ctx.userId),
+                  eq(documents.source, "gmail"),
+                  inArray(documents.sourceId, messageIds),
+                ),
+              )
+          : [];
+      const cachedBySourceId = new Map(
+        cachedRows
+          .filter((row) => row.sourceId !== null)
+          .map((row) => [row.sourceId!, row] as const),
+      );
       return {
-        messages: result.messages.map((m) => ({
-          id: m.id,
-          threadId: m.threadId,
-        })),
+        messages: result.messages.map((m) => {
+          const cached = cachedBySourceId.get(m.id);
+          return {
+            id: m.id,
+            threadId: m.threadId,
+            documentId: cached?.id ?? null,
+            subject: cached?.title ?? null,
+            authoredAt: cached?.authoredAt?.toISOString() ?? null,
+            url: cached?.url ?? null,
+          };
+        }),
         nextPageToken: result.nextPageToken ?? null,
       };
     },

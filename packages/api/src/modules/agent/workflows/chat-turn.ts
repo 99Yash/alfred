@@ -353,6 +353,10 @@ const chatTurnStep: Step<ChatRunState> = {
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
+      if (state.assistantText.trim().length === 0) {
+        throw new Error("chat_turn_empty_assistant_message");
+      }
+
       // final | stopped → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
       return {
