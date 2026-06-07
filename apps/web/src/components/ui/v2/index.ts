@@ -23,6 +23,11 @@ export type { AppTextareaVariant } from "./textarea";
 export { AppSegmented } from "./segmented";
 export type { AppSegmentedItem } from "./segmented";
 
+export { AppSelect } from "./select";
+export type { AppSelectOption } from "./select";
+
+export { AppDateTimePicker } from "./date-time-picker";
+
 export { AppThemeProvider, useAppTheme } from "./theme";
 export type { AppThemeMode } from "./theme";
 export { AppThemed } from "./themed";

@@ -1,8 +1,7 @@
 import { toolInputFields, type FieldSpec, type ToolName } from "@alfred/contracts";
 import { useEffect, useState } from "react";
-import { AppInput, AppSwitch, AppTextarea } from "~/components/ui/v2";
-import { asRecord } from "~/lib/json-record";
-import { cn } from "~/lib/utils";
+import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
+import { asRecord, type JsonRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
@@ -28,11 +27,13 @@ export function ApprovalInputEditor({
   idPrefix: string;
 }) {
   const record = asRecord(value);
-  const fields = toolInputFields(toolName);
+  const fieldSpecs = toolInputFields(toolName);
 
-  if (!record || !fields) {
+  if (!record || !fieldSpecs) {
     return <JsonFallbackEditor value={value} onChange={onChange} disabled={disabled} />;
   }
+
+  const fields = editorFieldsForTool(toolName, fieldSpecs, record);
 
   return (
     <div className="grid gap-3 rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] sm:grid-cols-2">
@@ -53,6 +54,31 @@ export function ApprovalInputEditor({
       ))}
     </div>
   );
+}
+
+const CALENDAR_EXPLICIT_TIME_KEYS = new Set(["timeMin", "timeMax"]);
+const CALENDAR_RELATIVE_TIME_KEYS = new Set(["window", "partOfDay"]);
+
+function editorFieldsForTool(
+  toolName: ToolName,
+  fields: FieldSpec[],
+  record: JsonRecord,
+): FieldSpec[] {
+  if (toolName !== "calendar.list_events") return fields;
+
+  const hasExplicitWindow = [...CALENDAR_EXPLICIT_TIME_KEYS].some((key) =>
+    hasFieldValue(record, key),
+  );
+  if (hasExplicitWindow) {
+    return fields.filter((field) => !CALENDAR_RELATIVE_TIME_KEYS.has(field.key));
+  }
+
+  return fields.filter((field) => !CALENDAR_EXPLICIT_TIME_KEYS.has(field.key));
+}
+
+function hasFieldValue(record: JsonRecord, key: string): boolean {
+  const value = record[key];
+  return value !== undefined && value !== null && value !== "";
 }
 
 function EditableField({
@@ -116,25 +142,15 @@ function FieldControl({
   switch (field.kind) {
     case "select":
       return (
-        <select
+        <AppSelect
           id={id}
-          value={typeof value === "string" ? value : ""}
+          value={typeof value === "string" ? value : undefined}
+          onChange={onChange}
+          options={field.options}
+          clearable={field.optional}
+          placeholder={field.optional ? "Any" : "Select…"}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          className={cn(
-            "h-9 w-full rounded-xl bg-app-bg-1 px-3 text-sm text-app-fg-4",
-            "app-elevated outline-none transition-shadow",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-            "disabled:cursor-not-allowed disabled:opacity-60",
-          )}
-        >
-          {field.optional ? <option value="">Any</option> : null}
-          {field.options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        />
       );
     case "number":
     case "integer":
@@ -152,19 +168,16 @@ function FieldControl({
             const next = e.target.value.trim();
             onChange(next === "" ? undefined : Number(next));
           }}
+          className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
       );
     case "datetime":
       return (
-        <AppInput
+        <AppDateTimePicker
           id={id}
-          type="datetime-local"
-          value={toDateTimeLocal(value)}
+          value={typeof value === "string" ? value : undefined}
+          onChange={onChange}
           disabled={disabled}
-          onChange={(e) => {
-            const next = e.target.value;
-            onChange(next ? new Date(next).toISOString() : undefined);
-          }}
         />
       );
     case "string_array":
@@ -307,14 +320,6 @@ function JsonFallbackEditor({
 function emptyToUndefined(value: string, optional: boolean): string | undefined {
   if (value.trim().length === 0 && optional) return undefined;
   return value;
-}
-
-function toDateTimeLocal(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0) return "";
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }
 
 function assertNever(value: never): never {
