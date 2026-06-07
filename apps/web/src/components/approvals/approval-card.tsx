@@ -4,7 +4,7 @@ import { AlertTriangle, Ban, Check, Pencil, Workflow, X, XCircle } from "lucide-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { cardTitle } from "./card-spec";
+import { cardTitle, toolChipLabel } from "./card-spec";
 import { formatJson, formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { InputRenderer } from "./input-renderer";
@@ -92,9 +92,9 @@ export function ApprovalCard({
             <span className="tabular-nums">{formatTimestamp(staging.createdAt)}</span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2">
-            <code className="rounded-md bg-app-bg-2/70 px-1.5 py-0.5 font-mono text-[11px] text-app-fg-3">
-              {staging.toolName}
-            </code>
+            <span className="rounded-md bg-app-bg-2/70 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
+              {toolChipLabel(staging.toolName)}
+            </span>
             {staging.brief ? (
               <p className="line-clamp-1 min-w-0 flex-1 text-[12px] italic text-app-fg-2">
                 “{staging.brief}”
@@ -109,8 +109,7 @@ export function ApprovalCard({
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">
-              Last {staging.toolName} rejection was{" "}
-              {formatTimestamp(staging.recentRejection.decidedAt)}
+              Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
             </p>
             {staging.recentRejection.reason ? (
               <p className="mt-0.5 break-words opacity-80">{staging.recentRejection.reason}</p>

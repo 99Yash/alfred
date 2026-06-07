@@ -12,10 +12,11 @@
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { use, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "~/lib/utils";
 import { AppSegmented } from "./segmented";
 import { AppSelect, type AppSelectOption } from "./select";
+import { AppThemeContext } from "./theme";
 
 interface AppDateTimePickerProps {
   id?: string;
@@ -43,6 +44,11 @@ export function AppDateTimePicker({
 }: AppDateTimePickerProps) {
   const [open, setOpen] = useState(false);
   const dayRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Portal content sits outside the `.app` subtree — stamp the theme so the
+  // tokens resolve (same trick as AppSelect / the toast).
+  const themeCtx = use(AppThemeContext);
+  const dataTheme =
+    themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
   const selected = useMemo(() => parseDate(value), [value]);
   // The visible month — seeded from the value, advanced via the chevrons.
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selected ?? todayLocal()));
@@ -148,9 +154,9 @@ export function AppDateTimePicker({
           align="start"
           sideOffset={6}
           collisionPadding={16}
+          data-app-theme={dataTheme}
           className={cn(
-            "z-50 w-[19rem] rounded-2xl bg-app-bg-1 p-3",
-            "shadow-[0_18px_48px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]",
+            "app app-frost-overlay z-50 w-[19rem] rounded-2xl p-3",
             "outline-none app-fade-in",
           )}
         >

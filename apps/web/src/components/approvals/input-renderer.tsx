@@ -27,7 +27,9 @@ export function InputRenderer({ toolName, input }: { toolName: ToolName; input: 
   );
 
   return (
-    <div className="grid gap-x-4 gap-y-3 rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] sm:grid-cols-2">
+    // max-h + overflow keeps a long proposed input (e.g. a full email body)
+    // from blowing the card out — the panel scrolls instead of growing.
+    <div className="grid max-h-72 gap-x-4 gap-y-3 overflow-y-auto overscroll-contain rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)] sm:grid-cols-2">
       {visible.map((field) => (
         <div key={field.key} className={field.multiline ? "sm:col-span-2" : undefined}>
           <p className="text-[11px] font-medium uppercase tracking-tight text-app-fg-2">
@@ -96,7 +98,9 @@ function FieldValue({ field, value }: { field: FieldSpec; value: unknown }) {
         <p
           className={
             field.multiline
-              ? "max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-app-fg-4"
+              ? // No inner max-h — the panel container owns scrolling, so the
+                // body never produces a scrollbar-within-a-scrollbar.
+                "whitespace-pre-wrap break-words text-xs leading-5 text-app-fg-4"
               : "break-words text-xs leading-5 text-app-fg-4"
           }
         >
