@@ -36,6 +36,7 @@ import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts"
 import {
   APPROVAL_EXPIRY_MS,
   hashToolInput,
+  INTEGRATION_ACTIONS,
   integrationFromToolName,
   isToolName,
 } from "@alfred/contracts";
@@ -168,7 +169,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       result: {
         status: "unknown_tool",
         toolName: args.toolName,
-        message: `Tool '${args.toolName}' is not declared`,
+        message: undeclaredToolMessage(args.toolName, args.allowedIntegrations),
       },
     };
   }
@@ -483,6 +484,45 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         error: { message: `dispatcher saw unexpected staging status '${row.status}'` },
       };
   }
+}
+
+export function undeclaredToolMessage(
+  toolName: string,
+  allowedIntegrations: readonly string[] = [],
+): string {
+  const suggestion = integrationActionSuggestion(toolName, allowedIntegrations);
+  if (!suggestion) return `Tool '${toolName}' is not declared`;
+
+  return [
+    `Tool '${toolName}' is not declared.`,
+    `Integration tools use qualified names like '${suggestion.toolName}'.`,
+    `Call system.load_integration with slug '${suggestion.integration}' first if that integration is not active,`,
+    `then retry '${suggestion.toolName}'.`,
+    "Do not ask the user just to load an integration.",
+  ].join(" ");
+}
+
+function integrationActionSuggestion(
+  action: string,
+  allowedIntegrations: readonly string[],
+): { integration: IntegrationSlug; toolName: ToolName } | null {
+  if (action.includes(".")) return null;
+
+  const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
+    if (integration === "system") return false;
+    if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
+      return false;
+    }
+    const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+    return actions.includes(action);
+  });
+  if (matches.length !== 1) return null;
+
+  const integration = matches[0];
+  if (!integration) return null;
+  const toolName = `${integration}.${action}`;
+  if (!isToolName(toolName)) return null;
+  return { integration, toolName };
 }
 
 async function executeAndCommit(

@@ -27,6 +27,11 @@ describe("buildPullRequestSearchQuery", () => {
   test("resolves @me to the connected GitHub login before search", () => {
     assert.equal(resolvePullRequestAuthor("@me", "99Yash"), "99Yash");
     assert.equal(resolvePullRequestAuthor("octocat", "99Yash"), "octocat");
+    assert.equal(resolvePullRequestAuthor("octocat", null), "octocat");
+    assert.throws(
+      () => resolvePullRequestAuthor("@me", null, "user_1"),
+      /user user_1 has no github login/,
+    );
   });
 
   test("composes merged, created-window, and extra qualifiers without blank fragments", () => {
