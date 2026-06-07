@@ -52,6 +52,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | OAuth posture | Multi-tenant-capable architecture, operated single-tenant; Google consent screen Production-unverified; least-privilege scope tiers, one restricted concession (`gmail.modify`); scope set tracks registered tools (ADR-0044) |
 | Workflow event dispatch | Generic `emitEvent` bus; triage unified onto it (no more hardcoded fan-out); `source`+`type` closed enums (`gmail.message_received`); bounded resolve-at-init `<trigger_event>` context; bounded idempotency (ADR-0047, extends ADR-0027) |
 | Todos | First **persisted** materialization of the open-loop model (ADR-0048 keeps loops ephemeral); one `todos` table, status-driven (`suggested\|open\|done\|dismissed`); hybrid authoring (user adds; Alfred proposes via `system.suggest_todo`, no HIL); multi-source `sources` provenance; v1 **passive** (agent authors + assists, never executes); **suggestions produced real-time off the `email-triage` run, not the briefing — briefing fully decoupled** (ADR-0050 amendment 2026-06-05); **todo-worthiness is an orthogonal rubric** (obligation → significance → memorability → actionability → already-handled), category floor shrunk to `{marketing, newsletter}`, decision traced via `todoDecision` (ADR-0050 amendment 2026-06-06); agent-execution + cross-source auto-close + semantic dedup + personal-relevance significance deferred (ADR-0050) |
+| Integration loading | Deterministic, not prompt-inferred. Always-on **connected catalog** in the boss preamble (names + descriptions, snapshotted at run start) kills boss blindness; schemas stay **lazy** (only active integrations declare full schemas). Two-step `load_integration` retained but now grounded by the catalog. The **dispatcher is the deterministic floor**: resolves bare/qualified names, **hard-enforces** connected(+healthy) + `allowed_integrations`, and **auto-activates** an inactive-but-permitted integration in the same pass. Three axes: connected ⊇ catalog ⊇ active. Closes the ADR-0043 exposure-only cap hole; supersedes the prompt-only "infer the needed integration" instruction of ADR-0026/0040 (ADR-0053) |
 
 ---
 
@@ -3193,3 +3194,91 @@ Building the context-rich classifier (plan Phase 3) forced the three Open items 
 
 - The **lingering window** length for reconciler-closed suggestions in the Replicache pull (long enough to animate on next tab visit, short enough not to clutter).
 - Whether the **tier-2 state check** batches (GraphQL) or fans out REST calls under the per-tick rate budget.
+
+---
+
+## ADR-0053 — Deterministic integration loading: always-on connected catalog + dispatcher-enforced auto-load; supersedes the prompt-only load instruction of ADR-0026/0040
+
+**Decision.** The agent no longer relies on the model *inferring* when, and which, integration to load. That prompt-only instruction ([ADR-0040](#adr-0040) #6, mirrored in the chat preamble) is the bug: the boss is **blind** — when an integration isn't active it has no tool for it and *no grounded signal the integration even exists or what its slug is* — so "infer the needed integration and call `system.load_integration`" is a guess that fails probabilistically. Observed in chat `454bad3d`: after a clean GitHub turn, a calendar follow-up emitted a bare `list_events` (→ our own `undeclaredToolMessage`: "Tool 'list_events' is not declared"), then the boss gave up and asked the user to load calendar — the exact behavior the prompt forbids.
+
+The fix is two coordinated moves that keep lazy loading (and its scale-to-N + cache story) fully intact:
+
+1. an always-on **connected catalog** in the boss preamble that ends the blindness (visibility is cheap — names + one-line descriptions — and cache-stable); and
+2. the **dispatcher as the deterministic floor** — it resolves names, hard-enforces the connected + allowed gates, and auto-activates an inactive-but-permitted integration *in the same pass*, so a skipped load or a bare-name reach self-corrects instead of dead-ending.
+
+Schemas stay lazy: only *active* integrations declare full tool schemas. This is the [deferred-tools](#) pattern (names always visible, schemas fetched on use) adapted to Alfred's two-step `load_integration` activation.
+
+Eight coordinated micro-decisions:
+
+1. **Connected catalog in the preamble (kills the blindness).** A catalog snapshotted at run start from `integrationCredentials` ∩ `allowed_integrations`, formatted one line per integration — `slug — action, action — short description` — with a `(needs reauth)` marker for any credential whose `status != 'active'`. Names + descriptions only; **no input schemas**. It lives in the cache-stable system block via the `AlfredAgent` `system` *resolver* (already supported: `resolve(this.s.system, ctx)`). Because it is snapshotted at run start it is byte-identical across the run's turns, so [ADR-0026](#adr-0026)'s strict system-pin does not fire. This replaces the blind "infer the needed integration" lines in both the boss and chat preambles.
+
+2. **Schemas stay lazy — the three-axis model.** *Connected* (a healthy `integrationCredentials` row) ⊇ *catalog/loadable* (connected ∩ allowed) ⊇ *active* (`state.activeIntegrations`, the only set whose full schemas are declared by `resolveSdkTools`). Catalog cost is ~one line per integration; schema/token cost is paid only for what's actually used. This is what lets the system scale to N integrations with tight context.
+
+3. **Two-step activate-then-call retained, now grounded.** Boss reads the catalog → calls `system.load_integration(slug)` → the next turn's `tools` resolver declares that integration's real, schema-validated tools → boss calls them. The mechanism is unchanged from ADR-0040; the catalog is what makes the load *reliable* instead of guessed. The extra round-trip is accepted: the bug was blindness, not the round-trip, and schema-validated arg-forming matters for complex-input tools (`sheets.batch_update`, `calendar.create_event`).
+
+4. **The dispatcher is the deterministic floor (the actual guarantee).** `load_integration` is model-driven and therefore still probabilistic; the deterministic backstop is plain code in `dispatchToolCall`, which receives *every* tool call. Before execute, in order:
+   - **(a) Name resolution.** A bare action name (`list_events`) resolves to its qualified `ToolName` via the existing `integrationActionSuggestion` helper. Ambiguous bare names (`batch_update` ∈ both `sheets` and `slides`) tie-break to the *active* integration, else to the unique *connected* integration that owns the action, else return a structured `ambiguous_tool` result listing the candidates.
+   - **(b) Hard gating.** The resolved integration must be within `allowedIntegrations` (empty = unrestricted) **and** connected with a healthy credential, else a structured `not_allowed` / `needs_connect` / `needs_reauth` result the boss relays — never a cryptic provider failure.
+   - **(c) Auto-activate.** If permitted + connected but inactive, append the slug to `state.activeIntegrations` (in the `dispatch-tools` step body per [ADR-0040](#adr-0040) #5 — never via tool internals) and execute the call now. The next `boss-turn` resolver rebuilds the toolset; the catalog already showed the boss the tool, so this is a recovery path, not the happy path.
+
+5. **Connected + health validation on `load_integration`.** Its `execute` today returns `{ ok: true, slug }` after checking only the allowlist cap. Add the connected/health check: a healthy `integrationCredentials` row is required, else `{ ok: false, status: 'needs_connect' | 'needs_reauth', slug }`. The dispatcher's gate (4b) and this check call **one shared helper** — single source for "is this integration usable right now?". This matters operationally: Google consent is Production-unverified, so `gmail`/`calendar` periodically enter `needs_reauth` ([prod note](#); GCP testing-mode reauth), and the boss should say "reconnect Gmail" rather than fail an opaque API call.
+
+6. **Hard-enforce at dispatch closes the ADR-0043 exposure-only hole.** [ADR-0043](#adr-0043) describes authorization as "registry → active tool exposure bounded by `allowed_integrations` → user action policy." But the dispatcher never enforced the cap or connection — it ran any registered tool the model named, so the middle layer was *exposure-only* and bypassable by a qualified call (a workflow scoped `allowed=[gmail]` would still execute `calendar.create_event` if the model emitted it). Enforcing connected + allowed at dispatch (4b) makes that layer a real boundary with structured results, not an advisory one. The `user action policy` (autonomy/gated) layer is untouched and orthogonal.
+
+7. **Sub-agents and chat inherit for free.** Both run the same `dispatchToolCall`, so the floor (4) applies unchanged. Each gets a catalog scoped to its own allowed set. Chat's cold `activeIntegrations: []` seed (`chat-turn.ts`) is replaced by the catalog: the boss sees connected integrations from turn 1, loads on demand, and the dispatcher backstops — the chat preamble's blind "infer the needed integration" line goes away.
+
+8. **Cache discipline unchanged.** Alphabetical tool sort + `cacheControl` after the last tool definition (ADR-0026) is retained. Auto-activate (4c) and `load_integration` both grow the active set, invalidating the tool-block cache on *that* turn and rebuilding from the next — identical to today's load behavior, no new cache cost. The catalog snapshot in the system block is stable across the run, so the system-block cache holds.
+
+**Catalog shape (pseudocode).**
+
+```
+buildConnectedCatalog(userId, allowed):
+  rows = integrationCredentials WHERE userId = ?           // distinct provider + status
+  slugs = providerSlugs(rows) ∩ (allowed.length ? allowed : ALL)
+  lines = for slug in sort(slugs):
+            actions = INTEGRATION_ACTIONS[slug]
+            health  = rows[slug].status == 'active' ? '' : ' (needs reauth)'
+            `- ${slug}${health} — ${actions.join(', ')} — ${oneLineDesc(slug)}`
+  return "Connected integrations you can load (call system.load_integration <slug>):\n" + lines
+// snapshotted into state at run start; rendered into the system resolver every turn.
+```
+
+**Dispatch floor (pseudocode, prepended inside `dispatchToolCall`).**
+
+```
+name = resolveToolName(args.toolName)          // bare → qualified; ambiguous → {ambiguous_tool, candidates}
+if name is ambiguous:        return { kind: 'ambiguous_tool', ... }
+intg = integrationFromToolName(name)
+if intg != 'system':
+  if allowed.length && !allowed.includes(intg): return { kind: 'not_allowed', ... }
+  health = integrationHealth(userId, intg)     // shared with load_integration
+  if health == 'absent':     return { kind: 'needs_connect', integration: intg }
+  if health == 'needs_reauth': return { kind: 'needs_reauth', integration: intg }
+  if !active.includes(intg):  markActivate(intg)   // applied in dispatch-tools step body
+// …existing getTool / schema-parse / policy / execute path, now keyed on `name`…
+```
+
+**What this amends.**
+
+- **ADR-0026 / ADR-0040 #4 & #6** — the seed policy and the *trigger* for growth change. The strict `@`-mention seed for *workflows* stands (authoring intent), but the model is no longer expected to *infer* loads from a blind context: the catalog grounds it and the dispatcher guarantees it. "Lazy integration loading" (ADR-0026) is intact in mechanism; what changes is (i) the boss can see the loadable set, and (ii) loading is enforced in code, not requested in prose.
+- **ADR-0043** — the "active exposure bounded by `allowed_integrations`" layer becomes dispatch-enforced rather than exposure-only.
+
+**Alternatives.**
+
+- (a) **Eager-connected: declare all connected ∩ allowed tools every turn, delete the load step.** Tempting — it deletes the bug class, removes the round-trip, and (counterintuitively) gives *better* prompt-cache behavior than lazy loading, because a fixed per-conversation tool set never invalidates mid-run. Rejected for v1 because it gives up the scale-to-N tightness the user explicitly wants and bloats every turn's tool block with schemas for unused integrations. Kept on the table as the relaxation if the connected-tool count ever stays small in practice — the catalog + dispatcher design is forward-compatible with it (drop the activation step, declare the catalog set directly).
+- (b) **One-step universal `system.call_tool(name, input)` meta-tool.** Zero round-trips: the boss invokes any catalog item in one pass and the dispatcher validates/activates/executes. Rejected for v1 — the model would form arguments from a text description with no formal JSON schema, raising arg-error rates on complex tools; the dispatcher would have to return the schema for a corrective retry, trading the saved round-trip for a different one. Revisit as an optimization once we see real arg-error rates.
+- (c) **Cheap-classifier pre-seed** (flash-lite reads the message and pre-activates likely integrations, [ADR-0051](#adr-0051) shape). Rejected as the *primary* trigger — leaning on an LLM call for "determinism" is self-defeating, and it adds a turn-tax for a job the dispatcher does deterministically and for free. The catalog gives the boss the same foresight without a model in the loop.
+- (d) **Keep prompt-only, just write a better prompt + a `system.list_integrations` tool.** Rejected — strictly weaker than the catalog (an extra round-trip to discover what a snapshot could state up front) and still leaves the trigger probabilistic; this is the status quo with more words.
+
+**Deferred.**
+
+- **Per-tool (L3) trust** (`IntegrationRule.toolOverrides`) — the per-tool autonomy/gated UI, already deferred in ADR-0034; orthogonal to loading. Noted because an external trust-levels design (LangGraph-style critical-action mapping) maps onto Alfred's already-built L1/L2 + durable-resume interrupt; only L3's UI is missing.
+- **One-step universal invoke** (alt b) as a round-trip optimization once arg-error data exists.
+- **Mid-run catalog freshness** — connecting an integration *mid-conversation* won't appear in the snapshot until the next run. Acceptable; revisit only if it bites.
+- **Provider→slug fan-out** — a single Google OAuth credential backs `gmail`/`calendar`/`drive`/`docs`/`sheets`/`slides`; the catalog's `integrationHealth` must map one `provider` row to its service slugs. Mechanical; pinned during implementation.
+
+**Open.**
+
+- **Catalog description source** — hand-authored one-liners vs. reusing each tool group's existing `description`. Lean on a short per-integration blurb, not per-action, to keep the catalog one line each.
+- **Ambiguity tie-break** beyond `batch_update` — whether to enumerate all cross-integration action collisions now or resolve lazily as they appear (today only `batch_update` collides).
+- **Gemini reality** — all agent loops currently run on Gemini (spend-cap swap, `provider.ts`), which silently ignores `cacheControl`; the cache benefits of the snapshotted catalog + stable tool block are latent (Gemini implicit caching only) until the Anthropic return. The design is correct for both providers; the cache *payoff* lands on that swap-back.
