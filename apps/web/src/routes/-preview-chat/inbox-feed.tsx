@@ -614,10 +614,14 @@ const CATEGORY_CHIP: Record<TriageCategory, string> = {
   payment: "bg-app-amber-1 text-app-amber-4",
   follow_up: "bg-app-sky-1 text-app-sky-4",
   meeting: "bg-app-sky-1 text-app-sky-4",
-  fyi: "bg-app-bg-a2 text-app-fg-2",
+  // Gray bucket is fixed white-alpha (not bg-a2/fg-2) — these chips render
+  // on the rail's dark video where light-theme tokens (#999 on 5% black)
+  // disappear. The colored buckets are self-contained bg+text pairs and
+  // hold up in both themes.
+  fyi: "bg-white/10 text-white/75",
   done: "bg-app-green-1 text-app-green-4",
-  newsletter: "bg-app-bg-a2 text-app-fg-2",
-  marketing: "bg-app-bg-a2 text-app-fg-2",
+  newsletter: "bg-white/10 text-white/75",
+  marketing: "bg-white/10 text-white/75",
 };
 
 const CATEGORY_SWATCH: Record<TriageCategory, string> = {
@@ -677,10 +681,12 @@ function InboxDetailPane({
           onClick={onClose}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5",
-            "text-[11px] uppercase tracking-tight font-medium text-app-fg-3",
-            "transition-colors hover:text-app-fg-4 hover:bg-app-bg-a2",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-            "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            // Fixed white-alpha, NOT theme tokens — the reader sits on the
+            // rail's weather video, which is dark in both themes. Theme
+            // tokens flip to near-black ink in light mode and vanish.
+            "text-[11px] uppercase tracking-tight font-medium text-white/65",
+            "transition-colors hover:text-white hover:bg-white/10",
+            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
         >
           <ArrowLeft size={12} />
@@ -692,10 +698,9 @@ function InboxDetailPane({
             target="_blank"
             rel="noreferrer noopener"
             className={cn(
-              "inline-flex items-center gap-1 text-[11px] text-app-fg-3",
-              "transition-colors hover:text-app-fg-4",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-              "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              "inline-flex items-center gap-1 text-[11px] text-white/65",
+              "transition-colors hover:text-white",
+              "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
               "rounded-md px-1.5 py-1 -mx-1.5",
             )}
           >
@@ -707,16 +712,16 @@ function InboxDetailPane({
 
       {isLoading ? (
         <div className="px-2 py-8 flex items-center justify-center">
-          <Loader2 size={16} className="animate-spin text-app-fg-3" aria-hidden />
+          <Loader2 size={16} className="animate-spin text-white/70" aria-hidden />
         </div>
       ) : isError || !data ? (
         <div className="px-2 py-6 text-center">
-          <p className="text-[12px] text-app-fg-2">Couldn't load this email.</p>
+          <p className="text-[12px] text-white/60">Couldn't load this email.</p>
         </div>
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium text-app-fg-4 break-words">
+            <h3 className="text-[14px] leading-5 font-medium text-white break-words">
               {data.subject || "(no subject)"}
             </h3>
             <div className="flex items-center gap-2 flex-wrap">
@@ -727,14 +732,14 @@ function InboxDetailPane({
                   onChange={changeCategory}
                 />
               ) : null}
-              <span className="text-[11px] tabular-nums text-app-fg-2">
+              <span className="text-[11px] tabular-nums text-white/60">
                 {data.messages.length} message
                 {data.messages.length === 1 ? "" : "s"}
               </span>
             </div>
           </header>
           {data.messages.length === 0 ? (
-            <p className="text-[12px] text-app-fg-2 px-1">(no messages)</p>
+            <p className="text-[12px] text-white/60 px-1">(no messages)</p>
           ) : (
             <ol className="space-y-2.5">
               {data.messages.map((m, i) => (
@@ -799,9 +804,13 @@ function ThreadMessageCard({
   return (
     <div
       className={cn(
-        "rounded-xl bg-app-bg-a2/60 ring-1 ring-app-bg-3/40",
+        // White-alpha card on the weather video (matches the rail's search
+        // bar). `app-purple-3` for the selected ring — it's the one purple
+        // step that holds the same hex in both themes, so the highlight
+        // can't fade out when the theme flips.
+        "rounded-xl bg-white/[0.07] ring-1 ring-white/15",
         "transition-shadow",
-        isSelected && "ring-2 ring-app-purple-2",
+        isSelected && "ring-2 ring-app-purple-3",
       )}
     >
       <button
@@ -809,29 +818,28 @@ function ThreadMessageCard({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-xl",
-          "transition-colors hover:bg-app-bg-a2",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          "transition-colors hover:bg-white/[0.06]",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
         aria-expanded={open}
       >
         <SenderInitialAvatar name={message.senderDisplay} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="min-w-0 truncate text-[12.5px] font-medium text-app-fg-4">
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-white">
               {message.senderDisplay}
             </span>
             {message.authoredAtRelative ? (
-              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-app-fg-2">
+              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-white/55">
                 {message.authoredAtRelative}
               </span>
             ) : null}
           </span>
           {!open && summary ? (
-            <span className="block truncate text-[11.5px] text-app-fg-2 mt-0.5">{summary}</span>
+            <span className="block truncate text-[11.5px] text-white/60 mt-0.5">{summary}</span>
           ) : null}
           {open && message.senderEmail ? (
-            <span className="block truncate text-[11px] text-app-fg-2 mt-0.5">
+            <span className="block truncate text-[11px] text-white/55 mt-0.5">
               {message.senderEmail}
             </span>
           ) : null}
@@ -841,15 +849,18 @@ function ThreadMessageCard({
       {open ? (
         <div className="px-2.5 pb-2.5 space-y-2">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
-          <div className="rounded-lg bg-app-bg-1/40 ring-1 ring-app-bg-3/30 overflow-hidden">
+          {/* Body well — fixed dark glass, not `bg-app-bg-1` (white in light
+           * mode, which washed the reader out to gray-on-gray over the
+           * video). The Original iframe stays opaque white inside it. */}
+          <div className="rounded-lg bg-black/25 ring-1 ring-white/10 overflow-hidden">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
               <div className="px-3 py-2.5">
-                <MarkdownRenderer>{message.body.trim()}</MarkdownRenderer>
+                <MarkdownRenderer tone="media">{message.body.trim()}</MarkdownRenderer>
               </div>
             ) : (
-              <p className="px-3 py-2.5 text-[12px] italic text-app-fg-2">(empty body)</p>
+              <p className="px-3 py-2.5 text-[12px] italic text-white/55">(empty body)</p>
             )}
           </div>
           {message.attachments.length > 0 ? (
@@ -886,7 +897,7 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-app-bg-a2 ring-1 ring-app-bg-3/40 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
+    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-black/25 ring-1 ring-white/15 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
       <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
@@ -914,9 +925,8 @@ function ToggleButton({
       aria-pressed={active}
       className={cn(
         "rounded px-1.5 py-0.5 transition-colors app-press",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        active ? "bg-app-bg-1 text-app-fg-4" : "text-app-fg-2 hover:text-app-fg-3",
+        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+        active ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white/85",
       )}
     >
       {children}
@@ -1054,8 +1064,8 @@ function AttachmentStrip({
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
-        <Paperclip size={11} className="text-app-fg-2" aria-hidden />
-        <span className="text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
+        <Paperclip size={11} className="text-white/60" aria-hidden />
+        <span className="text-[10.5px] uppercase tracking-tight font-medium text-white/60">
           {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -1083,10 +1093,10 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
         <Icon size={14} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] leading-4 font-medium text-app-fg-4">
+        <span className="block truncate text-[12px] leading-4 font-medium text-white">
           {attachment.filename}
         </span>
-        <span className="block text-[11px] leading-4 text-app-fg-2 tabular-nums">
+        <span className="block text-[11px] leading-4 text-white/55 tabular-nums">
           {formatBytes(attachment.size)}
           {attachment.mimeType ? (
             <>
@@ -1100,17 +1110,16 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
           ) : null}
         </span>
       </span>
-      {href ? <ExternalLink size={12} className="shrink-0 text-app-fg-2" aria-hidden /> : null}
+      {href ? <ExternalLink size={12} className="shrink-0 text-white/55" aria-hidden /> : null}
     </>
   );
   const shared = cn(
     "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
-    "ring-1 ring-app-bg-3/40 bg-app-bg-a2/60",
+    "ring-1 ring-white/15 bg-white/[0.07]",
     href
       ? cn(
-          "transition-colors hover:bg-app-bg-a2 hover:ring-app-bg-3/70",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          "transition-colors hover:bg-white/[0.10] hover:ring-white/25",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )
       : "",
   );
@@ -1175,7 +1184,7 @@ function attachmentVisual(
   ) {
     return { tone: "bg-app-amber-1 text-app-amber-4", icon: FileText };
   }
-  return { tone: "bg-app-bg-a2 text-app-fg-3", icon: FileIcon };
+  return { tone: "bg-white/10 text-white/80", icon: FileIcon };
 }
 
 function extensionFor(filename: string, mimeType: string): string {
