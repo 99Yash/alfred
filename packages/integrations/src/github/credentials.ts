@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 /**
  * Persistence layer for GitHub `integration_credentials`. Mirrors the
@@ -57,6 +57,32 @@ export async function upsertGithubCredential(
   const row = result[0];
   if (!row) throw new Error("[github.credentials] upsert returned no row");
   return { id: row.id };
+}
+
+export interface GithubCredentialSummary {
+  id: string;
+  status: string;
+  accountId: string;
+  accountLabel: string | null;
+}
+
+/**
+ * List a user's GitHub credential rows (parity with Google's
+ * `listCredentials(userId, "google")`). Tool code finds the active one and
+ * resolves its token. Most users have exactly one.
+ */
+export async function listGithubCredentials(userId: string): Promise<GithubCredentialSummary[]> {
+  return db()
+    .select({
+      id: integrationCredentials.id,
+      status: integrationCredentials.status,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, "github")),
+    );
 }
 
 /**

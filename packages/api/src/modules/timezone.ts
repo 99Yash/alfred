@@ -1,0 +1,41 @@
+export function localStartOfDay(localDate: string, timezone: string): Date {
+  return localTimeInTimezone(localDate, 0, timezone);
+}
+
+export function localTimeInTimezone(localDate: string, hour: number, timezone: string): Date {
+  let candidate = new Date(Date.UTC(...dateParts(localDate), hour));
+  for (let i = 0; i < 3; i += 1) {
+    candidate = new Date(
+      Date.UTC(...dateParts(localDate), hour) - timezoneOffsetMs(candidate, timezone),
+    );
+  }
+  return candidate;
+}
+
+export function addLocalDays(localDate: string, days: number): string {
+  const next = new Date(Date.UTC(...dateParts(localDate), 12));
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function timezoneOffsetMs(at: Date, timezone: string): number {
+  const value =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
+  if (!match?.groups?.sign) return 0;
+
+  const sign = match.groups.sign === "-" ? -1 : 1;
+  const hours = Number(match.groups.hours);
+  const minutes = Number(match.groups.minutes ?? "0");
+  return sign * (hours * 60 + minutes) * 60_000;
+}
+
+function dateParts(localDate: string): [number, number, number] {
+  const [year, month, day] = localDate.split("-").map(Number);
+  return [year ?? 0, (month ?? 1) - 1, day ?? 1];
+}

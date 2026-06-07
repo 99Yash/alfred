@@ -27,10 +27,12 @@ import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage";
+import { callToast } from "~/lib/toast";
 import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
@@ -39,6 +41,7 @@ import { IconButton } from "~/routes/-preview-chat/icon-button";
 import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-content";
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
+import { ChatApprovalTray } from "./approval-tray";
 import { Conversation, shouldShowStream } from "./conversation";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
 import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
@@ -119,6 +122,14 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
   const showStream = shouldShowStream(messages, stream);
   const isStreaming = showStream && !stream.done;
+  const activeRunId = showStream ? stream.runId : undefined;
+  const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
+  const { rows: approvalRows } = useActionStagings();
+  const runApprovals = useMemo(
+    () => (activeRunId ? approvalRows.filter((row) => row.runId === activeRunId) : []),
+    [approvalRows, activeRunId],
+  );
+  const approvalTrayActive = awaitingApproval || runApprovals.length > 0;
   const hasConversation = messages.length > 0 || showStream;
 
   return (
@@ -126,13 +137,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       {hasConversation ? (
         <>
-          <Conversation messages={messages} stream={stream} />
+          <Conversation messages={messages} stream={stream} onFollowUp={onSend} />
           <div className="shrink-0 px-4 pb-4">
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+              <ChatApprovalTray
+                runId={activeRunId}
+                approvals={runApprovals}
+                awaitingApproval={awaitingApproval}
+              />
               <Composer
                 key={threadId ?? "new"}
                 threadId={threadId}
                 isStreaming={isStreaming}
+                disabled={approvalTrayActive}
                 onSend={onSend}
               />
             </div>
@@ -417,10 +434,12 @@ const CONNECT_BRANDS: ReadonlyArray<{
 function Composer({
   threadId,
   isStreaming,
+  disabled = false,
   onSend,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
+  disabled?: boolean;
   onSend?: (text: string) => void;
 }) {
   const { resolved: theme } = useAppTheme();
@@ -458,7 +477,7 @@ function Composer({
     return extractTextFromJSON(initialJSON);
   });
   const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
-  const canSend = !isEmpty && !mic.recording && !isStreaming;
+  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming;
 
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
@@ -497,8 +516,9 @@ function Composer({
   );
 
   const insertAtTrigger = useCallback(() => {
+    if (disabled) return;
     editorRef.current?.insertAtTrigger();
-  }, []);
+  }, [disabled]);
 
   // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
   // tells Tiptap to swallow the key so it doesn't also reach the editor.
@@ -551,6 +571,7 @@ function Composer({
   // the composer. Skipped when the user is already inside an input / when a
   // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
   useEffect(() => {
+    if (disabled) return;
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!e.key || e.key.length !== 1) return;
@@ -568,7 +589,11 @@ function Composer({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (disabled) setSuggestion(null);
+  }, [disabled]);
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
@@ -586,8 +611,13 @@ function Composer({
   };
 
   return (
-    <form onSubmit={onFormSubmit} aria-label="Send a message" className="relative">
-      {suggestion && mentionCandidates.length > 0 ? (
+    <form
+      onSubmit={onFormSubmit}
+      aria-label="Send a message"
+      aria-disabled={disabled || undefined}
+      className="relative"
+    >
+      {!disabled && suggestion && mentionCandidates.length > 0 ? (
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
@@ -607,6 +637,7 @@ function Composer({
           theme === "light" && "ring-1 ring-inset ring-app-fg-a1/50",
           "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-app-background transition-shadow",
+          disabled && "opacity-70",
         )}
       >
         {/* Ambient drifting particles inside the composer surface. Sits
@@ -637,6 +668,7 @@ function Composer({
               ref={editorRef}
               initialJSON={initialJSON}
               placeholder="Type and press enter to start chatting…"
+              disabled={disabled}
               onChange={onEditorChange}
               onSubmit={handleSubmit}
               onSuggestionChange={setSuggestion}
@@ -648,6 +680,7 @@ function Composer({
             mic={mic}
             canSend={canSend}
             isStreaming={isStreaming}
+            disabled={disabled}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
           />
@@ -661,26 +694,28 @@ function ComposerToolbar({
   mic,
   canSend,
   isStreaming,
+  disabled,
   mentionActive,
   onMentionClick,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
   isStreaming: boolean;
+  disabled: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
-        <ComposerIcon label="Attach file" disabled={mic.recording}>
+        <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
           <Paperclip size={14} />
         </ComposerIcon>
         <ComposerIcon
           label="Mention a source"
-          disabled={mic.recording}
+          disabled={disabled || mic.recording}
           onClick={onMentionClick}
-          active={mentionActive}
+          active={!disabled && mentionActive}
         >
           <AtSign size={14} />
         </ComposerIcon>
@@ -700,6 +735,7 @@ function ComposerToolbar({
         <ComposerIcon
           label={mic.recording ? "Stop dictation" : "Dictate"}
           onClick={mic.recording ? mic.stop : mic.start}
+          disabled={disabled && !mic.recording}
           active={mic.recording}
         >
           <Mic size={14} />
@@ -725,7 +761,9 @@ function ComposerToolbar({
           <button
             type="submit"
             disabled={!canSend}
-            aria-label={isStreaming ? "Waiting for response" : "Send"}
+            aria-label={
+              disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
+            }
             className={cn(
               "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
               "app-press transition-[opacity,filter,transform]",
@@ -838,9 +876,21 @@ function useRailData(): RailData {
     completeTodo,
     reopenTodo,
     promoteTodo,
+    dismissTodo,
   } = useTodos();
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
-  const todoSuggestions = useMemo(() => liveSuggestions.map(toRailSuggestion), [liveSuggestions]);
+  // Dismissing a suggestion hides it immediately and only commits the
+  // (terminal) `dismissed` mutation after the undo window closes — so "Undo"
+  // is a local cancel, not a server round-trip (`dismissed` rows never sync
+  // back, so there'd be nothing to restore).
+  const { hiddenSuggestionIds, onDismissSuggestion } = useSuggestionDismissal(
+    liveSuggestions,
+    dismissTodo,
+  );
+  const todoSuggestions = useMemo(
+    () => liveSuggestions.filter((s) => !hiddenSuggestionIds.has(s.id)).map(toRailSuggestion),
+    [liveSuggestions, hiddenSuggestionIds],
+  );
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
@@ -928,6 +978,7 @@ function useRailData(): RailData {
       onToggleTodo,
       onCreateTodo,
       onPromoteSuggestion,
+      onDismissSuggestion,
       inbox: inboxItems,
       inboxPagination: {
         pageIndex: safeInboxPage,
@@ -954,6 +1005,7 @@ function useRailData(): RailData {
       onToggleTodo,
       onCreateTodo,
       onPromoteSuggestion,
+      onDismissSuggestion,
       inboxItems,
       safeInboxPage,
       inboxPageCount,
@@ -1013,6 +1065,88 @@ function toRailTodoItem(t: SyncedTodo): TodoItem {
 /** Map a `suggested` todo to the rail's suggestion shape; `assist` is the subtitle. */
 function toRailSuggestion(t: SyncedTodo): SuggestionInput {
   return { id: t.id, label: t.name, detail: t.assist ?? "" };
+}
+
+const SUGGESTION_UNDO_MS = 5000;
+
+/**
+ * Deferred-commit dismissal for todo suggestions. Hiding is immediate (the id
+ * joins `hiddenSuggestionIds`, which the caller filters out), but the terminal
+ * `todoDismiss` mutation only fires after the undo window — so "Undo" cancels
+ * the pending commit locally. (`dismissed` rows never sync back, so there is no
+ * server-side row to restore once committed.) A still-pending dismissal is
+ * committed on unmount so navigating away doesn't silently lose it.
+ */
+function useSuggestionDismissal(
+  suggestions: ReadonlyArray<SyncedTodo>,
+  dismissTodo: (id: string) => Promise<void>,
+): {
+  hiddenSuggestionIds: ReadonlySet<string>;
+  onDismissSuggestion: (id: string) => void;
+} {
+  const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // Keep the latest dismiss fn in a ref so the unmount-commit effect can stay
+  // dependency-free (and never fire its cleanup mid-session).
+  const dismissRef = useRef(dismissTodo);
+  dismissRef.current = dismissTodo;
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const [id, handle] of pending) {
+        clearTimeout(handle);
+        void dismissRef.current(id);
+      }
+      pending.clear();
+    };
+  }, []);
+
+  const cancel = useCallback((id: string) => {
+    const handle = timers.current.get(id);
+    if (handle) clearTimeout(handle);
+    timers.current.delete(id);
+    setHiddenSuggestionIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const onDismissSuggestion = useCallback(
+    (id: string) => {
+      if (timers.current.has(id)) return;
+      const label = suggestions.find((s) => s.id === id)?.name;
+      setHiddenSuggestionIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      const handle = setTimeout(() => {
+        timers.current.delete(id);
+        setHiddenSuggestionIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        void dismissRef.current(id);
+      }, SUGGESTION_UNDO_MS);
+      timers.current.set(id, handle);
+      callToast({
+        message: "Suggestion dismissed",
+        description: label,
+        duration: SUGGESTION_UNDO_MS,
+        action: { label: "Undo", onClick: () => cancel(id) },
+      });
+    },
+    [suggestions, cancel],
+  );
+
+  return { hiddenSuggestionIds, onDismissSuggestion };
 }
 
 function formatDate(date: Date): string {

@@ -1,52 +1,75 @@
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 /**
  * A suggested-todo row (ADR-0050). `onAccept` promotes it (`suggested → open`);
  * the leading glyph is a `+` when accept is wired, a chevron on static previews.
+ * `onDismiss` declines it (`suggested → dismissed`) via a hover-revealed `×`.
  */
 export function SuggestionRow({
   label,
   detail,
   onAccept,
+  onDismiss,
 }: {
   label: string;
   detail: string;
   onAccept?: () => void;
+  onDismiss?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onAccept}
-      aria-label={onAccept ? `Add suggestion: ${label}` : undefined}
+    <div
       className={cn(
-        "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-        "hover:bg-white/[0.07] transition-colors app-press",
-        "flex items-center gap-2.5",
-        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+        "group relative flex items-center gap-1 rounded-xl px-2 py-2 -mx-0.5",
+        "hover:bg-white/[0.07] transition-colors",
       )}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] leading-5 font-medium text-white">
-          {label}
+      <button
+        type="button"
+        onClick={onAccept}
+        aria-label={onAccept ? `Add suggestion: ${label}` : undefined}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left app-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+        )}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12.5px] leading-5 font-medium text-white">
+            {label}
+          </span>
+          {detail ? (
+            <span className="block truncate text-[11px] leading-4 text-white/55">{detail}</span>
+          ) : null}
         </span>
-        {detail ? (
-          <span className="block truncate text-[11px] leading-4 text-white/55">{detail}</span>
-        ) : null}
-      </span>
-      {onAccept ? (
-        <Plus
-          size={13}
-          aria-hidden
-          className="shrink-0 text-white/55 group-hover:text-white transition-colors"
-        />
-      ) : (
-        <ChevronRight
-          size={12}
-          aria-hidden
-          className="shrink-0 text-white/55 group-hover:text-white/80 transition-colors"
-        />
-      )}
-    </button>
+        {onAccept ? (
+          <Plus
+            size={13}
+            aria-hidden
+            className="shrink-0 text-white/55 group-hover:text-white transition-colors"
+          />
+        ) : (
+          <ChevronRight
+            size={12}
+            aria-hidden
+            className="shrink-0 text-white/55 group-hover:text-white/80 transition-colors"
+          />
+        )}
+      </button>
+      {onDismiss ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={`Dismiss suggestion: ${label}`}
+          className={cn(
+            "shrink-0 inline-flex size-6 items-center justify-center rounded-lg app-press",
+            "text-white/45 hover:bg-white/10 hover:text-white transition-[color,background-color,opacity]",
+            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          )}
+        >
+          <X size={12} aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 }

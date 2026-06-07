@@ -7,15 +7,9 @@
  * fresh token, call the thin client.
  */
 
+import { docsGetDocumentInput } from "@alfred/contracts";
 import { getDocument, getFreshAccessToken, listCredentials } from "@alfred/integrations/google";
-import { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
-
-const docsGetDocumentInput = z
-  .object({
-    documentId: z.string().min(1).max(200).describe("The Google Doc's document id."),
-  })
-  .strict();
 
 async function accessTokenFor(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");

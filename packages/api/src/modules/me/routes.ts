@@ -6,6 +6,7 @@ import {
   extractMessageHtml,
   batchModifyMessages,
   getFreshAccessToken,
+  CALENDAR_EVENTS_SCOPE,
   GMAIL_MODIFY_SCOPE,
   CALENDAR_READONLY_SCOPE,
   listEvents,
@@ -775,7 +776,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // Filter in SQL to the row(s) actually carrying the calendar
           // scope so we don't accidentally pick a Gmail-only cred and
           // report "not connected".
-          const calendarScope = CALENDAR_READONLY_SCOPE;
           const creds = await db()
             .select({
               id: integrationCredentials.id,
@@ -791,7 +791,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             );
           const row = creds.find((c) => {
             const granted = (c.scopes as string[] | null) ?? [];
-            return granted.includes(calendarScope);
+            return (
+              granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE)
+            );
           });
           if (!row) return { items: [], connected: false };
 

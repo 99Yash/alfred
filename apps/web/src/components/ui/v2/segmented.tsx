@@ -57,7 +57,11 @@ export function AppSegmented<T extends string = string>({
         className={cn(
           "inline-flex items-center gap-1 p-1 rounded-xl",
           glass
-            ? "bg-app-bg-1/12 ring-1 ring-app-fg-4/12 backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
+            ? // The glass track always floats over the rail's dark weather
+              // video, so its surface colors are theme-independent literals —
+              // app-bg/app-fg tokens invert in light mode and would wash the
+              // track (and its active chip) out to white-on-white.
+              "bg-white/[0.12] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
             : "bg-app-bg-2 ring-1 ring-app-bg-3",
           className,
         )}
@@ -77,8 +81,10 @@ export function AppSegmented<T extends string = string>({
                     "outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                     /* off state — white-based so it reads over the sky video */
                     "text-white/70 hover:text-white",
-                    /* on state — solid dark glass chip over the sky video */
-                    "data-[state=active]:bg-app-bg-1/85 data-[state=active]:text-white",
+                    /* on state — solid dark glass chip over the sky video.
+                     * Fixed dark literal (matches the rail's scrim), not
+                     * bg-app-bg-1 which flips to white in light mode. */
+                    "data-[state=active]:bg-[rgba(7,17,31,0.72)] data-[state=active]:text-white",
                     "data-[state=active]:ring-1 data-[state=active]:ring-white/10",
                     "data-[state=active]:shadow-[var(--app-shadow-elevated)]",
                     "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-white/70",

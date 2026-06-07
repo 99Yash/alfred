@@ -289,9 +289,18 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
  * has no live backend yet; its catalog-declared `status` is the source of
  * truth (typically `"soon"`).
  */
-export const PROVIDER_REQUIRED_SCOPES: Readonly<Record<string, ReadonlyArray<string>>> = {
+export type ProviderScopeRequirement = string | ReadonlyArray<string>;
+
+export const PROVIDER_REQUIRED_SCOPES: Readonly<
+  Record<string, ReadonlyArray<ProviderScopeRequirement>>
+> = {
   google_gmail: ["https://www.googleapis.com/auth/gmail.readonly"],
-  google_calendar: ["https://www.googleapis.com/auth/calendar.readonly"],
+  google_calendar: [
+    [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ],
+  ],
   google_drive: ["https://www.googleapis.com/auth/drive.readonly"],
   google_docs: ["https://www.googleapis.com/auth/documents.readonly"],
   google_sheets: ["https://www.googleapis.com/auth/spreadsheets"],

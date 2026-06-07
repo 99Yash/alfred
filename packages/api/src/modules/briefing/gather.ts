@@ -9,6 +9,7 @@ import type {
   WeatherContribution,
 } from "@alfred/contracts";
 import {
+  CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
   getFreshAccessToken,
   listEvents,
@@ -18,6 +19,7 @@ import {
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import { getPreference } from "../memory/preferences";
+import { addLocalDays, localStartOfDay } from "../timezone";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -275,7 +277,7 @@ async function gatherCalendarContribution(args: {
 
   const calendarCreds = creds.filter((cred) => {
     const granted = (cred.scopes as string[] | null) ?? [];
-    return granted.includes(CALENDAR_READONLY_SCOPE);
+    return granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE);
   });
   if (calendarCreds.length === 0) return null;
 
@@ -510,42 +512,6 @@ function dayContribution(
 
 function localEndOfDay(briefingDate: string, timezone: IanaTimezone): Date {
   return localStartOfDay(addLocalDays(briefingDate, 1), timezone);
-}
-
-function localStartOfDay(localDate: string, timezone: IanaTimezone): Date {
-  let candidate = new Date(`${localDate}T00:00:00.000Z`);
-  for (let i = 0; i < 3; i += 1) {
-    candidate = new Date(Date.UTC(...dateParts(localDate)) - timezoneOffsetMs(candidate, timezone));
-  }
-  return candidate;
-}
-
-function timezoneOffsetMs(at: Date, timezone: IanaTimezone): number {
-  const value =
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "longOffset",
-    })
-      .formatToParts(at)
-      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
-  if (!match?.groups?.sign) return 0;
-
-  const sign = match.groups.sign === "-" ? -1 : 1;
-  const hours = Number(match.groups.hours);
-  const minutes = Number(match.groups.minutes ?? "0");
-  return sign * (hours * 60 + minutes) * 60_000;
-}
-
-function addLocalDays(localDate: string, days: number): string {
-  const next = new Date(Date.UTC(...dateParts(localDate), 12));
-  next.setUTCDate(next.getUTCDate() + days);
-  return next.toISOString().slice(0, 10);
-}
-
-function dateParts(localDate: string): [number, number, number] {
-  const [year, month, day] = localDate.split("-").map(Number);
-  return [year ?? 0, (month ?? 1) - 1, day ?? 1];
 }
 
 function shortenFrom(from: string | null): string | null {

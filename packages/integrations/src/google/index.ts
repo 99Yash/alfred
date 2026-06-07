@@ -1,5 +1,11 @@
-export type { CalendarAttendee, CalendarEvent, ListEventsArgs, ListEventsResult } from "./calendar";
-export { listEvents } from "./calendar";
+export type {
+  CalendarAttendee,
+  CalendarEvent,
+  CreateEventArgs,
+  ListEventsArgs,
+  ListEventsResult,
+} from "./calendar";
+export { createEvent, listEvents } from "./calendar";
 export type { CredentialRow } from "./credentials";
 export { getFreshAccessToken, listCredentials, upsertCredential } from "./credentials";
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
@@ -87,6 +93,7 @@ export type {
 export {
   ALL_GOOGLE_SCOPES,
   buildAuthorizeUrl,
+  CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
   DEFAULT_GOOGLE_SCOPES,
   detectPersona,
