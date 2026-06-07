@@ -190,9 +190,9 @@ export function RailContent({
 
         {/* Stacked feeds — all three render in the same grid cell so the
          * outgoing feed crossfades + lifts while the new feed settles in.
-         * Same pattern as `HeroShowcase`'s `Slot`. The scroll container's
-         * height is the MAX of all feeds, so a tab swap never re-flows
-         * the rail. */}
+         * Same pattern as `HeroShowcase`'s `Slot`. Only the active feed
+         * is in flow (inactive slots overlay absolutely — see `RailSlot`),
+         * so the scrollable height always tracks the visible feed. */}
         <div className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-3">
           {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
            * feed to the rail's width — otherwise the grid auto-sizes to its
