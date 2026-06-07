@@ -1,6 +1,6 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -38,6 +38,16 @@ export function ReasoningSection({
   useEffect(() => {
     if (!active) setValue("");
   }, [active]);
+
+  // While reasoning streams, the capped scroll box would otherwise pin to the
+  // top and hide the newest lines — keep it stuck to the bottom so the live
+  // thinking stays in view.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    const el = contentRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [reasoning, active]);
 
   if (reasoning.trim().length === 0 && !active) return null;
 
@@ -79,8 +89,9 @@ export function ReasoningSection({
         </Accordion.Header>
         <Accordion.Content className="overflow-hidden data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down">
           <div
+            ref={contentRef}
             className={cn(
-              "mt-1.5 border-l-2 border-app-fg-a1 pl-3 text-[13px] leading-relaxed text-app-fg-3",
+              "mt-1.5 max-h-72 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pl-3 pr-1 text-[13px] leading-relaxed text-app-fg-3",
               "[&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
               "[&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-4",
               "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",

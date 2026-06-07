@@ -149,32 +149,182 @@ export function humanizeSlug(value: string): string {
 }
 
 /**
+ * Human phrasing for a single tool, co-located here so every surface reads the
+ * same words. The chat transcript narrates with the `running` → `done` verbs;
+ * approvals and the email notification worker use the imperative `title`.
+ */
+export interface ToolLabel {
+  /** Present-continuous, shown in the chat row while the call is in flight. */
+  running: string;
+  /** Past tense, shown once the call lands. */
+  done: string;
+  /**
+   * Imperative, lowercase-leading so it reads after "Alfred wants to …" (email
+   * subject) and capitalizes cleanly as an approval card title.
+   */
+  title: string;
+}
+
+/**
+ * The single source of truth for tool-facing copy. Keyed by `ToolName`, so the
+ * type checker forces a label for every tool the moment it's added to
+ * `INTEGRATION_ACTIONS` — labels can never silently fall back to a raw
+ * `snake_case` symbol again. Pure + zero-dep so the server notification worker,
+ * the approvals card, and the chat transcript all import the one map.
+ *
+ * `system.load_integration` and `system.spawn_sub_agent` carry static fallbacks
+ * here; their chat rows refine them with the live target (e.g. "Connecting to
+ * GitHub") at the call site, where the integration catalog is available.
+ */
+export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
+  "system.load_integration": {
+    running: "Connecting an integration",
+    done: "Connected an integration",
+    title: "connect an integration",
+  },
+  "system.spawn_sub_agent": {
+    running: "Delegating a sub-task",
+    done: "Delegated a sub-task",
+    title: "delegate a sub-task",
+  },
+  "system.read_scratch": { running: "Reading notes", done: "Read notes", title: "read notes" },
+  "system.write_scratch": { running: "Saving notes", done: "Saved notes", title: "save notes" },
+  "system.promote": {
+    running: "Recording a finding",
+    done: "Recorded a finding",
+    title: "record a finding",
+  },
+  "system.suggest_todo": {
+    running: "Suggesting a to-do",
+    done: "Suggested a to-do",
+    title: "suggest a to-do",
+  },
+
+  "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
+  "gmail.read_message": {
+    running: "Reading a Gmail message",
+    done: "Read a Gmail message",
+    title: "read a Gmail message",
+  },
+  "gmail.send_draft": {
+    running: "Sending a Gmail draft",
+    done: "Sent a Gmail draft",
+    title: "send a Gmail draft",
+  },
+
+  "calendar.list_events": {
+    running: "Checking your calendar",
+    done: "Checked your calendar",
+    title: "list calendar events",
+  },
+  "calendar.create_event": {
+    running: "Creating a calendar event",
+    done: "Created a calendar event",
+    title: "create a calendar event",
+  },
+
+  "drive.search_files": {
+    running: "Searching Drive",
+    done: "Searched Drive",
+    title: "search Drive",
+  },
+  "drive.get_file": {
+    running: "Opening a Drive file",
+    done: "Opened a Drive file",
+    title: "open a Drive file",
+  },
+  "drive.export_file": {
+    running: "Exporting a Drive file",
+    done: "Exported a Drive file",
+    title: "export a Drive file",
+  },
+  "drive.download_file": {
+    running: "Downloading a Drive file",
+    done: "Downloaded a Drive file",
+    title: "download a Drive file",
+  },
+
+  "docs.get_document": {
+    running: "Reading a Google Doc",
+    done: "Read a Google Doc",
+    title: "read a Google Doc",
+  },
+
+  "sheets.create_spreadsheet": {
+    running: "Creating a spreadsheet",
+    done: "Created a spreadsheet",
+    title: "create a spreadsheet",
+  },
+  "sheets.get_values": {
+    running: "Reading spreadsheet values",
+    done: "Read spreadsheet values",
+    title: "read spreadsheet values",
+  },
+  "sheets.update_values": {
+    running: "Updating spreadsheet values",
+    done: "Updated spreadsheet values",
+    title: "update spreadsheet values",
+  },
+  "sheets.append_values": {
+    running: "Appending spreadsheet rows",
+    done: "Appended spreadsheet rows",
+    title: "append spreadsheet rows",
+  },
+  "sheets.batch_update": {
+    running: "Updating the spreadsheet",
+    done: "Updated the spreadsheet",
+    title: "update the spreadsheet",
+  },
+  "sheets.add_sheet": { running: "Adding a sheet", done: "Added a sheet", title: "add a sheet" },
+
+  "slides.create_presentation": {
+    running: "Creating a presentation",
+    done: "Created a presentation",
+    title: "create a presentation",
+  },
+  "slides.get_presentation": {
+    running: "Reading a presentation",
+    done: "Read a presentation",
+    title: "read a presentation",
+  },
+  "slides.batch_update": {
+    running: "Updating the presentation",
+    done: "Updated the presentation",
+    title: "update the presentation",
+  },
+  "slides.add_slide": {
+    running: "Adding a slide",
+    done: "Added a slide",
+    title: "add a slide",
+  },
+
+  "github.search_pull_requests": {
+    running: "Searching pull requests",
+    done: "Searched pull requests",
+    title: "search pull requests",
+  },
+};
+
+/** The co-located label for a tool, or `null` for an unregistered name. */
+export function toolLabel(toolName: string): ToolLabel | null {
+  return isToolName(toolName) ? TOOL_LABELS[toolName] : null;
+}
+
+/**
  * Human phrase for "what does this tool do", in the imperative so it reads
- * after "Alfred wants to …" (email subject) and as a card title. Special
- * cases for the small known surface; everything else falls back to a generic
+ * after "Alfred wants to …" (email subject) and as a card title. Registered
+ * tools resolve from {@link TOOL_LABELS}; anything else falls back to a generic
  * `${action} in ${integration}` phrasing. Pure + zero-dep so both the server
  * notification worker and the web approvals card import the one source.
  */
 export function humanizeToolName(toolName: string): string {
+  if (isToolName(toolName)) return TOOL_LABELS[toolName].title;
   const separator = toolName.indexOf(".");
   const integration = separator > 0 ? toolName.slice(0, separator) : toolName;
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
-  switch (`${integration}.${action}`) {
-    case "gmail.send_draft":
-      return "send a Gmail draft";
-    case "gmail.search":
-      return "search Gmail";
-    case "gmail.read_message":
-      return "read a Gmail message";
-    case "calendar.create_event":
-      return "create a calendar event";
-    case "calendar.list_events":
-      return "list calendar events";
-    default:
-      return action
-        ? `${humanizeSlug(action)} in ${humanizeSlug(integration)}`
-        : humanizeSlug(integration);
-  }
+  return action
+    ? `${humanizeSlug(action)} in ${humanizeSlug(integration)}`
+    : humanizeSlug(integration);
 }
 
 function canonicalJson(value: unknown): string {
