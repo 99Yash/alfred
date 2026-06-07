@@ -6,7 +6,48 @@ import { cn } from "~/lib/utils";
 interface MarkdownRendererProps {
   children: string;
   className?: string;
+  /**
+   * Color treatment. `surface` follows the app theme tokens — use it on
+   * normal light/dark surfaces. `media` is FIXED white-alpha for content
+   * that sits on the rail's weather video: that backdrop is always a dark
+   * photograph regardless of theme, so theme tokens (near-black ink in
+   * light mode) would invert against it. Mirrors how the rest of the rail
+   * styles itself (`text-white/65`, `bg-white/[0.06]`, …).
+   */
+  tone?: "surface" | "media";
 }
+
+/** Theme-following colors for regular app surfaces. */
+const SURFACE_TONE = [
+  "text-app-fg-3",
+  "[&_h1]:text-app-fg-4 [&_h2]:text-app-fg-4 [&_h3]:text-app-fg-4 [&_h4]:text-app-fg-4",
+  "[&_strong]:text-app-fg-4",
+  "[&_a]:text-app-purple-4 hover:[&_a]:text-app-purple-3",
+  "[&_ul]:marker:text-app-fg-2 [&_ol]:marker:text-app-fg-2",
+  "[&_blockquote]:border-app-bg-3/60 [&_blockquote]:text-app-fg-2",
+  "[&_code]:bg-app-bg-a2 [&_code]:text-app-fg-4",
+  "[&_pre]:bg-app-bg-a2",
+  "[&_th]:border-app-bg-3/40 [&_th]:text-app-fg-4 [&_td]:border-app-bg-3/40",
+  "[&_hr]:border-app-bg-3/60",
+] as const;
+
+/**
+ * Fixed white-alpha colors for the weather-video backdrop. Link color is a
+ * literal (`--app-purple-4`'s dark-mode value) rather than the token — the
+ * light-mode token (#918df6) drops below AA against the dark video.
+ */
+const MEDIA_TONE = [
+  "text-white/85",
+  "[&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white",
+  "[&_strong]:text-white",
+  "[&_a]:text-app-purple-rail hover:[&_a]:text-white",
+  "[&_ul]:marker:text-white/50 [&_ol]:marker:text-white/50",
+  "[&_blockquote]:border-white/20 [&_blockquote]:text-white/65",
+  "[&_code]:bg-white/10 [&_code]:text-white",
+  "[&_pre]:bg-white/10",
+  "[&_th]:border-white/20 [&_th]:text-white [&_td]:border-white/20",
+  "[&_hr]:border-white/20",
+] as const;
 
 /**
  * Renders email/note bodies as markdown.
@@ -22,31 +63,30 @@ interface MarkdownRendererProps {
  * and force every outbound click to a new tab. Anything else falls through
  * to react-markdown's defaults wrapped in our Tailwind typography.
  */
-export function MarkdownRenderer({ children, className }: MarkdownRendererProps) {
+export function MarkdownRenderer({ children, className, tone = "surface" }: MarkdownRendererProps) {
   return (
     <div
       className={cn(
-        "text-[12.5px] leading-[1.6] text-app-fg-3",
+        "text-[12.5px] leading-[1.6]",
         // Block spacing — tighter than `prose` defaults, which read as
         // "article" rather than "email body" at this scale.
         "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
-        "[&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:text-app-fg-4 [&_h1]:mt-3 [&_h1]:mb-1.5",
-        "[&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:text-app-fg-4 [&_h2]:mt-3 [&_h2]:mb-1.5",
-        "[&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:text-app-fg-4 [&_h3]:mt-2.5 [&_h3]:mb-1",
-        "[&_h4]:text-[12.5px] [&_h4]:font-semibold [&_h4]:text-app-fg-4 [&_h4]:mt-2 [&_h4]:mb-1",
+        "[&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1.5",
+        "[&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1.5",
+        "[&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:mt-2.5 [&_h3]:mb-1",
+        "[&_h4]:text-[12.5px] [&_h4]:font-semibold [&_h4]:mt-2 [&_h4]:mb-1",
         // Inline text
-        "[&_strong]:font-semibold [&_strong]:text-app-fg-4",
+        "[&_strong]:font-semibold",
         "[&_em]:italic",
-        "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-app-purple-3",
+        "[&_a]:underline [&_a]:underline-offset-2",
         "[&_a]:break-words",
         // Lists
-        "[&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc [&_ul]:marker:text-app-fg-2",
-        "[&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal [&_ol]:marker:text-app-fg-2",
+        "[&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc",
+        "[&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal",
         "[&_li]:my-0.5 [&_li]:pl-0.5",
         // Blockquote — typical "On X wrote:" reply chains land here once we
         // add the quote-detector. Until then this still tames the rare `>` line.
-        "[&_blockquote]:border-l-2 [&_blockquote]:border-app-bg-3/60 [&_blockquote]:pl-3",
-        "[&_blockquote]:my-2 [&_blockquote]:text-app-fg-2",
+        "[&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:my-2",
         // Code — inline tokens like `useInfiniteQuery` and quoted file refs
         // (`chat-shell.tsx:450`) routinely exceed the rail width.
         // `overflow-wrap: anywhere` lets the browser break mid-token *only
@@ -54,15 +94,15 @@ export function MarkdownRenderer({ children, className }: MarkdownRendererProps)
         // identifiers intact whenever they have room. Avoid `break-all`,
         // which slices every long-ish token across lines even when it
         // would fit by simply wrapping onto the next row.
-        "[&_code]:rounded [&_code]:bg-app-bg-a2 [&_code]:px-1 [&_code]:py-px",
-        "[&_code]:font-mono [&_code]:text-[11.5px] [&_code]:text-app-fg-4",
+        "[&_code]:rounded [&_code]:px-1 [&_code]:py-px",
+        "[&_code]:font-mono [&_code]:text-[11.5px]",
         "[&_code]:[overflow-wrap:anywhere]",
         // Fenced ``` blocks soft-wrap instead of horizontal-scrolling —
         // the rail is too narrow for a usable scroll affordance, and the
         // user wants the content readable at viewport width. `pre-wrap`
         // preserves the leading whitespace that diff blocks rely on for
         // alignment; `overflow-wrap: anywhere` catches over-long lines.
-        "[&_pre]:my-2 [&_pre]:rounded-md [&_pre]:bg-app-bg-a2 [&_pre]:p-2",
+        "[&_pre]:my-2 [&_pre]:rounded-md [&_pre]:p-2",
         "[&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]",
         "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:whitespace-pre-wrap",
         // Tables — emails rarely contain them, but newsletters sometimes do.
@@ -71,11 +111,11 @@ export function MarkdownRenderer({ children, className }: MarkdownRendererProps)
         // structure. Body cells still wrap their text.
         "[&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
         "[&_table]:border-collapse [&_table]:text-[11.5px]",
-        "[&_th]:border [&_th]:border-app-bg-3/40 [&_th]:px-1.5 [&_th]:py-1 [&_th]:font-medium [&_th]:text-app-fg-4",
-        "[&_td]:border [&_td]:border-app-bg-3/40 [&_td]:px-1.5 [&_td]:py-1",
+        "[&_th]:border [&_th]:px-1.5 [&_th]:py-1 [&_th]:font-medium",
+        "[&_td]:border [&_td]:px-1.5 [&_td]:py-1",
         "[&_td]:break-words [&_th]:break-words",
         // Horizontal rule
-        "[&_hr]:my-3 [&_hr]:border-t [&_hr]:border-app-bg-3/60",
+        "[&_hr]:my-3 [&_hr]:border-t",
         // Images — rare, and we don't proxy them so cors / privacy concerns
         // apply. Inline-cap so a runaway image can't blow up the rail width.
         "[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded",
@@ -84,6 +124,7 @@ export function MarkdownRenderer({ children, className }: MarkdownRendererProps)
         // width like long URLs can blow the card open), and the wrap rules
         // catch anything that slipped past the per-tag selectors above.
         "min-w-0 break-words [overflow-wrap:anywhere]",
+        ...(tone === "media" ? MEDIA_TONE : SURFACE_TONE),
         className,
       )}
     >
