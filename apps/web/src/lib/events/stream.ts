@@ -29,6 +29,59 @@ function isKnownKind(value: string): value is EventKind {
   return isKnownEventKind(value);
 }
 
+interface EventStreamSubscriber {
+  onFrame: (frame: EventStreamFrame) => void;
+  onError?: (err: Event) => void;
+}
+
+interface SharedEventStream {
+  source: EventSource;
+  subscribers: Map<number, EventStreamSubscriber>;
+  nextId: number;
+}
+
+let sharedStream: SharedEventStream | null = null;
+
+function eventStreamUrl(since?: number): URL {
+  const url = new URL(`${API_URL}/api/events/`);
+  if (typeof since === "number" && Number.isFinite(since)) {
+    url.searchParams.set("since", String(since));
+  }
+  return url;
+}
+
+function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null {
+  try {
+    const parsed = JSON.parse(msg.data) as { payload?: unknown; createdAt?: string };
+    const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
+    if (!payloadResult.success) return null;
+    const id = Number(msg.lastEventId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : "";
+    return { id, kind, payload: payloadResult.data, createdAt };
+  } catch {
+    return null;
+  }
+}
+
+function createEventSource(
+  since: number | undefined,
+  onFrame: (frame: EventStreamFrame) => void,
+  onError: (err: Event) => void,
+): EventSource {
+  const source = new EventSource(eventStreamUrl(since).toString(), { withCredentials: true });
+
+  for (const kind of EVENT_KINDS) {
+    source.addEventListener(kind, (msg) => {
+      const frame = parseFrame(kind, msg);
+      if (frame) onFrame(frame);
+    });
+  }
+  source.onerror = onError;
+
+  return source;
+}
+
 /**
  * Open an SSE connection to /api/events. Returns a `close()` to tear down.
  *
@@ -37,35 +90,47 @@ function isKnownKind(value: string): value is EventKind {
  * server can replay events the client missed across drops.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
-  const url = new URL(`${API_URL}/api/events/`);
   if (typeof opts.since === "number" && Number.isFinite(opts.since)) {
-    url.searchParams.set("since", String(opts.since));
+    const source = createEventSource(opts.since, opts.onFrame, (err) => opts.onError?.(err));
+    return () => source.close();
   }
 
-  const source = new EventSource(url.toString(), { withCredentials: true });
+  if (!sharedStream) {
+    const subscribers = new Map<number, EventStreamSubscriber>();
+    sharedStream = {
+      source: createEventSource(
+        undefined,
+        (frame) => {
+          for (const subscriber of subscribers.values()) {
+            subscriber.onFrame(frame);
+          }
+        },
+        (err) => {
+          for (const subscriber of subscribers.values()) {
+            subscriber.onError?.(err);
+          }
+        },
+      ),
+      subscribers,
+      nextId: 1,
+    };
+  }
 
-  const handle = (kind: EventKind) => (msg: MessageEvent) => {
-    try {
-      const parsed = JSON.parse(msg.data) as { payload?: unknown; createdAt?: string };
-      const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
-      if (!payloadResult.success) return;
-      const id = Number(msg.lastEventId);
-      if (!Number.isFinite(id) || id <= 0) return;
-      const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : "";
-      opts.onFrame({ id, kind, payload: payloadResult.data, createdAt });
-    } catch {
-      // Drop malformed frames silently.
+  const stream = sharedStream;
+  const subscriberId = stream.nextId;
+  stream.nextId += 1;
+  stream.subscribers.set(subscriberId, {
+    onFrame: opts.onFrame,
+    onError: opts.onError,
+  });
+
+  return () => {
+    stream.subscribers.delete(subscriberId);
+    if (stream.subscribers.size === 0) {
+      stream.source.close();
+      if (sharedStream === stream) sharedStream = null;
     }
   };
-
-  for (const kind of EVENT_KINDS) {
-    source.addEventListener(kind, handle(kind));
-  }
-  source.onerror = (err) => {
-    opts.onError?.(err);
-  };
-
-  return () => source.close();
 }
 
 export { isKnownKind };
