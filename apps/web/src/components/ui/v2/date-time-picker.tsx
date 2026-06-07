@@ -12,7 +12,7 @@
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "~/lib/utils";
 import { AppSegmented } from "./segmented";
 import { AppSelect, type AppSelectOption } from "./select";
@@ -42,18 +42,75 @@ export function AppDateTimePicker({
   className,
 }: AppDateTimePickerProps) {
   const [open, setOpen] = useState(false);
+  const dayRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selected = useMemo(() => parseDate(value), [value]);
   // The visible month — seeded from the value, advanced via the chevrons.
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selected ?? todayLocal()));
 
   const minuteOptions = useMemo(() => buildMinuteOptions(selected), [selected]);
+  const weeks = useMemo(() => monthGrid(viewMonth), [viewMonth]);
+  const gridDays = useMemo(() => weeks.flat(), [weeks]);
+  const dayFocusIndex = Math.max(
+    0,
+    gridDays.findIndex((day) =>
+      selected ? isSameDay(day, selected) : isSameDay(day, todayLocal()),
+    ),
+  );
 
-  // All edits funnel through here: take the current (or a freshly defaulted)
-  // date, apply one mutation, emit the ISO string.
+  useEffect(() => {
+    if (selected) setViewMonth(startOfMonth(selected));
+  }, [selected]);
+
+  // Time edits are only meaningful after a date exists; empty optional fields
+  // should not materialize "today 09:00" just because a time control was touched.
   const commit = (mutate: (d: Date) => void) => {
-    const base = selected ? new Date(selected) : defaultDateTime();
+    if (!selected) return;
+    const base = new Date(selected);
     mutate(base);
+    base.setSeconds(0, 0);
     onChange(base.toISOString());
+  };
+
+  const commitDay = (day: Date) => {
+    const base = selected ? new Date(selected) : defaultDateTime();
+    base.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
+    base.setSeconds(0, 0);
+    setViewMonth(startOfMonth(day));
+    onChange(base.toISOString());
+  };
+
+  const focusDay = (index: number) => {
+    const next = dayRefs.current[index];
+    if (next) next.focus();
+  };
+
+  const handleDayKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    switch (event.key) {
+      case "ArrowRight":
+        event.preventDefault();
+        focusDay(Math.min(index + 1, gridDays.length - 1));
+        break;
+      case "ArrowLeft":
+        event.preventDefault();
+        focusDay(Math.max(index - 1, 0));
+        break;
+      case "ArrowDown":
+        event.preventDefault();
+        focusDay(Math.min(index + 7, gridDays.length - 1));
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        focusDay(Math.max(index - 7, 0));
+        break;
+      case "Home":
+        event.preventDefault();
+        focusDay(index - (index % 7));
+        break;
+      case "End":
+        event.preventDefault();
+        focusDay(index + (6 - (index % 7)));
+        break;
+    }
   };
 
   const hours24 = selected?.getHours() ?? 9;
@@ -86,6 +143,7 @@ export function AppDateTimePicker({
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
+          aria-label="Choose date and time"
           side="bottom"
           align="start"
           sideOffset={6}
@@ -112,80 +170,95 @@ export function AppDateTimePicker({
             </div>
           </div>
 
-          {/* Weekday row */}
-          <div className="mt-2 grid grid-cols-7 gap-0.5">
-            {WEEKDAYS.map((d, i) => (
-              <div
-                key={i}
-                className="grid h-7 place-items-center text-[11px] font-medium text-app-fg-2"
-              >
-                {d}
+          <div
+            role="grid"
+            aria-label={monthLabel(viewMonth)}
+            className="mt-2 grid grid-cols-7 gap-0.5"
+          >
+            <div role="row" className="contents">
+              {WEEKDAYS.map((d, i) => (
+                <div
+                  key={i}
+                  role="columnheader"
+                  aria-label={weekdayLabel(i)}
+                  className="grid h-7 place-items-center text-[11px] font-medium text-app-fg-2"
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+            {weeks.map((week, weekIndex) => (
+              <div key={weekIndex} role="row" className="contents">
+                {week.map((day, dayIndex) => {
+                  const index = weekIndex * 7 + dayIndex;
+                  const inMonth = day.getMonth() === viewMonth.getMonth();
+                  const isSelected = selected ? isSameDay(day, selected) : false;
+                  const isToday = isSameDay(day, todayLocal());
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      type="button"
+                      role="gridcell"
+                      aria-selected={isSelected}
+                      aria-label={dayLabel(day, isSelected)}
+                      tabIndex={index === dayFocusIndex ? 0 : -1}
+                      ref={(node) => {
+                        dayRefs.current[index] = node;
+                      }}
+                      onClick={() => commitDay(day)}
+                      onKeyDown={(event) => handleDayKeyDown(event, index)}
+                      className={cn(
+                        "grid h-8 place-items-center rounded-lg text-[13px] tabular-nums outline-none transition-colors",
+                        "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
+                        isSelected
+                          ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                          : cn(
+                              inMonth ? "text-app-fg-4" : "text-app-fg-1",
+                              "hover:bg-app-bg-a1",
+                              isToday ? "shadow-[inset_0_0_0_1px_var(--app-purple-2)]" : undefined,
+                            ),
+                      )}
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
               </div>
             ))}
-          </div>
-
-          {/* Day grid */}
-          <div className="grid grid-cols-7 gap-0.5">
-            {monthGrid(viewMonth).map((day) => {
-              const inMonth = day.getMonth() === viewMonth.getMonth();
-              const isSelected = selected ? isSameDay(day, selected) : false;
-              const isToday = isSameDay(day, todayLocal());
-              return (
-                <button
-                  key={day.toISOString()}
-                  type="button"
-                  onClick={() =>
-                    commit((d) => {
-                      d.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
-                    })
-                  }
-                  className={cn(
-                    "grid h-8 place-items-center rounded-lg text-[13px] tabular-nums outline-none transition-colors",
-                    "focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                    isSelected
-                      ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                      : cn(
-                          inMonth ? "text-app-fg-4" : "text-app-fg-1",
-                          "hover:bg-app-bg-a1",
-                          isToday ? "shadow-[inset_0_0_0_1px_var(--app-purple-2)]" : undefined,
-                        ),
-                  )}
-                >
-                  {day.getDate()}
-                </button>
-              );
-            })}
           </div>
 
           {/* Time controls */}
           <div className="mt-3 flex items-center gap-2 border-t border-app-bg-3 pt-3">
             <AppSelect
+              label="Hour"
               value={hour12}
               onChange={(next) => {
-                if (!next) return;
+                if (next === undefined) return;
                 commit((d) => d.setHours(to24Hour(Number(next), isPm), d.getMinutes()));
               }}
               options={HOUR_OPTIONS}
+              disabled={disabled || !selected}
               className="w-[4.75rem] px-2.5"
             />
             <span className="text-app-fg-2">:</span>
             <AppSelect
+              label="Minute"
               value={minute}
               onChange={(next) => {
-                if (!next) return;
+                if (next === undefined) return;
                 commit((d) => d.setMinutes(Number(next)));
               }}
               options={minuteOptions}
+              disabled={disabled || !selected}
               className="w-[4.75rem] px-2.5"
             />
             <AppSegmented
               className="ml-auto"
               label="AM or PM"
               value={isPm ? "pm" : "am"}
+              disabled={disabled || !selected}
               onValueChange={(meridiem) =>
-                commit((d) =>
-                  d.setHours(to24Hour(hour12 === "" ? 12 : Number(hour12), meridiem === "pm")),
-                )
+                commit((d) => d.setHours(to24Hour(Number(hour12), meridiem === "pm")))
               }
               items={[
                 { value: "am", label: "AM" },
@@ -203,7 +276,7 @@ export function AppDateTimePicker({
               }}
               className={cn(
                 "mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] text-app-fg-3 outline-none",
-                "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
               )}
             >
               <X size={12} />
@@ -232,7 +305,7 @@ function NavButton({
       onClick={onClick}
       className={cn(
         "grid size-7 place-items-center rounded-lg text-app-fg-3 outline-none transition-colors",
-        "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
       )}
     >
       {children}
@@ -268,15 +341,17 @@ function addMonths(d: Date, delta: number): Date {
   return new Date(d.getFullYear(), d.getMonth() + delta, 1);
 }
 
-/** 6 weeks (42 cells) covering the month, padded with adjacent days. */
-function monthGrid(month: Date): Date[] {
+/** 6 weeks covering the month, padded with adjacent days. */
+function monthGrid(month: Date): Date[][] {
   const first = startOfMonth(month);
   const start = new Date(first);
   start.setDate(first.getDate() - first.getDay());
-  return Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    return d;
+  return Array.from({ length: 6 }, (_, week) => {
+    return Array.from({ length: 7 }, (_, day) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + week * 7 + day);
+      return d;
+    });
   });
 }
 
@@ -306,6 +381,21 @@ function pad(n: number): string {
 
 function monthLabel(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function weekdayLabel(index: number): string {
+  const d = new Date(2026, 5, 7 + index);
+  return d.toLocaleDateString(undefined, { weekday: "long" });
+}
+
+function dayLabel(d: Date, selected: boolean): string {
+  const label = d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  return selected ? `${label}, selected` : label;
 }
 
 function formatTrigger(d: Date): string {

@@ -1,5 +1,5 @@
 import { IDB_KEY, type SyncedTodo, syncedTodoSchema } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth-client";
 import { useReplicacheStatus } from "./context";
@@ -131,10 +131,17 @@ export function useTodos(): TodosState {
     [rep],
   );
 
-  const all = rows ?? [];
+  const { todos, suggestions } = useMemo(() => {
+    const all = rows ?? [];
+    return {
+      todos: all.filter((t) => t.status === "open" || t.status === "done"),
+      suggestions: all.filter((t) => t.status === "suggested"),
+    };
+  }, [rows]);
+
   return {
-    todos: all.filter((t) => t.status === "open" || t.status === "done"),
-    suggestions: all.filter((t) => t.status === "suggested"),
+    todos,
+    suggestions,
     loading: rows === null && !loadError,
     error: loadError,
     retry,

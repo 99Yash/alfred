@@ -1127,6 +1127,12 @@ function useSuggestionDismissal(
       });
       const handle = setTimeout(() => {
         timers.current.delete(id);
+        setHiddenSuggestionIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
         void dismissRef.current(id);
       }, SUGGESTION_UNDO_MS);
       timers.current.set(id, handle);
