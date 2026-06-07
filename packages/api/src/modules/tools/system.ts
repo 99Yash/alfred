@@ -1,61 +1,16 @@
-import { INTEGRATION_SLUGS, isLoadableIntegrationSlug, todoSourceSchema } from "@alfred/contracts";
-import { z } from "zod";
+import {
+  isLoadableIntegrationSlug,
+  loadIntegrationInput,
+  promoteScratchInput,
+  readScratchInput,
+  suggestTodoInput,
+  writeScratchInput,
+} from "@alfred/contracts";
 import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { suggestTodo } from "../todos/suggest";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
-
-const loadIntegrationInput = z
-  .object({
-    slug: z.enum(INTEGRATION_SLUGS).refine((slug) => slug !== "system", {
-      message: "system is always loaded and cannot be loaded as an integration",
-    }),
-  })
-  .strict();
-
-const scratchKey = z.string().min(1).max(240);
-
-const readScratchInput = z.object({ key: scratchKey }).strict();
-
-const writeScratchInput = z
-  .object({
-    key: scratchKey,
-    value: z.unknown(),
-  })
-  .strict();
-
-const promoteScratchInput = z
-  .object({
-    fromKey: scratchKey,
-    toKey: scratchKey,
-  })
-  .strict();
-
-const suggestTodoInput = z
-  .object({
-    name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
-    description: z
-      .string()
-      .max(20_000)
-      .optional()
-      .describe("Optional longer context for the todo."),
-    assist: z
-      .string()
-      .max(20_000)
-      .optional()
-      .describe(
-        "Optional tip on how to approach it. State honestly if you can't act on it (no permission / integration not connected). This is not execution.",
-      ),
-    sources: z
-      .array(todoSourceSchema)
-      .max(64)
-      .optional()
-      .describe(
-        "Cross-source provenance: [{ provider, kind, id, url? }]. Include every channel this commitment spans so it dedups across surfaces.",
-      ),
-  })
-  .strict();
 
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({

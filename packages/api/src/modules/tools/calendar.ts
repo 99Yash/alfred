@@ -1,3 +1,4 @@
+import { calendarCreateEventInput, calendarListEventsInput } from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
@@ -8,71 +9,12 @@ import {
   requireScopes,
   type CalendarEvent,
 } from "@alfred/integrations/google";
-import { z } from "zod";
+import type { z } from "zod";
 import { isValidTimezone, localDateInTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
-
-const calendarListEventsInput = z
-  .object({
-    timeMin: z
-      .string()
-      .datetime()
-      .optional()
-      .describe("Explicit RFC3339 lower bound. Use when the user gave an exact date/time window."),
-    timeMax: z
-      .string()
-      .datetime()
-      .optional()
-      .describe(
-        "Explicit RFC3339 upper bound. Use with timeMin when the user gave an exact date/time window.",
-      ),
-    window: z
-      .enum(["today", "tomorrow", "next_7_days"])
-      .default("next_7_days")
-      .describe(
-        "Relative window in the user's timezone when explicit bounds are omitted. Use 'tomorrow' for requests like 'tomorrow morning'.",
-      ),
-    partOfDay: z
-      .enum(["full_day", "morning", "afternoon", "evening"])
-      .default("full_day")
-      .describe(
-        "Optional narrowing for today/tomorrow: morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
-      ),
-    maxResults: z.number().int().min(1).max(50).default(10),
-  })
-  .strict();
-
-const calendarCreateEventInput = z
-  .object({
-    calendarId: z
-      .string()
-      .min(1)
-      .max(200)
-      .default("primary")
-      .describe(
-        "Calendar id to create the event in. Use primary unless the user specified another calendar.",
-      ),
-    summary: z.string().min(1).max(500),
-    description: z.string().max(10_000).optional(),
-    location: z.string().max(1_000).optional(),
-    start: z.string().datetime(),
-    end: z.string().datetime(),
-    timeZone: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
-    attendees: z.array(z.string().email()).max(50).optional(),
-  })
-  .strict()
-  .refine((value) => new Date(value.end) > new Date(value.start), {
-    message: "end must be after start",
-    path: ["end"],
-  });
 
 type CalendarListEventsInput = z.infer<typeof calendarListEventsInput>;
 type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;

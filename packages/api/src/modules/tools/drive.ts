@@ -8,6 +8,12 @@
  */
 
 import {
+  driveDownloadFileInput,
+  driveExportFileInput,
+  driveGetFileInput,
+  driveSearchInput,
+} from "@alfred/contracts";
+import {
   downloadFile,
   exportFile,
   getFile,
@@ -15,48 +21,7 @@ import {
   listCredentials,
   listFiles,
 } from "@alfred/integrations/google";
-import { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
-
-const fileId = z.string().min(1).max(200).describe("The Drive file id.");
-
-const driveSearchInput = z
-  .object({
-    q: z
-      .string()
-      .min(1)
-      .max(1000)
-      .optional()
-      .describe(
-        "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
-      ),
-    pageSize: z.number().int().min(1).max(100).default(25),
-    pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
-    orderBy: z
-      .string()
-      .max(100)
-      .optional()
-      .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
-  })
-  .strict();
-
-const driveGetFileInput = z.object({ fileId }).strict();
-
-const driveExportFileInput = z
-  .object({
-    fileId,
-    mimeType: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe(
-        "Export MIME type for a Google-native file: `text/plain` (default), `text/csv`, `text/markdown`, …",
-      ),
-  })
-  .strict();
-
-const driveDownloadFileInput = z.object({ fileId }).strict();
 
 async function accessTokenFor(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");

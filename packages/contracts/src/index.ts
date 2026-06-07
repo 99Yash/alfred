@@ -1,5 +1,7 @@
 export * from "./runtime.js";
 export * from "./tools.js";
+export * from "./tool-schemas.js";
+export * from "./tool-fields.js";
 export * from "./mentions.js";
 export * from "./transcript.js";
 export * from "./triage.js";

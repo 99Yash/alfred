@@ -1,6 +1,7 @@
 import type { EventPayload } from "@alfred/schemas/events";
 import { useEffect, useRef, useState } from "react";
 import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
+import { markChatTimingByAssistant } from "./timing";
 
 export interface StreamingToolCall {
   toolCallId: string;
@@ -149,12 +150,21 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         if (p.threadId !== threadId) return;
         if (p.phase === "started") {
           ensureStreamRef(p.messageId, p.runId);
+          markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
+            threadId,
+            runId: p.runId,
+          });
           ensureRaf();
         } else if (
           p.phase === "completed" &&
           ref.current?.messageId === p.messageId &&
           ref.current.runId === p.runId
         ) {
+          markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
+            threadId,
+            runId: p.runId,
+            summarize: true,
+          });
           ref.current.done = true;
           ref.current.awaitingApproval = false;
           ensureRaf();
@@ -167,6 +177,18 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         r.reasoningSeq = p.seq;
         if (r.reasoningStartTs === null) r.reasoningStartTs = Date.now();
         r.reasoning += p.text;
+        markChatTimingByAssistant(
+          p.messageId,
+          "first_reasoning_frame",
+          { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
+          { threadId, runId: p.runId },
+        );
+        markChatTimingByAssistant(
+          p.messageId,
+          "last_reasoning_frame",
+          { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
+          { threadId, runId: p.runId, repeat: "update", log: false },
+        );
         ensureRaf();
       } else if (frame.kind === "chat.delta") {
         const p = frame.payload as EventPayload<"chat.delta">;
@@ -182,6 +204,18 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           }
         }
         r.target += p.text;
+        markChatTimingByAssistant(
+          p.messageId,
+          "first_delta_frame",
+          { seq: p.seq, chars: p.text.length, totalTextChars: r.target.length },
+          { threadId, runId: p.runId },
+        );
+        markChatTimingByAssistant(
+          p.messageId,
+          "last_delta_frame",
+          { seq: p.seq, chars: p.text.length, totalTextChars: r.target.length },
+          { threadId, runId: p.runId, repeat: "update", log: false },
+        );
         ensureRaf();
       } else if (frame.kind === "chat.tool") {
         const p = frame.payload as EventPayload<"chat.tool">;
@@ -195,12 +229,30 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
           argsPreview: p.argsPreview ?? prev?.argsPreview,
           resultPreview: p.resultPreview ?? prev?.resultPreview,
         });
+        markChatTimingByAssistant(
+          p.messageId,
+          "first_tool_event",
+          { toolName: p.toolName, status: p.status },
+          { threadId, runId: p.runId },
+        );
+        markChatTimingByAssistant(
+          p.messageId,
+          "last_tool_event",
+          { toolName: p.toolName, status: p.status },
+          { threadId, runId: p.runId, repeat: "update", log: false },
+        );
         ensureRaf();
       } else if (frame.kind === "approval.requested") {
         const p = frame.payload as EventPayload<"approval.requested">;
         const r = ref.current;
         if (!r || p.runId !== r.runId) return;
         r.awaitingApproval = true;
+        markChatTimingByAssistant(
+          r.messageId,
+          "approval_requested",
+          { approvalId: p.approvalId },
+          { threadId, runId: r.runId },
+        );
         ensureRaf();
       }
     };
