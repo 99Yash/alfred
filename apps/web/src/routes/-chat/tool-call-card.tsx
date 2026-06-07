@@ -182,7 +182,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         )}
         <span
           className={cn(
-            "min-w-0 shrink-0 truncate",
+            "min-w-0 truncate",
             running ? "animate-chat-shimmer text-app-fg-3" : failed ? "text-app-red-4" : "text-app-fg-4",
           )}
         >
