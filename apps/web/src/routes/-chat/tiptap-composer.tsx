@@ -8,7 +8,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
@@ -56,6 +56,7 @@ interface TiptapComposerProps {
   initialJSON?: JSONContent;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
   onChange: (text: string, json: JSONContent, isEmpty: boolean) => void;
   onSubmit: () => void;
   /** Suggestion lifecycle (start / update / exit). The parent renders its own palette UI. */
@@ -80,6 +81,7 @@ export function TiptapComposer({
   initialJSON,
   placeholder,
   className,
+  disabled = false,
   onChange,
   onSubmit,
   onSuggestionChange,
@@ -92,9 +94,11 @@ export function TiptapComposer({
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
+  const disabledRef = useRef(disabled);
   onChangeRef.current = onChange;
   onSubmitRef.current = onSubmit;
   onSuggestionChangeRef.current = onSuggestionChange;
+  disabledRef.current = disabled;
 
   // Tracks whether the suggestion popup is open — used to skip Enter-submit
   // when the user is picking a mention.
@@ -169,6 +173,7 @@ export function TiptapComposer({
     ],
     content: initialJSON,
     autofocus: "end",
+    editable: !disabled,
     editorProps: {
       attributes: {
         "aria-label": "Message",
@@ -182,6 +187,7 @@ export function TiptapComposer({
         ),
       },
       handleKeyDown: (view, event) => {
+        if (disabledRef.current) return true;
         // Suggestion popup handles its own keys via the suggestion plugin's
         // onKeyDown above. Only step in when it's closed.
         if (suggestionOpenRef.current) return false;
@@ -206,16 +212,25 @@ export function TiptapComposer({
     },
   });
 
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!disabled);
+    if (disabled) {
+      suggestionOpenRef.current = false;
+      onSuggestionChangeRef.current(null);
+    }
+  }, [editor, disabled]);
+
   useImperativeHandle(
     ref,
     () => ({
       focusEnd: () => editor?.commands.focus("end"),
       insertText: (text) => {
-        if (!editor) return;
+        if (!editor || disabledRef.current) return;
         editor.chain().focus("end").insertContent(text).run();
       },
       insertAtTrigger: () => {
-        if (!editor) return;
+        if (!editor || disabledRef.current) return;
         // Inspect the char immediately before the cursor — if it's not
         // whitespace or document-start, prepend a space so the `@` opens
         // the palette (suggestion's `allowedPrefixes` defaults to [' ']).

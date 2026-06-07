@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { cardTitle } from "./card-spec";
-import { formatJson, formatTimestamp, parseJson, shortId, triggerLabel } from "./format";
+import { formatJson, formatTimestamp, shortId, triggerLabel } from "./format";
+import { ApprovalInputEditor } from "./input-editor";
 import { InputRenderer } from "./input-renderer";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
@@ -23,7 +24,7 @@ export function ApprovalCard({
   /** Resolves when the decision is recorded; throws with a message on failure. */
   onDecide: (decision: ApprovalDecision) => Promise<void>;
 }) {
-  const [draftText, setDraftText] = useState(() => formatJson(staging.proposedInput));
+  const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
   const [editing, setEditing] = useState(false);
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState("");
@@ -31,12 +32,11 @@ export function ApprovalCard({
   const [error, setError] = useState<string | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
 
-  const draft = useMemo(() => parseJson(draftText), [draftText]);
   const edited = useMemo(
-    () => draftText.trim() !== formatJson(staging.proposedInput).trim(),
-    [draftText, staging.proposedInput],
+    () => formatJson(draftInput).trim() !== formatJson(staging.proposedInput).trim(),
+    [draftInput, staging.proposedInput],
   );
-  const displayInput = edited && draft.ok ? draft.value : staging.proposedInput;
+  const displayInput = edited ? draftInput : staging.proposedInput;
   const reasonMissing = reason.trim().length === 0;
   const title = useMemo(
     () => cardTitle(staging.toolName, displayInput),
@@ -119,30 +119,17 @@ export function ApprovalCard({
         </div>
       ) : null}
 
-      <InputRenderer toolName={staging.toolName} input={displayInput} />
-
       {editing ? (
-        <div>
-          <label
-            htmlFor={`app-approval-input-${staging.id}`}
-            className="text-xs font-medium text-app-fg-3"
-          >
-            Edit input (JSON)
-          </label>
-          <AppTextarea
-            id={`app-approval-input-${staging.id}`}
-            value={draftText}
-            onChange={(e) => setDraftText(e.target.value)}
-            spellCheck={false}
-            disabled={busy}
-            className={cn(
-              "mt-2 min-h-[180px] font-mono text-[12px] leading-5",
-              !draft.ok && "focus-visible:ring-app-red-2",
-            )}
-          />
-          {!draft.ok ? <p className="mt-2 text-[12px] text-app-red-4">{draft.message}</p> : null}
-        </div>
-      ) : null}
+        <ApprovalInputEditor
+          toolName={staging.toolName}
+          value={draftInput}
+          onChange={setDraftInput}
+          disabled={busy}
+          idPrefix={`app-approval-input-${staging.id}`}
+        />
+      ) : (
+        <InputRenderer toolName={staging.toolName} input={displayInput} />
+      )}
 
       {showReason ? (
         <div className="space-y-2">
@@ -199,7 +186,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => setEditing((v) => !v)}
         >
-          {editing ? "Done editing" : "Edit input"}
+          {editing ? "Done" : "Adjust"}
         </AppButton>
         <div className="flex flex-wrap items-center gap-2">
           <AppButton
@@ -216,16 +203,14 @@ export function ApprovalCard({
             size="md"
             leading={edited ? <Pencil size={14} /> : <Check size={14} />}
             loading={busy}
-            disabled={busy || (edited && !draft.ok)}
+            disabled={busy}
             onClick={() =>
               decide(
-                edited && draft.ok
-                  ? { decision: "approve", editedInput: draft.value }
-                  : { decision: "approve" },
+                edited ? { decision: "approve", editedInput: draftInput } : { decision: "approve" },
               )
             }
           >
-            {edited ? "Approve with edits" : "Approve"}
+            {edited ? "Approve changes" : "Approve"}
           </AppButton>
         </div>
       </div>
