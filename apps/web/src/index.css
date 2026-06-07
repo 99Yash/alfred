@@ -129,8 +129,9 @@
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 4px 12px oklch(0 0 0 / 0.4);
   --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.5), 0 12px 24px oklch(0 0 0 / 0.55);
+}
 
-  /* -------------------------------------------------------------------------
+/* -------------------------------------------------------------------------
    * App token scales (captured 2026-05-23 from visitors.now live
    * recon — see archive/visitors-now/design-notes.md).
    *
@@ -144,8 +145,14 @@
    * 4-stop scale per hue: -1 = lightest tint, -2 = soft / borders / focus,
    * -3 = icon / chart, -4 = saturated accent. Each hue also exposes -a1..a4
    * alpha variants of the -4 stop.
+   *
+   * Selector note: also scoped to `.app[data-app-theme="light"]` so a
+   * forced-light subtree nested inside a dark `.app` ancestor (e.g. the
+   * styleguide's side-by-side theme panes) re-declares the light values
+   * instead of inheriting the ancestor's dark custom properties.
    * --------------------------------------------------------------------- */
-
+:root,
+.app[data-app-theme="light"] {
   /* Surfaces */
   --app-background: #ffffff;
   --app-background-subtle: #fafafa;
@@ -372,15 +379,23 @@
      * strong inset-top white highlight for the milled edge, a hairline
      * white inset that reads as a 1px border, and a layered drop for
      * elevation. The accent identity comes back via the focus ring
-     * (--app-purple-2), not the resting fill. */
-    --app-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+     * (--app-purple-2), not the resting fill.
+     *
+     * V3 (ported from dimension-ai-web's black colored-frost button): the
+     * V2 fill bottomed out at #0c0c10 on the #0a0a0a page bg, so the
+     * button read as transparent. Fill now lifts to #26262c→#131318 and
+     * gains dimension's omnidirectional inset frost glow
+     * (0 0 7px 1px white @ ~0.10, hover ~0.18) on top of the milled edge. */
+    --app-cta-bg: linear-gradient(180deg, #26262c 0%, #131318 100%);
 
     --app-button-primary-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-      0 1px 2px rgba(0, 0, 0, 0.6), 0 8px 22px rgba(0, 0, 0, 0.45);
+      inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 7px 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.6),
+      0 8px 22px rgba(0, 0, 0, 0.45);
     --app-button-primary-shadow-hover:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-      0 2px 4px rgba(0, 0, 0, 0.7), 0 12px 28px rgba(0, 0, 0, 0.5);
+      inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
+      0 12px 28px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -467,14 +482,17 @@
   --app-accent-ring: rgba(126, 117, 245, 0.55);
   --app-accent-glow: rgba(126, 117, 245, 0.3);
 
-  --app-cta-bg: linear-gradient(180deg, #1c1c22 0%, #0c0c10 100%);
+  /* Keep in sync with the @media block above — see the V3 note there. */
+  --app-cta-bg: linear-gradient(180deg, #26262c 0%, #131318 100%);
 
   --app-button-primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.6), 0 8px 22px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 7px 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 8px 22px rgba(0, 0, 0, 0.45);
   --app-button-primary-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 2px 4px rgba(0, 0, 0, 0.7), 0 12px 28px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
+    0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -1760,6 +1778,24 @@
   }
   .app-toast--danger .app-toast-icon {
     background-color: color-mix(in srgb, var(--app-red-2) 65%, transparent);
+  }
+
+  /* `app-frost-overlay` — frosted glass for floating surfaces that sit
+   * above page content (chat approval tray; reach for it for future
+   * popovers/menus too). Ported from dimension's frost-popover recipe,
+   * translated to app-grammar tokens: translucent bg-2 fill + backdrop
+   * blur + a faint top-left radial sheen + the theme-aware elevated
+   * hairline, finished with a layered drop so it reads as lifted. */
+  .app-frost-overlay {
+    background:
+      radial-gradient(120% 90% at 8% -12%, rgba(255, 255, 255, 0.09), transparent 60%),
+      color-mix(in srgb, var(--app-bg-2) 88%, transparent);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    box-shadow:
+      var(--app-shadow-elevated),
+      0 2px 8px rgba(0, 0, 0, 0.07),
+      0 16px 40px -12px rgba(0, 0, 0, 0.22);
   }
 
   /* `app-frost-header` — masked backdrop-blur that fades to no-blur at the

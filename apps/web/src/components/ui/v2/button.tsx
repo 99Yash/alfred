@@ -31,10 +31,12 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>;
 }
 
+/* Radius scales with height: 12px on a 28px-tall `sm` button reads almost
+ * pill-shaped, so small buttons step down to keep corners proportional. */
 const SIZE: Record<AppButtonSize, string> = {
-  sm: "h-7 px-2.5 text-[13px] gap-1.5",
-  md: "h-8 px-2.5 text-sm gap-2",
-  lg: "h-9 px-3 text-sm gap-2",
+  sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-[9px]",
+  md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",
+  lg: "h-9 px-3 text-sm gap-2 rounded-xl",
 };
 
 /* Recipes
@@ -107,8 +109,12 @@ export function AppButton({
       data-loading={loading || undefined}
       className={cn(
         "relative inline-flex items-center justify-center isolate",
-        "rounded-xl font-medium whitespace-nowrap select-none",
-        "transition-[filter,background-color,box-shadow,transform]",
+        "font-medium whitespace-nowrap select-none",
+        /* Hover fill/glow tweens at 300ms; transform keeps 150ms so the
+         * app-press scale still feels snappy. Durations are positional —
+         * they pair with the property list order. */
+        "transition-[filter,background-color,box-shadow,transform] ease-out",
+        "[transition-duration:300ms,300ms,300ms,150ms]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
         "app-press",
         SIZE[size],
