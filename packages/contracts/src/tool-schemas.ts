@@ -40,19 +40,27 @@ export const calendarListEventsInput = z
       ),
     window: z
       .enum(["today", "tomorrow", "next_7_days"])
-      .default("next_7_days")
+      .optional()
       .describe(
-        "Relative window in the user's timezone when explicit bounds are omitted. Use 'tomorrow' for requests like 'tomorrow morning'.",
+        "Relative window in the user's timezone when explicit bounds are omitted. Omit for the next 7 days. Use 'tomorrow' for requests like 'tomorrow morning'.",
       ),
     partOfDay: z
       .enum(["full_day", "morning", "afternoon", "evening"])
-      .default("full_day")
+      .optional()
       .describe(
-        "Optional narrowing for today/tomorrow: morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
+        "Optional narrowing for today/tomorrow. Omit for full day. morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
       ),
     maxResults: z.number().int().min(1).max(50).default(10),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      !(Boolean(value.timeMin || value.timeMax) && Boolean(value.window || value.partOfDay)),
+    {
+      message: "Use either explicit timeMin/timeMax bounds or relative window/partOfDay, not both.",
+      path: ["window"],
+    },
+  );
 
 export const calendarCreateEventInput = z
   .object({
@@ -165,7 +173,9 @@ export const searchPullRequestsInput = z
       .string()
       .max(256)
       .optional()
-      .describe('Extra GitHub search qualifiers appended verbatim, e.g. "repo:owner/name label:bug".'),
+      .describe(
+        'Extra GitHub search qualifiers appended verbatim, e.g. "repo:owner/name label:bug".',
+      ),
     perPage: z
       .number()
       .int()

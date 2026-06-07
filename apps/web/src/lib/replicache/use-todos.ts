@@ -5,9 +5,9 @@ import { authClient } from "~/lib/auth-client";
 import { useReplicacheStatus } from "./context";
 
 export interface TodosState {
-  /** Live todos (`open` first, then `done`), creation-ordered within each. */
+  /** Live todos (`open` first, then `done`), newest-created first within each. */
   todos: SyncedTodo[];
-  /** Alfred's pending proposals (`suggested`), creation-ordered. */
+  /** Alfred's pending proposals (`suggested`), newest-created first. */
   suggestions: SyncedTodo[];
   loading: boolean;
   error: string | null;
@@ -42,7 +42,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   if (a.position != null && b.position != null && a.position !== b.position) {
     return a.position - b.position;
   }
-  return a.createdAt.localeCompare(b.createdAt);
+  return b.createdAt.localeCompare(a.createdAt);
 }
 
 /**

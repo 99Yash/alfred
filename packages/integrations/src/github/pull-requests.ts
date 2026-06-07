@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * GitHub pull-request reads via the REST Search API. Read-only; uses the
  * user's stored access token. Mirrors the thin-fetch style of the Google
@@ -46,22 +48,26 @@ function repositoryFromUrl(repositoryUrl: unknown): string {
   return idx >= 0 ? repositoryUrl.slice(idx + marker.length) : "";
 }
 
-interface SearchIssuesItem {
-  number: number;
-  title: string;
-  html_url: string;
-  state: string;
-  created_at: string;
-  closed_at: string | null;
-  repository_url: string;
-  pull_request?: { merged_at: string | null };
-}
-
-interface SearchIssuesResponse {
-  total_count: number;
-  incomplete_results: boolean;
-  items: SearchIssuesItem[];
-}
+const searchIssuesResponseSchema = z.object({
+  total_count: z.number(),
+  incomplete_results: z.boolean(),
+  items: z.array(
+    z.object({
+      number: z.number(),
+      title: z.string(),
+      html_url: z.string(),
+      state: z.string(),
+      created_at: z.string(),
+      closed_at: z.string().nullable(),
+      repository_url: z.string(),
+      pull_request: z
+        .object({
+          merged_at: z.string().nullable().optional(),
+        })
+        .optional(),
+    }),
+  ),
+});
 
 export async function searchPullRequests(
   args: SearchPullRequestsArgs,
@@ -85,7 +91,7 @@ export async function searchPullRequests(
     const body = await res.text().catch(() => "");
     throw new Error(`[github] ${res.status} search/issues :: ${body.slice(0, 300)}`);
   }
-  const json = (await res.json()) as SearchIssuesResponse;
+  const json = searchIssuesResponseSchema.parse(await res.json());
   const items: PullRequestHit[] = (json.items ?? []).map((it) => ({
     number: it.number,
     title: it.title,

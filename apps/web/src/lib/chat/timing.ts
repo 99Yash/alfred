@@ -61,10 +61,7 @@ export function markChatTimingByUser(
 ): void {
   if (!DEV) return;
   const turn = byUserMessageId.get(userMessageId);
-  if (!turn) {
-    if (options?.requireExisting) return;
-    return;
-  }
+  if (!turn) return;
   mark(turn, stage, detail, options);
 }
 

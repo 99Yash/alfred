@@ -12,6 +12,7 @@ import {
 import type { z } from "zod";
 import { isValidTimezone, localDateInTimezone } from "../briefing/preferences";
 import { getPreference } from "../memory/preferences";
+import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -72,6 +73,11 @@ export function resolveCalendarListWindow(
   now: Date = new Date(),
 ): CalendarListWindow {
   if (input.timeMin || input.timeMax) {
+    if (input.window || input.partOfDay) {
+      throw new Error(
+        "calendar.list_events accepts either explicit timeMin/timeMax bounds or relative window/partOfDay, not both",
+      );
+    }
     const timeMin = input.timeMin ? new Date(input.timeMin) : now;
     const timeMax = input.timeMax
       ? new Date(input.timeMax)
@@ -83,7 +89,8 @@ export function resolveCalendarListWindow(
   }
 
   const today = localDateInTimezone(timezone, now);
-  if (input.window === "next_7_days") {
+  const relativeWindow = input.window ?? "next_7_days";
+  if (relativeWindow === "next_7_days") {
     return {
       timeMin: localTimeInTimezone(today, 0, timezone),
       timeMax: localTimeInTimezone(addLocalDays(today, 7), 0, timezone),
@@ -91,8 +98,8 @@ export function resolveCalendarListWindow(
     };
   }
 
-  const date = input.window === "tomorrow" ? addLocalDays(today, 1) : today;
-  const [startHour, endHour] = partOfDayHours(input.partOfDay);
+  const date = relativeWindow === "tomorrow" ? addLocalDays(today, 1) : today;
+  const [startHour, endHour] = partOfDayHours(input.partOfDay ?? "full_day");
   return {
     timeMin: localTimeInTimezone(date, startHour, timezone),
     timeMax:
@@ -103,7 +110,7 @@ export function resolveCalendarListWindow(
   };
 }
 
-function partOfDayHours(part: CalendarListEventsInput["partOfDay"]): [number, number] {
+function partOfDayHours(part: NonNullable<CalendarListEventsInput["partOfDay"]>): [number, number] {
   switch (part) {
     case "morning":
       return [6, 12];
@@ -113,45 +120,13 @@ function partOfDayHours(part: CalendarListEventsInput["partOfDay"]): [number, nu
       return [17, 22];
     case "full_day":
       return [0, 24];
+    default:
+      return assertNever(part);
   }
 }
 
-function localTimeInTimezone(localDate: string, hour: number, timezone: string): Date {
-  let candidate = new Date(Date.UTC(...dateParts(localDate), hour));
-  for (let i = 0; i < 3; i += 1) {
-    candidate = new Date(
-      Date.UTC(...dateParts(localDate), hour) - timezoneOffsetMs(candidate, timezone),
-    );
-  }
-  return candidate;
-}
-
-function timezoneOffsetMs(at: Date, timezone: string): number {
-  const value =
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "longOffset",
-    })
-      .formatToParts(at)
-      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);
-  if (!match?.groups?.sign) return 0;
-
-  const sign = match.groups.sign === "-" ? -1 : 1;
-  const hours = Number(match.groups.hours);
-  const minutes = Number(match.groups.minutes ?? "0");
-  return sign * (hours * 60 + minutes) * 60_000;
-}
-
-function addLocalDays(localDate: string, days: number): string {
-  const next = new Date(Date.UTC(...dateParts(localDate), 12));
-  next.setUTCDate(next.getUTCDate() + days);
-  return next.toISOString().slice(0, 10);
-}
-
-function dateParts(localDate: string): [number, number, number] {
-  const [year, month, day] = localDate.split("-").map(Number);
-  return [year ?? 0, (month ?? 1) - 1, day ?? 1];
+function assertNever(value: never): never {
+  throw new Error(`Unhandled calendar partOfDay: ${String(value)}`);
 }
 
 function compactEvent(credential: CalendarCredential, event: CalendarEvent) {

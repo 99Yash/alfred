@@ -1,4 +1,5 @@
 import { toolInputFields, type FieldSpec, type ToolName } from "@alfred/contracts";
+import { asRecord } from "~/lib/json-record";
 import { formatDateTime, formatJson, stringArray, stringValue } from "./format";
 
 /**
@@ -24,8 +25,7 @@ export function InputRenderer({ toolName, input }: { toolName: ToolName; input: 
   // Show what's actually being sent: provided values, plus required/defaulted
   // fields. Untouched optionals stay hidden so the card reads cleanly.
   const visible = fields.filter(
-    (field) =>
-      record[field.key] !== undefined || field.default !== undefined || !field.optional,
+    (field) => record[field.key] !== undefined || field.default !== undefined || !field.optional,
   );
 
   return (
@@ -71,13 +71,15 @@ function formatField(field: FieldSpec, value: unknown): string {
     case "number":
     case "integer":
       return typeof value === "number" ? String(value) : stringValue(value);
-    default:
+    case "text":
+    case "email":
+    case "textarea":
       return stringValue(value);
+    default:
+      return assertNever(field);
   }
 }
 
-function asRecord(input: unknown): Record<string, unknown> | null {
-  return input && typeof input === "object" && !Array.isArray(input)
-    ? (input as Record<string, unknown>)
-    : null;
+function assertNever(value: never): never {
+  throw new Error(`Unhandled field kind: ${JSON.stringify(value)}`);
 }

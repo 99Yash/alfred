@@ -1,8 +1,8 @@
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { Calendar, Check, Mail } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { TodoItem } from "./helpers";
 import { RailAddRow } from "./rail-add-row";
-import { RailSection } from "./rail-section";
 import { SuggestionRow } from "./suggestion-row";
 
 export interface SuggestionInput {
@@ -30,22 +30,25 @@ export function TodoFeed({
   /** Accept a suggestion (`suggested → open`). */
   onPromoteSuggestion?: (id: string) => void;
 }) {
+  const [openListRef] = useAutoAnimate<HTMLUListElement>();
+  const [doneListRef] = useAutoAnimate<HTMLUListElement>();
+  const [suggestionsListRef] = useAutoAnimate<HTMLDivElement>();
   const open = items.filter((t) => !t.done);
   const done = items.filter((t) => t.done);
 
   return (
     <div className="app-card-in space-y-4 px-1 pt-1">
-      {open.length ? (
-        <ul className="space-y-0.5">
-          {open.map((todo) => (
-            <TodoRow
-              key={todo.id}
-              todo={todo}
-              onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
-            />
-          ))}
-        </ul>
-      ) : (
+      <ul ref={openListRef} className="space-y-0.5">
+        {open.map((todo) => (
+          <TodoRow
+            key={todo.id}
+            todo={todo}
+            onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
+          />
+        ))}
+      </ul>
+
+      {open.length ? null : (
         <EmptyHint>
           Nothing on your list yet. Add one below or let Alfred surface tasks from your inbox.
         </EmptyHint>
@@ -53,25 +56,30 @@ export function TodoFeed({
 
       <RailAddRow placeholder="Add a to-do…" onSubmit={onCreateTodo} />
 
-      {done.length ? (
-        <div className="pt-1">
+      <div className={done.length ? "pt-1" : undefined}>
+        {done.length ? (
           <div className="px-2 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
             Done
           </div>
-          <ul className="space-y-0.5">
-            {done.map((todo) => (
-              <TodoRow
-                key={todo.id}
-                todo={todo}
-                onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
-              />
-            ))}
-          </ul>
-        </div>
-      ) : null}
+        ) : null}
+        <ul ref={doneListRef} className="space-y-0.5">
+          {done.map((todo) => (
+            <TodoRow
+              key={todo.id}
+              todo={todo}
+              onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
+            />
+          ))}
+        </ul>
+      </div>
 
-      {suggestions.length ? (
-        <RailSection title="Suggestions">
+      <div className={suggestions.length ? "pt-3" : undefined}>
+        {suggestions.length ? (
+          <div className="px-1 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
+            Suggestions
+          </div>
+        ) : null}
+        <div ref={suggestionsListRef} className="space-y-1">
           {suggestions.map((s) => (
             <SuggestionRow
               key={s.id ?? s.label}
@@ -80,8 +88,8 @@ export function TodoFeed({
               onAccept={s.id && onPromoteSuggestion ? () => onPromoteSuggestion(s.id!) : undefined}
             />
           ))}
-        </RailSection>
-      ) : null}
+        </div>
+      </div>
     </div>
   );
 }

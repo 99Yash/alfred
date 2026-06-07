@@ -1,4 +1,5 @@
 import { humanizeToolName, type ToolName } from "@alfred/contracts";
+import { asRecord } from "~/lib/json-record";
 import { stringArray, stringValue } from "./format";
 
 /**
@@ -23,12 +24,6 @@ const TITLE_OVERRIDES: Partial<Record<ToolName, (input: Record<string, unknown>)
     return summary ? `Schedule “${summary}”` : "Create a calendar event";
   },
 };
-
-function asRecord(input: unknown): Record<string, unknown> | null {
-  return input && typeof input === "object" && !Array.isArray(input)
-    ? (input as Record<string, unknown>)
-    : null;
-}
 
 function capitalize(value: string): string {
   return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
