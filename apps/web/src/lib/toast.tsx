@@ -59,7 +59,7 @@ export function callToast({
             }}
             className={cn(
               "ml-1 shrink-0 rounded-lg px-2 py-1 text-[12.5px] font-medium",
-              "text-app-fg-5 transition-colors hover:bg-app-fg-a1/60",
+              "text-app-fg-4 transition-colors hover:bg-app-fg-a1/60",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
             )}
           >

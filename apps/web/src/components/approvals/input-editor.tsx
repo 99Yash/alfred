@@ -1,10 +1,17 @@
-import { toolInputFields, type FieldSpec, type ToolName } from "@alfred/contracts";
+import {
+  calendarListEventsInput,
+  toolInputFields,
+  type FieldSpec,
+  type ToolName,
+} from "@alfred/contracts";
 import { useEffect, useState } from "react";
+import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { asRecord, type JsonRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
+type CalendarListEventsKey = keyof z.input<typeof calendarListEventsInput>;
 
 /**
  * Editable view of a staged tool's proposed input. Every control is derived
@@ -56,8 +63,18 @@ export function ApprovalInputEditor({
   );
 }
 
-const CALENDAR_EXPLICIT_TIME_KEYS = new Set(["timeMin", "timeMax"]);
-const CALENDAR_RELATIVE_TIME_KEYS = new Set(["window", "partOfDay"]);
+// z.toJSONSchema cannot preserve calendarListEventsInput's explicit-vs-relative
+// refine, so this UI visibility rule intentionally mirrors the schema and
+// resolver guards. Type it against the zod input so key renames fail at compile
+// time instead of silently showing the wrong field set.
+const CALENDAR_EXPLICIT_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
+  "timeMin",
+  "timeMax",
+]);
+const CALENDAR_RELATIVE_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
+  "window",
+  "partOfDay",
+]);
 
 function editorFieldsForTool(
   toolName: ToolName,
@@ -70,13 +87,17 @@ function editorFieldsForTool(
     hasFieldValue(record, key),
   );
   if (hasExplicitWindow) {
-    return fields.filter((field) => !CALENDAR_RELATIVE_TIME_KEYS.has(field.key));
+    return fields.filter((field) => !hasCalendarListKey(CALENDAR_RELATIVE_TIME_KEYS, field.key));
   }
 
-  return fields.filter((field) => !CALENDAR_EXPLICIT_TIME_KEYS.has(field.key));
+  return fields.filter((field) => !hasCalendarListKey(CALENDAR_EXPLICIT_TIME_KEYS, field.key));
 }
 
-function hasFieldValue(record: JsonRecord, key: string): boolean {
+function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: string): boolean {
+  return (keys as ReadonlySet<string>).has(key);
+}
+
+function hasFieldValue(record: JsonRecord, key: CalendarListEventsKey): boolean {
   const value = record[key];
   return value !== undefined && value !== null && value !== "";
 }
@@ -144,6 +165,7 @@ function FieldControl({
       return (
         <AppSelect
           id={id}
+          label={field.label}
           value={typeof value === "string" ? value : undefined}
           onChange={onChange}
           options={field.options}

@@ -18,4 +18,10 @@ describe("undeclaredToolMessage", () => {
 
     assert.equal(message, "Tool 'list_events' is not declared");
   });
+
+  test("does not suggest an integration for ambiguous bare actions", () => {
+    const message = undeclaredToolMessage("batch_update");
+
+    assert.equal(message, "Tool 'batch_update' is not declared");
+  });
 });
