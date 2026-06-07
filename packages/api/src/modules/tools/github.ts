@@ -8,54 +8,14 @@
  * spawning a sub-agent (which it did when GitHub had no tools).
  */
 
+import { searchPullRequestsInput } from "@alfred/contracts";
 import {
   getGithubAccessToken,
   listGithubCredentials,
   searchPullRequests,
 } from "@alfred/integrations/github";
-import { z } from "zod";
+import type { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
-
-const searchPullRequestsInput = z
-  .object({
-    author: z
-      .string()
-      .min(1)
-      .max(100)
-      .default("@me")
-      .describe("PR author login, or `@me` (default) for the connected user."),
-    state: z
-      .enum(["open", "closed", "merged", "all"])
-      .default("all")
-      .describe("PR state filter. `closed` includes merged PRs; `merged` is merged-only."),
-    closedWithinDays: z
-      .number()
-      .int()
-      .min(1)
-      .max(365)
-      .optional()
-      .describe("Only PRs closed within the last N days (e.g. 7 for the past week)."),
-    createdWithinDays: z
-      .number()
-      .int()
-      .min(1)
-      .max(365)
-      .optional()
-      .describe("Only PRs created within the last N days."),
-    query: z
-      .string()
-      .max(256)
-      .optional()
-      .describe('Extra GitHub search qualifiers appended verbatim, e.g. "repo:owner/name label:bug".'),
-    perPage: z
-      .number()
-      .int()
-      .min(1)
-      .max(100)
-      .default(30)
-      .describe("Max PRs to return in the list (the total count is always exact)."),
-  })
-  .strict();
 
 type SearchPullRequestsInput = z.infer<typeof searchPullRequestsInput>;
 

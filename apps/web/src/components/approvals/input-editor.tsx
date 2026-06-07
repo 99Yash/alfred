@@ -1,154 +1,18 @@
-import type { ToolName } from "@alfred/contracts";
+import { toolInputFields, type FieldSpec, type ToolName } from "@alfred/contracts";
+import { useEffect, useState } from "react";
 import { AppInput, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { formatJson } from "./format";
+import { formatJson, parseJson } from "./format";
 
 type JsonRecord = Record<string, unknown>;
 
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-interface FieldMeta {
-  label: string;
-  kind?: "text" | "textarea" | "datetime" | "number" | "boolean" | "select" | "string_array";
-  options?: readonly SelectOption[];
-  min?: number;
-  max?: number;
-  step?: number;
-  placeholder?: string;
-  optional?: boolean;
-  alwaysShow?: boolean;
-}
-
-const GITHUB_STATE_OPTIONS: readonly SelectOption[] = [
-  { value: "open", label: "Open" },
-  { value: "closed", label: "Closed" },
-  { value: "merged", label: "Merged" },
-  { value: "all", label: "All" },
-];
-
-const CALENDAR_WINDOW_OPTIONS: readonly SelectOption[] = [
-  { value: "today", label: "Today" },
-  { value: "tomorrow", label: "Tomorrow" },
-  { value: "next_7_days", label: "Next 7 days" },
-];
-
-const PART_OF_DAY_OPTIONS: readonly SelectOption[] = [
-  { value: "full_day", label: "Full day" },
-  { value: "morning", label: "Morning" },
-  { value: "afternoon", label: "Afternoon" },
-  { value: "evening", label: "Evening" },
-];
-
-const TOOL_FIELD_ORDER: Partial<Record<ToolName, readonly string[]>> = {
-  "github.search_pull_requests": [
-    "query",
-    "state",
-    "author",
-    "closedWithinDays",
-    "createdWithinDays",
-    "perPage",
-  ],
-  "calendar.list_events": ["window", "partOfDay", "timeMin", "timeMax", "maxResults"],
-  "calendar.create_event": [
-    "calendarId",
-    "summary",
-    "start",
-    "end",
-    "timeZone",
-    "location",
-    "attendees",
-    "description",
-  ],
-};
-
-const FIELD_META: Partial<Record<ToolName, Record<string, FieldMeta>>> = {
-  "github.search_pull_requests": {
-    query: {
-      label: "Search query",
-      kind: "text",
-      placeholder: "repo:owner/name label:bug",
-      optional: true,
-      alwaysShow: true,
-    },
-    state: {
-      label: "State",
-      kind: "select",
-      options: GITHUB_STATE_OPTIONS,
-      alwaysShow: true,
-    },
-    author: {
-      label: "Author",
-      kind: "text",
-      placeholder: "@me",
-      alwaysShow: true,
-    },
-    closedWithinDays: {
-      label: "Closed within days",
-      kind: "number",
-      min: 1,
-      max: 365,
-      step: 1,
-      optional: true,
-    },
-    createdWithinDays: {
-      label: "Created within days",
-      kind: "number",
-      min: 1,
-      max: 365,
-      step: 1,
-      optional: true,
-    },
-    perPage: {
-      label: "Results",
-      kind: "number",
-      min: 1,
-      max: 100,
-      step: 1,
-      alwaysShow: true,
-    },
-  },
-  "calendar.list_events": {
-    window: {
-      label: "Window",
-      kind: "select",
-      options: CALENDAR_WINDOW_OPTIONS,
-      alwaysShow: true,
-    },
-    partOfDay: {
-      label: "Part of day",
-      kind: "select",
-      options: PART_OF_DAY_OPTIONS,
-      alwaysShow: true,
-    },
-    timeMin: { label: "Starts after", kind: "datetime", optional: true },
-    timeMax: { label: "Ends before", kind: "datetime", optional: true },
-    maxResults: { label: "Max events", kind: "number", min: 1, max: 50, step: 1, alwaysShow: true },
-  },
-  "calendar.create_event": {
-    calendarId: { label: "Calendar", kind: "text", placeholder: "primary", alwaysShow: true },
-    summary: { label: "Title", kind: "text", alwaysShow: true },
-    start: { label: "Start", kind: "datetime", alwaysShow: true },
-    end: { label: "End", kind: "datetime", alwaysShow: true },
-    timeZone: {
-      label: "Timezone",
-      kind: "text",
-      placeholder: "Asia/Kolkata",
-      optional: true,
-    },
-    location: { label: "Location", kind: "text", optional: true },
-    attendees: {
-      label: "Attendees",
-      kind: "string_array",
-      placeholder: "one@email.com\nanother@email.com",
-      optional: true,
-    },
-    description: { label: "Description", kind: "textarea", optional: true },
-  },
-};
-
+/**
+ * Editable view of a staged tool's proposed input. Every control is derived
+ * from the tool's zod `inputSchema` (via `toolInputFields`) — an enum renders
+ * a dropdown, a bounded integer a stepper, a datetime a picker, an email list
+ * a multi-line editor — so the form can't drift from what the server accepts.
+ * Tools without a derivable schema fall back to a raw-JSON editor.
+ */
 export function ApprovalInputEditor({
   toolName,
   value,
@@ -163,70 +27,51 @@ export function ApprovalInputEditor({
   idPrefix: string;
 }) {
   const record = asRecord(value);
+  const fields = toolInputFields(toolName);
 
-  if (!record) {
-    return (
-      <div className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
-        <p className="text-[12px] leading-5 text-app-fg-3">
-          This input is not an editable object yet. Review the raw value below.
-        </p>
-        <pre className="mt-2 max-h-52 overflow-auto rounded-lg bg-app-bg-1 p-3 font-mono text-[12px] leading-5 text-app-fg-4 shadow-[0_0_0_1px_var(--app-fg-a1)]">
-          {formatJson(value)}
-        </pre>
-      </div>
-    );
+  if (!record || !fields) {
+    return <JsonFallbackEditor value={value} onChange={onChange} disabled={disabled} />;
   }
 
-  const keys = editableKeys(toolName, record);
   return (
     <div className="grid gap-3 rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] sm:grid-cols-2">
-      {keys.map((key) => {
-        const meta = fieldMeta(toolName, key);
-        const fieldValue = record[key];
-        return (
-          <EditableField
-            key={key}
-            id={`${idPrefix}-${key}`}
-            fieldKey={key}
-            meta={meta}
-            value={fieldValue}
-            disabled={disabled}
-            onChange={(next) => {
-              const updated = { ...record };
-              if (next === undefined) delete updated[key];
-              else updated[key] = next;
-              onChange(updated);
-            }}
-          />
-        );
-      })}
+      {fields.map((field) => (
+        <EditableField
+          key={field.key}
+          id={`${idPrefix}-${field.key}`}
+          field={field}
+          value={record[field.key] ?? field.default}
+          disabled={disabled}
+          onChange={(next) => {
+            const updated = { ...record };
+            if (next === undefined) delete updated[field.key];
+            else updated[field.key] = next;
+            onChange(updated);
+          }}
+        />
+      ))}
     </div>
   );
 }
 
 function EditableField({
   id,
-  fieldKey,
-  meta,
+  field,
   value,
   disabled,
   onChange,
 }: {
   id: string;
-  fieldKey: string;
-  meta: FieldMeta;
+  field: FieldSpec;
   value: unknown;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
-  const kind = meta.kind ?? inferKind(value);
-  const label = meta.label;
-
-  if (kind === "boolean") {
+  if (field.kind === "boolean") {
     return (
       <div className="flex min-h-16 items-center justify-between gap-3 rounded-lg bg-app-bg-1/70 px-3 py-2 shadow-[0_0_0_1px_var(--app-fg-a1)]">
         <label htmlFor={id} className="min-w-0 text-[12px] font-medium text-app-fg-3">
-          {label}
+          {field.label}
         </label>
         <AppSwitch
           id={id}
@@ -239,38 +84,35 @@ function EditableField({
   }
 
   return (
-    <div className={kind === "textarea" || kind === "string_array" ? "sm:col-span-2" : undefined}>
+    <div className={field.multiline ? "sm:col-span-2" : undefined}>
       <label
         htmlFor={id}
+        title={field.description}
         className="text-[11px] font-medium uppercase tracking-tight text-app-fg-2"
       >
-        {label}
+        {field.label}
       </label>
       <div className="mt-1.5">
-        {renderControl({ id, fieldKey, kind, meta, value, disabled, onChange })}
+        <FieldControl id={id} field={field} value={value} disabled={disabled} onChange={onChange} />
       </div>
     </div>
   );
 }
 
-function renderControl({
+function FieldControl({
   id,
-  fieldKey,
-  kind,
-  meta,
+  field,
   value,
   disabled,
   onChange,
 }: {
   id: string;
-  fieldKey: string;
-  kind: FieldMeta["kind"];
-  meta: FieldMeta;
+  field: FieldSpec;
   value: unknown;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
-  if (kind === "select") {
+  if (field.kind === "select") {
     return (
       <select
         id={id}
@@ -284,8 +126,8 @@ function renderControl({
           "disabled:cursor-not-allowed disabled:opacity-60",
         )}
       >
-        {meta.optional ? <option value="">Any</option> : null}
-        {(meta.options ?? []).map((option) => (
+        {field.optional ? <option value="">Any</option> : null}
+        {(field.options ?? []).map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
@@ -294,18 +136,17 @@ function renderControl({
     );
   }
 
-  if (kind === "number") {
+  if (field.kind === "number" || field.kind === "integer") {
     return (
       <AppInput
         id={id}
         type="number"
-        inputMode="numeric"
-        min={meta.min}
-        max={meta.max}
-        step={meta.step ?? 1}
+        inputMode={field.kind === "integer" ? "numeric" : "decimal"}
+        min={field.min}
+        max={field.max}
+        step={field.step ?? (field.kind === "integer" ? 1 : undefined)}
         value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
         disabled={disabled}
-        placeholder={meta.placeholder}
         onChange={(e) => {
           const next = e.target.value.trim();
           onChange(next === "" ? undefined : Number(next));
@@ -314,7 +155,7 @@ function renderControl({
     );
   }
 
-  if (kind === "datetime") {
+  if (field.kind === "datetime") {
     return (
       <AppInput
         id={id}
@@ -329,28 +170,14 @@ function renderControl({
     );
   }
 
-  if (kind === "textarea") {
-    return (
-      <AppTextarea
-        id={id}
-        value={typeof value === "string" ? value : ""}
-        rows={3}
-        disabled={disabled}
-        placeholder={meta.placeholder}
-        onChange={(e) => onChange(emptyToUndefined(e.target.value, meta))}
-        className="min-h-24"
-      />
-    );
-  }
-
-  if (kind === "string_array") {
+  if (field.kind === "string_array") {
     return (
       <AppTextarea
         id={id}
         value={Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : ""}
         rows={3}
         disabled={disabled}
-        placeholder={meta.placeholder}
+        placeholder="One per line"
         onChange={(e) => {
           const items = e.target.value
             .split(/[,\n]/)
@@ -363,66 +190,127 @@ function renderControl({
     );
   }
 
-  if (kind === "text") {
+  if (field.kind === "json") {
+    return <JsonField id={id} value={value} disabled={disabled} onChange={onChange} />;
+  }
+
+  if (field.kind === "textarea") {
     return (
-      <AppInput
+      <AppTextarea
         id={id}
-        value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
+        value={typeof value === "string" ? value : ""}
+        rows={3}
         disabled={disabled}
-        placeholder={meta.placeholder}
-        onChange={(e) => onChange(emptyToUndefined(e.target.value, meta))}
+        onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
+        className="min-h-24"
       />
     );
   }
 
+  // text + email
   return (
-    <pre className="max-h-40 overflow-auto rounded-xl bg-app-bg-1 p-3 font-mono text-[12px] leading-5 text-app-fg-4 shadow-[0_0_0_1px_var(--app-fg-a1)]">
-      {formatJson({ [fieldKey]: value })}
-    </pre>
+    <AppInput
+      id={id}
+      type={field.kind === "email" ? "email" : "text"}
+      value={typeof value === "string" ? value : value === undefined ? "" : String(value)}
+      disabled={disabled}
+      onChange={(e) => onChange(emptyToUndefined(e.target.value, field.optional))}
+    />
   );
 }
 
-function editableKeys(toolName: ToolName, record: JsonRecord): string[] {
-  const order = TOOL_FIELD_ORDER[toolName] ?? [];
-  const meta = FIELD_META[toolName] ?? {};
-  const seen = new Set<string>();
-  const keys: string[] = [];
+/** A single object/array field edited as JSON text, committed only when valid. */
+function JsonField({
+  id,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  value: unknown;
+  disabled: boolean | undefined;
+  onChange: (value: unknown) => void;
+}) {
+  const [text, setText] = useState(() => formatJson(value));
+  const [error, setError] = useState<string | null>(null);
 
-  for (const key of order) {
-    const show = Object.hasOwn(record, key) || meta[key]?.alwaysShow;
-    if (show && !seen.has(key)) {
-      keys.push(key);
-      seen.add(key);
-    }
-  }
-
-  for (const key of Object.keys(record)) {
-    if (!seen.has(key)) keys.push(key);
-  }
-
-  return keys;
+  return (
+    <div>
+      <AppTextarea
+        id={id}
+        value={text}
+        rows={4}
+        disabled={disabled}
+        spellCheck={false}
+        onChange={(e) => {
+          setText(e.target.value);
+          const parsed = parseJson(e.target.value);
+          if (parsed.ok) {
+            setError(null);
+            onChange(parsed.value);
+          } else {
+            setError(parsed.message);
+          }
+        }}
+        className="min-h-24 font-mono text-[12px]"
+      />
+      {error ? <p className="mt-1 text-[11px] text-app-red-4">{error}</p> : null}
+    </div>
+  );
 }
 
-function fieldMeta(toolName: ToolName, key: string): FieldMeta {
-  return FIELD_META[toolName]?.[key] ?? { label: humanizeKey(key) };
-}
+/** Whole-input fallback when the tool has no derivable field schema. */
+function JsonFallbackEditor({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  disabled: boolean | undefined;
+}) {
+  const [text, setText] = useState(() => formatJson(value));
+  const [error, setError] = useState<string | null>(null);
+  // Re-seed when the staged value changes underneath us (e.g. navigating
+  // between approvals reuses this component).
+  useEffect(() => {
+    setText(formatJson(value));
+    setError(null);
+  }, [value]);
 
-function inferKind(value: unknown): FieldMeta["kind"] {
-  if (typeof value === "boolean") return "boolean";
-  if (typeof value === "number") return "number";
-  if (typeof value === "string") return value.length > 90 ? "textarea" : "text";
-  if (Array.isArray(value) && value.every((item) => typeof item === "string"))
-    return "string_array";
-  return undefined;
+  return (
+    <div className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
+      <p className="text-[12px] leading-5 text-app-fg-3">
+        This tool has no structured form yet — edit the raw input below.
+      </p>
+      <AppTextarea
+        value={text}
+        rows={8}
+        disabled={disabled}
+        spellCheck={false}
+        onChange={(e) => {
+          setText(e.target.value);
+          const parsed = parseJson(e.target.value);
+          if (parsed.ok) {
+            setError(null);
+            onChange(parsed.value);
+          } else {
+            setError(parsed.message);
+          }
+        }}
+        className="mt-2 min-h-40 font-mono text-[12px]"
+      />
+      {error ? <p className="mt-1 text-[11px] text-app-red-4">{error}</p> : null}
+    </div>
+  );
 }
 
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
-function emptyToUndefined(value: string, meta: FieldMeta): string | undefined {
-  const trimmed = value.trim();
-  if (trimmed.length === 0 && meta.optional) return undefined;
+function emptyToUndefined(value: string, optional: boolean): string | undefined {
+  if (value.trim().length === 0 && optional) return undefined;
   return value;
 }
 
@@ -432,11 +320,4 @@ function toDateTimeLocal(value: unknown): string {
   if (!Number.isFinite(date.getTime())) return "";
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
-}
-
-function humanizeKey(key: string): string {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

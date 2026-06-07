@@ -1,4 +1,4 @@
-import { Check, Loader2, Sparkles, Wrench, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronRight, Sparkles, Wrench, X, type LucideIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations";
@@ -126,10 +126,14 @@ function failureReason(resultPreview: string | undefined): string | undefined {
 }
 
 /**
- * A single tool call surfaced as a live card. Shimmers while running, settles
- * to a check (or error) with an expandable result preview when it lands. The
- * leading glyph is the integration's own logo whenever the tool belongs to
- * one, so the user can see at a glance which service Alfred is touching.
+ * A single tool call surfaced inline as a light row — a sibling of the
+ * reasoning "Thought" row, not a heavy card. While running, the label sweeps
+ * the same shimmer mask as the reasoning trigger; it settles to a quiet check
+ * (or red ×) once it lands. Routine tool calls stay visually subordinate to
+ * the reply text; the framed treatment is reserved for the approval tray,
+ * which actually demands a decision. The leading glyph is the integration's
+ * own logo whenever the tool belongs to one, so the user can see at a glance
+ * which service Alfred is touching.
  */
 export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const panelId = useId();
@@ -147,7 +151,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const panelText = failed ? (failureReason(tool.resultPreview) ?? tool.resultPreview) : tool.resultPreview;
 
   return (
-    <div className="animate-chat-in rounded-xl border border-app-fg-a1/50 bg-app-bg-2/60 text-[13px]">
+    <div className="animate-chat-in text-[13px]">
       <button
         type="button"
         disabled={!expandable}
@@ -155,51 +159,63 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         aria-controls={expandable ? panelId : undefined}
         onClick={() => expandable && setOpen((v) => !v)}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left",
-          expandable && "cursor-pointer rounded-xl hover:bg-app-bg-a2",
+          "-mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left",
+          "transition-colors duration-150",
+          expandable
+            ? "cursor-pointer hover:bg-app-bg-a2"
+            : "cursor-default",
         )}
       >
         <span
-          className={cn(
-            "inline-flex size-5 shrink-0 items-center justify-center rounded-md",
-            running && "bg-app-purple-2/15 text-app-purple-4",
-            !running && !failed && "bg-app-green-2/15 text-app-green-4",
-            failed && "bg-app-red-2/15 text-app-red-4",
-          )}
+          aria-hidden
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
         >
-          {running ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : failed ? (
-            <X size={12} />
+          {brand ? (
+            <IntegrationGlyph brand={brand} size={14} />
           ) : (
-            <Check size={12} />
+            <FallbackIcon size={13} className="text-app-fg-3" />
           )}
         </span>
-        {brand ? (
-          <IntegrationGlyph brand={brand} size={14} className="shrink-0" />
-        ) : (
-          <FallbackIcon size={12} className="shrink-0 text-app-fg-3" />
-        )}
         <span
           className={cn(
-            "min-w-0 truncate",
-            running ? "animate-chat-shimmer text-app-fg-3" : failed ? "text-app-red-4" : "text-app-fg-4",
+            "min-w-0 truncate font-medium",
+            running
+              ? "animate-chat-shimmer-mask text-app-fg-4"
+              : failed
+                ? "text-app-red-4"
+                : "text-app-fg-4",
           )}
         >
-          {running ? `${title}…` : title}
+          {title}
         </span>
         {secondary ? (
-          <span className="ml-auto min-w-0 max-w-[55%] truncate text-right text-app-fg-3">
+          <span className="hidden min-w-0 max-w-[45%] truncate text-xs text-app-fg-3 sm:inline">
             {secondary}
           </span>
         ) : null}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {running ? null : failed ? (
+            <X size={14} aria-hidden className="text-app-red-4" />
+          ) : (
+            <Check size={14} aria-hidden className="text-app-green-4" />
+          )}
+          {expandable ? (
+            <ChevronRight
+              size={14}
+              aria-hidden
+              className={cn(
+                "text-app-fg-2 transition-transform duration-200",
+                open && "rotate-90",
+              )}
+            />
+          ) : null}
+        </span>
       </button>
-      {expandable ? (
+      {expandable && open ? (
         <pre
           id={panelId}
-          hidden={!open}
           className={cn(
-            "animate-chat-in overflow-x-auto whitespace-pre-wrap border-t border-app-fg-a1/40 px-3 py-2 text-[12px]",
+            "animate-chat-in ml-8 mt-1.5 overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
             failed ? "text-app-red-4/90" : "text-app-fg-3",
           )}
         >

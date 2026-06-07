@@ -1,6 +1,7 @@
 import type { SyncedChatMessage } from "@alfred/sync";
 import { Loader2, ShieldQuestion } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
@@ -51,6 +52,62 @@ export function Conversation({
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, stream]);
+
+  useEffect(() => {
+    if (!showStream || !stream) return;
+    const base = { requireExisting: true, runId: stream.runId };
+    if (
+      stream.text.length === 0 &&
+      stream.reasoning.length === 0 &&
+      stream.tools.length === 0 &&
+      !stream.awaitingApproval
+    ) {
+      markChatTimingByAssistant(stream.messageId, "thinking_indicator_rendered", undefined, base);
+    }
+    if (stream.reasoning.length > 0) {
+      markChatTimingByAssistant(
+        stream.messageId,
+        "first_visible_reasoning_rendered",
+        { visibleChars: stream.reasoning.length },
+        base,
+      );
+    }
+    if (stream.text.length > 0) {
+      markChatTimingByAssistant(
+        stream.messageId,
+        "first_visible_text_rendered",
+        { visibleChars: stream.text.length },
+        base,
+      );
+    }
+    if (stream.done) {
+      markChatTimingByAssistant(
+        stream.messageId,
+        "stream_done_rendered",
+        {
+          visibleChars: stream.text.length,
+          visibleReasoningChars: stream.reasoning.length,
+        },
+        { ...base, summarize: true },
+      );
+    }
+  }, [showStream, stream]);
+
+  useEffect(() => {
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      markChatTimingByAssistant(
+        message.id,
+        "persisted_assistant_rendered",
+        {
+          status: message.status,
+          chars: message.content.length,
+          reasoningChars: message.reasoning?.length ?? 0,
+        },
+        { requireExisting: true, summarize: true },
+      );
+    }
+  }, [messages]);
 
   return (
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
