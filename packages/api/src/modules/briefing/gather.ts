@@ -9,6 +9,7 @@ import type {
   WeatherContribution,
 } from "@alfred/contracts";
 import {
+  CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
   getFreshAccessToken,
   listEvents,
@@ -275,7 +276,7 @@ async function gatherCalendarContribution(args: {
 
   const calendarCreds = creds.filter((cred) => {
     const granted = (cred.scopes as string[] | null) ?? [];
-    return granted.includes(CALENDAR_READONLY_SCOPE);
+    return granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE);
   });
   if (calendarCreds.length === 0) return null;
 

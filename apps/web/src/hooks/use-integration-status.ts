@@ -5,6 +5,7 @@ import {
   INTEGRATION_PROVIDERS,
   PROVIDER_BACKEND,
   PROVIDER_REQUIRED_SCOPES,
+  type ProviderScopeRequirement,
   type IntegrationProvider,
 } from "~/lib/integrations";
 
@@ -118,7 +119,7 @@ function resolveOne(
     return { ...provider, connectedAccounts: [] };
   }
   const matching = creds.filter(
-    (c) => c.status === "active" && required.every((s) => c.scopes.includes(s)),
+    (c) => c.status === "active" && required.every((r) => meetsScopeRequirement(c.scopes, r)),
   );
   if (matching.length === 0) {
     return { ...provider, connectedAccounts: [] };
@@ -132,4 +133,13 @@ function resolveOne(
       connectedAt: c.createdAt,
     })),
   };
+}
+
+function meetsScopeRequirement(
+  scopes: ReadonlyArray<string>,
+  requirement: ProviderScopeRequirement,
+): boolean {
+  return typeof requirement === "string"
+    ? scopes.includes(requirement)
+    : requirement.some((scope) => scopes.includes(scope));
 }

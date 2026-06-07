@@ -37,7 +37,11 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
   github: {
     kind: "svg",
     slug: "github",
-    plainColor: "#f4f4f5",
+    // Theme-aware on chrome: GitHub's mark is monochrome, so a fixed near-white
+    // (#f4f4f5) vanished on light-mode surfaces (tool cards, connect row, mention
+    // menu). --app-fg-4 tracks the primary text tone — dark in light mode, light
+    // in dark mode. `frost` keeps white for the dark integration tiles.
+    plainColor: "var(--app-fg-4)",
     frostColor: "#f4f4f5",
   },
   gmail: { kind: "svg", slug: "gmail" },
