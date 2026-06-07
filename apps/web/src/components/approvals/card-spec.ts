@@ -39,3 +39,12 @@ export function cardTitle(toolName: ToolName, input: unknown): string {
   if (override && record) return override(record);
   return capitalize(humanizeToolName(toolName));
 }
+
+/**
+ * Human label for the tool-provenance chip — "Send a Gmail draft", never the
+ * raw `gmail.send_draft` symbol. Raw tool names are a developer artifact and
+ * don't belong on user-facing approval surfaces.
+ */
+export function toolChipLabel(toolName: ToolName): string {
+  return capitalize(humanizeToolName(toolName));
+}

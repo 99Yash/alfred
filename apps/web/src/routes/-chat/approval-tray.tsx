@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ApprovalDecision } from "~/components/approvals/approval-card";
-import { cardTitle } from "~/components/approvals/card-spec";
+import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
 import { formatJson, formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
 import { InputRenderer } from "~/components/approvals/input-renderer";
@@ -31,10 +31,13 @@ export function ChatApprovalTray({
   runId,
   approvals,
   awaitingApproval,
+  preview = false,
 }: {
   runId: string | undefined;
   approvals: readonly SyncedActionStaging[];
   awaitingApproval: boolean;
+  /** Styleguide-only: render with all interactions local — no toast, no audio, no API. */
+  preview?: boolean;
 }) {
   const ordered = useMemo(
     () => [...approvals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
@@ -61,7 +64,7 @@ export function ChatApprovalTray({
   if (!active) {
     if (!awaitingApproval) return null;
     return (
-      <div className="animate-chat-in rounded-2xl bg-app-bg-1/95 px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_var(--app-fg-a1)]">
+      <div className="app-frost-overlay animate-chat-in rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
           <Loader2 size={14} className="animate-spin" />
           <span>{recentDecision ? "Resuming after your decision…" : "Loading approval…"}</span>
@@ -78,6 +81,7 @@ export function ChatApprovalTray({
       onPrev={() => setIndex((v) => Math.max(0, v - 1))}
       onNext={() => setIndex((v) => Math.min(ordered.length - 1, v + 1))}
       onDecision={(decision) => setRecentDecision(decision)}
+      preview={preview}
     />
   );
 }
@@ -89,6 +93,7 @@ function ApprovalStep({
   onPrev,
   onNext,
   onDecision,
+  preview = false,
 }: {
   staging: SyncedActionStaging;
   step: number;
@@ -96,6 +101,7 @@ function ApprovalStep({
   onPrev: () => void;
   onNext: () => void;
   onDecision: (decision: ApprovalDecision["decision"]) => void;
+  preview?: boolean;
 }) {
   const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
   const [editing, setEditing] = useState(false);
@@ -133,6 +139,7 @@ function ApprovalStep({
   const reasonMissing = reason.trim().length === 0;
 
   useEffect(() => {
+    if (preview) return;
     if (notifiedIdsRef.current.has(staging.id)) return;
     notifiedIdsRef.current.add(staging.id);
     callToast({
@@ -146,10 +153,11 @@ function ApprovalStep({
       // Browsers can block audio until the page has user activation. The
       // inline tray remains the source of truth when that happens.
     });
-  }, [staging.id, title]);
+  }, [preview, staging.id, title]);
 
   const decide = async (decision: ApprovalDecision) => {
     if (busy || decided) return;
+    if (preview) return;
     setBusy(true);
     setError(null);
     try {
@@ -181,10 +189,7 @@ function ApprovalStep({
   return (
     <section
       aria-label="Approval required"
-      className={cn(
-        "animate-chat-in overflow-hidden rounded-2xl bg-app-bg-1/95",
-        "shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_var(--app-fg-a1)]",
-      )}
+      className={cn("app-frost-overlay animate-chat-in overflow-hidden rounded-2xl")}
     >
       <div className="flex items-start gap-3 px-3 py-3 sm:px-4">
         <ToolIcon integration={staging.integration} />
@@ -269,11 +274,11 @@ function ApprovalStep({
         {error ? <p className="mt-2 text-[12px] text-app-red-4">{error}</p> : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-app-bg-2/45 px-3 py-2.5 sm:px-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-app-bg-2/45 px-3 py-2.5 shadow-[0_-1px_0_var(--app-bg-a2)] sm:px-4">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-app-bg-1 px-2 py-1 text-[12px] font-medium text-app-fg-3 shadow-[0_0_0_1px_var(--app-fg-a1)]">
             <ShieldCheck size={13} />
-            {staging.toolName}
+            {toolChipLabel(staging.toolName)}
           </span>
           <Link
             to="/approvals"

@@ -9,8 +9,9 @@
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { use, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import { AppThemeContext } from "./theme";
 
 export interface AppSelectOption {
   value: string;
@@ -48,6 +49,12 @@ export function AppSelect({
 }: AppSelectProps) {
   const [open, setOpen] = useState(false);
   const listboxId = useId();
+  // The popover renders in a portal outside the `.app` subtree, so CSS token
+  // inheritance breaks — stamp the resolved theme on the content directly
+  // (React context still flows through portals).
+  const themeCtx = use(AppThemeContext);
+  const dataTheme =
+    themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selected = options.find((option) => option.value === value);
   const rows = useMemo(
@@ -147,9 +154,9 @@ export function AppSelect({
             queueMicrotask(() => focusRow(selectedIndex));
           }}
           onKeyDown={handleListKeyDown}
+          data-app-theme={dataTheme}
           className={cn(
-            "z-50 max-h-72 w-[var(--radix-popover-trigger-width)] min-w-44 overflow-auto rounded-2xl bg-app-bg-1 p-1.5",
-            "shadow-[0_18px_48px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]",
+            "app app-frost-overlay z-50 max-h-72 w-[var(--radix-popover-trigger-width)] min-w-44 overflow-auto rounded-2xl p-1.5",
             "outline-none app-fade-in",
           )}
         >
