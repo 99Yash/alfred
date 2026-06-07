@@ -40,7 +40,7 @@ const MEDIA_TONE = [
   "text-white/85",
   "[&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white",
   "[&_strong]:text-white",
-  "[&_a]:text-[#cbcafb] hover:[&_a]:text-white",
+  "[&_a]:text-app-purple-rail hover:[&_a]:text-white",
   "[&_ul]:marker:text-white/50 [&_ol]:marker:text-white/50",
   "[&_blockquote]:border-white/20 [&_blockquote]:text-white/65",
   "[&_code]:bg-white/10 [&_code]:text-white",
