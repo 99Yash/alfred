@@ -73,8 +73,20 @@ export function AppSidebar({
       )}
     >
       <div className="w-[264px] h-full flex flex-col">
-        {/* Slim chrome row — collapse arrow tucked into the corner. */}
-        <div className="px-2 pt-2.5 pb-1 flex items-center justify-end">
+        {/* Slim chrome row — logo home link on the left (dimension-style), collapse
+            arrow tucked into the corner. */}
+        <div className="px-2 pt-2.5 pb-1 flex items-center justify-between">
+          <Link
+            to="/chat"
+            aria-label="Alfred — home"
+            className={cn(
+              "size-8 inline-flex items-center justify-center rounded-lg",
+              "hover:bg-app-bg-a2 transition-colors app-press",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            )}
+          >
+            <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+          </Link>
           <button
             type="button"
             aria-label="Collapse sidebar"
