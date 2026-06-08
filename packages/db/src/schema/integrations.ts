@@ -50,6 +50,13 @@ export const integrationCredentials = pgTable(
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * GitHub App installation id (ADR-0052). NULL for every other provider
+     * and for legacy classic-OAuth GitHub rows. Inbound webhooks carry only
+     * `installation.id`, so this is the join key from a delivery back to the
+     * owning user; the indexed lookup lives in `webhook_events` resolution.
+     */
+    installationId: text("installation_id"),
     status: text("status").notNull().default("active"),
     /**
      * Account persona (ADR-0051, triage v3): `'work' | 'personal'`. Auto-detected
@@ -67,6 +74,8 @@ export const integrationCredentials = pgTable(
   (t) => [
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
     index("integration_credentials_user_idx").on(t.userId, t.provider),
+    // Webhook deliveries resolve their owning user by GitHub installation id.
+    index("integration_credentials_installation_idx").on(t.installationId),
   ],
 );
 
@@ -107,5 +116,60 @@ export const ingestionState = pgTable(
   (t) => [
     uniqueIndex("ingestion_state_unique_idx").on(t.credentialId, t.stream),
     index("ingestion_state_user_idx").on(t.userId, t.provider),
+  ],
+);
+
+/**
+ * Inbound provider webhook deliveries (ADR-0024 / ADR-0052). v1 carries
+ * GitHub App activity — `pull_request`, `push`, `issues`,
+ * `pull_request_review` — but the shape is provider-generic so other push
+ * sources can land here later.
+ *
+ * Idempotency is the whole point: GitHub redelivers on any non-2xx and on
+ * manual replay, so the receiver inserts `on conflict do nothing` keyed by
+ * `(provider, provider_event_id)` — the `X-GitHub-Delivery` UUID — and a
+ * duplicate is a no-op rather than a double-counted activity item. This
+ * matches the replay-safe story in ADR-0014.
+ *
+ * The raw `payload` is retained so the briefing's `integration_activity`
+ * contributor (and future surfaces) can re-derive richer detail without a
+ * schema change; `event_type`/`action`/`repo` are denormalized out for
+ * cheap filtering and rollup.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("whe")),
+    /** 'github' today; matches `integration_credentials.provider`. */
+    provider: text("provider").notNull(),
+    /** Provider-side unique delivery id — GitHub's `X-GitHub-Delivery` UUID. */
+    providerEventId: text("provider_event_id").notNull(),
+    /** GitHub `X-GitHub-Event` header: 'pull_request', 'push', 'issues', … */
+    eventType: text("event_type").notNull(),
+    /** Payload `action` when present ('opened', 'closed', 'merged', …); NULL for events like `push`. */
+    action: text("action"),
+    /** Affected repo full name ('owner/repo') when the payload carries one. */
+    repo: text("repo"),
+    /** GitHub App installation id the delivery came from — the join key to the owning user. */
+    installationId: text("installation_id"),
+    /**
+     * Owning user, resolved from `installation_id` at receive time. Nullable:
+     * a delivery for an installation we can't map (e.g. mid-uninstall) is
+     * still persisted for audit rather than dropped.
+     */
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    /** Full webhook body, retained for re-derivation. */
+    payload: jsonb("payload")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** When GitHub says it delivered (header timestamp) — defaults to receipt time. */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("webhook_events_dedup_idx").on(t.provider, t.providerEventId),
+    index("webhook_events_user_type_idx").on(t.userId, t.eventType, t.deliveredAt),
   ],
 );

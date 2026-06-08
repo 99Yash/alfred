@@ -1,14 +1,7 @@
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import {
-  buildAuthorizeUrl,
-  exchangeCode,
-  GITHUB_FEATURE_SCOPES,
-  type GithubFeature,
-  scopesForFeatures,
-  upsertGithubCredential,
-} from "@alfred/integrations/github";
+import { buildInstallUrl, exchangeUserCode, upsertGithubCredential } from "@alfred/integrations/github";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Elysia, status, t } from "elysia";
 import { and, eq } from "drizzle-orm";
@@ -16,12 +9,17 @@ import { authMacro } from "../../middleware/auth";
 import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
 
 /**
- * GitHub integration routes. Same shape as `google-routes.ts` — different
- * IdP, identical state-nonce CSRF defense.
+ * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as
+ * `google-routes.ts`, but the IdP step is a GitHub App *install* rather than a
+ * classic OAuth authorize. Because the App is registered with
+ * `request_oauth_on_install`, a single install screen both installs the App
+ * (giving us an `installation_id` + activity webhooks) and authorizes the user
+ * (giving us a user-to-server `code` for identity) — one click, zero post-auth
+ * setup.
  *
- *   GET  /api/integrations/github/connect   → 302 to GitHub authorize URL
- *   GET  /api/integrations/github/callback ← GitHub redirects with `code`
- *   GET  /api/integrations/github/credentials → list this user's connections
+ *   GET  /api/integrations/github/connect      → 302 to the App install URL
+ *   GET  /api/integrations/github/callback      ← GitHub redirects with code + installation_id
+ *   GET  /api/integrations/github/credentials   → list this user's connections
  */
 
 interface SignedState {
@@ -58,41 +56,14 @@ export const githubIntegrationRoutes = new Elysia({
   .use(authMacro)
   .guard({ auth: true }, (app) =>
     app
-      .get(
-        "/connect",
-        async ({ user, query, set }) => {
-          let features: GithubFeature[] | undefined;
-          if (query.features) {
-            const parsed = query.features.split(",").flatMap((s) => {
-              const t = s.trim();
-              return t ? [t] : [];
-            });
-            const known = parsed.filter((f): f is GithubFeature => f in GITHUB_FEATURE_SCOPES);
-            if (known.length !== parsed.length) {
-              return status(400, {
-                message: `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GithubFeature)).join(", ")}`,
-              });
-            }
-            features = known;
-          }
-
-          const nonce = randomBytes(16).toString("hex");
-          await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
-          const state = signState({ userId: user.id, nonce });
-          const url = buildAuthorizeUrl({
-            state,
-            scopes: scopesForFeatures(features),
-          });
-          set.status = 302;
-          set.headers["Location"] = url;
-          return null;
-        },
-        {
-          query: t.Object({
-            features: t.Optional(t.String({ maxLength: 200 })),
-          }),
-        },
-      )
+      .get("/connect", async ({ user, set }) => {
+        const nonce = randomBytes(16).toString("hex");
+        await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
+        const state = signState({ userId: user.id, nonce });
+        set.status = 302;
+        set.headers["Location"] = buildInstallUrl(state);
+        return null;
+      })
       .get("/credentials", async ({ user }) => {
         const rows = await db()
           .select({
@@ -119,9 +90,17 @@ export const githubIntegrationRoutes = new Elysia({
   .get(
     "/callback",
     async ({ query, set }) => {
-      if (!query.code || !query.state) {
-        return status(400, { message: "Missing code or state" });
+      const origin = serverEnv().CORS_ORIGIN;
+
+      // Install initiated directly from the App's GitHub page (no state) —
+      // we can't bind it to an Alfred user, so drop them on /integrations to
+      // connect properly from inside the app.
+      if (!query.state) {
+        set.status = 302;
+        set.headers["Location"] = `${origin}/integrations`;
+        return null;
       }
+
       const decoded = verifyState(query.state);
       if (!decoded) return status(400, { message: "Invalid state" });
 
@@ -129,25 +108,29 @@ export const githubIntegrationRoutes = new Elysia({
       if (!storedUserId || storedUserId !== decoded.userId) {
         return status(400, { message: "Invalid or expired state" });
       }
+      if (!query.code) return status(400, { message: "Missing code" });
 
-      const tokens = await exchangeCode(query.code);
-      // Bounce back to the SPA. If the user is mid-onboarding, return to
-      // step 2; otherwise drop them on the integrations page so they can
-      // see the new "Connected" badge. The onboarding lookup is independent
-      // of the credential upsert, so race them.
+      const tokens = await exchangeUserCode(query.code);
+      const installationId = query.installation_id ?? null;
+
+      // Onboarding lookup is independent of the credential upsert — race them.
       const [credential, userRow] = await Promise.all([
         upsertGithubCredential({
           userId: decoded.userId,
           accountId: tokens.accountId,
           accountLabel: tokens.accountLogin,
-          accessToken: tokens.access_token,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          installationId,
           expiresAt: tokens.expiresAt,
           scopes: tokens.scopes,
           metadata: {
             login: tokens.accountLogin,
             name: tokens.accountName,
             email: tokens.accountEmail,
-            token_type: tokens.token_type,
+            token_type: tokens.tokenType,
+            installation_id: installationId,
+            setup_action: query.setup_action ?? null,
           },
         }),
         db()
@@ -156,21 +139,24 @@ export const githubIntegrationRoutes = new Elysia({
           .where(eq(user.id, decoded.userId))
           .limit(1),
       ]);
+
       const stillOnboarding = userRow[0]?.onboardedAt === null;
       const connectedParam = `github_connected=${encodeURIComponent(tokens.accountLogin)}`;
       const target = stillOnboarding
         ? `/onboarding?step=2&${connectedParam}`
         : `/integrations?${connectedParam}`;
       set.status = 302;
-      set.headers["Location"] = `${serverEnv().CORS_ORIGIN}${target}`;
-      // Returning the credential id is only useful in tests; the
-      // browser follows the Location redirect immediately.
+      set.headers["Location"] = `${origin}${target}`;
+      // Returning the credential id is only useful in tests; the browser
+      // follows the Location redirect immediately.
       return { id: credential.id };
     },
     {
       query: t.Object({
         code: t.Optional(t.String()),
         state: t.Optional(t.String()),
+        installation_id: t.Optional(t.String()),
+        setup_action: t.Optional(t.String()),
         error: t.Optional(t.String()),
       }),
     },
