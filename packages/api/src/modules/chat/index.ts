@@ -54,7 +54,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             // Provider faults (bad audio container, clip too short, OpenAI
             // hiccup) are routine here — surface a retryable message instead
             // of a generic 500.
-            console.warn("[chat] transcription failed:", err);
+            console.warn("[chat] transcription failed:", err instanceof Error ? err.message : String(err));
             return status(502, { message: "Transcription failed. Try again." });
           }
         },
