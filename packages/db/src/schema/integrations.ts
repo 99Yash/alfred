@@ -170,6 +170,6 @@ export const webhookEvents = pgTable(
   },
   (t) => [
     uniqueIndex("webhook_events_dedup_idx").on(t.provider, t.providerEventId),
-    index("webhook_events_user_type_idx").on(t.userId, t.eventType, t.deliveredAt),
+    index("webhook_events_user_provider_idx").on(t.userId, t.provider, t.deliveredAt),
   ],
 );
