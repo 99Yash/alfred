@@ -26,7 +26,7 @@ export function ScopeGapBanner() {
       : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
   return (
-    <div
+    <output
       className={cn(
         "flex items-center gap-3 px-4 py-2.5",
         "border-b border-amber-500/20 bg-amber-500/10 text-amber-900",
@@ -35,7 +35,7 @@ export function ScopeGapBanner() {
     >
       <TriangleAlert size={16} className="shrink-0 text-amber-600" />
       <p className="min-w-0 flex-1 text-[13px] leading-snug">
-        Alfred can&apos;t access <span className="font-medium">{list}</span> — a permission was left
+        Alfred can&apos;t access <span className="font-medium">{list}</span>: a permission was left
         unchecked when you connected Google.
       </p>
       <button
@@ -60,6 +60,6 @@ export function ScopeGapBanner() {
       >
         <X size={15} />
       </button>
-    </div>
+    </output>
   );
 }
