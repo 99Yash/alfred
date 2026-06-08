@@ -20,10 +20,13 @@ export interface TranscribeAudioResult {
   durationInSeconds: number | undefined;
 }
 
+const TRANSCRIBE_TIMEOUT_MS = 300_000;
+
 export async function transcribeAudio(audio: Uint8Array): Promise<TranscribeAudioResult> {
   const result = await transcribe({
     model: openai.transcription("gpt-4o-mini-transcribe"),
     audio,
+    abortSignal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
   });
   return { text: result.text, durationInSeconds: result.durationInSeconds };
 }
