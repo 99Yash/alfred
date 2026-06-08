@@ -44,10 +44,22 @@ const serverEnvSchema = z.object({
   GOOGLE_PUBSUB_AUDIENCE: z.string().optional(),
   /** Service-account email expected as the `email` claim in the OIDC token. Optional defense-in-depth. */
   GOOGLE_PUBSUB_SERVICE_ACCOUNT: z.string().optional(),
-  /** Classic GitHub OAuth App credentials. */
-  GITHUB_OAUTH_CLIENT_ID: z.string().min(1),
-  GITHUB_OAUTH_CLIENT_SECRET: z.string().min(1),
-  GITHUB_OAUTH_REDIRECT_URI: z.string().url(),
+  /**
+   * GitHub App credentials (ADR-0052). The App replaces the classic OAuth
+   * App: identity comes from its user-to-server OAuth (CLIENT_ID/SECRET),
+   * REST access from short-lived installation tokens minted with APP_ID +
+   * PRIVATE_KEY, and activity webhooks are verified with WEBHOOK_SECRET.
+   */
+  GITHUB_APP_ID: z.string().min(1),
+  GITHUB_APP_SLUG: z.string().min(1),
+  GITHUB_APP_CLIENT_ID: z.string().min(1),
+  GITHUB_APP_CLIENT_SECRET: z.string().min(1),
+  /** PEM private key. Railway stores newlines as literal `\n`; callers un-escape. */
+  GITHUB_APP_PRIVATE_KEY: z.string().min(1),
+  /** Shared secret GitHub signs webhook bodies with (`x-hub-signature-256`). */
+  GITHUB_WEBHOOK_SECRET: z.string().min(1),
+  /** User-to-server OAuth callback, e.g. `https://api.alfred.beauty/api/integrations/github/callback`. */
+  GITHUB_APP_REDIRECT_URI: z.string().url(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

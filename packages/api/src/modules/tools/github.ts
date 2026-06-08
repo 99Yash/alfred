@@ -1,19 +1,15 @@
 /**
  * GitHub tools registered into the boss's tool surface.
  *
- * Read-only at the current grant (`repo`, `read:user`): search the user's
- * pull requests by author, state, and time window. Mirrors drive.ts for
- * credential resolution. The boss uses `search_pull_requests` to answer
+ * Read-only over the GitHub App's installation (ADR-0052): search the user's
+ * pull requests by author, state, and time window, scoped to the repos the
+ * App is installed on. The boss uses `search_pull_requests` to answer
  * questions like "how many PRs did I close last week" directly, instead of
  * spawning a sub-agent (which it did when GitHub had no tools).
  */
 
 import { searchPullRequestsInput } from "@alfred/contracts";
-import {
-  getGithubAccessToken,
-  listGithubCredentials,
-  searchPullRequests,
-} from "@alfred/integrations/github";
+import { getInstallationTokenForUser, searchPullRequests } from "@alfred/integrations/github";
 import type { z } from "zod";
 import { liveTool, type RegisteredTool } from "./registry";
 
@@ -25,17 +21,10 @@ interface GithubToolCredential {
 }
 
 async function credentialFor(userId: string): Promise<GithubToolCredential> {
-  const creds = await listGithubCredentials(userId);
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new Error(
-      `[github.tools] user ${userId} has no active github credential — connect GitHub in settings`,
-    );
-  }
-  return {
-    accessToken: await getGithubAccessToken(active.id),
-    accountLogin: active.accountLabel?.trim() || null,
-  };
+  // The REST search runs on a short-lived installation token; `accountLogin`
+  // resolves `author:@me` to the connected handle.
+  const { token, accountLogin } = await getInstallationTokenForUser(userId);
+  return { accessToken: token, accountLogin };
 }
 
 /** ISO date (YYYY-MM-DD) N days before now — for `closed:>=`/`created:>=` filters. */
