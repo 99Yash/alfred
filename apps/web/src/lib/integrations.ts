@@ -301,8 +301,8 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
       "https://www.googleapis.com/auth/calendar.events",
     ],
   ],
-  google_drive: ["https://www.googleapis.com/auth/drive.readonly"],
-  google_docs: ["https://www.googleapis.com/auth/documents.readonly"],
+  google_drive: ["https://www.googleapis.com/auth/drive"],
+  google_docs: ["https://www.googleapis.com/auth/documents"],
   google_sheets: ["https://www.googleapis.com/auth/spreadsheets"],
   google_slides: ["https://www.googleapis.com/auth/presentations"],
   // GitHub's `read:user` is the lowest-common-denominator scope every

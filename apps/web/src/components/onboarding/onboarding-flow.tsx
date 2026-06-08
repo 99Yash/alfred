@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { FrostButton, HeroAtmosphere, TopAnnouncement } from "~/components/landing";
+import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 
@@ -49,14 +50,27 @@ export function OnboardingFlow({
   const localTime = useLocalTime();
   const active = STEPS[step - 1] ?? STEPS[0]!;
 
+  // Step 1's CTA opens the consent-coaching dialog first; the dialog's
+  // confirm runs the real `onConnect` redirect. Steps 2/3 act immediately.
+  const [consentOpen, setConsentOpen] = useState(false);
+
   const primaryAction = (() => {
-    if (step === 1) return { label: "Connect Google Workspace", onClick: onConnect };
+    if (step === 1)
+      return { label: "Connect Google Workspace", onClick: () => setConsentOpen(true) };
     if (step === 2) return { label: "Continue", onClick: onSkip };
     return { label: "Start using Alfred", onClick: onFinish };
   })();
 
   return (
     <div className="relative isolate min-h-[100dvh] overflow-x-hidden bg-[#0c0c0c]">
+      <GoogleConsentDialog
+        open={consentOpen}
+        onOpenChange={setConsentOpen}
+        onConfirm={() => {
+          setConsentOpen(false);
+          onConnect();
+        }}
+      />
       <TopAnnouncement href="/login" dotClassName="bg-amber-200/70">
         Set up Alfred in under a minute
       </TopAnnouncement>
@@ -264,13 +278,14 @@ const STEPS: ReadonlyArray<StepDef> = [
     id: "unlock",
     pagerLabel: "Unlock",
     headline: "Set up in under a minute.",
-    lead: "Link your Google account so Alfred can read your email and calendar, then start working in the background.",
+    lead: "Link your Google account so Alfred can work across your email, calendar, and files, then start working in the background.",
     bullets: [
       { icon: Sparkles, text: "Triages inbox and drafts replies in your tone" },
       { icon: Timer, text: "Briefs you each morning and after every meeting" },
       { icon: Lock, text: "Enterprise-grade encryption. Never used for training." },
     ],
-    assurance: "Read-only by default. You can revoke any scope anytime.",
+    assurance:
+      "Full access to your workspace, so Alfred can act for you. Revoke anytime from your Google account.",
     showcaseTitle: "What you'll unlock",
     showcaseDescription:
       "A taste of the features that come alive the moment Google Workspace is linked.",
