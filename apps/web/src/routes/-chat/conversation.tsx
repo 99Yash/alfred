@@ -105,45 +105,7 @@ export function Conversation({
     }
   }, [messages, stream]);
 
-  useEffect(() => {
-    if (!showStream || !stream) return;
-    const base = { requireExisting: true, runId: stream.runId };
-    if (
-      stream.text.length === 0 &&
-      stream.reasoning.length === 0 &&
-      stream.tools.length === 0 &&
-      !stream.awaitingApproval
-    ) {
-      markChatTimingByAssistant(stream.messageId, "thinking_indicator_rendered", undefined, base);
-    }
-    if (stream.reasoning.length > 0) {
-      markChatTimingByAssistant(
-        stream.messageId,
-        "first_visible_reasoning_rendered",
-        { visibleChars: stream.reasoning.length },
-        base,
-      );
-    }
-    if (stream.text.length > 0) {
-      markChatTimingByAssistant(
-        stream.messageId,
-        "first_visible_text_rendered",
-        { visibleChars: stream.text.length },
-        base,
-      );
-    }
-    if (stream.done) {
-      markChatTimingByAssistant(
-        stream.messageId,
-        "stream_done_rendered",
-        {
-          visibleChars: stream.text.length,
-          visibleReasoningChars: stream.reasoning.length,
-        },
-        { ...base, summarize: true },
-      );
-    }
-  }, [showStream, stream]);
+  const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
 
   useEffect(() => {
     for (const message of messages) {
@@ -184,13 +146,15 @@ export function Conversation({
         ) : null}
 
         {showStream && stream ? (
-          <div className="flex flex-col gap-2">
+          <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
             {stream.reasoning.length > 0 || stream.reasoningActive ? (
-              <ReasoningSection
-                reasoning={stream.reasoning}
-                active={stream.reasoningActive}
-                durationMs={stream.reasoningMs}
-              />
+              <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
+                <ReasoningSection
+                  reasoning={stream.reasoning}
+                  active={stream.reasoningActive}
+                  durationMs={stream.reasoningMs}
+                />
+              </div>
             ) : null}
 
             {stream.tools.length > 0 ? (
@@ -202,14 +166,19 @@ export function Conversation({
             ) : null}
 
             {stream.text.length > 0 ? (
-              <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+              <div ref={streamTimingRefs.text}>
+                <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+              </div>
             ) : stream.tools.length === 0 &&
               stream.reasoning.length === 0 &&
               !stream.reasoningActive ? (
-              <ThinkingIndicator />
+              <div ref={streamTimingRefs.thinking}>
+                <ThinkingIndicator />
+              </div>
             ) : null}
 
             {stream.awaitingApproval ? <ApprovalNotice /> : null}
+            {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
           </div>
         ) : null}
       </div>
@@ -223,6 +192,60 @@ export function Conversation({
 }
 
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
+
+function useStreamRenderTiming(stream: StreamingMessage | null): {
+  thinking: (el: HTMLDivElement | null) => void;
+  reasoning: (el: HTMLDivElement | null) => void;
+  text: (el: HTMLDivElement | null) => void;
+  done: (el: HTMLSpanElement | null) => void;
+} {
+  const thinking = useRefCallback((el: HTMLDivElement | null) => {
+    if (!el || !stream) return;
+    markChatTimingByAssistant(stream.messageId, "thinking_indicator_rendered", undefined, {
+      requireExisting: true,
+      runId: stream.runId,
+    });
+  });
+  const reasoning = useRefCallback((el: HTMLDivElement | null) => {
+    if (!el || !stream || stream.reasoning.length === 0) return;
+    markChatTimingByAssistant(
+      stream.messageId,
+      "first_visible_reasoning_rendered",
+      { visibleChars: stream.reasoning.length },
+      { requireExisting: true, runId: stream.runId },
+    );
+  });
+  const text = useRefCallback((el: HTMLDivElement | null) => {
+    if (!el || !stream || stream.text.length === 0) return;
+    markChatTimingByAssistant(
+      stream.messageId,
+      "first_visible_text_rendered",
+      { visibleChars: stream.text.length },
+      { requireExisting: true, runId: stream.runId },
+    );
+  });
+  const done = useRefCallback((el: HTMLSpanElement | null) => {
+    if (!el || !stream || !stream.done) return;
+    markChatTimingByAssistant(
+      stream.messageId,
+      "stream_done_rendered",
+      {
+        visibleChars: stream.text.length,
+        visibleReasoningChars: stream.reasoning.length,
+      },
+      { requireExisting: true, runId: stream.runId, summarize: true },
+    );
+  });
+  return { thinking, reasoning, text, done };
+}
+
+function useRefCallback<T extends Element>(
+  callback: (el: T | null) => void,
+): (el: T | null) => void {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useMemo(() => (el: T | null) => callbackRef.current(el), []);
+}
 
 /** True on Apple platforms — picks the ⌥ glyph over the "Alt+" prefix in kbd hints. */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.userAgent);
