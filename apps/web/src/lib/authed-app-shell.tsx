@@ -9,6 +9,7 @@ import {
   type PreviewThreadEntry,
   type PreviewThreadGroup,
 } from "~/components/preview-fixtures";
+import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
 import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { SearchPalette } from "~/components/search-palette";
 import { AppThemed } from "~/components/ui/v2/themed";
@@ -71,12 +72,19 @@ export default function AuthedAppShell({
         <main className="flex flex-1 min-w-0 relative gap-1.5">
           <div
             className={cn(
-              "flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
+              "relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
               "rounded-2xl bg-app-bg-1",
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}
           >
-            <ScopeGapBanner />
+            {/* Floating notice layer: tucked just under the header (h-14 = 56px)
+             * with an extra 8px gap (top-16 = 64px) so the card shadow does not
+             * clip the header border. Pointer-transparent so it overlays the chat
+             * surface without shifting its layout; only the cards catch clicks. */}
+            <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex flex-col items-center gap-2 px-3">
+              <ScopeGapBanner />
+              <GithubReconnectBanner />
+            </div>
             {mainContent}
           </div>
           {rightRailNode}

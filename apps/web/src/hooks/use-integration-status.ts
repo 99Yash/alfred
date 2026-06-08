@@ -15,6 +15,8 @@ export interface CredentialRow {
   accountLabel: string | null;
   status: string;
   scopes: ReadonlyArray<string>;
+  /** GitHub App installation id; null on legacy classic-OAuth rows. */
+  installationId: string | null;
   expiresAt: string | null;
   lastRefreshedAt: string | null;
   createdAt: string;
@@ -63,6 +65,7 @@ function useProviderCredentials(backend: "google" | "github") {
         accountLabel: typeof r.accountLabel === "string" ? r.accountLabel : null,
         status: String(r.status),
         scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
+        installationId: typeof r.installationId === "string" ? r.installationId : null,
         expiresAt: typeof r.expiresAt === "string" ? r.expiresAt : null,
         lastRefreshedAt: typeof r.lastRefreshedAt === "string" ? r.lastRefreshedAt : null,
         createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
@@ -182,6 +185,32 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
       .map((p) => ({ providerId: p.id, name: p.name }));
     return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
   }, [googleCreds]);
+}
+
+/**
+ * GitHub App migration nag. A classic-OAuth credential (connected before the
+ * GitHub App migration, ADR-0052) is still `active` but carries no
+ * `installation_id`, so installation-token minting fails and no activity
+ * webhooks flow. Reconnecting runs the one-click Install & Authorize, which
+ * writes the `installation_id`. Returns `needsReconnect` only when such a
+ * stale row exists — i.e. there's something to nag about. Mirrors
+ * `useGoogleScopeGaps`.
+ */
+export interface GithubReconnect {
+  /** An active GitHub credential is missing its App installation. */
+  needsReconnect: boolean;
+  accountLabel: string | null;
+}
+
+export function useGithubNeedsReconnect(): GithubReconnect {
+  const { data: githubCreds } = useGithubCredentials();
+  return useMemo(() => {
+    const stale = (githubCreds ?? []).find((c) => c.status === "active" && !c.installationId);
+    return {
+      needsReconnect: Boolean(stale),
+      accountLabel: stale?.accountLabel ?? null,
+    };
+  }, [githubCreds]);
 }
 
 function meetsScopeRequirement(

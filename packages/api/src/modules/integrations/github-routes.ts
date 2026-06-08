@@ -77,6 +77,9 @@ export const githubIntegrationRoutes = new Elysia({
             accountLabel: integrationCredentials.accountLabel,
             status: integrationCredentials.status,
             scopes: integrationCredentials.scopes,
+            // Surfaced so the web client can nag legacy classic-OAuth rows
+            // (no installation_id) to reconnect under the GitHub App.
+            installationId: integrationCredentials.installationId,
             expiresAt: integrationCredentials.expiresAt,
             lastRefreshedAt: integrationCredentials.lastRefreshedAt,
             createdAt: integrationCredentials.createdAt,
