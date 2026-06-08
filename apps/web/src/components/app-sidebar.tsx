@@ -263,7 +263,9 @@ function KbdHint({ children }: { children: ReactNode }) {
       className={cn(
         "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
         "text-[10.5px] leading-none font-medium tabular-nums",
-        "bg-app-bg-a2 text-app-fg-2 font-sans",
+        // app-fg-2 fails WCAG AA on the chip bg at this size in both themes;
+        // app-fg-3 clears 4.5:1 (light #666 / dark #b5b5b5).
+        "bg-app-bg-a2 text-app-fg-3 font-sans",
       )}
     >
       {children}

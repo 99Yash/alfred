@@ -1227,5 +1227,7 @@ function IconMini({
 }
 
 function faviconFor(domain: string) {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  // DuckDuckGo (cookieless, no 404s) over Google's s2/favicons — see the note
+  // on `faviconUrl` in routes/-preview-chat/inbox-feed.tsx.
+  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
 }
