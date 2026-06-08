@@ -82,6 +82,19 @@ function useGithubCredentials() {
 }
 
 /**
+ * The display label of the first active credential for a backend, or
+ * `null` if none. Used by onboarding to keep the Google and GitHub
+ * "connected as …" badges live independently of the `?*_connected` URL
+ * param — each provider's OAuth callback only carries its own param, so a
+ * second connect would otherwise blank the first badge.
+ */
+export function useConnectedAccountLabel(backend: "google" | "github"): string | null {
+  const { data } = useProviderCredentials(backend);
+  const active = (data ?? []).find((c) => c.status === "active");
+  return active?.accountLabel ?? active?.accountId ?? null;
+}
+
+/**
  * Resolve every catalog provider against the user's real credentials.
  * Each catalog entry consults the credential set for its declared
  * backend (per `PROVIDER_BACKEND`) and flips to `"connected"` iff an

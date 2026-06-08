@@ -35,14 +35,18 @@ export type OnboardingStep = 1 | 2 | 3;
 export function OnboardingFlow({
   step,
   connectedEmail,
+  connectedGithub,
   onConnect,
+  onConnectGithub,
   onSkip,
   onFinish,
   finishing,
 }: {
   step: OnboardingStep;
   connectedEmail?: string;
+  connectedGithub?: string;
   onConnect: () => void;
+  onConnectGithub: () => void;
   onSkip: () => void;
   onFinish: () => void;
   finishing: boolean;
@@ -135,6 +139,14 @@ export function OnboardingFlow({
                   <CheckCircle2 size={13} className="text-emerald-300" />
                   Google Workspace connected as{" "}
                   <span className="font-medium text-white">{connectedEmail}</span>
+                </p>
+              ) : null}
+
+              {step === 2 && connectedGithub ? (
+                <p className="mt-2 inline-flex items-center gap-2 text-[12.5px] text-white/85">
+                  <CheckCircle2 size={13} className="text-emerald-300" />
+                  GitHub connected as{" "}
+                  <span className="font-medium text-white">@{connectedGithub}</span>
                 </p>
               ) : null}
 
@@ -247,7 +259,13 @@ export function OnboardingFlow({
                 </div>
 
                 {step === 1 ? <UnlockShowcase /> : null}
-                {step === 2 ? <ConnectShowcase connectedEmail={connectedEmail} /> : null}
+                {step === 2 ? (
+                  <ConnectShowcase
+                    connectedEmail={connectedEmail}
+                    connectedGithub={connectedGithub}
+                    onConnectGithub={onConnectGithub}
+                  />
+                ) : null}
                 {step === 3 ? <FinishShowcase /> : null}
               </div>
             </div>
@@ -408,15 +426,15 @@ function UnlockShowcase() {
 
 /* -------- Step 2: Popular integrations ---------------------------
  *
- * Step 2 is a marketing tile grid, not a connect surface. The only
- * integration actually wired today is Google Workspace (m7c, picked up
- * via step 1). Linear/Slack/GitHub plug in at m14 (MCP client) and
- * are honestly labelled "Soon". The three Google sub-features are
- * "Included" once Google Workspace is linked, since they share the
- * Workspace OAuth scope. There is no Connect action here — the only
- * primary control is the "Continue" CTA in the rail. */
+ * Step 2 is a live connect surface for the integrations wired today.
+ * Google Workspace is picked up via step 1; GitHub connects right here
+ * (its OAuth callback 302s back to ?step=2&github_connected=…). The three
+ * Google sub-features are "Included" once Workspace is linked, since they
+ * share its OAuth scope. Linear/Slack plug in at m14 (MCP client) and are
+ * honestly labelled "Soon". The rail's "Continue" CTA always advances —
+ * connecting GitHub is optional. */
 
-type IntegrationTileStatus = "included" | "soon";
+type IntegrationTileStatus = "included" | "connected" | "available" | "soon";
 
 interface PopularIntegration {
   id: string;
@@ -425,11 +443,21 @@ interface PopularIntegration {
   brand: IntegrationBrand;
   /** `included` if Google Workspace is linked; otherwise resolves to `soon`. */
   bundledWithGoogle?: boolean;
-  /** Hard-coded default when not bundled with Google. */
+  /** Renders a live "Connect" pill that triggers `onConnectGithub`. */
+  connectable?: boolean;
+  /** Hard-coded default when neither bundled with Google nor connectable. */
   status: IntegrationTileStatus;
 }
 
 const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Repos and pull requests",
+    brand: "github",
+    connectable: true,
+    status: "available",
+  },
   {
     id: "linear",
     name: "Linear",
@@ -442,13 +470,6 @@ const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
     name: "Slack",
     description: "Messages and channels",
     brand: "slack",
-    status: "soon",
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Repos and pull requests",
-    brand: "github",
     status: "soon",
   },
   {
@@ -485,7 +506,15 @@ const POPULAR_INTEGRATIONS: ReadonlyArray<PopularIntegration> = [
   },
 ];
 
-function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
+function ConnectShowcase({
+  connectedEmail,
+  connectedGithub,
+  onConnectGithub,
+}: {
+  connectedEmail?: string;
+  connectedGithub?: string;
+  onConnectGithub: () => void;
+}) {
   return (
     <ShowcaseFrame>
       <div className="px-7 pb-6 pt-7">
@@ -501,16 +530,30 @@ function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
       <div className="h-px w-full bg-gradient-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {POPULAR_INTEGRATIONS.map((p) => {
-          const status: IntegrationTileStatus =
-            p.bundledWithGoogle && connectedEmail ? "included" : p.status;
+          // GitHub connects live here; Google sub-features ride the Workspace
+          // grant; everything else is honestly "Soon".
+          const isGithubConnected = p.connectable && Boolean(connectedGithub);
+          const status: IntegrationTileStatus = isGithubConnected
+            ? "connected"
+            : p.bundledWithGoogle
+              ? connectedEmail
+                ? "included"
+                : "soon"
+              : p.status;
+          const detail =
+            isGithubConnected && connectedGithub ? `@${connectedGithub}` : p.description;
           return (
             <li key={p.id} className="morning-briefing-surface flex items-center gap-3 px-5 py-4">
               <IntegrationIcon brand={p.brand} size="md" title={p.name} variant="frost" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14px] font-semibold text-white">{p.name}</p>
-                <p className="truncate text-[12.5px] text-white/75">{p.description}</p>
+                <p className="truncate text-[12.5px] text-white/75">{detail}</p>
               </div>
-              <IntegrationStatusBadge status={status} />
+              {status === "available" ? (
+                <ConnectPill onClick={onConnectGithub} label={`Connect ${p.name}`} />
+              ) : (
+                <IntegrationStatusBadge status={status} />
+              )}
             </li>
           );
         })}
@@ -519,8 +562,26 @@ function ConnectShowcase({ connectedEmail }: { connectedEmail?: string }) {
   );
 }
 
+function ConnectPill({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-3.5 py-1 text-[12px] font-medium",
+        "bg-white/15 text-white ring-1 ring-inset ring-white/25 backdrop-blur-sm",
+        "transition-colors duration-150 hover:bg-white hover:text-[#0c0c0c] focus-visible:bg-white focus-visible:text-[#0c0c0c]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+      )}
+    >
+      Connect
+    </button>
+  );
+}
+
 function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
-  if (status === "included") {
+  if (status === "included" || status === "connected") {
     return (
       <span
         className={cn(
@@ -529,7 +590,7 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
         )}
       >
         <CheckCircle2 size={12} className="text-emerald-300" />
-        Included
+        {status === "connected" ? "Connected" : "Included"}
       </span>
     );
   }
