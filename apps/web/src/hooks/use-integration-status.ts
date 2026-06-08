@@ -192,8 +192,9 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
  * GitHub App migration, ADR-0052) is still `active` but carries no
  * `installation_id`, so installation-token minting fails and no activity
  * webhooks flow. Reconnecting runs the one-click Install & Authorize, which
- * writes the `installation_id`. Returns `connected` only when such a stale row
- * exists — i.e. there's something to nag about. Mirrors `useGoogleScopeGaps`.
+ * writes the `installation_id`. Returns `needsReconnect` only when such a
+ * stale row exists — i.e. there's something to nag about. Mirrors
+ * `useGoogleScopeGaps`.
  */
 export interface GithubReconnect {
   /** An active GitHub credential is missing its App installation. */

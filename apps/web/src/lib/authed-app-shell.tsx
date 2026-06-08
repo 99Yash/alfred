@@ -77,9 +77,10 @@ export default function AuthedAppShell({
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}
           >
-            {/* Floating notice layer: tucked just under the header (h-14) and
-             * pointer-transparent so it overlays the chat surface without
-             * shifting its layout. Only the cards themselves catch clicks. */}
+            {/* Floating notice layer: tucked just under the header (h-14 = 56px)
+             * with an extra 8px gap (top-16 = 64px) so the card shadow does not
+             * clip the header border. Pointer-transparent so it overlays the chat
+             * surface without shifting its layout; only the cards catch clicks. */}
             <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex flex-col items-center gap-2 px-3">
               <ScopeGapBanner />
               <GithubReconnectBanner />
