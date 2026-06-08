@@ -17,7 +17,12 @@ import { cn } from "~/lib/utils";
 export function RailSlot({ active, children }: { active: boolean; children: ReactNode }) {
   return (
     <div
-      aria-hidden={!active}
+      // `inert` (not bare `aria-hidden`) on inactive slots: the hidden feeds
+      // still contain focusable buttons/links, so `aria-hidden` alone trips
+      // axe `aria-hidden-focus` (Tab can land on a control hidden from AT).
+      // `inert` removes the subtree from the a11y tree AND tab order, so the
+      // crossfade layers are fully neutralized while faded out.
+      inert={!active}
       className={cn(
         "[grid-area:1/1] transition-[opacity,transform,filter] duration-300 ease-out",
         active
