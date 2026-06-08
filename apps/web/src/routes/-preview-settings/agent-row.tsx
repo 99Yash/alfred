@@ -29,7 +29,11 @@ export function AgentRow({
           <p className="text-xs text-app-fg-3 truncate">{agent.helper}</p>
         </div>
       </div>
-      <AppSwitch checked={checked} onCheckedChange={onChange} />
+      <AppSwitch
+        checked={checked}
+        onCheckedChange={onChange}
+        aria-label={`Enable ${agent.label}`}
+      />
     </div>
   );
 }

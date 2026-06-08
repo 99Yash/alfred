@@ -48,7 +48,11 @@ export function LandingPage({
 }) {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
-      <div className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
+      {/* `<main>` gives the page its required primary landmark (the footer and
+       * floating nav below are siblings, not part of the main content) — keeps
+       * screen-reader "skip to main" working and clears Lighthouse's
+       * landmark-one-main audit. */}
+      <main className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
         <LandingSpine />
 
         <Hero onGetStarted={goToLogin} healthOk={healthOk} healthLoading={healthLoading} />
@@ -66,7 +70,7 @@ export function LandingPage({
         <AccessNotice className="mt-24 sm:mt-32" />
 
         <LandingCtaSection onGetStarted={goToLogin} />
-      </div>
+      </main>
 
       <LandingFooter onGetStarted={goToLogin} healthOk={healthOk} />
 
