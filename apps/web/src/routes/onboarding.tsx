@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import { pageMeta } from "~/lib/page-meta";
 import { useEffect, useState } from "react";
 import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
+import { useConnectedAccountLabel } from "~/hooks/use-integration-status";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
 
@@ -13,13 +14,17 @@ type OnboardingStep = 1 | 2 | 3;
  * redirects with `step=2` to advance the funnel. */
 export const Route = createFileRoute("/onboarding")({
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
-  validateSearch: (search): { step: OnboardingStep; google_connected?: string } => {
+  validateSearch: (
+    search,
+  ): { step: OnboardingStep; google_connected?: string; github_connected?: string } => {
     const raw = Number((search as { step?: unknown }).step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;
-    const connected = (search as { google_connected?: unknown }).google_connected;
+    const google = (search as { google_connected?: unknown }).google_connected;
+    const github = (search as { github_connected?: unknown }).github_connected;
     return {
       step,
-      google_connected: typeof connected === "string" ? connected : undefined,
+      google_connected: typeof google === "string" ? google : undefined,
+      github_connected: typeof github === "string" ? github : undefined,
     };
   },
   component: OnboardingRoute,
@@ -29,11 +34,19 @@ const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
 function OnboardingRoute() {
-  const { step, google_connected } = useSearch({ from: "/onboarding" });
+  const { step, google_connected, github_connected } = useSearch({ from: "/onboarding" });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
   const [finishing, setFinishing] = useState(false);
+
+  // Each OAuth callback redirects back with only its own `?*_connected`
+  // param, so the URL alone can't show both badges at once. Fall back to
+  // live credential state for whichever param the current URL is missing.
+  const googleAccount = useConnectedAccountLabel("google");
+  const githubAccount = useConnectedAccountLabel("github");
+  const connectedEmail = google_connected ?? googleAccount ?? undefined;
+  const connectedGithub = github_connected ?? githubAccount ?? undefined;
 
   useEffect(() => {
     if (!isPending && !session?.user) {
@@ -68,10 +81,15 @@ function OnboardingRoute() {
   return (
     <OnboardingFlow
       step={step}
-      connectedEmail={google_connected}
+      connectedEmail={connectedEmail}
+      connectedGithub={connectedGithub}
       onConnect={() => {
         // Full-page redirect to the API connect endpoint (which 302s to Google).
         window.location.href = `${API_URL}/api/integrations/google/connect`;
+      }}
+      onConnectGithub={() => {
+        // GitHub's callback 302s back to /onboarding?step=2&github_connected=…
+        window.location.href = `${API_URL}/api/integrations/github/connect`;
       }}
       onSkip={() => goToStep(3)}
       onFinish={() => {

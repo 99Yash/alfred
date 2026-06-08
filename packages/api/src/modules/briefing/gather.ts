@@ -1,11 +1,12 @@
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
 import { weatherFallbackFor } from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
   CalendarContribution,
   IanaTimezone,
+  IntegrationActivityItem,
   WeatherContribution,
 } from "@alfred/contracts";
 import {
@@ -215,7 +216,10 @@ export async function gatherBriefingDigest(
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
-  const [digest, calendar, weather] = await Promise.all([
+  // Integration activity shares the email digest's window so the briefing
+  // covers one coherent slice of time across sources.
+  const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+  const [digest, calendar, weather, integrationActivity] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
       windowStart: args.windowStart,
@@ -231,6 +235,11 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
       userId: args.userId,
       briefingDate: args.briefingDate,
       timezone: args.timezone,
+    }),
+    gatherIntegrationActivity({
+      userId: args.userId,
+      windowStart: activityStart,
+      windowEnd,
     }),
   ]);
   const categories: BriefingGather["email"]["categories"] = {};
@@ -249,10 +258,119 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
       categories,
     },
     calendar,
-    integration_activity: { items: [] },
+    integration_activity: { items: integrationActivity },
     weather,
     day_of_week: dayContribution(args.briefingDate, args.timezone),
   };
+}
+
+const MAX_ACTIVITY_ITEMS = 25;
+
+interface GithubWebhookPayload {
+  ref?: string;
+  commits?: unknown[];
+  compare?: string;
+  pull_request?: { number?: number; title?: string; html_url?: string; merged?: boolean };
+  issue?: { number?: number; title?: string; html_url?: string };
+  repository?: { full_name?: string; html_url?: string };
+  review?: { state?: string; html_url?: string };
+}
+
+/**
+ * Turn a stored GitHub webhook into a one-line activity description. Reads
+ * defensively from the retained payload — any field can be absent on an older
+ * or partial delivery, so everything degrades to a sensible generic line.
+ */
+function describeGithubActivity(
+  eventType: string,
+  action: string | null,
+  repo: string | null,
+  payload: GithubWebhookPayload,
+): { title: string; status?: IntegrationActivityItem["status"]; url?: string } {
+  const where = repo ? ` in ${repo}` : "";
+  switch (eventType) {
+    case "pull_request": {
+      const pr = payload.pull_request ?? {};
+      const verb = action === "closed" ? (pr.merged ? "merged" : "closed") : (action ?? "updated");
+      const title = `PR #${pr.number ?? "?"} ${verb}${where}${pr.title ? `: ${pr.title}` : ""}`;
+      return { title, status: action === "closed" ? "resolved" : "open", url: pr.html_url };
+    }
+    case "issues": {
+      const issue = payload.issue ?? {};
+      const title = `Issue #${issue.number ?? "?"} ${action ?? "updated"}${where}${issue.title ? `: ${issue.title}` : ""}`;
+      return { title, status: action === "closed" ? "resolved" : "open", url: issue.html_url };
+    }
+    case "push": {
+      const count = Array.isArray(payload.commits) ? payload.commits.length : 0;
+      const branch = (payload.ref ?? "").replace("refs/heads/", "");
+      const title = `${count} commit${count === 1 ? "" : "s"} pushed${branch ? ` to ${branch}` : ""}${where}`;
+      return { title, url: payload.compare };
+    }
+    case "pull_request_review": {
+      const pr = payload.pull_request ?? {};
+      const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
+      return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
+    }
+    default:
+      return { title: `${eventType}${action ? ` ${action}` : ""}${where}` };
+  }
+}
+
+/**
+ * Recent GitHub App activity for the briefing window (ADR-0052), sourced from
+ * the idempotent `webhook_events` log. Empty when nothing fired or GitHub
+ * isn't connected — represented as `[]`, never an error.
+ */
+async function gatherIntegrationActivity(args: {
+  userId: string;
+  windowStart: Date;
+  windowEnd: Date;
+}): Promise<IntegrationActivityItem[]> {
+  const rows = await db()
+    .select({
+      id: webhookEvents.id,
+      eventType: webhookEvents.eventType,
+      action: webhookEvents.action,
+      repo: webhookEvents.repo,
+      payload: webhookEvents.payload,
+      deliveredAt: webhookEvents.deliveredAt,
+    })
+    .from(webhookEvents)
+    .where(
+      and(
+        eq(webhookEvents.userId, args.userId),
+        eq(webhookEvents.provider, "github"),
+        gte(webhookEvents.deliveredAt, args.windowStart),
+        lte(webhookEvents.deliveredAt, args.windowEnd),
+      ),
+    )
+    .orderBy(desc(webhookEvents.deliveredAt))
+    .limit(MAX_ACTIVITY_ITEMS);
+
+  return rows.map((row) => {
+    const payload = (row.payload ?? {}) as GithubWebhookPayload;
+    const { title, status, url } = describeGithubActivity(
+      row.eventType,
+      row.action,
+      row.repo,
+      payload,
+    );
+    return {
+      id: row.id,
+      provider: "github",
+      source: "direct_api",
+      activityCategory: "work",
+      providerKind: row.action
+        ? `github.${row.eventType}.${row.action}`
+        : `github.${row.eventType}`,
+      title,
+      status,
+      severity: "info",
+      occurredAt: row.deliveredAt.toISOString(),
+      url,
+      relatedRepo: row.repo ?? undefined,
+    } satisfies IntegrationActivityItem;
+  });
 }
 
 async function gatherCalendarContribution(args: {

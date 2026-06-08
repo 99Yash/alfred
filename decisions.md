@@ -3223,6 +3223,16 @@ Building the context-rich classifier (plan Phase 3) forced the three Open items 
 - The **lingering window** length for reconciler-closed suggestions in the Replicache pull (long enough to animate on next tab visit, short enough not to clutter).
 - Whether the **tier-2 state check** batches (GraphQL) or fans out REST calls under the per-tick rate budget.
 
+**Amendment (2026-06-08) — GitHub App migration + activity webhooks shipped (un-defers alt-d).**
+
+The deferred GitHub App is now the live credential model, reversing this ADR's "polling needs no migration, defer the App" stance for the *connection + activity* layer. Classic OAuth App is removed entirely.
+
+- **Credential model.** Connect is now a GitHub App *install* (`https://github.com/apps/<slug>/installations/new`), registered with `request_oauth_on_install` so install + user authorization happen on one GitHub-hosted screen — satisfying the parked "one-click connect, zero post-auth setup" criterion. REST runs on short-lived **installation tokens** (App JWT via `jose` RS256 → `/app/installations/{id}/access_tokens`, cached in-process); the stored user-to-server token is identity only. `integration_credentials` gains an indexed `installation_id`; `search_pull_requests` now resolves an installation token. **Migration cost:** the single user re-installs once (legacy rows have no `installation_id`).
+- **Activity webhooks (un-defers alt-d for ingestion).** `POST /webhooks/github` verifies `X-Hub-Signature-256` over the raw body, then persists `pull_request` / `push` / `issues` / `pull_request_review` deliveries into the new **`webhook_events`** table — the table this ADR said would "earn its keep" at the App migration. Idempotency is `on conflict do nothing` over `(provider, provider_event_id=X-GitHub-Delivery)`, the replay-safe story from ADR-0024/0014. Recent events feed the briefing's previously-empty `integration_activity` contributor (ADR-0041).
+- **Registration.** One-time via the **GitHub App Manifest flow** (manifest POST → GitHub-generated app id / private key / client secret / webhook secret in a single conversion), driven through the browser. App "Alfred 99Yash", read-only `metadata`/`pull_requests`/`issues`/`contents`.
+- **Delivery is prod-only.** The App's hook URL is the Railway server domain (`https://api.alfred.beauty/webhooks/github`); localhost can't receive deliveries. The user-OAuth callback keeps a `localhost:3001` entry so connect/identity is still testable locally.
+- **Still future (not this amendment).** Replacing the ADR-0052 `/notifications` *poll* with webhook-driven todo produce/reconcile — the todos reconciler still polls. This amendment delivers the App credential model + activity ingestion + briefing surface; folding webhooks into the produce/reconcile loop is the next step.
+
 ---
 
 ## ADR-0053 — Deterministic connected tool declaration + dispatch-enforced gates; supersedes the prompt-only load instruction of ADR-0026/0040
