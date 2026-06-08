@@ -5,7 +5,9 @@ import type { JSONContent } from "@tiptap/react";
 import {
   ArrowUp,
   AtSign,
+  Check,
   Ellipsis,
+  Loader2,
   Mic,
   PanelLeft,
   PanelRight,
@@ -13,6 +15,7 @@ import {
   Share2,
   Sparkles,
   Square,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Particles } from "~/components/ui/particles";
@@ -23,6 +26,7 @@ import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
+import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
@@ -42,7 +46,7 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-cont
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { Conversation, shouldShowStream } from "./conversation";
+import { buildFollowUpSuggestions, Conversation, shouldShowStream } from "./conversation";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
 import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
 import {
@@ -132,12 +136,44 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const approvalTrayActive = awaitingApproval || runApprovals.length > 0;
   const hasConversation = messages.length > 0 || showStream;
 
+  // Follow-up suggestions for the last completed reply. The first one becomes
+  // the composer's ghost text (Tab to accept); the rest render as chips in the
+  // transcript — same content stream, two affordances, no duplication.
+  const followUps = useMemo(
+    () => (showStream ? [] : buildFollowUpSuggestions(messages)),
+    [messages, showStream],
+  );
+  const chipFollowUps = useMemo(() => followUps.slice(1), [followUps]);
+  const lastMessageId = messages.length > 0 ? (messages[messages.length - 1]?.id ?? null) : null;
+  // Ghost dismissal is per-reply: accepting or Escaping hides it until the
+  // next assistant message produces a fresh suggestion.
+  const [ghostDismissedFor, setGhostDismissedFor] = useState<string | null>(null);
+  const ghostSuggestion = followUps[0];
+  const ghostText =
+    ghostSuggestion && ghostDismissedFor !== lastMessageId ? ghostSuggestion.text : undefined;
+  const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);
+
+  // Stop the in-flight turn (composer stop button). Best-effort: the worker
+  // notices the Redis flag and finalizes the partial reply through the normal
+  // `chat.message completed` flow, so no client-side reconciliation here.
+  const onStopGeneration = useCallback(() => {
+    if (!activeRunId) return;
+    void stopChatRun(activeRunId).then((ok) => {
+      if (!ok) callToast({ message: "Couldn't stop the reply. Please try again.", type: "danger" });
+    });
+  }, [activeRunId]);
+
   return (
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       {hasConversation ? (
         <>
-          <Conversation messages={messages} stream={stream} onFollowUp={onSend} />
+          <Conversation
+            messages={messages}
+            stream={stream}
+            onFollowUp={onSend}
+            followUps={chipFollowUps}
+          />
           <div className="shrink-0 px-4 pb-4">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
               <ChatApprovalTray
@@ -151,6 +187,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 isStreaming={isStreaming}
                 disabled={approvalTrayActive}
                 onSend={onSend}
+                onStopGeneration={onStopGeneration}
+                ghostText={ghostText}
+                onGhostAccept={onGhostDone}
+                onGhostDismiss={onGhostDone}
               />
             </div>
           </div>
@@ -436,11 +476,20 @@ function Composer({
   isStreaming,
   disabled = false,
   onSend,
+  onStopGeneration,
+  ghostText,
+  onGhostAccept,
+  onGhostDismiss,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
   onSend?: (text: string) => void;
+  onStopGeneration?: () => void;
+  /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
+  ghostText?: string;
+  onGhostAccept?: () => void;
+  onGhostDismiss?: () => void;
 }) {
   const { resolved: theme } = useAppTheme();
 
@@ -470,6 +519,38 @@ function Composer({
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const mic = useMicRecording();
 
+  // Voice → text round-trip state. `transcribing` covers the window between
+  // confirming a recording and the transcript landing in the editor.
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  const onVoiceStart = () => {
+    setVoiceError(null);
+    void mic.start();
+  };
+
+  const onVoiceConfirm = async () => {
+    setVoiceError(null);
+    const blob = await mic.finish();
+    if (!blob) {
+      setVoiceError("We didn't catch that. Try again.");
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const transcript = (await transcribeRecording(blob)).trim();
+      if (transcript.length === 0) {
+        setVoiceError("We didn't catch that. Try again.");
+        return;
+      }
+      editorRef.current?.insertText(transcript);
+    } catch (err) {
+      setVoiceError(err instanceof Error ? err.message : "Transcription failed. Try again.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
   const [text, setText] = useState<string>(() => {
     // Mirror what Tiptap will report on mount so the send button reflects
     // restored drafts before the first onChange fires.
@@ -477,7 +558,7 @@ function Composer({
     return extractTextFromJSON(initialJSON);
   });
   const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
-  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming;
+  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming && !transcribing;
 
   // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
   // the palette UI reads from it.
@@ -657,13 +738,11 @@ function Composer({
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
         <div className="relative">
-          {mic.recording ? (
-            <RecordingPanel
-              levelsRef={mic.levelsRef}
-              elapsed={mic.elapsed}
-              active={mic.recording}
-            />
-          ) : (
+          {/* Keep the editor mounted (just hidden) while recording so its
+           * content survives the voice round-trip — the transcript appends to
+           * whatever was already typed instead of a remount reverting to the
+           * mount-time draft. */}
+          <div className={cn(mic.recording && "hidden")}>
             <TiptapComposer
               ref={editorRef}
               initialJSON={initialJSON}
@@ -673,8 +752,18 @@ function Composer({
               onSubmit={handleSubmit}
               onSuggestionChange={setSuggestion}
               suggestionKeyDownRef={suggestionKeyDownRef}
+              ghostText={ghostText}
+              onGhostAccept={onGhostAccept}
+              onGhostDismiss={onGhostDismiss}
             />
-          )}
+          </div>
+          {mic.recording ? (
+            <RecordingPanel
+              levelsRef={mic.levelsRef}
+              elapsed={mic.elapsed}
+              active={mic.recording}
+            />
+          ) : null}
 
           <ComposerToolbar
             mic={mic}
@@ -683,6 +772,11 @@ function Composer({
             disabled={disabled}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
+            transcribing={transcribing}
+            voiceError={voiceError}
+            onVoiceStart={onVoiceStart}
+            onVoiceConfirm={() => void onVoiceConfirm()}
+            onStopGeneration={onStopGeneration}
           />
         </div>
       </div>
@@ -697,6 +791,11 @@ function ComposerToolbar({
   disabled,
   mentionActive,
   onMentionClick,
+  transcribing,
+  voiceError,
+  onVoiceStart,
+  onVoiceConfirm,
+  onStopGeneration,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
@@ -704,7 +803,13 @@ function ComposerToolbar({
   disabled: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
+  transcribing: boolean;
+  voiceError: string | null;
+  onVoiceStart: () => void;
+  onVoiceConfirm: () => void;
+  onStopGeneration?: () => void;
 }) {
+  const statusMessage = voiceError ?? mic.error;
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
@@ -728,61 +833,94 @@ function ComposerToolbar({
         >
           Auto
         </AppPill>
-        {mic.error ? <span className="text-[11px] text-app-red-4 pl-1">{mic.error}</span> : null}
+        {transcribing ? (
+          <span className="animate-chat-shimmer text-[11px] text-app-fg-3 pl-1">Transcribing…</span>
+        ) : statusMessage ? (
+          <span className="text-[11px] text-app-red-4 pl-1">{statusMessage}</span>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1">
-        <ComposerIcon
-          label={mic.recording ? "Stop dictation" : "Dictate"}
-          onClick={mic.recording ? mic.stop : mic.start}
-          disabled={disabled && !mic.recording}
-          active={mic.recording}
-        >
-          <Mic size={14} />
-        </ComposerIcon>
         {mic.recording ? (
-          <button
-            type="button"
-            onClick={mic.stop}
-            aria-label="Stop recording"
-            className={cn(
-              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "app-press transition-[opacity,filter,transform]",
-              "bg-app-red-4 text-white",
-              "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
-              "hover:brightness-[1.05]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-            )}
-          >
-            <Square size={12} strokeWidth={2.5} fill="currentColor" />
-          </button>
+          <>
+            {/* Voice mode: X discards the take, ✓ sends it to transcription. */}
+            <ComposerIcon label="Discard recording" onClick={mic.cancel}>
+              <X size={14} />
+            </ComposerIcon>
+            <button
+              type="button"
+              onClick={onVoiceConfirm}
+              aria-label="Use recording"
+              className={cn(
+                "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                "app-press transition-[opacity,filter,transform]",
+                "hover:scale-[1.04] active:scale-[0.97]",
+                "text-(--app-accent-fg)",
+                "bg-(image:--app-cta-bg)",
+                "shadow-(--app-button-primary-shadow)",
+                "hover:brightness-[1.06]",
+                "hover:shadow-(--app-button-primary-shadow-hover)",
+                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+              )}
+            >
+              <Check size={16} strokeWidth={2.5} />
+            </button>
+          </>
         ) : (
-          <button
-            type="submit"
-            disabled={!canSend}
-            aria-label={
-              disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
-            }
-            className={cn(
-              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "app-press transition-[opacity,filter,transform]",
-              "enabled:hover:scale-[1.04] active:scale-[0.97]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-              canSend
-                ? cn(
-                    "text-(--app-accent-fg)",
-                    "bg-(image:--app-cta-bg)",
-                    "shadow-(--app-button-primary-shadow)",
-                    "hover:brightness-[1.06]",
-                    "hover:shadow-(--app-button-primary-shadow-hover)",
-                  )
-                : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+          <>
+            <ComposerIcon
+              label="Dictate"
+              onClick={onVoiceStart}
+              disabled={disabled || transcribing}
+            >
+              {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+            </ComposerIcon>
+            {isStreaming && onStopGeneration ? (
+              <button
+                type="button"
+                onClick={onStopGeneration}
+                aria-label="Stop generating"
+                className={cn(
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "bg-app-red-4 text-white",
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
+                  "hover:brightness-[1.05]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                )}
+              >
+                <Square size={12} strokeWidth={2.5} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSend}
+                aria-label={
+                  disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
+                }
+                className={cn(
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "enabled:hover:scale-[1.04] active:scale-[0.97]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  canSend
+                    ? cn(
+                        "text-(--app-accent-fg)",
+                        "bg-(image:--app-cta-bg)",
+                        "shadow-(--app-button-primary-shadow)",
+                        "hover:brightness-[1.06]",
+                        "hover:shadow-(--app-button-primary-shadow-hover)",
+                      )
+                    : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+                )}
+              >
+                <ArrowUp size={16} strokeWidth={2.25} />
+              </button>
             )}
-          >
-            <ArrowUp size={16} strokeWidth={2.25} />
-          </button>
+          </>
         )}
       </div>
     </div>

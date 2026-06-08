@@ -86,6 +86,16 @@ export interface MeteredResult {
   usage?: CallUsage;
   /** Surfaced to `response_meta` (finish_reason, model id echoed back, tool_calls count, etc.). */
   responseMeta?: Record<string, unknown>;
+  /**
+   * Model id the provider reported actually serving the call
+   * (`result.response.modelId`). `MeteredMeta.provider/model` are resolved
+   * from the model object *before* the call, so when a `withFallback`
+   * cascade switches providers mid-call the meta misattributes — `metered()`
+   * re-resolves provider + price from this id (via `MODEL_REGISTRY`) when it
+   * differs. Registry-gated: an unrecognized served id (e.g. a provider's
+   * dated alias of the same model) leaves the pre-call meta untouched.
+   */
+  served?: { model: string };
 }
 
 export type ResultExtractor<T> = (value: T) => MeteredResult;

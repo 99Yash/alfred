@@ -5,6 +5,7 @@ import {
   PREVIEW_APPROVALS_BADGE,
   PREVIEW_CHAT_THREADS,
   PREVIEW_RECENT_THREADS,
+  type PreviewRecentThread,
   type PreviewThreadEntry,
   type PreviewThreadGroup,
 } from "~/components/preview-fixtures";
@@ -40,19 +41,20 @@ export default function AuthedAppShell({
   // public routes do not import the event or sync graph.
   useEventBridge();
 
-  // Live chat threads (Replicache-synced), grouped by recency for the sidebar.
+  // Live chat threads (Replicache-synced), grouped by recency for the sidebar
+  // and flattened into "Recent chats" rows for the ⌘K palette.
   const chatThreads = useChatThreads();
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
+  const realRecentThreads = useMemo(() => recentThreadsForPalette(chatThreads), [chatThreads]);
 
   /* `/preview/*` is the fixture-rich design surface. Real routes now feed the
-   * sidebar live Replicache-synced chat threads (grouped by recency); the
-   * approvals badge + palette recent threads still await their own wiring, so
-   * they stay empty on real routes. The preview routes pass demo fixtures so
-   * the design surface stays loud regardless. */
+   * sidebar + palette live Replicache-synced chat threads; the approvals badge
+   * still awaits its own wiring, so it stays empty on real routes. The preview
+   * routes pass demo fixtures so the design surface stays loud regardless. */
   const isPreviewRoute = pathname.startsWith("/preview/");
   const sidebarThreads = isPreviewRoute ? PREVIEW_CHAT_THREADS : realThreads;
   const sidebarApprovalsBadge = isPreviewRoute ? PREVIEW_APPROVALS_BADGE : undefined;
-  const paletteRecentThreads = isPreviewRoute ? PREVIEW_RECENT_THREADS : undefined;
+  const paletteRecentThreads = isPreviewRoute ? PREVIEW_RECENT_THREADS : realRecentThreads;
 
   return (
     <AppThemed className="min-h-dvh bg-app-background-subtle">
@@ -118,4 +120,30 @@ function groupChatThreads(
     else groups.earlier.push(entry);
   }
   return groups;
+}
+
+/** How many threads the ⌘K palette surfaces before the user starts typing. */
+const PALETTE_THREAD_LIMIT = 12;
+
+/**
+ * Flatten the newest threads into the palette's "Recent chats" rows with a
+ * relative `when` label (Today / Yesterday / "May 30"). `useChatThreads`
+ * already sorts newest-first, so a plain slice keeps the most recent.
+ */
+function recentThreadsForPalette(threads: ReadonlyArray<SyncedChatThread>): PreviewRecentThread[] {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+
+  return threads.slice(0, PALETTE_THREAD_LIMIT).map((thread) => {
+    const ts = new Date(thread.lastMessageAt ?? thread.createdAt);
+    const when =
+      Number.isNaN(ts.getTime()) || ts >= startOfToday
+        ? "Today"
+        : ts >= startOfYesterday
+          ? "Yesterday"
+          : ts.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return { id: thread.id, title: thread.title?.trim() || "New chat", when };
+  });
 }

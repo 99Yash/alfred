@@ -27,19 +27,54 @@ export function Conversation({
   messages,
   stream,
   onFollowUp,
+  followUps = EMPTY_FOLLOW_UPS,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
   onFollowUp?: (text: string) => void;
+  /** Follow-up chips rendered under the last completed reply (built by the parent). */
+  followUps?: ReadonlyArray<FollowUpSuggestion>;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
   const showStream = shouldShowStream(messages, stream);
-  const followUps = useMemo(
-    () => (showStream ? [] : buildFollowUpSuggestions(messages)),
-    [messages, showStream],
-  );
+
+  // ---- Send-anchoring -------------------------------------------------
+  // When the user sends a message, scroll it to the top of the viewport
+  // (ChatGPT-style) so the reply streams downward from a stable read
+  // position instead of chasing the tail. A spacer below the feed makes
+  // room; it shrinks 1:1 as the reply grows, so the scroll position holds
+  // without jumps. Scrolling (wheel/touch) disengages the anchor and hands
+  // control back to the stick-to-bottom behavior below.
+  const lastUserId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.role === "user") return m.id;
+    }
+    return null;
+  }, [messages]);
+  const userMsgElRef = useRef<HTMLDivElement | null>(null);
+  const spacerRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef(false);
+  const seenUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Stop pinning, but leave the spacer as-is — collapsing it here would
+    // clamp scrollTop and visibly jump the feed. It re-sizes on the next
+    // send and is harmless meanwhile (same trailing room ChatGPT keeps).
+    const disengage = () => {
+      anchorRef.current = false;
+    };
+    el.addEventListener("wheel", disengage, { passive: true });
+    el.addEventListener("touchmove", disengage, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", disengage);
+      el.removeEventListener("touchmove", disengage);
+    };
+  }, []);
 
   // Track whether the user is parked at the bottom; only auto-scroll if so.
   const onScroll = () => {
@@ -48,14 +83,38 @@ export function Conversation({
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  // Re-stick to the bottom when the feed grows. `stream` is a fresh snapshot
-  // each animation frame while a turn is in flight, so this fires per drip
-  // tick during streaming and on each new durable message — but not on
-  // unrelated re-renders (which a depless effect would).
+  // Re-stick to the bottom when the feed grows (unless send-anchored).
+  // `stream` is a fresh snapshot each animation frame while a turn is in
+  // flight, so this fires per drip tick during streaming and on each new
+  // durable message — but not on unrelated re-renders (which a depless
+  // effect would).
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, stream]);
+    if (!el) return;
+
+    // Engage the anchor on a *new* user message. The first sync of an
+    // existing thread doesn't count — only record what we saw so opening
+    // history still lands at the bottom.
+    if (lastUserId !== seenUserIdRef.current) {
+      const isInitialLoad = seenUserIdRef.current === null && messages.length > 1;
+      seenUserIdRef.current = lastUserId;
+      if (!isInitialLoad && lastUserId !== null) anchorRef.current = true;
+    }
+
+    const userEl = userMsgElRef.current;
+    const spacer = spacerRef.current;
+    if (anchorRef.current && userEl && spacer) {
+      const TOP_GAP = 24; // breathing room above the anchored message
+      spacer.style.height = "0px";
+      const userTop =
+        userEl.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+      const needed = Math.max(0, userTop - TOP_GAP + el.clientHeight - el.scrollHeight);
+      spacer.style.height = `${needed}px`;
+      el.scrollTop = userTop - TOP_GAP;
+    } else if (stickRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, stream, lastUserId]);
 
   useEffect(() => {
     if (!showStream || !stream) return;
@@ -117,7 +176,18 @@ export function Conversation({
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <div
+            key={m.id}
+            ref={
+              m.id === lastUserId
+                ? (el) => {
+                    userMsgElRef.current = el;
+                  }
+                : undefined
+            }
+          >
+            <MessageBubble message={m} />
+          </div>
         ))}
 
         {onFollowUp && followUps.length > 0 ? (
@@ -154,19 +224,28 @@ export function Conversation({
           </div>
         ) : null}
       </div>
+
+      {/* Send-anchor spacer — sized imperatively so the last user message can
+       * park at the top of the viewport while the reply streams in. Outside
+       * the gap-5 column so a 0-height spacer contributes no phantom gap. */}
+      <div ref={spacerRef} aria-hidden className="shrink-0" />
     </div>
   );
 }
 
-interface FollowUpSuggestion {
+export interface FollowUpSuggestion {
   id: string;
   text: string;
   brand: IntegrationBrand;
 }
 
+const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
+
 type PersistedToolCall = NonNullable<SyncedChatMessage["toolCalls"]>[number];
 
-function buildFollowUpSuggestions(messages: readonly SyncedChatMessage[]): FollowUpSuggestion[] {
+export function buildFollowUpSuggestions(
+  messages: readonly SyncedChatMessage[],
+): FollowUpSuggestion[] {
   const last = messages[messages.length - 1];
   if (!last || last.role !== "assistant" || last.status !== "complete") return [];
 
@@ -184,19 +263,30 @@ function buildFollowUpSuggestions(messages: readonly SyncedChatMessage[]): Follo
 
 function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   if (tool.status !== "succeeded") return null;
-  const result = parseJsonRecord(tool.resultPreview);
-  if (!result) return null;
+  // `resultPreview` is now pruned server-side into *valid* JSON (chat-turn's
+  // `preview()`), so strict parsing succeeds for fresh rows. The prefix-scan
+  // fallback below stays for historical rows persisted before that fix, whose
+  // JSON was sliced mid-string and won't parse.
+  const raw = tool.resultPreview ?? "";
+  const result = parseJsonRecord(raw);
 
   if (tool.toolName === "github.search_pull_requests") {
-    const totalCount = typeof result.totalCount === "number" ? result.totalCount : 0;
-    const pullRequests = Array.isArray(result.pullRequests) ? result.pullRequests : [];
-    if (totalCount <= 0 || pullRequests.length === 0) return null;
+    const totalCount =
+      result && typeof result.totalCount === "number"
+        ? result.totalCount
+        : Number(/"totalCount"\s*:\s*(\d+)/.exec(raw)?.[1] ?? 0);
+    const hasRows = result
+      ? Array.isArray(result.pullRequests) && result.pullRequests.length > 0
+      : /"pullRequests"\s*:\s*\[\s*\{/.test(raw);
+    if (totalCount <= 0 || !hasRows) return null;
     return { id: "github-pr-list", text: "Show me the matching PRs.", brand: "github" };
   }
 
   if (tool.toolName === "calendar.list_events") {
-    const events = Array.isArray(result.events) ? result.events : [];
-    if (events.length === 0) return null;
+    const hasEvents = result
+      ? Array.isArray(result.events) && result.events.length > 0
+      : /"events"\s*:\s*\[\s*\{/.test(raw);
+    if (!hasEvents) return null;
     return {
       id: "calendar-meeting-prep",
       text: "What should I prep for my next meeting?",
@@ -207,6 +297,9 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   return null;
 }
 
+/** True on Apple platforms — picks the ⌥ glyph over the "Alt+" prefix in kbd hints. */
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.userAgent);
+
 function FollowUpSuggestions({
   suggestions,
   onPick,
@@ -214,9 +307,26 @@ function FollowUpSuggestions({
   suggestions: readonly FollowUpSuggestion[];
   onPick: (text: string) => void;
 }) {
+  // ⌥1…⌥9 picks a chip from anywhere on the page. `e.code` (not `e.key`)
+  // because Option+digit types a glyph ("¡", "™"…) on macOS keyboards.
+  // Alt+digit is unreserved in every browser, unlike ⌘digit (tab switching).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const match = /^Digit([1-9])$/.exec(e.code);
+      if (!match) return;
+      const pick = suggestions[Number(match[1]) - 1];
+      if (!pick) return;
+      e.preventDefault();
+      onPick(pick.text);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [suggestions, onPick]);
+
   return (
     <div className="animate-chat-in flex flex-wrap gap-2 pt-1">
-      {suggestions.map((suggestion) => (
+      {suggestions.map((suggestion, i) => (
         <button
           key={suggestion.id}
           type="button"
@@ -234,6 +344,17 @@ function FollowUpSuggestions({
         >
           <IntegrationGlyph brand={suggestion.brand} size={14} className="shrink-0" />
           <span className="min-w-0 truncate">{suggestion.text}</span>
+          {i < 9 ? (
+            <kbd
+              className={cn(
+                "shrink-0 inline-flex items-center justify-center h-[16px] px-1 rounded",
+                "text-[10px] leading-none font-medium font-sans tabular-nums",
+                "bg-app-bg-a2 text-app-fg-2",
+              )}
+            >
+              {IS_MAC ? `⌥${i + 1}` : `Alt+${i + 1}`}
+            </kbd>
+          ) : null}
         </button>
       ))}
     </div>

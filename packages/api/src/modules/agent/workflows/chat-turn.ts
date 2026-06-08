@@ -17,6 +17,7 @@ import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
@@ -44,7 +45,22 @@ const TURN_CAP_MAX = 24;
 /** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
 const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
+/** Poll the user-stop flag at most this often while draining the stream (ms). */
+const STOP_CHECK_MS = 400;
 const PREVIEW_CHARS = 2_000;
+/**
+ * Pruning tiers tried loosest-first when a structured preview overflows
+ * `PREVIEW_CHARS`: `[maxArrayItems, maxStringLen, maxObjectKeys]`. The first
+ * tier whose serialization fits is used, so previews shrink only as much as
+ * the cap demands. The tightest tier exists so even a pathologically wide
+ * result still lands under the cap as valid JSON.
+ */
+const PREVIEW_TIERS: ReadonlyArray<readonly [number, number, number]> = [
+  [5, 300, 64],
+  [3, 160, 48],
+  [2, 80, 32],
+  [1, 40, 16],
+];
 const TITLE_TIMEOUT_MS = 15_000;
 
 const pendingToolCallSchema = z.object({
@@ -93,18 +109,66 @@ const CHAT_SYSTEM_PROMPT = [
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-function preview(value: unknown): string {
-  let s: string;
-  try {
-    s = typeof value === "string" ? value : JSON.stringify(value);
-  } catch {
-    s = String(value);
+/**
+ * Shrink a structured value by *pruning* — cap array lengths, truncate long
+ * leaf strings, cap object key counts — rather than slicing the serialized
+ * JSON. Slicing yields unparseable JSON, which silently breaks every client
+ * that reads `resultPreview` back (follow-up chips, the tool-card detail pane).
+ * Pruning preserves shape and validity: arrays keep their first few rows (so
+ * `.length > 0` and sibling count fields like `totalCount` still read true),
+ * just smaller.
+ */
+function pruneForPreview(
+  value: unknown,
+  maxArray: number,
+  maxString: number,
+  maxKeys: number,
+): unknown {
+  if (typeof value === "string") {
+    return value.length > maxString ? `${value.slice(0, maxString - 1)}…` : value;
   }
-  s = s ?? "";
-  // Reserve one char for the ellipsis: the `chat.tool` event schema caps both
-  // previews at max(PREVIEW_CHARS), and `publishEvent` throws on overflow —
-  // which would kill the whole turn on routine long tool output.
-  return s.length > PREVIEW_CHARS ? `${s.slice(0, PREVIEW_CHARS - 1)}…` : s;
+  if (Array.isArray(value)) {
+    return value.slice(0, maxArray).map((v) => pruneForPreview(v, maxArray, maxString, maxKeys));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value).slice(0, maxKeys)) {
+      out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
+    }
+    return out;
+  }
+  return value;
+}
+
+function preview(value: unknown): string {
+  // Strings are plain text (error messages, model output) — slice directly.
+  if (typeof value === "string") {
+    return value.length > PREVIEW_CHARS ? `${value.slice(0, PREVIEW_CHARS - 1)}…` : value;
+  }
+  let full: string;
+  try {
+    full = JSON.stringify(value) ?? "";
+  } catch {
+    full = String(value);
+  }
+  if (full.length <= PREVIEW_CHARS) return full;
+
+  // Over budget: prune the structure, tightening tier by tier, so the preview
+  // stays *valid JSON* under the cap. The `chat.tool` event schema caps
+  // previews at PREVIEW_CHARS and `publishEvent` throws on overflow, so we must
+  // land under it.
+  try {
+    for (const [maxArray, maxString, maxKeys] of PREVIEW_TIERS) {
+      const pruned = JSON.stringify(pruneForPreview(value, maxArray, maxString, maxKeys)) ?? "";
+      if (pruned && pruned.length <= PREVIEW_CHARS) return pruned;
+    }
+  } catch {
+    // fall through to the slice below
+  }
+  // Even the tightest tier overflowed (or pruning threw) — last resort is a
+  // slice, accepting that this rare preview won't parse. Reserve a char for the
+  // ellipsis.
+  return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
 function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
@@ -221,10 +285,28 @@ const chatTurnStep: Step<ChatRunState> = {
         attribution: { kind: "llm", userId: ctx.userId, runId: ctx.runId },
       });
 
+      // User-initiated stop (composer stop button → Redis flag). Polled while
+      // draining the stream; on stop we abort the provider call, keep whatever
+      // streamed, and finalize through the normal completion path.
+      const stopController = new AbortController();
+      let stopRequested = false;
+      let lastStopCheck = Date.now();
+      const checkStop = async (): Promise<boolean> => {
+        if (stopRequested) return true;
+        if (Date.now() - lastStopCheck < STOP_CHECK_MS) return false;
+        lastStopCheck = Date.now();
+        if (await isChatStopRequested(ctx.runId)) {
+          stopRequested = true;
+          stopController.abort();
+        }
+        return stopRequested;
+      };
+
       const stream = await agent.streamTurn({
         ctx,
         transcript: transcript as ModelMessage[],
         attribution: { stepId: ctx.idempotencyKey, attempt: ctx.attempt, role: "boss" },
+        abortSignal: stopController.signal,
       });
 
       // Drain the live stream → coalesce text into `chat.delta`, reasoning into
@@ -280,53 +362,62 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       };
 
-      for await (const part of stream.fullStream) {
-        if (part.type === "text-delta") {
-          await flushReasoning();
-          state.assistantText += part.text;
-          buffer += part.text;
-          if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
-            await flush();
-          }
-        } else if (part.type === "reasoning-delta") {
-          if (reasoningStart === 0) reasoningStart = Date.now();
-          state.reasoningText += part.text;
-          reasoningBuffer += part.text;
-          if (
-            reasoningBuffer.length >= DELTA_FLUSH_CHARS ||
-            Date.now() - lastReasoningFlush >= DELTA_FLUSH_MS
-          ) {
+      try {
+        for await (const part of stream.fullStream) {
+          if (await checkStop()) break;
+          if (part.type === "text-delta") {
             await flushReasoning();
-          }
-        } else if (part.type === "reasoning-end") {
-          if (reasoningStart > 0) state.reasoningMs += Date.now() - reasoningStart;
-          reasoningStart = 0;
-          await flushReasoning();
-        } else if (part.type === "tool-call") {
-          if (reasoningStart > 0) {
-            state.reasoningMs += Date.now() - reasoningStart;
+            state.assistantText += part.text;
+            buffer += part.text;
+            if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
+              await flush();
+            }
+          } else if (part.type === "reasoning-delta") {
+            if (reasoningStart === 0) reasoningStart = Date.now();
+            state.reasoningText += part.text;
+            reasoningBuffer += part.text;
+            if (
+              reasoningBuffer.length >= DELTA_FLUSH_CHARS ||
+              Date.now() - lastReasoningFlush >= DELTA_FLUSH_MS
+            ) {
+              await flushReasoning();
+            }
+          } else if (part.type === "reasoning-end") {
+            if (reasoningStart > 0) state.reasoningMs += Date.now() - reasoningStart;
             reasoningStart = 0;
+            await flushReasoning();
+          } else if (part.type === "tool-call") {
+            if (reasoningStart > 0) {
+              state.reasoningMs += Date.now() - reasoningStart;
+              reasoningStart = 0;
+            }
+            await flushReasoning();
+            await flush();
+            await publishEvent({
+              userId: ctx.userId,
+              kind: "chat.tool",
+              payload: {
+                runId: ctx.runId,
+                threadId: state.threadId,
+                messageId: state.messageId,
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                status: "started",
+                argsPreview: preview(part.input),
+              },
+            });
+          } else if (part.type === "error") {
+            // A mid-stream error (provider fault, timeout abort) surfaces here;
+            // throw so the catch below finalizes the turn as failed. Our own
+            // stop-abort can land here too on some providers — not a fault.
+            if (stopRequested) break;
+            throw part.error instanceof Error ? part.error : new Error(String(part.error));
           }
-          await flushReasoning();
-          await flush();
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "chat.tool",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              status: "started",
-              argsPreview: preview(part.input),
-            },
-          });
-        } else if (part.type === "error") {
-          // A mid-stream error (provider fault, timeout abort) surfaces here;
-          // throw so the catch below finalizes the turn as failed.
-          throw part.error instanceof Error ? part.error : new Error(String(part.error));
         }
+      } catch (err) {
+        // The stop-abort can also surface as a thrown AbortError from the
+        // stream iterator itself; swallow it only when we asked for it.
+        if (!stopRequested) throw err;
       }
       // Some providers end the stream without a `reasoning-end`; close the
       // duration and flush any trailing thinking before the reply flush.
@@ -336,6 +427,31 @@ const chatTurnStep: Step<ChatRunState> = {
       }
       await flushReasoning();
       await flush();
+
+      if (stopRequested) {
+        // User hit stop: persist whatever streamed and complete the run.
+        // Skip `stream.toolCalls/finishReason/response` — after an abort those
+        // promises may never settle. An empty partial persists as an empty
+        // assistant row (renders as nothing), which is honest: the user
+        // stopped before the model said anything.
+        await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        const stoppedTranscript =
+          state.assistantText.length > 0
+            ? [
+                ...transcript,
+                {
+                  role: "assistant",
+                  content: state.assistantText,
+                } satisfies AgentTranscriptMessage,
+              ]
+            : transcript;
+        return {
+          kind: "done",
+          state,
+          transcript: stoppedTranscript,
+          output: { messageId: state.messageId, stopped: true },
+        };
+      }
 
       const [toolCalls, finishReason, response] = await Promise.all([
         stream.toolCalls,
@@ -394,6 +510,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
     try {
       while (state.pendingToolCalls.length > 0) {
+        // User hit stop while tools were dispatching: drop the remaining
+        // calls and finalize with whatever streamed + completed so far.
+        if (await isChatStopRequested(ctx.runId)) {
+          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          return {
+            kind: "done",
+            state,
+            transcript,
+            output: { messageId: state.messageId, stopped: true },
+          };
+        }
         const call = state.pendingToolCalls[0]!;
         const result = await dispatchToolCall({
           runId: ctx.runId,
