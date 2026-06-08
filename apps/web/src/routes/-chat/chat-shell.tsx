@@ -17,7 +17,18 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type FormEvent,
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Particles } from "~/components/ui/particles";
 import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
@@ -494,197 +505,30 @@ function Composer({
   onGhostDismiss?: () => void;
 }) {
   const { resolved: theme } = useAppTheme();
-
-  // Persist drafts per thread (and a shared "new chat" bucket for the empty
-  // /chat hero). Survives refresh; cleared on submit.
-  const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
-
-  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
-  // accept the legacy plain-string format so drafts written by the previous
-  // textarea+mirror composer survive the migration.
-  const initialJSON = useMemo<JSONContent | undefined>(() => {
-    const raw = safeGet(draftKey);
-    if (!raw) return undefined;
-    try {
-      const parsed = JSON.parse(raw) as JSONContent;
-      if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
-    } catch {
-      // Legacy plain-text draft — wrap as a single paragraph.
-      return {
-        type: "doc",
-        content: [{ type: "paragraph", content: [{ type: "text", text: raw }] }],
-      };
-    }
-    return undefined;
-  }, [draftKey]);
-
   const editorRef = useRef<TiptapComposerHandle | null>(null);
-  const mic = useMicRecording();
-
-  // Voice → text round-trip state. `transcribing` covers the window between
-  // confirming a recording and the transcript landing in the editor.
-  const [transcribing, setTranscribing] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-
-  const onVoiceStart = () => {
-    setVoiceError(null);
-    void mic.start();
-  };
-
-  const onVoiceConfirm = async () => {
-    setVoiceError(null);
-    const blob = await mic.finish();
-    if (!blob) {
-      setVoiceError("We didn't catch that. Try again.");
-      return;
-    }
-    setTranscribing(true);
-    try {
-      const transcript = (await transcribeRecording(blob)).trim();
-      if (transcript.length === 0) {
-        setVoiceError("We didn't catch that. Try again.");
-        return;
-      }
-      editorRef.current?.insertText(transcript);
-    } catch (err) {
-      setVoiceError(err instanceof Error ? err.message : "Transcription failed. Try again.");
-    } finally {
-      setTranscribing(false);
-    }
-  };
-
-  const [text, setText] = useState<string>(() => {
-    // Mirror what Tiptap will report on mount so the send button reflects
-    // restored drafts before the first onChange fires.
-    if (!initialJSON) return "";
-    return extractTextFromJSON(initialJSON);
-  });
-  const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
+  const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
+  const voice = useComposerVoice(editorRef);
+  const mention = useMentionController();
+  const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
+  const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming && !transcribing;
-
-  // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
-  // the palette UI reads from it.
-  const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
-  const [mentionIdx, setMentionIdx] = useState(0);
-
-  const mentionCandidates = useMemo(
-    () => (suggestion ? filterMentionOptions(suggestion.query) : []),
-    [suggestion],
-  );
-
-  // Reset the active index when a new suggestion opens or the query changes.
-  // The previous-value-during-render pattern keeps this synchronous and out
-  // of an effect. `prevQuery` is only used to gate the reset, never read in
-  // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
-  const currentQuery = suggestion?.query ?? null;
-  const prevQueryRef = useRef<string | null>(currentQuery);
-  if (prevQueryRef.current !== currentQuery) {
-    prevQueryRef.current = currentQuery;
-    setMentionIdx(0);
-  }
-
-  // Clamp the active row at render time. If filtering shrunk the list since
-  // the last keystroke, the displayed highlight lands on the last valid row
-  // without an effect that loops state back through React. The keyboard
-  // handler reads off `visibleMentionIdx` so a stale `mentionIdx` can't
-  // walk past the new list bounds either.
-  const visibleMentionIdx =
-    mentionCandidates.length === 0 ? 0 : Math.min(mentionIdx, mentionCandidates.length - 1);
-
-  const insertMention = useCallback(
-    (option: MentionOption) => {
-      suggestion?.command(option);
-    },
-    [suggestion],
-  );
 
   const insertAtTrigger = useCallback(() => {
     if (disabled) return;
     editorRef.current?.insertAtTrigger();
   }, [disabled]);
 
-  // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
-  // tells Tiptap to swallow the key so it doesn't also reach the editor.
-  const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
-  suggestionKeyDownRef.current = (event) => {
-    if (!suggestion || mentionCandidates.length === 0) return false;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
-      return true;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      const pick = mentionCandidates[visibleMentionIdx];
-      if (pick) {
-        event.preventDefault();
-        suggestion.command(pick);
-        return true;
-      }
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      suggestion.dismiss();
-      return true;
-    }
-    return false;
-  };
-
-  // Persist drafts as JSON. Tiptap's onChange already fires after every doc
-  // mutation, so this effect only needs to react to changes in `text` (used
-  // as a coarse "did the editor mutate" signal — JSON identity would churn).
-  const onEditorChange = useCallback(
-    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
-      setText(nextText);
-      setIsEmpty(nextEmpty);
-      if (nextEmpty) {
-        safeRemove(draftKey);
-      } else {
-        safeSet(draftKey, JSON.stringify(nextJSON));
-      }
-    },
-    [draftKey],
-  );
-
-  // Type-anywhere autofocus: any printable keystroke on the page lands in
-  // the composer. Skipped when the user is already inside an input / when a
-  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
-  useEffect(() => {
-    if (disabled) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (!e.key || e.key.length !== 1) return;
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        target.closest("input, textarea, select, [contenteditable='true']")
-      ) {
-        return;
-      }
-      const handle = editorRef.current;
-      if (!handle) return;
-      e.preventDefault();
-      handle.insertText(e.key);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [disabled]);
+  useTypeAnywhere(editorRef, disabled);
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
     const value = text.trim();
     onSend?.(value);
     editorRef.current?.clear();
-    setText("");
-    setIsEmpty(true);
-    safeRemove(draftKey);
-  }, [canSend, draftKey, text, onSend]);
+    resetDraft();
+  }, [canSend, text, onSend, resetDraft]);
 
-  const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     handleSubmit();
   };
@@ -700,8 +544,8 @@ function Composer({
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
-          onHover={setMentionIdx}
-          onPick={insertMention}
+          onHover={mention.setMentionIdx}
+          onPick={mention.insertMention}
           onClose={() => suggestion.dismiss()}
         />
       ) : null}
@@ -748,7 +592,7 @@ function Composer({
               disabled={disabled}
               onChange={onEditorChange}
               onSubmit={handleSubmit}
-              onSuggestionChange={setSuggestion}
+              onSuggestionChange={mention.setSuggestion}
               suggestionKeyDownRef={suggestionKeyDownRef}
               ghostText={ghostText}
               onGhostAccept={onGhostAccept}
@@ -780,6 +624,259 @@ function Composer({
       </div>
     </form>
   );
+}
+
+function useComposerDraft(threadId: string | undefined): {
+  initialJSON: JSONContent | undefined;
+  text: string;
+  isEmpty: boolean;
+  onEditorChange: (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => void;
+  resetDraft: () => void;
+} {
+  // Persist drafts per thread (and a shared "new chat" bucket for the empty
+  // /chat hero). Survives refresh; cleared on submit.
+  const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
+
+  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
+  // accept the legacy plain-string format so drafts written by the previous
+  // textarea+mirror composer survive the migration.
+  const initialJSON = useMemo(() => readDraftJSON(draftKey), [draftKey]);
+  const [editorState, setEditorState] = useState<{
+    text: string;
+    isEmpty: boolean;
+  }>(() => {
+    const initialText = initialJSON ? extractTextFromJSON(initialJSON) : "";
+    return { text: initialText, isEmpty: initialText.trim().length === 0 };
+  });
+
+  const onEditorChange = useCallback(
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+      setEditorState({ text: nextText, isEmpty: nextEmpty });
+      if (nextEmpty) {
+        safeRemove(draftKey);
+      } else {
+        safeSet(draftKey, JSON.stringify(nextJSON));
+      }
+    },
+    [draftKey],
+  );
+
+  const resetDraft = useCallback(() => {
+    setEditorState({ text: "", isEmpty: true });
+    safeRemove(draftKey);
+  }, [draftKey]);
+
+  return {
+    initialJSON,
+    text: editorState.text,
+    isEmpty: editorState.isEmpty,
+    onEditorChange,
+    resetDraft,
+  };
+}
+
+type VoiceState = {
+  transcribing: boolean;
+  error: string | null;
+};
+
+type VoiceAction =
+  | { type: "clear_error" }
+  | { type: "transcribe_start" }
+  | { type: "transcribe_success" }
+  | { type: "transcribe_error"; error: string };
+
+function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
+  switch (action.type) {
+    case "clear_error":
+      return { ...state, error: null };
+    case "transcribe_start":
+      return { transcribing: true, error: null };
+    case "transcribe_success":
+      return { transcribing: false, error: null };
+    case "transcribe_error":
+      return { transcribing: false, error: action.error };
+  }
+}
+
+function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | null>): {
+  mic: ReturnType<typeof useMicRecording>;
+  transcribing: boolean;
+  voiceError: string | null;
+  onVoiceStart: () => void;
+  onVoiceConfirm: () => Promise<void>;
+} {
+  const mic = useMicRecording();
+  const [voice, dispatchVoice] = useReducer(voiceReducer, {
+    transcribing: false,
+    error: null,
+  });
+
+  const onVoiceStart = useCallback(() => {
+    dispatchVoice({ type: "clear_error" });
+    void mic.start();
+  }, [mic]);
+
+  const onVoiceConfirm = useCallback(async () => {
+    dispatchVoice({ type: "clear_error" });
+    const blob = await mic.finish();
+    if (!blob) {
+      dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+      return;
+    }
+    dispatchVoice({ type: "transcribe_start" });
+    try {
+      const transcript = (await transcribeRecording(blob)).trim();
+      if (transcript.length === 0) {
+        dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+        return;
+      }
+      editorRef.current?.insertText(transcript);
+      dispatchVoice({ type: "transcribe_success" });
+    } catch (err) {
+      dispatchVoice({
+        type: "transcribe_error",
+        error: err instanceof Error ? err.message : "Transcription failed. Try again.",
+      });
+    }
+  }, [editorRef, mic]);
+
+  return {
+    mic,
+    transcribing: voice.transcribing,
+    voiceError: voice.error,
+    onVoiceStart,
+    onVoiceConfirm,
+  };
+}
+
+function useMentionController(): {
+  suggestion: SuggestionRenderState | null;
+  setSuggestion: (state: SuggestionRenderState | null) => void;
+  mentionCandidates: ReadonlyArray<MentionOption>;
+  visibleMentionIdx: number;
+  setMentionIdx: (idx: number) => void;
+  insertMention: (option: MentionOption) => void;
+  suggestionKeyDownRef: MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
+} {
+  // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
+  // the palette UI reads from it.
+  const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const mentionCandidates = useMemo(
+    () => (suggestion ? filterMentionOptions(suggestion.query) : []),
+    [suggestion],
+  );
+
+  // Reset the active index when a new suggestion opens or the query changes.
+  // The previous-value-during-render pattern keeps this synchronous and out
+  // of an effect. `prevQuery` is only used to gate the reset, never read in
+  // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
+  const currentQuery = suggestion?.query ?? null;
+  const prevQueryRef = useRef<string | null>(currentQuery);
+  if (prevQueryRef.current !== currentQuery) {
+    prevQueryRef.current = currentQuery;
+    setMentionIdx(0);
+  }
+
+  // Clamp the active row at render time. If filtering shrunk the list since
+  // the last keystroke, the displayed highlight lands on the last valid row
+  // without an effect that loops state back through React.
+  const visibleMentionIdx =
+    mentionCandidates.length === 0 ? 0 : Math.min(mentionIdx, mentionCandidates.length - 1);
+
+  const insertMention = useCallback(
+    (option: MentionOption) => {
+      suggestion?.command(option);
+    },
+    [suggestion],
+  );
+
+  // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
+  // tells Tiptap to swallow the key so it doesn't also reach the editor.
+  const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
+  suggestionKeyDownRef.current = (event) => {
+    if (!suggestion || mentionCandidates.length === 0) return false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      const pick = mentionCandidates[visibleMentionIdx];
+      if (pick) {
+        event.preventDefault();
+        suggestion.command(pick);
+        return true;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      suggestion.dismiss();
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    suggestion,
+    setSuggestion,
+    mentionCandidates,
+    visibleMentionIdx,
+    setMentionIdx,
+    insertMention,
+    suggestionKeyDownRef,
+  };
+}
+
+function useTypeAnywhere(
+  editorRef: RefObject<TiptapComposerHandle | null>,
+  disabled: boolean,
+): void {
+  // Type-anywhere autofocus: any printable keystroke on the page lands in
+  // the composer. Skipped when the user is already inside an input / when a
+  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
+  useEffect(() => {
+    if (disabled) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!e.key || e.key.length !== 1) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      const handle = editorRef.current;
+      if (!handle) return;
+      e.preventDefault();
+      handle.insertText(e.key);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [disabled, editorRef]);
+}
+
+function readDraftJSON(draftKey: string): JSONContent | undefined {
+  const raw = safeGet(draftKey);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as JSONContent;
+    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
+  } catch {
+    // Legacy plain-text draft — wrap as a single paragraph.
+    return {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: raw }] }],
+    };
+  }
+  return undefined;
 }
 
 function ComposerToolbar({
@@ -930,7 +1027,7 @@ function RecordingPanel({
   elapsed,
   active,
 }: {
-  levelsRef: React.RefObject<Float32Array>;
+  levelsRef: RefObject<Float32Array>;
   elapsed: number;
   active: boolean;
 }) {
