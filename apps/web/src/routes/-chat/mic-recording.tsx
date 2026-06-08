@@ -24,7 +24,9 @@ export function useMicRecording() {
   const [elapsed, setElapsed] = useState(0);
 
   // Live audio data — shared with the waveform renderer through this ref.
-  const levelsRef = useRef<Float32Array>(new Float32Array(SAMPLE_COUNT));
+  const levelsRef = useRef<Float32Array | null>(null);
+  if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
+  const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -167,10 +169,10 @@ export function useMicRecording() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { recording, error, elapsed, start, cancel, finish, levelsRef };
+  return { recording, error, elapsed, start, cancel, finish, levelsRef: initializedLevelsRef };
 }
 
-export const SAMPLE_COUNT = 56;
+const SAMPLE_COUNT = 56;
 
 /**
  * Smooth waveform line driven by `levelsRef`. Reads via RAF — never via
@@ -180,7 +182,7 @@ export function MicWaveform({
   levelsRef,
   active,
 }: {
-  levelsRef: React.RefObject<Float32Array>;
+  levelsRef: React.RefObject<Float32Array | null>;
   active: boolean;
 }) {
   const pathRef = useRef<SVGPathElement | null>(null);
@@ -273,11 +275,4 @@ function buildWavePath(levels: Float32Array): string {
   const last = points[points.length - 1]!;
   d += ` T ${last.x} ${last.y}`;
   return d;
-}
-
-/** Format an elapsed second-count as `m:ss`. */
-export function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }

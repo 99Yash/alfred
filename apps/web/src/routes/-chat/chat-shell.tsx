@@ -46,9 +46,11 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-cont
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { buildFollowUpSuggestions, Conversation, shouldShowStream } from "./conversation";
+import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
+import { Conversation } from "./conversation";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
-import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
+import { formatElapsed } from "./mic-recording-format";
+import { MicWaveform, useMicRecording } from "./mic-recording";
 import {
   TiptapComposer,
   type SuggestionRenderState,
@@ -672,10 +674,6 @@ function Composer({
     return () => document.removeEventListener("keydown", handler);
   }, [disabled]);
 
-  useEffect(() => {
-    if (disabled) setSuggestion(null);
-  }, [disabled]);
-
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
     const value = text.trim();
@@ -695,7 +693,7 @@ function Composer({
     <form
       onSubmit={onFormSubmit}
       aria-label="Send a message"
-      aria-disabled={disabled || undefined}
+      data-disabled={disabled || undefined}
       className="relative"
     >
       {!disabled && suggestion && mentionCandidates.length > 0 ? (
@@ -1025,10 +1023,13 @@ function useRailData(): RailData {
     liveSuggestions,
     dismissTodo,
   );
-  const todoSuggestions = useMemo(
-    () => liveSuggestions.filter((s) => !hiddenSuggestionIds.has(s.id)).map(toRailSuggestion),
-    [liveSuggestions, hiddenSuggestionIds],
-  );
+  const todoSuggestions = useMemo(() => {
+    const visible: SuggestionInput[] = [];
+    for (const suggestion of liveSuggestions) {
+      if (!hiddenSuggestionIds.has(suggestion.id)) visible.push(toRailSuggestion(suggestion));
+    }
+    return visible;
+  }, [liveSuggestions, hiddenSuggestionIds]);
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
@@ -1225,38 +1226,39 @@ function useSuggestionDismissal(
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  // Keep the latest dismiss fn in a ref so the unmount-commit effect can stay
-  // dependency-free (and never fire its cleanup mid-session).
-  const dismissRef = useRef(dismissTodo);
-  dismissRef.current = dismissTodo;
+  const timers = useRef<Map<string, ReturnType<typeof setTimeout>> | null>(null);
+  if (timers.current === null) timers.current = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingTimers = timers.current;
 
   useEffect(() => {
-    const pending = timers.current;
+    const pending = pendingTimers;
     return () => {
       for (const [id, handle] of pending) {
         clearTimeout(handle);
-        void dismissRef.current(id);
+        void dismissTodo(id);
       }
       pending.clear();
     };
-  }, []);
+  }, [pendingTimers, dismissTodo]);
 
-  const cancel = useCallback((id: string) => {
-    const handle = timers.current.get(id);
-    if (handle) clearTimeout(handle);
-    timers.current.delete(id);
-    setHiddenSuggestionIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
+  const cancel = useCallback(
+    (id: string) => {
+      const handle = pendingTimers.get(id);
+      if (handle) clearTimeout(handle);
+      pendingTimers.delete(id);
+      setHiddenSuggestionIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [pendingTimers],
+  );
 
   const onDismissSuggestion = useCallback(
     (id: string) => {
-      if (timers.current.has(id)) return;
+      if (pendingTimers.has(id)) return;
       const label = suggestions.find((s) => s.id === id)?.name;
       setHiddenSuggestionIds((prev) => {
         const next = new Set(prev);
@@ -1264,16 +1266,16 @@ function useSuggestionDismissal(
         return next;
       });
       const handle = setTimeout(() => {
-        timers.current.delete(id);
+        pendingTimers.delete(id);
         setHiddenSuggestionIds((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
-        void dismissRef.current(id);
+        void dismissTodo(id);
       }, SUGGESTION_UNDO_MS);
-      timers.current.set(id, handle);
+      pendingTimers.set(id, handle);
       callToast({
         message: "Suggestion dismissed",
         description: label,
@@ -1281,7 +1283,7 @@ function useSuggestionDismissal(
         action: { label: "Undo", onClick: () => cancel(id) },
       });
     },
-    [suggestions, cancel],
+    [suggestions, cancel, pendingTimers, dismissTodo],
   );
 
   return { hiddenSuggestionIds, onDismissSuggestion };
