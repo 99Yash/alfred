@@ -305,9 +305,10 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
   google_docs: ["https://www.googleapis.com/auth/documents"],
   google_sheets: ["https://www.googleapis.com/auth/spreadsheets"],
   google_slides: ["https://www.googleapis.com/auth/presentations"],
-  // GitHub's `read:user` is the lowest-common-denominator scope every
-  // `?features=` combination grants; we use it as the connect probe.
-  github: ["read:user"],
+  // GitHub is intentionally absent: post-ADR-0052 the App install carries no
+  // OAuth scopes, so its connection is probed by an active credential with an
+  // `installation_id` (see `resolveOne` in use-integration-status.ts), not by
+  // scopes.
 };
 
 /**

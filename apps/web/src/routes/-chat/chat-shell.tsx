@@ -41,7 +41,9 @@ import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { useResolvedIntegrations } from "~/hooks/use-integration-status";
+import { IntegrationGlyph } from "~/lib/integration-icons";
+import { PROVIDER_BACKEND } from "~/lib/integrations";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
@@ -425,6 +427,26 @@ function MentionPalette({
 }
 
 function ConnectToolsBar() {
+  // Drive the row off the real catalog overlaid with live credential state
+  // instead of a hardcoded brand list. Catalog-only providers stay on the
+  // integrations page, but this nudge only shows providers the user can
+  // actually connect here.
+  const integrations = useResolvedIntegrations();
+
+  // Unconnected first (these are the actual nudge), connected trailing with
+  // a check. Catalog order is preserved within each group.
+  const ordered = useMemo(() => {
+    const visible = integrations.filter(
+      (p) => p.status === "connected" || PROVIDER_BACKEND[p.id] !== undefined,
+    );
+    const unconnected = visible.filter((p) => p.status !== "connected");
+    const connected = visible.filter((p) => p.status === "connected");
+    return { unconnected, connected, all: [...unconnected, ...connected] };
+  }, [integrations]);
+
+  // Everything actionable in this row is already connected, so drop the nudge.
+  if (ordered.unconnected.length === 0) return null;
+
   return (
     <Link
       to="/integrations"
@@ -449,40 +471,54 @@ function ConnectToolsBar() {
         Connect your tools
       </span>
 
-      <div className="ml-auto flex items-center gap-2">
-        {CONNECT_BRANDS.map(({ brand, label }) => (
-          <span
-            key={brand}
-            title={label}
-            className={cn(
-              "relative grid size-5 shrink-0 place-items-center",
-              // Resting: slightly muted so the row reads as a soft hint,
-              // not a busy color block. Brightens on group hover.
-              "opacity-70 transition-[opacity,transform] duration-200 ease-out",
-              "group-hover:opacity-100 hover:scale-[1.12]",
-            )}
-          >
-            <span className="sr-only">{label}</span>
-            <IntegrationGlyph brand={brand} size={16} />
-          </span>
-        ))}
+      {/* Overlapping stack: each glyph sits on its own tile ringed in the
+       * page background, so a slight negative margin reads as a clean
+       * "cut-out" overlap rather than a collision. Connected tiles lift
+       * above their neighbours (z-10) so their check badge stays visible;
+       * the hovered tile floats above everything (z-20). */}
+      <div className="ml-auto flex items-center">
+        {ordered.all.map((p, i) => {
+          const connected = p.status === "connected";
+          return (
+            <span
+              key={p.id}
+              title={connected ? `${p.name} — connected` : p.name}
+              className={cn(
+                "relative grid size-[22px] shrink-0 place-items-center rounded-full",
+                "bg-app-bg-2 ring-2 ring-app-background",
+                i > 0 && "-ml-1.5",
+                "transition-transform duration-200 ease-out hover:z-20 hover:scale-110",
+                connected ? "z-10" : "",
+              )}
+            >
+              <span className="sr-only">{connected ? `${p.name}, connected` : p.name}</span>
+              <IntegrationGlyph
+                brand={p.brand}
+                size={14}
+                className={cn(
+                  "transition-opacity duration-200",
+                  connected ? "opacity-100" : "opacity-70 group-hover:opacity-100",
+                )}
+              />
+              {connected ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute -bottom-0.5 -right-0.5 grid size-2.5 place-items-center",
+                    "rounded-full bg-emerald-400 text-black",
+                    "ring-2 ring-app-background",
+                  )}
+                >
+                  <Check size={7} strokeWidth={3.5} />
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
       </div>
     </Link>
   );
 }
-
-const CONNECT_BRANDS: ReadonlyArray<{
-  brand: IntegrationBrand;
-  label: string;
-}> = [
-  { brand: "gmail", label: "Gmail" },
-  { brand: "google_calendar", label: "Calendar" },
-  { brand: "google_drive", label: "Drive" },
-  { brand: "slack", label: "Slack" },
-  { brand: "github", label: "GitHub" },
-  { brand: "linear", label: "Linear" },
-  { brand: "web", label: "Web search" },
-];
 
 function Composer({
   threadId,
