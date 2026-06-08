@@ -1,11 +1,13 @@
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { getInstallationToken } from "./app";
 
 /**
- * Persistence layer for GitHub `integration_credentials`. Mirrors the
- * Google credentials module but simpler — classic OAuth App tokens
- * don't expire, so there is no `getFreshAccessToken`/refresh code path.
+ * Persistence layer for GitHub `integration_credentials` (ADR-0052, GitHub
+ * App). The stored `access_token` is the user-to-server *identity* token;
+ * live REST access goes through short-lived installation tokens minted from
+ * `installation_id` (see `getInstallationTokenForUser`).
  */
 
 export interface UpsertGithubCredentialArgs {
@@ -13,6 +15,9 @@ export interface UpsertGithubCredentialArgs {
   accountId: string;
   accountLabel?: string | null;
   accessToken: string;
+  refreshToken?: string | null;
+  /** GitHub App installation id captured on the post-install redirect. */
+  installationId?: string | null;
   scopes: string[];
   metadata?: Record<string, unknown>;
   expiresAt: Date;
@@ -29,8 +34,8 @@ export async function upsertGithubCredential(
       accountId: args.accountId,
       accountLabel: args.accountLabel ?? null,
       accessToken: args.accessToken,
-      // Classic tokens carry no refresh; the column allows null.
-      refreshToken: null,
+      refreshToken: args.refreshToken ?? null,
+      installationId: args.installationId ?? null,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
       metadata: args.metadata ?? {},
@@ -44,6 +49,8 @@ export async function upsertGithubCredential(
       ],
       set: {
         accessToken: args.accessToken,
+        refreshToken: args.refreshToken ?? null,
+        installationId: args.installationId ?? null,
         expiresAt: args.expiresAt,
         scopes: args.scopes,
         metadata: args.metadata ?? {},
@@ -64,6 +71,7 @@ export interface GithubCredentialSummary {
   status: string;
   accountId: string;
   accountLabel: string | null;
+  installationId: string | null;
 }
 
 /**
@@ -78,6 +86,7 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
       status: integrationCredentials.status,
       accountId: integrationCredentials.accountId,
       accountLabel: integrationCredentials.accountLabel,
+      installationId: integrationCredentials.installationId,
     })
     .from(integrationCredentials)
     .where(
@@ -86,9 +95,9 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
 }
 
 /**
- * Resolve a usable access token. GitHub classic tokens don't expire so
- * this is just a fetch; we keep the function for parity with Google so
- * higher-level callers don't branch on provider.
+ * Resolve the stored user-to-server identity token for a credential row.
+ * Kept for parity with Google; most callers want `getInstallationTokenForUser`
+ * for actual REST access.
  */
 export async function getGithubAccessToken(credentialId: string): Promise<string> {
   const rows = await db()
@@ -104,4 +113,51 @@ export async function getGithubAccessToken(credentialId: string): Promise<string
     throw new Error(`[github.credentials] not active: ${credentialId} (status=${row.status})`);
   }
   return row.accessToken;
+}
+
+export interface UserInstallationToken {
+  token: string;
+  accountLogin: string | null;
+}
+
+/**
+ * Mint a short-lived installation token for a user's active GitHub App
+ * connection — the token REST calls (PR search, issues) actually use. Also
+ * returns the connected login so callers can resolve `author:@me`.
+ */
+export async function getInstallationTokenForUser(userId: string): Promise<UserInstallationToken> {
+  const active = (await listGithubCredentials(userId)).find((c) => c.status === "active");
+  if (!active) {
+    throw new Error(
+      `[github.credentials] user ${userId} has no active github credential — connect GitHub in settings`,
+    );
+  }
+  if (!active.installationId) {
+    throw new Error(
+      `[github.credentials] user ${userId} github credential has no installation_id — reconnect GitHub (the App must be installed)`,
+    );
+  }
+  const { token } = await getInstallationToken(active.installationId);
+  return { token, accountLogin: active.accountLabel?.trim() || null };
+}
+
+/**
+ * Resolve the user that owns a GitHub App installation — the join from an
+ * inbound webhook delivery (which carries only `installation.id`) back to a
+ * user. Returns the most-recently-updated active match.
+ */
+export async function findUserByInstallationId(installationId: string): Promise<string | null> {
+  const rows = await db()
+    .select({ userId: integrationCredentials.userId })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.provider, "github"),
+        eq(integrationCredentials.installationId, installationId),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .orderBy(desc(integrationCredentials.updatedAt))
+    .limit(1);
+  return rows[0]?.userId ?? null;
 }

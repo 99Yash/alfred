@@ -1,18 +1,25 @@
 export {
-  buildAuthorizeUrl,
-  exchangeCode,
-  getGithubOAuthConfig,
-  GITHUB_FEATURE_SCOPES,
-  DEFAULT_GITHUB_SCOPES,
-  scopesForFeatures,
-} from "./oauth";
-export type { GithubOAuthConfig, ExchangeCodeResult, GithubFeature } from "./oauth";
+  getGithubAppConfig,
+  buildInstallUrl,
+  mintAppJwt,
+  getInstallationToken,
+  exchangeUserCode,
+  canUserAccessInstallation,
+  verifyWebhookSignature,
+} from "./app";
+export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from "./app";
 export {
   upsertGithubCredential,
   getGithubAccessToken,
+  getInstallationTokenForUser,
   listGithubCredentials,
+  findUserByInstallationId,
 } from "./credentials";
-export type { UpsertGithubCredentialArgs, GithubCredentialSummary } from "./credentials";
+export type {
+  UpsertGithubCredentialArgs,
+  GithubCredentialSummary,
+  UserInstallationToken,
+} from "./credentials";
 export { searchPullRequests } from "./pull-requests";
 export type {
   SearchPullRequestsArgs,

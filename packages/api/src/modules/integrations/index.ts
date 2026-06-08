@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { githubIntegrationRoutes } from "./github-routes";
+import { githubWebhookRoutes } from "./github-webhook";
 import { gmailWebhookRoutes } from "./gmail-webhook";
 import { googleIntegrationRoutes } from "./google-routes";
 import { toolTiersRoutes } from "./tool-tiers-routes";
@@ -17,4 +18,5 @@ export const integrations = new Elysia({ name: "integrations", normalize: "typeb
   .use(googleIntegrationRoutes)
   .use(githubIntegrationRoutes)
   .use(gmailWebhookRoutes)
+  .use(githubWebhookRoutes)
   .use(toolTiersRoutes);
