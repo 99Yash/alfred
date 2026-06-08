@@ -28,6 +28,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/google": "catalog:",
     "@alfred/config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "^19.0.0",

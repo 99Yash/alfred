@@ -55,6 +55,8 @@ interface CommandItem {
   icon: LucideIcon;
   /** When set, navigate to this path on invoke. */
   to?: string;
+  /** Thread rows: the synced thread id — invoke navigates to `/chat/$threadId`. */
+  threadId?: string;
   /** When set, run this on invoke (e.g. open settings modal — not wired yet). */
   onRun?: () => void;
   /** Free-form keywords to match in addition to the label. */
@@ -175,7 +177,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
       label: t.title,
       hint: t.when,
       icon: MessageSquare,
-      to: "/chat",
+      threadId: t.id,
       keywords: `${t.title} ${t.when}`,
     }));
     return [...COMMANDS, ...threadItems];
@@ -213,8 +215,10 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
   const invoke = (item: CommandItem) => {
     onClose();
-    if (item.to) {
-      navigate({ to: item.to });
+    if (item.threadId) {
+      void navigate({ to: "/chat/$threadId", params: { threadId: item.threadId } });
+    } else if (item.to) {
+      void navigate({ to: item.to });
     } else if (item.onRun) {
       item.onRun();
     }
@@ -401,7 +405,9 @@ function PaletteRow({
         "group w-full flex items-center gap-3 rounded-xl h-10 px-2.5",
         "transition-colors",
         "outline-none",
-        active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+        active
+          ? "bg-app-bg-2 text-app-fg-4"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       <span

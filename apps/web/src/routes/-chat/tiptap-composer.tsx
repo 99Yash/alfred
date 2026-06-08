@@ -8,7 +8,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
@@ -63,6 +63,14 @@ interface TiptapComposerProps {
   onSuggestionChange: (state: SuggestionRenderState | null) => void;
   /** Keyboard handler invoked while the suggestion is active. Return `true` to consume the key. */
   suggestionKeyDownRef: React.MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
+  /**
+   * Ghost text — a suggested next prompt rendered dimmed inside the empty
+   * editor. Tab accepts it (fills the doc and fires `onGhostAccept`); Escape
+   * fires `onGhostDismiss`. Only shown while the document is empty.
+   */
+  ghostText?: string;
+  onGhostAccept?: () => void;
+  onGhostDismiss?: () => void;
 }
 
 /**
@@ -86,6 +94,9 @@ export function TiptapComposer({
   onSubmit,
   onSuggestionChange,
   suggestionKeyDownRef,
+  ghostText,
+  onGhostAccept,
+  onGhostDismiss,
 }: TiptapComposerProps) {
   // Stable refs so the closures captured by Tiptap's extension config don't
   // need to be recreated on every parent render. Refs are mutable, so updating
@@ -95,20 +106,20 @@ export function TiptapComposer({
   const onSubmitRef = useRef(onSubmit);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
   const disabledRef = useRef(disabled);
+  const ghostTextRef = useRef(ghostText);
+  const onGhostAcceptRef = useRef(onGhostAccept);
+  const onGhostDismissRef = useRef(onGhostDismiss);
+  // Tracks whether the suggestion popup is open — used to skip Enter-submit
+  // when the user is picking a mention.
+  const suggestionOpenRef = useRef(false);
   onChangeRef.current = onChange;
   onSubmitRef.current = onSubmit;
   onSuggestionChangeRef.current = onSuggestionChange;
   disabledRef.current = disabled;
-
-  // Tracks whether the suggestion popup is open — used to skip Enter-submit
-  // when the user is picking a mention.
-  const suggestionOpenRef = useRef(false);
-
-  // Local empty state drives our custom animated placeholder overlay (replaces
-  // Tiptap's built-in CSS placeholder so we can fade/slide/blur it out).
-  // Seeded from initialJSON so a draft-mounted editor doesn't briefly show the
-  // placeholder before Tiptap's onUpdate fires.
-  const [isEmpty, setIsEmpty] = useState(() => isInitialContentEmpty(initialJSON));
+  ghostTextRef.current = ghostText;
+  onGhostAcceptRef.current = onGhostAccept;
+  onGhostDismissRef.current = onGhostDismiss;
+  if (disabled) suggestionOpenRef.current = false;
 
   const editor = useEditor({
     extensions: [
@@ -196,7 +207,25 @@ export function TiptapComposer({
           onSubmitRef.current();
           return true;
         }
+        // Ghost text (only live while the doc is empty): Tab accepts the
+        // suggested prompt into the editor; Escape dismisses it for this turn.
+        // `editor` is safely referenced from this deferred closure — keydowns
+        // only fire after `useEditor` has assigned it.
+        const ghostActive = Boolean(ghostTextRef.current) && (editor?.isEmpty ?? false);
+        if (ghostActive && event.key === "Tab") {
+          event.preventDefault();
+          const ghost = ghostTextRef.current;
+          if (ghost) {
+            editor?.chain().focus("end").insertContent(ghost).run();
+            onGhostAcceptRef.current?.();
+          }
+          return true;
+        }
         if (event.key === "Escape") {
+          if (ghostActive) {
+            onGhostDismissRef.current?.();
+            return true;
+          }
           // Blur so global shortcuts (⌘K etc.) route correctly without
           // wrestling for focus.
           if (view.dom instanceof HTMLElement) view.dom.blur();
@@ -207,18 +236,14 @@ export function TiptapComposer({
     },
     onUpdate: ({ editor }) => {
       const empty = editor.isEmpty;
-      setIsEmpty(empty);
       onChangeRef.current(editor.getText(), editor.getJSON(), empty);
     },
   });
+  const isEmpty = editor?.isEmpty ?? isInitialContentEmpty(initialJSON);
 
   useEffect(() => {
     if (!editor) return;
     editor.setEditable(!disabled);
-    if (disabled) {
-      suggestionOpenRef.current = false;
-      onSuggestionChangeRef.current(null);
-    }
   }, [editor, disabled]);
 
   useImperativeHandle(
@@ -249,13 +274,38 @@ export function TiptapComposer({
     [editor],
   );
 
+  const ghostVisible = Boolean(ghostText) && isEmpty && !disabled;
+
   return (
     <div className="relative">
       <EditorContent editor={editor} />
+      {ghostVisible ? (
+        <span
+          aria-hidden
+          className={cn(
+            // Same first-line position as the placeholder overlay below.
+            "pointer-events-none absolute left-3 top-2 right-3",
+            "flex items-center gap-1.5",
+            "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
+            "animate-chat-in",
+          )}
+        >
+          <span className="min-w-0 truncate">{ghostText}</span>
+          <kbd
+            className={cn(
+              "shrink-0 inline-flex items-center justify-center h-[18px] px-1.5 rounded-md",
+              "text-[10.5px] leading-none font-medium font-sans",
+              "bg-app-bg-a2 text-app-fg-2",
+            )}
+          >
+            Tab
+          </kbd>
+        </span>
+      ) : null}
       {placeholder ? (
         <span
           aria-hidden
-          data-visible={isEmpty}
+          data-visible={isEmpty && !ghostVisible}
           className={cn(
             // Match the editor's first-line position (px-3 pt-2 from
             // composer-editor) so the overlay sits exactly where the cursor
