@@ -1,7 +1,6 @@
-import { TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
+import { NagBanner } from "~/components/nag-banner";
 import { useGoogleScopeGaps } from "~/hooks/use-integration-status";
-import { cn } from "~/lib/utils";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -26,40 +25,20 @@ export function ScopeGapBanner() {
       : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
   return (
-    <output
-      className={cn(
-        "flex items-center gap-3 px-4 py-2.5",
-        "border-b border-amber-500/20 bg-amber-500/10 text-amber-900",
-      )}
-      role="alert"
-    >
-      <TriangleAlert size={16} className="shrink-0 text-amber-600" />
-      <p className="min-w-0 flex-1 text-[13px] leading-snug">
-        Alfred can&apos;t access <span className="font-medium">{list}</span>: a permission was left
-        unchecked when you connected Google.
-      </p>
-      <button
-        type="button"
-        onClick={() => {
-          // Full-page redirect to the connect endpoint (no params → full grant);
-          // Google merges the re-consent into the existing authorization.
-          window.location.href = `${API_URL}/api/integrations/google/connect`;
-        }}
-        className={cn(
-          "shrink-0 rounded-full px-3 py-1 text-[13px] font-medium",
-          "bg-amber-600 text-white transition-colors hover:bg-amber-700",
-        )}
-      >
-        Reconnect Google
-      </button>
-      <button
-        type="button"
-        onClick={() => setDismissed(true)}
-        className="shrink-0 rounded-full p-1 text-amber-700/70 transition-colors hover:text-amber-900"
-        aria-label="Dismiss"
-      >
-        <X size={15} />
-      </button>
-    </output>
+    <NagBanner
+      message={
+        <>
+          Alfred can&apos;t access <span className="font-medium">{list}</span>: a permission was left
+          unchecked when you connected Google.
+        </>
+      }
+      actionLabel="Reconnect Google"
+      onAction={() => {
+        // Full-page redirect to the connect endpoint (no params → full grant);
+        // Google merges the re-consent into the existing authorization.
+        window.location.href = `${API_URL}/api/integrations/google/connect`;
+      }}
+      onDismiss={() => setDismissed(true)}
+    />
   );
 }
