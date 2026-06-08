@@ -55,7 +55,7 @@ export function GoogleConsentDialog({
               title="Continue past the safety screen"
               body={
                 <>
-                  Google will warn the app isn&apos;t verified — expected for a private app
+                  Google will warn the app isn&apos;t verified, which is expected for a private app
                   that&apos;s only ever used by you. Click{" "}
                   <span className="font-medium text-white">Advanced</span> →{" "}
                   <span className="font-medium text-white">Go to Alfred</span> to continue.
