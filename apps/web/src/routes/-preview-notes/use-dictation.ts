@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from "react";
  * (`SpeechRecognition`) that turns spoken audio into text for the notes
  * composer.
  *
- * Unlike the chat composer's `useMicRecording` (a visual waveform stub with
- * no transcription), this hook produces actual text: finalised transcript
- * segments are handed to `start(onFinal)` as they settle, and the live
- * interim guess is exposed via `interim` for an inline preview.
+ * Unlike the chat composer's `useMicRecording` (which records audio and
+ * transcribes server-side via Whisper), this hook transcribes locally in the
+ * browser: finalised transcript segments are handed to `start(onFinal)` as
+ * they settle, and the live interim guess is exposed via `interim` for an
+ * inline preview.
  *
  * Browser support is Chromium/WebKit only today, so callers must gate UI on
  * `supported`. Everything tears down on `stop()` and on unmount.

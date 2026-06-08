@@ -66,7 +66,19 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
     },
+    ...servedFromResponse(result.response),
   };
+}
+
+/**
+ * Pull the served model id off the SDK's response metadata so `metered()`
+ * can re-attribute calls a `withFallback` cascade routed to the fallback
+ * provider (the pre-call meta still names the primary).
+ */
+function servedFromResponse(
+  response: { modelId?: string } | undefined,
+): Pick<MeteredResult, "served"> {
+  return response?.modelId ? { served: { model: response.modelId } } : {};
 }
 
 function extractEmbedUsage(result: EmbedResult): MeteredResult {
@@ -211,6 +223,7 @@ export function meteredStreamText(
             toolCallCount: event.toolCalls?.length,
             stepCount: event.steps?.length,
           },
+          ...servedFromResponse(event.response),
         });
         callerOnFinish?.(event);
       },

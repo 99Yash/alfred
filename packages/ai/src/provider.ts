@@ -2,28 +2,27 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { perplexity } from "@ai-sdk/perplexity";
 import type { LanguageModel } from "ai";
+// ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
+// instances our provider factories return, deliberately narrower than `ai`'s
+// `LanguageModel` union (which also admits gateway string ids). Same narrowing
+// warden does; see its packages/ai/src/models.ts.
+import type { LanguageModel as LanguageModelV3 } from "ai-retry";
+import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
 
 /**
- * Temporary provider swap (2026-05-21): boss + sub-agent routed through
- * Google Gemini 2.5 Pro instead of Anthropic Sonnet 4.6 while the
- * Anthropic workspace spend cap is in effect (resets 2026-06-01). Swap
- * back by returning `anthropic("claude-sonnet-4-6")` here once the cap
- * clears.
- *
- * Behavioural notes for the swap window:
- *   - The briefing agent (and any other AlfredAgent consumers) doesn't
- *     send Anthropic-specific cache annotations through this path, so
- *     no rework needed at the call site.
- *   - Anthropic-specific provider options inside `AlfredAgent`
- *     (cacheControl etc.) are namespaced under `providerOptions.anthropic`;
- *     Gemini silently ignores them.
+ * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
+ * on provider failure via `withFallback`. (Restored 2026-06-07 after the
+ * temporary 2026-05-21 → 2026-06-01 spend-cap swap to Gemini 2.5 Pro; the
+ * Anthropic-specific provider options inside `AlfredAgent` — cacheControl
+ * etc. — are namespaced under `providerOptions.anthropic`, so Gemini ignores
+ * them when the fallback serves.)
  */
 export function getBossModel(): LanguageModel {
-  return google("gemini-2.5-pro");
+  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return google("gemini-2.5-pro");
+  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
 }
 
 export function getCheapModel(): LanguageModel {
@@ -83,19 +82,15 @@ export function getResearchModel(): LanguageModel {
 export type ChatModelTier = "standard" | "deep";
 
 /**
- * Spend-cap swap (mirrors `getBossModel`, 2026-05-21): while the Anthropic
- * workspace spend cap is in effect, chat runs on Google. Gemini 2.5 Flash for
- * `standard` (low-latency, the right feel for interactive chat — 2.5 Pro runs
- * minutes/turn) and 2.5 Pro for `deep` escalation.
- *
- * Intended mapping once the cap clears (swap back by returning the
- * `anthropic(...)` line): `standard → claude-sonnet-4-6`,
- * `deep → claude-opus-4-8`. The Anthropic path also wants `withFallback(...,
- * google(...))` once that wrapper is unblocked (see below).
+ * Restored to the intended Anthropic mapping 2026-06-07 (mirrors
+ * `getBossModel`) after the 2026-05-21 spend-cap swap to Google, with the
+ * per-tier Google degradation (Sonnet ↔ 2.5 Pro, Opus ↔ 2.5 Pro) wired via
+ * `withFallback` so a provider blip degrades instead of hard-failing the turn.
  */
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
-  // return tier === "deep" ? anthropic("claude-opus-4-8") : anthropic("claude-sonnet-4-6");
-  return tier === "deep" ? google("gemini-2.5-pro") : google("gemini-2.5-flash");
+  return tier === "deep"
+    ? withFallback(anthropic("claude-opus-4-8"), google("gemini-2.5-pro"))
+    : withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
 }
 
 /**
@@ -119,18 +114,37 @@ export function getChatProviderOptions(): Record<string, Record<string, unknown>
 }
 
 /**
- * Wrap a primary model so a failed call degrades to `fallback`.
+ * Wrap a primary model so a failed call degrades to `fallback` (warden's
+ * `createRetryable` pattern — memory `feedback_ai_retry_preference`; the
+ * earlier V2/V3 spec-mismatch blocker cleared with `@ai-sdk/*@3.0.x`, which
+ * emit `LanguageModelV3`).
  *
- * TODO(fallback): not yet wired. The intended implementation is the AI SDK's
- * `wrapLanguageModel` middleware (`wrapGenerate`/`wrapStream` → try primary,
- * catch, replay against the fallback) — warden's `createRetryable` pattern,
- * see memory `feedback_ai_retry_preference`. It's blocked today by a spec
- * mismatch: `@ai-sdk/anthropic@3` / `@ai-sdk/google` emit `LanguageModelV2`
- * models while `wrapLanguageModel` is typed for `v3`, so the wrapper doesn't
- * type-check. Revisit when the provider packages move to v3 (or adopt the
- * `ai-retry` dependency). Until then this throws if called so future call sites
- * do not accidentally depend on a no-op fallback.
+ * Cascade, evaluated per failed attempt:
+ *   1. Transient errors (provider-flagged retryable — 429/529/overload — or
+ *      timeout) retry the primary once after a short delay, honoring
+ *      `Retry-After` headers.
+ *   2. Any error after that (including non-retryable ones) switches to
+ *      `fallback` for a single attempt. Deliberate any-error semantics: these
+ *      dispatchers serve user-facing turns that should never hard-fail on a
+ *      single provider; a systematic bug fails on the fallback too and still
+ *      surfaces.
+ *
+ * Streaming caveat: fallback only covers errors raised before the stream
+ * starts; a provider dying mid-stream after tokens flowed is not replayable.
+ *
+ * Attribution: the returned model proxies `provider`/`modelId` to whichever
+ * model is *currently* serving, and the metering layer records the served
+ * model from the response (`served` in `MeteredResult`), so `api_call_log`
+ * stays correct when the fallback fires.
  */
-export function withFallback(_primary: LanguageModel, _fallback: LanguageModel): LanguageModel {
-  throw new Error("withFallback is not implemented for the current AI SDK provider versions");
+export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3): LanguageModel {
+  return createRetryable({
+    model: primary,
+    retries: [
+      error.isRetryable(true).or(timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+      error(() => true)
+        .or(timeout())
+        .switch({ model: fallback }),
+    ],
+  });
 }

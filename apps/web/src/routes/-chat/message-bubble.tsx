@@ -1,4 +1,6 @@
 import type { SyncedChatMessage } from "@alfred/sync";
+import { Check, Copy } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -50,6 +52,10 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 
 /** A persisted message (user or assistant) from the synced store. */
 export function MessageBubble({ message }: { message: SyncedChatMessage }) {
+  // Rendered-markdown container; CopyMessageButton lifts its innerHTML for
+  // the rich (text/html) clipboard flavor. Unconditional — hooks can't sit
+  // behind the user/assistant branch.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -62,7 +68,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
   const tools = message.toolCalls ?? [];
   const failed = message.status === "failed";
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group/message flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
         <ReasoningSection
           reasoning={message.reasoning}
@@ -77,12 +83,92 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
           ))}
         </div>
       ) : null}
-      {message.content.length > 0 ? <AssistantMarkdown text={message.content} /> : null}
+      {message.content.length > 0 ? (
+        <div ref={bodyRef}>
+          <AssistantMarkdown text={message.content} />
+        </div>
+      ) : null}
       {failed ? (
         <p className="text-[13px] text-app-red-4" role="alert">
           This reply didn&apos;t finish. Try sending your message again.
         </p>
       ) : null}
+      {message.content.length > 0 ? (
+        <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Hover action under an assistant reply: copy the message. Writes both
+ * `text/html` (the rendered markup, so pastes into Gmail / Docs keep lists,
+ * links and headings) and `text/plain` (the raw markdown) when ClipboardItem
+ * is available; falls back to plain markdown otherwise. Hidden until the
+ * message is hovered (or the button itself is focused) so the transcript
+ * stays quiet; the copied state holds the check for a beat as feedback.
+ */
+function CopyMessageButton({
+  content,
+  htmlRef,
+}: {
+  content: string;
+  htmlRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+    },
+    [],
+  );
+  const onCopy = () => {
+    if (copied) return;
+    const html = htmlRef.current?.innerHTML;
+    const write =
+      html && typeof ClipboardItem !== "undefined"
+        ? navigator.clipboard.write([
+            new ClipboardItem({
+              "text/html": new Blob([html], { type: "text/html" }),
+              "text/plain": new Blob([content], { type: "text/plain" }),
+            }),
+          ])
+        : navigator.clipboard.writeText(content);
+    write.then(
+      () => {
+        setCopied(true);
+        if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => {
+        // Clipboard write can fail (permissions, insecure context); stay quiet.
+      },
+    );
+  };
+  return (
+    <div
+      className={cn(
+        "-ml-1.5 flex items-center",
+        "opacity-0 transition-opacity duration-150",
+        "group-hover/message:opacity-100 focus-within:opacity-100",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onCopy}
+        aria-label={copied ? "Copied" : "Copy message"}
+        title={copied ? "Copied" : "Copy message"}
+        className={cn(
+          "inline-flex size-7 items-center justify-center rounded-lg",
+          "text-app-fg-2 hover:text-app-fg-4 hover:bg-app-bg-2",
+          "transition-[background-color,color] duration-150",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        )}
+      >
+        {copied ? <Check size={13} className="text-app-green-4" /> : <Copy size={13} />}
+      </button>
     </div>
   );
 }
