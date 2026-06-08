@@ -101,10 +101,11 @@ export interface InstallationToken {
 // In-process cache keyed by installation id. Re-mint a couple minutes before
 // expiry so a cached token never goes stale mid-request.
 const _installationTokens = new Map<string, InstallationToken>();
-const TOKEN_SAFETY_MS = 5 * 60 * 1000;
-
-export async function getInstallationToken(installationId: string): Promise<InstallationToken> {
-  const cached = _installationTokens.get(installationId);
+  const res = await fetch(`${API_BASE}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: { ...GH_HEADERS, Authorization: `Bearer ${jwt}` },
+    signal: AbortSignal.timeout(30_000),
+  });
   if (cached && cached.expiresAt.getTime() - Date.now() > TOKEN_SAFETY_MS) {
     return cached;
   }
