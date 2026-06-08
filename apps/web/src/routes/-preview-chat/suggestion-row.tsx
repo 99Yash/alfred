@@ -27,7 +27,10 @@ export function SuggestionRow({
       <button
         type="button"
         onClick={onAccept}
-        aria-label={onAccept ? `Add suggestion: ${label}` : undefined}
+        // The accessible name must lead with — and contain — the button's full
+        // visible text (label + detail) so it passes label-content-name-mismatch
+        // and voice-control users can say what they see; the action follows.
+        aria-label={onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",

@@ -35,12 +35,17 @@ import type { InboxPagination } from "./rail-content";
 const PAGE_SIZE = 8;
 
 /**
- * Google's free favicon CDN. Returns a per-domain logo when one exists
- * (LinkedIn, Notion, Vercel, Stripe …); 404s for domains with no
- * favicon, which we catch via the `<img>` onError fallback below.
+ * DuckDuckGo's favicon CDN. Returns a per-domain logo when one exists
+ * (LinkedIn, Notion, Vercel, Stripe …) and a neutral fallback icon otherwise.
+ *
+ * Chosen over Google's `s2/favicons`, which (a) sets third-party cookies on
+ * `www.google.com` — flagged by Lighthouse Best Practices — and (b) redirects
+ * to a gstatic endpoint that 404s for unknown domains, spamming the console
+ * (the `errors-in-console` audit). DuckDuckGo is cookieless and never 404s, so
+ * both audits pass; the `<img>` onError fallback below stays as a safety net.
  */
-function faviconUrl(domain: string, size = 64): string {
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${size}`;
+function faviconUrl(domain: string): string {
+  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
 }
 
 /**

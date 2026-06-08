@@ -187,6 +187,12 @@ export function TiptapComposer({
     editable: !disabled,
     editorProps: {
       attributes: {
+        // ProseMirror's contenteditable is a generic element by default, where
+        // `aria-label` is a prohibited attribute (axe `aria-prohibited-attr`).
+        // `role="textbox"` + `aria-multiline` make it a named, multiline input
+        // so the label is valid and AT announces it as a text field.
+        role: "textbox",
+        "aria-multiline": "true",
         "aria-label": "Message",
         class: cn(
           "tiptap tiptap-minimum-input composer-editor",
