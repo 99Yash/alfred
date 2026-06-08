@@ -1,10 +1,10 @@
 /**
  * Google Drive tools registered into the boss's tool surface.
  *
- * Read-only at the current grant (`drive.readonly`): find files, read
- * metadata, and pull text contents (export Google-native files, or
- * download textual uploads). All no_risk/low reads — mirrors gmail.ts for
- * credential resolution.
+ * Read-only tool surface (the grant is now full `drive`, but write tools
+ * are separate — ADR-0043): find files, read metadata, and pull text
+ * contents (export Google-native files, or download textual uploads). All
+ * no_risk/low reads — mirrors gmail.ts for credential resolution.
  */
 
 import {

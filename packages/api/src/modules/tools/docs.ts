@@ -1,8 +1,9 @@
 /**
  * Google Docs tools registered into the boss's tool surface.
  *
- * Read-only at the current grant (`documents.readonly`): a single
- * `get_document` that flattens a Doc into plain text + a heading outline.
+ * Read-only tool surface (the grant is now full `documents`, but write
+ * tools are separate — ADR-0043): a single `get_document` that flattens a
+ * Doc into plain text + a heading outline.
  * Mirrors gmail.ts — resolve the user's active google credential, mint a
  * fresh token, call the thin client.
  */

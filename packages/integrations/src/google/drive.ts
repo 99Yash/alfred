@@ -4,11 +4,12 @@ import { z } from "zod";
  * Thin Google Drive v3 REST client. Same shape as `gmail.ts` /
  * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
  *
- * Read-only: the granted scope is `drive.readonly` (see
- * `DRIVE_READONLY_SCOPE` in oauth.ts). Surface covers "find a file"
- * (search by Drive query), "what is this file" (metadata), and "read its
- * contents" — `exportFile` for Google-native types (Docs/Sheets/Slides
- * → text) and `downloadFile` for already-textual uploads (alt=media).
+ * The granted scope is now full `drive` (see `DRIVE_SCOPE` in oauth.ts),
+ * but this client's surface is still read-only: "find a file" (search by
+ * Drive query), "what is this file" (metadata), and "read its contents" —
+ * `exportFile` for Google-native types (Docs/Sheets/Slides → text) and
+ * `downloadFile` for already-textual uploads (alt=media). Write tools ride
+ * a separate registration (ADR-0043); the broadened scope just unblocks them.
  *
  * Callers pass an already-fresh access token — get it from
  * `getFreshAccessToken(credentialId)` first.

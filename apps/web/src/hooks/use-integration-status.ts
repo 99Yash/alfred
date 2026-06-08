@@ -135,6 +135,42 @@ function resolveOne(
   };
 }
 
+/**
+ * Partial-grant detector for the scope-completeness banner. Alfred's
+ * onboarding requests the full Google grant in one consent, but Google's
+ * consent screen lets the user *uncheck* individual scopes — so a Google
+ * account can be connected yet missing the scopes a feature needs. This
+ * surfaces that gap: which Google-backed providers an active credential
+ * fails to fully cover. Empty `missing` = nothing to nag about. Mirrors
+ * dimension's `checkGoogleScopesComplete`.
+ */
+export interface GoogleScopeGaps {
+  /** At least one active Google credential exists. */
+  connected: boolean;
+  accountLabel: string | null;
+  /** Google-backed providers an active credential does not fully scope. */
+  missing: ReadonlyArray<{ providerId: string; name: string }>;
+}
+
+export function useGoogleScopeGaps(): GoogleScopeGaps {
+  const { data: googleCreds } = useGoogleCredentials();
+  return useMemo(() => {
+    const active = (googleCreds ?? []).filter((c) => c.status === "active");
+    if (active.length === 0) {
+      return { connected: false, accountLabel: null, missing: [] };
+    }
+    const missing = INTEGRATION_PROVIDERS.filter((p) => PROVIDER_BACKEND[p.id] === "google")
+      .filter((p) => {
+        const required = PROVIDER_REQUIRED_SCOPES[p.id];
+        if (!required) return false;
+        // Missing iff no active credential carries every required scope.
+        return !active.some((c) => required.every((r) => meetsScopeRequirement(c.scopes, r)));
+      })
+      .map((p) => ({ providerId: p.id, name: p.name }));
+    return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
+  }, [googleCreds]);
+}
+
 function meetsScopeRequirement(
   scopes: ReadonlyArray<string>,
   requirement: ProviderScopeRequirement,
