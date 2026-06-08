@@ -1,8 +1,37 @@
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
+import { MODEL_REGISTRY } from "../models";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
+
+/**
+ * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
+ * from the model object before dispatch) with the model the provider reports
+ * actually serving (`extracted.served`, from `response.modelId`). The two
+ * diverge when a `withFallback` cascade switches providers mid-call.
+ *
+ * Registry-gated: only a served id that maps to a known `MODEL_REGISTRY`
+ * entry overrides the meta — providers echo dated aliases of the requested
+ * model (e.g. `gemini-2.5-pro-002`) and those must not knock attribution to
+ * `unknown`. A divergent-but-unrecognized id is still surfaced on
+ * `response_meta.servedModelId` so the row is auditable.
+ */
+function reconcileServed(
+  meta: MeteredMeta,
+  extracted: MeteredResult,
+): { provider: string; model: string; responseMeta: MeteredResult["responseMeta"] } {
+  const served = extracted.served?.model;
+  if (!served || served === meta.model) {
+    return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };
+  }
+  const responseMeta = { ...extracted.responseMeta, servedModelId: served };
+  const descriptor = MODEL_REGISTRY.find((m) => m.id === served);
+  if (!descriptor) {
+    return { provider: meta.provider, model: meta.model, responseMeta };
+  }
+  return { provider: descriptor.provider, model: served, responseMeta };
+}
 
 /**
  * The single chokepoint for every billable external call. Per ADR-0015:
@@ -31,17 +60,18 @@ export async function metered<T>(
     const result = await fn();
     const extracted: MeteredResult = extract ? extract(result) : {};
     const latencyMs = Date.now() - startedAt.getTime();
-    const price = await getPrice(meta.provider, meta.model);
+    const served = reconcileServed(meta, extracted);
+    const price = await getPrice(served.provider, served.model);
     const costUsd = computeCost(price, extracted.usage);
     void writeLogRow({
-      meta,
+      meta: { ...meta, provider: served.provider, model: served.model },
       latencyMs,
       usage: extracted.usage,
       costUsd,
-      responseMeta: extracted.responseMeta,
+      responseMeta: served.responseMeta,
       error: null,
     });
-    span.success({ usage: extracted.usage, costUsd, output: extracted.responseMeta });
+    span.success({ usage: extracted.usage, costUsd, output: served.responseMeta });
     return result;
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
@@ -90,14 +120,13 @@ export function meteredStream<T>(
     if (settled) return;
     settled = true;
     const latencyMs = Date.now() - startedAt.getTime();
-    const responseMeta = aborted
-      ? { ...extracted.responseMeta, aborted: true }
-      : extracted.responseMeta;
+    const served = reconcileServed(meta, extracted);
+    const responseMeta = aborted ? { ...served.responseMeta, aborted: true } : served.responseMeta;
     void (async () => {
-      const price = await getPrice(meta.provider, meta.model);
+      const price = await getPrice(served.provider, served.model);
       const costUsd = computeCost(price, extracted.usage);
       void writeLogRow({
-        meta,
+        meta: { ...meta, provider: served.provider, model: served.model },
         latencyMs,
         usage: extracted.usage,
         costUsd,

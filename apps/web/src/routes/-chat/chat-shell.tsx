@@ -5,7 +5,9 @@ import type { JSONContent } from "@tiptap/react";
 import {
   ArrowUp,
   AtSign,
+  Check,
   Ellipsis,
+  Loader2,
   Mic,
   PanelLeft,
   PanelRight,
@@ -13,8 +15,20 @@ import {
   Share2,
   Sparkles,
   Square,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type FormEvent,
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Particles } from "~/components/ui/particles";
 import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
@@ -23,6 +37,7 @@ import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
+import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
@@ -42,9 +57,11 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-cont
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { Conversation, shouldShowStream } from "./conversation";
+import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
+import { Conversation } from "./conversation";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
-import { formatElapsed, MicWaveform, useMicRecording } from "./mic-recording";
+import { formatElapsed } from "./mic-recording-format";
+import { MicWaveform, useMicRecording } from "./mic-recording";
 import {
   TiptapComposer,
   type SuggestionRenderState,
@@ -132,12 +149,44 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const approvalTrayActive = awaitingApproval || runApprovals.length > 0;
   const hasConversation = messages.length > 0 || showStream;
 
+  // Follow-up suggestions for the last completed reply. The first one becomes
+  // the composer's ghost text (Tab to accept); the rest render as chips in the
+  // transcript — same content stream, two affordances, no duplication.
+  const followUps = useMemo(
+    () => (showStream ? [] : buildFollowUpSuggestions(messages)),
+    [messages, showStream],
+  );
+  const chipFollowUps = useMemo(() => followUps.slice(1), [followUps]);
+  const lastMessageId = messages.length > 0 ? (messages[messages.length - 1]?.id ?? null) : null;
+  // Ghost dismissal is per-reply: accepting or Escaping hides it until the
+  // next assistant message produces a fresh suggestion.
+  const [ghostDismissedFor, setGhostDismissedFor] = useState<string | null>(null);
+  const ghostSuggestion = followUps[0];
+  const ghostText =
+    ghostSuggestion && ghostDismissedFor !== lastMessageId ? ghostSuggestion.text : undefined;
+  const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);
+
+  // Stop the in-flight turn (composer stop button). Best-effort: the worker
+  // notices the Redis flag and finalizes the partial reply through the normal
+  // `chat.message completed` flow, so no client-side reconciliation here.
+  const onStopGeneration = useCallback(() => {
+    if (!activeRunId) return;
+    void stopChatRun(activeRunId).then((ok) => {
+      if (!ok) callToast({ message: "Couldn't stop the reply. Please try again.", type: "danger" });
+    });
+  }, [activeRunId]);
+
   return (
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       {hasConversation ? (
         <>
-          <Conversation messages={messages} stream={stream} onFollowUp={onSend} />
+          <Conversation
+            messages={messages}
+            stream={stream}
+            onFollowUp={onSend}
+            followUps={chipFollowUps}
+          />
           <div className="shrink-0 px-4 pb-4">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
               <ChatApprovalTray
@@ -151,6 +200,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 isStreaming={isStreaming}
                 disabled={approvalTrayActive}
                 onSend={onSend}
+                onStopGeneration={onStopGeneration}
+                ghostText={ghostText}
+                onGhostAccept={onGhostDone}
+                onGhostDismiss={onGhostDone}
               />
             </div>
           </div>
@@ -436,176 +489,46 @@ function Composer({
   isStreaming,
   disabled = false,
   onSend,
+  onStopGeneration,
+  ghostText,
+  onGhostAccept,
+  onGhostDismiss,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
   onSend?: (text: string) => void;
+  onStopGeneration?: () => void;
+  /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
+  ghostText?: string;
+  onGhostAccept?: () => void;
+  onGhostDismiss?: () => void;
 }) {
   const { resolved: theme } = useAppTheme();
-
-  // Persist drafts per thread (and a shared "new chat" bucket for the empty
-  // /chat hero). Survives refresh; cleared on submit.
-  const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
-
-  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
-  // accept the legacy plain-string format so drafts written by the previous
-  // textarea+mirror composer survive the migration.
-  const initialJSON = useMemo<JSONContent | undefined>(() => {
-    const raw = safeGet(draftKey);
-    if (!raw) return undefined;
-    try {
-      const parsed = JSON.parse(raw) as JSONContent;
-      if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
-    } catch {
-      // Legacy plain-text draft — wrap as a single paragraph.
-      return {
-        type: "doc",
-        content: [{ type: "paragraph", content: [{ type: "text", text: raw }] }],
-      };
-    }
-    return undefined;
-  }, [draftKey]);
-
   const editorRef = useRef<TiptapComposerHandle | null>(null);
-  const mic = useMicRecording();
-
-  const [text, setText] = useState<string>(() => {
-    // Mirror what Tiptap will report on mount so the send button reflects
-    // restored drafts before the first onChange fires.
-    if (!initialJSON) return "";
-    return extractTextFromJSON(initialJSON);
-  });
-  const [isEmpty, setIsEmpty] = useState<boolean>(() => text.trim().length === 0);
-  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming;
-
-  // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
-  // the palette UI reads from it.
-  const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
-  const [mentionIdx, setMentionIdx] = useState(0);
-
-  const mentionCandidates = useMemo(
-    () => (suggestion ? filterMentionOptions(suggestion.query) : []),
-    [suggestion],
-  );
-
-  // Reset the active index when a new suggestion opens or the query changes.
-  // The previous-value-during-render pattern keeps this synchronous and out
-  // of an effect. `prevQuery` is only used to gate the reset, never read in
-  // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
-  const currentQuery = suggestion?.query ?? null;
-  const prevQueryRef = useRef<string | null>(currentQuery);
-  if (prevQueryRef.current !== currentQuery) {
-    prevQueryRef.current = currentQuery;
-    setMentionIdx(0);
-  }
-
-  // Clamp the active row at render time. If filtering shrunk the list since
-  // the last keystroke, the displayed highlight lands on the last valid row
-  // without an effect that loops state back through React. The keyboard
-  // handler reads off `visibleMentionIdx` so a stale `mentionIdx` can't
-  // walk past the new list bounds either.
-  const visibleMentionIdx =
-    mentionCandidates.length === 0 ? 0 : Math.min(mentionIdx, mentionCandidates.length - 1);
-
-  const insertMention = useCallback(
-    (option: MentionOption) => {
-      suggestion?.command(option);
-    },
-    [suggestion],
-  );
+  const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
+  const voice = useComposerVoice(editorRef);
+  const mention = useMentionController();
+  const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
+  const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
+  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming && !transcribing;
 
   const insertAtTrigger = useCallback(() => {
     if (disabled) return;
     editorRef.current?.insertAtTrigger();
   }, [disabled]);
 
-  // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
-  // tells Tiptap to swallow the key so it doesn't also reach the editor.
-  const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
-  suggestionKeyDownRef.current = (event) => {
-    if (!suggestion || mentionCandidates.length === 0) return false;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
-      return true;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      const pick = mentionCandidates[visibleMentionIdx];
-      if (pick) {
-        event.preventDefault();
-        suggestion.command(pick);
-        return true;
-      }
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      suggestion.dismiss();
-      return true;
-    }
-    return false;
-  };
-
-  // Persist drafts as JSON. Tiptap's onChange already fires after every doc
-  // mutation, so this effect only needs to react to changes in `text` (used
-  // as a coarse "did the editor mutate" signal — JSON identity would churn).
-  const onEditorChange = useCallback(
-    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
-      setText(nextText);
-      setIsEmpty(nextEmpty);
-      if (nextEmpty) {
-        safeRemove(draftKey);
-      } else {
-        safeSet(draftKey, JSON.stringify(nextJSON));
-      }
-    },
-    [draftKey],
-  );
-
-  // Type-anywhere autofocus: any printable keystroke on the page lands in
-  // the composer. Skipped when the user is already inside an input / when a
-  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
-  useEffect(() => {
-    if (disabled) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (!e.key || e.key.length !== 1) return;
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        target.closest("input, textarea, select, [contenteditable='true']")
-      ) {
-        return;
-      }
-      const handle = editorRef.current;
-      if (!handle) return;
-      e.preventDefault();
-      handle.insertText(e.key);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [disabled]);
-
-  useEffect(() => {
-    if (disabled) setSuggestion(null);
-  }, [disabled]);
+  useTypeAnywhere(editorRef, disabled);
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
     const value = text.trim();
     onSend?.(value);
     editorRef.current?.clear();
-    setText("");
-    setIsEmpty(true);
-    safeRemove(draftKey);
-  }, [canSend, draftKey, text, onSend]);
+    resetDraft();
+  }, [canSend, text, onSend, resetDraft]);
 
-  const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     handleSubmit();
   };
@@ -614,15 +537,15 @@ function Composer({
     <form
       onSubmit={onFormSubmit}
       aria-label="Send a message"
-      aria-disabled={disabled || undefined}
+      data-disabled={disabled || undefined}
       className="relative"
     >
       {!disabled && suggestion && mentionCandidates.length > 0 ? (
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
-          onHover={setMentionIdx}
-          onPick={insertMention}
+          onHover={mention.setMentionIdx}
+          onPick={mention.insertMention}
           onClose={() => suggestion.dismiss()}
         />
       ) : null}
@@ -657,13 +580,11 @@ function Composer({
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
         <div className="relative">
-          {mic.recording ? (
-            <RecordingPanel
-              levelsRef={mic.levelsRef}
-              elapsed={mic.elapsed}
-              active={mic.recording}
-            />
-          ) : (
+          {/* Keep the editor mounted (just hidden) while recording so its
+           * content survives the voice round-trip — the transcript appends to
+           * whatever was already typed instead of a remount reverting to the
+           * mount-time draft. */}
+          <div className={cn(mic.recording && "hidden")}>
             <TiptapComposer
               ref={editorRef}
               initialJSON={initialJSON}
@@ -671,10 +592,20 @@ function Composer({
               disabled={disabled}
               onChange={onEditorChange}
               onSubmit={handleSubmit}
-              onSuggestionChange={setSuggestion}
+              onSuggestionChange={mention.setSuggestion}
               suggestionKeyDownRef={suggestionKeyDownRef}
+              ghostText={ghostText}
+              onGhostAccept={onGhostAccept}
+              onGhostDismiss={onGhostDismiss}
             />
-          )}
+          </div>
+          {mic.recording ? (
+            <RecordingPanel
+              levelsRef={mic.levelsRef}
+              elapsed={mic.elapsed}
+              active={mic.recording}
+            />
+          ) : null}
 
           <ComposerToolbar
             mic={mic}
@@ -683,11 +614,269 @@ function Composer({
             disabled={disabled}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
+            transcribing={transcribing}
+            voiceError={voiceError}
+            onVoiceStart={onVoiceStart}
+            onVoiceConfirm={() => void onVoiceConfirm()}
+            onStopGeneration={onStopGeneration}
           />
         </div>
       </div>
     </form>
   );
+}
+
+function useComposerDraft(threadId: string | undefined): {
+  initialJSON: JSONContent | undefined;
+  text: string;
+  isEmpty: boolean;
+  onEditorChange: (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => void;
+  resetDraft: () => void;
+} {
+  // Persist drafts per thread (and a shared "new chat" bucket for the empty
+  // /chat hero). Survives refresh; cleared on submit.
+  const draftKey = `alfred:chat-draft:${threadId ?? "new"}`;
+
+  // Seed the editor once on mount. Stored drafts are Tiptap JSON; we also
+  // accept the legacy plain-string format so drafts written by the previous
+  // textarea+mirror composer survive the migration.
+  const initialJSON = useMemo(() => readDraftJSON(draftKey), [draftKey]);
+  const [editorState, setEditorState] = useState<{
+    text: string;
+    isEmpty: boolean;
+  }>(() => {
+    const initialText = initialJSON ? extractTextFromJSON(initialJSON) : "";
+    return { text: initialText, isEmpty: initialText.trim().length === 0 };
+  });
+
+  const onEditorChange = useCallback(
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+      setEditorState({ text: nextText, isEmpty: nextEmpty });
+      if (nextEmpty) {
+        safeRemove(draftKey);
+      } else {
+        safeSet(draftKey, JSON.stringify(nextJSON));
+      }
+    },
+    [draftKey],
+  );
+
+  const resetDraft = useCallback(() => {
+    setEditorState({ text: "", isEmpty: true });
+    safeRemove(draftKey);
+  }, [draftKey]);
+
+  return {
+    initialJSON,
+    text: editorState.text,
+    isEmpty: editorState.isEmpty,
+    onEditorChange,
+    resetDraft,
+  };
+}
+
+type VoiceState = {
+  transcribing: boolean;
+  error: string | null;
+};
+
+type VoiceAction =
+  | { type: "clear_error" }
+  | { type: "transcribe_start" }
+  | { type: "transcribe_success" }
+  | { type: "transcribe_error"; error: string };
+
+function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
+  switch (action.type) {
+    case "clear_error":
+      return { ...state, error: null };
+    case "transcribe_start":
+      return { transcribing: true, error: null };
+    case "transcribe_success":
+      return { transcribing: false, error: null };
+    case "transcribe_error":
+      return { transcribing: false, error: action.error };
+  }
+}
+
+function useComposerVoice(editorRef: RefObject<TiptapComposerHandle | null>): {
+  mic: ReturnType<typeof useMicRecording>;
+  transcribing: boolean;
+  voiceError: string | null;
+  onVoiceStart: () => void;
+  onVoiceConfirm: () => Promise<void>;
+} {
+  const mic = useMicRecording();
+  const [voice, dispatchVoice] = useReducer(voiceReducer, {
+    transcribing: false,
+    error: null,
+  });
+
+  const onVoiceStart = useCallback(() => {
+    dispatchVoice({ type: "clear_error" });
+    void mic.start();
+  }, [mic]);
+
+  const onVoiceConfirm = useCallback(async () => {
+    dispatchVoice({ type: "clear_error" });
+    const blob = await mic.finish();
+    if (!blob) {
+      dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+      return;
+    }
+    dispatchVoice({ type: "transcribe_start" });
+    try {
+      const transcript = (await transcribeRecording(blob)).trim();
+      if (transcript.length === 0) {
+        dispatchVoice({ type: "transcribe_error", error: "We didn't catch that. Try again." });
+        return;
+      }
+      editorRef.current?.insertText(transcript);
+      dispatchVoice({ type: "transcribe_success" });
+    } catch (err) {
+      dispatchVoice({
+        type: "transcribe_error",
+        error: err instanceof Error ? err.message : "Transcription failed. Try again.",
+      });
+    }
+  }, [editorRef, mic]);
+
+  return {
+    mic,
+    transcribing: voice.transcribing,
+    voiceError: voice.error,
+    onVoiceStart,
+    onVoiceConfirm,
+  };
+}
+
+function useMentionController(): {
+  suggestion: SuggestionRenderState | null;
+  setSuggestion: (state: SuggestionRenderState | null) => void;
+  mentionCandidates: ReadonlyArray<MentionOption>;
+  visibleMentionIdx: number;
+  setMentionIdx: (idx: number) => void;
+  insertMention: (option: MentionOption) => void;
+  suggestionKeyDownRef: MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
+} {
+  // Suggestion bridge: Tiptap's mention plugin pushes lifecycle into here;
+  // the palette UI reads from it.
+  const [suggestion, setSuggestion] = useState<SuggestionRenderState | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const mentionCandidates = useMemo(
+    () => (suggestion ? filterMentionOptions(suggestion.query) : []),
+    [suggestion],
+  );
+
+  // Reset the active index when a new suggestion opens or the query changes.
+  // The previous-value-during-render pattern keeps this synchronous and out
+  // of an effect. `prevQuery` is only used to gate the reset, never read in
+  // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
+  const currentQuery = suggestion?.query ?? null;
+  const prevQueryRef = useRef<string | null>(currentQuery);
+  if (prevQueryRef.current !== currentQuery) {
+    prevQueryRef.current = currentQuery;
+    setMentionIdx(0);
+  }
+
+  // Clamp the active row at render time. If filtering shrunk the list since
+  // the last keystroke, the displayed highlight lands on the last valid row
+  // without an effect that loops state back through React.
+  const visibleMentionIdx =
+    mentionCandidates.length === 0 ? 0 : Math.min(mentionIdx, mentionCandidates.length - 1);
+
+  const insertMention = useCallback(
+    (option: MentionOption) => {
+      suggestion?.command(option);
+    },
+    [suggestion],
+  );
+
+  // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
+  // tells Tiptap to swallow the key so it doesn't also reach the editor.
+  const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
+  suggestionKeyDownRef.current = (event) => {
+    if (!suggestion || mentionCandidates.length === 0) return false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      const pick = mentionCandidates[visibleMentionIdx];
+      if (pick) {
+        event.preventDefault();
+        suggestion.command(pick);
+        return true;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      suggestion.dismiss();
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    suggestion,
+    setSuggestion,
+    mentionCandidates,
+    visibleMentionIdx,
+    setMentionIdx,
+    insertMention,
+    suggestionKeyDownRef,
+  };
+}
+
+function useTypeAnywhere(
+  editorRef: RefObject<TiptapComposerHandle | null>,
+  disabled: boolean,
+): void {
+  // Type-anywhere autofocus: any printable keystroke on the page lands in
+  // the composer. Skipped when the user is already inside an input / when a
+  // modifier (⌘ / Ctrl / Alt) is held so app shortcuts still fire.
+  useEffect(() => {
+    if (disabled) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!e.key || e.key.length !== 1) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      const handle = editorRef.current;
+      if (!handle) return;
+      e.preventDefault();
+      handle.insertText(e.key);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [disabled, editorRef]);
+}
+
+function readDraftJSON(draftKey: string): JSONContent | undefined {
+  const raw = safeGet(draftKey);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as JSONContent;
+    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
+  } catch {
+    // Legacy plain-text draft — wrap as a single paragraph.
+    return {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: raw }] }],
+    };
+  }
+  return undefined;
 }
 
 function ComposerToolbar({
@@ -697,6 +886,11 @@ function ComposerToolbar({
   disabled,
   mentionActive,
   onMentionClick,
+  transcribing,
+  voiceError,
+  onVoiceStart,
+  onVoiceConfirm,
+  onStopGeneration,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
@@ -704,7 +898,13 @@ function ComposerToolbar({
   disabled: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
+  transcribing: boolean;
+  voiceError: string | null;
+  onVoiceStart: () => void;
+  onVoiceConfirm: () => void;
+  onStopGeneration?: () => void;
 }) {
+  const statusMessage = voiceError ?? mic.error;
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
@@ -728,61 +928,94 @@ function ComposerToolbar({
         >
           Auto
         </AppPill>
-        {mic.error ? <span className="text-[11px] text-app-red-4 pl-1">{mic.error}</span> : null}
+        {transcribing ? (
+          <span className="animate-chat-shimmer text-[11px] text-app-fg-3 pl-1">Transcribing…</span>
+        ) : statusMessage ? (
+          <span className="text-[11px] text-app-red-4 pl-1">{statusMessage}</span>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1">
-        <ComposerIcon
-          label={mic.recording ? "Stop dictation" : "Dictate"}
-          onClick={mic.recording ? mic.stop : mic.start}
-          disabled={disabled && !mic.recording}
-          active={mic.recording}
-        >
-          <Mic size={14} />
-        </ComposerIcon>
         {mic.recording ? (
-          <button
-            type="button"
-            onClick={mic.stop}
-            aria-label="Stop recording"
-            className={cn(
-              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "app-press transition-[opacity,filter,transform]",
-              "bg-app-red-4 text-white",
-              "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
-              "hover:brightness-[1.05]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-            )}
-          >
-            <Square size={12} strokeWidth={2.5} fill="currentColor" />
-          </button>
+          <>
+            {/* Voice mode: X discards the take, ✓ sends it to transcription. */}
+            <ComposerIcon label="Discard recording" onClick={mic.cancel}>
+              <X size={14} />
+            </ComposerIcon>
+            <button
+              type="button"
+              onClick={onVoiceConfirm}
+              aria-label="Use recording"
+              className={cn(
+                "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                "app-press transition-[opacity,filter,transform]",
+                "hover:scale-[1.04] active:scale-[0.97]",
+                "text-(--app-accent-fg)",
+                "bg-(image:--app-cta-bg)",
+                "shadow-(--app-button-primary-shadow)",
+                "hover:brightness-[1.06]",
+                "hover:shadow-(--app-button-primary-shadow-hover)",
+                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+              )}
+            >
+              <Check size={16} strokeWidth={2.5} />
+            </button>
+          </>
         ) : (
-          <button
-            type="submit"
-            disabled={!canSend}
-            aria-label={
-              disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
-            }
-            className={cn(
-              "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-              "app-press transition-[opacity,filter,transform]",
-              "enabled:hover:scale-[1.04] active:scale-[0.97]",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-              "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-              canSend
-                ? cn(
-                    "text-(--app-accent-fg)",
-                    "bg-(image:--app-cta-bg)",
-                    "shadow-(--app-button-primary-shadow)",
-                    "hover:brightness-[1.06]",
-                    "hover:shadow-(--app-button-primary-shadow-hover)",
-                  )
-                : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+          <>
+            <ComposerIcon
+              label="Dictate"
+              onClick={onVoiceStart}
+              disabled={disabled || transcribing}
+            >
+              {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+            </ComposerIcon>
+            {isStreaming && onStopGeneration ? (
+              <button
+                type="button"
+                onClick={onStopGeneration}
+                aria-label="Stop generating"
+                className={cn(
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "bg-app-red-4 text-white",
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
+                  "hover:brightness-[1.05]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                )}
+              >
+                <Square size={12} strokeWidth={2.5} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSend}
+                aria-label={
+                  disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
+                }
+                className={cn(
+                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "enabled:hover:scale-[1.04] active:scale-[0.97]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  canSend
+                    ? cn(
+                        "text-(--app-accent-fg)",
+                        "bg-(image:--app-cta-bg)",
+                        "shadow-(--app-button-primary-shadow)",
+                        "hover:brightness-[1.06]",
+                        "hover:shadow-(--app-button-primary-shadow-hover)",
+                      )
+                    : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+                )}
+              >
+                <ArrowUp size={16} strokeWidth={2.25} />
+              </button>
             )}
-          >
-            <ArrowUp size={16} strokeWidth={2.25} />
-          </button>
+          </>
         )}
       </div>
     </div>
@@ -794,7 +1027,7 @@ function RecordingPanel({
   elapsed,
   active,
 }: {
-  levelsRef: React.RefObject<Float32Array>;
+  levelsRef: RefObject<Float32Array>;
   elapsed: number;
   active: boolean;
 }) {
@@ -887,10 +1120,13 @@ function useRailData(): RailData {
     liveSuggestions,
     dismissTodo,
   );
-  const todoSuggestions = useMemo(
-    () => liveSuggestions.filter((s) => !hiddenSuggestionIds.has(s.id)).map(toRailSuggestion),
-    [liveSuggestions, hiddenSuggestionIds],
-  );
+  const todoSuggestions = useMemo(() => {
+    const visible: SuggestionInput[] = [];
+    for (const suggestion of liveSuggestions) {
+      if (!hiddenSuggestionIds.has(suggestion.id)) visible.push(toRailSuggestion(suggestion));
+    }
+    return visible;
+  }, [liveSuggestions, hiddenSuggestionIds]);
   const onToggleTodo = useCallback(
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
@@ -1087,38 +1323,39 @@ function useSuggestionDismissal(
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  // Keep the latest dismiss fn in a ref so the unmount-commit effect can stay
-  // dependency-free (and never fire its cleanup mid-session).
-  const dismissRef = useRef(dismissTodo);
-  dismissRef.current = dismissTodo;
+  const timers = useRef<Map<string, ReturnType<typeof setTimeout>> | null>(null);
+  if (timers.current === null) timers.current = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingTimers = timers.current;
 
   useEffect(() => {
-    const pending = timers.current;
+    const pending = pendingTimers;
     return () => {
       for (const [id, handle] of pending) {
         clearTimeout(handle);
-        void dismissRef.current(id);
+        void dismissTodo(id);
       }
       pending.clear();
     };
-  }, []);
+  }, [pendingTimers, dismissTodo]);
 
-  const cancel = useCallback((id: string) => {
-    const handle = timers.current.get(id);
-    if (handle) clearTimeout(handle);
-    timers.current.delete(id);
-    setHiddenSuggestionIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
+  const cancel = useCallback(
+    (id: string) => {
+      const handle = pendingTimers.get(id);
+      if (handle) clearTimeout(handle);
+      pendingTimers.delete(id);
+      setHiddenSuggestionIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [pendingTimers],
+  );
 
   const onDismissSuggestion = useCallback(
     (id: string) => {
-      if (timers.current.has(id)) return;
+      if (pendingTimers.has(id)) return;
       const label = suggestions.find((s) => s.id === id)?.name;
       setHiddenSuggestionIds((prev) => {
         const next = new Set(prev);
@@ -1126,16 +1363,16 @@ function useSuggestionDismissal(
         return next;
       });
       const handle = setTimeout(() => {
-        timers.current.delete(id);
+        pendingTimers.delete(id);
         setHiddenSuggestionIds((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
-        void dismissRef.current(id);
+        void dismissTodo(id);
       }, SUGGESTION_UNDO_MS);
-      timers.current.set(id, handle);
+      pendingTimers.set(id, handle);
       callToast({
         message: "Suggestion dismissed",
         description: label,
@@ -1143,7 +1380,7 @@ function useSuggestionDismissal(
         action: { label: "Undo", onClick: () => cancel(id) },
       });
     },
-    [suggestions, cancel],
+    [suggestions, cancel, pendingTimers, dismissTodo],
   );
 
   return { hiddenSuggestionIds, onDismissSuggestion };

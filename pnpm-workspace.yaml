@@ -29,6 +29,10 @@ catalog:
   "@types/node": ^22.13.11
   "@vitejs/plugin-react": ^4.5.2
   ai: 6.0.77
+  # Provider-fallback cascade for the LanguageModel dispatchers (see
+  # `withFallback` in packages/ai/src/provider.ts). Same version warden
+  # runs on the identical ai@6 / @ai-sdk/provider@3 resolution.
+  ai-retry: ^1.7.3
   better-auth: ^1.3.28
   bullmq: ^5.52.1
   class-variance-authority: ^0.7.1

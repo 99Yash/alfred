@@ -2,21 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * `useMicRecording` — minimal wrapper around `getUserMedia` + `AnalyserNode`
- * that drives a waveform UI.
+ * `useMicRecording` — wrapper around `getUserMedia` + `MediaRecorder` +
+ * `AnalyserNode` that records mic audio for transcription and drives a
+ * waveform UI while doing it.
  *
  * Lifecycle:
- *   - call `start()` to request mic permission and open the audio graph
+ *   - call `start()` to request mic permission, open the audio graph, and
+ *     begin capturing (webm/opus where supported, mp4 on Safari)
  *   - while active, `levelsRef.current` is updated each animation frame with
  *     normalised time-domain samples in `[-1, 1]` (Float32Array length 64)
- *   - call `stop()` to tear everything down (track, source, analyser, ctx)
+ *   - call `finish()` to stop and get the recorded `Blob` back (for the
+ *     transcribe endpoint), or `cancel()` to stop and discard the audio
  *
  * Levels live in a ref (not state) so the consuming canvas/SVG can poll on
  * its own RAF without forcing React renders 60x/sec. `elapsed` is state
  * because we DO want the on-screen timer to re-render once a second.
- *
- * No transcription wired yet — this is a visual stub today. The audio data
- * is discarded when `stop()` is called.
  */
 export function useMicRecording() {
   const [recording, setRecording] = useState(false);
@@ -24,16 +24,20 @@ export function useMicRecording() {
   const [elapsed, setElapsed] = useState(0);
 
   // Live audio data — shared with the waveform renderer through this ref.
-  const levelsRef = useRef<Float32Array>(new Float32Array(SAMPLE_COUNT));
+  const levelsRef = useRef<Float32Array | null>(null);
+  if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
+  const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number>(0);
 
-  const stop = () => {
+  const teardown = () => {
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -48,16 +52,68 @@ export function useMicRecording() {
     analyserRef.current = null;
     void ctxRef.current?.close();
     ctxRef.current = null;
+    recorderRef.current = null;
+    chunksRef.current = [];
     levelsRef.current = new Float32Array(SAMPLE_COUNT);
     setRecording(false);
     setElapsed(0);
   };
 
+  /** Stop and discard the audio (the X button / unmount path). */
+  const cancel = () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    teardown();
+  };
+
+  /**
+   * Stop recording and resolve with the captured audio. Resolves null when
+   * nothing was captured (recorder never started / no data). The recorder's
+   * final chunk only arrives at `onstop`, hence the promise dance.
+   */
+  const finish = (): Promise<Blob | null> => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      teardown();
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const chunks = chunksRef.current;
+        const blob = chunks.length > 0 ? new Blob(chunks, { type }) : null;
+        teardown();
+        resolve(blob);
+      };
+      recorder.stop();
+    });
+  };
+
   const start = async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        // Speech-tuned capture — same constraints dimension uses; both are
+        // no-ops where unsupported.
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       streamRef.current = stream;
+
+      // Capture for transcription. Prefer opus-in-webm (Chrome/Firefox);
+      // Safari falls back to its default (mp4/AAC) when given no mimeType.
+      chunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : undefined;
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorderRef.current = recorder;
+      recorder.start();
       const AudioCtor: typeof AudioContext = window.AudioContext;
       const ctx = new AudioCtor();
       ctxRef.current = ctx;
@@ -98,7 +154,7 @@ export function useMicRecording() {
 
       setRecording(true);
     } catch (err) {
-      stop();
+      cancel();
       const message =
         err instanceof DOMException && err.name === "NotAllowedError"
           ? "Microphone access denied"
@@ -108,15 +164,15 @@ export function useMicRecording() {
   };
 
   useEffect(() => {
-    return () => stop();
-    // stop closes over refs only; we intentionally run cleanup on unmount.
+    return () => cancel();
+    // cancel closes over refs only; we intentionally run cleanup on unmount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { recording, error, elapsed, start, stop, levelsRef };
+  return { recording, error, elapsed, start, cancel, finish, levelsRef: initializedLevelsRef };
 }
 
-export const SAMPLE_COUNT = 56;
+const SAMPLE_COUNT = 56;
 
 /**
  * Smooth waveform line driven by `levelsRef`. Reads via RAF — never via
@@ -126,7 +182,7 @@ export function MicWaveform({
   levelsRef,
   active,
 }: {
-  levelsRef: React.RefObject<Float32Array>;
+  levelsRef: React.RefObject<Float32Array | null>;
   active: boolean;
 }) {
   const pathRef = useRef<SVGPathElement | null>(null);
@@ -219,11 +275,4 @@ function buildWavePath(levels: Float32Array): string {
   const last = points[points.length - 1]!;
   d += ` T ${last.x} ${last.y}`;
   return d;
-}
-
-/** Format an elapsed second-count as `m:ss`. */
-export function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }
