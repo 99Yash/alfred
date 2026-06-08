@@ -4,6 +4,7 @@ export {
   mintAppJwt,
   getInstallationToken,
   exchangeUserCode,
+  canUserAccessInstallation,
   verifyWebhookSignature,
 } from "./app";
 export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from "./app";

@@ -22,11 +22,19 @@ import { z } from "zod";
 const API_BASE = "https://api.github.com";
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
 const USER_BASE = `${API_BASE}/user`;
+const GITHUB_FETCH_TIMEOUT_MS = 30_000;
 const GH_HEADERS = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
   "User-Agent": "alfred-app",
 } as const;
+
+function githubFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+}
 
 export interface GithubAppConfig {
   appId: string;
@@ -101,7 +109,7 @@ export async function getInstallationToken(installationId: string): Promise<Inst
     return cached;
   }
   const jwt = await mintAppJwt();
-  const res = await fetch(`${API_BASE}/app/installations/${installationId}/access_tokens`, {
+  const res = await githubFetch(`${API_BASE}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: { ...GH_HEADERS, Authorization: `Bearer ${jwt}` },
   });
@@ -133,6 +141,10 @@ const githubUserSchema = z.object({
   email: z.string().nullable().optional(),
 });
 
+const userInstallationRepositoriesSchema = z.object({
+  total_count: z.number(),
+});
+
 export interface ExchangeUserCodeResult {
   /** Numeric GitHub user id, stringified — credential rows key on `account_id: string`. */
   accountId: string;
@@ -156,7 +168,7 @@ const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
  */
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
   const cfg = getGithubAppConfig();
-  const tokenRes = await fetch(TOKEN_BASE, {
+  const tokenRes = await githubFetch(TOKEN_BASE, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -179,7 +191,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     );
   }
 
-  const userRes = await fetch(USER_BASE, {
+  const userRes = await githubFetch(USER_BASE, {
     headers: { ...GH_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
   });
   if (!userRes.ok) {
@@ -201,6 +213,35 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     scopes: parsed.data.scope ? parsed.data.scope.split(/[,\s]+/).filter(Boolean) : [],
     tokenType: parsed.data.token_type ?? "bearer",
   };
+}
+
+/**
+ * GitHub warns that the setup callback's `installation_id` is user-supplied
+ * and can be spoofed. Verify it with the user-to-server token before binding
+ * the installation to an Alfred credential.
+ */
+export async function canUserAccessInstallation(args: {
+  accessToken: string;
+  installationId: string;
+}): Promise<boolean> {
+  if (!/^\d+$/.test(args.installationId)) return false;
+
+  const url = new URL(`${API_BASE}/user/installations/${args.installationId}/repositories`);
+  url.searchParams.set("per_page", "1");
+  const res = await githubFetch(url, {
+    headers: { ...GH_HEADERS, Authorization: `Bearer ${args.accessToken}` },
+  });
+
+  if (res.status === 403 || res.status === 404) return false;
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `[github.app] installation verification failed: ${res.status} ${body.slice(0, 300)}`,
+    );
+  }
+
+  userInstallationRepositoriesSchema.parse(await res.json());
+  return true;
 }
 
 /**
