@@ -203,8 +203,10 @@ export function OnboardingFlow({
 
           {/* Right pane — showcase per step. `bg-black/10` only at `lg`
            * where the pane sits next to the rail; on mobile the pane
-           * stacks BELOW the rail and the band reads as a hard seam. */}
-          <section className="relative z-10 grow lg:bg-black/10">
+           * stacks BELOW the rail and the band reads as a hard seam.
+           * `<main>` (paired with the rail's `<aside>`) is this chromeless
+           * route's primary landmark. */}
+          <main className="relative z-10 grow lg:bg-black/10">
             {/* Vertical tick ruler */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
               <svg
@@ -269,7 +271,7 @@ export function OnboardingFlow({
                 {step === 3 ? <FinishShowcase /> : null}
               </div>
             </div>
-          </section>
+          </main>
         </div>
       </HeroAtmosphere>
     </div>

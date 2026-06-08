@@ -1,17 +1,20 @@
 @import "tailwindcss";
-/* CSS requires all `@import` rules to precede any other statements (besides
- * `@charset` and empty `@layer`), so the Google Fonts import lives up here
- * — alongside Tailwind — even though it's logically part of the Fonts
- * section below. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap");
 @plugin "@tailwindcss/typography";
 
 /* -----------------------------------------------------------------------------
  * Fonts
- * Open Runde (local) — body. Inter (Google) — UI / numerics. Newsreader (Google)
- * — sprinkled serif (greetings, hero copy). Mono falls back to the system.
- * Only Medium + Semibold of Open Runde are locally available; we lean on those
- * weights everywhere and let Inter cover anything heavier or thinner.
+ * Open Runde (local, preloaded in index.html) is the only web font we ship —
+ * it's the rendered face everywhere. `Inter` and `Newsreader` survive only as
+ * names in the --font-sans / --font-serif fallback stacks below, so they apply
+ * solely when a visitor already has them installed locally.
+ *
+ * We deliberately do NOT `@import` them from Google Fonts: that pulls a
+ * render-blocking remote stylesheet (then a gstatic font fetch) into the
+ * critical path of every route, for faces that never win the race against the
+ * preloaded local Open Runde. Open Runde ships Medium + Semibold; the metric-
+ * matched "Open Runde Fallback" below covers the swap window with no FOUT.
+ * If a real serif/UI face is needed later, self-host it like Open Runde rather
+ * than reintroducing the remote import.
  * -------------------------------------------------------------------------- */
 
 @font-face {
