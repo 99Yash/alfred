@@ -83,10 +83,17 @@
       type="font/woff2"
       crossorigin
     />
+    <!-- `defer` keeps this analytics beacon out of the critical render path:
+         a plain `<script src>` in <head> blocks HTML parsing until it has
+         downloaded and executed, delaying discovery of the app's module script
+         and pushing out FCP/LCP on every route. Deferring lets the parser sail
+         past it; the beacon runs after the document parses — plenty early for
+         page-view tracking. -->
     <script
       src="https://cdn.visitors.now/v.js"
       data-token="1e8a7887-a321-431e-bae1-c0a037971c85"
       data-persist
+      defer
     ></script>
   </head>
   <body>

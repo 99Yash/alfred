@@ -26,7 +26,13 @@ export function PreferencesSection() {
         icon={Bell}
         tone="amber"
         noDivider
-        action={<AppSwitch checked={productUpdates} onCheckedChange={setProductUpdates} />}
+        action={
+          <AppSwitch
+            checked={productUpdates}
+            onCheckedChange={setProductUpdates}
+            aria-label="Product updates"
+          />
+        }
       />
     </>
   );

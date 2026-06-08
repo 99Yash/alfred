@@ -106,6 +106,16 @@ export function AppSegmented<T extends string = string>({
           </TabsPrimitive.Trigger>
         ))}
       </TabsPrimitive.List>
+      {/* Radix auto-wires each Trigger's `aria-controls` to a panel id. This
+       * control selects a value and lets each call site render its own content
+       * (or none, for pure value-pickers), so without a matching panel every
+       * trigger points `aria-controls` at a non-existent id — failing the
+       * `aria-valid-attr-value` a11y audit. Mount an empty, always-hidden panel
+       * per value so the reference resolves; it carries no content and takes no
+       * space, so there's no visual or layout effect anywhere it's used. */}
+      {items.map((item) => (
+        <TabsPrimitive.Content key={item.value} value={item.value} forceMount className="hidden" />
+      ))}
     </TabsPrimitive.Root>
   );
 }

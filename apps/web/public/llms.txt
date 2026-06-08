@@ -1,0 +1,14 @@
+# Alfred
+
+> Alfred is a personal AI coworker wired into your email, calendar, GitHub, and the tools you already use. It triages your inbox, briefs you every morning, and preps you for meetings — quietly, in the background. Single-user by design.
+
+## Pages
+
+- [Home](https://alfred.beauty/): Product overview — what Alfred does and why.
+- [Get started](https://alfred.beauty/login): Sign in to Alfred.
+- [Privacy policy](https://alfred.beauty/privacy-policy): How Alfred handles your data and connected-account access.
+- [Terms of service](https://alfred.beauty/terms-of-service): Terms for using Alfred.
+
+## More
+
+- [Source on GitHub](https://github.com/99Yash/alfred): The Alfred codebase.
