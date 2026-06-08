@@ -1,7 +1,12 @@
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { buildInstallUrl, exchangeUserCode, upsertGithubCredential } from "@alfred/integrations/github";
+import {
+  buildInstallUrl,
+  canUserAccessInstallation,
+  exchangeUserCode,
+  upsertGithubCredential,
+} from "@alfred/integrations/github";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Elysia, status, t } from "elysia";
 import { and, eq } from "drizzle-orm";
@@ -109,9 +114,17 @@ export const githubIntegrationRoutes = new Elysia({
         return status(400, { message: "Invalid or expired state" });
       }
       if (!query.code) return status(400, { message: "Missing code" });
+      if (!query.installation_id) return status(400, { message: "Missing installation_id" });
 
       const tokens = await exchangeUserCode(query.code);
-      const installationId = query.installation_id ?? null;
+      const installationId = query.installation_id;
+      const installationMatchesUser = await canUserAccessInstallation({
+        accessToken: tokens.accessToken,
+        installationId,
+      });
+      if (!installationMatchesUser) {
+        return status(400, { message: "GitHub installation is not accessible to this user" });
+      }
 
       // Onboarding lookup is independent of the credential upsert — race them.
       const [credential, userRow] = await Promise.all([
