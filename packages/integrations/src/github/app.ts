@@ -157,16 +157,17 @@ export interface ExchangeUserCodeResult {
   /** Token expiry; far-future sentinel when the App issues non-expiring user tokens. */
   expiresAt: Date;
   scopes: string[];
-  tokenType: string;
-}
-
-const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
-
-/**
- * Exchange the user-to-server `code` (delivered alongside `installation_id`
- * on the post-install redirect) for a user token, then identify the user so
- * we have a stable `accountId` + login to upsert against.
- */
+  const tokenRes = await fetch(TOKEN_BASE, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      code,
+      redirect_uri: cfg.redirectUri,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
   const cfg = getGithubAppConfig();
   const tokenRes = await githubFetch(TOKEN_BASE, {
