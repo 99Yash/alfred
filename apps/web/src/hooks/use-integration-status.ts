@@ -127,16 +127,21 @@ function resolveOne(
   provider: IntegrationProvider,
   creds: ReadonlyArray<CredentialRow> | undefined,
 ): ResolvedIntegration {
-  const required = PROVIDER_REQUIRED_SCOPES[provider.id];
-  if (!required) {
-    return { ...provider, connectedAccounts: [] };
-  }
   if (!creds) {
     return { ...provider, connectedAccounts: [] };
   }
-  const matching = creds.filter(
-    (c) => c.status === "active" && required.every((r) => meetsScopeRequirement(c.scopes, r)),
-  );
+  const matching =
+    PROVIDER_BACKEND[provider.id] === "github"
+      ? // GitHub App installs carry no OAuth scopes — App *permissions*
+        // (metadata/PRs/issues/contents, ADR-0052) never flow into the
+        // credential's `scopes` array, so the scope-completeness probe Google
+        // uses can't apply. A GitHub credential is connected when it's active
+        // and the App is installed (installation_id present). Legacy
+        // classic-OAuth rows (active but no installation_id) can't mint
+        // installation tokens, so they read as not-connected here and the
+        // reconnect nag (`useGithubNeedsReconnect`) drives the upgrade.
+        creds.filter((c) => c.status === "active" && c.installationId)
+      : matchByScopes(provider, creds);
   if (matching.length === 0) {
     return { ...provider, connectedAccounts: [] };
   }
@@ -211,6 +216,22 @@ export function useGithubNeedsReconnect(): GithubReconnect {
       accountLabel: stale?.accountLabel ?? null,
     };
   }, [githubCreds]);
+}
+
+/**
+ * Scope-based connection probe (Google providers): an active credential
+ * counts only if it carries every required scope. A provider with no scope
+ * requirement has no live backend yet, so nothing matches.
+ */
+function matchByScopes(
+  provider: IntegrationProvider,
+  creds: ReadonlyArray<CredentialRow>,
+): ReadonlyArray<CredentialRow> {
+  const required = PROVIDER_REQUIRED_SCOPES[provider.id];
+  if (!required) return [];
+  return creds.filter(
+    (c) => c.status === "active" && required.every((r) => meetsScopeRequirement(c.scopes, r)),
+  );
 }
 
 function meetsScopeRequirement(
