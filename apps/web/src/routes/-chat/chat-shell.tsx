@@ -41,8 +41,9 @@ import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { IntegrationGlyph } from "~/lib/integration-icons";
 import { useResolvedIntegrations } from "~/hooks/use-integration-status";
+import { IntegrationGlyph } from "~/lib/integration-icons";
+import { PROVIDER_BACKEND } from "~/lib/integrations";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
@@ -427,22 +428,23 @@ function MentionPalette({
 
 function ConnectToolsBar() {
   // Drive the row off the real catalog overlaid with live credential state
-  // instead of a hardcoded brand list — the icons shown are exactly the
-  // integrations Alfred supports, and each reflects whether *this* user has
-  // actually connected it (with the required scopes). See
-  // `useResolvedIntegrations`.
+  // instead of a hardcoded brand list. Catalog-only providers stay on the
+  // integrations page, but this nudge only shows providers the user can
+  // actually connect here.
   const integrations = useResolvedIntegrations();
 
   // Unconnected first (these are the actual nudge), connected trailing with
   // a check. Catalog order is preserved within each group.
   const ordered = useMemo(() => {
-    const unconnected = integrations.filter((p) => p.status !== "connected");
-    const connected = integrations.filter((p) => p.status === "connected");
+    const visible = integrations.filter(
+      (p) => p.status === "connected" || PROVIDER_BACKEND[p.id] !== undefined,
+    );
+    const unconnected = visible.filter((p) => p.status !== "connected");
+    const connected = visible.filter((p) => p.status === "connected");
     return { unconnected, connected, all: [...unconnected, ...connected] };
   }, [integrations]);
 
-  // Everything Alfred supports is already connected — there's nothing to
-  // nudge, so drop the row entirely and keep the empty-chat hero clean.
+  // Everything actionable in this row is already connected, so drop the nudge.
   if (ordered.unconnected.length === 0) return null;
 
   return (
@@ -489,9 +491,7 @@ function ConnectToolsBar() {
                 connected ? "z-10" : "",
               )}
             >
-              <span className="sr-only">
-                {connected ? `${p.name}, connected` : p.name}
-              </span>
+              <span className="sr-only">{connected ? `${p.name}, connected` : p.name}</span>
               <IntegrationGlyph
                 brand={p.brand}
                 size={14}
