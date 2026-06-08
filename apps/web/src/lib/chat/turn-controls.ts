@@ -22,6 +22,7 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
     method: "POST",
     credentials: "include",
     body: form,
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { message?: string } | null;

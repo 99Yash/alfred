@@ -1,21 +1,14 @@
 import type { SyncedChatMessage } from "@alfred/sync";
 import { Loader2, ShieldQuestion } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
-import { parseJsonRecord } from "~/lib/json-record";
+import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
+import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { ToolCallCard } from "./tool-call-card";
-
-export function shouldShowStream(
-  messages: readonly SyncedChatMessage[],
-  stream: StreamingMessage | null,
-): stream is StreamingMessage {
-  return stream !== null && !messages.some((m) => m.id === stream.messageId);
-}
 
 /**
  * Scrollable message feed. Renders the synced (durable) messages, then — if a
@@ -58,6 +51,11 @@ export function Conversation({
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef(false);
   const seenUserIdRef = useRef<string | null>(null);
+  if (lastUserId !== seenUserIdRef.current) {
+    const isInitialLoad = seenUserIdRef.current === null && messages.length > 1;
+    seenUserIdRef.current = lastUserId;
+    if (!isInitialLoad && lastUserId !== null) anchorRef.current = true;
+  }
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -92,15 +90,6 @@ export function Conversation({
     const el = scrollRef.current;
     if (!el) return;
 
-    // Engage the anchor on a *new* user message. The first sync of an
-    // existing thread doesn't count — only record what we saw so opening
-    // history still lands at the bottom.
-    if (lastUserId !== seenUserIdRef.current) {
-      const isInitialLoad = seenUserIdRef.current === null && messages.length > 1;
-      seenUserIdRef.current = lastUserId;
-      if (!isInitialLoad && lastUserId !== null) anchorRef.current = true;
-    }
-
     const userEl = userMsgElRef.current;
     const spacer = spacerRef.current;
     if (anchorRef.current && userEl && spacer) {
@@ -114,7 +103,7 @@ export function Conversation({
     } else if (stickRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, stream, lastUserId]);
+  }, [messages, stream]);
 
   useEffect(() => {
     if (!showStream || !stream) return;
@@ -233,69 +222,7 @@ export function Conversation({
   );
 }
 
-export interface FollowUpSuggestion {
-  id: string;
-  text: string;
-  brand: IntegrationBrand;
-}
-
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
-
-type PersistedToolCall = NonNullable<SyncedChatMessage["toolCalls"]>[number];
-
-export function buildFollowUpSuggestions(
-  messages: readonly SyncedChatMessage[],
-): FollowUpSuggestion[] {
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== "assistant" || last.status !== "complete") return [];
-
-  const tools = last.toolCalls ?? [];
-  const out: FollowUpSuggestion[] = [];
-  const seen = new Set<string>();
-  for (const tool of tools) {
-    const suggestion = followUpForTool(tool);
-    if (!suggestion || seen.has(suggestion.text)) continue;
-    out.push(suggestion);
-    seen.add(suggestion.text);
-  }
-  return out.slice(0, 2);
-}
-
-function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
-  if (tool.status !== "succeeded") return null;
-  // `resultPreview` is now pruned server-side into *valid* JSON (chat-turn's
-  // `preview()`), so strict parsing succeeds for fresh rows. The prefix-scan
-  // fallback below stays for historical rows persisted before that fix, whose
-  // JSON was sliced mid-string and won't parse.
-  const raw = tool.resultPreview ?? "";
-  const result = parseJsonRecord(raw);
-
-  if (tool.toolName === "github.search_pull_requests") {
-    const totalCount =
-      result && typeof result.totalCount === "number"
-        ? result.totalCount
-        : Number(/"totalCount"\s*:\s*(\d+)/.exec(raw)?.[1] ?? 0);
-    const hasRows = result
-      ? Array.isArray(result.pullRequests) && result.pullRequests.length > 0
-      : /"pullRequests"\s*:\s*\[\s*\{/.test(raw);
-    if (totalCount <= 0 || !hasRows) return null;
-    return { id: "github-pr-list", text: "Show me the matching PRs.", brand: "github" };
-  }
-
-  if (tool.toolName === "calendar.list_events") {
-    const hasEvents = result
-      ? Array.isArray(result.events) && result.events.length > 0
-      : /"events"\s*:\s*\[\s*\{/.test(raw);
-    if (!hasEvents) return null;
-    return {
-      id: "calendar-meeting-prep",
-      text: "What should I prep for my next meeting?",
-      brand: "google_calendar",
-    };
-  }
-
-  return null;
-}
 
 /** True on Apple platforms — picks the ⌥ glyph over the "Alt+" prefix in kbd hints. */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.userAgent);
@@ -307,6 +234,7 @@ function FollowUpSuggestions({
   suggestions: readonly FollowUpSuggestion[];
   onPick: (text: string) => void;
 }) {
+  const onPickEvent = useEffectEvent(onPick);
   // ⌥1…⌥9 picks a chip from anywhere on the page. `e.code` (not `e.key`)
   // because Option+digit types a glyph ("¡", "™"…) on macOS keyboards.
   // Alt+digit is unreserved in every browser, unlike ⌘digit (tab switching).
@@ -318,11 +246,11 @@ function FollowUpSuggestions({
       const pick = suggestions[Number(match[1]) - 1];
       if (!pick) return;
       e.preventDefault();
-      onPick(pick.text);
+      onPickEvent(pick.text);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [suggestions, onPick]);
+  }, [suggestions]);
 
   return (
     <div className="animate-chat-in flex flex-wrap gap-2 pt-1">
@@ -375,7 +303,7 @@ function ApprovalNotice() {
   return (
     <div className="animate-chat-in flex items-center gap-2 rounded-xl border border-app-amber-2/60 bg-app-amber-1/40 px-3 py-2 text-[13px] text-app-fg-4">
       <ShieldQuestion size={14} className="shrink-0 text-app-amber-4" />
-      <span>Waiting for your approval to take this action — review it below.</span>
+      <span>Waiting for your approval to take this action, review it below.</span>
     </div>
   );
 }

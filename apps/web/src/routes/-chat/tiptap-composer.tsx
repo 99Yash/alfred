@@ -8,7 +8,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
@@ -109,6 +109,9 @@ export function TiptapComposer({
   const ghostTextRef = useRef(ghostText);
   const onGhostAcceptRef = useRef(onGhostAccept);
   const onGhostDismissRef = useRef(onGhostDismiss);
+  // Tracks whether the suggestion popup is open — used to skip Enter-submit
+  // when the user is picking a mention.
+  const suggestionOpenRef = useRef(false);
   onChangeRef.current = onChange;
   onSubmitRef.current = onSubmit;
   onSuggestionChangeRef.current = onSuggestionChange;
@@ -116,16 +119,7 @@ export function TiptapComposer({
   ghostTextRef.current = ghostText;
   onGhostAcceptRef.current = onGhostAccept;
   onGhostDismissRef.current = onGhostDismiss;
-
-  // Tracks whether the suggestion popup is open — used to skip Enter-submit
-  // when the user is picking a mention.
-  const suggestionOpenRef = useRef(false);
-
-  // Local empty state drives our custom animated placeholder overlay (replaces
-  // Tiptap's built-in CSS placeholder so we can fade/slide/blur it out).
-  // Seeded from initialJSON so a draft-mounted editor doesn't briefly show the
-  // placeholder before Tiptap's onUpdate fires.
-  const [isEmpty, setIsEmpty] = useState(() => isInitialContentEmpty(initialJSON));
+  if (disabled) suggestionOpenRef.current = false;
 
   const editor = useEditor({
     extensions: [
@@ -242,18 +236,14 @@ export function TiptapComposer({
     },
     onUpdate: ({ editor }) => {
       const empty = editor.isEmpty;
-      setIsEmpty(empty);
       onChangeRef.current(editor.getText(), editor.getJSON(), empty);
     },
   });
+  const isEmpty = editor?.isEmpty ?? isInitialContentEmpty(initialJSON);
 
   useEffect(() => {
     if (!editor) return;
     editor.setEditable(!disabled);
-    if (disabled) {
-      suggestionOpenRef.current = false;
-      onSuggestionChangeRef.current(null);
-    }
   }, [editor, disabled]);
 
   useImperativeHandle(
