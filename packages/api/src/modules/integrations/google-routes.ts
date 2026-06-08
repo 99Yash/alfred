@@ -10,7 +10,6 @@ import {
   GOOGLE_FEATURE_SCOPES,
   type GoogleFeature,
   installGmailWatch,
-  PUBLIC_FEATURES,
   scopesForFeatures,
   uninstallGmailWatch,
   upsertCredential,
@@ -76,17 +75,16 @@ export const googleIntegrationRoutes = new Elysia({
       .get(
         "/connect",
         async ({ user, query, set }) => {
-          // `?features=briefing,triage` selects which capabilities to
-          // request. Default (no param) is the PUBLIC set: identity +
-          // free-to-verify sensitive scopes (calendar, Workspace reads,
-          // gmail.send) — no "unverified app" warning, no user cap.
-          // Restricted Gmail/Drive features (briefing, triage, drive) must
-          // be opted into explicitly; they put consent behind Google's
-          // unverified warning + 100-user cap until the paid CASA review.
-          // `include_granted_scopes=true` (in the authorize URL) means a
-          // later opt-in call merges into the same grant rather than
+          // Default (no `?features` param) requests the FULL grant — every
+          // feature's scopes in a single consent. Alfred operates as one
+          // Production-unverified tenant (ADR-0044, amended 2026-06-08), so
+          // there is no scope tier to dodge and no user cap that matters; the
+          // owner clicks through the unverified-app warning once and grants
+          // the lot. `?features=briefing,triage` narrows the request for a
+          // targeted reconnect; `include_granted_scopes=true` (on the
+          // authorize URL) merges it into the existing grant rather than
           // re-prompting from scratch.
-          let features: readonly GoogleFeature[] = PUBLIC_FEATURES;
+          let features: readonly GoogleFeature[] | undefined;
           if (query.features) {
             const parsed = query.features
               .split(",")
@@ -98,11 +96,10 @@ export const googleIntegrationRoutes = new Elysia({
                 message: `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
               });
             }
-            // A param that parses to nothing (e.g. `?features=,` or
-            // whitespace) must not escalate — fall back to the public set
-            // rather than an empty list. Restricted scopes are only ever
-            // granted when a restricted feature is explicitly named.
-            features = known.length ? known : PUBLIC_FEATURES;
+            // An explicit param that parses to nothing (e.g. `?features=,`)
+            // requests identity scopes only — it must not silently widen to
+            // the full grant. `scopesForFeatures([])` returns identity-only.
+            features = known;
           }
 
           const nonce = randomBytes(16).toString("hex");

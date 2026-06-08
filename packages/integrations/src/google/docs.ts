@@ -4,9 +4,10 @@ import { z } from "zod";
  * Thin Google Docs v1 REST client. Same shape as `gmail.ts` /
  * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
  *
- * Read-only: the granted scope is `documents.readonly` (see
- * `DOCS_READONLY_SCOPE` in oauth.ts), so the surface is just "fetch a
- * document and hand back its text". The Docs API returns a deeply nested
+ * The granted scope is now full `documents` (see `DOCS_SCOPE` in oauth.ts),
+ * but this client's surface is still read-only: "fetch a document and hand
+ * back its text" (write tools ride a separate registration, ADR-0043). The
+ * Docs API returns a deeply nested
  * structural tree; `getDocument` walks it into plain text + a heading
  * outline, which is what an agent actually wants. The raw structure stays
  * out of the return so a long doc doesn't blow up the model's context.

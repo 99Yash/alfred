@@ -2700,6 +2700,34 @@ No write is blocked structurally by `risk_tier` or by a hardcoded tier; **the us
 
 **Cross-ref.** Records the operating mode under ADR-0001; supplies the OAuth grants ADR-0043's write tools call; the eventual public flip touches ADR-0009 (auth allowlist).
 
+**Amendment (2026-06-08) — never public → grant-all in one consent; reverses alt-(c).**
+
+The load-bearing assumption of the original decision — "go public someday" — is retired. Alfred is now explicitly a **single-tenant, Production-unverified app forever**. That collapses the entire verification calculus: an unverified Production app can request *any* scope, restricted included, with **no CASA, no security assessment, no review** — the sole owner clicks through the one-time "unverified app" warning and grants the lot. The 100-new-user cap and the unverified warning are non-issues at single-tenant scale; the 7-day Testing-mode token expiry is already gone (we are in Production). There is **nothing to verify and nothing to be rejected**, so least-privilege buys *nothing* operationally — it bought only a smaller eventual verification surface, and that goal no longer exists.
+
+Therefore:
+
+- **Onboarding requests the full grant in one consent** (no per-feature opt-in step). `/api/integrations/google/connect` with no `?features` param resolves to `ALL_GOOGLE_SCOPES`. The `?features=` param survives for *targeted reconnects* only.
+- **This reverses alt-(c)** ("broad grant-all restricted scopes"), rejected 2026-05-27 *expressly because of the public-someday goal*. With that goal gone, alt-(c)'s sole objection ("exactly what a public app couldn't keep") no longer applies.
+- **The PUBLIC/RESTRICTED scope-tier apparatus is deleted** from `oauth.ts` (`PUBLIC_FEATURES`, `RESTRICTED_FEATURES`, `PUBLIC_GOOGLE_SCOPES`, `RESTRICTED_SCOPES`, `isRestrictedFeature`, the module-load guardrail). `GOOGLE_FEATURE_SCOPES` + `scopesForFeatures()` + `requireScopes()` stay — per-feature resolution still drives targeted reconnects and per-tool capability gating.
+
+**Amended scope set.**
+
+| Surface | Scope | Tier (informational only now) |
+| --- | --- | --- |
+| Identity | `openid`, `userinfo.email` | profile |
+| Gmail | `gmail.modify` + `gmail.send` | restricted + sensitive |
+| Calendar | `calendar.events` (+ `calendar.readonly` via `briefing`) | sensitive |
+| Drive | `https://www.googleapis.com/auth/drive` (full r/w) | restricted — **upgraded from `drive.file`/`drive.readonly`** |
+| Docs / Sheets / Slides | `documents` / `spreadsheets` / `presentations` (full r/w) | sensitive |
+
+**Still deliberately omitted:** `https://mail.google.com/` (full IMAP + permanent delete) — no tool needs it and it maximizes breach radius. Flip it only if a delete-mail tool is ever built.
+
+**Resume framing (revised).** The original framing leaned on least-privilege + "public is a submission flip." The now-true narrative: *single-user personal assistant where the owner is the only principal — least-privilege across one's own data buys nothing, so I optimized for capability and documented the reversal in this ADR.* This is the open-item (d) below ("self-host-per-user / owner-is-developer") made concrete: in a single-owner deployment the OAuth developer **is** the data subject, which is exactly why no centralized verification regime applies.
+
+**Operational steps (manual, owner).** In the GCP console add `gmail.modify`, full `drive`, and `documents` to the OAuth consent screen scope list (GCP will warn "requires verification" — save anyway; unverified-under-cap usage is unaffected). Confirm publishing status remains **In production**. Re-consent the owner account once to pick up the broadened grant.
+
+**What's unchanged.** Multi-tenant *architecture* (per-user `integration_credentials`, `user_id` partitioning) stays — it costs nothing and keeps "go public" a non-rewrite if the never-public stance ever reverses. Production-unverified posture stays. The write *surface* is still gated by ADR-0043 (registry + `allowed_integrations` + action policy); broadening the OAuth grant unblocks write tools but does not register or auto-authorize any.
+
 ---
 
 ## ADR-0045 — Per-document ingestion cost guard: free pre-flight estimate, reject-on-exceed, passive row status
