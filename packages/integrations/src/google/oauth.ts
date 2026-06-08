@@ -34,8 +34,8 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  *   triage       — gmail.modify: write Alfred/<Cat> labels onto messages
  *   reply_draft  — gmail.send: outbound mail when alfred drafts on behalf
  *   calendar     — calendar.events: read events and create/update events
- *   drive        — drive.readonly: find/list files across the user's Drive
- *   docs         — documents.readonly: read structured Doc content (headings, tables)
+ *   drive        — drive: full read/write across the user's Drive
+ *   docs         — documents: read + write structured Doc content (headings, tables)
  *   sheets       — spreadsheets: read + write cell ranges, create spreadsheets
  *   slides       — presentations: read + write decks, create presentations
  *
@@ -48,17 +48,19 @@ const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.ema
  * layer capability grants on top via `include_granted_scopes=true`.
  * Asking for `?features=docs` from the connect endpoint requests only
  * identity + docs, and Google merges it into the existing grant rather
- * than re-prompting for Gmail.
+ * than re-prompting for Gmail. The onboarding connect (no `?features`)
+ * requests every feature in one consent — Alfred operates as a single
+ * Production-unverified tenant (ADR-0044, amended 2026-06-08), so there is
+ * no verification surface to minimize and no scope tier to dodge: the one
+ * owner clicks through the unverified-app warning once and grants the lot.
  *
- * Note on the Workspace scopes: `drive.readonly` is enough to *list and
- * download* files; structured API access to Docs/Sheets/Slides still
- * needs each app's own scope. We grant all four together so the same
- * consent screen unlocks both "find the deck" (drive) and "read what's
- * in the deck" (slides) without a second prompt. Sheets and Slides use
- * the full read/write scope (`spreadsheets` / `presentations`) so Alfred
- * can create and edit them; both are still Google's *sensitive* tier
- * (free to verify), so they stay in the public scope bucket. Docs remains
- * read-only until a write feature needs it.
+ * The scopes are full read/write across Gmail (`gmail.modify` + `gmail.send`),
+ * Calendar (`calendar.events`), Drive (`drive`), and the Workspace editors
+ * (`documents` / `spreadsheets` / `presentations`). Full `drive` already
+ * covers list/download/upload of any file; the per-app editor scopes add
+ * structured read/write of Docs/Sheets/Slides content. The full mailbox
+ * scope (`https://mail.google.com/`, IMAP + permanent delete) is the one
+ * deliberate omission — no tool needs it and it maximizes breach radius.
  *
  * Individual scope URLs are named below so callers can reference a
  * capability by intent (`GMAIL_MODIFY_SCOPE`) instead of by position in
@@ -70,11 +72,13 @@ export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 export const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
-export const DOCS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly";
-/** Full read/write Sheets — create + edit spreadsheets. Sensitive (free to verify), not restricted. */
+/** Full read/write Drive — list/download/upload + manage any file. */
+export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
+/** Full read/write Docs — read + edit structured Doc content. */
+export const DOCS_SCOPE = "https://www.googleapis.com/auth/documents";
+/** Full read/write Sheets — create + edit spreadsheets. */
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-/** Full read/write Slides — create + edit presentations. Sensitive (free to verify), not restricted. */
+/** Full read/write Slides — create + edit presentations. */
 export const SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations";
 
 export const GOOGLE_FEATURE_SCOPES = {
@@ -82,8 +86,8 @@ export const GOOGLE_FEATURE_SCOPES = {
   triage: [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE],
   reply_draft: [GMAIL_SEND_SCOPE],
   calendar: [CALENDAR_EVENTS_SCOPE],
-  drive: [DRIVE_READONLY_SCOPE],
-  docs: [DOCS_READONLY_SCOPE],
+  drive: [DRIVE_SCOPE],
+  docs: [DOCS_SCOPE],
   sheets: [SHEETS_SCOPE],
   slides: [SLIDES_SCOPE],
 } as const satisfies Record<string, readonly string[]>;
@@ -96,12 +100,13 @@ const ALL_FEATURES = Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
  * Resolve the OAuth scope list for a set of features. Always includes
  * identity scopes; deduplicates the union across requested features.
  *
- * `undefined` (no arg) returns the union of every feature. An explicit
- * empty array returns identity scopes ONLY — it does NOT fall back to the
- * full union. The distinction is a security boundary: a malformed request
- * like `?features=,` parses to `[]` and must never silently escalate to the
- * restricted grant. `include_granted_scopes=true` on the authorize URL
- * means an incremental re-prompt later just merges into the same grant.
+ * `undefined` (no arg) returns the union of every feature — the default
+ * grant the onboarding connect uses. An explicit empty array returns
+ * identity scopes ONLY; it does NOT fall back to the full union, so a
+ * malformed `?features=,` parsing to `[]` requests nothing beyond identity
+ * rather than silently widening the grant. `include_granted_scopes=true` on
+ * the authorize URL means an incremental re-prompt later just merges into
+ * the same grant.
  */
 export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
   const wanted = features ?? ALL_FEATURES;
@@ -113,78 +118,22 @@ export function scopesForFeatures(features?: readonly GoogleFeature[]): string[]
 }
 
 /**
- * Google's OAuth verification tiers. Only the *restricted* tier triggers
- * the recurring paid CASA security assessment when going public; the
- * sensitive tier (gmail.send, calendar.events, the Workspace reads)
- * verifies for free. We classify by scope rather than by feature because
- * the tier is Google's, not ours — a feature is restricted iff it pulls
- * in any restricted scope.
+ * The full Google grant: identity + every feature's scopes. This is what a
+ * Google connection requests — the onboarding connect, the `buildAuthorizeUrl`
+ * fallback, and the smoke script all resolve to this set.
  *
- * Keeping this list explicit (vs. inferring from URL substrings) means a
- * new scope is non-restricted only by deliberate omission, and the
- * guardrail below fails loudly if a restricted scope lands in a feature
- * we expose to the public consent flow.
- */
-export const RESTRICTED_SCOPES = new Set<string>([
-  GMAIL_READONLY_SCOPE, // read message bodies
-  GMAIL_MODIFY_SCOPE, // write labels / save drafts
-  DRIVE_READONLY_SCOPE, // list + download Drive files
-]);
-
-/** A feature is restricted iff any of its scopes is in the restricted tier. */
-export function isRestrictedFeature(f: GoogleFeature): boolean {
-  return GOOGLE_FEATURE_SCOPES[f].some((s) => RESTRICTED_SCOPES.has(s));
-}
-
-/**
- * Features safe to request from the *public* consent flow: identity plus
- * sensitive scopes that verify for free (calendar, Workspace reads,
- * gmail.send). Once the free sensitive-scope review is done these serve
- * unlimited users with no "unverified app" warning and no user cap.
- */
-export const PUBLIC_FEATURES: readonly GoogleFeature[] = ALL_FEATURES.filter(
-  (f) => !isRestrictedFeature(f),
-);
-
-/**
- * Restricted Gmail/Drive features — opt-in only. Requesting these puts the
- * consent behind Google's unverified-app warning and the 100-user lifetime
- * cap until (and unless) the app passes the paid CASA assessment.
- */
-export const RESTRICTED_FEATURES: readonly GoogleFeature[] =
-  ALL_FEATURES.filter(isRestrictedFeature);
-
-/**
- * Default grant for a PUBLIC Google connection: free-to-verify scopes only.
- * This is what the connect endpoint and the `buildAuthorizeUrl` fallback use
- * so nothing requests a restricted scope by accident — restricted scopes are
- * only ever added when a caller explicitly opts in via a restricted feature.
- */
-export const PUBLIC_GOOGLE_SCOPES: string[] = scopesForFeatures(PUBLIC_FEATURES);
-
-/**
- * Full grant including restricted Gmail/Drive scopes. For the owner/beta
- * opt-in flow only — see {@link RESTRICTED_FEATURES} for the consequences.
+ * Alfred runs as a single Production-unverified tenant (ADR-0044, amended
+ * 2026-06-08), so there is no public-app verification surface to minimize and
+ * no scope-tier line to police. The earlier PUBLIC/RESTRICTED split existed
+ * only to keep a someday-public app off Google's paid CASA review; that goal
+ * was retired, so the split went with it. Scopes are still selectable
+ * per-feature via `scopesForFeatures(features)` for targeted reconnects, and
+ * `requireScopes()` still gates each tool on its feature's scopes.
  */
 export const ALL_GOOGLE_SCOPES: string[] = scopesForFeatures();
 
-/**
- * @deprecated Ambiguous name retained for back-compat — now aliases the
- * public (restricted-free) set, NOT the full union. Use
- * {@link PUBLIC_GOOGLE_SCOPES} or {@link ALL_GOOGLE_SCOPES} explicitly.
- */
-export const DEFAULT_GOOGLE_SCOPES: string[] = PUBLIC_GOOGLE_SCOPES;
-
-// Guardrail: the *resolved* public grant must contain no restricted scope.
-// Checking the final scope list (not just feature classification, which is
-// restricted-free by construction) means a regression in `scopesForFeatures`
-// or the tier sets — the path that actually reaches Google — fails loudly at
-// module load (caught by typecheck/tests/boot).
-for (const scope of PUBLIC_GOOGLE_SCOPES) {
-  if (RESTRICTED_SCOPES.has(scope)) {
-    throw new Error(`[google.oauth] restricted scope "${scope}" leaked into PUBLIC_GOOGLE_SCOPES`);
-  }
-}
+/** The grant `buildAuthorizeUrl` uses when a caller passes no explicit scopes. */
+export const DEFAULT_GOOGLE_SCOPES: string[] = ALL_GOOGLE_SCOPES;
 
 export interface GoogleOAuthConfig {
   clientId: string;

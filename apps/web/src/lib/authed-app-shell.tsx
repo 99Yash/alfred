@@ -9,6 +9,7 @@ import {
   type PreviewThreadEntry,
   type PreviewThreadGroup,
 } from "~/components/preview-fixtures";
+import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { SearchPalette } from "~/components/search-palette";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
@@ -75,6 +76,7 @@ export default function AuthedAppShell({
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}
           >
+            <ScopeGapBanner />
             {mainContent}
           </div>
           {rightRailNode}
