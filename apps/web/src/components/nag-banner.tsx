@@ -23,7 +23,7 @@ interface NagBannerProps {
  */
 export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBannerProps) {
   return (
-    <output
+    <div
       role="alert"
       className={cn(
         "pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl px-3.5 py-2.5",
@@ -55,6 +55,6 @@ export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBann
       >
         <X size={15} />
       </button>
-    </output>
+    </div>
   );
 }
