@@ -180,9 +180,10 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     }),
   });
   if (!tokenRes.ok) {
-    const body = await tokenRes.text().catch(() => "");
-    throw new Error(`[github.app] user code exchange failed: ${tokenRes.status} ${body.slice(0, 300)}`);
-  }
+  const userRes = await fetch(USER_BASE, {
+    headers: { ...GH_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
+    signal: AbortSignal.timeout(30_000),
+  });
   const tokenJson = await tokenRes.json();
   const parsed = userTokenResponseSchema.safeParse(tokenJson);
   if (!parsed.success) {
