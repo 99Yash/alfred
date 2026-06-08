@@ -28,6 +28,15 @@ export const LOCAL_STORAGE_SCHEMAS = {
   "alfred.maybe-authed": z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
+  /**
+   * Best-effort "this user has finished onboarding" hint for first paint, so a
+   * returning user's authed routes render immediately instead of blanking
+   * behind the session → onboarding round-trip chain. A UX hint, never a
+   * security boundary (see `lib/onboarding-hint`).
+   */
+  "alfred.onboarding-complete": z
+    .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
+    .default(false),
   /** When the run-complete chime plays (see `lib/chat/use-run-complete`). */
   "alfred.chat.soundPreference": z.enum(["always", "unfocused", "mute"]).default("unfocused"),
   /**

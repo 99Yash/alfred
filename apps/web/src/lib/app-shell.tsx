@@ -16,6 +16,7 @@ import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth-client";
 import { writeAuthHint } from "~/lib/auth-hint";
 import { client } from "~/lib/eden";
+import { readOnboardingHint, writeOnboardingHint } from "~/lib/onboarding-hint";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -139,6 +140,21 @@ export function AppShell({ children }: { children: ReactNode }) {
    *   - finished user on /onboarding → / */
   const routeToOnboarding = onboardingQuery.data?.routeToOnboarding;
   const onOnboardingRoute = location.pathname.startsWith("/onboarding");
+
+  /* Mirror the resolved onboarding decision into a synchronous localStorage
+   * hint so the *next* first paint doesn't have to blank the main column behind
+   * the session → onboarding round-trip chain (see `lib/onboarding-hint`).
+   * Written here for the same reason as the auth hint: AppShell wraps every
+   * route, so the hint stays fresh no matter where the user entered. */
+  useEffect(() => {
+    if (routeToOnboarding === undefined) return;
+    writeOnboardingHint(!routeToOnboarding);
+  }, [routeToOnboarding]);
+
+  /* First-paint guess (read once at mount): does this returning user appear to
+   * be already onboarded? Lets us render content optimistically instead of
+   * blanking while the query resolves. */
+  const [onboardingHintComplete] = useState(readOnboardingHint);
   useEffect(() => {
     if (!sessionUser) return;
     if (routeToOnboarding === undefined) return;
@@ -200,7 +216,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // blank the main column until we know. This also covers `isPending`
   // implicitly: `onboardingQuery.enabled` is `!isPending && !!sessionUser`,
   // so while the session is loading `routeToOnboarding` stays `undefined`.
-  const gatingPending = routeToOnboarding === undefined && !onOnboardingRoute;
+  //
+  // The `onboardingHintComplete` escape hatch is what kills the long blank on
+  // refresh for the steady-state (already-onboarded) user: when last we knew
+  // they were onboarded, there's no redirect coming, so we render content
+  // immediately rather than waiting out the session → onboarding chain. If the
+  // hint is somehow stale and the query says they *do* need onboarding, the
+  // redirect effect above still fires — costing only a brief flash, the same
+  // self-correcting tradeoff as the auth hint on `/`.
+  const gatingPending =
+    routeToOnboarding === undefined && !onOnboardingRoute && !onboardingHintComplete;
   const mainContent = gatingPending ? null : children;
 
   // Chrome should be present for any non-chromeless route the user is

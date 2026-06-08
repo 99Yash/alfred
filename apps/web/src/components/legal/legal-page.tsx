@@ -20,7 +20,10 @@ export function LegalPage({
 }) {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
-      <div className="relative mx-auto w-full max-w-3xl px-5 pb-24 pt-16 sm:px-8 sm:pt-24">
+      {/* `<main>` gives these chromeless public pages their required primary
+       * landmark (the authed shell supplies one for app routes; chromeless
+       * routes must bring their own). */}
+      <main className="relative mx-auto w-full max-w-3xl px-5 pb-24 pt-16 sm:px-8 sm:pt-24">
         <a
           href="/"
           className={cn(
@@ -40,12 +43,12 @@ export function LegalPage({
         <h1 className="mt-8 text-balance text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
           {title}
         </h1>
-        <p className="mt-3 text-[13.5px] text-neutral-500">Effective {effectiveDate}</p>
+        <p className="mt-3 text-[13.5px] text-neutral-400">Effective {effectiveDate}</p>
 
         <div className="legal-prose mt-10 space-y-8 text-[15px] leading-[1.65] text-neutral-300">
           {children}
         </div>
-      </div>
+      </main>
     </LandingBackground>
   );
 }

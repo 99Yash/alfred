@@ -23,10 +23,13 @@ function LoginPage() {
         <div className="absolute top-3 right-3 z-50">
           <AppThemeToggle />
         </div>
-        <div className="grid min-h-dvh lg:grid-cols-2">
+        {/* `<main>` is the page's primary landmark — the login form + showcase
+         * are the whole page (this route renders chromeless, so it must supply
+         * its own main, unlike authed routes which get one from the shell). */}
+        <main className="grid min-h-dvh lg:grid-cols-2">
           <AuthPanel />
           <ShowcasePanel />
-        </div>
+        </main>
       </AppThemed>
     </AppThemeProvider>
   );

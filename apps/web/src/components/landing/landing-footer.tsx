@@ -38,7 +38,7 @@ export function LandingFooter({
               />
               <span className="text-[15px] font-semibold text-white">Alfred</span>
             </a>
-            <p className="max-w-sm text-[14px] leading-[1.55] text-neutral-500">
+            <p className="max-w-sm text-[14px] leading-[1.55] text-neutral-400">
               Built because{" "}
               <a href="https://dimension.dev" className="underline">
                 Dimension
@@ -48,7 +48,7 @@ export function LandingFooter({
             </p>
             <div className="flex flex-col gap-2.5">
               <OperationalPill operational={operational} />
-              <p className="text-[12.5px] text-neutral-600">© {year} Alfred</p>
+              <p className="text-[12.5px] text-neutral-400">© {year} Alfred</p>
             </div>
           </div>
 
@@ -109,7 +109,7 @@ function FooterColumn({ title, items }: { title: string; items: ReadonlyArray<Fo
               href={item.href}
               target={item.external ? "_blank" : undefined}
               rel={item.external ? "noopener noreferrer" : undefined}
-              className={cn("text-[14px] text-neutral-500 transition-colors", "hover:text-white")}
+              className={cn("text-[14px] text-neutral-400 transition-colors", "hover:text-white")}
             >
               {item.label}
             </a>

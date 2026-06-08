@@ -105,7 +105,13 @@ export function UserSection() {
         icon={ShieldCheck}
         tone="green"
         noDivider
-        action={<AppSwitch checked={autoApprove} onCheckedChange={setAutoApprove} />}
+        action={
+          <AppSwitch
+            checked={autoApprove}
+            onCheckedChange={setAutoApprove}
+            aria-label="Auto approve low-risk actions"
+          />
+        }
       />
 
       <SettingCard

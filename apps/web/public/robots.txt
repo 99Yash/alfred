@@ -1,0 +1,23 @@
+# Alfred — https://alfred.beauty
+# Crawlers should index the public marketing + legal surface. Everything behind
+# auth (the app itself) renders an empty client-only shell to a bot, so there's
+# nothing to gain from crawling it — disallow to keep crawl budget on real pages.
+
+User-agent: *
+Allow: /
+Disallow: /chat
+Disallow: /onboarding
+Disallow: /briefings
+Disallow: /integrations
+Disallow: /library
+Disallow: /memory
+Disallow: /notes
+Disallow: /skills
+Disallow: /workflows
+Disallow: /approvals
+Disallow: /settings
+Disallow: /preview/
+Disallow: /styleguide
+Disallow: /debug/
+
+Sitemap: https://alfred.beauty/sitemap.xml
