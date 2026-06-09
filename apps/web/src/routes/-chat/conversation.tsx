@@ -8,7 +8,7 @@ import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
-import { ToolCallCard } from "./tool-call-card";
+import { ToolCallGroup } from "./tool-call-group";
 
 /**
  * Scrollable message feed. Renders the synced (durable) messages, then — if a
@@ -33,13 +33,12 @@ export function Conversation({
 
   const showStream = shouldShowStream(messages, stream);
 
-  // ---- Send-anchoring -------------------------------------------------
-  // When the user sends a message, scroll it to the top of the viewport
-  // (ChatGPT-style) so the reply streams downward from a stable read
-  // position instead of chasing the tail. A spacer below the feed makes
-  // room; it shrinks 1:1 as the reply grows, so the scroll position holds
-  // without jumps. Scrolling (wheel/touch) disengages the anchor and hands
-  // control back to the stick-to-bottom behavior below.
+  // ---- Follow the live edge -------------------------------------------
+  // While a turn is in flight the viewport rides the bottom so the newest
+  // activity — reasoning, the tool group's current step, the reply text —
+  // stays in view without the user touching the scrollbar. Scrolling up to
+  // read history detaches it (see `onScroll`); sending a new message
+  // re-engages it so the next turn follows from the start.
   const lastUserId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -47,62 +46,29 @@ export function Conversation({
     }
     return null;
   }, [messages]);
-  const userMsgElRef = useRef<HTMLDivElement | null>(null);
-  const spacerRef = useRef<HTMLDivElement | null>(null);
-  const anchorRef = useRef(false);
   const seenUserIdRef = useRef<string | null>(null);
   if (lastUserId !== seenUserIdRef.current) {
-    const isInitialLoad = seenUserIdRef.current === null && messages.length > 1;
     seenUserIdRef.current = lastUserId;
-    if (!isInitialLoad && lastUserId !== null) anchorRef.current = true;
+    stickRef.current = true;
   }
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // Stop pinning, but leave the spacer as-is — collapsing it here would
-    // clamp scrollTop and visibly jump the feed. It re-sizes on the next
-    // send and is harmless meanwhile (same trailing room ChatGPT keeps).
-    const disengage = () => {
-      anchorRef.current = false;
-    };
-    el.addEventListener("wheel", disengage, { passive: true });
-    el.addEventListener("touchmove", disengage, { passive: true });
-    return () => {
-      el.removeEventListener("wheel", disengage);
-      el.removeEventListener("touchmove", disengage);
-    };
-  }, []);
-
-  // Track whether the user is parked at the bottom; only auto-scroll if so.
+  // Detach the moment the user scrolls up; re-attach once they return to the
+  // bottom (within 80px). Programmatic scroll-to-bottom below also fires this,
+  // which simply re-confirms the attached state.
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  // Re-stick to the bottom when the feed grows (unless send-anchored).
-  // `stream` is a fresh snapshot each animation frame while a turn is in
-  // flight, so this fires per drip tick during streaming and on each new
-  // durable message — but not on unrelated re-renders (which a depless
-  // effect would).
+  // Re-stick to the bottom whenever the feed grows. `stream` is a fresh
+  // snapshot each drip tick while a turn is in flight, so this fires per frame
+  // during streaming and on each new durable message — but not on unrelated
+  // re-renders (which a depless effect would).
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-
-    const userEl = userMsgElRef.current;
-    const spacer = spacerRef.current;
-    if (anchorRef.current && userEl && spacer) {
-      const TOP_GAP = 24; // breathing room above the anchored message
-      spacer.style.height = "0px";
-      const userTop =
-        userEl.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
-      const needed = Math.max(0, userTop - TOP_GAP + el.clientHeight - el.scrollHeight);
-      spacer.style.height = `${needed}px`;
-      el.scrollTop = userTop - TOP_GAP;
-    } else if (stickRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!el || !stickRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages, stream]);
 
   const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
@@ -127,18 +93,7 @@ export function Conversation({
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
         {messages.map((m) => (
-          <div
-            key={m.id}
-            ref={
-              m.id === lastUserId
-                ? (el) => {
-                    userMsgElRef.current = el;
-                  }
-                : undefined
-            }
-          >
-            <MessageBubble message={m} />
-          </div>
+          <MessageBubble key={m.id} message={m} />
         ))}
 
         {onFollowUp && followUps.length > 0 ? (
@@ -158,11 +113,7 @@ export function Conversation({
             ) : null}
 
             {stream.tools.length > 0 ? (
-              <div className="flex flex-col gap-1.5">
-                {stream.tools.map((t) => (
-                  <ToolCallCard key={t.toolCallId} tool={t} />
-                ))}
-              </div>
+              <ToolCallGroup tools={stream.tools} active={!stream.done} />
             ) : null}
 
             {stream.text.length > 0 ? (
@@ -182,11 +133,6 @@ export function Conversation({
           </div>
         ) : null}
       </div>
-
-      {/* Send-anchor spacer — sized imperatively so the last user message can
-       * park at the top of the viewport while the reply streams in. Outside
-       * the gap-5 column so a 0-height spacer contributes no phantom gap. */}
-      <div ref={spacerRef} aria-hidden className="shrink-0" />
     </div>
   );
 }

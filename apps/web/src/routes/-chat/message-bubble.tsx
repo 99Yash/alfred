@@ -9,7 +9,7 @@ import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
 import { CodeBlock, InlineCode } from "./code-block";
 import { ReasoningSection } from "./reasoning-section";
-import { ToolCallCard } from "./tool-call-card";
+import { ToolCallGroup } from "./tool-call-group";
 
 const MARKDOWN_CLASSES = cn(
   // Match the blog body rhythm: 24px between blocks, tight tracking, relaxed leading.
@@ -76,13 +76,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
           durationMs={message.reasoningMs}
         />
       ) : null}
-      {tools.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          {tools.map((t) => (
-            <ToolCallCard key={t.toolCallId} tool={t} />
-          ))}
-        </div>
-      ) : null}
+      {tools.length > 0 ? <ToolCallGroup tools={tools} active={false} /> : null}
       {message.content.length > 0 ? (
         <div ref={bodyRef}>
           <AssistantMarkdown text={message.content} />
