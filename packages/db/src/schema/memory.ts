@@ -108,6 +108,12 @@ export const userFacts = pgTable(
  *
  * Examples: `tone`, `response_length`, `gmail.include_drafts`,
  * `briefing.timezone`, `briefing.delivery_hour`.
+ *
+ * Background-agent toggles (Settings → Features) live under `feature.*`
+ * boolean keys, read via `resolveFeatureFlags` in `@alfred/api`. UNSET means
+ * ON, so absence = current default behavior (no migration needed):
+ * `feature.morning_briefing`, `feature.evening_recap`,
+ * `feature.email_tagging`, `feature.action_items`.
  */
 export const userPreferences = pgTable(
   "user_preferences",
