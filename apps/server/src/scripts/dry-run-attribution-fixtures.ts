@@ -4,14 +4,26 @@
  * must NOT mint a todo for the user. Plus a positive control (a real ask of the
  * user must still propose). No DB writes to todos/triage.
  */
-import { assembleObservations, classifyEmail, extractSenderContext } from "@alfred/api";
+import { assembleObservations, classifyEmail, extractSenderContext, resolveTodoSuggestion } from "@alfred/api";
 
 const IDENTITY = { name: "Yash Kar", email: "yash.k@oliv.ai" };
 
-const FIXTURES: Array<{ label: string; expect: string; from: string; to: string; subject: string; body: string }> = [
+// `expectTodo` is the machine-checkable assertion: would the LIVE rail mint a
+// todo for this mail? (`resolveTodoSuggestion`, the single production decision
+// point.) `expect` is the human-readable rationale shown in the printout.
+const FIXTURES: Array<{
+  label: string;
+  expect: string;
+  expectTodo: boolean;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+}> = [
   {
     label: "Sakshi standup (third-party owner)",
     expect: "no todo (owned by Sakshi)",
+    expectTodo: false,
     from: "Oliv AI <notifications@tasks.clickup.com>",
     to: "yash.k@oliv.ai",
     subject: "Engineering standup",
@@ -20,6 +32,7 @@ const FIXTURES: Array<{ label: string; expect: string; from: string; to: string;
   {
     label: "@alice review request (third-party owner)",
     expect: "no todo (owned by alice)",
+    expectTodo: false,
     from: "GitHub <notifications@github.com>",
     to: "yash.k@oliv.ai",
     subject: "Re: PR #42",
@@ -28,6 +41,7 @@ const FIXTURES: Array<{ label: string; expect: string; from: string; to: string;
   {
     label: "positive control — direct ask of the user",
     expect: "todo (Yash owes the SOW)",
+    expectTodo: true,
     from: "Priya Sharma <priya@client.com>",
     to: "yash.k@oliv.ai",
     subject: "SOW",
@@ -36,6 +50,7 @@ const FIXTURES: Array<{ label: string; expect: string; from: string; to: string;
 ];
 
 async function main() {
+  let failures = 0;
   for (const f of FIXTURES) {
     const content = `From: ${f.from}\nTo: ${f.to}\nSubject: ${f.subject}\n\n${f.body}`;
     const scResult = extractSenderContext({ fromHeader: f.from, subject: f.subject, body: content });
@@ -61,16 +76,30 @@ async function main() {
       identity: IDENTITY,
     });
     const d = classification.todoDecision;
-    const todo = classification.todoSuggestion?.name ?? null;
-    console.log(`\n${f.label}\n  expect: ${f.expect}`);
+    // Assert against what production would actually mint, not the raw model
+    // suggestion: `resolveTodoSuggestion` is the live gate (proposed outcome +
+    // todo-eligible category).
+    const resolved = resolveTodoSuggestion(classification);
+    const todo = resolved?.name ?? null;
+    const gotTodo = resolved !== null;
+    const ok = gotTodo === f.expectTodo;
+    if (!ok) failures++;
+    console.log(`\n${ok ? "PASS" : "FAIL"} ${f.label}\n  expect: ${f.expect}`);
     console.log(`  → cat=${classification.category} | outcome=${d?.outcome ?? "(none)"}${d?.note ? ` (${d.note})` : ""}`);
-    console.log(`  → todo: ${todo ? `"${todo}"` : "NONE"}`);
+    console.log(`  → todo: ${todo ? `"${todo}"` : "NONE"} (expected ${f.expectTodo ? "a todo" : "NONE"})`);
+  }
+
+  console.log(`\n# ${FIXTURES.length - failures}/${FIXTURES.length} fixtures passed`);
+  if (failures > 0) {
+    throw new Error(`${failures} attribution fixture(s) did not match the expected gate outcome`);
   }
 }
 
 main()
   .then(() => process.exit(0))
   .catch((e) => {
-    console.error(e);
+    // Log only the message — serializing the full Error can leak DATABASE_URL,
+    // query state, and connection credentials into CI / shared-machine logs.
+    console.error(e instanceof Error ? e.message : String(e));
     process.exit(1);
   });

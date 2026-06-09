@@ -1,4 +1,4 @@
-import { serverEnv } from "@alfred/env/server";
+import { databaseEnv } from "@alfred/env/database";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 
@@ -32,7 +32,7 @@ function startPoolHeartbeat() {
 export function db() {
   if (!_db) {
     _pool = new pg.Pool({
-      connectionString: serverEnv().DATABASE_URL,
+      connectionString: databaseEnv().DATABASE_URL,
       min: POOL_MIN,
       max: POOL_MAX,
       idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
