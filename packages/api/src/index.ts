@@ -52,6 +52,8 @@ export * from "./modules/memory/index.js";
 export * from "./modules/triage/index.js";
 export { suggestTodo } from "./modules/todos/suggest.js";
 export type { SuggestTodoInput, SuggestTodoResult } from "./modules/todos/suggest.js";
+export { getFeatureFlag, resolveFeatureFlags } from "./modules/features/flags.js";
+export type { FeatureFlags } from "./modules/features/flags.js";
 export * from "./modules/briefing/index.js";
 export * from "./modules/cold-start/index.js";
 export * from "./modules/notifications/index.js";

@@ -30,7 +30,9 @@ export function SuggestionRow({
         // The accessible name must lead with — and contain — the button's full
         // visible text (label + detail) so it passes label-content-name-mismatch
         // and voice-control users can say what they see; the action follows.
-        aria-label={onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined}
+        aria-label={
+          onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined
+        }
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
@@ -66,7 +68,7 @@ export function SuggestionRow({
           className={cn(
             "shrink-0 inline-flex size-6 items-center justify-center rounded-lg app-press",
             "text-white/45 hover:bg-white/10 hover:text-white transition-[color,background-color,opacity]",
-            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+            "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
         >

@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { AppCard } from "~/components/ui/v2";
+import { AlertCircle, RefreshCw } from "lucide-react";
+import { AppButton, AppCard } from "~/components/ui/v2";
+import { useFeatureFlags } from "~/lib/replicache/use-feature-flags";
 import { AgentRow } from "./agent-row";
 import { BACKGROUND_AGENTS } from "./helpers";
 
 export function FeaturesSection() {
-  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(BACKGROUND_AGENTS.map((a) => [a.id, a.defaultOn])),
-  );
+  const { isOn, setFlag, error, retry } = useFeatureFlags();
 
   return (
     <AppCard padded={false}>
@@ -16,16 +15,48 @@ export function FeaturesSection() {
           Enable or disable the agents that run on your behalf.
         </p>
       </div>
-      <div className="divide-y divide-app-bg-2">
-        {BACKGROUND_AGENTS.map((agent) => (
-          <AgentRow
-            key={agent.id}
-            agent={agent}
-            checked={enabled[agent.id] ?? false}
-            onChange={(next) => setEnabled((prev) => ({ ...prev, [agent.id]: next }))}
-          />
-        ))}
-      </div>
+      {error ? (
+        <div
+          className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
+          role="alert"
+        >
+          <div className="flex min-w-0 gap-2.5">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-app-red-4" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-app-fg-4">Agents unavailable</p>
+              <p className="mt-1 text-xs leading-5 text-app-fg-3">{error}</p>
+            </div>
+          </div>
+          <AppButton
+            size="sm"
+            variant="ghost"
+            leading={<RefreshCw size={13} aria-hidden />}
+            onClick={retry}
+            className="shrink-0"
+          >
+            Retry
+          </AppButton>
+        </div>
+      ) : (
+        <div className="divide-y divide-app-bg-2">
+          {BACKGROUND_AGENTS.map((agent) => (
+            <AgentRow
+              key={agent.id}
+              agent={agent}
+              checked={agent.prefKey ? isOn(agent.prefKey) : false}
+              disabled={agent.comingSoon ?? !agent.prefKey}
+              comingSoon={agent.comingSoon}
+              onChange={(next) => {
+                // Fire-and-forget optimistic write, matching the sibling
+                // toggle idiom (provider-policy's `void setIntegrationMode`):
+                // Replicache applies the mutation locally and rebases on the
+                // next pull. A load failure surfaces via `error` above.
+                if (agent.prefKey) void setFlag(agent.prefKey, next);
+              }}
+            />
+          ))}
+        </div>
+      )}
     </AppCard>
   );
 }
