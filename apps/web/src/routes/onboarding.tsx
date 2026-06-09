@@ -6,6 +6,7 @@ import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/hooks/use-integration-status";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
+import { callToast } from "~/lib/toast";
 
 type OnboardingStep = 1 | 2 | 3;
 
@@ -65,14 +66,25 @@ function OnboardingRoute() {
   const finish = async () => {
     setFinishing(true);
     try {
-      await client.api.me.onboarding.complete.post();
-      // Only navigate on success — otherwise the gating query still reports
+      // Eden returns `{ data, error }` — a failed POST resolves (it doesn't
+      // throw), so the catch alone never sees a 4xx/5xx. Inspect `error` and
+      // bail before navigating: only on success should we invalidate the
+      // gating query and route home. Otherwise the query still reports
       // routeToOnboarding=true and AppShell bounces us straight back here,
       // producing a redirect flicker instead of an actionable error state.
+      const { error } = await client.api.me.onboarding.complete.post();
+      if (error) {
+        throw new Error(`onboarding complete failed (${error.status})`);
+      }
       await queryClient.invalidateQueries({ queryKey: ["me", "onboarding"] });
       await navigate({ to: "/" });
     } catch (err) {
       console.warn("[onboarding] failed to mark complete:", err);
+      callToast({
+        message: "Couldn't finish setup",
+        description: "Something went wrong on our end. Please try again.",
+        type: "danger",
+      });
     } finally {
       setFinishing(false);
     }

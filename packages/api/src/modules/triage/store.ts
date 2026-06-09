@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { documents, emailTriage, integrationCredentials, user } from "@alfred/db/schemas";
 import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
@@ -271,6 +271,13 @@ export interface TriageDocumentContext {
    * legacy credentials connected before persona auto-detection.
    */
   persona: AccountPersona | null;
+  /**
+   * Minimal identity of the user whose mailbox this is (ADR-0050/0051 amendment
+   * 2026-06-09) — display name + the account email. Feeds the todo
+   * ownership-attribution gate so an action the email assigns to a named third
+   * party isn't minted as the user's todo. Deliberately just identity.
+   */
+  identity: { name: string | null; email: string | null };
 }
 
 /**
@@ -295,20 +302,33 @@ export async function loadTriageContext(
     throw new Error(`[triage] document ${documentId} missing accountId`);
   }
 
-  const credRows = await db()
-    .select({ id: integrationCredentials.id, persona: integrationCredentials.persona })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, "google"),
-        eq(integrationCredentials.accountId, doc.accountId),
+  // Both reads key only off `userId` / `doc.accountId` (already resolved), so
+  // run them on one round-trip instead of two — this is the per-classification
+  // hot path. The user row feeds the ownership-attribution gate: display name
+  // from the user row, account email from the credential's label (the precise
+  // per-account address), falling back to the user's primary email. Best-effort.
+  const [credRows, userRows] = await Promise.all([
+    db()
+      .select({
+        id: integrationCredentials.id,
+        persona: integrationCredentials.persona,
+        accountLabel: integrationCredentials.accountLabel,
+      })
+      .from(integrationCredentials)
+      .where(
+        and(
+          eq(integrationCredentials.userId, userId),
+          eq(integrationCredentials.provider, "google"),
+          eq(integrationCredentials.accountId, doc.accountId),
+        ),
       ),
-    );
+    db().select({ name: user.name, email: user.email }).from(user).where(eq(user.id, userId)),
+  ]);
   const cred = credRows[0];
   if (!cred) {
     throw new Error(`[triage] no google credential for user=${userId} account=${doc.accountId}`);
   }
+  const userRow = userRows[0];
 
   return {
     document: {
@@ -323,6 +343,10 @@ export async function loadTriageContext(
     },
     credentialId: cred.id,
     persona: cred.persona ?? null,
+    identity: {
+      name: userRow?.name ?? null,
+      email: cred.accountLabel ?? userRow?.email ?? null,
+    },
   };
 }
 
