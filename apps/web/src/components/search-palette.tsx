@@ -213,6 +213,14 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   // Clamp the highlight during render — no useEffect needed.
   const activeIndex = visualOrder.length === 0 ? 0 : Math.min(highlight, visualOrder.length - 1);
 
+  // Keep the highlighted row in view when arrow-key nav walks past the
+  // visible window. `block: "nearest"` is a no-op when the row is already
+  // visible, so this stays quiet for mouse hover and short lists.
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
   const invoke = (item: CommandItem) => {
     onClose();
     if (item.threadId) {
