@@ -39,9 +39,17 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
  * need to know whether the request landed.
  */
 export async function stopChatRun(runId: string): Promise<boolean> {
-  const res = await fetch(`${API_URL}/api/chat/runs/${runId}/stop`, {
-    method: "POST",
-    credentials: "include",
-  });
-  return res.ok;
+  try {
+    const res = await fetch(`${API_URL}/api/chat/runs/${runId}/stop`, {
+      method: "POST",
+      credentials: "include",
+      // Best-effort one-shot: bound it so a wedged connection doesn't hang the
+      // stop button on the browser's default network timeout. A miss just
+      // reports `false` — the normal completion flow still reconciles the UI.
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

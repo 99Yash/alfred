@@ -1,12 +1,13 @@
+import { serverEnv } from "@alfred/env/server";
 import * as Sentry from "@sentry/node";
 
-const dsn = process.env.SENTRY_DSN;
+const { SENTRY_DSN, NODE_ENV } = serverEnv();
 
-if (dsn) {
+if (SENTRY_DSN) {
   Sentry.init({
-    dsn,
-    environment: process.env.NODE_ENV ?? "development",
-    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+    dsn: SENTRY_DSN,
+    environment: NODE_ENV,
+    tracesSampleRate: NODE_ENV === "production" ? 0.1 : 1.0,
     sendDefaultPii: false,
   });
 }

@@ -1,0 +1,179 @@
+/**
+ * Dry-run triage backfill (ADR-0050/0051 amendment 2026-06-09) — READ-ONLY.
+ *
+ * Re-classifies the SOURCE EMAIL of every agent-authored todo with the NEW
+ * stringency prompt and diffs against the live state, in two buckets:
+ *   - KILLS  — a currently-suggested/done agent todo the new bar would drop.
+ *   - KEEPS  — still proposed; shows the new (terser) title + category.
+ * Plus a category line per row so AGM/ceremonial → fyi flips are visible.
+ *
+ * Writes NOTHING to `todos` or `email_triage`. (It does emit an `api_call_log`
+ * cost row per classify via the metered model call — that's cost attribution,
+ * not state under test.)
+ *
+ * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-run-triage-backfill.ts
+ */
+import {
+  assembleObservations,
+  classifyEmail,
+  extractSenderContext,
+  getSenderPrior,
+  getThreadState,
+  isKnownContact,
+  loadTriageContext,
+  senderKeyFor,
+} from "@alfred/api";
+import { db } from "@alfred/db";
+import { documents, todos, user as userTable } from "@alfred/db/schemas";
+import { and, desc, eq } from "drizzle-orm";
+
+function metaStr(meta: Record<string, unknown>, key: string): string | null {
+  const v = meta[key];
+  return typeof v === "string" ? v : null;
+}
+
+async function main() {
+  const rows = await db()
+    .select({
+      id: todos.id,
+      userId: todos.userId,
+      email: userTable.email,
+      status: todos.status,
+      name: todos.name,
+      sources: todos.sources,
+    })
+    .from(todos)
+    .leftJoin(userTable, eq(userTable.id, todos.userId))
+    .where(eq(todos.createdBy, "agent"))
+    .orderBy(desc(todos.createdAt));
+
+  console.log(`# Dry-run over ${rows.length} agent todos (READ-ONLY)\n`);
+  let killed = 0;
+  let kept = 0;
+  let unresolved = 0;
+
+  for (const t of rows) {
+    const src = Array.isArray(t.sources)
+      ? (t.sources as Array<{ provider: string; kind: string; id: string }>).find(
+          (s) => s.provider === "gmail" && s.kind === "thread",
+        )
+      : undefined;
+    const header = `[${t.email}] "${t.name}" (${t.status})`;
+    if (!src) {
+      console.log(`? ${header}\n    no gmail-thread source — skipped\n`);
+      unresolved++;
+      continue;
+    }
+
+    // thread id → newest document for that thread
+    const docRow = (
+      await db()
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.userId, t.userId),
+            eq(documents.sourceThreadId, src.id),
+            eq(documents.source, "gmail"),
+          ),
+        )
+        .orderBy(desc(documents.authoredAt))
+        .limit(1)
+    )[0];
+    if (!docRow) {
+      console.log(`? ${header}\n    source thread ${src.id} not in local documents — skipped\n`);
+      unresolved++;
+      continue;
+    }
+
+    const ctxData = await loadTriageContext(docRow.id, t.userId);
+    if (!ctxData) {
+      console.log(`? ${header}\n    document gone — skipped\n`);
+      unresolved++;
+      continue;
+    }
+
+    const scResult = extractSenderContext({
+      fromHeader: metaStr(ctxData.document.metadata, "from"),
+      subject: ctxData.document.title,
+      body: ctxData.document.content,
+    });
+    const senderContext = scResult.context;
+    const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
+    const meta = ctxData.document.metadata;
+    const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+    const [senderPrior, thread, knownContact] = await Promise.all([
+      senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
+      getThreadState({
+        userId: t.userId,
+        sourceThreadId: src.id,
+        excludeDocumentId: docRow.id,
+      }).catch(() => ({ lastUserReplyAt: null, newestDirection: null, messageCount: 0 })),
+      senderContext.effectiveAuthor === "person" && scResult.senderAddress
+        ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
+        : Promise.resolve(false),
+    ]);
+    const signalText = [
+      metaStr(meta, "from"),
+      metaStr(meta, "to"),
+      metaStr(meta, "cc"),
+      metaStr(meta, "snippet"),
+      ctxData.document.title,
+      ctxData.document.content,
+      ...labelIds,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const observations = assembleObservations({
+      senderKey,
+      senderPrior,
+      persona: ctxData.persona,
+      thread,
+      knownContact,
+      labelIds,
+      signalText,
+    });
+
+    let classification;
+    try {
+      ({ classification } = await classifyEmail({
+        userId: t.userId,
+        document: {
+          id: ctxData.document.id,
+          title: ctxData.document.title,
+          content: ctxData.document.content,
+          authoredAt: ctxData.document.authoredAt,
+          metadata: ctxData.document.metadata,
+        },
+        senderContext,
+        observations,
+        identity: ctxData.identity,
+      }));
+    } catch (err) {
+      console.log(`! ${header}\n    classify error (skipped): ${err instanceof Error ? err.message : String(err)}\n`);
+      unresolved++;
+      continue;
+    }
+
+    const decision = classification.todoDecision?.outcome ?? "(none)";
+    const note = classification.todoDecision?.note ? ` — ${classification.todoDecision.note}` : "";
+    const cat = classification.category;
+    const author = `author=${senderContext.effectiveAuthor}${senderContext.botSlug ? `/${senderContext.botSlug}` : ""}`;
+    if (classification.todoSuggestion) {
+      kept++;
+      console.log(`✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${classification.todoSuggestion.name}"\n`);
+    } else {
+      killed++;
+      console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${decision}${note}\n`);
+    }
+  }
+
+  console.log(`\n# Summary: ${kept} kept, ${killed} killed, ${unresolved} unresolved (no local source)`);
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

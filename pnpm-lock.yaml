@@ -548,6 +548,9 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@alfred/env':
+        specifier: workspace:*
+        version: link:../env
       '@alfred/schemas':
         specifier: workspace:*
         version: link:../schemas

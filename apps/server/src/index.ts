@@ -115,9 +115,8 @@ const server = new Elysia({ adapter: node(), normalize: "typebox" })
     }),
   )
   .use(app)
-  .listen({ port: Number(process.env.PORT) || 3001, hostname: "0.0.0.0" }, () => {
-    const port = Number(process.env.PORT) || 3001;
-    console.log(`Alfred server running on http://0.0.0.0:${port}`);
+  .listen({ port: serverEnv().PORT, hostname: "0.0.0.0" }, () => {
+    console.log(`Alfred server running on http://0.0.0.0:${serverEnv().PORT}`);
   });
 
 async function shutdown(signal: string) {
