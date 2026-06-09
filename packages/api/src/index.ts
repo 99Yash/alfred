@@ -18,7 +18,11 @@ import { skillsRoutes } from "./modules/skills/index.js";
 export { closeConnections, warmPool } from "@alfred/db";
 export { closeRedis } from "./queue/connection.js";
 export { initEventBridge, closeEventBridge } from "./events/index.js";
-export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
+export {
+  initReplicachePokeBridge,
+  closeReplicachePokeBridge,
+  emitReplicachePokes,
+} from "./events/replicache-events.js";
 export { publishEvent } from "./events/publish.js";
 export type { EventFrame, EventKind, EventPayload } from "./events/types.js";
 export { registerOnUserCreated, type OnUserCreatedHook } from "@alfred/auth";
