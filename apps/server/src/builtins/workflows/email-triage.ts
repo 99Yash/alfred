@@ -13,6 +13,7 @@ import {
   loadTriageContext,
   publishEvent,
   reconcileThreadLabel,
+  resolveFeatureFlags,
   resolveTodoSuggestion,
   senderKeyFor,
   senderPriorWriteKeyFor,
@@ -124,6 +125,21 @@ export const emailTriageWorkflow: Workflow<State> = {
     classify: {
       id: "classify",
       async run(ctx) {
+        // Background-agent toggles (Settings → Features). Tagging gates the
+        // Gmail label (apply-label step); action-items gates the todo
+        // suggestion below. Both share this one classify call. When the user
+        // has switched BOTH off there's nothing to produce — skip before the
+        // document load + cheap-model call so a disabled inbox costs nothing.
+        const flags = await resolveFeatureFlags(ctx.userId);
+        if (!flags.emailTagging && !flags.actionItems) {
+          await ctx.log(`classify: skipped reason=triage-disabled (tagging + action-items off)`);
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { skipped: true, reason: "triage-disabled" },
+          };
+        }
+
         const ctxData = await loadTriageContext(ctx.state.documentId, ctx.userId);
         if (!ctxData) {
           // Document was deleted between enqueue and run — unrecoverable
@@ -370,7 +386,9 @@ export const emailTriageWorkflow: Workflow<State> = {
           const todoSuggestion = resolveTodoSuggestion(classification);
           // `written` gate: only the run that owns the canonical row proposes a
           // todo, so a superseded older message can't mint a stray suggestion.
-          if (written && todoSuggestion) {
+          // `flags.actionItems` gate: the user can switch off action-item
+          // suggestions while keeping email tagging on (they share this classify).
+          if (written && todoSuggestion && flags.actionItems) {
             try {
               const suggested = await suggestTodo({
                 userId: ctx.userId,
@@ -436,6 +454,19 @@ export const emailTriageWorkflow: Workflow<State> = {
           throw new Error(
             "[email-triage] apply-label entered without category/sourceThreadId; classify step did not commit",
           );
+        }
+
+        // Email-tagging toggle (Settings → Features). When off, Alfred keeps
+        // the in-app triage row (drives the inbox chips + any action-item it
+        // already minted) but does not touch the user's Gmail labels.
+        const flags = await resolveFeatureFlags(ctx.userId);
+        if (!flags.emailTagging) {
+          await ctx.log(`apply-label: skipped reason=tagging-disabled`);
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { category, applied: false, reason: "tagging-disabled" },
+          };
         }
 
         const outcome = await reconcileThreadLabel({

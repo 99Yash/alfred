@@ -12,6 +12,7 @@ import {
   User,
   Users2,
 } from "lucide-react";
+import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
 import type { ComponentType } from "react";
 
 export type SectionId = "user" | "billing" | "plan" | "features" | "preferences" | "referrals";
@@ -37,7 +38,15 @@ export interface BackgroundAgentDef {
   helper: string;
   icon: ComponentType<{ size?: number; className?: string }>;
   tint: "purple" | "amber" | "sky" | "green" | "pink" | "orange";
-  defaultOn: boolean;
+  /**
+   * `user_preferences` key this switch writes. The switch reads its state via
+   * `isOn(prefKey)`, which defaults to ON when no row exists (UNSET = ON).
+   * Omitted for agents that don't exist yet — those render as disabled
+   * "Coming soon" rows.
+   */
+  prefKey?: FeatureFlagKey;
+  /** Not built yet — row is shown for parity but switched off and disabled. */
+  comingSoon?: boolean;
 }
 
 export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
@@ -47,7 +56,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Pulls action items from your apps and flags what's urgent.",
     icon: ListChecks,
     tint: "purple",
-    defaultOn: true,
+    prefKey: FEATURE_FLAG_KEYS.actionItems,
   },
   {
     id: "evening-recap",
@@ -55,7 +64,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "A daily summary of what got done and what's still open.",
     icon: Sunset,
     tint: "orange",
-    defaultOn: false,
+    prefKey: FEATURE_FLAG_KEYS.eveningRecap,
   },
   {
     id: "morning-briefing",
@@ -63,7 +72,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Your schedule, tasks, and key updates — delivered each morning.",
     icon: Sunrise,
     tint: "amber",
-    defaultOn: true,
+    prefKey: FEATURE_FLAG_KEYS.morningBriefing,
   },
   {
     id: "email-tagging",
@@ -71,7 +80,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Tags every inbound email so you know what needs action.",
     icon: Tag,
     tint: "green",
-    defaultOn: true,
+    prefKey: FEATURE_FLAG_KEYS.emailTagging,
   },
   {
     id: "email-auto-drafting",
@@ -79,7 +88,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Drafts replies in your tone so you can review and send.",
     icon: PencilLine,
     tint: "sky",
-    defaultOn: false,
+    comingSoon: true,
   },
   {
     id: "meeting-prep",
@@ -87,7 +96,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Briefs you on attendees, talking points, and past context.",
     icon: Users2,
     tint: "pink",
-    defaultOn: false,
+    comingSoon: true,
   },
 ];
 

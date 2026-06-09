@@ -40,13 +40,14 @@ import {
 } from "@alfred/api";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
 /** Mailboxes to backfill. */
 const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 /** "50 ish emails each" — newest doc per thread, most-recent N threads. */
 const RECENT_THREAD_LIMIT = 50;
+const RECENT_DOCUMENT_SCAN_LIMIT = RECENT_THREAD_LIMIT * 4;
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -55,32 +56,80 @@ interface TargetUser {
   email: string;
 }
 
-/** Newest gmail document id for each thread, plus the recency-ordered thread list. */
-async function buildThreadIndex(userId: string): Promise<{
+function rowsFromExecute<T>(result: unknown): T[] {
+  const rawRows = (result as { rows?: unknown[] }).rows ?? (result as unknown[]);
+  return (Array.isArray(rawRows) ? rawRows : []) as T[];
+}
+
+/** Newest gmail document id for each target thread, plus the recency-ordered thread list. */
+async function buildThreadIndex(
+  userId: string,
+  todoThreads: Set<string>,
+): Promise<{
   newestDocByThread: Map<string, string>;
   recentThreads: string[];
 }> {
-  const docs = await db()
+  type ThreadDocRow = { id: string; threadId: string };
+
+  const newestDocByThread = new Map<string, string>();
+
+  const recentDocs = await db()
     .select({
       id: documents.id,
       threadId: documents.sourceThreadId,
-      authoredAt: documents.authoredAt,
     })
     .from(documents)
-    .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail"),
+        isNotNull(documents.sourceThreadId),
+      ),
+    )
     // nulls last so a dateless doc never shadows a real newest message
-    .orderBy(sql`${documents.authoredAt} desc nulls last`, desc(documents.id));
+    .orderBy(sql`${documents.authoredAt} desc nulls last`, desc(documents.id))
+    .limit(RECENT_DOCUMENT_SCAN_LIMIT);
 
-  const newestDocByThread = new Map<string, string>();
   const recentThreads: string[] = [];
-  for (const d of docs) {
+  for (const d of recentDocs) {
     if (!d.threadId) continue;
-    if (!newestDocByThread.has(d.threadId)) {
-      newestDocByThread.set(d.threadId, d.id);
-      recentThreads.push(d.threadId); // first-seen == newest (ordered desc)
-    }
+    if (newestDocByThread.has(d.threadId)) continue;
+    newestDocByThread.set(d.threadId, d.id);
+    recentThreads.push(d.threadId);
+    if (recentThreads.length >= RECENT_THREAD_LIMIT) break;
   }
-  return { newestDocByThread, recentThreads: recentThreads.slice(0, RECENT_THREAD_LIMIT) };
+
+  const missingTodoThreads = [...todoThreads].filter((thread) => !newestDocByThread.has(thread));
+  if (missingTodoThreads.length > 0) {
+    const missingTodoThreadList = sql.join(
+      missingTodoThreads.map((thread) => sql`${thread}`),
+      sql`, `,
+    );
+    const todoDocs = rowsFromExecute<ThreadDocRow>(
+      await db().execute(sql`
+        WITH ranked_gmail_docs AS (
+          SELECT
+            id,
+            source_thread_id AS "threadId",
+            row_number() OVER (
+              PARTITION BY source_thread_id
+              ORDER BY authored_at DESC NULLS LAST, id DESC
+            ) AS rn
+          FROM documents
+          WHERE user_id = ${userId}
+            AND source = 'gmail'
+            AND source_thread_id IN (${missingTodoThreadList})
+        )
+        SELECT id, "threadId"
+        FROM ranked_gmail_docs
+        WHERE rn = 1
+      `),
+    );
+
+    for (const d of todoDocs) newestDocByThread.set(d.threadId, d.id);
+  }
+
+  return { newestDocByThread, recentThreads };
 }
 
 /** Gmail-thread ids referenced by this user's agent todos. */
@@ -108,7 +157,7 @@ async function processUser(u: TargetUser): Promise<void> {
   // Gather the agent-todo set + their source threads BEFORE deleting — the
   // delete is destructive and we need the thread list for the re-triage union.
   const { ids: agentTodoIds, threads: todoThreads } = await agentTodoThreads(u.userId);
-  const { newestDocByThread, recentThreads } = await buildThreadIndex(u.userId);
+  const { newestDocByThread, recentThreads } = await buildThreadIndex(u.userId, todoThreads);
 
   // Union: recent threads ∪ threads behind agent todos.
   const targetThreads = new Set<string>(recentThreads);

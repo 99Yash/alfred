@@ -6,14 +6,23 @@ export function AgentRow({
   agent,
   checked,
   onChange,
+  disabled = false,
+  comingSoon = false,
 }: {
   agent: BackgroundAgentDef;
   checked: boolean;
   onChange: (next: boolean) => void;
+  disabled?: boolean;
+  comingSoon?: boolean;
 }) {
   const Icon = agent.icon;
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 px-5 py-3.5",
+        disabled && "opacity-60",
+      )}
+    >
       <div className="flex items-center gap-3 min-w-0">
         <span
           className={cn(
@@ -25,13 +34,21 @@ export function AgentRow({
           <Icon size={14} />
         </span>
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-medium text-app-fg-4">{agent.label}</p>
+          <p className="flex items-center gap-2 text-sm font-medium text-app-fg-4">
+            {agent.label}
+            {comingSoon && (
+              <span className="rounded-full bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-fg-3">
+                Coming soon
+              </span>
+            )}
+          </p>
           <p className="text-xs text-app-fg-3 truncate">{agent.helper}</p>
         </div>
       </div>
       <AppSwitch
         checked={checked}
         onCheckedChange={onChange}
+        disabled={disabled}
         aria-label={`Enable ${agent.label}`}
       />
     </div>
