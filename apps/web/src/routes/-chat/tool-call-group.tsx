@@ -84,7 +84,7 @@ export function ToolCallGroup({ tools, active }: { tools: ToolCallView[]; active
             aria-controls={contentId}
             className={cn(
               "group/tools -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px]",
-              "transition-colors duration-150 hover:bg-app-bg-a2 outline-none",
+              "transition-colors duration-150 hover:bg-app-bg-a2 outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
             )}
           >
             {active ? (
