@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
+    "@alfred/env": "workspace:*",
     "@alfred/schemas": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",

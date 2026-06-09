@@ -7,6 +7,8 @@ const serverEnvSchema = z.object({
   BETTER_AUTH_URL: z.string().url(),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  /** HTTP port the server binds to. Railway injects this; defaults to 3001 locally. */
+  PORT: z.coerce.number().int().positive().default(3001),
   // Comma-separated allowlist of emails permitted to sign up. A single email
   // is still valid (one-item list). Parsed into a normalized, lowercased
   // array; the auth signup hook checks membership. See packages/auth.

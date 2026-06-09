@@ -251,6 +251,7 @@ export const emailTriageWorkflow: Workflow<State> = {
               },
               senderContext,
               observations,
+              identity: ctxData.identity,
               runId: ctx.runId,
               stepId: "classify",
               idempotencyKey: ctx.idempotencyKey,

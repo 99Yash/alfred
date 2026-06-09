@@ -17,6 +17,15 @@ const turnKickResponseSchema = z.object({
 });
 
 /**
+ * The kick just stages the message + enqueues the run (the reply streams back
+ * over SSE), so it should ack in well under a second. Bound it anyway: without
+ * a signal a wedged connection leaves the optimistic UI waiting on the
+ * browser's default network timeout (minutes), with no error toast. Mirrors the
+ * transcription path in `turn-controls.ts`.
+ */
+const TURN_KICK_TIMEOUT_MS = 30_000;
+
+/**
  * Send a chat turn. Persists the user message via Replicache (optimistic +
  * multi-device), kicks the agent over `POST /api/chat/threads/:id/turn`, and
  * — for a brand-new chat — mints the thread id and navigates to its deep link.
@@ -61,6 +70,7 @@ export function useSendMessage(): SendMessage {
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ userMessageId, content }),
+          signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
         if (!res.ok) {
           const body = await res.text().catch(() => "");
