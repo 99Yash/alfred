@@ -55,7 +55,7 @@ import { cn } from "~/lib/utils";
 import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
 import { useRailMode } from "~/routes/-preview-chat/helpers";
 import { IconButton } from "~/routes/-preview-chat/icon-button";
-import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-content";
+import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data";
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";

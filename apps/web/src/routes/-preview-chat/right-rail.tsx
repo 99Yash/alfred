@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { cn } from "~/lib/utils";
 import type { RailMode, RailTab } from "./helpers";
-import { EMPTY_RAIL_DATA, RailContent, type RailData } from "./rail-content";
+import { RailContent } from "./rail-content";
+import { EMPTY_RAIL_DATA, type RailData } from "./rail-data";
 
 /* -------------------------------------------------------------------------- */
 /* Right rail — Today panel                                                    */
