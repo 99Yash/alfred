@@ -5,7 +5,7 @@ import { ComposerDock } from "./composer-dock";
 import { ConversationPlaceholder } from "./conversation-placeholder";
 import { ConversationScroll } from "./conversation-scroll";
 import { findThread, INBOX, MEETINGS, TODOS, useRailMode } from "./helpers";
-import type { RailData } from "./rail-content";
+import type { RailData } from "./rail-data";
 import { RightRail } from "./right-rail";
 import { ThreadTopBar } from "./thread-top-bar";
 
