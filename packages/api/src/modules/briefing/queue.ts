@@ -124,15 +124,15 @@ const BRIEFING_DISPATCH_PAUSED = true;
  * the same terminal briefing row.
  */
 async function handleTick(): Promise<TickResult> {
-  const now = new Date();
-  const users = await db().select({ id: userTable.id }).from(userTable);
-
   if (BRIEFING_DISPATCH_PAUSED) {
     console.log(
-      `[briefing:worker] tick scanned=${users.length} enqueued=0 skipped=${users.length} (dispatch paused — see daily-briefing-cutover-plan.md)`,
+      `[briefing:worker] tick enqueued=0 (dispatch paused — see daily-briefing-cutover-plan.md)`,
     );
-    return { scanned: users.length, enqueued: 0, skipped: users.length };
+    return { scanned: 0, enqueued: 0, skipped: 0 };
   }
+
+  const now = new Date();
+  const users = await db().select({ id: userTable.id }).from(userTable);
 
   let enqueued = 0;
   let skipped = 0;
