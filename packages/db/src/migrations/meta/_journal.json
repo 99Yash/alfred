@@ -253,6 +253,13 @@
       "when": 1780902008449,
       "tag": "0035_nebulous_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1780975287814,
+      "tag": "0036_aromatic_shadowcat",
+      "breakpoints": true
     }
   ]
 }
