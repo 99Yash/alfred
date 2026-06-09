@@ -302,32 +302,32 @@ export async function loadTriageContext(
     throw new Error(`[triage] document ${documentId} missing accountId`);
   }
 
-  const credRows = await db()
-    .select({
-      id: integrationCredentials.id,
-      persona: integrationCredentials.persona,
-      accountLabel: integrationCredentials.accountLabel,
-    })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, "google"),
-        eq(integrationCredentials.accountId, doc.accountId),
+  // Both reads key only off `userId` / `doc.accountId` (already resolved), so
+  // run them on one round-trip instead of two — this is the per-classification
+  // hot path. The user row feeds the ownership-attribution gate: display name
+  // from the user row, account email from the credential's label (the precise
+  // per-account address), falling back to the user's primary email. Best-effort.
+  const [credRows, userRows] = await Promise.all([
+    db()
+      .select({
+        id: integrationCredentials.id,
+        persona: integrationCredentials.persona,
+        accountLabel: integrationCredentials.accountLabel,
+      })
+      .from(integrationCredentials)
+      .where(
+        and(
+          eq(integrationCredentials.userId, userId),
+          eq(integrationCredentials.provider, "google"),
+          eq(integrationCredentials.accountId, doc.accountId),
+        ),
       ),
-    );
+    db().select({ name: user.name, email: user.email }).from(user).where(eq(user.id, userId)),
+  ]);
   const cred = credRows[0];
   if (!cred) {
     throw new Error(`[triage] no google credential for user=${userId} account=${doc.accountId}`);
   }
-
-  // Minimal identity for the ownership-attribution gate: display name from the
-  // user row, account email from the credential's label (the precise per-account
-  // address), falling back to the user's primary email. Best-effort.
-  const userRows = await db()
-    .select({ name: user.name, email: user.email })
-    .from(user)
-    .where(eq(user.id, userId));
   const userRow = userRows[0];
 
   return {

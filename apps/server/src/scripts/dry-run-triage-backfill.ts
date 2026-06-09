@@ -21,6 +21,7 @@ import {
   getThreadState,
   isKnownContact,
   loadTriageContext,
+  resolveTodoSuggestion,
   senderKeyFor,
 } from "@alfred/api";
 import { db } from "@alfred/db";
@@ -159,9 +160,12 @@ async function main() {
     const note = classification.todoDecision?.note ? ` — ${classification.todoDecision.note}` : "";
     const cat = classification.category;
     const author = `author=${senderContext.effectiveAuthor}${senderContext.botSlug ? `/${senderContext.botSlug}` : ""}`;
-    if (classification.todoSuggestion) {
+    // Mirror production: the rail only mints what `resolveTodoSuggestion` keeps
+    // (proposed outcome + todo-eligible category), not the raw model suggestion.
+    const resolved = resolveTodoSuggestion(classification);
+    if (resolved) {
       kept++;
-      console.log(`✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${classification.todoSuggestion.name}"\n`);
+      console.log(`✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"\n`);
     } else {
       killed++;
       console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${decision}${note}\n`);
@@ -174,6 +178,8 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((e) => {
-    console.error(e);
+    // Log only the message — serializing the full Error can leak DATABASE_URL,
+    // query state, and connection credentials into CI / shared-machine logs.
+    console.error(e instanceof Error ? e.message : String(e));
     process.exit(1);
   });
