@@ -38,11 +38,11 @@ export interface BackgroundAgentDef {
   helper: string;
   icon: ComponentType<{ size?: number; className?: string }>;
   tint: "purple" | "amber" | "sky" | "green" | "pink" | "orange";
-  /** Default switch state when no `feature.*` pref row exists yet (UNSET = ON). */
-  defaultOn: boolean;
   /**
-   * `user_preferences` key this switch writes. Omitted for agents that don't
-   * exist yet — those render as disabled "Coming soon" rows.
+   * `user_preferences` key this switch writes. The switch reads its state via
+   * `isOn(prefKey)`, which defaults to ON when no row exists (UNSET = ON).
+   * Omitted for agents that don't exist yet — those render as disabled
+   * "Coming soon" rows.
    */
   prefKey?: FeatureFlagKey;
   /** Not built yet — row is shown for parity but switched off and disabled. */
@@ -56,7 +56,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Pulls action items from your apps and flags what's urgent.",
     icon: ListChecks,
     tint: "purple",
-    defaultOn: true,
     prefKey: FEATURE_FLAG_KEYS.actionItems,
   },
   {
@@ -65,7 +64,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "A daily summary of what got done and what's still open.",
     icon: Sunset,
     tint: "orange",
-    defaultOn: true,
     prefKey: FEATURE_FLAG_KEYS.eveningRecap,
   },
   {
@@ -74,7 +72,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Your schedule, tasks, and key updates — delivered each morning.",
     icon: Sunrise,
     tint: "amber",
-    defaultOn: true,
     prefKey: FEATURE_FLAG_KEYS.morningBriefing,
   },
   {
@@ -83,7 +80,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Tags every inbound email so you know what needs action.",
     icon: Tag,
     tint: "green",
-    defaultOn: true,
     prefKey: FEATURE_FLAG_KEYS.emailTagging,
   },
   {
@@ -92,7 +88,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Drafts replies in your tone so you can review and send.",
     icon: PencilLine,
     tint: "sky",
-    defaultOn: false,
     comingSoon: true,
   },
   {
@@ -101,7 +96,6 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
     helper: "Briefs you on attendees, talking points, and past context.",
     icon: Users2,
     tint: "pink",
-    defaultOn: false,
     comingSoon: true,
   },
 ];
