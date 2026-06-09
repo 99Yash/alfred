@@ -91,6 +91,8 @@ const stateSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   rationale: z.string().nullable().optional(),
   senderContext: senderContextSchema.optional(),
+  /** Backfill-only: bypass the already-tagged skip guard (see input schema). */
+  force: z.boolean().optional(),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -114,6 +116,7 @@ export const emailTriageWorkflow: Workflow<State> = {
     return {
       documentId: parsed.documentId,
       reason: parsed.reason,
+      force: parsed.force,
     };
   },
 
@@ -172,7 +175,12 @@ export const emailTriageWorkflow: Workflow<State> = {
         // missing we can't order the messages, so we fall through and
         // re-classify — missing a real reply is worse than an extra classify.
         // A retry within the SAME run is handled below (reuse, never skip).
-        if (existing && existing.runId !== ctx.runId && existing.appliedLabelId) {
+        if (
+          existing &&
+          existing.runId !== ctx.runId &&
+          existing.appliedLabelId &&
+          !ctx.state.force
+        ) {
           const incomingAuthoredAt = ctxData.document.authoredAt;
           const priorAuthoredAt = existing.documentId
             ? await getDocumentAuthoredAt(ctx.userId, existing.documentId)

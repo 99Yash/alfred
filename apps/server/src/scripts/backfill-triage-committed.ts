@@ -156,7 +156,11 @@ async function processUser(u: TargetUser): Promise<void> {
       const { runId } = await createRun({
         userId: u.userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
-        input: { documentId, reason: "manual" },
+        // `force`: bypass the already-tagged skip guard so threads still on the
+        // message they were last classified from RE-classify here — otherwise a
+        // backfill over a previously-triaged inbox skips everything and mints no
+        // todos. Backfill-only; the real-time path never sets it.
+        input: { documentId, reason: "manual", force: true },
         metadata: { source: "backfill-triage-committed-2026-06-09" },
         trigger: { kind: "manual" },
       });
