@@ -184,7 +184,7 @@ export function RailContent({
             ) : null}
           </div>
           <WeatherHero />
-          <div className="animate-rail-head mt-2 text-[12px] tracking-tight text-white/45 mix-blend-plus-lighter [animation-delay:210ms]">
+          <div className="animate-rail-head mt-2 text-xs tracking-tight text-white/45 mix-blend-plus-lighter [animation-delay:210ms]">
             {formatRailDate(now)}
           </div>
         </div>
