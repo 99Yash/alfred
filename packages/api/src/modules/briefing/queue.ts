@@ -101,6 +101,21 @@ interface TickResult {
 }
 
 /**
+ * Briefing dispatch is PAUSED.
+ *
+ * The cron currently dispatches the old `morning-briefing` workflow
+ * (`BRIEFING_WORKFLOW_SLUG`), which the user has retired in favor of the
+ * LLM-composed `daily-briefing`. Rather than ship the old briefing, the
+ * fan-out is gated off until the cutover lands. Flip this to `false` (and
+ * point `enqueueBriefingRun` at `DAILY_BRIEFING_WORKFLOW_SLUG`) as part of
+ * that work — see docs/plans/daily-briefing-cutover-plan.md.
+ *
+ * The hourly tick keeps running (and logging) so the schedule stays warm and
+ * a re-enable is a one-line change, not a redeploy of new wiring.
+ */
+const BRIEFING_DISPATCH_PAUSED = true;
+
+/**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
  * guard is the slot-scoped `briefings` unique index plus the
@@ -111,6 +126,14 @@ interface TickResult {
 async function handleTick(): Promise<TickResult> {
   const now = new Date();
   const users = await db().select({ id: userTable.id }).from(userTable);
+
+  if (BRIEFING_DISPATCH_PAUSED) {
+    console.log(
+      `[briefing:worker] tick scanned=${users.length} enqueued=0 skipped=${users.length} (dispatch paused — see daily-briefing-cutover-plan.md)`,
+    );
+    return { scanned: users.length, enqueued: 0, skipped: users.length };
+  }
+
   let enqueued = 0;
   let skipped = 0;
 

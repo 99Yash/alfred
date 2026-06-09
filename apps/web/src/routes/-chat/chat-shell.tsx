@@ -13,9 +13,11 @@ import {
   PanelRight,
   Paperclip,
   Share2,
+  ShieldCheck,
   Sparkles,
   Square,
   X,
+  Zap,
 } from "lucide-react";
 import {
   useCallback,
@@ -42,6 +44,7 @@ import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
 import { useResolvedIntegrations } from "~/hooks/use-integration-status";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
@@ -151,6 +154,23 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const approvalTrayActive = awaitingApproval || runApprovals.length > 0;
   const hasConversation = messages.length > 0 || showStream;
 
+  // Chat "Auto" mode flips the user's global approval default
+  // (`user_action_policies.defaultMode`). On `autonomy` the dispatcher runs
+  // tools without staging a gated approval, so no tray card ever appears —
+  // server-authoritative, no per-action flicker. This is a global switch (it
+  // also governs triage/briefing/workflows), and per-integration rules set in
+  // Settings still override it.
+  const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
+  const autoApprove = policy?.defaultMode === "autonomy";
+  const autoApprovePending = policyLoading || !policy;
+  const onToggleAutoApprove = useCallback(() => {
+    // Don't act until the row is known locally — otherwise the optimistic
+    // client mutator no-ops (no row to patch) while the server still flips it,
+    // leaving the toggle out of step until the next pull.
+    if (autoApprovePending) return;
+    void setDefaultMode(autoApprove ? "gated" : "autonomy");
+  }, [autoApprove, autoApprovePending, setDefaultMode]);
+
   // Follow-up suggestions for the last completed reply. The first one becomes
   // the composer's ghost text (Tab to accept); the rest render as chips in the
   // transcript — same content stream, two affordances, no duplication.
@@ -206,12 +226,22 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 ghostText={ghostText}
                 onGhostAccept={onGhostDone}
                 onGhostDismiss={onGhostDone}
+                autoApprove={autoApprove}
+                autoApprovePending={autoApprovePending}
+                onToggleAutoApprove={onToggleAutoApprove}
               />
             </div>
           </div>
         </>
       ) : (
-        <EmptyHero threadId={threadId} isStreaming={isStreaming} onSend={onSend} />
+        <EmptyHero
+          threadId={threadId}
+          isStreaming={isStreaming}
+          onSend={onSend}
+          autoApprove={autoApprove}
+          autoApprovePending={autoApprovePending}
+          onToggleAutoApprove={onToggleAutoApprove}
+        />
       )}
     </div>
   );
@@ -266,10 +296,16 @@ function EmptyHero({
   threadId,
   isStreaming,
   onSend,
+  autoApprove,
+  autoApprovePending,
+  onToggleAutoApprove,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
   onSend?: (text: string) => void;
+  autoApprove?: boolean;
+  autoApprovePending?: boolean;
+  onToggleAutoApprove?: () => void;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
@@ -303,6 +339,9 @@ function EmptyHero({
           threadId={threadId}
           isStreaming={isStreaming}
           onSend={onSend}
+          autoApprove={autoApprove}
+          autoApprovePending={autoApprovePending}
+          onToggleAutoApprove={onToggleAutoApprove}
         />
         <ConnectToolsBar />
       </div>
@@ -529,6 +568,9 @@ function Composer({
   ghostText,
   onGhostAccept,
   onGhostDismiss,
+  autoApprove,
+  autoApprovePending,
+  onToggleAutoApprove,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -539,6 +581,11 @@ function Composer({
   ghostText?: string;
   onGhostAccept?: () => void;
   onGhostDismiss?: () => void;
+  /** Chat "Auto" mode state + toggle; absent hides the control. */
+  autoApprove?: boolean;
+  /** Policy row not yet synced — render the toggle disabled until it lands. */
+  autoApprovePending?: boolean;
+  onToggleAutoApprove?: () => void;
 }) {
   const { resolved: theme } = useAppTheme();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
@@ -655,6 +702,9 @@ function Composer({
             onVoiceStart={onVoiceStart}
             onVoiceConfirm={() => void onVoiceConfirm()}
             onStopGeneration={onStopGeneration}
+            autoApprove={autoApprove}
+            autoApprovePending={autoApprovePending}
+            onToggleAutoApprove={onToggleAutoApprove}
           />
         </div>
       </div>
@@ -927,6 +977,9 @@ function ComposerToolbar({
   onVoiceStart,
   onVoiceConfirm,
   onStopGeneration,
+  autoApprove,
+  autoApprovePending,
+  onToggleAutoApprove,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
@@ -939,6 +992,9 @@ function ComposerToolbar({
   onVoiceStart: () => void;
   onVoiceConfirm: () => void;
   onStopGeneration?: () => void;
+  autoApprove?: boolean;
+  autoApprovePending?: boolean;
+  onToggleAutoApprove?: () => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
   return (
@@ -964,6 +1020,13 @@ function ComposerToolbar({
         >
           Auto
         </AppPill>
+        {onToggleAutoApprove ? (
+          <AutoApproveToggle
+            on={Boolean(autoApprove)}
+            disabled={Boolean(autoApprovePending)}
+            onToggle={onToggleAutoApprove}
+          />
+        ) : null}
         {transcribing ? (
           <span className="animate-chat-shimmer text-[11px] text-app-fg-3 pl-1">Transcribing…</span>
         ) : statusMessage ? (
@@ -1055,6 +1118,52 @@ function ComposerToolbar({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Auto" mode toggle. On → Alfred acts without pausing for approval (emerald,
+ * Zap); off → it pauses for review before each action (Shield). Backed by the
+ * user's global `user_action_policies.defaultMode`, so it's not chat-only — it
+ * governs every surface, and per-integration rules in Settings still override
+ * it. Stays interactive while the composer is disabled by a pending approval so
+ * flipping it on lets the parked run continue. Mirrors the Zap=autonomy /
+ * Shield=gated language on the integrations policy card.
+ */
+function AutoApproveToggle({
+  on,
+  disabled,
+  onToggle,
+}: {
+  on: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      disabled={disabled}
+      onClick={onToggle}
+      title={
+        on
+          ? "Auto mode on — Alfred acts without pausing for approval"
+          : "Auto mode off — Alfred pauses for your approval before acting"
+      }
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium",
+        "app-press transition-colors outline-none",
+        "focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        on
+          ? "bg-app-green-1 text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
+          : "text-app-fg-3 enabled:hover:bg-app-bg-a2 enabled:hover:text-app-fg-4",
+      )}
+    >
+      {on ? <Zap size={12} aria-hidden /> : <ShieldCheck size={12} aria-hidden />}
+      {on ? "Auto" : "Review"}
+    </button>
   );
 }
 
