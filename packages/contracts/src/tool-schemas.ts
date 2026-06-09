@@ -50,7 +50,10 @@ export const calendarListEventsInput = z
       .describe(
         "Optional narrowing for today/tomorrow. Omit for full day. morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
       ),
-    maxResults: z.number().int().min(1).max(50).default(10),
+    // Result-count cap — cosmetic, never affects correctness. An out-of-range
+    // value falls back to the default instead of bouncing a validation error
+    // back to the model (see github.search_pull_requests perPage).
+    maxResults: z.number().int().min(1).max(50).default(10).catch(10),
   })
   .strict()
   .refine(
@@ -113,7 +116,8 @@ export const driveSearchInput = z
       .describe(
         "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
       ),
-    pageSize: z.number().int().min(1).max(100).default(25),
+    // Result-count cap — cosmetic; fall back to the default rather than error.
+    pageSize: z.number().int().min(1).max(100).default(25).catch(25),
     pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
     orderBy: z
       .string()
@@ -182,6 +186,10 @@ export const searchPullRequestsInput = z
       .min(1)
       .max(100)
       .default(30)
+      // The count is always exact regardless of list size, so an out-of-range
+      // perPage (e.g. the model passing 0 to mean "count only") shouldn't burn a
+      // turn on a validation error — fall back to the default instead of throwing.
+      .catch(30)
       .describe("Max PRs to return in the list (the total count is always exact)."),
   })
   .strict();
@@ -203,6 +211,8 @@ export const gmailSearchInput = z
       .min(1)
       .max(50)
       .default(10)
+      // Result-count cap — cosmetic; fall back to the default rather than error.
+      .catch(10)
       .describe("Cap on results returned to the model (Gmail allows up to 500; we cap at 50)."),
   })
   .strict();
