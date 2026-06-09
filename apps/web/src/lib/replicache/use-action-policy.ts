@@ -12,6 +12,8 @@ export interface ActionPolicyState {
   modeFor: (slug: IntegrationSlug) => PolicyMode | null;
   /** Optimistically flip one integration's mode; server confirms on pull. */
   setIntegrationMode: (slug: LoadableIntegrationSlug, mode: PolicyMode) => Promise<void>;
+  /** Optimistically flip the global default mode; server confirms on pull. */
+  setDefaultMode: (mode: PolicyMode) => Promise<void>;
   loading: boolean;
   error: string | null;
   retry: () => void;
@@ -62,10 +64,19 @@ export function useActionPolicy(): ActionPolicyState {
     [rep],
   );
 
+  const setDefaultMode = useCallback(
+    async (mode: PolicyMode): Promise<void> => {
+      if (!rep) return;
+      await rep.mutate.policySetDefaultMode({ mode });
+    },
+    [rep],
+  );
+
   return {
     policy,
     modeFor,
     setIntegrationMode,
+    setDefaultMode,
     loading: !loaded && !loadError,
     error: loadError,
     retry,

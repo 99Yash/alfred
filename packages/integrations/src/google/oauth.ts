@@ -265,10 +265,12 @@ export interface RefreshTokenResult {
 
 /**
  * Thrown when Google rejects a refresh with `invalid_grant` — the refresh
- * token is dead (revoked, consent withdrawn, or expired under the Testing-mode
- * 7-day window). Retrying never recovers it; the only fix is user re-consent.
- * Callers catch this to flip the credential to `needs_reauth` instead of
- * looping the same failure every poll.
+ * token is dead (revoked, consent withdrawn, password reset, or >6 months
+ * unused). Note: the app's OAuth consent screen is published **In production**
+ * (External, unverified), so the Testing-mode 7-day refresh-token expiry does
+ * NOT apply here — durable tokens are expected. Retrying never recovers a dead
+ * token; the only fix is user re-consent. Callers catch this to flip the
+ * credential to `needs_reauth` instead of looping the same failure every poll.
  */
 export class GoogleReauthRequiredError extends Error {
   constructor(detail: string) {

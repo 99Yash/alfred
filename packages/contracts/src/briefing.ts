@@ -38,8 +38,35 @@ export type IanaTimezone = string & { readonly [ianaTimezoneBrand]: true };
  * Cached at module scope — `Intl.supportedValuesOf('timeZone')` allocates
  * a ~600-entry array on every call. Guard / schema-refine both run on hot
  * paths (API boundaries, zod parsing), so we pay the allocation once.
+ *
+ * Mutable (not Readonly) so {@link isSupportedTimezone} can memoize the
+ * runtime-trial hits below.
  */
-const SUPPORTED_TIMEZONES: ReadonlySet<string> = new Set(Intl.supportedValuesOf("timeZone"));
+const SUPPORTED_TIMEZONES: Set<string> = new Set(Intl.supportedValuesOf("timeZone"));
+
+/**
+ * Whether the runtime can resolve `value` as a timezone.
+ *
+ * `Intl.supportedValuesOf('timeZone')` lists only canonical *region* zones —
+ * it omits valid aliases like "UTC" and "Etc/UTC" that `Intl.DateTimeFormat`
+ * accepts. (This is exactly the gap that broke briefings: the default
+ * `"UTC"` pref passed `DateTimeFormat`-based validation in `@alfred/api` but
+ * failed the set-membership check here, throwing in every briefing `gather`.)
+ *
+ * So the set is the fast path and a `DateTimeFormat` trial is the fallback;
+ * a successful trial is memoized into the set, keeping repeat lookups O(1).
+ */
+function isSupportedTimezone(value: string): boolean {
+  if (SUPPORTED_TIMEZONES.has(value)) return true;
+  try {
+    // Throws RangeError on an unknown zone; succeeds for valid aliases.
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    SUPPORTED_TIMEZONES.add(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Runtime guard for IANA timezone strings. Verifies the value against the
@@ -47,14 +74,14 @@ const SUPPORTED_TIMEZONES: ReadonlySet<string> = new Set(Intl.supportedValuesOf(
  * on miss so callers can rely on the branded type after the call.
  */
 export function assertIanaTimezone(value: string): asserts value is IanaTimezone {
-  if (!SUPPORTED_TIMEZONES.has(value)) {
+  if (!isSupportedTimezone(value)) {
     throw new Error(`Not a recognized IANA timezone: ${value}`);
   }
 }
 
 export function isIanaTimezone(value: unknown): value is IanaTimezone {
   if (typeof value !== "string") return false;
-  return SUPPORTED_TIMEZONES.has(value);
+  return isSupportedTimezone(value);
 }
 
 export const ianaTimezoneSchema = z

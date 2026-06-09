@@ -24,7 +24,10 @@ function isKnownMutator(name: string): name is MutatorName {
  * reaches browsers via Replicache pull; the gate runs server-side, so the
  * cache must drop too — fired after commit alongside the poke.
  */
-const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set(["policySetIntegrationMode"]);
+const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set([
+  "policySetIntegrationMode",
+  "policySetDefaultMode",
+]);
 
 /**
  * Mutators whose successful application must reconcile a Gmail label after

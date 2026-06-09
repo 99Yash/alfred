@@ -8,7 +8,12 @@ import {
   factRejectClient,
 } from "./facts";
 import { prefDeleteArgsSchema, prefDeleteClient, prefSetArgsSchema, prefSetClient } from "./prefs";
-import { policySetIntegrationModeArgsSchema, policySetIntegrationModeClient } from "./policy";
+import {
+  policySetDefaultModeArgsSchema,
+  policySetDefaultModeClient,
+  policySetIntegrationModeArgsSchema,
+  policySetIntegrationModeClient,
+} from "./policy";
 import { workflowUpdateArgsSchema, workflowUpdateClient } from "./workflows";
 import {
   todoCompleteArgsSchema,
@@ -54,6 +59,7 @@ export const clientMutators = {
   prefSet: prefSetClient,
   prefDelete: prefDeleteClient,
   policySetIntegrationMode: policySetIntegrationModeClient,
+  policySetDefaultMode: policySetDefaultModeClient,
   workflowUpdate: workflowUpdateClient,
   todoCreate: todoCreateClient,
   todoComplete: todoCompleteClient,
@@ -81,6 +87,7 @@ export const mutatorArgsSchemas = {
   prefSet: prefSetArgsSchema,
   prefDelete: prefDeleteArgsSchema,
   policySetIntegrationMode: policySetIntegrationModeArgsSchema,
+  policySetDefaultMode: policySetDefaultModeArgsSchema,
   workflowUpdate: workflowUpdateArgsSchema,
   todoCreate: todoCreateArgsSchema,
   todoComplete: todoCompleteArgsSchema,
