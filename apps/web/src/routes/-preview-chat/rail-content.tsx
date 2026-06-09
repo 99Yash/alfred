@@ -15,7 +15,7 @@ import { MeetingsFeed, type MeetingLookaheadItem } from "./meetings-feed";
 import { RailFooter } from "./rail-footer";
 import { RailSlot } from "./rail-slot";
 import { TodoFeed, type SuggestionInput } from "./todo-feed";
-import { WeatherLine } from "./weather-line";
+import { WeatherHero } from "./weather-hero";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
   { value: "todo", label: "To do", icon: <ListChecks size={12} /> },
@@ -156,15 +156,15 @@ export function RailContent({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.55),rgba(0,0,0,0.42)_38%,rgba(0,0,0,0.16)_72%,transparent)]" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col text-white">
-        {/* Header — stacked rows so variable-length strings never collide.
-         * The greeting + name owns the full first row and truncates; the
-         * weather sits on its own row beneath it (icon + temp + city ·
-         * condition); the date closes the block. The old single-row
-         * layout let a long name, a long city, or a long condition word
-         * shove the others around — separate rows make each one stable. */}
-        <div className="px-4 pt-5 pb-4">
+        {/* Header — "hero temperature" framing. The greeting demotes to a
+         * quiet top line; the weather hero (large temp + condition icon +
+         * hairline + caption) is the focal block; the date closes it as a
+         * second quiet caption. Each row fades up in sequence on entrance
+         * (delays climb down the block) so the header reads as one settling
+         * gesture rather than four rows snapping in at once. */}
+        <div className="px-4 pt-5 pb-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 truncate text-[15px] font-medium tracking-tight text-white">
+            <div className="animate-rail-head min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight text-white/75 mix-blend-plus-lighter">
               {greeting(now)}
               {firstName(session?.user) ? `, ${firstName(session?.user)}` : ""}
             </div>
@@ -183,8 +183,8 @@ export function RailContent({
               </button>
             ) : null}
           </div>
-          <WeatherLine />
-          <div className="mt-1 text-[11.5px] uppercase tracking-tight font-medium text-white/60 mix-blend-plus-lighter">
+          <WeatherHero />
+          <div className="animate-rail-head mt-2 text-[12px] tracking-tight text-white/45 mix-blend-plus-lighter [animation-delay:210ms]">
             {formatRailDate(now)}
           </div>
         </div>
@@ -255,5 +255,5 @@ export function RailContent({
 function formatRailDate(date: Date): string {
   const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
   const month = date.toLocaleDateString(undefined, { month: "short" });
-  return `${weekday} · ${month} ${date.getDate()}`;
+  return `${weekday}, ${month} ${date.getDate()}`;
 }
