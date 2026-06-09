@@ -13,5 +13,12 @@ export const triageWorkflowInputSchema = z.object({
   documentId: z.string().min(1),
   /** Optional reason metadata — `ingest`, `webhook`, `manual`, `reply`. */
   reason: z.enum(["ingest", "webhook", "manual", "reply"]).optional(),
+  /**
+   * Backfill escape hatch: bypass the already-tagged skip guard so a thread
+   * still sitting on the message it was last classified from RE-classifies
+   * anyway (re-mint todos + re-tag under a new prompt). Never set on the
+   * real-time ingest/webhook path — only one-off backfills pass it.
+   */
+  force: z.boolean().optional(),
 });
 export type TriageWorkflowInput = z.infer<typeof triageWorkflowInputSchema>;
