@@ -104,6 +104,16 @@ export type RunPass = (input: {
 export interface ClassifyEmailArgs {
   /** Optional metering attribution. The classifier itself does not read user context. */
   userId?: string;
+  /**
+   * Minimal identity signal (ADR-0050/0051 amendment 2026-06-09) — the user's
+   * display name + the account email being triaged. The ONLY user-identity the
+   * cheap classifier gets: it powers the todo ownership-attribution gate (rule
+   * 16a) so an action the email assigns to a *named third party* is not minted
+   * as the user's todo (the "Sakshi standup" bug). Deliberately NOT role /
+   * projects / relationships — those stay parked under ADR-0050 D1. The first
+   * surgical brick toward the full `User context` projection.
+   */
+  identity?: { name?: string | null; email?: string | null };
   document: {
     id: string;
     title: string | null;
@@ -230,11 +240,11 @@ Rules:
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
 7. Meeting gate: choose 'meeting' only when the user is a participant or likely participant in a personal/work calendar-style meeting. The words "meeting", "event", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves.
 8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
-9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.)
+9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.) More broadly — manufactured or ceremonial urgency (engagement/gamification nudges, "save the date" galas, AGMs) is 'fyi' (or 'marketing') unless it imposes a concrete action + deadline on the user; never 'meeting'/'urgent' on ceremony or a manufactured stake alone.
 10. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' only after the Meeting gate is satisfied.
 11. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
 12. Automated/service mail:
-    12a. Bot review comments where SenderContext.effectiveAuthor='bot' and botSlug is coderabbit, copilot-review, github-actions, dependabot, or renovate are usually 'fyi'. They are advisory review noise by default, even when they contain suggested fixes or CVE identifiers.
+    12a. Bot review comments — any SenderContext.effectiveAuthor='bot' (a GitHub '[bot]' account such as greptile-apps[bot], coderabbit, copilot-review, github-actions, dependabot, renovate, or any other) — are advisory review noise by default → 'fyi', even when they contain suggested fixes or CVE identifiers. Do not gate on a specific bot name.
     12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
     12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
     12d. Unknown service envelopes classify from body content alone.
@@ -247,12 +257,12 @@ Rules:
 15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
 16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
-    16a. Obligation on me (gate). Is there an action the USER must take — reply, decide, send, pay, attend, prepare, fix, submit? Not the sender's job, not pure awareness. None → outcome \`no_obligation\`. (A newsletter, a shipped-order notice, an FYI-for-awareness leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.)
-    16b. Significance. Does the obligation MATTER on its face — a deadline, money, a real deliverable, a commitment to a person, a clear cost of not doing it? Real-but-trivial asks fail here: rate-your-driver, satisfaction surveys, "thoughts sometime?", optional feedback with no stake. Trivial → outcome \`not_significant\`. Judge from the email ALONE — you do NOT have the user's projects, role, or relationships available here, so do not assume personal relevance.
+    16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
+    16b. Significance — a REAL, EXTERNAL stake. The obligation must carry a real stake, one of: a real identifiable person waiting on the user; money owed or at risk; a hard deadline; loss of access; a commitment the user made to a human; OR a real-world consequence to the user judged from the content. That last clause is the ONLY way automated/bot mail earns a todo, and for code/PR/review findings (whether from a bot OR a human reviewer) it turns on LIVENESS — is something ALREADY LIVE at stake? A real stake = the issue affects PRODUCTION or already-merged (\`main\`) code: a secret already committed/exposed, a vulnerability in \`main\`, an outage, a broken or blocked production deploy, a same-day security deadline. NO stake = the issue exists only in the UNMERGED changes under review — nitpicks, style, perf suggestions, even a genuine vulnerability that lives only in the PR's proposed code and is not yet in \`main\`/production. That is pre-merge advisory (review working as intended; nothing live is at risk) → fail. The test is not "is a reviewer waiting" but "is something already live at stake." MECHANICAL RULE: a pull-request review comment — anything of the shape "<reviewer> commented on PR #N", "address the review feedback on PR #N", "apply these suggestions" — is BY DEFINITION about code not yet merged, so it is pre-merge advisory and emits NO todo (outcome \`not_significant\`, note \`advisory:\`), REGARDLESS of how concrete or severe the suggested fixes sound, UNLESS the body explicitly says the problem is already in production / \`main\` or a credential is already exposed. CodeRabbit/Greptile "consider…" comments and CVE-FYIs fail. Stakes a product MANUFACTURES to drive engagement — gamification streaks ("play before midnight or lose your streak"), unread/notification counts, "N people viewed your profile", marketing scarcity ("ends tonight") — and CEREMONIAL obligations (AGM, "save the date") are NOT real stakes, however urgently phrased → outcome \`not_significant\` (set \`note\` prefix \`manufactured:\` or \`advisory:\`). Real-but-trivial asks also fail: rate-your-driver, surveys, "thoughts sometime?", optional feedback. Judge the STAKE from the email ALONE — you do NOT have the user's projects, role, or relationships, so do not infer personal relevance; an obligation either carries an intrinsic real stake or it does not.
     16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
     16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
     16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
-    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. \`name\` is a crisp imperative naming the SUBJECT, recognizable at a glance without opening the email ("Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD") — never a bare verb ("Log in", "Reply"). \`assist\` is OPTIONAL: include it only when it adds guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>". OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. \`name\` is a TERSE, second-person IMPERATIVE that names the object — lead with the real verb, keep it short (aim ≤ ~8 words): "Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD", "Add receipts to 4 Brex expenses". NEVER a bare verb ("Log in", "Reply") and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …") — use the actual action verb. \`assist\` is OPTIONAL and active-voice: include it only when it adds guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>". OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
     16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 
 Examples (subject → category):
@@ -285,6 +295,10 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 - Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
 - Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
 - "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
+- "Your 100-day Chess.com streak is paused — play before midnight" → no todo (16b: manufactured stake, a counter resetting is not a real consequence). Same for "You have 7 unread on Linear" / "5 people viewed your profile".
+- A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
+- "Sakshi is running standup today while Dave is out" → category fyi/done, no todo (16a (ii): the action is owned by Sakshi, not the user — even though the user is the recipient).
+- "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
 
 Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
 
@@ -342,6 +356,17 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
   lines.push("");
+
+  // Minimal identity for the ownership-attribution gate (rule 16a). One line,
+  // name + account email; absent → the gate degrades to the model's best guess.
+  const idName = args.identity?.name?.trim();
+  const idEmail = args.identity?.email?.trim();
+  if (idName || idEmail) {
+    lines.push(
+      `=== You (the user being triaged) ===\n${[idName, idEmail && `<${idEmail}>`].filter(Boolean).join(" ")}`,
+    );
+    lines.push("");
+  }
 
   lines.push(renderObservations(args.observations));
   lines.push("");

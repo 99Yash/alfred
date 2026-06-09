@@ -31,6 +31,30 @@ interface ModelIdentifiers {
   model: string;
 }
 
+/**
+ * Hard ceiling for any single non-streaming provider call when the caller
+ * doesn't set its own `timeout`. A wedged provider socket (connected, no
+ * bytes, no error) would otherwise block a worker step forever — and because
+ * the agent worker heartbeats `last_checkpoint_at` while `runOnce()` awaits,
+ * stale-run recovery can never reclaim it. Bounding every metered call turns a
+ * hung provider into a normal error + retry instead of a zombie run.
+ *
+ * Deliberately generous: background boss-model generates (briefing, triage
+ * deepen, skill docs) can legitimately run several minutes. This is a backstop
+ * against an infinite hang, not an SLA — latency-sensitive callers still pass a
+ * tighter `timeout` (e.g. the 15s chat-title call), which wins over this.
+ */
+export const DEFAULT_LLM_TIMEOUT_MS = 600_000;
+
+/**
+ * Streaming backstop for direct {@link meteredStreamText} callers that don't
+ * pass their own `timeout`. A 30s chunk gap means a wedged connection; the
+ * total ceiling mirrors {@link DEFAULT_LLM_TIMEOUT_MS}. (The agent's
+ * `streamTurn` sets its own tighter default, so this only guards ad-hoc
+ * callers.)
+ */
+const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_MS } as const;
+
 function modelIdsFor(model: LanguageModel): ModelIdentifiers {
   // AI SDK v6: LanguageModel is a union; narrow it to the object shape that
   // exposes provider + modelId. Fallback to "unknown" so missing fields
@@ -139,14 +163,17 @@ export async function meteredGenerateText(
 ): Promise<GenerateTextResult<ToolSet, never>> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
+  const callArgs = withDefaultTimeout(args);
   // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
   // but the `Output` interface is not exported as a nameable type, only via a
   // namespace alias. Cast through unknown to a callable shape and pin the
   // public return type to <ToolSet, never>, which downstream callers (which
   // never use `experimental_output`) can read freely.
-  return metered(meta, () => generateText(args), extractTextUsage as never) as unknown as Promise<
-    GenerateTextResult<ToolSet, never>
-  >;
+  return metered(
+    meta,
+    () => generateText(callArgs),
+    extractTextUsage as never,
+  ) as unknown as Promise<GenerateTextResult<ToolSet, never>>;
 }
 
 /**
@@ -169,6 +196,7 @@ export async function meteredGenerateObject<O>(
   // `args` already satisfied the union.
   const callArgs = {
     ...rest,
+    timeout: rest.timeout ?? DEFAULT_LLM_TIMEOUT_MS,
     output: Output.object({
       schema,
       name: schemaName,
@@ -212,9 +240,11 @@ export function meteredStreamText(
   const callerOnFinish = args.onFinish;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
+  const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
   return meteredStream(meta, ({ finish, fail, abort }) =>
     streamText({
       ...args,
+      timeout,
       onFinish: (event: StreamTextFinishEvent) => {
         finish({
           usage: usageFromSdk(event.totalUsage),
@@ -269,7 +299,24 @@ export async function meteredEmbed(
 ): Promise<EmbedResult> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = { ...attribution, kind: "embedding", ...ids };
-  return metered(meta, () => embed(args), extractEmbedUsage);
+  // `embed` has no `timeout` param, only `abortSignal` — inject a timeout
+  // signal so a hung embedding call can't wedge a worker step forever, same
+  // backstop the text wrappers get via `timeout`.
+  const callArgs: EmbedArgs =
+    args.abortSignal !== undefined
+      ? args
+      : { ...args, abortSignal: AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS) };
+  return metered(meta, () => embed(callArgs), extractEmbedUsage);
+}
+
+/**
+ * Inject the default backstop {@link DEFAULT_LLM_TIMEOUT_MS} when the caller
+ * didn't set a `timeout`. The SDK lets `timeout` and `abortSignal` coexist, so
+ * a caller-supplied abort signal (e.g. a stop button) is unaffected.
+ */
+function withDefaultTimeout(args: GenerateTextArgs): GenerateTextArgs {
+  if (args.timeout !== undefined) return args;
+  return { ...args, timeout: DEFAULT_LLM_TIMEOUT_MS };
 }
 
 function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifiers {

@@ -54,7 +54,29 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
     ? parseBodyActor(parsed.domain, parsed.localPart, args.body)
     : { actor: undefined, parserHit: null };
 
-  const bodyActor = dispatch.actor;
+  let bodyActor = dispatch.actor;
+  let parserHit = dispatch.parserHit;
+
+  // GitHub marks every bot account with a `[bot]` display-name suffix (its own
+  // universal convention — `greptile-apps[bot]`, `dependabot[bot]`, …). The
+  // body-actor parser only reads `**bold**` actor lines in the body, so a PR
+  // review notification whose actor lives only in the `From:` display name
+  // (`"greptile-apps[bot]" <notifications@github.com>`) falls through to
+  // `effectiveAuthor=service`, leaving the classifier no reliable bot signal.
+  // Recognize the `[bot]` suffix on a github.com envelope structurally (NOT a
+  // hand-maintained slug list — it generalizes to any current/future bot) so
+  // advisory review mail is reliably tagged `effectiveAuthor=bot`. The body
+  // parser still wins when it fired; this only fills the gap. ADR-0050/0051
+  // amendment 2026-06-09.
+  if (!bodyActor && parsed && isGithubDomain(parsed.domain) && parsed.displayName) {
+    const m = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE);
+    const handle = m?.[1]?.trim().toLowerCase();
+    if (handle) {
+      bodyActor = { kind: "bot", name: parsed.displayName, handle };
+      parserHit = "github";
+    }
+  }
+
   const botSlug = resolveBotSlug({
     domain: parsed?.domain ?? null,
     localPart: parsed?.localPart ?? null,
@@ -69,7 +91,7 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
     ...(botSlug ? { botSlug } : {}),
   };
 
-  return { context, parserHit: dispatch.parserHit, senderAddress, senderDomain };
+  return { context, parserHit, senderAddress, senderDomain };
 }
 
 // ---------------------------------------------------------------------------
