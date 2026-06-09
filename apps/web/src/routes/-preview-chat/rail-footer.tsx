@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { cn } from "~/lib/utils";
-import type { RailBriefingSummary } from "./rail-content";
+import type { RailBriefingSummary } from "./rail-data";
 
 const CTA_CLASS = cn(
   "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",

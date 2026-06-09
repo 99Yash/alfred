@@ -30,7 +30,7 @@ import { useInboxDetail, type InboxAttachment, type InboxMessage } from "~/hooks
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
-import type { InboxPagination } from "./rail-content";
+import type { InboxPagination } from "./rail-data";
 
 const PAGE_SIZE = 8;
 
