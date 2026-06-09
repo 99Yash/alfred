@@ -162,11 +162,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Settings still override it.
   const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
   const autoApprove = policy?.defaultMode === "autonomy";
-  const autoApprovePending = policyLoading || !policy;
+  const autoApprovePending = policyLoading;
   const onToggleAutoApprove = useCallback(() => {
-    // Don't act until the row is known locally — otherwise the optimistic
-    // client mutator no-ops (no row to patch) while the server still flips it,
-    // leaving the toggle out of step until the next pull.
+    // Wait for the subscription to settle, then let the server mutator upsert
+    // the baseline row if this is a legacy user without a synced policy yet.
     if (autoApprovePending) return;
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, autoApprovePending, setDefaultMode]);

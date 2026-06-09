@@ -1,4 +1,4 @@
-import { Clock, Sparkles, Sunrise, Sunset } from "lucide-react";
+import { AlertCircle, Clock, RefreshCw, Sparkles, Sunrise, Sunset } from "lucide-react";
 import { useMemo, type ComponentType, type ReactNode } from "react";
 import { AppButton, AppCard, AppSelect, type AppSelectOption } from "~/components/ui/v2";
 import { useBriefingSchedule } from "~/lib/replicache/use-briefing-schedule";
@@ -20,6 +20,9 @@ export function BriefingScheduleSection() {
     setTimezone,
     setMorningHour,
     setEveningHour,
+    loading,
+    error,
+    retry,
   } = useBriefingSchedule();
 
   const timezoneOptions = useTimezoneOptions();
@@ -49,71 +52,103 @@ export function BriefingScheduleSection() {
         </p>
       </div>
 
-      <div className="divide-y divide-app-bg-2">
-        <ScheduleRow
-          icon={Sparkles}
-          tint="bg-app-purple-1 text-app-purple-4"
-          label="Time zone"
-          helper={
-            hasOverride.timezone
-              ? "Delivery times are interpreted in this zone."
-              : "Defaulting to UTC — set your zone so briefings land at the right local hour."
-          }
+      {error ? (
+        <div
+          className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
+          role="alert"
         >
-          <AppSelect
+          <div className="flex min-w-0 gap-2.5">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-app-red-4" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-app-fg-4">Schedule unavailable</p>
+              <p className="mt-1 text-xs leading-5 text-app-fg-3">{error}</p>
+            </div>
+          </div>
+          <AppButton
+            size="sm"
+            variant="ghost"
+            leading={<RefreshCw size={13} aria-hidden />}
+            onClick={retry}
+            className="shrink-0"
+          >
+            Retry
+          </AppButton>
+        </div>
+      ) : (
+        <div className="divide-y divide-app-bg-2">
+          <ScheduleRow
+            icon={Sparkles}
+            tint="bg-app-purple-1 text-app-purple-4"
             label="Time zone"
-            value={timezone}
-            onChange={(next) => {
-              if (next) void setTimezone(next);
-            }}
-            options={timezoneOptions}
-            leading={<Clock size={14} aria-hidden />}
-            className="w-64"
-          />
-        </ScheduleRow>
+            helper={
+              hasOverride.timezone
+                ? "Delivery times are interpreted in this zone."
+                : "Defaulting to UTC — set your zone so briefings land at the right local hour."
+            }
+          >
+            <AppSelect
+              label="Time zone"
+              value={timezone}
+              onChange={(next) => {
+                if (next) void setTimezone(next);
+              }}
+              options={timezoneOptions}
+              leading={<Clock size={14} aria-hidden />}
+              disabled={loading}
+              className="w-64"
+            />
+          </ScheduleRow>
 
-        <ScheduleRow
-          icon={Sunrise}
-          tint="bg-app-amber-1 text-app-amber-4"
-          label="Morning briefing"
-          helper={`Arrives at ${hourLabel(morningHour)} ${shortZone(timezone)}.`}
-        >
-          <AppSelect
-            label="Morning briefing hour"
-            value={String(morningHour)}
-            onChange={(next) => {
-              if (next) void setMorningHour(Number(next));
-            }}
-            options={hourOptions}
-            className="w-36"
-          />
-        </ScheduleRow>
+          <ScheduleRow
+            icon={Sunrise}
+            tint="bg-app-amber-1 text-app-amber-4"
+            label="Morning briefing"
+            helper={`Arrives at ${hourLabel(morningHour)} ${shortZone(timezone)}.`}
+          >
+            <AppSelect
+              label="Morning briefing hour"
+              value={String(morningHour)}
+              onChange={(next) => {
+                if (next) void setMorningHour(Number(next));
+              }}
+              options={hourOptions}
+              disabled={loading}
+              className="w-36"
+            />
+          </ScheduleRow>
 
-        <ScheduleRow
-          icon={Sunset}
-          tint="bg-app-orange-1 text-app-orange-4"
-          label="Evening recap"
-          helper={`Arrives at ${hourLabel(eveningHour)} ${shortZone(timezone)}.`}
-        >
-          <AppSelect
-            label="Evening recap hour"
-            value={String(eveningHour)}
-            onChange={(next) => {
-              if (next) void setEveningHour(Number(next));
-            }}
-            options={hourOptions}
-            className="w-36"
-          />
-        </ScheduleRow>
-      </div>
+          <ScheduleRow
+            icon={Sunset}
+            tint="bg-app-orange-1 text-app-orange-4"
+            label="Evening recap"
+            helper={`Arrives at ${hourLabel(eveningHour)} ${shortZone(timezone)}.`}
+          >
+            <AppSelect
+              label="Evening recap hour"
+              value={String(eveningHour)}
+              onChange={(next) => {
+                if (next) void setEveningHour(Number(next));
+              }}
+              options={hourOptions}
+              disabled={loading}
+              className="w-36"
+            />
+          </ScheduleRow>
+        </div>
+      )}
 
-      {showDeviceHint && deviceTimezone ? (
+      {!error && showDeviceHint && deviceTimezone ? (
         <div className="flex items-center justify-between gap-3 px-5 py-3">
           <p className="text-xs text-app-fg-3">
             Detected device zone:{" "}
             <span className="text-app-fg-4">{labelForZone(deviceTimezone)}</span>
           </p>
-          <AppButton size="sm" variant="ghost" onClick={() => void setTimezone(deviceTimezone)}>
+          <AppButton
+            size="sm"
+            variant="ghost"
+            disabled={loading}
+            onClick={() => void setTimezone(deviceTimezone)}
+          >
             Use this
           </AppButton>
         </div>
