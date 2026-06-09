@@ -31,3 +31,32 @@ export async function policySetIntegrationModeClient(
   };
   await tx.set(key, normalizeToReadonlyJSON(next));
 }
+
+export const policySetDefaultModeArgsSchema = z.object({
+  mode: z.enum(POLICY_MODES),
+});
+export type PolicySetDefaultModeArgs = z.infer<typeof policySetDefaultModeArgsSchema>;
+
+/**
+ * Flip the user's global approval default (`gated` ↔ `autonomy`). This is what
+ * the chat "Auto" toggle drives: `autonomy` lets the dispatcher run tools
+ * without staging a gated approval, so no card ever appears. Per-integration
+ * rules still override the default (see `resolveIntegrationMode`).
+ */
+export async function policySetDefaultModeClient(
+  tx: WriteTransaction,
+  args: PolicySetDefaultModeArgs,
+): Promise<void> {
+  const prefix = IDB_KEY.ACTION_POLICY({});
+  const [key] = await tx.scan({ prefix }).keys().toArray();
+  if (!key) return;
+  const result = syncedActionPolicySchema.safeParse(await tx.get(key));
+  if (!result.success) return;
+  const current = result.data;
+  const next: SyncedActionPolicy = {
+    ...current,
+    defaultMode: args.mode,
+    rowVersion: current.rowVersion + 1,
+  };
+  await tx.set(key, normalizeToReadonlyJSON(next));
+}

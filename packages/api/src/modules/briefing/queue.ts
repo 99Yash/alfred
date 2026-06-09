@@ -86,6 +86,12 @@ async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
     case "briefing.tick":
       return handleTick();
     case "briefing.run":
+      if (BRIEFING_DISPATCH_PAUSED) {
+        console.log(
+          `[briefing:worker] run skipped user=${data.userId} slot=${data.slot ?? "morning"} (dispatch paused — see daily-briefing-cutover-plan.md)`,
+        );
+        return { skipped: true, reason: "dispatch_paused" };
+      }
       return handleManualRun(data.userId, data.slot ?? "morning", data.reason ?? "manual");
     default: {
       const _exhaustive: never = data;
@@ -101,6 +107,21 @@ interface TickResult {
 }
 
 /**
+ * Briefing dispatch is PAUSED.
+ *
+ * The cron currently dispatches the old `morning-briefing` workflow
+ * (`BRIEFING_WORKFLOW_SLUG`), which the user has retired in favor of the
+ * LLM-composed `daily-briefing`. Rather than ship the old briefing, the
+ * fan-out/direct dispatch is gated off until the cutover lands. Flip this to
+ * `false` (and point `enqueueBriefingRun` at `DAILY_BRIEFING_WORKFLOW_SLUG`)
+ * as part of that work — see docs/plans/daily-briefing-cutover-plan.md.
+ *
+ * The hourly tick keeps running (and logging) so the schedule stays warm and
+ * a re-enable is a one-line change, not a redeploy of new wiring.
+ */
+const BRIEFING_DISPATCH_PAUSED = true;
+
+/**
  * Hourly fan-out. For each user, resolve their tz + delivery hour and
  * compare to "now in their local time." The actual no-double-send
  * guard is the slot-scoped `briefings` unique index plus the
@@ -109,8 +130,16 @@ interface TickResult {
  * the same terminal briefing row.
  */
 async function handleTick(): Promise<TickResult> {
+  if (BRIEFING_DISPATCH_PAUSED) {
+    console.log(
+      `[briefing:worker] tick enqueued=0 (dispatch paused — see daily-briefing-cutover-plan.md)`,
+    );
+    return { scanned: 0, enqueued: 0, skipped: 0 };
+  }
+
   const now = new Date();
   const users = await db().select({ id: userTable.id }).from(userTable);
+
   let enqueued = 0;
   let skipped = 0;
 
@@ -194,6 +223,11 @@ interface EnqueueBriefingRunArgs {
  * triggers from a future settings-page button.
  */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
+  if (BRIEFING_DISPATCH_PAUSED) {
+    throw new Error(
+      "[briefing:worker] briefing dispatch paused — see daily-briefing-cutover-plan.md",
+    );
+  }
   const slot = args.slot ?? "morning";
   const { runId } = await createRun({
     userId: args.userId,

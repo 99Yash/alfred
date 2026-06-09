@@ -18,6 +18,7 @@ import type {
   FactEditArgs,
   FactRejectArgs,
   NoteCreateArgs,
+  PolicySetDefaultModeArgs,
   PolicySetIntegrationModeArgs,
   PrefDeleteArgs,
   PrefSetArgs,
@@ -236,6 +237,35 @@ export const serverMutators = {
             to_jsonb(${args.mode}::text),
             true
           )`,
+          rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
+        },
+      });
+  },
+
+  /**
+   * Flip the user's global approval default. Inserts a baseline row (legacy
+   * users predating the signup seed) or patches `default_mode` in place. The
+   * push handler busts the dispatcher's policy cache after commit (see
+   * `POLICY_BUST_MUTATORS`) so a gated→autonomy flip takes effect on the next
+   * tool call without a restart.
+   */
+  async policySetDefaultMode(
+    tx: DbTx,
+    args: PolicySetDefaultModeArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .insert(userActionPolicies)
+      .values({
+        userId: ctx.userId,
+        defaultMode: args.mode,
+        integrationRules: DEFAULT_INTEGRATION_RULES,
+        approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+      })
+      .onConflictDoUpdate({
+        target: userActionPolicies.userId,
+        set: {
+          defaultMode: args.mode,
           rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
         },
       });
