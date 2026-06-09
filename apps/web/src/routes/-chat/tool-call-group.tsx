@@ -4,7 +4,8 @@ import { useId, useState } from "react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations";
 import { cn } from "~/lib/utils";
-import { presentTool, ToolCallCard, type ToolCallView } from "./tool-call-card";
+import { ToolCallCard } from "./tool-call-card";
+import { presentTool, type ToolCallView } from "./tool-call-presentation";
 
 const ITEM = "tools";
 
@@ -21,9 +22,13 @@ function providerLabel(tool: ToolCallView): string | null {
 /** Distinct integration glyphs touched across the run, in first-seen order. */
 function runBrands(tools: ToolCallView[]): IntegrationBrand[] {
   const brands: IntegrationBrand[] = [];
+  const seenBrands = new Set<IntegrationBrand>();
   for (const tool of tools) {
     const { brand } = presentTool(tool);
-    if (brand && !brands.includes(brand)) brands.push(brand);
+    if (brand && !seenBrands.has(brand)) {
+      seenBrands.add(brand);
+      brands.push(brand);
+    }
   }
   return brands;
 }
@@ -36,9 +41,13 @@ function runBrands(tools: ToolCallView[]): IntegrationBrand[] {
  */
 function runSummary(tools: ToolCallView[]): string {
   const heads: string[] = [];
+  const seenHeads = new Set<string>();
   for (const tool of tools) {
     const label = providerLabel(tool);
-    if (label && !heads.includes(label)) heads.push(label);
+    if (label && !seenHeads.has(label)) {
+      seenHeads.add(label);
+      heads.push(label);
+    }
   }
   let head: string;
   if (heads.length === 0) head = "Worked on it";
