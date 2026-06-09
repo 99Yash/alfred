@@ -46,7 +46,7 @@ interface ToolPresentation {
  * snake_case symbol, and the meaningful argument (brief, integration name)
  * instead of a `{"slug":"…"}` blob.
  */
-function presentTool(tool: ToolCallView): ToolPresentation {
+export function presentTool(tool: ToolCallView): ToolPresentation {
   const args = parseJsonRecord(tool.argsPreview);
   const slug = tool.toolName.includes(".")
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
