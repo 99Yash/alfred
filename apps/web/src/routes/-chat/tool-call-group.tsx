@@ -107,7 +107,10 @@ export function ToolCallGroup({ tools, active }: { tools: ToolCallView[]; active
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
               {!active && anyFailed ? (
-                <span aria-hidden className="size-1.5 rounded-full bg-app-red-4" />
+                <>
+                  <span className="sr-only">Some steps failed</span>
+                  <span aria-hidden className="size-1.5 rounded-full bg-app-red-4" />
+                </>
               ) : null}
               <ChevronRight
                 size={14}
