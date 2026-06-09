@@ -1,12 +1,10 @@
-import { useState } from "react";
 import { AppCard } from "~/components/ui/v2";
+import { useFeatureFlags } from "~/lib/replicache/use-feature-flags";
 import { AgentRow } from "./agent-row";
 import { BACKGROUND_AGENTS } from "./helpers";
 
 export function FeaturesSection() {
-  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(BACKGROUND_AGENTS.map((a) => [a.id, a.defaultOn])),
-  );
+  const { isOn, setFlag } = useFeatureFlags();
 
   return (
     <AppCard padded={false}>
@@ -21,8 +19,12 @@ export function FeaturesSection() {
           <AgentRow
             key={agent.id}
             agent={agent}
-            checked={enabled[agent.id] ?? false}
-            onChange={(next) => setEnabled((prev) => ({ ...prev, [agent.id]: next }))}
+            checked={agent.prefKey ? isOn(agent.prefKey) : false}
+            disabled={agent.comingSoon ?? !agent.prefKey}
+            comingSoon={agent.comingSoon}
+            onChange={(next) => {
+              if (agent.prefKey) void setFlag(agent.prefKey, next);
+            }}
           />
         ))}
       </div>

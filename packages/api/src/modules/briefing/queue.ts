@@ -4,6 +4,7 @@ import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
+import { resolveFeatureFlags } from "../features/flags";
 import {
   localDateInTimezone,
   localHourInTimezone,
@@ -115,13 +116,22 @@ async function handleTick(): Promise<TickResult> {
 
   for (const u of users) {
     try {
-      const prefs = await resolveBriefingPreferences(u.id);
+      const [prefs, flags] = await Promise.all([
+        resolveBriefingPreferences(u.id),
+        resolveFeatureFlags(u.id),
+      ]);
       const localHour = localHourInTimezone(prefs.timezone, now);
       const briefingDate = localDateInTimezone(prefs.timezone, now);
-      const slots: Array<{ slot: BriefingSlot; hour: number }> = [
-        { slot: "morning", hour: prefs.deliveryHour },
-        { slot: "evening", hour: prefs.eveningHour },
+      // Each slot is its own background-agent toggle (Settings → Features).
+      // A disabled slot is dropped here, not at compose-time, so a switched-off
+      // briefing never creates a run. UNSET defaults to ON (see resolveFeatureFlags).
+      const allSlots: Array<{ slot: BriefingSlot; hour: number; enabled: boolean }> = [
+        { slot: "morning", hour: prefs.deliveryHour, enabled: flags.morningBriefing },
+        { slot: "evening", hour: prefs.eveningHour, enabled: flags.eveningRecap },
       ];
+      const slots = allSlots.filter((s) => s.enabled);
+      // Slots the user switched off count as skipped for the tick metric.
+      skipped += allSlots.length - slots.length;
       const matchingSlots = slots.filter((s) => localHour === s.hour);
       if (matchingSlots.length === 0) {
         skipped += slots.length;
