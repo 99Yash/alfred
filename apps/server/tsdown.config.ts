@@ -1,10 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  // Second entry is a one-off prod backfill (2026-06-09). Bundled here so it
-  // runs on prod with plain `node dist/scripts/backfill-triage-committed.js` —
-  // the image has no `tsx`/loose `@alfred/*` sources. Remove after the run.
-  entry: ["./src/index.ts", "./src/scripts/backfill-triage-committed.ts"],
+  entry: "./src/index.ts",
   format: "esm",
   outDir: "./dist",
   clean: true,
