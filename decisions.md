@@ -3207,6 +3207,14 @@ Building the context-rich classifier (plan Phase 3) forced the three Open items 
 
 Both are validated by the same **dry-run backfill** (ADR-0050 amendment): read-only re-classification of historical email, diffed before any live prompt swap or re-tag/re-suggest write.
 
+**Amendment (2026-06-10) — self-initiated auth mail demoted `action_needed` → `fyi` (rule 15).**
+
+Self-initiated authentication mail — sign-in/magic links, one-time login codes, and email-verification the user *just requested* — was classified `action_needed` (the v3 resting place after rule 15 demoted it from the pre-v3 `urgent` floor bug). Production showed that was still the wrong home. The rubric contradicted itself: rule 16c already calls this exact class "self-resolving / nothing to remember" (→ no todo), yet the category put it in `action_needed`, the bucket the user scans for *real* tasks. The user initiated the flow and is already mid-flow; the link expires harmlessly and the action is moot by the time triage runs and reconciles the Gmail label. So it is passive awareness — `fyi` — not an open action. Rule 15, its category-definition lines, and the worked examples now say `fyi`; rule 16c (no todo) is unchanged.
+
+This **supersedes the "(correctly `action_needed`)" characterization** of the "Sign in to Anthropic" example in ADR-0050's 2026-06-08 todo amendment — that example's *todo* verdict (no todo, via memorability) still holds and still illustrates category-vs-todo orthogonality; only its category label changes to `fyi`.
+
+**Safety rests on §3's under-classification net, not on the category alone.** `fyi` is a passive category, so a security-keyword body filed there now trips `detectConflict`'s under-classification net (§3a) → one second pass with the self-initiated-auth carve-out spelled out. A genuinely *unsolicited* security alert mis-judged as auth therefore can't silently rot in `fyi` — it gets re-checked, and unsolicited alerts still resolve to `urgent` (rule 15's reserve clause, unchanged). Bare "sign in"/"login" don't match `hasSecurityKeyword` (it keys on secret-nouns / `suspicious|unauthorized` prefixes), so clean magic links stay single-pass. No change to `detectConflict` or the override floor — the net firing here is the intended context re-check, not a regression.
+
 ---
 
 ## ADR-0052 — GitHub loop reconciliation: API-native produce + reconcile of persisted todos, polling v1, GitHub App webhooks deferred
