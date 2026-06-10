@@ -298,7 +298,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
       id: "send",
       async run(ctx) {
         const { composed, briefingId, briefingDate, untilIngestedAt } = ctx.state;
-        if (!composed || !briefingId || !briefingDate) {
+        if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
           throw new Error("[daily-briefing] send entered without composed output");
         }
 
@@ -373,7 +373,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         await markBriefingSent({
           briefingId,
           emailSendId: result.emailSendId,
-          watermarkAt: new Date(untilIngestedAt ?? new Date().toISOString()),
+          watermarkAt: new Date(untilIngestedAt),
           gateReason,
         });
 

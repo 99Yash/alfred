@@ -2,10 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 
 /**
- * Most recent composed briefing for the signed-in user. Drives the rail
- * footer CTA: when null, the CTA reads "Morning briefing · No briefing
- * yet"; when present, the CTA labels itself with the briefing's slot +
- * local-date.
+ * Most recent same-day briefing row for the signed-in user. Sent/suppressed
+ * rows drive the rail footer CTA; failed rows are still returned so a manual
+ * run can stop polling and clear its "Composing…" state.
  *
  * Errors collapse to `null` so the footer can fall back to its empty
  * state without exploding the rail.
@@ -30,8 +29,8 @@ export function useLatestBriefing(opts?: { poll?: boolean }) {
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
-    // While an on-demand briefing is composing, poll so the chip flips from
-    // "Composing…" to the live briefing as soon as the terminal row lands.
+    // While an on-demand briefing is composing, poll so the chip flips to the
+    // live briefing or clears itself if the run fails.
     refetchInterval: opts?.poll ? 10_000 : false,
   });
 }
