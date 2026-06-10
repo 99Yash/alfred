@@ -1,0 +1,87 @@
+# Custom Caddyfile for the `web` service's static deploy.
+#
+# Railpack serves the Vite build with Caddy and generates a default Caddyfile,
+# but that default emits NO Cache-Control headers. The result on prod:
+#   - hashed /assets/* chunks get re-validated on every reload (~45 round-trips
+#     to the edge), so reloads feel slow; and
+#   - index.html can be heuristically cached by the browser, so after a deploy
+#     it points at chunk hashes that no longer exist -> 404 -> white screen.
+#
+# Railpack uses our Caddyfile verbatim when one exists at the build-context root
+# (the repo root — the `web` service builds with `turbo run build --filter=web`
+# from here). This file is the stock Railpack node template plus three cache
+# rules. Keep it in sync with upstream if Railpack's template changes:
+#   https://github.com/railwayapp/railpack/blob/main/core/providers/node/Caddyfile.template
+
+# global options
+{
+	admin off
+	persist_config off
+	auto_https off
+
+	log {
+		format json
+	}
+
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8 # trust railway's proxy
+	}
+}
+
+# site block, listens on the $PORT environment variable, automatically assigned by railway
+:{$PORT:80} {
+	log {
+		format json
+	}
+
+	respond /health 200
+
+	# Security headers (every response)
+	header {
+		# Prevent some browsers from MIME-sniffing a response away from the declared Content-Type
+		X-Content-Type-Options "nosniff"
+		# Remove Server header
+		-Server
+	}
+
+	# Vite emits content-hashed filenames under /assets (e.g. index-o6_ZGOXw.js):
+	# the hash changes whenever the bytes change, so the URL is immutable and safe
+	# to cache forever. This is what lets repeat visits and reloads skip the
+	# network entirely instead of re-validating every chunk.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# Fonts / images / icons have stable (non-hashed) names, so we can't pin them
+	# forever — but a week of caching with revalidation kills the per-load
+	# round-trip without risking long-term staleness.
+	@static path /fonts/* /images/* /favicon.ico /site.webmanifest
+	header @static Cache-Control "public, max-age=604800"
+
+	# index.html (and every SPA route that falls back to it) must NEVER be cached:
+	# each load has to re-read it to discover the current release's chunk hashes.
+	# `no-cache` still allows cheap ETag 304s — it just forces revalidation, so a
+	# browser can never serve stale HTML that references deleted chunks.
+	@html {
+		not path /assets/* /fonts/* /images/* /favicon.ico /site.webmanifest
+	}
+	header @html Cache-Control "no-cache"
+
+	# serve from the 'dist' folder (Vite builds into the 'dist' folder).
+	# Absolute path confirmed from the build log: `copy /app/apps/web/dist`.
+	root * /app/apps/web/dist
+
+	# Handle static files
+	file_server {
+		hide .git
+		hide .env*
+	}
+
+	# Compression with more formats
+	encode {
+		gzip
+		zstd
+	}
+
+	# Try files with HTML extension and handle SPA routing
+	try_files {path} {path}.html {path}/index.html /index.html
+}
