@@ -1107,7 +1107,7 @@ function useUserRow() {
     try {
       await authClient.signOut();
     } catch (err) {
-      console.error("Sign out failed", err);
+      console.error("Sign out failed", err instanceof Error ? err.message : String(err));
     } finally {
       await navigate({ to: "/login" });
       setSigningOut(false);
