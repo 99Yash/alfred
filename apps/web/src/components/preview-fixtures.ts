@@ -7,7 +7,7 @@
  * the demo loud and the prod surfaces honest.
  */
 
-export type PreviewThreadGroup = "today" | "yesterday" | "earlier";
+export type PreviewThreadGroup = "pinned" | "today" | "yesterday" | "earlier";
 
 export interface PreviewThreadEntry {
   id: string;
@@ -17,8 +17,8 @@ export interface PreviewThreadEntry {
 }
 
 export const PREVIEW_CHAT_THREADS: Record<PreviewThreadGroup, PreviewThreadEntry[]> = {
+  pinned: [{ id: "morning-brief", title: "Morning briefing — Friday", pinned: true }],
   today: [
-    { id: "morning-brief", title: "Morning briefing — Friday", pinned: true },
     { id: "sycamore-recap", title: "Sycamore investor update" },
     { id: "calendar-block", title: "Block focus time tomorrow", unread: true },
   ],

@@ -175,7 +175,7 @@ export function QuickAccessRail() {
           </div>
         </header>
 
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar pb-1">
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar scroll-stable pb-1">
           {mode === "tasks" ? (
             <TasksPanel
               todos={todos}

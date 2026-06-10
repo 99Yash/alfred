@@ -34,6 +34,12 @@ import {
   chatMessageCreateClient,
   chatThreadCreateArgsSchema,
   chatThreadCreateClient,
+  chatThreadDeleteArgsSchema,
+  chatThreadDeleteClient,
+  chatThreadRenameArgsSchema,
+  chatThreadRenameClient,
+  chatThreadSetPinnedArgsSchema,
+  chatThreadSetPinnedClient,
 } from "./chat";
 import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
@@ -69,6 +75,9 @@ export const clientMutators = {
   todoEdit: todoEditClient,
   chatThreadCreate: chatThreadCreateClient,
   chatMessageCreate: chatMessageCreateClient,
+  chatThreadRename: chatThreadRenameClient,
+  chatThreadSetPinned: chatThreadSetPinnedClient,
+  chatThreadDelete: chatThreadDeleteClient,
   triageTagOverride: triageTagOverrideClient,
 };
 
@@ -97,5 +106,8 @@ export const mutatorArgsSchemas = {
   todoEdit: todoEditArgsSchema,
   chatThreadCreate: chatThreadCreateArgsSchema,
   chatMessageCreate: chatMessageCreateArgsSchema,
+  chatThreadRename: chatThreadRenameArgsSchema,
+  chatThreadSetPinned: chatThreadSetPinnedArgsSchema,
+  chatThreadDelete: chatThreadDeleteArgsSchema,
   triageTagOverride: triageTagOverrideArgsSchema,
 };

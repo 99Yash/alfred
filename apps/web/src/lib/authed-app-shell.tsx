@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import type { SyncedChatThread } from "@alfred/sync";
-import { AppSidebar } from "~/components/app-sidebar";
+import { AppSidebar, type SidebarThreadActions } from "~/components/app-sidebar";
 import {
   PREVIEW_APPROVALS_BADGE,
   PREVIEW_CHAT_THREADS,
@@ -14,6 +15,7 @@ import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { SearchPalette } from "~/components/search-palette";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
+import { useReplicache } from "~/lib/replicache/context";
 import { useChatThreads } from "~/lib/replicache/use-chat";
 import { cn } from "~/lib/utils";
 
@@ -26,6 +28,7 @@ interface AuthedAppShellProps {
   activeThread: string;
   sidebarOpen: boolean;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
+  sidebarMode: "inline" | "overlay";
 }
 
 export default function AuthedAppShell({
@@ -37,14 +40,17 @@ export default function AuthedAppShell({
   activeThread,
   sidebarOpen,
   setSidebarOpen,
+  sidebarMode,
 }: AuthedAppShellProps) {
   // Single per-session SSE connection that drives React Query invalidations
   // (inbox.updated -> ["me","inbox"]). Mounted in the authenticated shell so
   // public routes do not import the event or sync graph.
   useEventBridge();
+  const navigate = useNavigate();
 
   // Live chat threads (Replicache-synced), grouped by recency for the sidebar
   // and flattened into "Recent chats" rows for the ⌘K palette.
+  const rep = useReplicache();
   const chatThreads = useChatThreads();
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
   const realRecentThreads = useMemo(() => recentThreadsForPalette(chatThreads), [chatThreads]);
@@ -58,6 +64,22 @@ export default function AuthedAppShell({
   const sidebarApprovalsBadge = isPreviewRoute ? PREVIEW_APPROVALS_BADGE : undefined;
   const paletteRecentThreads = isPreviewRoute ? PREVIEW_RECENT_THREADS : realRecentThreads;
 
+  /* Rename / pin / delete run as Replicache mutators (optimistic patch, then
+   * the next pull confirms). Wired only on real routes — preview rows are
+   * inert demo ids that no mutator should touch. Deleting the open thread
+   * bounces back to a fresh /chat. */
+  const threadActions = useMemo<SidebarThreadActions | undefined>(() => {
+    if (isPreviewRoute || !rep) return undefined;
+    return {
+      rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
+      setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
+      remove: (id) => {
+        void rep.mutate.chatThreadDelete({ id });
+        if (activeThread === id) void navigate({ to: "/chat" });
+      },
+    };
+  }, [isPreviewRoute, rep, activeThread, navigate]);
+
   return (
     <AppThemed className="min-h-dvh bg-app-background-subtle">
       <div className="relative flex h-dvh w-full gap-1.5 overflow-hidden p-1.5">
@@ -65,8 +87,10 @@ export default function AuthedAppShell({
           onOpenSearch={() => setPaletteOpen(true)}
           activeThread={activeThread}
           threads={sidebarThreads}
+          threadActions={threadActions}
           approvalsBadge={sidebarApprovalsBadge}
           open={sidebarOpen}
+          mode={sidebarMode}
           onCollapse={() => setSidebarOpen(false)}
         />
         <main className="flex flex-1 min-w-0 relative gap-1.5">
@@ -99,16 +123,19 @@ export default function AuthedAppShell({
 }
 
 /**
- * Bucket synced chat threads into the sidebar's Today / Yesterday / Earlier
- * groups by last activity (falling back to creation time for a thread that
- * has no messages yet). `useChatThreads` already sorts newest-first, so each
- * bucket preserves that order. Empty buckets render nothing (the group block
- * skips itself), so a user with no threads gets a clean sidebar.
+ * Bucket synced chat threads into the sidebar's Pinned / Today / Yesterday /
+ * Earlier groups. Pinned threads float into their own group regardless of age;
+ * the rest fall into date buckets by last activity (falling back to creation
+ * time for a thread with no messages yet). `useChatThreads` already sorts
+ * newest-first, so each bucket preserves that order. Empty buckets render
+ * nothing (the group block skips itself), so a user with no threads gets a
+ * clean sidebar.
  */
 function groupChatThreads(
   threads: ReadonlyArray<SyncedChatThread>,
 ): Record<PreviewThreadGroup, PreviewThreadEntry[]> {
   const groups: Record<PreviewThreadGroup, PreviewThreadEntry[]> = {
+    pinned: [],
     today: [],
     yesterday: [],
     earlier: [],
@@ -119,12 +146,17 @@ function groupChatThreads(
   startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
   for (const thread of threads) {
-    const when = thread.lastMessageAt ?? thread.createdAt;
-    const ts = new Date(when).getTime();
     const entry: PreviewThreadEntry = {
       id: thread.id,
       title: thread.title?.trim() || "New chat",
+      pinned: thread.pinned,
     };
+    if (thread.pinned) {
+      groups.pinned.push(entry);
+      continue;
+    }
+    const when = thread.lastMessageAt ?? thread.createdAt;
+    const ts = new Date(when).getTime();
     if (Number.isNaN(ts) || ts >= startOfToday.getTime()) groups.today.push(entry);
     else if (ts >= startOfYesterday.getTime()) groups.yesterday.push(entry);
     else groups.earlier.push(entry);

@@ -48,7 +48,7 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
   return (
     <div
       className={cn(
-        "flex-1 min-w-0 overflow-y-auto transition-opacity",
+        "flex-1 min-w-0 overflow-y-auto scroll-stable transition-opacity",
         dimmed && "pointer-events-none select-none opacity-35",
       )}
     >

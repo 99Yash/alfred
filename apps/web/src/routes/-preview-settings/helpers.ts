@@ -1,8 +1,6 @@
 import {
-  BadgeDollarSign,
   Gift,
   ListChecks,
-  PackageCheck,
   PencilLine,
   Sliders,
   Sparkles,
@@ -15,7 +13,7 @@ import {
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
 import type { ComponentType } from "react";
 
-export type SectionId = "user" | "billing" | "plan" | "features" | "preferences" | "referrals";
+export type SectionId = "user" | "features" | "preferences" | "referrals";
 
 export interface SectionDef {
   id: SectionId;
@@ -25,8 +23,6 @@ export interface SectionDef {
 
 export const SECTIONS: ReadonlyArray<SectionDef> = [
   { id: "user", label: "User", icon: User },
-  { id: "billing", label: "Billing", icon: BadgeDollarSign },
-  { id: "plan", label: "Plan", icon: PackageCheck },
   { id: "features", label: "Features", icon: Sparkles },
   { id: "preferences", label: "Preferences", icon: Sliders },
   { id: "referrals", label: "Referrals", icon: Gift },
