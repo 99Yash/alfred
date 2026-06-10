@@ -88,10 +88,10 @@ describe("applyOverrideFloor", () => {
 
   test("does NOT trip on a self-initiated magic link (auth vocab, no exposure verb)", () => {
     const r = applyOverrideFloor(
-      classification({ category: "action_needed" }),
+      classification({ category: "fyi" }),
       "sign in to anthropic — your login code is 123456. verify your email address.",
     );
-    assert.equal(r.classification.category, "action_needed");
+    assert.equal(r.classification.category, "fyi");
     assert.equal(r.forced, false);
   });
 
@@ -260,8 +260,11 @@ describe("classifyEmail", () => {
     assert.match(result.model, /\+floor$/);
   });
 
-  test("acceptance: self-initiated magic link stays action_needed (floor never trips)", async () => {
-    const model = scriptedModel(classification({ category: "action_needed", confidence: 0.9 }));
+  test("acceptance: self-initiated magic link is fyi, single pass (rule 15)", async () => {
+    // Clean auth text trips neither the override floor (no exposure verb) nor the
+    // under-classification net (no security keyword), so fyi — a passive category —
+    // survives without a second pass.
+    const model = scriptedModel(classification({ category: "fyi", confidence: 0.9 }));
     const result = await classifyEmail(
       args({
         document: {
@@ -274,7 +277,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
-    assert.equal(result.classification.category, "action_needed");
+    assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floorForced, false);
     assert.equal(result.audit.conflict, null);
     assert.equal(model.calls(), 1); // no second pass
