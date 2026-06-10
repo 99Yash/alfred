@@ -1246,18 +1246,41 @@ function useRailData(): RailData {
   const meetings = useMeetings();
   // On-demand briefing: `composing` drives the footer's "Composing…" state
   // and turns on polling so the chip flips to the live briefing when the run
-  // lands. The latest endpoint is today-scoped, so any non-null result is the
-  // fresh row — that's our signal to stop.
+  // lands. The latest endpoint also reports failed rows, so failure clears
+  // the spinner instead of stranding the CTA.
   const [composing, setComposing] = useState(false);
   const briefing = useLatestBriefing({ poll: composing });
   const runBriefing = useRunBriefing();
+  const briefingStatus = briefing.data?.status;
   useEffect(() => {
-    if (composing && briefing.data) setComposing(false);
-  }, [composing, briefing.data]);
+    if (!composing) return;
+    if (
+      briefingStatus === "sent" ||
+      briefingStatus === "suppressed" ||
+      briefingStatus === "failed"
+    ) {
+      setComposing(false);
+      if (briefingStatus === "failed") {
+        callToast({
+          message: "Briefing failed",
+          description: "The run stopped before it could send. You can try again.",
+          type: "danger",
+        });
+      }
+    }
+  }, [composing, briefingStatus]);
   const onGenerateBriefing = useCallback(() => {
     runBriefing.mutate(undefined, {
       onSuccess: (data) => {
         if (data.status === "queued" || data.status === "running") setComposing(true);
+      },
+      onError: (error) => {
+        setComposing(false);
+        callToast({
+          message: "Briefing did not start",
+          description: error.message,
+          type: "danger",
+        });
       },
     });
   }, [runBriefing]);
@@ -1367,6 +1390,8 @@ function useRailData(): RailData {
 
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
+  const latestBriefing =
+    briefingData?.status === "sent" || briefingData?.status === "suppressed" ? briefingData : null;
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
@@ -1394,7 +1419,7 @@ function useRailData(): RailData {
       onOverrideTriageTag,
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
-      latestBriefing: briefingData ?? null,
+      latestBriefing,
       onGenerateBriefing,
       briefingPending: composing || runBriefing.isPending,
     }),
@@ -1420,7 +1445,7 @@ function useRailData(): RailData {
       tagsByThreadId,
       onOverrideTriageTag,
       meetingsData,
-      briefingData,
+      latestBriefing,
       onGenerateBriefing,
       composing,
       runBriefing.isPending,

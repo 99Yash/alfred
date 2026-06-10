@@ -27,6 +27,7 @@ import {
 } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import { createCacheRedisConnection } from "../../queue/connection";
 import {
   isValidTimezone,
   localDateInTimezone,
@@ -51,6 +52,38 @@ import { sanitizeEmailHtml } from "./email-html";
 
 const INBOX_DEFAULT_LIMIT = 8;
 const INBOX_MAX_LIMIT = 50;
+const BRIEFING_RUN_THROTTLE_SECONDS = 60;
+let briefingRunThrottleRedis: ReturnType<typeof createCacheRedisConnection> | undefined;
+
+function getBriefingRunThrottleRedis(): ReturnType<typeof createCacheRedisConnection> {
+  briefingRunThrottleRedis ??= createCacheRedisConnection();
+  return briefingRunThrottleRedis;
+}
+
+async function claimBriefingRunRetry(args: {
+  userId: string;
+  briefingDate: string;
+  slot: BriefingSlot;
+}): Promise<boolean> {
+  try {
+    const key = `rate:briefings:run:${args.userId}:${args.briefingDate}:${args.slot}`;
+    const claimed = await getBriefingRunThrottleRedis().set(
+      key,
+      "1",
+      "EX",
+      BRIEFING_RUN_THROTTLE_SECONDS,
+      "NX",
+    );
+    return claimed === "OK";
+  } catch (err) {
+    console.warn(
+      "[me:briefings] run throttle unavailable:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return true;
+  }
+}
+
 export interface MeInboxItem {
   documentId: string;
   /**
@@ -864,13 +897,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               status: briefings.status,
             })
             .from(briefings)
-            .where(
-              and(
-                eq(briefings.userId, u.id),
-                eq(briefings.briefingDate, today),
-                inArray(briefings.status, ["sent", "suppressed"]),
-              ),
-            )
+            .where(and(eq(briefings.userId, u.id), eq(briefings.briefingDate, today)))
             .orderBy(desc(briefings.createdAt))
             .limit(1);
           const row = rows[0];
@@ -894,52 +921,58 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           };
         },
       )
-      .post(
-        "/briefings/run",
-        async ({
-          user: u,
-        }): Promise<{ status: "queued" | "running" | "exists"; slot: BriefingSlot; runId?: string }> => {
-          // On-demand briefing trigger for the rail "Generate briefing"
-          // button. `reason: "manual"` bypasses morning suppression, so the
-          // requested slot always sends. Slot follows the time of day: after
-          // the user's evening hour we compose the evening recap, else morning.
-          const prefs = await resolveBriefingPreferences(u.id);
-          const briefingDate = localDateInTimezone(prefs.timezone);
-          const slot: BriefingSlot =
-            localHourInTimezone(prefs.timezone) >= prefs.eveningHour ? "evening" : "morning";
+      .post("/briefings/run", async ({ user: u }) => {
+        // On-demand briefing trigger for the rail "Generate briefing"
+        // button. `reason: "manual"` bypasses morning suppression, so the
+        // requested slot always sends. Slot follows the time of day: after
+        // the user's evening hour we compose the evening recap, else morning.
+        const prefs = await resolveBriefingPreferences(u.id);
+        const briefingDate = localDateInTimezone(prefs.timezone);
+        const slot: BriefingSlot =
+          localHourInTimezone(prefs.timezone) >= prefs.eveningHour ? "evening" : "morning";
 
-          // Don't spin up a second agent run if today's slot is already
-          // terminal (done) or genuinely in flight. `composed` (compose
-          // finished, send interrupted) and `failed` fall through to
-          // re-enqueue — `beginBriefing` resumes/retries them to a terminal.
-          const existing = await db()
-            .select({ id: briefings.id, status: briefings.status })
-            .from(briefings)
-            .where(
-              and(
-                eq(briefings.userId, u.id),
-                eq(briefings.briefingDate, briefingDate),
-                eq(briefings.slot, slot),
-              ),
-            )
-            .limit(1);
-          const row = existing[0];
-          if (row) {
-            if (row.status === "sent" || row.status === "suppressed") {
-              return { status: "exists", slot };
-            }
-            if (row.status === "pending" || row.status === "gathering" || row.status === "composing") {
-              return { status: "running", slot };
-            }
+        // Don't spin up a second agent run if today's slot is already
+        // terminal (done) or genuinely in flight. `composed` (compose
+        // finished, send interrupted) and `failed` fall through to
+        // re-enqueue — `beginBriefing` resumes/retries them to a terminal.
+        const existing = await db()
+          .select({ id: briefings.id, status: briefings.status })
+          .from(briefings)
+          .where(
+            and(
+              eq(briefings.userId, u.id),
+              eq(briefings.briefingDate, briefingDate),
+              eq(briefings.slot, slot),
+            ),
+          )
+          .limit(1);
+        const row = existing[0];
+        if (row) {
+          if (row.status === "sent" || row.status === "suppressed") {
+            return { status: "exists", slot };
           }
+          if (
+            row.status === "pending" ||
+            row.status === "gathering" ||
+            row.status === "composing"
+          ) {
+            return { status: "running", slot };
+          }
+        }
 
-          const { runId } = await enqueueBriefingRun({
-            userId: u.id,
-            slot,
-            briefingDate,
-            reason: "manual",
+        const claimed = await claimBriefingRunRetry({ userId: u.id, briefingDate, slot });
+        if (!claimed) {
+          return status(429, {
+            message: "Briefing generation is already retrying. Try again in a minute.",
           });
-          return { status: "queued", slot, runId };
-        },
-      ),
+        }
+
+        const { runId } = await enqueueBriefingRun({
+          userId: u.id,
+          slot,
+          briefingDate,
+          reason: "manual",
+        });
+        return { status: "queued", slot, runId };
+      }),
   );
