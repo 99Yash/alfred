@@ -45,8 +45,11 @@ import { registerBuiltinWorkflows } from "../builtins";
 
 /** Mailboxes to backfill. */
 const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
-/** "50 ish emails each" — newest doc per thread, most-recent N threads. */
-const RECENT_THREAD_LIMIT = 50;
+/**
+ * Newest doc per thread, most-recent N threads. Defaults to 50; override with
+ * `BACKFILL_RECENT_LIMIT` (e.g. the 2026-06-10 re-run scoped to 100 each).
+ */
+const RECENT_THREAD_LIMIT = Number(process.env.BACKFILL_RECENT_LIMIT) || 50;
 const RECENT_DOCUMENT_SCAN_LIMIT = RECENT_THREAD_LIMIT * 4;
 
 const COMMIT = process.argv.includes("--commit");

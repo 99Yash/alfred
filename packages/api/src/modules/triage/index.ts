@@ -12,6 +12,7 @@ export {
   detectConflict,
   applyOverrideFloor,
   resolveTodoSuggestion,
+  todoSuppressionReason,
   triageClassificationSchema,
   DEFAULT_TRIAGE_CATEGORY,
 } from "./classify";
@@ -21,6 +22,7 @@ export type {
   TriageConflict,
   ClassifyAudit,
   ResolvedTodoSuggestion,
+  TodoSuppressionReason,
   RunPass,
 } from "./classify";
 // NOTE: `deepen.ts` is dormant — ADR-0051 removed the boss-escalation from the
