@@ -262,7 +262,7 @@ Rules:
     16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
     16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
     16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
-    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due tomorrow", "before Jun 30", "renews Jul 1 — keep or cancel". NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due Jun 11", "before Jun 30", "renews Jul 1 — keep or cancel". Always write a date as an ABSOLUTE calendar date ("Jun 11", "Jul 1") — NEVER a relative word like "tomorrow", "tonight", "today", or "next Friday". A rail todo persists for days, so "due tomorrow" is a lie the moment it goes stale; resolve any relative phrasing in the email against the email's Date shown above and write the actual date. NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
     16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 
 Examples (subject → category):
@@ -506,19 +506,73 @@ const ASSIST_URL_RE = /https?:\/\//i;
 const ASSIST_AMOUNT_RE =
   /[₹$€£¥]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|gbp|inr|rs\.?|rupees?|dollars?)\b/i;
 const ASSIST_DATE_RE =
-  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:today|tomorrow|tonight)\b/i;
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b/i;
 /** A real hard-fact fragment is short; longer means the model wrote a sentence. */
 const ASSIST_MAX_LEN = 40;
 
+// A rail todo persists for days, so a relative date word ("due tomorrow") reads
+// as a lie the moment it goes stale — the absolute calendar date is always the
+// better fact. The prompt tells the cheap model to resolve relative phrasing
+// against the email's send date, but it won't reliably comply, so we enforce it
+// here against the same anchor. `tonight`/`today` map to the send day; offsets
+// are in days. Anything we can't resolve to a date is dropped (see below).
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
+  [/\btomorrow\b/gi, 1],
+  [/\byesterday\b/gi, -1],
+  [/\b(?:today|tonight)\b/gi, 0],
+];
+// Relative phrasing we can't pin to a single calendar day ("next Friday", "in 3
+// days"). Left in place these go stale, so an assist that still contains one
+// after resolution is dropped rather than shown.
+const RESIDUAL_RELATIVE_RE =
+  /\b(?:next|this|last)\s+(?:week|month|year|mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\bin\s+\d+\s+(?:day|week|month)s?\b|\b(?:today|tonight|tomorrow|yesterday)\b/i;
+
+/** Format a UTC date as a terse "Jun 11" fragment. PURE. */
+function formatAssistDate(d: Date): string {
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
 /**
- * Keep `assist` only when it reads as a hard fact (an amount or a date) and is
- * short enough to be a fragment, never a URL. Returns `undefined` otherwise so
+ * Rewrite relative date words in an assist fragment to an absolute calendar date
+ * anchored on the email's send time. Without an anchor the word can't be
+ * resolved, so it's stripped — a stale relative date is worse than none. PURE.
+ */
+function resolveRelativeDates(text: string, anchor: Date | null): string {
+  let out = text;
+  for (const [re, offset] of RELATIVE_DAY_OFFSETS) {
+    const replacement = anchor
+      ? formatAssistDate(new Date(anchor.getTime() + offset * 86_400_000))
+      : "";
+    out = out.replace(re, replacement);
+  }
+  // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
+  let cleaned = out.replace(/\s{2,}/g, " ").trim();
+  let previous: string;
+  do {
+    previous = cleaned;
+    cleaned = cleaned.replace(/\s*(?:·|,|—|-|\bdue\b|\bby\b)\s*$/gi, "").trim();
+  } while (cleaned !== previous);
+  return cleaned;
+}
+
+/**
+ * Keep `assist` only when it reads as a hard fact (an amount or an absolute date)
+ * and is short enough to be a fragment, never a URL. Relative date words are
+ * first resolved to an absolute date against `anchor` (the email's send time);
+ * anything still relative afterward is dropped. Returns `undefined` otherwise so
  * the row renders title-only. PURE.
  */
-export function sanitizeAssist(assist: string | null | undefined): string | undefined {
-  const text = assist?.trim();
+export function sanitizeAssist(
+  assist: string | null | undefined,
+  anchor: Date | null = null,
+): string | undefined {
+  const trimmed = assist?.trim();
+  if (!trimmed) return undefined;
+  const text = resolveRelativeDates(trimmed, anchor);
   if (!text || text.length > ASSIST_MAX_LEN) return undefined;
   if (ASSIST_URL_RE.test(text)) return undefined;
+  if (RESIDUAL_RELATIVE_RE.test(text)) return undefined;
   if (!ASSIST_AMOUNT_RE.test(text) && !ASSIST_DATE_RE.test(text)) return undefined;
   return text;
 }
@@ -535,12 +589,14 @@ export function sanitizeAssist(assist: string | null | undefined): string | unde
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
+  emailAuthoredAt: Date | null = null,
 ): ResolvedTodoSuggestion | null {
   const suggestion = classification.todoSuggestion ?? null;
   if (!suggestion) return null;
   if (classification.todoDecision?.outcome !== "proposed") return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
-  return { name: suggestion.name, assist: sanitizeAssist(suggestion.assist) };
+  const assist = sanitizeAssist(suggestion.assist, emailAuthoredAt);
+  return assist ? { name: suggestion.name, assist } : { name: suggestion.name };
 }
 
 /** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */

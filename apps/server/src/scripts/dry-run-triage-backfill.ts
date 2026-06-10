@@ -164,7 +164,7 @@ async function main() {
     // Mirror production: the rail only mints what `resolveTodoSuggestion` keeps
     // (proposed outcome + todo-eligible category) AND survives the structural
     // suppressor (GitHub PR-review thread / Alfred's own approval mail).
-    const resolved = resolveTodoSuggestion(classification);
+    const resolved = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
     const suppression = resolved
       ? todoSuppressionReason({
           sender: metaStr(ctxData.document.metadata, "from"),
