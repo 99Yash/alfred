@@ -29,6 +29,13 @@ const RISK_DOT: Record<ToolRiskTier, string> = {
   no_risk: "bg-app-fg-2",
 };
 
+const CLEAR_FILTERS_LEADING = <X size={14} />;
+
+async function decideApproval(stagingId: string, decision: ApprovalDecision) {
+  const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
+  if (error) throw new Error(decisionErrorMessage(error.value));
+}
+
 interface Facet<T extends string> {
   value: T;
   label: string;
@@ -138,15 +145,10 @@ export function ApprovalsPage() {
     void navigate({ search: { integration: undefined, risk: undefined }, replace: true });
   };
 
-  const decide = async (stagingId: string, decision: ApprovalDecision) => {
-    const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
-    if (error) throw new Error(decisionErrorMessage(error.value));
-  };
-
   const windowed = filtered.slice(0, visible);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto">
+    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         <header className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -245,7 +247,12 @@ export function ApprovalsPage() {
             title="No approvals match these filters"
             body="Nothing in the queue matches the current filters."
             action={
-              <AppButton variant="white" size="sm" leading={<X size={14} />} onClick={clearFilters}>
+              <AppButton
+                variant="white"
+                size="sm"
+                leading={CLEAR_FILTERS_LEADING}
+                onClick={clearFilters}
+              >
                 Clear filters
               </AppButton>
             }
@@ -261,7 +268,7 @@ export function ApprovalsPage() {
               >
                 <ApprovalCard
                   staging={staging}
-                  onDecide={(decision) => decide(staging.id, decision)}
+                  onDecide={(decision) => decideApproval(staging.id, decision)}
                 />
               </div>
             ))}
