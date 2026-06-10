@@ -167,7 +167,11 @@ export function RailContent({
           </div>
         </div>
 
-        <RailFooter latestBriefing={data.latestBriefing ?? null} />
+        <RailFooter
+          latestBriefing={data.latestBriefing ?? null}
+          onGenerate={data.onGenerateBriefing}
+          pending={data.briefingPending ?? false}
+        />
       </div>
     </>
   );

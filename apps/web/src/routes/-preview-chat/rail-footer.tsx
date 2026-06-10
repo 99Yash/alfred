@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Loader2, Sparkles } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { RailBriefingSummary } from "./rail-data";
 
@@ -15,28 +15,59 @@ const CTA_CLASS = cn(
 );
 
 /**
- * Rail footer CTA (ADR-0049). Both variants link into the in-app briefing
- * surface:
+ * Rail footer CTA (ADR-0049). Three states:
  *
- *   - **Latest.** Shows the briefing's slot + when it ran ("Morning ·
- *     8:42 AM") and deep-links to that day's detail (`/briefings/{date}`).
- *   - **Empty.** No composed briefing yet — reads "Morning briefing" with a
- *     quiet secondary line and links to the briefings timeline so the rail's
- *     bottom anchor stays consistent.
+ *   - **Latest.** A composed briefing exists for today — shows its slot +
+ *     when it ran ("Evening · 8:42 AM") and deep-links to that day's detail
+ *     (`/briefings/{date}`).
+ *   - **Composing.** A manual run is queued/in flight — reads "Composing
+ *     briefing" with a spinner; disabled until the chip flips to Latest.
+ *   - **Empty.** No briefing today. With `onGenerate` (the live chat shell),
+ *     it's a "Generate briefing" button that triggers an on-demand run.
+ *     Without it (the preview route), it links to the briefings timeline so
+ *     the rail's bottom anchor stays consistent.
  */
-export function RailFooter({ latestBriefing }: { latestBriefing: RailBriefingSummary | null }) {
-  const secondary = latestBriefing ? formatBriefingSubtitle(latestBriefing) : "No briefing yet";
+export function RailFooter({
+  latestBriefing,
+  onGenerate,
+  pending = false,
+}: {
+  latestBriefing: RailBriefingSummary | null;
+  onGenerate?: () => void;
+  pending?: boolean;
+}) {
+  // Title tracks the latest briefing's slot ("Evening briefing"); the empty
+  // state offers to generate, the in-flight state reports progress.
+  const title = latestBriefing
+    ? `${capitalize(latestBriefing.slot)} briefing`
+    : pending
+      ? "Composing briefing"
+      : onGenerate
+        ? "Generate briefing"
+        : "Morning briefing";
+
+  const secondary = latestBriefing
+    ? formatBriefingSubtitle(latestBriefing)
+    : pending
+      ? "Working on it. This takes a minute."
+      : onGenerate
+        ? "Compose today's briefing now"
+        : "No briefing yet";
 
   const inner = (
     <>
       <span className="inline-flex min-w-0 items-center gap-2">
         <Sparkles size={13} aria-hidden className="shrink-0" />
         <span className="min-w-0 flex flex-col">
-          <span className="text-[13px] font-medium leading-tight truncate">Morning briefing</span>
+          <span className="text-[13px] font-medium leading-tight truncate">{title}</span>
           <span className="text-[11px] leading-tight opacity-80 truncate">{secondary}</span>
         </span>
       </span>
-      <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />
+      {pending ? (
+        <Loader2 size={14} aria-hidden className="shrink-0 opacity-90 animate-spin" />
+      ) : (
+        <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />
+      )}
     </>
   );
 
@@ -51,6 +82,16 @@ export function RailFooter({ latestBriefing }: { latestBriefing: RailBriefingSum
         >
           {inner}
         </Link>
+      ) : onGenerate ? (
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={pending}
+          aria-label={pending ? "Composing briefing" : "Generate today's briefing"}
+          className={cn(CTA_CLASS, pending && "opacity-80 cursor-default hover:brightness-100")}
+        >
+          {inner}
+        </button>
       ) : (
         <Link to="/briefings" aria-label="View briefings" className={CTA_CLASS}>
           {inner}

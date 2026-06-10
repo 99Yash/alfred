@@ -36,6 +36,7 @@ import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
+import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
@@ -1243,7 +1244,46 @@ function ComposerIcon({
 function useRailData(): RailData {
   const inbox = useInbox();
   const meetings = useMeetings();
-  const briefing = useLatestBriefing();
+  // On-demand briefing: `composing` drives the footer's "Composing…" state
+  // and turns on polling so the chip flips to the live briefing when the run
+  // lands. The latest endpoint also reports failed rows, so failure clears
+  // the spinner instead of stranding the CTA.
+  const [composing, setComposing] = useState(false);
+  const briefing = useLatestBriefing({ poll: composing });
+  const runBriefing = useRunBriefing();
+  const briefingStatus = briefing.data?.status;
+  useEffect(() => {
+    if (!composing) return;
+    if (
+      briefingStatus === "sent" ||
+      briefingStatus === "suppressed" ||
+      briefingStatus === "failed"
+    ) {
+      setComposing(false);
+      if (briefingStatus === "failed") {
+        callToast({
+          message: "Briefing failed",
+          description: "The run stopped before it could send. You can try again.",
+          type: "danger",
+        });
+      }
+    }
+  }, [composing, briefingStatus]);
+  const onGenerateBriefing = useCallback(() => {
+    runBriefing.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.status === "queued" || data.status === "running") setComposing(true);
+      },
+      onError: (error) => {
+        setComposing(false);
+        callToast({
+          message: "Briefing did not start",
+          description: error.message,
+          type: "danger",
+        });
+      },
+    });
+  }, [runBriefing]);
 
   // Live todos + Alfred's suggestions (ADR-0050), Replicache-synced.
   const {
@@ -1350,6 +1390,8 @@ function useRailData(): RailData {
 
   const meetingsData = meetings.data;
   const briefingData = briefing.data;
+  const latestBriefing =
+    briefingData?.status === "sent" || briefingData?.status === "suppressed" ? briefingData : null;
   return useMemo(
     () => ({
       ...EMPTY_RAIL_DATA,
@@ -1377,7 +1419,9 @@ function useRailData(): RailData {
       onOverrideTriageTag,
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
-      latestBriefing: briefingData ?? null,
+      latestBriefing,
+      onGenerateBriefing,
+      briefingPending: composing || runBriefing.isPending,
     }),
     [
       todoItems,
@@ -1401,7 +1445,10 @@ function useRailData(): RailData {
       tagsByThreadId,
       onOverrideTriageTag,
       meetingsData,
-      briefingData,
+      latestBriefing,
+      onGenerateBriefing,
+      composing,
+      runBriefing.isPending,
     ],
   );
 }

@@ -1,13 +1,21 @@
 import {
   DAILY_BRIEFING_WORKFLOW_SLUG,
+  beginBriefing,
   dailyBriefingWorkflowInputSchema,
   fetchLatestWatermark,
+  gatherBriefing,
   localDateInTimezone,
+  markBriefingComposed,
+  markBriefingComposing,
+  markBriefingFailed,
+  markBriefingGathering,
+  markBriefingSent,
+  markBriefingSuppressed,
   notify,
-  recordBriefingRun,
   resolveBriefingPreferences,
   type Workflow,
 } from "@alfred/api";
+import { assertIanaTimezone, type BriefingGather, type IanaTimezone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -17,48 +25,59 @@ import { z } from "zod";
 import { runBriefingAgent } from "../agents/briefing/agent";
 
 /**
- * Daily briefing workflow — LLM-composed, two slots ('morning' |
- * 'evening'), watermark-driven delta + prior-briefing memory. Replaces
- * the m10 deterministic morning-briefing once smoke validates against
- * Dimension's sample outputs.
+ * Daily briefing workflow — LLM-composed prose, two slots ('morning' |
+ * 'evening'), watermark-driven delta + prior-briefing memory (ADR-0048).
+ * The single live briefing path: it writes the canonical `briefings`
+ * table via the `store.ts` state machine, so the in-app surface
+ * (ADR-0049) and the rail chip reflect it.
  *
  * Steps:
- *   1. gather   — resolve tz + first name, freeze the watermark window
- *                 (since = last composed run's watermark for this slot;
- *                 until = now), persist briefing date.
- *   2. compose  — run the briefing agent with bounded tools; capture
- *                 the dump_briefing output.
- *   3. persist  — insert briefing_runs row at status='composed'. The
- *                 watermark is anchored on this row for future runs.
- *   4. send     — notify() with the slot-scoped briefing idempotency key
- *                 segmented by user + date + slot.
+ *   1. gather   — begin/resume the `briefings` row, freeze the watermark
+ *                 window (since = last consumed run's watermark for this
+ *                 slot; until = now), run the deterministic structured
+ *                 gather (cheap DB reads) for the suppression signal +
+ *                 surface payload, and persist it (`markBriefingGathering`).
+ *   2. compose  — quiet cron mornings suppress here *without* an LLM call.
+ *                 Otherwise run the briefing agent and persist the prose
+ *                 onto the row (`markBriefingComposed`).
+ *   3. send     — render markdown → email shell, `notify()` with the
+ *                 slot-scoped idempotency key, then `markBriefingSent`.
  *
- * Why persist before send: the agent's compose work is the expensive
- * piece. If notify() fails (Resend down), we don't lose the body — a
- * future smoke or settings-page resend can pick it back up from
- * briefing_runs without re-burning the LLM call.
+ * Content mapping (prose model → `briefings` schema): the agent emits a
+ * single markdown body, so `breaking_summary` ← `bodyMarkdown` (the
+ * column is unbounded `text`; the 2000-char cap lives only on the unused
+ * structured `briefingComposerSchema`) and `full_briefing` ←
+ * `{ headline: subject, sections: [] }`. The surface renders
+ * `breaking_summary` as markdown and treats `sections`/`sourcePanels` as
+ * optional detail (see `briefing-slot.tsx`).
  *
- * Why the idempotency key includes slot: the `email_sends` unique index
- * stays per user+key, while morning and evening are distinct sends for
- * the same local date.
+ * Suppression (ADR-0048): the morning slot is discretionary — a quiet
+ * cron morning suppresses; evening always sends; manual/forced runs
+ * (e.g. the rail "Generate briefing" button) bypass suppression. "Quiet"
+ * reuses the old gate's rule: no priority email, no integration activity,
+ * and no calendar events in the window.
  */
 
 const stateSchema = z.object({
   slot: z.enum(["morning", "evening"]),
   reason: z.enum(["cron", "manual", "forced"]),
   /**
-   * When true, persist briefing_runs as `status='dry_run'` and skip the
-   * Resend send. Watermark stays unconsumed so a later real run sees the
-   * same delta. Drives the smoke runner's `--no-send` flag.
+   * When true, skip the Resend send and don't write a terminal row. The
+   * watermark stays unconsumed so a later real run sees the same delta.
+   * Drives the smoke runner's `--no-send` flag.
    */
   dryRun: z.boolean().default(false),
   briefingDate: z.string().optional(),
   timezone: z.string().optional(),
   recipientName: z.string().nullable().optional(),
-  /** ISO instant. Set in `gather`; consumed by `compose` + `persist`. */
+  /** ISO instant. Set in `gather`; consumed by `compose` + `send`. */
   sinceIngestedAt: z.string().nullable().optional(),
-  /** ISO instant. Frozen in `gather`. */
+  /** ISO instant. Frozen in `gather`; anchors the terminal watermark. */
   untilIngestedAt: z.string().optional(),
+  /** `briefings` row id, set in `gather`. */
+  briefingId: z.string().optional(),
+  /** No priority email, integration activity, or calendar events in window. */
+  quietDay: z.boolean().optional(),
   composed: z
     .object({
       subject: z.string(),
@@ -66,13 +85,8 @@ const stateSchema = z.object({
       bodyMarkdown: z.string(),
       citedDocumentIds: z.array(z.string()),
       modelId: z.string(),
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      steps: z.number(),
     })
     .optional(),
-  /** Briefing-runs row id, set after `persist`. */
-  briefingRunId: z.string().optional(),
 });
 type State = z.infer<typeof stateSchema>;
 
@@ -80,8 +94,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
   slug: DAILY_BRIEFING_WORKFLOW_SLUG,
   name: "Daily briefing (LLM-composed)",
   description:
-    "Watermarked LLM-composed daily briefing in two slots (morning, evening). Reads its own prior briefings as memory. Replaces m10 morning-briefing once smoke validates.",
-  // Same posture as morning-briefing: declared as cron for honesty,
+    "Watermarked LLM-composed daily briefing in two slots (morning, evening). Reads its own prior briefings as memory. Writes the canonical `briefings` table (ADR-0048).",
+  // Same posture as the old morning-briefing: declared as cron for honesty,
   // but actual dispatch goes through briefing-cron's per-user fan-out
   // (briefing.tick), not the generic workflows.tick. `next_run_at`
   // stays null at seed time.
@@ -105,31 +119,85 @@ export const dailyBriefingWorkflow: Workflow<State> = {
       async run(ctx) {
         const prefs = await resolveBriefingPreferences(ctx.userId);
         const briefingDate = ctx.state.briefingDate ?? localDateInTimezone(prefs.timezone);
+        const timezone = ianaTimezone(prefs.timezone);
+
+        const begun = await beginBriefing({
+          userId: ctx.userId,
+          briefingDate,
+          slot: ctx.state.slot,
+          timezone,
+          agentRunId: ctx.runId,
+        });
+
+        // A terminal row already exists for this (user, date, slot) — the
+        // unique index is the no-double-send guard. Return its outcome
+        // rather than recomposing.
+        if (begun.action === "skip_terminal") {
+          await ctx.log(
+            `gather: skip existing terminal briefing id=${begun.row.id} status=${begun.row.status}`,
+          );
+          return {
+            kind: "done",
+            state: { ...ctx.state, briefingId: begun.row.id, briefingDate, timezone },
+            output: {
+              briefingId: begun.row.id,
+              briefingDate,
+              slot: ctx.state.slot,
+              status: begun.row.status,
+              emailSendId: begun.row.emailSendId,
+            },
+          };
+        }
 
         const userRows = await db()
-          .select({ name: user.name, email: user.email })
+          .select({ name: user.name })
           .from(user)
           .where(eq(user.id, ctx.userId));
-        const u = userRows[0];
-        const recipientName = pickFirstName(u?.name ?? null);
+        const recipientName = pickFirstName(userRows[0]?.name ?? null);
 
         const since = await fetchLatestWatermark({ userId: ctx.userId, slot: ctx.state.slot });
         const until = new Date();
 
+        let gather: BriefingGather;
+        try {
+          // Deterministic structured gather over the same watermark window the
+          // agent composes from. Cheap (DB reads against email_triage +
+          // calendar/activity) — it feeds the suppression signal and the
+          // surface's `gather` payload; the agent still authors the prose.
+          gather = await gatherBriefing({
+            userId: ctx.userId,
+            briefingDate,
+            slot: ctx.state.slot,
+            timezone,
+            windowStart: since ?? undefined,
+            windowEnd: until,
+          });
+          await markBriefingGathering({ briefingId: begun.row.id, gather });
+        } catch (err) {
+          await markBriefingFailed(begun.row.id);
+          throw err;
+        }
+
+        const counts = gatherCounts(gather);
+        const quietDay = counts.email === 0 && counts.activity === 0 && counts.meetings === 0;
+
         await ctx.log(
-          `gather: slot=${ctx.state.slot} tz=${prefs.timezone} date=${briefingDate} ` +
-            `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()}`,
+          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
+            `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
+            `email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}`,
         );
 
         return {
           kind: "next",
           state: {
             ...ctx.state,
+            briefingId: begun.row.id,
             briefingDate,
-            timezone: prefs.timezone,
+            timezone,
             recipientName,
             sinceIngestedAt: since ? since.toISOString() : null,
             untilIngestedAt: until.toISOString(),
+            quietDay,
           },
           nextStep: "compose",
         };
@@ -139,21 +207,69 @@ export const dailyBriefingWorkflow: Workflow<State> = {
     compose: {
       id: "compose",
       async run(ctx) {
-        if (!ctx.state.untilIngestedAt) {
+        const { briefingId, untilIngestedAt, briefingDate } = ctx.state;
+        if (!briefingId || !untilIngestedAt || !briefingDate) {
           throw new Error("[daily-briefing] compose entered without gather output");
         }
-        const since = ctx.state.sinceIngestedAt ? new Date(ctx.state.sinceIngestedAt) : null;
-        const until = new Date(ctx.state.untilIngestedAt);
 
-        const result = await runBriefingAgent({
-          userId: ctx.userId,
-          slot: ctx.state.slot,
-          recipientFirstName: ctx.state.recipientName ?? null,
-          sinceIngestedAt: since,
-          untilIngestedAt: until,
-          runId: ctx.runId,
-          stepId: "compose",
-        });
+        // Discretionary morning: a quiet cron morning suppresses *before*
+        // the agent runs, so a nothing-to-report day costs no LLM call.
+        // Evening always sends; manual/forced bypass.
+        if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {
+          const gateReason =
+            "quiet morning: no priority email, integration activity, or calendar events";
+          if (!ctx.state.dryRun) {
+            await markBriefingSuppressed({
+              briefingId,
+              watermarkAt: new Date(untilIngestedAt),
+              gateReason,
+            });
+          }
+          await ctx.log(
+            `compose: suppressed (${gateReason})${ctx.state.dryRun ? " [dryRun]" : ""}`,
+          );
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: {
+              briefingId,
+              status: ctx.state.dryRun ? "dry_run" : "suppressed",
+              briefingDate,
+              slot: ctx.state.slot,
+              emailSendId: null,
+            },
+          };
+        }
+
+        const since = ctx.state.sinceIngestedAt ? new Date(ctx.state.sinceIngestedAt) : null;
+        const until = new Date(untilIngestedAt);
+
+        await markBriefingComposing(briefingId);
+
+        let result: Awaited<ReturnType<typeof runBriefingAgent>>;
+        try {
+          result = await runBriefingAgent({
+            userId: ctx.userId,
+            slot: ctx.state.slot,
+            recipientFirstName: ctx.state.recipientName ?? null,
+            sinceIngestedAt: since,
+            untilIngestedAt: until,
+            runId: ctx.runId,
+            stepId: "compose",
+          });
+          await markBriefingComposed({
+            briefingId,
+            // Prose body → breaking_summary; headline ← subject; no structured
+            // sections (the model emits one markdown body, not buckets).
+            breakingSummary: result.briefing.bodyMarkdown,
+            fullBriefing: { headline: result.briefing.subject, sections: [] },
+            model: result.modelId,
+            composeFallback: false,
+          });
+        } catch (err) {
+          await markBriefingFailed(briefingId);
+          throw err;
+        }
 
         await ctx.log(
           `compose: steps=${result.steps} model=${result.modelId} ` +
@@ -171,52 +287,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
               bodyMarkdown: result.briefing.bodyMarkdown,
               citedDocumentIds: result.briefing.citedDocumentIds,
               modelId: result.modelId,
-              inputTokens: result.usage.inputTokens,
-              outputTokens: result.usage.outputTokens,
-              steps: result.steps,
             },
           },
-          nextStep: "persist",
-        };
-      },
-    },
-
-    persist: {
-      id: "persist",
-      async run(ctx) {
-        if (!ctx.state.composed || !ctx.state.untilIngestedAt || !ctx.state.briefingDate) {
-          throw new Error("[daily-briefing] persist entered without composed output");
-        }
-
-        const row = await recordBriefingRun({
-          userId: ctx.userId,
-          slot: ctx.state.slot,
-          briefingDate: ctx.state.briefingDate,
-          watermarkAt: new Date(ctx.state.untilIngestedAt),
-          status: ctx.state.dryRun ? "dry_run" : "composed",
-          subject: ctx.state.composed.subject,
-          bodyText: ctx.state.composed.bodyText,
-          bodyMarkdown: ctx.state.composed.bodyMarkdown,
-          agentRunId: ctx.runId,
-          modelId: ctx.state.composed.modelId,
-          inputTokens: ctx.state.composed.inputTokens,
-          outputTokens: ctx.state.composed.outputTokens,
-          payload: {
-            citedDocumentIds: ctx.state.composed.citedDocumentIds,
-            steps: ctx.state.composed.steps,
-            sinceIngestedAt: ctx.state.sinceIngestedAt,
-            reason: ctx.state.reason,
-            dryRun: ctx.state.dryRun,
-          },
-        });
-
-        await ctx.log(
-          `persist: briefingRunId=${row.id} status=${ctx.state.dryRun ? "dry_run" : "composed"}`,
-        );
-
-        return {
-          kind: "next",
-          state: { ...ctx.state, briefingRunId: row.id },
           nextStep: "send",
         };
       },
@@ -225,13 +297,14 @@ export const dailyBriefingWorkflow: Workflow<State> = {
     send: {
       id: "send",
       async run(ctx) {
-        if (!ctx.state.composed || !ctx.state.briefingDate) {
+        const { composed, briefingId, briefingDate, untilIngestedAt } = ctx.state;
+        if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
           throw new Error("[daily-briefing] send entered without composed output");
         }
 
-        // Dry run short-circuit: skip Resend entirely. The briefing_runs
-        // row from `persist` is the inspection artifact; output mirrors a
-        // real send so the smoke script doesn't need a special path.
+        // Dry run short-circuit: skip Resend. The `composed` briefings row
+        // from `compose` is the inspection artifact; output mirrors a real
+        // send so the smoke script doesn't need a special path.
         if (ctx.state.dryRun) {
           await ctx.log("send: skipped (dryRun)");
           return {
@@ -240,26 +313,26 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             output: {
               emailSendId: null,
               status: "dry_run" as const,
-              briefingDate: ctx.state.briefingDate,
-              briefingRunId: ctx.state.briefingRunId,
+              briefingDate,
+              briefingId,
               slot: ctx.state.slot,
             },
           };
         }
 
-        const idempotencyKey = `briefing:${ctx.userId}:${ctx.state.briefingDate}:${ctx.state.slot}`;
+        const idempotencyKey = `briefing:${ctx.userId}:${briefingDate}:${ctx.state.slot}`;
 
         // Render the agent's markdown body into the polished email shell.
         // The template (`@alfred/mailer`) owns all styling; the model only
         // ever produces prose markdown.
         const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
         const html = await renderBriefingEmail({
-          content: ctx.state.composed.bodyMarkdown,
+          content: composed.bodyMarkdown,
           createdAt: new Date().toISOString(),
           timezone: ctx.state.timezone,
           // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
           logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
-          previewText: ctx.state.composed.subject,
+          previewText: composed.subject,
           ctaUrl: ctx.state.slot === "morning" ? `${webOrigin}/chat/new` : undefined,
         });
 
@@ -267,15 +340,15 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           userId: ctx.userId,
           kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
           idempotencyKey,
-          subject: ctx.state.composed.subject,
+          subject: composed.subject,
           html,
-          text: ctx.state.composed.bodyText,
+          text: composed.bodyText,
           payload: {
-            briefingDate: ctx.state.briefingDate,
+            briefingId,
+            briefingDate,
             slot: ctx.state.slot,
             timezone: ctx.state.timezone,
             reason: ctx.state.reason,
-            briefingRunId: ctx.state.briefingRunId,
           },
         });
 
@@ -287,8 +360,22 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         );
 
         if (result.status === "failed") {
+          await markBriefingFailed(briefingId);
           throw new Error(`[daily-briefing] send failed: ${result.error}`);
         }
+
+        const gateReason =
+          ctx.state.slot === "evening"
+            ? "evening slot always sends"
+            : ctx.state.reason !== "cron"
+              ? `${ctx.state.reason} run bypasses morning suppression`
+              : "live signals present";
+        await markBriefingSent({
+          briefingId,
+          emailSendId: result.emailSendId,
+          watermarkAt: new Date(untilIngestedAt),
+          gateReason,
+        });
 
         return {
           kind: "done",
@@ -296,8 +383,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           output: {
             emailSendId: result.emailSendId,
             status: result.status,
-            briefingDate: ctx.state.briefingDate,
-            briefingRunId: ctx.state.briefingRunId,
+            briefingDate,
+            briefingId,
             slot: ctx.state.slot,
           },
         };
@@ -305,6 +392,31 @@ export const dailyBriefingWorkflow: Workflow<State> = {
     },
   },
 };
+
+/**
+ * Live-signal counts for the suppression gate. `email.categories` holds
+ * only priority categories (gatherBriefing buckets fyi/newsletter out),
+ * so a non-zero email count means a priority email landed in the window.
+ */
+function gatherCounts(gather: BriefingGather): {
+  email: number;
+  activity: number;
+  meetings: number;
+} {
+  return {
+    email: Object.values(gather.email.categories).reduce(
+      (sum, items) => sum + (items?.length ?? 0),
+      0,
+    ),
+    activity: gather.integration_activity.items.length,
+    meetings: gather.calendar?.events.length ?? 0,
+  };
+}
+
+function ianaTimezone(value: string): IanaTimezone {
+  assertIanaTimezone(value);
+  return value;
+}
 
 function pickFirstName(name: string | null): string | null {
   if (!name) return null;
