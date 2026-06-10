@@ -546,11 +546,14 @@ function resolveRelativeDates(text: string, anchor: Date | null): string {
       : "";
     out = out.replace(re, replacement);
   }
-  // Tidy a separator/space left dangling by a stripped word ("₹88.5 · due " → "₹88.5").
-  return out
-    .replace(/\s*(?:·|,|—|-|\bdue\b|\bby\b)\s*$/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
+  let cleaned = out.replace(/\s{2,}/g, " ").trim();
+  let previous: string;
+  do {
+    previous = cleaned;
+    cleaned = cleaned.replace(/\s*(?:·|,|—|-|\bdue\b|\bby\b)\s*$/gi, "").trim();
+  } while (cleaned !== previous);
+  return cleaned;
 }
 
 /**
