@@ -13,6 +13,29 @@
     <meta name="theme-color" content="#5B43E0" />
 
     <!--
+      Stale-chunk recovery. When a new release deploys, the old content-hashed
+      chunks are removed. A tab that booted on the previous release still holds
+      that release's index.html in memory, so navigating to a not-yet-loaded
+      route triggers a lazy import() for a chunk hash that now 404s. Vite turns
+      that into a `vite:preloadError` window event; left unhandled it rethrows
+      and the user sees a white screen. We reload once to pull the current
+      index.html + chunk graph (the no-cache header on index.html guarantees the
+      reload sees the new release). A timestamp throttle prevents a reload loop
+      if a chunk is genuinely, permanently missing (a bad deploy). Inline + first
+      in <head> so it's registered before any module preloads can fail.
+    -->
+    <script>
+      window.addEventListener("vite:preloadError", function () {
+        var KEY = "alfred:lastChunkReload";
+        var now = Date.now();
+        var last = Number(sessionStorage.getItem(KEY) || 0);
+        if (now - last < 10000) return; // reloaded moments ago — don't loop
+        sessionStorage.setItem(KEY, String(now));
+        window.location.reload();
+      });
+    </script>
+
+    <!--
       Static SEO/social baseline for crawlers and link unfurlers that DON'T run
       JS (Slack, iMessage, Discord, WhatsApp, most Twitter/Facebook scrapers).
       They only ever see this server-sent HTML, never the client-rendered head.
