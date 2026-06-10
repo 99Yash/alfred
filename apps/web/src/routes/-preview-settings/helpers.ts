@@ -1,5 +1,4 @@
 import {
-  Gift,
   ListChecks,
   PencilLine,
   Sliders,
@@ -13,7 +12,7 @@ import {
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
 import type { ComponentType } from "react";
 
-export type SectionId = "user" | "features" | "preferences" | "referrals";
+export type SectionId = "user" | "features" | "preferences";
 
 export interface SectionDef {
   id: SectionId;
@@ -25,7 +24,6 @@ export const SECTIONS: ReadonlyArray<SectionDef> = [
   { id: "user", label: "User", icon: User },
   { id: "features", label: "Features", icon: Sparkles },
   { id: "preferences", label: "Preferences", icon: Sliders },
-  { id: "referrals", label: "Referrals", icon: Gift },
 ];
 
 export interface BackgroundAgentDef {

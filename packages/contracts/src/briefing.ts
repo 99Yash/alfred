@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import type { CitationKind } from "./citation.js";
 import { triageCategorySchema, type TriageCategory } from "./triage.js";
 import { isIntegrationSlug, type IntegrationSlug } from "./tools.js";
 
@@ -25,7 +26,14 @@ export type GatherSourceSlug = (typeof GATHER_SOURCE_SLUGS)[number];
 
 export const gatherSourceSlugSchema = z.enum(GATHER_SOURCE_SLUGS);
 
-export const BRIEFING_REFERENCE_KINDS = ["activity", "meeting", "email"] as const;
+// A documented subset of the shared citation vocabulary (ADR-0054). The
+// `satisfies` guard makes the subset relationship a compile-time invariant:
+// adding a briefing kind that isn't a `CitationKind` fails the build here.
+export const BRIEFING_REFERENCE_KINDS = [
+  "activity",
+  "meeting",
+  "email",
+] as const satisfies readonly CitationKind[];
 export type BriefingReferenceKind = (typeof BRIEFING_REFERENCE_KINDS)[number];
 export const briefingReferenceKindSchema = z.enum(BRIEFING_REFERENCE_KINDS);
 

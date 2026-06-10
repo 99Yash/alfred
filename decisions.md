@@ -53,6 +53,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Workflow event dispatch | Generic `emitEvent` bus; triage unified onto it (no more hardcoded fan-out); `source`+`type` closed enums (`gmail.message_received`); bounded resolve-at-init `<trigger_event>` context; bounded idempotency (ADR-0047, extends ADR-0027) |
 | Todos | First **persisted** materialization of the open-loop model (ADR-0048 keeps loops ephemeral); one `todos` table, status-driven (`suggested\|open\|done\|dismissed`); hybrid authoring (user adds; Alfred proposes via `system.suggest_todo`, no HIL); multi-source `sources` provenance; v1 **passive** (agent authors + assists, never executes); **suggestions produced real-time off the `email-triage` run, not the briefing — briefing fully decoupled** (ADR-0050 amendment 2026-06-05); **todo-worthiness is an orthogonal rubric** (obligation → significance → memorability → actionability → already-handled), category floor shrunk to `{marketing, newsletter}`, decision traced via `todoDecision` (ADR-0050 amendment 2026-06-06); **stringency reframe — significance = real/external stake, manufactured + ceremonial urgency excluded, ownership-attribution gate (minimal identity), bot carve-out model-judged not slug-floored, terse-imperative voice, validated by a dry-run backfill** (ADR-0050/0051 amendment 2026-06-09); agent-execution + cross-source auto-close + semantic dedup + personal-relevance significance deferred (ADR-0050) |
 | Integration loading | Deterministic, not prompt-inferred. v1 uses **eager connected tool declaration**: declare full schemas for connected ∩ `allowed_integrations` at run start (small bounded surface today), with an always-on connected summary for human-readable grounding. The **dispatcher is the security floor**: resolves bare/qualified names and **hard-enforces** `allowed_integrations` + scope-aware connection health before any registered tool executes. Closes the ADR-0043 exposure-only cap hole; supersedes the prompt-only "infer/load integration" instruction of ADR-0026/0040. Lazy/catalog/auto-activate is deferred until schema volume proves it is needed (ADR-0053) |
+| Prompt evals | `evalite` as the **local** prompt-eval lane (the "layer in later" ADR-0023 anticipated); **deterministic-scorer-first** (assert on the tool call / output shape, LLM-judge only when no code check exists); **`now` pinned** for date-dependent cases; tools exposed schema-only (no `execute`) to capture the model's call without running it; local/manual via `pnpm --filter @alfred/api eval`, **not CI-gating** (cost + secrets + nondeterminism). Seeded with `date-grounding.eval.ts` (ADR-0054, extends ADR-0023) |
 
 ---
 
@@ -3334,3 +3335,80 @@ if intg != 'system':
 - **Catalog description source** — hand-authored one-liners vs. reusing each tool group's existing description. Use short per-integration blurbs and skip empty-action stubs.
 - **Ambiguity tie-breaks** — v1 can return `ambiguous_tool`; smarter tie-breaks can come later if ambiguous bares become common.
 - **Audit artifact for blocked calls** — dispatch gates currently short-circuit before staging. Decide during implementation whether `not_allowed` / `needs_connect` / `needs_reauth` should create an audit row, or whether transcript tool results are enough.
+
+## ADR-0054 — Meeting prep: one canonical persisted prep record, manual-chat-first, rendered through a shared citation contract
+
+**Context.** The June demo backlog (`docs/plans/june-demo-triage.md`) flags the meeting-prep gatherer (MEET-001) as the highest-value demo artifact, but parked the delivery-surface choice (MEET-002, `needs-triage`): in-chat command, scheduled pre-meeting email, in-app card, or all of them. The wrong move is to build three features, each with its own gather + format — triple maintenance and provenance drift, exactly the crack ADR-0049 closed for briefings ("one resolution truth, two renderers").
+
+**Decision.**
+
+1. **The artifact is the record, not the surface.** Meeting prep's source of truth is a single persisted `meeting_prep` record, keyed `(user_id, calendar_event_id)`, regenerable (latest gather wins; one row per event, not per render). No surface owns the data. Chat, email, and card are **renderers** of this record — the same relationship briefings have between the persisted row and the email/in-app prose (ADR-0041/0049).
+2. **Manual in-chat command is v1's only trigger.** A boss-invokable meeting-prep tool gathers → persists → renders the packet inline in chat. This gives the tightest authoring loop to iterate on packet *content* (what to gather, how to rank, how to cite) before committing to a delivery cadence. Scheduled pre-meeting email (~20 min before) and the in-app meeting card are **deferred renderers** of the already-persisted record, not separate builds.
+3. **The packet is citation-first.** Every claim in the packet carries a `<kind>:<id>` citation in the **shared citation vocabulary** (SEARCH-001, below) — Gmail thread, Calendar event, memory fact, todo. The packet is a structured object with cited fields, not prose with footnotes bolted on. This is what makes the demo *trustworthy* rather than plausible.
+4. **Graceful degradation is content, not error.** Missing Gmail/memory/todos degrade to explicit empty states (mirroring briefing's `null`-source handling), never silent omission or a failed packet.
+
+**SEARCH-001 foundation — land first.** Before MEET-001 emits anything, generalize briefing's reference model (ADR-0049, `briefing-references.ts`) into a gather-agnostic **citation contract** in `@alfred/contracts`:
+
+- One kind vocabulary `CITATION_KINDS = email | meeting | todo | memory | activity` (a superset of briefing's `activity | meeting | email`, which becomes a documented subset).
+- One token grammar `[[<kind>:<id>]]` and one branded `Citation = ${CitationKind}:${string}` string.
+- One resolver `resolveCitations(markdown, entities)` over an entity map — pure, zero Node deps, web-boundary safe.
+- **Briefing becomes a consumer** of this resolver (delegates its walk to it, keeps its `BriefingSegment`/`source` shape and public API unchanged) — which *proves* the abstraction is right rather than asserting it. Meeting prep emits into the same shape from day one, so chat / email / card resolve provenance through one code path.
+
+This ordering is deliberate: building MEET-001 first would mint a third citation format, and reconciling provenance after the demo is the expensive version of this work.
+
+**Why.** Manual-chat-first is the cheapest path to a *real* packet we can demo and iterate; the persisted-record-as-truth keeps every later surface a thin renderer; the shared citation contract is the foundation that stops Alfred from growing one provenance system per output surface.
+
+**Alternatives.** (a) **Scheduled-email-first** — rejected: a 20-min-before cron is a slow, awkward loop for iterating on packet *content*; chat gives instant regeneration. Email rides the same record once content is settled. (b) **In-app card-first** — rejected for v1: more UI surface area before the gather logic is proven; it's the natural second renderer. (c) **Three independent surfaces** — rejected: triple gather + format maintenance and guaranteed provenance drift. (d) **Build MEET-001 now, harmonize citations later** — rejected as the default (third format + post-hoc refactor), but a defensible inversion if the packet's end-to-end shape is more uncertain than the citation vocabulary; chosen against because the briefing model already de-risks the citation shape.
+
+**Deferred.** Scheduled pre-meeting email renderer; in-app meeting card; relationship-fact enrichment of the packet (MEM-001) and todo matching (TODO-001) — both plug into empty slots in the gatherer rather than blocking it. A full citation **storage** table (queryable cross-source rows) stays deferred; v1 carries citations inline on the record, same as briefing carries them on `gather`.
+
+**Open.** Whether `meeting_prep` is a Replicache-synced entity (live in-app card) or an API-fetched record (chat/email only) — decide when the card surface is built; v1 chat works either way.
+
+**Amendment (2026-06-10) — MEET-001 scoping grill.** Six decisions resolved while scoping the gatherer (`docs/plans/meeting-prep-v1.md`). These refine the "open"/"deferred" items above and are hard to reverse (schema, wire format, read-posture), so they're recorded here.
+
+1. **gather → cheap-LLM compose (not deterministic-only).** MEET-001 is a deterministic gatherer **plus** a compose step, mirroring briefing's `gather→compose`. Compose runs on a **flash-tier cheap model** and emits a prep summary in canonical `[[kind:id]]` prose. The summary is **surface-agnostic** — chat, email, and card all render the same composed prose, not the chat boss's ad-hoc framing. This supersedes the ADR body's lean toward "structured packet, boss narrates": the packet stays structured, but a persisted composed summary rides alongside it so every surface is consistent. A new `CallRole 'meeting_prep'` joins the metering union.
+
+2. **Threads come from ingested `documents`, cited `email:<documentId>`.** The gatherer reads recent gmail rows from the local `documents` table (matched by attendee email in `metadata` `from`/`to`/`cc`), **not** a live Gmail search. Citation id-space is `email:<documentId>` — uniform with briefing. `threadId` is carried on the entity (for todo-`sources` dedup) but is not the citation id. Trade: coverage is bounded by the `newer_than:30d` ingestion window + ingested accounts; a >30d thread is a logged empty-state, not a silent gap. The live-search fallback (when `documents` yields `< K` hits) is the deferred upgrade. Rationale: zero Gmail quota, no per-thread content round-trip (`documents` already holds extracted content + snippet), citation uniformity, and recent context is the actual prep signal.
+
+3. **`meeting_prep` is Replicache-synced read-only from day one** — resolving the Open question above. Keyed `(user_id, calendar_event_id)` where `calendar_event_id = ${credentialId}:${eventId}`, regenerable (latest gather wins, one row per event), status machine `pending→gathering→composing→composed→failed`, idempotent upsert, `row_version` + fetcher + IDB key + pull window (no client mutators, exactly like `briefings`). This pulls the in-app card's **data layer** into v1; the card **UI** stays deferred (UI-001). Chat needs no sync (the tool returns the packet inline), but syncing now avoids a later migration and lets the card land as pure UI work.
+
+4. **`system.prepare_meeting`, autonomy.** The chat tool lives in the `system.*` namespace (honest — it orchestrates across calendar + gmail + memory + todos, not one provider) and inherits the structural autonomy override, so a read-only, **user-initiated** prep returns inline and never parks behind HIL. Input `{ calendarEventId }`; the boss resolves the event via the existing `calendar.list_events` first. **Read-posture recorded:** this deliberately bypasses the "gated gates reads too" rule (CONTEXT.md / ADR-0034) — justified because the user explicitly asked and nothing mutates. The internal reads are server-side (direct integration calls), not boss tool-dispatch, so per-integration gating never applies to them anyway.
+
+5. **All five packet slots are populated by reading existing data.** Not just calendar + Gmail: the gatherer also reads confirmed `entities`/`user_facts` per attendee (cite `memory:<entityId>`/`<factId>`) and open/suggested `todos` whose `sources` overlap an attendee or gathered thread (cite `todo:<todoId>`). Both reads are cheap and make the v1 packet immediately rich. This **reframes** the deferred items: **MEM-001 = extracting *new* relationship facts** (writes, review-gated), **TODO-001 = the *briefing-side* todo feed** — production/enrichment, not slot-wiring. The gatherer degrades each slot to empty independently.
+
+6. **One canonical citation form, per-surface renderers.** The record persists canonical `[[kind:id]]` prose. The chat tool result resolves those tokens to the existing chat `[label](url "cite")` grammar via `resolveCitations` (SEARCH-001) so the boss relays chat-ready text with zero new client code; the synced card later reuses briefing's `EntityChip` resolver. No third citation format.
+
+**Still deferred after this amendment.** Scheduled pre-meeting email renderer; in-app card **UI** (UI-001); live-search thread fallback; relationship-fact extraction (MEM-001); briefing todo feed (TODO-001); queryable citation-rows table.
+
+---
+
+## ADR-0054 — Prompt evals via evalite (local lane); extends ADR-0023
+
+**Decision.** Adopt [`evalite`](https://www.evalite.dev) as Alfred's **local** prompt-eval lane. This is the "could layer in later for systematic prompt eval" that [ADR-0023](#adr-0023) explicitly anticipated when it parked Braintrust/Phoenix — not a reversal. Evals are **deterministic-scorer-first**, run **locally/manually** (not CI-gating), and live beside the code they exercise. The lane is seeded with one eval, `packages/api/evals/date-grounding.eval.ts`, that guards the regression behind this work: the chat agent asked "which year?" for "how many meetings do i have in october 2026" because the system prompt never told it what *now* is.
+
+**Why now.** A grounding fix is invisible to unit tests — a string assertion on `formatDateGrounding` proves the *date renders*, not that the *model resolves the date instead of bouncing it back*. The only honest guard is behavioral: run the real grounded prompt against the chat model and assert on what it does. ADR-0023 already chose Langfuse as the trace lane and named evals as the deferred complement; the tutorial pairing (`evalite` + Langfuse, AI SDK v6) matches our stack (`ai@6`), so the deferral cost is now zero.
+
+**Micro-decisions.**
+
+1. **`evalite`, not Braintrust/Phoenix.** Local-first, no hosted dependency, no per-seat cost, runs the same `generateText`/`tool` surface we ship. Pinned to the `1.0.0-beta` line (AI SDK v6 era); stable `0.19.x` is v5. Re-confirms ADR-0023's rejection of the hosted eval platforms for the same reasons — they remain a future option if we outgrow local runs.
+
+2. **Deterministic scorers first; LLM-judge only as a fallback.** The date-grounding eval exposes `calendar.list_events` **schema-only (no `execute`)** so the model stops at the tool call, then scores the call with code: *did it call the tool at all* (the core regression) and *do its `timeMin`/`timeMax` bounds cover the target month*. No judge model, no judge flakiness, no judge cost. An LLM-judge scorer is reserved for outputs with no code-checkable shape (prose quality, tone).
+
+3. **Pin `now` for date-dependent cases.** The eval fixes `NOW` and `TIMEZONE` so expected windows are stable across runs. "do i have anything in december" → must infer **2026** — only possible from the grounding, which is exactly the behavior under test. (`Date.now()` drift would otherwise make the expected window non-deterministic.)
+
+4. **Local/manual, not CI-gating.** `pnpm --filter @alfred/api eval` (run-once) / `eval:watch` (UI). Three reasons it does not block CI: it costs real model calls, it needs `ANTHROPIC_API_KEY` (loaded from `apps/server/.env`), and even at `temperature: 0` model output is not bit-stable. The deterministic plumbing (`formatDateGrounding` tz math) **is** unit-tested in `test/agent/grounding.test.ts` and runs in the normal `test` lane — the two tiers are complementary, matching the dev/CI/regression dataset split the eval literature recommends.
+
+5. **Evals are dev-deps of the package they test.** `evalite` + `vitest` + `ai` + `dotenv` are `@alfred/api` devDependencies; eval files are `evals/*.eval.ts`, discovered by the `evalite` runner (via `jiti`, which resolves the monorepo TS source directly). They never enter the runtime bundle.
+
+6. **Teeth verified, not assumed.** The same model + the *ungrounded* prompt was probed once by hand: it returned **no tool call** and "I can't count the number of events in a month… would you like me to list them?" — the prod regression. Grounded scores 100%. An eval that passes regardless of the fix is worthless; this one was confirmed to fail without it.
+
+**What this extends.** [ADR-0023](#adr-0023) — Langfuse remains the trace/observability lane; `evalite` is the offline prompt-eval complement it deferred. No conflict, no supersession.
+
+**Alternatives.**
+
+- (a) **Unit test only (assert `formatDateGrounding` output).** Rejected as *the* guard — it cannot catch the model behavior that was actually broken. Kept as the cheap plumbing tier alongside the eval.
+- (b) **LLM-as-judge scorer.** Rejected as the default — the bug is a binary "did it call the tool with the right window," perfectly code-checkable; a judge would add cost and flakiness for no signal. Reserved for prose-shaped outputs.
+- (c) **CI-gating the eval.** Rejected for now — model nondeterminism, per-run cost, and secret management make it a flaky gate. Revisit with a regression-tier dataset and a tolerance band if eval coverage grows.
+- (d) **Braintrust / Phoenix (hosted).** Rejected again per ADR-0023 — heavier, hosted, per-seat; `evalite` covers the local iteration need.
+
+**Deferred.** CI integration with a tolerance band; a regression-tier dataset (the literature's 500–1k cases) vs. today's handful of dev cases; Langfuse dataset sync; evals for the triage and todo-worthiness rubrics (the obvious next targets — both are prompt-shaped and already have deterministic decision traces to assert against).

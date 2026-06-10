@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { SectionPanel } from "./section-panel";
 import { SidebarNav } from "./sidebar-nav";
@@ -23,13 +22,6 @@ export function PreviewSettingsPage() {
             <SectionPanel section={section} />
           </div>
         </div>
-
-        <footer className="mt-16 flex items-center justify-center text-xs text-app-fg-2 gap-2">
-          <span>Comparing against</span>
-          <Link to="/settings" className="font-medium text-app-fg-3 hover:text-app-fg-4">
-            /settings
-          </Link>
-        </footer>
       </main>
     </div>
   );

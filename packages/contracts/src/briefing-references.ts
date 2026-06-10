@@ -14,6 +14,7 @@ import {
   type FullBriefingSection,
   type GatherSourceSlug,
 } from "./briefing.js";
+import { CITATION_TOKEN_RE, rawCitationFromMatch, resolveCitations } from "./citation.js";
 
 export type BriefingReference = `${BriefingReferenceKind}:${string}`;
 
@@ -54,7 +55,6 @@ interface ReferenceEntity {
   source: GatherSourceSlug;
 }
 
-const REFERENCE_RE = /\[\[([a-z_]+):([^\]\s]+)\]\]/g;
 const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERENCE_KINDS);
 
 /**
@@ -62,42 +62,25 @@ const BRIEFING_REFERENCE_KIND_SET: ReadonlySet<string> = new Set(BRIEFING_REFERE
  * resolved `reference` segments (carrying kind/label/href) for every
  * `[[<kind>:<id>]]` token that maps to a gather entity. Unknown tokens fall
  * back to their inner label as text and are recorded in `unresolved`.
+ *
+ * Delegates the token walk to the shared {@link resolveCitations} resolver
+ * (ADR-0054) — one provenance walk across surfaces — then maps each citation
+ * segment back into this surface's `reference` segment shape (carrying
+ * `source`), keeping the briefing public API unchanged.
  */
 export function resolveBriefingReferences(
   markdown: string,
   gather: BriefingGather,
 ): ResolveBriefingReferencesResult {
   const entities = buildReferenceEntityMap(gather);
-  const segments: BriefingSegment[] = [];
-  const resolved: BriefingReference[] = [];
-  const unresolved: string[] = [];
-
-  let cursor = 0;
-  for (const match of markdown.matchAll(REFERENCE_RE)) {
-    const start = match.index ?? 0;
-    if (start > cursor) {
-      segments.push({ kind: "text", text: markdown.slice(cursor, start) });
-    }
-
-    const raw = rawReferenceFromMatch(match);
-    const parsed = parseBriefingReference(raw);
-    const entity = parsed ? entities.get(parsed.reference) : undefined;
-    if (entity) {
-      segments.push({ kind: "reference", ...entity });
-      resolved.push(entity.reference);
-    } else {
-      segments.push({ kind: "text", text: raw });
-      unresolved.push(raw);
-    }
-
-    cursor = start + match[0].length;
-  }
-
-  if (cursor < markdown.length) {
-    segments.push({ kind: "text", text: markdown.slice(cursor) });
-  }
-
-  return { segments, resolved, unresolved };
+  const result = resolveCitations(markdown, entities);
+  return {
+    segments: result.segments.map((segment) =>
+      segment.kind === "text" ? segment : { kind: "reference", ...segment.entity },
+    ),
+    resolved: result.resolved as BriefingReference[],
+    unresolved: result.unresolved,
+  };
 }
 
 export function referencesFromSections(sections: FullBriefingSection[]): BriefingReference[] {
@@ -107,8 +90,8 @@ export function referencesFromSections(sections: FullBriefingSection[]): Briefin
       const parsed = parseBriefingReference(reference);
       if (parsed) refs.add(parsed.reference);
     }
-    for (const match of section.body.matchAll(REFERENCE_RE)) {
-      const parsed = parseBriefingReference(rawReferenceFromMatch(match));
+    for (const match of section.body.matchAll(CITATION_TOKEN_RE)) {
+      const parsed = parseBriefingReference(rawCitationFromMatch(match));
       if (parsed) refs.add(parsed.reference);
     }
   }
@@ -183,8 +166,4 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference,
   }
 
   return entities;
-}
-
-function rawReferenceFromMatch(match: RegExpMatchArray): string {
-  return `${match[1] ?? ""}:${match[2] ?? ""}`;
 }

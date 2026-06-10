@@ -26,6 +26,7 @@ import { estimateTranscriptTokens } from "../compaction/tokens";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
+import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { readSubAgentMetadata, subAgentMetadataSchema } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 
@@ -69,22 +70,31 @@ const COMPACTION_MIN_PRIOR_CHARS = 20_000;
 const COMPACTOR_RETRY_ATTEMPTS = 3;
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
-const BOSS_SYSTEM_PROMPT = [
+const BOSS_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant agent.",
   "Be concise and practical. Briefly state the next action before calling tools.",
   "Use integration tools for external data and actions. Integration tools are named integration.action, for example calendar.list_events; never call a bare action name like list_events.",
   "When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
   "Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
+  'You know today\'s date (stated below). Resolve relative or partial dates yourself — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
   "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
   "End the run with one user-facing summary message and no tool calls.",
 ].join("\n\n");
 
-const SUB_AGENT_SYSTEM_PROMPT = [
+function buildBossSystemPrompt(grounding: string): string {
+  return `${BOSS_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.`;
+}
+
+const SUB_AGENT_SYSTEM_PROMPT_BASE = [
   "You are a focused Alfred sub-agent working from a narrow brief.",
   "Do not spawn other agents. Use tools only when they directly serve the brief.",
   "Write useful findings to scratch.<yourSubId>.summary or a more specific scratch.<yourSubId>.<path> key.",
   "End with a concise summary of what you found and any limits or uncertainty.",
 ].join("\n\n");
+
+function buildSubAgentSystemPrompt(grounding: string): string {
+  return `${SUB_AGENT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.`;
+}
 
 const bossTurnStep: Step<BriefRunState> = {
   id: "boss-turn",
@@ -99,9 +109,10 @@ const bossTurnStep: Step<BriefRunState> = {
     };
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
+    const grounding = formatDateGrounding(await resolveUserTimezone(ctx.userId));
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
-      system: subAgent ? SUB_AGENT_SYSTEM_PROMPT : BOSS_SYSTEM_PROMPT,
+      system: subAgent ? buildSubAgentSystemPrompt(grounding) : buildBossSystemPrompt(grounding),
       tools: () => resolveSdkTools(state.activeIntegrations, subAgent !== null),
       model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {

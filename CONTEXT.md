@@ -220,6 +220,14 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Todo closure signal (deferred).** `todos.closed_by` (`'user' | 'reconciler'`) + `closed_reason` (`pr_merged | pr_closed | issue_closed | alert_dismissed | alert_fixed | review_threads_resolved`), `.$type<>()`-guarded. One field, three jobs: audit, the evening-recap "loops closed" line (ADR-0048 #5), and the client's auto-dismiss animation (reconciler-closed rows linger briefly in the Replicache pull so the diff is visible).
 
+## Meeting prep
+
+**Meeting prep packet.** The structured, deterministic (no-LLM) output of MEET-001's gatherer: `{ event, attendees[], threads[], facts[], todos[] }`, every item carrying a `Citation` (SEARCH-001). All five slots are populated by **reading existing data** — calendar event, parsed attendees, recent `documents` threads per attendee, confirmed `entities`/`user_facts` per attendee, and open/suggested `todos` whose `sources` overlap an attendee or gathered thread. Degrades slot-by-slot to empty; never a failed packet. ADR-0054.
+
+**`meeting_prep` record.** One row per `(user_id, calendar_event_id)` (`calendar_event_id` is the composite `${credentialId}:${eventId}`), **regenerable** (latest gather wins, one row per event), **Replicache-synced read-only** like `briefings` (`row_version` + fetcher + IDB key + pull window, no client mutators). Stores the gather snapshot (jsonb), the composed summary (canonical `[[kind:id]]` prose), the resolved citation entity map, status, model, `agent_run_id`. Status machine `pending→gathering→composing→composed→failed`, idempotent upsert on `(user_id, calendar_event_id)`. ADR-0054 (synced-from-day-one resolves that ADR's open question; pulls the in-app card's *data layer* into v1, card UI still = UI-001).
+
+**`system.prepare_meeting`.** The chat-invokable meeting-prep tool. `system.*` namespace → structural autonomy override → **never gated**, returns inline in one turn. Input `{ calendarEventId }` (the boss resolves the event via `calendar.list_events` first; "prep my next meeting" = `list_events(maxResults:1)` then this). Runs the deterministic gatherer → cheap-LLM compose → persists the `meeting_prep` record → returns a chat-ready summary (canonical `[[kind:id]]` tokens resolved to the chat `[label](url "cite")` grammar via `resolveCitations`) + the packet. **Read-posture:** a user-initiated, read-only prep deliberately bypasses the "gated gates reads too" rule because the user explicitly asked — recorded in ADR-0054. Compose mirrors briefing `gather→compose`; cite kinds used are `meeting | email | memory | todo` from `CITATION_KINDS`.
+
 ## m12 scope (locked 2026-05-11)
 
 **Authoring + dispatch only. Execution deferred to m13.**

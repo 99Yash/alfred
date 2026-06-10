@@ -22,28 +22,38 @@ States:
 - `ready-for-human` — requires manual console/account/product judgment.
 - `wontfix` — explicitly out of scope.
 
+## Build order (impact + clean foundations)
+
+Settled 2026-06-10. Rationale and the surface decision live in **ADR-0054**.
+
+1. **MEET-002 (decided)** — meeting prep is one canonical persisted `meeting_prep` record; **manual in-chat command** is the only v1 trigger; scheduled email and in-app card are deferred *renderers* of the same record.
+2. **SEARCH-001 (foundation, in progress)** — shared citation contract landed before MEET-001 so there's one provenance grammar, not three. Briefing now delegates to it.
+3. **MEET-001** — the gatherer, emitting into the citation shape (calendar + Gmail first; degrades gracefully).
+4. **TODO-001 + MEM-001** — inputs that plug into MEET-001's empty slots; fast-follows, not blockers.
+5. **UI-001 → QA-001 → DEMO-001 → POLICY-001** — render, lock the spine, seed, then copy polish.
+
 ## Done
 
 | ID | Category | State | Item | Notes |
 |---|---|---:|---|---|
 | DONE-001 | bug | done | Green tree gate | Conflict markers resolved; targeted marker search and `git status` are clean. |
+| CAL-001 | enhancement | done | Real `calendar.list_events` execution | `packages/api/src/modules/tools/calendar.ts:172` picks an active cred, checks scope, returns sorted non-cancelled events with `timeMin/timeMax/maxResults`. |
+| CAL-002 | enhancement | done | Normalized event read model | `CalendarContribution` (`contracts/briefing.ts`) + `calendarEventToContributionEvent` (`gather.ts`) + `MeetingResponseItem` (`use-meetings.ts`). |
+| BRIEF-001 | enhancement | done | Calendar-anchored briefings | `gatherCalendarContribution` feeds morning + daily workflows; morning suppression keys off meeting count. |
+| SEARCH-001 | enhancement | done | Shared citation contract | `packages/contracts/src/citation.ts` — gather-agnostic `CITATION_KINDS`, `[[kind:id]]` grammar, `resolveCitations`. Briefing delegates to it (one resolver); tests in `packages/api/test/contracts/citation.test.ts`. ADR-0054. **Note:** this was the *contract* slice; a queryable citation-rows table stays deferred. |
 
 ## Now
 
 | ID | Category | State | Item | Why now |
 |---|---|---:|---|---|
-| CAL-001 | enhancement | ready-for-agent | Wire real `calendar.list_events` tool execution | Calendar is already implemented in `@alfred/integrations`; tool execution still needs to stop being a pending stub. This unlocks chat, rail, meeting prep, and briefing quality. |
-| CAL-002 | enhancement | ready-for-agent | Normalize Calendar event read model | Meeting prep and briefings need one compact event shape: title, time, attendees, location/link, description snippet, credential/source ids. |
-| MEET-001 | enhancement | ready-for-agent | Build meeting-prep gatherer | Highest demo value: upcoming event -> attendees -> recent Gmail threads -> memory facts -> open todos -> cited prep packet. |
-| BRIEF-001 | enhancement | ready-for-agent | Make briefings Calendar-anchored | Morning/evening briefings should treat Calendar as the day spine and email/todos as context around it. |
+| MEET-001 | enhancement | ready-for-agent | Build meeting-prep gatherer | **Scoped 2026-06-10** — see [meeting-prep-v1.md](./meeting-prep-v1.md) + ADR-0054 amendment. gather→flash-compose; threads from `documents` (`email:<documentId>`); `meeting_prep` synced read-only; `system.prepare_meeting` (autonomy); all 5 slots read existing data. 6 phases. |
 
 ## Next
 
 | ID | Category | State | Item | Why next |
 |---|---|---:|---|---|
-| MEET-002 | enhancement | needs-triage | Decide meeting-prep delivery surface | Choose first surface: in-chat manual command, scheduled email 20 min before, in-app card, or all with one canonical persisted record. Recommendation: manual chat first, then scheduled email. |
+| MEET-002 | enhancement | decided | Meeting-prep delivery surface | **Resolved (ADR-0054):** one canonical persisted `meeting_prep` record; manual in-chat command is v1's only trigger; scheduled pre-meeting email and in-app card are deferred renderers of the same record. |
 | MEM-001 | enhancement | ready-for-agent | Relationship facts from Gmail + Calendar | Extract collaborator/person facts from attendee lists, senders, recipients, and repeated threads; require review before durable memory. |
-| SEARCH-001 | enhancement | ready-for-agent | Evidence layer for cited outputs | Shared citation rows for Gmail message, Calendar event, memory fact, todo, and briefing source panel. This is narrower than full search and directly supports demo trust. |
 | TODO-001 | enhancement | ready-for-agent | Feed todos into meeting prep and briefings | Suggested/open todos should appear when they match attendees, thread ids, or same-day context. |
 
 ## Later This Month

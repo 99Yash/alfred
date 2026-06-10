@@ -5,6 +5,7 @@ export * from "./tool-fields.js";
 export * from "./mentions.js";
 export * from "./transcript.js";
 export * from "./triage.js";
+export * from "./citation.js";
 export * from "./briefing.js";
 export * from "./briefing-references.js";
 export * from "./weather.js";
