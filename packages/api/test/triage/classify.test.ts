@@ -541,6 +541,10 @@ describe("sanitizeAssist", () => {
     assert.equal(sanitizeAssist("₹88.5 · due tomorrow", anchor), "₹88.5 · due Jun 11");
   });
 
+  test("keeps a money fragment when an unanchored relative date is stripped", () => {
+    assert.equal(sanitizeAssist("₹88.5 · due tomorrow", null), "₹88.5");
+  });
+
   test("drops a bare relative date when there is no anchor to resolve it", () => {
     // Stripped to "due" → no hard fact left → title-only row.
     assert.equal(sanitizeAssist("due tomorrow", null), undefined);
