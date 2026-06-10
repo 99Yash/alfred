@@ -25,7 +25,9 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       },
-      () => {},
+      () => {
+        toast.error("Failed to copy to clipboard");
+      },
     );
   };
 
