@@ -35,7 +35,7 @@ export function PreviewBriefingsPage() {
   const days = groupByDate(briefings);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto">
+    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
       <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-10 sm:py-14">
         <header className="space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-balance text-app-fg-4">

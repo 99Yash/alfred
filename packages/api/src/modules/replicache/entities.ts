@@ -371,7 +371,7 @@ const ENTITY_FETCHERS = {
       .select()
       .from(chatThreads)
       .where(eq(chatThreads.userId, userId))
-      .orderBy(desc(chatThreads.lastMessageAt), asc(chatThreads.id));
+      .orderBy(desc(chatThreads.pinned), desc(chatThreads.lastMessageAt), asc(chatThreads.id));
     return rows.flatMap((t: typeof chatThreads.$inferSelect) =>
       toEntityRow({
         slug: "CHAT_THREAD",
@@ -536,6 +536,7 @@ function serializeChatThread(t: typeof chatThreads.$inferSelect): SyncedChatThre
     userId: t.userId,
     title: t.title,
     lastMessageAt: toIso(t.lastMessageAt),
+    pinned: t.pinned,
     rowVersion: t.rowVersion,
     createdAt: toRequiredIso(t.createdAt, "chatThreads.createdAt"),
     updatedAt: toIso(t.updatedAt),

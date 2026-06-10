@@ -17,7 +17,7 @@ export function PreviewBriefingDetailPage() {
   const { slots, loading, error, retry } = useBriefing(date);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto">
+    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
       <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-10 sm:py-16">
         <div className="space-y-6">
           <Link

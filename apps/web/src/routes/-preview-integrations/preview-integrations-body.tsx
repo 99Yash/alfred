@@ -44,7 +44,7 @@ export function PreviewIntegrationsBody() {
   }, [resolved]);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto">
+    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
       <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto app-card-in">
           <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-app-fg-4">

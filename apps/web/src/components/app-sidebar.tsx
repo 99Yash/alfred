@@ -147,15 +147,21 @@ export function AppSidebar({
         const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (ev.clientX - startX)));
         setWidth(next);
       };
-      const onUp = () => {
+      // Shared teardown so a `pointercancel` (system alert, permission modal, or
+      // an interrupting OS gesture) restores the body styles just like a normal
+      // `pointerup` would — otherwise the col-resize cursor and disabled text
+      // selection stay stuck on the body until a reload.
+      const cleanup = () => {
         setDragging(false);
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
         window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointerup", cleanup);
+        window.removeEventListener("pointercancel", cleanup);
       };
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointerup", cleanup);
+      window.addEventListener("pointercancel", cleanup);
     },
     [width, setWidth],
   );

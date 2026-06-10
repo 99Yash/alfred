@@ -14,6 +14,9 @@ import {
 import type {
   ChatMessageCreateArgs,
   ChatThreadCreateArgs,
+  ChatThreadDeleteArgs,
+  ChatThreadRenameArgs,
+  ChatThreadSetPinnedArgs,
   FactConfirmArgs,
   FactEditArgs,
   FactRejectArgs,
@@ -470,6 +473,45 @@ export const serverMutators = {
         rowVersion: sql`${chatThreads.rowVersion} + 1`,
       })
       .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, ctx.userId)));
+  },
+
+  /** Rename a thread. No-op on a thread this user doesn't own. */
+  async chatThreadRename(
+    tx: DbTx,
+    args: ChatThreadRenameArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .update(chatThreads)
+      .set({ title: args.title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
+      .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
+  },
+
+  /** Pin / unpin a thread. No-op on a thread this user doesn't own. */
+  async chatThreadSetPinned(
+    tx: DbTx,
+    args: ChatThreadSetPinnedArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .update(chatThreads)
+      .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
+      .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
+  },
+
+  /**
+   * Hard-delete a thread. Its `chat_messages` cascade via the FK; the next
+   * pull diff drops the thread + message rows from the client. No-op on a
+   * thread this user doesn't own.
+   */
+  async chatThreadDelete(
+    tx: DbTx,
+    args: ChatThreadDeleteArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .delete(chatThreads)
+      .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, ctx.userId)));
   },
 
   // ── Triage tags (rfc-triage-tags.md) ──────────────────────────────────

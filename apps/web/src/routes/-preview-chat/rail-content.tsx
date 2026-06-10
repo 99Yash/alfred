@@ -124,7 +124,10 @@ export function RailContent({
          * Same pattern as `HeroShowcase`'s `Slot`. Only the active feed
          * is in flow (inactive slots overlay absolutely — see `RailSlot`),
          * so the scrollable height always tracks the visible feed. */}
-        <div ref={feedScrollRef} className="relative flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+        <div
+          ref={feedScrollRef}
+          className="relative flex-1 min-h-0 overflow-y-auto scroll-stable px-3 pb-3"
+        >
           {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
            * feed to the rail's width — otherwise the grid auto-sizes to its
            * widest child (the inbox rows), `truncate` stops working, and

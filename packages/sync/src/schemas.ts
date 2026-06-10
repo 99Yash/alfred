@@ -235,6 +235,12 @@ export const syncedChatThreadSchema = z.object({
   userId: z.string(),
   title: z.string().nullable(),
   lastMessageAt: isoDateTimeStringSchema.nullable(),
+  /**
+   * User-pinned threads float into a "Pinned" group above the date buckets.
+   * Defaulted so client rows written before the column existed still parse
+   * (they read back as unpinned until the next pull patches them).
+   */
+  pinned: z.boolean().default(false),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),
