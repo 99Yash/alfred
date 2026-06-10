@@ -9,7 +9,7 @@ This is a **pnpm workspace monorepo**. Packages are `@alfred/*` (never `@milkpod
 - **Never `db:push` outside local exploration.** Always `db:generate` -> `db:migrate`.
 - **Never import server packages into `apps/web`'s runtime bundle.** `@alfred/api`, `@alfred/auth`, `@alfred/db`, `@alfred/env`, and `@alfred/ai` pull in Node-only code. `pnpm check:web-boundaries` enforces this.
 - **Don't use `process.env` directly** — go through `serverEnv()` from `@alfred/env/server`.
-- **Read [decisions.md](./decisions.md) before proposing architecture changes** — 25 ADRs cover every major choice and rejection.
+- **Read [decisions.md](./decisions.md) before proposing architecture changes** — 55 ADRs cover every major choice and rejection.
 
 ## Read When Needed
 
@@ -24,4 +24,4 @@ Progressively disclose the details:
 - [docs/reference/replicache.md](./docs/reference/replicache.md) — sync architecture + recipe for adding a new synced entity.
 - [docs/reference/milestones.md](./docs/reference/milestones.md) — milestone history and current status (m1–m15).
 - Domain pipelines: [email triage](./docs/reference/triage.md), [morning briefing](./docs/reference/briefing.md), [cold-start research](./docs/reference/cold-start.md).
-- Active plans live in [docs/plans/](./docs/plans/) — current implementation plans (m13, triage/briefing v2, write surface) plus the original scaffolding plan.
+- Active plans live in [docs/plans/](./docs/plans/) — per-milestone/feature implementation plans (m13, triage v2/v3, briefing cutover, meeting-prep, integration-loading, chat-latency/GitHub tools, write surface) plus the original scaffolding plan.
