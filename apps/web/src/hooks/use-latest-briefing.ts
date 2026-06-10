@@ -19,7 +19,7 @@ export interface LatestBriefingSummary {
   status: string;
 }
 
-export function useLatestBriefing() {
+export function useLatestBriefing(opts?: { poll?: boolean }) {
   return useQuery<LatestBriefingSummary | null>({
     queryKey: ["me", "briefings", "latest"],
     queryFn: async () => {
@@ -30,5 +30,8 @@ export function useLatestBriefing() {
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    // While an on-demand briefing is composing, poll so the chip flips from
+    // "Composing…" to the live briefing as soon as the terminal row lands.
+    refetchInterval: opts?.poll ? 10_000 : false,
   });
 }

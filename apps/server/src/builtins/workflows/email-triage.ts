@@ -15,6 +15,7 @@ import {
   reconcileThreadLabel,
   resolveFeatureFlags,
   resolveTodoSuggestion,
+  todoSuppressionReason,
   senderKeyFor,
   senderPriorWriteKeyFor,
   suggestTodo,
@@ -384,11 +385,29 @@ export const emailTriageWorkflow: Workflow<State> = {
           // than duplicates, and a failed suggestion is non-fatal — the label +
           // row are the contract.
           const todoSuggestion = resolveTodoSuggestion(classification);
+          // Structural disqualifier (the cheap model won't reliably self-apply it):
+          // a GitHub PR-review thread with nothing live at stake, or Alfred's own
+          // HIL approval mail, mints no rail todo even when the model proposed one.
+          const suppression = todoSuggestion
+            ? todoSuppressionReason({
+                sender: metadataString(ctxData.document.metadata, "from"),
+                subject: ctxData.document.title,
+                signalText: [
+                  ctxData.document.title,
+                  ctxData.document.content,
+                  metadataString(ctxData.document.metadata, "snippet"),
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              })
+            : null;
           // `written` gate: only the run that owns the canonical row proposes a
           // todo, so a superseded older message can't mint a stray suggestion.
           // `flags.actionItems` gate: the user can switch off action-item
           // suggestions while keeping email tagging on (they share this classify).
-          if (written && todoSuggestion && flags.actionItems) {
+          if (written && todoSuggestion && suppression) {
+            await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
+          } else if (written && todoSuggestion && flags.actionItems) {
             try {
               const suggested = await suggestTodo({
                 userId: ctx.userId,

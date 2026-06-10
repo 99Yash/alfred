@@ -57,9 +57,9 @@ export type BriefingWorkflowInput = z.infer<typeof briefingWorkflowInputSchema>;
  * of the v1 fields so one workflow definition covers morning + evening.
  *
  * `dryRun` short-circuits the `send` step (no Resend call, no email_sends
- * row) AND marks the briefing_runs row as `status='dry_run'`, which keeps
- * it out of `fetchLatestWatermark`'s view — the next real run still
- * sees the full email window. Use this for prompt iteration.
+ * row) and leaves the `briefings` row at `status='composed'` — a
+ * non-terminal state that `fetchLatestWatermark` ignores, so the next
+ * real run still sees the full email window. Use this for prompt iteration.
  */
 export const dailyBriefingWorkflowInputSchema = briefingWorkflowInputSchema.extend({
   slot: briefingSlotSchema,
