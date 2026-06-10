@@ -6,6 +6,7 @@ import {
   classifyEmail,
   detectConflict,
   resolveTodoSuggestion,
+  sanitizeAssist,
   triageClassificationSchema,
   type ClassifyEmailArgs,
   type RunPass,
@@ -518,8 +519,49 @@ describe("triageClassificationSchema.todoSuggestion", () => {
   });
 });
 
+describe("sanitizeAssist", () => {
+  const anchor = new Date("2026-06-10T09:00:00Z");
+
+  test("keeps an absolute date fragment", () => {
+    assert.equal(sanitizeAssist("before Jun 30", anchor), "before Jun 30");
+    assert.equal(sanitizeAssist("2026-06-30", anchor), "2026-06-30");
+  });
+
+  test("keeps a money fragment", () => {
+    assert.equal(sanitizeAssist("₹88.5", anchor), "₹88.5");
+  });
+
+  test("resolves a relative date to an absolute calendar date against the email's send time", () => {
+    assert.equal(sanitizeAssist("due tomorrow", anchor), "due Jun 11");
+    assert.equal(sanitizeAssist("due tonight", anchor), "due Jun 10");
+    assert.equal(sanitizeAssist("due today", anchor), "due Jun 10");
+  });
+
+  test("resolves a relative date alongside a money fragment", () => {
+    assert.equal(sanitizeAssist("₹88.5 · due tomorrow", anchor), "₹88.5 · due Jun 11");
+  });
+
+  test("drops a bare relative date when there is no anchor to resolve it", () => {
+    // Stripped to "due" → no hard fact left → title-only row.
+    assert.equal(sanitizeAssist("due tomorrow", null), undefined);
+  });
+
+  test("drops relative phrasing it cannot pin to a single day", () => {
+    assert.equal(sanitizeAssist("due next Friday", anchor), undefined);
+    assert.equal(sanitizeAssist("in 3 days", anchor), undefined);
+  });
+
+  test("drops a sentence, a URL, or anything without a hard fact", () => {
+    assert.equal(sanitizeAssist("she needs it Friday", anchor), undefined);
+    assert.equal(sanitizeAssist("https://example.com/pay", anchor), undefined);
+    assert.equal(sanitizeAssist("click the link", anchor), undefined);
+    assert.equal(sanitizeAssist("", anchor), undefined);
+    assert.equal(sanitizeAssist(null), undefined);
+  });
+});
+
 describe("resolveTodoSuggestion", () => {
-  const suggestion = { name: "Reply to Priya about the Q3 budget", assist: "she needs it Friday" };
+  const suggestion = { name: "Reply to Priya about the Q3 budget", assist: "before Jun 30" };
 
   test("acceptance: an action_needed message with a concrete ask passes the suggestion through", () => {
     const resolved = resolveTodoSuggestion(
@@ -580,6 +622,20 @@ describe("resolveTodoSuggestion", () => {
       );
     });
   }
+
+  test("resolves a relative deadline in the assist against the email's send time", () => {
+    assert.deepEqual(
+      resolveTodoSuggestion(
+        classification({
+          category: "action_needed",
+          todoSuggestion: { name: "Pay the electricity bill", assist: "₹880 · due tomorrow" },
+          todoDecision: { outcome: "proposed" },
+        }),
+        new Date("2026-06-10T09:00:00Z"),
+      ),
+      { name: "Pay the electricity bill", assist: "₹880 · due Jun 11" },
+    );
+  });
 
   test("null when todoDecision does not confirm the proposal", () => {
     assert.equal(
