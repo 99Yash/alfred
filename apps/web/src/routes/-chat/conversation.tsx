@@ -90,7 +90,11 @@ export function Conversation({
   }, [messages]);
 
   return (
-    <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      onScroll={onScroll}
+      className="min-h-0 flex-1 overflow-y-auto scroll-stable"
+    >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />

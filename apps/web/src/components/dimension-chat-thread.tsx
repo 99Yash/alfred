@@ -169,7 +169,7 @@ export function DimensionChatThread({
 
       <div className="flex min-h-0 flex-1">
         <section className="relative flex min-w-0 flex-1 flex-col" aria-label="Chat thread">
-          <div className="minimal-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-40 pt-4 sm:px-4">
+          <div className="minimal-scrollbar min-h-0 flex-1 overflow-y-auto scroll-stable px-3 pb-40 pt-4 sm:px-4">
             <div className="mx-auto max-w-5xl">
               <div className="space-y-4">
                 <UserBubble>
@@ -698,19 +698,27 @@ function AssistantProse({ compact = false }: { compact?: boolean }) {
 
       <section className="space-y-2">
         <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Where You Fit</h3>
-        <div
-          role="table"
-          aria-label="Profile fit comparison"
-          className="grid max-w-[720px] grid-cols-2 overflow-hidden rounded-2xl border border-white/10 bg-[#1b1b1b]/50 text-[12.5px]"
-        >
-          <Cell header>Your experience</Cell>
-          <Cell header>Company relevance</Cell>
-          <Cell>RAG pipelines, agents, and workflows</Cell>
-          <Cell>Core to orchestration and memory systems</Cell>
-          <Cell>Reliability and production debugging</Cell>
-          <Cell>Maps to trust, guardrails, and auditability</Cell>
-          <Cell>Founding-engineer ownership</Cell>
-          <Cell>Small team, broad surface area, high ambiguity</Cell>
+        <div className="max-w-[720px] overflow-hidden rounded-2xl border border-white/10 bg-[#1b1b1b]/50">
+          <table aria-label="Profile fit comparison" className="w-full table-fixed text-[12.5px]">
+            <tbody>
+              <tr>
+                <Cell header>Your experience</Cell>
+                <Cell header>Company relevance</Cell>
+              </tr>
+              <tr>
+                <Cell>RAG pipelines, agents, and workflows</Cell>
+                <Cell>Core to orchestration and memory systems</Cell>
+              </tr>
+              <tr>
+                <Cell>Reliability and production debugging</Cell>
+                <Cell>Maps to trust, guardrails, and auditability</Cell>
+              </tr>
+              <tr>
+                <Cell>Founding-engineer ownership</Cell>
+                <Cell>Small team, broad surface area, high ambiguity</Cell>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -749,23 +757,31 @@ function RichAssistantProse() {
 
       <section className="space-y-2">
         <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Role Fit Matrix</h3>
-        <div
-          role="table"
-          aria-label="Role fit matrix"
-          className="grid max-w-[760px] grid-cols-[1fr_1fr_0.7fr] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/55 text-[12.5px]"
-        >
-          <Cell header>Signal</Cell>
-          <Cell header>Why it matters</Cell>
-          <Cell header>Prep angle</Cell>
-          <Cell>Agent orchestration</Cell>
-          <Cell>Core technical surface for enterprise adoption</Cell>
-          <Cell>Systems design</Cell>
-          <Cell>Human review gates</Cell>
-          <Cell>Determines trust and liability boundaries</Cell>
-          <Cell>Product judgment</Cell>
-          <Cell>Memory and retrieval</Cell>
-          <Cell>Turns one-off answers into durable workflows</Cell>
-          <Cell>Architecture</Cell>
+        <div className="max-w-[760px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/55">
+          <table aria-label="Role fit matrix" className="w-full table-fixed text-[12.5px]">
+            <tbody>
+              <tr>
+                <Cell header>Signal</Cell>
+                <Cell header>Why it matters</Cell>
+                <Cell header>Prep angle</Cell>
+              </tr>
+              <tr>
+                <Cell>Agent orchestration</Cell>
+                <Cell>Core technical surface for enterprise adoption</Cell>
+                <Cell>Systems design</Cell>
+              </tr>
+              <tr>
+                <Cell>Human review gates</Cell>
+                <Cell>Determines trust and liability boundaries</Cell>
+                <Cell>Product judgment</Cell>
+              </tr>
+              <tr>
+                <Cell>Memory and retrieval</Cell>
+                <Cell>Turns one-off answers into durable workflows</Cell>
+                <Cell>Architecture</Cell>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -787,10 +803,14 @@ function RichAssistantProse() {
 }
 
 function Cell({ children, header }: { children: ReactNode; header?: boolean }) {
-  return (
-    <div className="min-w-0 border-b border-r border-[#1d1d1d] px-3 py-2 text-gray-900">
-      {header ? <strong className="text-gray-950">{children}</strong> : children}
-    </div>
+  const className =
+    "min-w-0 border-b border-r border-[#1d1d1d] px-3 py-2 text-left align-top text-gray-900";
+  return header ? (
+    <th scope="col" className={className}>
+      <strong className="text-gray-950">{children}</strong>
+    </th>
+  ) : (
+    <td className={className}>{children}</td>
   );
 }
 
@@ -832,18 +852,45 @@ function ResponseActions() {
 const reactionClassName =
   "grid size-5 place-items-center rounded-md text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35";
 
-function RelatedSuggestions({ onSelect }: { onSelect: (prompt: string) => void }) {
-  const suggestions = [
-    "Turn this into a concise interview checklist",
-    "Draft a 90-day ownership plan",
-    "Compare this role against my current priorities",
-  ];
+const RELATED_SUGGESTIONS = [
+  "Turn this into a concise interview checklist",
+  "Draft a 90-day ownership plan",
+  "Compare this role against my current priorities",
+];
 
+const COMPOSER_CONTEXT_ITEMS: DimensionComposerMenuItem[] = [
+  {
+    label: "Mention a tool",
+    description: "Reference integrations in the next reply",
+    icon: <AtSign size={15} />,
+    disabled: true,
+  },
+  {
+    label: "Attach artifact",
+    description: "Use the current briefing as context",
+    icon: <FileText size={15} />,
+    disabled: true,
+  },
+  {
+    label: "Upload file",
+    description: "Coming with artifact ingestion",
+    icon: <FileUp size={15} />,
+    disabled: true,
+  },
+  {
+    label: "Connect tools",
+    description: "Manage source access",
+    icon: <Link2 size={15} />,
+    href: "/integrations",
+  },
+];
+
+function RelatedSuggestions({ onSelect }: { onSelect: (prompt: string) => void }) {
   return (
     <div className="max-w-[720px] pt-1">
       <p className="mb-1 text-sm text-gray-700">Related</p>
       <div className="divide-y divide-gray-50">
-        {suggestions.map((suggestion, index) => (
+        {RELATED_SUGGESTIONS.map((suggestion, index) => (
           <button
             key={suggestion}
             type="button"
@@ -913,32 +960,6 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   submitRef.current = submit;
 
   const hasContent = value.trim().length > 0;
-  const contextItems: DimensionComposerMenuItem[] = [
-    {
-      label: "Mention a tool",
-      description: "Reference integrations in the next reply",
-      icon: <AtSign size={15} />,
-      disabled: true,
-    },
-    {
-      label: "Attach artifact",
-      description: "Use the current briefing as context",
-      icon: <FileText size={15} />,
-      disabled: true,
-    },
-    {
-      label: "Upload file",
-      description: "Coming with artifact ingestion",
-      icon: <FileUp size={15} />,
-      disabled: true,
-    },
-    {
-      label: "Connect tools",
-      description: "Manage source access",
-      icon: <Link2 size={15} />,
-      href: "/integrations",
-    },
-  ];
   const overflowItems: DimensionComposerMenuItem[] = [
     {
       label: autoMode ? "Switch to manual review" : "Switch to auto mode",
@@ -970,7 +991,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
           startClassName="flex-1"
           start={
             <>
-              <DimensionComposerContextMenu items={contextItems}>
+              <DimensionComposerContextMenu items={COMPOSER_CONTEXT_ITEMS}>
                 <Plus size={15} />
               </DimensionComposerContextMenu>
               <button

@@ -3,7 +3,7 @@ import { cn } from "~/lib/utils";
 
 export function ConversationScroll({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex-1 min-h-0 overflow-y-auto">
+    <div className="relative flex-1 min-h-0 overflow-y-auto scroll-stable">
       <div className="mx-auto w-full max-w-3xl px-6 pt-10 pb-8">{children}</div>
       <div
         aria-hidden

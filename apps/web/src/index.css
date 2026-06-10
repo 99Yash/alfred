@@ -709,6 +709,16 @@
     border-radius: 9999px;
   }
 
+  /* Reserve the scrollbar gutter on a vertical scroll pane so content doesn't
+   * shift sideways when the scrollbar appears/disappears (e.g. collapsing a
+   * sidebar group, or a list shrinking below the fold). Opt in on full-height
+   * page columns / chat scrollers — NOT on short popovers/dropdowns, where a
+   * permanently reserved gutter reads as an empty gap. Only does anything when
+   * the OS uses classic (space-taking) scrollbars; harmless with overlay ones. */
+  .scroll-stable {
+    scrollbar-gutter: stable;
+  }
+
   /* Mobile nav drawer slide-in. */
   @keyframes drawer-slide-in {
     from {

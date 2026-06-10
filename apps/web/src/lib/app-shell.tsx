@@ -5,11 +5,15 @@ import {
   lazy,
   Suspense,
   use,
+  useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
@@ -88,17 +92,78 @@ function useSidebarMode(): "inline" | "overlay" {
   return mode;
 }
 
+interface ShellState {
+  rightRailNode: ReactNode | null;
+  paletteOpen: boolean;
+  sidebarOpen: boolean;
+  activeThread: string;
+}
+
+type ShellAction =
+  | { type: "setRightRailNode"; value: ReactNode | null }
+  | { type: "setPaletteOpen"; value: SetStateAction<boolean> }
+  | { type: "setSidebarOpen"; value: SetStateAction<boolean> }
+  | { type: "setActiveThread"; value: string };
+
+function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
+  return typeof next === "function" ? (next as (current: T) => T)(current) : next;
+}
+
+function createInitialShellState(sidebarMode: "inline" | "overlay"): ShellState {
+  return {
+    rightRailNode: null,
+    paletteOpen: false,
+    sidebarOpen: sidebarMode === "inline",
+    activeThread: "",
+  };
+}
+
+function shellReducer(state: ShellState, action: ShellAction): ShellState {
+  switch (action.type) {
+    case "setRightRailNode":
+      return { ...state, rightRailNode: action.value };
+    case "setPaletteOpen":
+      return { ...state, paletteOpen: resolveSetState(state.paletteOpen, action.value) };
+    case "setSidebarOpen":
+      return { ...state, sidebarOpen: resolveSetState(state.sidebarOpen, action.value) };
+    case "setActiveThread":
+      return { ...state, activeThread: action.value };
+    default: {
+      const _exhaustive: never = action;
+      throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
+    }
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const [rightRailNode, setRightRailNode] = useState<ReactNode | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const sidebarMode = useSidebarMode();
-  const [sidebarOpen, setSidebarOpen] = useState(() => sidebarMode === "inline");
-  const [activeThread, setActiveThread] = useState<string>("");
+  const [shellState, dispatchShell] = useReducer(
+    shellReducer,
+    sidebarMode,
+    createInitialShellState,
+  );
+  const { rightRailNode, paletteOpen, sidebarOpen, activeThread } = shellState;
+  const setRightRailNode = useCallback(
+    (value: ReactNode | null) => dispatchShell({ type: "setRightRailNode", value }),
+    [],
+  );
+  const setPaletteOpen = useCallback(
+    (value: SetStateAction<boolean>) => dispatchShell({ type: "setPaletteOpen", value }),
+    [],
+  );
+  const setSidebarOpen = useCallback(
+    (value: SetStateAction<boolean>) => dispatchShell({ type: "setSidebarOpen", value }),
+    [],
+  );
+  const setActiveThread = useCallback(
+    (value: string) => dispatchShell({ type: "setActiveThread", value }),
+    [],
+  );
 
   // Snap the sidebar back to each mode's default when the viewport
   // crosses the breakpoint — wide viewports get it open inline, narrow
@@ -124,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPending) return;
     writeAuthHint(!!sessionUser);
   }, [isPending, sessionUser]);
-  const onboardingQuery = useQuery({
+  const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
       const res = await client.api.me.onboarding.get();
@@ -138,7 +203,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   /* Gate `/onboarding` access in both directions:
    *   - new user (routeToOnboarding=true) on any other authed route → /onboarding
    *   - finished user on /onboarding → / */
-  const routeToOnboarding = onboardingQuery.data?.routeToOnboarding;
+  const routeToOnboarding = onboardingData?.routeToOnboarding;
   const onOnboardingRoute = location.pathname.startsWith("/onboarding");
 
   /* Mirror the resolved onboarding decision into a synchronous localStorage
@@ -190,24 +255,31 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && !chromeless;
+  const togglePaletteEvent = useEffectEvent(() => setPaletteOpen((o) => !o));
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        togglePaletteEvent();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
-  const ctx = useMemo<RightRailContextValue>(() => ({ setContent: setRightRailNode }), []);
+  const ctx = useMemo<RightRailContextValue>(
+    () => ({ setContent: setRightRailNode }),
+    [setRightRailNode],
+  );
   const sidebarStateValue = useMemo<SidebarStateValue>(
     () => ({ open: sidebarOpen, setOpen: setSidebarOpen }),
-    [sidebarOpen],
+    [sidebarOpen, setSidebarOpen],
   );
-  const chatContextValue = useMemo(() => ({ activeThread, setActiveThread }), [activeThread]);
+  const chatContextValue = useMemo(
+    () => ({ activeThread, setActiveThread }),
+    [activeThread, setActiveThread],
+  );
 
   // First-load gating: between "session resolved" and "onboarding query
   // resolved" we don't yet know whether to redirect new users to
@@ -256,6 +328,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   activeThread={activeThread}
                   sidebarOpen={sidebarOpen}
                   setSidebarOpen={setSidebarOpen}
+                  sidebarMode={sidebarMode}
                 />
               </Suspense>
             ) : (

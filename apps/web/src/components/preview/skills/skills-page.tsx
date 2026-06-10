@@ -10,7 +10,7 @@ export function PreviewSkillsPage() {
   const sorted = PREVIEW_SKILLS.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto">
+    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
       <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         <header className="text-center space-y-3 max-w-2xl mx-auto app-card-in">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-[-0.04em] text-app-fg-4">
