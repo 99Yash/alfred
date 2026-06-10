@@ -7,7 +7,7 @@ import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 
-// ADR-0054: behavioral eval for agent date grounding. Guards the regression
+// ADR-0055: behavioral eval for agent date grounding. Guards the regression
 // where the chat agent, given "how many meetings do i have in october 2026",
 // replied "which year?" instead of calling the calendar tool — because the
 // system prompt never told it what "now" is. We run the REAL grounded chat
