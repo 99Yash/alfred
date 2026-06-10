@@ -128,6 +128,10 @@ function shellReducer(state: ShellState, action: ShellAction): ShellState {
       return { ...state, sidebarOpen: resolveSetState(state.sidebarOpen, action.value) };
     case "setActiveThread":
       return { ...state, activeThread: action.value };
+    default: {
+      const _exhaustive: never = action;
+      throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
+    }
   }
 }
 
