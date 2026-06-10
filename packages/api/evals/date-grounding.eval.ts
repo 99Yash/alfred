@@ -1,6 +1,7 @@
 import path from "node:path";
 import { getChatModel } from "@alfred/ai";
 import { calendarListEventsInput } from "@alfred/contracts";
+import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
@@ -90,11 +91,7 @@ function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): bo
 evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.target })),
   task: async (input) => {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error(
-        "date-grounding eval needs ANTHROPIC_API_KEY (load apps/server/.env or export it)",
-      );
-    }
+    void serverEnv().ANTHROPIC_API_KEY;
     const result = await generateText({
       model: getChatModel("standard"),
       system: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW)),

@@ -29,14 +29,13 @@ import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { createCacheRedisConnection } from "../../queue/connection";
 import {
-  isValidTimezone,
   localDateInTimezone,
   localHourInTimezone,
   resolveBriefingPreferences,
 } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
-import { getPreference } from "../memory/preferences";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
+import { resolveUserTimezone } from "../user-timezone";
 import { sanitizeEmailHtml } from "./email-html";
 
 /**
@@ -345,20 +344,6 @@ function looksLikeDiffLine(line: string | undefined): boolean {
     /^[-+]$/.test(stripped) ||
     /^@@ -?\d/.test(stripped)
   );
-}
-
-/**
- * Resolve the user's IANA timezone from the general `timezone` preference
- * (shared with workflow scheduling — see `workflows/scheduling.ts`). The
- * briefing module has its own `briefing.timezone` override; the rail isn't
- * briefing-specific, so it reads the general key.
- */
-async function resolveUserTimezone(userId: string): Promise<string> {
-  const pref = await getPreference(userId, "timezone");
-  if (pref && typeof pref.value === "string" && isValidTimezone(pref.value)) {
-    return pref.value;
-  }
-  return "UTC";
 }
 
 // Cache Intl.DateTimeFormat by timezone — constructing one allocates dozens of

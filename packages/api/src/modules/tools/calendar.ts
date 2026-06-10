@@ -10,9 +10,9 @@ import {
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
-import { resolveUserTimezone } from "../agent/grounding";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
+import { resolveUserTimezone } from "../user-timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;

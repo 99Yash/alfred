@@ -1,5 +1,5 @@
-import { isValidTimezone, localDateInTimezone } from "../briefing/preferences";
-import { getPreference } from "../memory/preferences";
+import { localDateInTimezone } from "../briefing/preferences";
+import { resolveUserTimezone } from "../user-timezone";
 
 /**
  * The user's operational timezone — the same preference key
@@ -8,13 +8,7 @@ import { getPreference } from "../memory/preferences";
  * "today" with this key keeps the date the model reasons about in lockstep
  * with the date the calendar tool actually queries. Falls back to UTC.
  */
-export async function resolveUserTimezone(userId: string): Promise<string> {
-  const pref = await getPreference(userId, "timezone");
-  if (pref && typeof pref.value === "string" && isValidTimezone(pref.value)) {
-    return pref.value;
-  }
-  return "UTC";
-}
+export { resolveUserTimezone };
 
 /**
  * One-line date grounding for an agent system prompt, e.g.
