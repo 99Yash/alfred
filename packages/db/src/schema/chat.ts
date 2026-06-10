@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
@@ -43,7 +43,9 @@ export const chatThreads = pgTable(
     title: text("title"),
     /** Sort key for the thread list — bumped on every new message. */
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-    /** Replicache row-version. Bumped on title / lastMessageAt changes. */
+    /** User-pinned threads float to a "Pinned" group above the date buckets. */
+    pinned: boolean("pinned").notNull().default(false),
+    /** Replicache row-version. Bumped on title / lastMessageAt / pinned changes. */
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },

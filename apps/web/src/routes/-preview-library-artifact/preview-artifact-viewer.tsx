@@ -105,7 +105,7 @@ export function PreviewArtifactViewer() {
         </div>
       </header>
 
-      <main className="relative min-h-0 flex-1 overflow-y-auto px-4 py-8">
+      <main className="relative min-h-0 flex-1 overflow-y-auto scroll-stable px-4 py-8">
         <div className="mx-auto flex w-full max-w-[460px] flex-col gap-8">
           {artifact.pages.map((page, index) => (
             <section key={`${page.title}-${index}`} aria-label={`Page ${index + 1}`}>
