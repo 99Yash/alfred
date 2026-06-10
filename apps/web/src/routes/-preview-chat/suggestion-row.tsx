@@ -34,29 +34,41 @@ export function SuggestionRow({
           onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined
         }
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left app-press",
+          "flex min-w-0 flex-1 items-start gap-2.5 rounded-lg text-left app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] leading-5 font-medium text-white">
+          {/* The title IS the todo. `title` attr exposes the full string on hover
+              if it wraps past two lines, so nothing is unreadably clipped. */}
+          <span
+            title={label}
+            className="block line-clamp-2 text-[12.5px] leading-5 font-medium text-white"
+          >
             {label}
           </span>
+          {/* `detail` is a hard-fact fragment (amount / deadline / decision), not a
+              body sentence — render it as one compact, dimmed meta line, never a wall. */}
           {detail ? (
-            <span className="block truncate text-[11px] leading-4 text-white/55">{detail}</span>
+            <span
+              title={detail}
+              className="mt-0.5 block truncate text-[11px] leading-4 text-white/45 tabular-nums"
+            >
+              {detail}
+            </span>
           ) : null}
         </span>
         {onAccept ? (
           <Plus
             size={13}
             aria-hidden
-            className="shrink-0 text-white/55 group-hover:text-white transition-colors"
+            className="mt-0.5 shrink-0 text-white/55 group-hover:text-white transition-colors"
           />
         ) : (
           <ChevronRight
             size={12}
             aria-hidden
-            className="shrink-0 text-white/55 group-hover:text-white/80 transition-colors"
+            className="mt-0.5 shrink-0 text-white/55 group-hover:text-white/80 transition-colors"
           />
         )}
       </button>

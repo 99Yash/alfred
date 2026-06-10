@@ -36,6 +36,7 @@ import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
+import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
@@ -1243,7 +1244,23 @@ function ComposerIcon({
 function useRailData(): RailData {
   const inbox = useInbox();
   const meetings = useMeetings();
-  const briefing = useLatestBriefing();
+  // On-demand briefing: `composing` drives the footer's "Composing…" state
+  // and turns on polling so the chip flips to the live briefing when the run
+  // lands. The latest endpoint is today-scoped, so any non-null result is the
+  // fresh row — that's our signal to stop.
+  const [composing, setComposing] = useState(false);
+  const briefing = useLatestBriefing({ poll: composing });
+  const runBriefing = useRunBriefing();
+  useEffect(() => {
+    if (composing && briefing.data) setComposing(false);
+  }, [composing, briefing.data]);
+  const onGenerateBriefing = useCallback(() => {
+    runBriefing.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.status === "queued" || data.status === "running") setComposing(true);
+      },
+    });
+  }, [runBriefing]);
 
   // Live todos + Alfred's suggestions (ADR-0050), Replicache-synced.
   const {
@@ -1378,6 +1395,8 @@ function useRailData(): RailData {
       meetings: meetingsData?.items ?? [],
       calendarConnected: meetingsData?.connected ?? false,
       latestBriefing: briefingData ?? null,
+      onGenerateBriefing,
+      briefingPending: composing || runBriefing.isPending,
     }),
     [
       todoItems,
@@ -1402,6 +1421,9 @@ function useRailData(): RailData {
       onOverrideTriageTag,
       meetingsData,
       briefingData,
+      onGenerateBriefing,
+      composing,
+      runBriefing.isPending,
     ],
   );
 }

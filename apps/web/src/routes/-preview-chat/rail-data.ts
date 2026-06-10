@@ -73,6 +73,14 @@ export interface RailData {
   calendarConnected?: boolean;
   /** Latest composed briefing for the user, or null if none has run yet. */
   latestBriefing?: RailBriefingSummary | null;
+  /**
+   * Trigger an on-demand briefing run (the footer's "Generate briefing"
+   * button, shown only in the empty state). Optional — the preview route
+   * omits it, in which case the empty footer links to the timeline instead.
+   */
+  onGenerateBriefing?: () => void;
+  /** True while a manual briefing run is queued or composing; shows "Composing…". */
+  briefingPending?: boolean;
 }
 
 export const EMPTY_RAIL_DATA: RailData = {

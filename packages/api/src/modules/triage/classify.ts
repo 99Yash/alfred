@@ -257,12 +257,12 @@ Rules:
 15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is action_needed, not urgent. It carries no consequence-of-delay beyond having to request a fresh code. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
 16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
-    16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
+    16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. A social-network connection request (LinkedIn/X/etc. — "wants to connect", "I want to connect", "would like to join your network") is the canonical optional nicety: the sender's want, not your obligation, and any urgency it phrases is THEIRS → \`no_obligation\`. EXCEPTION — treat it as a real obligation worth a nudge ONLY when the requester's OWN headline in the email marks them a senior leader or clearly notable decision-maker (founder, C-level, president/partner, or a recognized figure). Judge that seniority from the headline as written — "Senior <IC role>" (e.g. "Senior Software Developer") is NOT senior leadership; a title like "Founder", "CEO", "CTO", "VP", or "Head of <org>" is. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
     16b. Significance — a REAL, EXTERNAL stake. The obligation must carry a real stake, one of: a real identifiable person waiting on the user; money owed or at risk; a hard deadline; loss of access; a commitment the user made to a human; OR a real-world consequence to the user judged from the content. That last clause is the ONLY way automated/bot mail earns a todo, and for code/PR/review findings (whether from a bot OR a human reviewer) it turns on LIVENESS — is something ALREADY LIVE at stake? A real stake = the issue affects PRODUCTION or already-merged (\`main\`) code: a secret already committed/exposed, a vulnerability in \`main\`, an outage, a broken or blocked production deploy, a same-day security deadline. NO stake = the issue exists only in the UNMERGED changes under review — nitpicks, style, perf suggestions, even a genuine vulnerability that lives only in the PR's proposed code and is not yet in \`main\`/production. That is pre-merge advisory (review working as intended; nothing live is at risk) → fail. The test is not "is a reviewer waiting" but "is something already live at stake." MECHANICAL RULE: a pull-request review comment — anything of the shape "<reviewer> commented on PR #N", "address the review feedback on PR #N", "apply these suggestions" — is BY DEFINITION about code not yet merged, so it is pre-merge advisory and emits NO todo (outcome \`not_significant\`, note \`advisory:\`), REGARDLESS of how concrete or severe the suggested fixes sound, UNLESS the body explicitly says the problem is already in production / \`main\` or a credential is already exposed. CodeRabbit/Greptile "consider…" comments and CVE-FYIs fail. Stakes a product MANUFACTURES to drive engagement — gamification streaks ("play before midnight or lose your streak"), unread/notification counts, "N people viewed your profile", marketing scarcity ("ends tonight") — and CEREMONIAL obligations (AGM, "save the date") are NOT real stakes, however urgently phrased → outcome \`not_significant\` (set \`note\` prefix \`manufactured:\` or \`advisory:\`). Real-but-trivial asks also fail: rate-your-driver, surveys, "thoughts sometime?", optional feedback. Judge the STAKE from the email ALONE — you do NOT have the user's projects, role, or relationships, so do not infer personal relevance; an obligation either carries an intrinsic real stake or it does not.
     16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
     16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
     16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
-    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. \`name\` is a TERSE, second-person IMPERATIVE that names the object — lead with the real verb, keep it short (aim ≤ ~8 words): "Reply to Priya about the Q3 budget", "Rotate the exposed Redis credential before EOD", "Add receipts to 4 Brex expenses". NEVER a bare verb ("Log in", "Reply") and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …") — use the actual action verb. \`assist\` is OPTIONAL and active-voice: include it only when it adds guidance the \`name\` doesn't already carry — a decision to weigh, a concrete next step, or an honest "I can't act on this yet — <reason>". OMIT it rather than restate the obvious ("click the link in the email" adds nothing). Never invent specifics absent from the email.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due tomorrow", "before Jun 30", "renews Jul 1 — keep or cancel". NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
     16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 
 Examples (subject → category):
@@ -298,6 +298,7 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 - "Your 100-day Chess.com streak is paused — play before midnight" → no todo (16b: manufactured stake, a counter resetting is not a real consequence). Same for "You have 7 unread on Linear" / "5 people viewed your profile".
 - A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
 - "Sakshi is running standup today while Dave is out" → category fyi/done, no todo (16a (ii): the action is owned by Sakshi, not the user — even though the user is the recipient).
+- LinkedIn "I want to connect" whose headline reads "Senior Software Developer at Sosuv" → category action_needed, no todo (16a (i): optional nicety; "Senior <IC role>" is not senior leadership, and "I want to connect" is the sender's urgency, not the user's). A connection request whose headline reads "Founder & CEO" / "CTO at <co>" → todo (16a exception: senior leader worth a nudge).
 - "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
 
 Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
@@ -494,6 +495,34 @@ export function applyOverrideFloor(
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
+// The rail title IS the todo; an `assist` line earns the user's eyes only if it
+// carries a HARD FACT the title structurally can't — a money amount or a
+// date/deadline. The cheap model reliably *extracts* those but will NOT reliably
+// *self-censor*: it pads `assist` with URLs, prose, mechanical steps, and
+// restatements. Prompting harder is whack-a-mole, so the keep/drop is enforced
+// deterministically here instead. Anything that isn't a short amount/date
+// fragment collapses to a title-only row.
+const ASSIST_URL_RE = /https?:\/\//i;
+const ASSIST_AMOUNT_RE =
+  /[₹$€£¥]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|gbp|inr|rs\.?|rupees?|dollars?)\b/i;
+const ASSIST_DATE_RE =
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:today|tomorrow|tonight)\b/i;
+/** A real hard-fact fragment is short; longer means the model wrote a sentence. */
+const ASSIST_MAX_LEN = 40;
+
+/**
+ * Keep `assist` only when it reads as a hard fact (an amount or a date) and is
+ * short enough to be a fragment, never a URL. Returns `undefined` otherwise so
+ * the row renders title-only. PURE.
+ */
+export function sanitizeAssist(assist: string | null | undefined): string | undefined {
+  const text = assist?.trim();
+  if (!text || text.length > ASSIST_MAX_LEN) return undefined;
+  if (ASSIST_URL_RE.test(text)) return undefined;
+  if (!ASSIST_AMOUNT_RE.test(text) && !ASSIST_DATE_RE.test(text)) return undefined;
+  return text;
+}
+
 /**
  * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
  * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
@@ -511,7 +540,49 @@ export function resolveTodoSuggestion(
   if (!suggestion) return null;
   if (classification.todoDecision?.outcome !== "proposed") return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
-  return suggestion;
+  return { name: suggestion.name, assist: sanitizeAssist(suggestion.assist) };
+}
+
+/** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
+export type TodoSuppressionReason = "alfred_approval" | "pre_merge_advisory";
+
+const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
+// A GitHub PR-notification thread: the body carries a `/pull/N` link and the
+// subject a `(PR #N)` ref. `/issues/N` and issue refs deliberately don't match —
+// an issue can be a real ask; review of unmerged PR code is not (rule 16b).
+const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
+// Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
+const ALFRED_APPROVAL_SUBJECT_RE = /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
+// Liveness escape for the PR gate — something already in production / `main` /
+// an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
+const TODO_LIVENESS_RE =
+  /\bproduction\b|\bprod\b|\boutage\b|\bincident\b|\balready merged\b|\bin main\b|\bblocked deploy|\bdeploy(?:ment)? (?:failing|blocked|broken)\b/i;
+
+/**
+ * Structural disqualifier for a rail todo, applied AFTER the cheap model proposed
+ * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause
+ * or recognize Alfred's own approval mail, so two whole-row leaks are killed here
+ * deterministically from the email's shape:
+ *   - `alfred_approval`    — Alfred's own HIL approval request; it lives on the
+ *                            Approvals surface, never the todo rail.
+ *   - `pre_merge_advisory` — a GitHub pull-request notification thread with no
+ *                            liveness signal (nothing in production / `main`, no
+ *                            exposed secret). Reviewing unmerged code is not a todo.
+ * Returns null when nothing disqualifies it. PURE — the mint path and the
+ * dry-run both apply it so KEEP/KILL stays consistent.
+ */
+export function todoSuppressionReason(email: {
+  sender: string | null;
+  subject: string | null;
+  signalText: string;
+}): TodoSuppressionReason | null {
+  if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
+  if (GITHUB_NOTIFICATION_RE.test(email.sender ?? "") && PR_THREAD_RE.test(email.signalText)) {
+    const live =
+      TODO_LIVENESS_RE.test(email.signalText) || OVERRIDE_FLOOR_SECRET_RE.test(email.signalText);
+    if (!live) return "pre_merge_advisory";
+  }
+  return null;
 }
 
 /** Concatenated lowercased text the floor predicate scans (subject + body + snippet). */

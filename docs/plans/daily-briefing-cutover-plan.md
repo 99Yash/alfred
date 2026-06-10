@@ -1,8 +1,16 @@
 # Daily-briefing cutover plan
 
-**Status:** planned (not started). Briefing cron dispatch is **paused** in the
-meantime — see `BRIEFING_DISPATCH_PAUSED` in
-`packages/api/src/modules/briefing/queue.ts`.
+**Status:** implemented on branch `daily-briefing-cutover` (2026-06-10). The
+`daily-briefing` workflow now writes the canonical `briefings` table via the
+`store.ts` state machine, dispatch is unpaused, and `enqueueBriefingRun` points
+at `DAILY_BRIEFING_WORKFLOW_SLUG`. The `BRIEFING_DISPATCH_PAUSED` flag is
+removed. A rail "Generate briefing" button (`POST /api/me/briefings/run`,
+`reason: "manual"`) triggers an on-demand run. Dry-run smoke (`--no-send`,
+morning) passes against real local data.
+
+Remaining before prod: validate a real send + a quiet-morning suppression
+(steps 3/5 below), then deregister the old `morning-briefing` workflow (step 6)
+and deploy.
 
 **Goal:** make the hourly briefing cron dispatch the LLM-composed
 `daily-briefing` workflow as the live, canonical path for both the morning

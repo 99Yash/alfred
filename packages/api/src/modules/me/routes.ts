@@ -1,4 +1,4 @@
-import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
+import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES, type BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -27,7 +27,13 @@ import {
 } from "drizzle-orm";
 import { Elysia, status, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { isValidTimezone } from "../briefing/preferences";
+import {
+  isValidTimezone,
+  localDateInTimezone,
+  localHourInTimezone,
+  resolveBriefingPreferences,
+} from "../briefing/preferences";
+import { enqueueBriefingRun } from "../briefing/queue";
 import { getPreference } from "../memory/preferences";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
 import { sanitizeEmailHtml } from "./email-html";
@@ -841,6 +847,12 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       .get(
         "/briefings/latest",
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
+          // Scope to *today's* briefing in the user's timezone — the rail is a
+          // "Today" panel, so an older briefing must read as empty rather than
+          // pin the chip to a stale day. Among today's slots (morning fires
+          // first, evening supersedes it), the most recent composed run wins.
+          const timezone = await resolveUserTimezone(u.id);
+          const today = getDateFmt(timezone).format(new Date());
           const rows = await db()
             .select({
               id: briefings.id,
@@ -853,7 +865,11 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             })
             .from(briefings)
             .where(
-              and(eq(briefings.userId, u.id), inArray(briefings.status, ["sent", "suppressed"])),
+              and(
+                eq(briefings.userId, u.id),
+                eq(briefings.briefingDate, today),
+                inArray(briefings.status, ["sent", "suppressed"]),
+              ),
             )
             .orderBy(desc(briefings.createdAt))
             .limit(1);
@@ -876,6 +892,54 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 }
               : null,
           };
+        },
+      )
+      .post(
+        "/briefings/run",
+        async ({
+          user: u,
+        }): Promise<{ status: "queued" | "running" | "exists"; slot: BriefingSlot; runId?: string }> => {
+          // On-demand briefing trigger for the rail "Generate briefing"
+          // button. `reason: "manual"` bypasses morning suppression, so the
+          // requested slot always sends. Slot follows the time of day: after
+          // the user's evening hour we compose the evening recap, else morning.
+          const prefs = await resolveBriefingPreferences(u.id);
+          const briefingDate = localDateInTimezone(prefs.timezone);
+          const slot: BriefingSlot =
+            localHourInTimezone(prefs.timezone) >= prefs.eveningHour ? "evening" : "morning";
+
+          // Don't spin up a second agent run if today's slot is already
+          // terminal (done) or genuinely in flight. `composed` (compose
+          // finished, send interrupted) and `failed` fall through to
+          // re-enqueue — `beginBriefing` resumes/retries them to a terminal.
+          const existing = await db()
+            .select({ id: briefings.id, status: briefings.status })
+            .from(briefings)
+            .where(
+              and(
+                eq(briefings.userId, u.id),
+                eq(briefings.briefingDate, briefingDate),
+                eq(briefings.slot, slot),
+              ),
+            )
+            .limit(1);
+          const row = existing[0];
+          if (row) {
+            if (row.status === "sent" || row.status === "suppressed") {
+              return { status: "exists", slot };
+            }
+            if (row.status === "pending" || row.status === "gathering" || row.status === "composing") {
+              return { status: "running", slot };
+            }
+          }
+
+          const { runId } = await enqueueBriefingRun({
+            userId: u.id,
+            slot,
+            briefingDate,
+            reason: "manual",
+          });
+          return { status: "queued", slot, runId };
         },
       ),
   );

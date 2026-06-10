@@ -23,6 +23,7 @@ import {
   loadTriageContext,
   resolveTodoSuggestion,
   senderKeyFor,
+  todoSuppressionReason,
 } from "@alfred/api";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
@@ -161,14 +162,23 @@ async function main() {
     const cat = classification.category;
     const author = `author=${senderContext.effectiveAuthor}${senderContext.botSlug ? `/${senderContext.botSlug}` : ""}`;
     // Mirror production: the rail only mints what `resolveTodoSuggestion` keeps
-    // (proposed outcome + todo-eligible category), not the raw model suggestion.
+    // (proposed outcome + todo-eligible category) AND survives the structural
+    // suppressor (GitHub PR-review thread / Alfred's own approval mail).
     const resolved = resolveTodoSuggestion(classification);
-    if (resolved) {
+    const suppression = resolved
+      ? todoSuppressionReason({
+          sender: metaStr(ctxData.document.metadata, "from"),
+          subject: ctxData.document.title,
+          signalText,
+        })
+      : null;
+    if (resolved && !suppression) {
       kept++;
       console.log(`✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"\n`);
     } else {
       killed++;
-      console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${decision}${note}\n`);
+      const why = suppression ? `suppressed: ${suppression}` : `${decision}${note}`;
+      console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${why}\n`);
     }
   }
 

@@ -13,12 +13,13 @@
  *       --email=iamdevyash@gmail.com
  *
  * What this verifies end-to-end:
- *   1. The daily-briefing workflow runs gather → compose → persist → send
- *      to completion.
+ *   1. The daily-briefing workflow runs gather → compose → send to
+ *      completion.
  *   2. The agent calls dump_briefing exactly once and produces a non-empty
- *      subject + bodyText + bodyMarkdown.
- *   3. A `briefing_runs` row lands at status='composed' with a
- *      watermark_at anchored on the frozen "until" instant.
+ *      subject (→ headline) + breaking_summary prose.
+ *   3. A canonical `briefings` row lands — status='composed' under
+ *      --no-send, status='sent' otherwise — with a watermark_at anchored
+ *      on the frozen "until" instant.
  *   4. (When --no-send is omitted) An `email_sends` row lands at status='sent'.
  *
  * What this does NOT verify:
@@ -46,7 +47,7 @@ import {
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
-import { agentRuns, briefingRuns, user as userTable } from "@alfred/db/schemas";
+import { agentRuns, briefings, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
@@ -111,8 +112,8 @@ async function pollRun(runId: string, label: string) {
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
-async function fetchBriefingRun(id: string) {
-  const rows = await db().select().from(briefingRuns).where(eq(briefingRuns.id, id)).limit(1);
+async function fetchBriefing(id: string) {
+  const rows = await db().select().from(briefings).where(eq(briefings.id, id)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -162,38 +163,40 @@ async function main() {
   }
 
   const output = run.output as {
-    briefingRunId?: string;
+    briefingId?: string;
     emailSendId?: string | null;
     status?: string;
     slot: string;
   } | null;
-  assert(output?.briefingRunId, "run completed but output.briefingRunId is missing");
+  assert(output?.briefingId, "run completed but output.briefingId is missing");
   console.log(
-    `[smoke-daily-briefing] run completed: briefingRunId=${output.briefingRunId} ` +
-      `emailStatus=${output.status ?? "(n/a)"}`,
+    `[smoke-daily-briefing] run completed: briefingId=${output.briefingId} ` +
+      `status=${output.status ?? "(n/a)"}`,
   );
 
-  const expectedRowStatus = cli.noSend ? "dry_run" : "composed";
-  const row = await fetchBriefingRun(output.briefingRunId);
-  assert(row, `briefing_runs row not found: ${output.briefingRunId}`);
+  // forced runs never suppress, so the terminal row is 'composed' under
+  // --no-send (send short-circuits) and 'sent' otherwise.
+  const expectedRowStatus = cli.noSend ? "composed" : "sent";
+  const row = await fetchBriefing(output.briefingId);
+  assert(row, `briefings row not found: ${output.briefingId}`);
   assert(
     row.status === expectedRowStatus,
     `expected status=${expectedRowStatus}, got ${row.status}`,
   );
-  assert(row.subject, "briefing_runs.subject is empty");
-  assert(row.bodyText, "briefing_runs.body_text is empty");
-  assert(row.bodyMarkdown, "briefing_runs.body_markdown is empty");
-  assert(row.watermarkAt, "briefing_runs.watermark_at is null");
+  assert(row.fullBriefing?.headline, "briefings.full_briefing.headline is empty");
+  assert(row.breakingSummary, "briefings.breaking_summary is empty");
+  // Only terminal (sent/suppressed) rows consume the watermark; a --no-send
+  // 'composed' row intentionally leaves it null so the next real run replays
+  // the same delta.
+  if (!cli.noSend) assert(row.watermarkAt, "briefings.watermark_at is null");
 
   console.log("\n========================================");
   console.log(`SLOT:    ${row.slot}`);
-  console.log(`SUBJECT: ${row.subject}`);
-  console.log(
-    `MODEL:   ${row.modelId} in=${row.inputTokens ?? "?"} out=${row.outputTokens ?? "?"}`,
-  );
+  console.log(`SUBJECT: ${row.fullBriefing.headline}`);
+  console.log(`MODEL:   ${row.model}`);
   console.log(`WMARK:   ${row.watermarkAt?.toISOString()}`);
   console.log("----------------------------------------");
-  console.log(row.bodyText);
+  console.log(row.breakingSummary);
   console.log("========================================\n");
 
   console.log("[smoke-daily-briefing] PASS");
