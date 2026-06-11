@@ -1,5 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import ReactMarkdown from "react-markdown";
+import type { ComponentProps } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -8,6 +9,8 @@ import { cn } from "~/lib/utils";
 import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
+
+type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
 
 interface MarkdownRendererProps {
   children: string;
@@ -21,6 +24,23 @@ interface MarkdownRendererProps {
    * styles itself (`text-white/65`, `bg-white/[0.06]`, …).
    */
   tone?: "surface" | "media";
+  /**
+   * Typographic scale. `compact` (default) is the dense email/chat-rail body
+   * — 12.5px, tight block rhythm. `reading` is the briefing-detail scale —
+   * 15px in a wide reading column with larger headings and roomier spacing.
+   * Pick the variant rather than overriding base size via `className`:
+   * arbitrary `text-[…]` utilities tie on specificity, so a className font
+   * size won't reliably beat the wrapper's.
+   */
+  size?: "compact" | "reading";
+  /**
+   * Extra remark plugins appended after the built-ins (gfm/breaks/math).
+   * Briefings inject a token-resolution plugin here to turn the composer's
+   * `[[<kind>:<id>]]` references into inline entity chips.
+   */
+  extraRemarkPlugins?: RemarkPlugins;
+  /** Extra component overrides merged over the shared registry. */
+  extraComponents?: Components;
 }
 
 /** Theme-following colors for regular app surfaces. */
@@ -54,14 +74,58 @@ const MEDIA_TONE = [
 ] as const;
 
 /**
- * Renders email/note bodies and assistant messages as markdown.
+ * Dense rail/email scale. Block spacing is tighter than `prose` defaults,
+ * which read as "article" rather than "email body" at this size.
+ */
+const COMPACT_SIZE = [
+  "text-[12.5px] leading-[1.6]",
+  "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
+  "[&_h1]:text-[15px] [&_h1]:mt-3 [&_h1]:mb-1.5",
+  "[&_h2]:text-[14px] [&_h2]:mt-3 [&_h2]:mb-1.5",
+  "[&_h3]:text-[13px] [&_h3]:mt-2.5 [&_h3]:mb-1",
+  "[&_h4]:text-[12.5px] [&_h4]:mt-2 [&_h4]:mb-1",
+  "[&_ul]:my-2 [&_ul]:pl-4 [&_ol]:my-2 [&_ol]:pl-4",
+  "[&_li]:my-0.5",
+  "[&_blockquote]:my-2",
+  "[&_:not(pre)>code]:text-[11.5px]",
+  "[&_table]:my-2 [&_table]:text-[11.5px]",
+  "[&_hr]:my-3",
+  "[&_.katex-display]:my-2",
+] as const;
+
+/**
+ * Briefing-detail reading scale: 15px body in a wide column with larger,
+ * more separated headings and a roomier vertical rhythm than the rail.
+ */
+const READING_SIZE = [
+  "text-[15px] leading-7",
+  "[&_p]:my-3 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
+  "[&_h1]:text-[22px] [&_h1]:mt-6 [&_h1]:mb-3",
+  "[&_h2]:text-[18px] [&_h2]:mt-5 [&_h2]:mb-2.5",
+  "[&_h3]:text-[16px] [&_h3]:mt-4 [&_h3]:mb-2",
+  "[&_h4]:text-[15px] [&_h4]:mt-3 [&_h4]:mb-1.5",
+  "[&_ul]:my-3 [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:pl-5",
+  "[&_li]:my-1",
+  "[&_blockquote]:my-3",
+  "[&_:not(pre)>code]:text-[13px]",
+  "[&_table]:my-3 [&_table]:text-[13px]",
+  "[&_hr]:my-6",
+  "[&_.katex-display]:my-3",
+] as const;
+
+/**
+ * Renders email/note bodies, assistant messages, and briefing prose as
+ * markdown.
  *
  * Architecture mirrors dimension's renderer: a thin wrapper that owns the
  * shared typography (via the `[&_x]` selectors below) and a small `components`
  * registry (`./elements`) for tags that need behaviour — fenced code becomes a
  * dark `CodeBlock` with copy + syntax highlighting, and `"cite"`-titled links
  * become source pills. Everything else falls through to react-markdown's
- * defaults dressed by the tone selectors.
+ * defaults dressed by the tone selectors. Size-dependent rhythm lives in the
+ * `*_SIZE` sets so the same plumbing serves both the dense rail and the wide
+ * briefing column; callers compose extra plugins/components (e.g. briefing
+ * entity chips) without forking this file.
  *
  *  - `remark-gfm` handles GitHub-flavored extensions (tables, strikethrough,
  *    autolinks, task lists). Most plain-text email signatures + GitHub /
@@ -72,30 +136,29 @@ const MEDIA_TONE = [
  *  - `remark-math` + `rehype-katex` render `$$…$$` / `\(…\)` math. Single-`$`
  *    text math is disabled so stray dollar amounts ("$5") aren't parsed.
  */
-export function MarkdownRenderer({ children, className, tone = "surface" }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  children,
+  className,
+  tone = "surface",
+  size = "compact",
+  extraRemarkPlugins,
+  extraComponents,
+}: MarkdownRendererProps) {
   return (
     <div
       className={cn(
-        "text-[12.5px] leading-[1.6]",
-        // Block spacing — tighter than `prose` defaults, which read as
-        // "article" rather than "email body" at this scale.
-        "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
-        "[&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1.5",
-        "[&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1.5",
-        "[&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:mt-2.5 [&_h3]:mb-1",
-        "[&_h4]:text-[12.5px] [&_h4]:font-semibold [&_h4]:mt-2 [&_h4]:mb-1",
+        ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
         // Inline text
         "[&_strong]:font-semibold",
         "[&_em]:italic",
         "[&_a]:underline [&_a]:underline-offset-2",
         "[&_a]:break-words",
         // Lists
-        "[&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc",
-        "[&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal",
-        "[&_li]:my-0.5 [&_li]:pl-0.5",
+        "[&_ul]:list-disc [&_ol]:list-decimal",
+        "[&_li]:pl-0.5",
         // Blockquote — typical "On X wrote:" reply chains land here once we
         // add the quote-detector. Until then this still tames the rare `>` line.
-        "[&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:my-2",
+        "[&_blockquote]:border-l-2 [&_blockquote]:pl-3",
         // Inline code — tokens like `useInfiniteQuery` and quoted file refs
         // (`chat-shell.tsx:450`) routinely exceed the rail width.
         // `overflow-wrap: anywhere` lets the browser break mid-token *only
@@ -106,25 +169,25 @@ export function MarkdownRenderer({ children, className, tone = "surface" }: Mark
         // are handled by `CodeBlock` (the `pre` override) and aren't styled
         // here.
         "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-px",
-        "[&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[11.5px]",
+        "[&_:not(pre)>code]:font-mono",
         "[&_:not(pre)>code]:[overflow-wrap:anywhere]",
         // Tables — emails rarely contain them, but newsletters sometimes do.
         // Wrap the table in a horizontal scroller (display:block on the table
         // itself) so wide tables stay tabular rather than collapsing column
         // structure. Body cells still wrap their text.
-        "[&_table]:my-2 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
-        "[&_table]:border-collapse [&_table]:text-[11.5px]",
+        "[&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
+        "[&_table]:border-collapse",
         "[&_th]:border [&_th]:px-1.5 [&_th]:py-1 [&_th]:font-medium",
         "[&_td]:border [&_td]:px-1.5 [&_td]:py-1",
         "[&_td]:break-words [&_th]:break-words",
         // Horizontal rule
-        "[&_hr]:my-3 [&_hr]:border-t",
+        "[&_hr]:border-t",
         // Images — rare, and we don't proxy them so cors / privacy concerns
         // apply. Inline-cap so a runaway image can't blow up the rail width.
         "[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded",
         // Math — keep KaTeX display blocks inside the rail and let inline math
         // wrap with surrounding text rather than forcing a horizontal scroll.
-        "[&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
+        "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
         "[&_.katex]:text-[1em]",
         // Root-level wrapping safety net — `min-w-0` lets the flex parent
         // shrink us below content width (otherwise children with intrinsic
@@ -142,9 +205,12 @@ export function MarkdownRenderer({ children, className, tone = "surface" }: Mark
             remarkBreaks,
             // Single-dollar text math off: stray "$5" shouldn't become math.
             [remarkMath, { singleDollarTextMath: false }],
+            ...(extraRemarkPlugins ?? []),
           ]}
           rehypePlugins={[rehypeKatex]}
-          components={markdownComponents}
+          components={
+            extraComponents ? { ...markdownComponents, ...extraComponents } : markdownComponents
+          }
         >
           {children}
         </ReactMarkdown>
