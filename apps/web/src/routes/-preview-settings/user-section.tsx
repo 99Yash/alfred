@@ -20,7 +20,14 @@ type CommunicationChannel = "email" | "slack" | "imessage" | "mobile";
  * than reading as a thin lucide outline. */
 function MessagesGlyph({ size = 14 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      className="shrink-0"
+    >
       <path
         d="M12 2.75c-5.66 0-10 3.7-10 8.34 0 2.62 1.43 4.95 3.74 6.5.18 1.27-.45 2.86-1.32 3.91-.18.22-.02.55.26.5 1.96-.33 3.66-1.05 4.9-1.92.78.16 1.59.25 2.42.25 5.66 0 10-3.7 10-8.34S17.66 2.75 12 2.75Z"
         fill="#34C759"

@@ -386,10 +386,7 @@ export const emailTriageWorkflow: Workflow<State> = {
           // row are the contract.
           // Pass the email's send time so relative deadlines ("due tomorrow")
           // resolve to an absolute date instead of going stale on the rail.
-          const todoSuggestion = resolveTodoSuggestion(
-            classification,
-            ctxData.document.authoredAt,
-          );
+          const todoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
           // Structural disqualifier (the cheap model won't reliably self-apply it):
           // a GitHub PR-review thread with nothing live at stake, or Alfred's own
           // HIL approval mail, mints no rail todo even when the model proposed one.

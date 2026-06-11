@@ -17,11 +17,7 @@
 import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
-import {
-  buildInstallUrl,
-  getInstallationToken,
-  mintAppJwt,
-} from "@alfred/integrations/github";
+import { buildInstallUrl, getInstallationToken, mintAppJwt } from "@alfred/integrations/github";
 import { serverEnv } from "@alfred/env/server";
 import { eq } from "drizzle-orm";
 
@@ -49,7 +45,9 @@ async function main() {
     return;
   }
   const app = (await appRes.json()) as { id: number; slug: string; name: string };
-  console.log(`[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`);
+  console.log(
+    `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
+  );
   if (String(app.id) !== env.GITHUB_APP_ID) {
     console.warn(
       `[smoke-github-app] WARNING: GITHUB_APP_ID (${env.GITHUB_APP_ID}) != live app id (${app.id})`,

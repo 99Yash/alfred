@@ -22,7 +22,9 @@ export function SidebarRow({
         "transition-[background-color,color] duration-150",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         "app-press",
-        active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+        active
+          ? "bg-app-bg-2 text-app-fg-4"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       <Icon
