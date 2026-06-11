@@ -26,6 +26,18 @@ const GH = {
   "X-GitHub-Api-Version": "2022-11-28",
   "User-Agent": "alfred-app-smoke",
 } as const;
+const GITHUB_FETCH_TIMEOUT_MS = 30_000;
+
+function githubSmokeFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+}
+
+async function responseSnippet(res: Response): Promise<string> {
+  return (await res.text().catch(() => "")).slice(0, 300);
+}
 
 async function main() {
   await warmPool();
@@ -36,11 +48,13 @@ async function main() {
 
   // ---- Phase 1: App JWT is valid (GET /app) --------------------------------
   const jwt = await mintAppJwt();
-  const appRes = await fetch("https://api.github.com/app", {
+  const appRes = await githubSmokeFetch("https://api.github.com/app", {
     headers: { ...GH, Authorization: `Bearer ${jwt}` },
   });
   if (!appRes.ok) {
-    console.error(`[smoke-github-app] GET /app failed: ${appRes.status} ${await appRes.text()}`);
+    console.error(
+      `[smoke-github-app] GET /app failed: ${appRes.status} ${await responseSnippet(appRes)}`,
+    );
     process.exitCode = 1;
     return;
   }
@@ -55,9 +69,16 @@ async function main() {
   }
 
   // ---- Phase 2: installations ----------------------------------------------
-  const instRes = await fetch("https://api.github.com/app/installations", {
+  const instRes = await githubSmokeFetch("https://api.github.com/app/installations", {
     headers: { ...GH, Authorization: `Bearer ${jwt}` },
   });
+  if (!instRes.ok) {
+    console.error(
+      `[smoke-github-app] GET /app/installations failed: ${instRes.status} ${await responseSnippet(instRes)}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const installations = (await instRes.json()) as Array<{
     id: number;
     account?: { login?: string };
@@ -71,9 +92,16 @@ async function main() {
     console.log(`   → installation #${first.id} on @${first.account?.login ?? "?"}`);
     const { token, expiresAt } = await getInstallationToken(String(first.id));
     console.log(`   → minted installation token (expires ${expiresAt.toISOString()})`);
-    const repoRes = await fetch("https://api.github.com/installation/repositories", {
+    const repoRes = await githubSmokeFetch("https://api.github.com/installation/repositories", {
       headers: { ...GH, Authorization: `Bearer ${token}` },
     });
+    if (!repoRes.ok) {
+      console.error(
+        `[smoke-github-app] GET /installation/repositories failed: ${repoRes.status} ${await responseSnippet(repoRes)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     const repos = (await repoRes.json()) as { total_count?: number };
     console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
   }
@@ -100,7 +128,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-github-app] error:", err);
+    console.error(`[smoke-github-app] error: ${err instanceof Error ? err.message : String(err)}`);
     process.exitCode = 1;
   })
   .finally(() => closeConnections());
