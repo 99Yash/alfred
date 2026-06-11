@@ -14,7 +14,7 @@ session on email-triage misclassification. Single-user app (Yash); accounts
 | 1 | **Rule 12e** — activity-feed/task-tracker mail classified by ownership, not subject | ✅ Shipped (PR #112, deploy `9e8415f0`), backfill applied |
 | 2 | **`sanitizeTodoName`** — deterministic hedge-title guard for rail todos | ✅ Shipped (PR #113, deploy `a89ff3b1`) |
 | 3 | **Backfill re-run** — clean 21 hedge todos + re-tag Greptile under 11a | ✅ Ran 2026-06-11 (deploy `037ab37e`); 214 drained, hedge todos clean; residual upsell-deadline leak (see below) |
-| 4 | **Greptile / vendor-upsell** misclassification (Layer 1 rubric — rule 11a) | ✅ Built + validated live (smoke 4/4); uncommitted, PR pending |
+| 4 | **Greptile / vendor-upsell** misclassification (Layer 1 rubric — rule 11a + deadline clause) | ✅ Shipped (PR #114 `037ab37e`, PR #115 `0e8a212e`), both deployed + re-backfilled. Core fixed; small trial-email tail accepted (see note) |
 | 5 | **Standing instructions / durable memory** (Layer 2) | 🔭 Designed (ADR-0056/0057), not built |
 | 6 | **Recurrence/dedup** of repeated notifications (Layer 3) | 🔭 Not started |
 | 7 | **One-sided sender-prior brake** (Gap #1) | 🔭 Not started — the structural "again" mechanism |
@@ -175,6 +175,18 @@ to do that." Layer 3 kills the repetition.
    tier ≠ the access-loss rule 2 means). Principled, cross-refs 16b — not an exemplar patch. Smoke now
    5/5 (added the exact prod-leak case → `marketing`, rationale cites 11a). Shipped + re-backfilled.
    The Gap #1 brake (decision 2) remains the structural answer to the prior re-skewing.
+   **Final state after re-backfill (tail ACCEPTED 2026-06-11, per user):** core fixed — every
+   Greptile per-PR review comment → `fyi`, hedge titles clean, service-sender upsell works
+   ("Your GREPTILE trial ends soon" → `marketing`). Remaining 4-thread trial tail left as-is, two
+   distinct causes: (a) SCOPE — 3 stale `support@visitors.now` "free trial ends…" threads (Jun 2–5)
+   never re-triaged because they're outside the recent-100 window with no agent todo; a wider
+   `BACKFILL_RECENT_LIMIT` would sweep them. (b) MODEL JUDGMENT — "Greptile trial capped… ends
+   tomorrow" from `yash@croisillies.xyz` (a PERSONAL-looking alias, likely a self-sent test) was
+   re-triaged UNDER the deadline clause and still went `urgent`: a personal sender defeats 11a's
+   "vendor manufactures" read. AWS "Free Tier expires soon" → `payment` is defensible (real charges
+   begin). One leaked todo "Upgrade Visitors.now account before tracking stops" rides the stale (a)
+   threads. KEY INSIGHT for next time: 11a/16b lean on the sender being a service/bot; an upsell
+   from a personal address slips both — a structural (Gap #1 / Layer 2) fix, not more prompt text.
 2. **Gap #1 — one-sided sender-prior brake (highest-leverage structural fix).** `detectConflict`'s
    over-classification net only fires for ≥80%-*bulk* priors. There is **no symmetric guard** for
    a sender wrongly skewed toward an *important* category (`action_needed`/`urgent`) — which is
