@@ -87,6 +87,20 @@ const CASES: Case[] = [
     hasCurrencyAmount: true,
   },
   {
+    name: "REGRESSION — upsell with a manufactured deadline (prod leak: went urgent)",
+    from: "Greptile <hello@greptile.com>",
+    to: "yashgouravkar@gmail.com",
+    persona: "personal",
+    subject: "Greptile trial capped and tracking ends tomorrow",
+    body: "Your free trial has hit its review cap. Code-review tracking ends tomorrow — upgrade your plan now to keep receiving reviews.",
+    labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+    expectCategory: ["marketing", "fyi"],
+    expectTodo: false,
+    priorKey: "service:greptile.com",
+    // Mirrors the prod prior that helped push it to urgent.
+    prior: { action_needed: 3, urgent: 1, fyi: 1 },
+  },
+  {
     name: "COUNTER — vendor upgrade pitch direct from vendor (must be marketing/fyi)",
     from: "Vercel <hello@vercel.com>",
     to: "yashgouravkar@gmail.com",
