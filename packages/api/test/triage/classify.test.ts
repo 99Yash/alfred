@@ -7,6 +7,7 @@ import {
   detectConflict,
   resolveTodoSuggestion,
   sanitizeAssist,
+  sanitizeTodoName,
   triageClassificationSchema,
   type ClassifyEmailArgs,
   type RunPass,
@@ -567,8 +568,68 @@ describe("sanitizeAssist", () => {
   });
 });
 
+describe("sanitizeTodoName", () => {
+  test("strips an unambiguous hedge verb into an object-led title (log-sourced leaks)", () => {
+    assert.equal(
+      sanitizeTodoName("Investigate baserow response time alarm"),
+      "Baserow response time alarm",
+    );
+    assert.equal(
+      sanitizeTodoName("Look into Conservice admin view edit issue"),
+      "Conservice admin view edit issue",
+    );
+    assert.equal(
+      sanitizeTodoName("View task Eng in rotation Launch 26.3.5"),
+      "Eng in rotation Launch 26.3.5",
+    );
+    assert.equal(
+      sanitizeTodoName("Investigate the ElastiCache connection alarm"),
+      "ElastiCache connection alarm",
+    );
+  });
+
+  test("leaves a good title untouched", () => {
+    assert.equal(
+      sanitizeTodoName("Reply to Priya about the Q3 budget"),
+      "Reply to Priya about the Q3 budget",
+    );
+    assert.equal(sanitizeTodoName("Rotate the exposed Redis credential"), "Rotate the exposed Redis credential");
+  });
+
+  test("does NOT strip ambiguous verbs that can be the real action (left to rule 16f)", () => {
+    // review/check/address have a legitimate "the action IS this verb" reading,
+    // so they are deliberately out of scope — stripping would mangle them.
+    assert.equal(sanitizeTodoName("Review the contract before signing"), "Review the contract before signing");
+    assert.equal(sanitizeTodoName("Check the wire transfer cleared"), "Check the wire transfer cleared");
+    assert.equal(sanitizeTodoName("Address Dependabot alerts in turbo-insta"), "Address Dependabot alerts in turbo-insta");
+  });
+
+  test("never drops: a degenerate strip keeps the original rather than empty/one-word", () => {
+    assert.equal(sanitizeTodoName("View the task"), "View the task");
+    assert.equal(sanitizeTodoName("Investigate"), "Investigate");
+    assert.equal(sanitizeTodoName("Look into it"), "Look into it");
+  });
+
+  test("does not false-match a hedge verb embedded in a longer word", () => {
+    assert.equal(sanitizeTodoName("Viewer permissions for the shared doc"), "Viewer permissions for the shared doc");
+  });
+});
+
 describe("resolveTodoSuggestion", () => {
   const suggestion = { name: "Reply to Priya about the Q3 budget", assist: "before Jun 30" };
+
+  test("repairs a hedge-shaped name on the proposed suggestion", () => {
+    assert.deepEqual(
+      resolveTodoSuggestion(
+        classification({
+          category: "action_needed",
+          todoSuggestion: { name: "Investigate baserow response time alarm" },
+          todoDecision: { outcome: "proposed" },
+        }),
+      ),
+      { name: "Baserow response time alarm" },
+    );
+  });
 
   test("acceptance: an action_needed message with a concrete ask passes the suggestion through", () => {
     const resolved = resolveTodoSuggestion(
