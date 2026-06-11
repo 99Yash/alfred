@@ -3,7 +3,7 @@ import { ChevronRight, Sparkles } from "lucide-react";
 import type { SyncedBriefing } from "@alfred/sync";
 import { AppCard } from "~/components/ui/v2";
 import { useBriefings } from "~/lib/replicache/use-briefings";
-import { briefingPlainText } from "./briefing-prose";
+import { briefingGist } from "./briefing-prose";
 import { formatDayHeading, slotLabel } from "./briefing-utils";
 
 /** Group the (already newest-first, morning-before-evening) rows by day, preserving order. */
@@ -19,7 +19,7 @@ function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: Synced
 
 /** One-line gist of a slot for the timeline; falls back to a status note. */
 function slotGist(b: SyncedBriefing): string {
-  if (b.breakingSummary) return briefingPlainText(b.breakingSummary, b.gather);
+  if (b.breakingSummary) return briefingGist(b.breakingSummary, b.gather);
   if (b.status === "suppressed") return "Quiet day — not emailed.";
   return "Not composed yet.";
 }

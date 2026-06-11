@@ -148,6 +148,9 @@ export function MarkdownRenderer({
     <div
       className={cn(
         ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
+        // Headings — Tailwind preflight resets heading weight to inherit, so
+        // set it here (size-independent) rather than per `*_SIZE` set.
+        "[&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold",
         // Inline text
         "[&_strong]:font-semibold",
         "[&_em]:italic",
