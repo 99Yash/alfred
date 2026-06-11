@@ -152,7 +152,9 @@ async function main() {
         identity: ctxData.identity,
       }));
     } catch (err) {
-      console.log(`! ${header}\n    classify error (skipped): ${err instanceof Error ? err.message : String(err)}\n`);
+      console.log(
+        `! ${header}\n    classify error (skipped): ${err instanceof Error ? err.message : String(err)}\n`,
+      );
       unresolved++;
       continue;
     }
@@ -174,7 +176,9 @@ async function main() {
       : null;
     if (resolved && !suppression) {
       kept++;
-      console.log(`✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"\n`);
+      console.log(
+        `✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"\n`,
+      );
     } else {
       killed++;
       const why = suppression ? `suppressed: ${suppression}` : `${decision}${note}`;
@@ -182,7 +186,9 @@ async function main() {
     }
   }
 
-  console.log(`\n# Summary: ${kept} kept, ${killed} killed, ${unresolved} unresolved (no local source)`);
+  console.log(
+    `\n# Summary: ${kept} kept, ${killed} killed, ${unresolved} unresolved (no local source)`,
+  );
 }
 
 main()

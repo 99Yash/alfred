@@ -6,7 +6,11 @@ export function TriageHero({ accent }: { accent: string }) {
       <div className="relative flex items-center gap-2">
         {[
           { label: "Inbox", tone: "bg-app-bg-2 text-app-fg-3" },
-          { label: "Action", tone: cn("bg-app-bg-1", accent), classNames: "app-stack app-stack-mid" },
+          {
+            label: "Action",
+            tone: cn("bg-app-bg-1", accent),
+            classNames: "app-stack app-stack-mid",
+          },
           {
             label: "Newsletter",
             tone: "bg-app-bg-2 text-app-fg-3",

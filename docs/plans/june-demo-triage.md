@@ -36,6 +36,9 @@ States:
 | CAL-002 | enhancement | ready-for-agent | Normalize Calendar event read model | Meeting prep and briefings need one compact event shape: title, time, attendees, location/link, description snippet, credential/source ids. |
 | MEET-001 | enhancement | ready-for-agent | Build meeting-prep gatherer | Highest demo value: upcoming event -> attendees -> recent Gmail threads -> memory facts -> open todos -> cited prep packet. |
 | BRIEF-001 | enhancement | ready-for-agent | Make briefings Calendar-anchored | Morning/evening briefings should treat Calendar as the day spine and email/todos as context around it. |
+| GROUND-001 | bug | ready-for-agent | Run grounding: inject date + connected summary into boss/chat prompt | Demo-killer fix. The boss today knows neither today's date (`how many meetings in October` → "which year?") nor which integrations it's connected to. Date fix is built but stranded on `fix/briefing-too-long` (`c3ba3433`); the ADR-0053 connected summary was specced but never built. |
+| GROUND-002 | bug | ready-for-agent | Wire `system.read_user_context` as a boss/chat tool | The whole memory substrate exists but the boss can't read it — the tool is specced (ADR-0042) and the function exists (`readTriageUserContext`) but was never registered. First slice of the Track 2 read surface. |
+| GROUND-003 | bug | ready-for-agent | Tool-selection recovery: enumerate real actions in `unknown_tool` | When the boss invents `github.list_pull_requests`, the dispatch floor returns only "is not declared" — no list of real actions. Cheapest lever against tool invention. |
 
 ## Next
 
@@ -45,6 +48,7 @@ States:
 | MEM-001 | enhancement | ready-for-agent | Relationship facts from Gmail + Calendar | Extract collaborator/person facts from attendee lists, senders, recipients, and repeated threads; require review before durable memory. |
 | SEARCH-001 | enhancement | ready-for-agent | Evidence layer for cited outputs | Shared citation rows for Gmail message, Calendar event, memory fact, todo, and briefing source panel. This is narrower than full search and directly supports demo trust. |
 | TODO-001 | enhancement | ready-for-agent | Feed todos into meeting prep and briefings | Suggested/open todos should appear when they match attendees, thread ids, or same-day context. |
+| MEM-002 | enhancement | needs-triage | Long-term memory foundation (Track 2 epic) | The assistant's persistent memory beyond the demo. **Storage substrate is frozen/adopted as-is** (`user_facts` w/ confidence·status·source·valid_until·supersedes, `entities`+`entity_relations`, `memory_chunks` pgvector, `style_profiles`, `rejected_inferences`) — not redesigned. Design is locked in ADR-0056/0057; detailed build sequence lives in `docs/plans/long-term-memory-v1.md`. ADR-0050 D1/D2/D3 are the parked seeds. |
 
 ## Later This Month
 
@@ -136,6 +140,67 @@ Acceptance:
 - Evening briefing includes closed/open loops and tomorrow prep.
 - Missing Calendar scope surfaces as "could not verify calendar", not silent omission.
 - Source panels include Calendar events and Gmail threads used in the prose.
+
+### GROUND-001 — Run grounding (date + connected summary)
+
+Files to start:
+
+- `packages/api/src/modules/agent/grounding.ts` + `user-timezone.ts` (recover from `fix/briefing-too-long` `c3ba3433`, don't rewrite)
+- `packages/api/src/modules/agent/workflows/chat-turn.ts` + `user-authored-brief.ts` (system-prompt assembly)
+- new connected-summary builder (ADR-0053: `slug — actions — short desc`, `(needs reauth)` markers)
+- `packages/api/evals/date-grounding.eval.ts` (comes with the branch)
+
+Acceptance:
+
+- Today's date + IANA timezone injected into **both** boss and chat system prompts.
+- Connected summary built from connected ∩ allowed integrations, **snapshotted into `agent_runs.state` at run start**, concatenated by the `AlfredAgent` system resolver — **no live DB/health reads mid-turn** (cache-stable per ADR-0053/0026).
+- Grounding is one run-start snapshot, not recomputed per turn (stable cached prefix).
+- `date-grounding` eval passes; add a connected-summary assertion.
+
+Notes:
+
+- This is the general **Run grounding** seam (Track 2 ambient facts plug in here later) populated with exactly two members today: date + connected summary.
+
+### GROUND-002 — Wire `system.read_user_context`
+
+Files to start:
+
+- `packages/api/src/modules/triage/user-context.ts` (`readTriageUserContext` — promote to a shared reader)
+- system tool registry + `SYSTEM_ACTIONS` in `@alfred/contracts`
+
+Acceptance:
+
+- `system.read_user_context` registered as an always-available system tool (autonomy, `no_risk`) for boss, chat, and sub-agents.
+- Returns profile + `valid_until`-filtered confirmed facts + entities + preferences + recent memory, bounded.
+- Boss/chat prompt instructs reaching for it when the user references people, relationships, or personal context.
+
+Notes:
+
+- Read-only; orthogonal to `user_action_policies`. Function already exists — this is wiring + prompt.
+- **Sequencing reality:** near-no-op over today's empty prod tables (`entities` = 0) until capture (MEM-001 / MEM-002) lands.
+
+### GROUND-003 — Tool-selection recovery envelope
+
+Files to start:
+
+- `packages/api/src/modules/dispatch/index.ts` (`undeclaredToolMessage`, `integrationActionSuggestion`)
+
+Acceptance:
+
+- An unknown action on an allowed + connected integration returns that integration's **real action list** ("github exposes: `search_pull_requests`…"), not just "is not declared."
+- `integrationActionSuggestion` handles qualified names (today it bails on any `.`).
+- Message is actionable: closest-match suggestion + the valid action set.
+
+### MEM-002 — Long-term memory foundation (design LOCKED 2026-06-11)
+
+Track 2 of the grounding/memory grill. **Design complete:** `ADR-0056` (governance) + `ADR-0057` (capture + significance + chat→memory). Storage substrate frozen/adopted as-is. Full phased plan + acceptance → **`docs/plans/long-term-memory-v1.md`** (P0–P6).
+
+- **Governance:** autonomous-write + tiered-notify + always-reversible; confidence gates notification + review label, not the write; per-kind lifecycle; write-time-contradiction + user-feedback self-correction (decay → D2 post-demo); rejection `cause`; cheap-model rationale per write (→ SEARCH-001); corrections feed the eval lane, no auto-tuning.
+- **Capture:** fully passive (integrations + significance-gated web-search enrichment) + proactive chat→memory; no onboarding interrogation. Builds `person_profiles`.
+- **Significance score:** one shared primitive (frequency + recency + reciprocity + org-domain + relations); consumers = enrichment gate, todo D1, triage priority, meeting-prep.
+- **Read surface:** three channels — Run grounding (ambient: date + connected summary + standing instructions), tool schemas, `read_user_context` (pull-on-demand).
+
+**Demo slice** = P0–P4 (grounding unblock + read surface + significance + passive capture so `entities` ≠ 0). **Post-demo** = decay (D2), Loop-2 eval wiring, hybrid FTS+vector retrieval.
 
 ## Explicit cuts for June
 

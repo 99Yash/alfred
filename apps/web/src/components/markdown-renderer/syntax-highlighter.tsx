@@ -66,8 +66,7 @@ export function SyntaxHighlighter({ language, code }: SyntaxHighlighterProps) {
       wrapLongLines
       codeTagProps={{
         style: {
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
           whiteSpace: "pre-wrap",
           overflowWrap: "anywhere",
         },

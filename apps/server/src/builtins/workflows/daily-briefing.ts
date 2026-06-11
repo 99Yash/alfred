@@ -333,7 +333,9 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
           logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
           previewText: composed.subject,
-          ctaUrl: ctx.state.slot === "morning" ? `${webOrigin}/chat/new` : undefined,
+          // Both slots get the CTA — an evening recap is just as likely to
+          // prompt "open Alfred and deal with it" as a morning briefing.
+          ctaUrl: `${webOrigin}/chat`,
         });
 
         const result = await notify({

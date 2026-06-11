@@ -189,7 +189,9 @@ export function InboxFeed({
             "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
             "text-[10.5px] uppercase tracking-tight font-medium transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-            unreadOnly ? "bg-app-purple-4/20 text-app-purple-4" : "text-white/60 hover:text-white/85",
+            unreadOnly
+              ? "bg-app-purple-4/20 text-app-purple-4"
+              : "text-white/60 hover:text-white/85",
           )}
         >
           <span
