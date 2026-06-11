@@ -333,9 +333,10 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           // Raster PNG, not SVG: Gmail/Outlook drop inline SVG <img> to alt text.
           logoUrl: `${webOrigin}/images/logo/alfred-logo-email.png`,
           previewText: composed.subject,
-          // Both slots get the CTA — an evening recap is just as likely to
-          // prompt "open Alfred and deal with it" as a morning briefing.
-          ctaUrl: `${webOrigin}/chat`,
+          // Both slots get the CTA, pointed at the full briefing for that day
+          // (`/briefings/{YYYY-MM-DD}`, ADR-0049) rather than the chat surface.
+          ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
+          ctaLabel: "View full briefing",
         });
 
         const result = await notify({
