@@ -191,16 +191,16 @@ Acceptance:
 - `integrationActionSuggestion` handles qualified names (today it bails on any `.`).
 - Message is actionable: closest-match suggestion + the valid action set.
 
-### MEM-002 — Long-term memory foundation (design state)
+### MEM-002 — Long-term memory foundation (design LOCKED 2026-06-11)
 
-Track 2 of the grounding/memory grill (2026-06-11). **Decided:** two-track split (Track 1 = GROUND-00x; this = Track 2); storage substrate adopted as-is, not redesigned. **Four design problems, under active grill:**
+Track 2 of the grounding/memory grill. **Design complete:** `ADR-0056` (governance) + `ADR-0057` (capture + significance + chat→memory). Storage substrate frozen/adopted as-is. Full phased plan + acceptance → **`docs/plans/long-term-memory-v1.md`** (P0–P6).
 
-1. **Capture** — onboarding bio/relationship capture (active, high-trust) + say-it-in-chat → durable memory. Today onboarding captures ~nothing; `entities` = 0 on prod. MEM-001 is the passive-extraction seed.
-2. **Read surface** — GROUND-002 is the first slice; richer projections (team graph, semantic recall) follow.
-3. **Lifecycle** — per-kind expiry/decay (ADR-0050 D2). `valid_until` exists but nothing sets it.
-4. **Taxonomy + precedence** — organize memory by knowledge-kind + trust-user-unless-contradiction, not by table.
+- **Governance:** autonomous-write + tiered-notify + always-reversible; confidence gates notification + review label, not the write; per-kind lifecycle; write-time-contradiction + user-feedback self-correction (decay → D2 post-demo); rejection `cause`; cheap-model rationale per write (→ SEARCH-001); corrections feed the eval lane, no auto-tuning.
+- **Capture:** fully passive (integrations + significance-gated web-search enrichment) + proactive chat→memory; no onboarding interrogation. Builds `person_profiles`.
+- **Significance score:** one shared primitive (frequency + recency + reciprocity + org-domain + relations); consumers = enrichment gate, todo D1, triage priority, meeting-prep.
+- **Read surface:** three channels — Run grounding (ambient: date + connected summary + standing instructions), tool schemas, `read_user_context` (pull-on-demand).
 
-**Demo slice** = capture quality (MEM-001) + read surface (GROUND-002). **Post-demo** = lifecycle, taxonomy/precedence, onboarding redesign, self-evolving memory (ADR-0050 D1/D2/D3). Full design → `docs/plans/long-term-memory-v1.md` (in progress).
+**Demo slice** = P0–P4 (grounding unblock + read surface + significance + passive capture so `entities` ≠ 0). **Post-demo** = decay (D2), Loop-2 eval wiring, hybrid FTS+vector retrieval.
 
 ## Explicit cuts for June
 
