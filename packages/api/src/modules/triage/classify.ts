@@ -608,7 +608,8 @@ const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
 // an issue can be a real ask; review of unmerged PR code is not (rule 16b).
 const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
 // Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
-const ALFRED_APPROVAL_SUBJECT_RE = /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
+const ALFRED_APPROVAL_SUBJECT_RE =
+  /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
 // Liveness escape for the PR gate — something already in production / `main` /
 // an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
 const TODO_LIVENESS_RE =

@@ -4,7 +4,12 @@
  * must NOT mint a todo for the user. Plus a positive control (a real ask of the
  * user must still propose). No DB writes to todos/triage.
  */
-import { assembleObservations, classifyEmail, extractSenderContext, resolveTodoSuggestion } from "@alfred/api";
+import {
+  assembleObservations,
+  classifyEmail,
+  extractSenderContext,
+  resolveTodoSuggestion,
+} from "@alfred/api";
 
 const IDENTITY = { name: "Yash Kar", email: "yash.k@oliv.ai" };
 
@@ -53,7 +58,11 @@ async function main() {
   let failures = 0;
   for (const f of FIXTURES) {
     const content = `From: ${f.from}\nTo: ${f.to}\nSubject: ${f.subject}\n\n${f.body}`;
-    const scResult = extractSenderContext({ fromHeader: f.from, subject: f.subject, body: content });
+    const scResult = extractSenderContext({
+      fromHeader: f.from,
+      subject: f.subject,
+      body: content,
+    });
     const observations = assembleObservations({
       senderKey: null,
       senderPrior: null,
@@ -85,8 +94,12 @@ async function main() {
     const ok = gotTodo === f.expectTodo;
     if (!ok) failures++;
     console.log(`\n${ok ? "PASS" : "FAIL"} ${f.label}\n  expect: ${f.expect}`);
-    console.log(`  → cat=${classification.category} | outcome=${d?.outcome ?? "(none)"}${d?.note ? ` (${d.note})` : ""}`);
-    console.log(`  → todo: ${todo ? `"${todo}"` : "NONE"} (expected ${f.expectTodo ? "a todo" : "NONE"})`);
+    console.log(
+      `  → cat=${classification.category} | outcome=${d?.outcome ?? "(none)"}${d?.note ? ` (${d.note})` : ""}`,
+    );
+    console.log(
+      `  → todo: ${todo ? `"${todo}"` : "NONE"} (expected ${f.expectTodo ? "a todo" : "NONE"})`,
+    );
   }
 
   console.log(`\n# ${FIXTURES.length - failures}/${FIXTURES.length} fixtures passed`);

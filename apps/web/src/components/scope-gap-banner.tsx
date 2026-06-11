@@ -28,8 +28,8 @@ export function ScopeGapBanner() {
     <NagBanner
       message={
         <>
-          Alfred can&apos;t access <span className="font-medium">{list}</span>: a permission was left
-          unchecked when you connected Google.
+          Alfred can&apos;t access <span className="font-medium">{list}</span>: a permission was
+          left unchecked when you connected Google.
         </>
       }
       actionLabel="Reconnect Google"
