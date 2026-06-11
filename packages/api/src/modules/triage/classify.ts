@@ -581,6 +581,46 @@ export function sanitizeAssist(
   return text;
 }
 
+// Rule 16f bans hedge/passive todo titles ("Look into…", "Investigate the…",
+// "View task…") and demands a real verb + object — but the cheap model keeps
+// emitting them, and prompting harder is whack-a-mole (same reasoning as
+// `sanitizeAssist`). So the clear cases are repaired deterministically here.
+//
+// SCOPE IS DELIBERATELY NARROW: only verbs with NO legitimate "the action IS
+// this verb" reading. Stripping the prefix off "Investigate the X alarm" yields
+// a strictly better object-led reminder ("X alarm"). Verbs that CAN be the real
+// action — review (a contract), check (a number), confirm, verify, update,
+// address — are EXCLUDED: auto-stripping them would destroy a legitimate title,
+// so they stay model-owned via rule 16f. And we NEVER drop the todo: a hedged
+// title still beats losing a real obligation (unlike `assist`, which is droppable).
+const TODO_HEDGE_PREFIX_RE =
+  /^(?:please\s+)?(?:look into|look at|dig into|take a look at|provide (?:info|information|details)|investigate|view)\b/i;
+// Filler left dangling after the verb is stripped — a leading article, "into"/
+// "at" preposition, or the "task" noun ("View task Eng…" → "Eng…").
+const TODO_HEDGE_FILLER_RE = /^(?:the|a|an|this|that|into|at|on|for|about|tasks?)\s+/i;
+
+/**
+ * Repair an unambiguous hedge-shaped todo title into an object-led one (rule
+ * 16f). Returns the original UNCHANGED when it isn't hedged or when stripping
+ * would leave nothing usable — never empties or drops a real obligation. PURE.
+ */
+export function sanitizeTodoName(name: string): string {
+  const trimmed = name.trim();
+  if (!TODO_HEDGE_PREFIX_RE.test(trimmed)) return trimmed;
+  let rest = trimmed.replace(TODO_HEDGE_PREFIX_RE, "").trimStart();
+  let prev: string;
+  do {
+    prev = rest;
+    rest = rest.replace(TODO_HEDGE_FILLER_RE, "").trimStart();
+  } while (rest !== prev);
+  rest = rest.replace(/^[\s:–—-]+/, "").trim();
+  // A one-word or empty remainder means the hedge verb carried the meaning —
+  // keep the original rather than mint a bare fragment.
+  if (rest.split(/\s+/).filter(Boolean).length < 2 || rest.length < 4) return trimmed;
+  // Capitalize a leading lowercase word ("baserow alarm" → "Baserow alarm").
+  return /^[a-z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
+}
+
 /**
  * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
  * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
@@ -588,8 +628,9 @@ export function sanitizeAssist(
  * now just `{marketing, newsletter}`) suppresses a stray suggestion that leaked
  * onto a broadcast bucket. The real todo decision is the rubric (rule 16) the
  * model already applied; this is a thin consistency guard, not the judgment.
- * PURE — the `email-triage` tail step calls this and, on a non-null result,
- * writes the todo via `suggestTodo`.
+ * The name is run through {@link sanitizeTodoName} to repair the hedge titles
+ * the model emits despite rule 16f. PURE — the `email-triage` tail step calls
+ * this and, on a non-null result, writes the todo via `suggestTodo`.
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
@@ -599,8 +640,9 @@ export function resolveTodoSuggestion(
   if (!suggestion) return null;
   if (classification.todoDecision?.outcome !== "proposed") return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
+  const name = sanitizeTodoName(suggestion.name);
   const assist = sanitizeAssist(suggestion.assist, emailAuthoredAt);
-  return assist ? { name: suggestion.name, assist } : { name: suggestion.name };
+  return assist ? { name, assist } : { name };
 }
 
 /** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
