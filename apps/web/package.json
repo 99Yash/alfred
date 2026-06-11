@@ -50,6 +50,7 @@
     "replicache": "catalog:",
     "sonner": "catalog:",
     "tailwind-merge": "catalog:",
+    "unist-util-visit": "^5.1.0",
     "zod": "catalog:"
   },
   "devDependencies": {

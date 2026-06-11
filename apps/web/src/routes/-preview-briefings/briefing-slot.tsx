@@ -38,7 +38,9 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
         <BriefingProse
           markdown={breakingSummary ?? ""}
           gather={gather}
-          className="text-[15px] leading-7 text-pretty text-app-fg-4"
+          // Lead prose: brighten body ink to fg-4 so it reads as the hero
+          // paragraph. Headings/strong already land on fg-4 via the tone.
+          className="text-pretty [&_p]:text-app-fg-4 [&_li]:text-app-fg-4"
         />
       ) : (
         <p className="text-sm text-app-fg-3">
@@ -57,11 +59,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
                   <SourceIcon source={section.source} />
                   {section.label}
                 </p>
-                <BriefingProse
-                  markdown={section.body}
-                  gather={gather}
-                  className="text-sm leading-6 text-pretty text-app-fg-3"
-                />
+                <BriefingProse markdown={section.body} gather={gather} className="text-pretty" />
                 {section.why ? <p className="text-xs italic text-app-fg-2">{section.why}</p> : null}
               </div>
             ))}
