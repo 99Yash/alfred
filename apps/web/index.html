@@ -1,9 +1,54 @@
 <!doctype html>
-<html lang="en" class="dark" style="color-scheme: dark">
+<html lang="en" class="dark" style="color-scheme: dark; background-color: #0a0a0a">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+
+    <!--
+      Anti-FOUC theme stamp. Runs synchronously, before first paint and before
+      the JS bundle / index.css load — so the canvas is correct on the very
+      first frame, not after React mounts and stamps `.app` (see
+      components/ui/v2/themed.tsx). Without this, a cold load (dev recompile,
+      or a slow mobile / in-app webview on prod) paints the hardcoded-dark
+      <html> canvas while `.app` still falls through to the LIGHT `:root`
+      baseline — a light flash / white focus-ring band until React catches up.
+      A reload doesn't help because the race re-runs every cold load.
+
+      Mirrors the resolution in the theme provider exactly: persisted mode from
+      localStorage("app-theme") (JSON, tolerating the legacy raw-string form),
+      defaulting to "system", resolved against prefers-color-scheme. We set an
+      inline background-color (not just color-scheme) so the right canvas paints
+      even before any stylesheet applies. Idempotent: `.app[data-app-theme]`
+      re-applies the same tokens once CSS arrives.
+    -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("app-theme");
+          var mode = "system";
+          if (raw) {
+            try {
+              mode = JSON.parse(raw);
+            } catch (e) {
+              mode = raw;
+            }
+          }
+          var dark =
+            mode === "dark" ||
+            (mode !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var el = document.documentElement;
+          el.classList.toggle("dark", dark);
+          el.style.colorScheme = dark ? "dark" : "light";
+          el.style.backgroundColor = dark ? "#0a0a0a" : "#ffffff";
+        } catch (e) {
+          /* storage/matchMedia unavailable — keep the dark default from <html>. */
+        }
+      })();
+    </script>
+
     <link rel="icon" type="image/svg+xml" href="/images/logo/alfred-logo.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/images/logo/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/images/logo/favicon-16.png" />

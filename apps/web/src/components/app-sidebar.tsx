@@ -131,6 +131,17 @@ export function AppSidebar({
     else setMinimized((m) => !m);
   };
 
+  // Overlay drawer: collapse on navigation so a tapped nav row doesn't leave
+  // the drawer floating over the page it just routed to. Inline mode keeps the
+  // sidebar pinned, so this is scoped to overlay. The ref tracks the previous
+  // path so we only fire on an actual route change, not every render.
+  const prevPathRef = useRef(path);
+  useEffect(() => {
+    if (prevPathRef.current === path) return;
+    prevPathRef.current = path;
+    if (mode === "overlay" && open) onCollapse?.();
+  }, [path, mode, open, onCollapse]);
+
   // Rename / delete UI state (lifted so the dialog survives row re-renders).
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PreviewThreadEntry | null>(null);
@@ -166,70 +177,107 @@ export function AppSidebar({
     [width, setWidth],
   );
 
+  const sidebarBody = (
+    <div style={{ width: expandedWidth }} className="h-full flex flex-col">
+      {minimized ? (
+        <RailContent
+          path={path}
+          isChat={isChat}
+          onOpenSearch={onOpenSearch}
+          approvalsBadge={approvalsBadge}
+          onExpand={handleChevron}
+        />
+      ) : (
+        <FullContent
+          path={path}
+          isChat={isChat}
+          chevronMode={mode}
+          onChevron={handleChevron}
+          onOpenSearch={onOpenSearch}
+          approvalsBadge={approvalsBadge}
+          threads={threads}
+          threadActions={threadActions}
+          activeThread={activeThread}
+          renamingId={renamingId}
+          onStartRename={setRenamingId}
+          onCommitRename={(id, title) => {
+            threadActions?.rename(id, title);
+            setRenamingId(null);
+          }}
+          onCancelRename={() => setRenamingId(null)}
+          onRequestDelete={setDeleteTarget}
+          collapsedGroups={collapsedGroups}
+          onToggleGroup={toggleGroup}
+        />
+      )}
+    </div>
+  );
+
   return (
     <Tooltip.Provider delayDuration={250}>
-      <aside
-        aria-label="Workspace navigation"
-        aria-hidden={!open}
-        style={{ width: asideWidth }}
-        className={cn(
-          "relative shrink-0 h-full overflow-hidden",
-          "rounded-2xl bg-app-bg-1",
-          "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-          "flex flex-col",
-          !dragging && "transition-[width,opacity,margin] duration-200 ease-out",
-          open ? "opacity-100" : "opacity-0 -mr-1.5 pointer-events-none",
-        )}
-      >
-        <div style={{ width: expandedWidth }} className="h-full flex flex-col">
-          {minimized ? (
-            <RailContent
-              path={path}
-              isChat={isChat}
-              onOpenSearch={onOpenSearch}
-              approvalsBadge={approvalsBadge}
-              onExpand={handleChevron}
-            />
-          ) : (
-            <FullContent
-              path={path}
-              isChat={isChat}
-              chevronMode={mode}
-              onChevron={handleChevron}
-              onOpenSearch={onOpenSearch}
-              approvalsBadge={approvalsBadge}
-              threads={threads}
-              threadActions={threadActions}
-              activeThread={activeThread}
-              renamingId={renamingId}
-              onStartRename={setRenamingId}
-              onCommitRename={(id, title) => {
-                threadActions?.rename(id, title);
-                setRenamingId(null);
-              }}
-              onCancelRename={() => setRenamingId(null)}
-              onRequestDelete={setDeleteTarget}
-              collapsedGroups={collapsedGroups}
-              onToggleGroup={toggleGroup}
-            />
-          )}
-        </div>
-
-        {/* Resize handle — inline + expanded only. */}
-        {!minimized && open && mode === "inline" ? (
-          <hr
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            onPointerDown={startResize}
+      {mode === "overlay" ? (
+        /* Narrow viewports: float the sidebar over the conversation as a
+         * left-edge drawer with a tap-to-dismiss backdrop — mirrors the right
+         * rail's overlay. Out of flow (fixed), so it never steals width from
+         * the composer the way an in-flow column would. */
+        <>
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            tabIndex={open ? 0 : -1}
+            onClick={onCollapse}
             className={cn(
-              "absolute right-0 top-0 h-full w-1.5 z-10 m-0 border-0 cursor-col-resize",
-              "after:absolute after:right-0 after:top-0 after:h-full after:w-px",
-              "after:bg-transparent hover:after:bg-app-purple-2 after:transition-colors",
-              dragging && "after:bg-app-purple-3",
+              "fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]",
+              "transition-opacity duration-200",
+              open ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
           />
-        ) : null}
-      </aside>
+          <aside
+            aria-label="Workspace navigation"
+            aria-hidden={!open}
+            className={cn(
+              "fixed top-0 left-0 bottom-0 z-50 max-w-[88vw]",
+              "border-r border-app-bg-3/60 bg-app-bg-1",
+              "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
+              "transition-transform duration-200 ease-out overflow-hidden",
+              open ? "translate-x-0" : "-translate-x-full",
+            )}
+          >
+            {sidebarBody}
+          </aside>
+        </>
+      ) : (
+        <aside
+          aria-label="Workspace navigation"
+          aria-hidden={!open}
+          style={{ width: asideWidth }}
+          className={cn(
+            "relative shrink-0 h-full overflow-hidden",
+            "rounded-2xl bg-app-bg-1",
+            "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
+            "flex flex-col",
+            !dragging && "transition-[width,opacity,margin] duration-200 ease-out",
+            open ? "opacity-100" : "opacity-0 -mr-1.5 pointer-events-none",
+          )}
+        >
+          {sidebarBody}
+
+          {/* Resize handle — inline + expanded only. */}
+          {!minimized && open ? (
+            <hr
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              onPointerDown={startResize}
+              className={cn(
+                "absolute right-0 top-0 h-full w-1.5 z-10 m-0 border-0 cursor-col-resize",
+                "after:absolute after:right-0 after:top-0 after:h-full after:w-px",
+                "after:bg-transparent hover:after:bg-app-purple-2 after:transition-colors",
+                dragging && "after:bg-app-purple-3",
+              )}
+            />
+          ) : null}
+        </aside>
+      )}
 
       <DeleteThreadDialog
         target={deleteTarget}

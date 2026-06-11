@@ -81,6 +81,19 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
 
   const resolved: AppResolvedTheme = mode === "system" ? systemPref : mode;
 
+  // Keep <html> in sync with the resolved theme so the UA canvas (scrollbars,
+  // overscroll, the area behind `.app`) matches the app surface. The inline
+  // script in index.html stamps this on first paint to avoid a FOUC; this
+  // effect keeps it correct after a runtime toggle or OS change. `.app` itself
+  // is stamped by <AppThemed>; the hex values mirror `--app-background`
+  // (dark #0a0a0a / light #ffffff) in index.css.
+  useEffect(() => {
+    const el = document.documentElement;
+    el.classList.toggle("dark", resolved === "dark");
+    el.style.colorScheme = resolved;
+    el.style.backgroundColor = resolved === "dark" ? "#0a0a0a" : "#ffffff";
+  }, [resolved]);
+
   // Keep the user's choice in sync across tabs — the `storage` event fires in
   // every *other* tab when one writes, so a theme change here lands there too.
   useEffect(() => subscribeToStorage(STORAGE_KEY, setModeState), []);
