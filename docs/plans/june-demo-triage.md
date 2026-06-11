@@ -48,7 +48,7 @@ States:
 | MEM-001 | enhancement | ready-for-agent | Relationship facts from Gmail + Calendar | Extract collaborator/person facts from attendee lists, senders, recipients, and repeated threads; require review before durable memory. |
 | SEARCH-001 | enhancement | ready-for-agent | Evidence layer for cited outputs | Shared citation rows for Gmail message, Calendar event, memory fact, todo, and briefing source panel. This is narrower than full search and directly supports demo trust. |
 | TODO-001 | enhancement | ready-for-agent | Feed todos into meeting prep and briefings | Suggested/open todos should appear when they match attendees, thread ids, or same-day context. |
-| MEM-002 | enhancement | needs-triage | Long-term memory foundation (Track 2 epic) | The assistant's persistent memory beyond the demo. **Storage substrate is frozen/adopted as-is** (`user_facts` w/ confidence·status·source·valid_until·supersedes, `entities`+`entity_relations`, `memory_chunks` pgvector, `style_profiles`, `rejected_inferences`) — not redesigned. Four design problems under active grill (see below). Detailed design lands in `docs/plans/long-term-memory-v1.md`. ADR-0050 D1/D2/D3 are the parked seeds. |
+| MEM-002 | enhancement | needs-triage | Long-term memory foundation (Track 2 epic) | The assistant's persistent memory beyond the demo. **Storage substrate is frozen/adopted as-is** (`user_facts` w/ confidence·status·source·valid_until·supersedes, `entities`+`entity_relations`, `memory_chunks` pgvector, `style_profiles`, `rejected_inferences`) — not redesigned. Design is locked in ADR-0056/0057; detailed build sequence lives in `docs/plans/long-term-memory-v1.md`. ADR-0050 D1/D2/D3 are the parked seeds. |
 
 ## Later This Month
 

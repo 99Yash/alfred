@@ -335,7 +335,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
           previewText: composed.subject,
           // Both slots get the CTA — an evening recap is just as likely to
           // prompt "open Alfred and deal with it" as a morning briefing.
-          ctaUrl: `${webOrigin}/chat/new`,
+          ctaUrl: `${webOrigin}/chat`,
         });
 
         const result = await notify({

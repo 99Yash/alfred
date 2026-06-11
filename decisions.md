@@ -3421,7 +3421,7 @@ There is **no global TTL — lifecycle is per-kind.**
 
 8. **Loop 2 feeds the eval lane, never auto-tunes.** User corrections (especially `cause='user'`) accumulate as a **labeled misses dataset** routed to the eval lane (ADR-0055). **No prompt mutates automatically** — humans gate prompt/rubric changes (consistent with ADR-0050/0051's "principles over exemplars, tuned from logs"). `rejected_inferences` is the seed of this dataset.
 
-**Schema delta (additive only).** `rejected_inferences.cause`, and a `rationale` on the write path (on `user_facts` or its `source` jsonb — settle in the plan). No table redesign.
+**Schema delta (additive only).** `rejected_inferences.cause`, and a `rationale` on the write path (on `user_facts` or its `source` jsonb — settle during P2 implementation). No table redesign.
 
 **What this amends / builds on.**
 
@@ -3442,8 +3442,8 @@ There is **no global TTL — lifecycle is per-kind.**
 - **Confidence floor (0.7) + whether some surfaces exclude `proposed` facts** — tune from data.
 - **Exact critical-vs-subtle set + digest count-threshold** — tune from notification-volume data.
 - **Decay sweep (D2)** — post-demo.
-- **The `system.*` memory write-tool surface** (names, schemas) — settle in `docs/plans/long-term-memory-v1.md`.
-- **Capture design** (onboarding redesign, chat→memory, team org-graph) — next grill branch; its own plan, possibly an ADR.
+- **The `system.*` memory write-tool surface** (names, schemas) — settle during P2 implementation in `docs/plans/long-term-memory-v1.md`.
+- **Capture implementation details** — ADR-0057 locks the posture; concrete thresholds, budgets, and exact schemas tune during the phased build.
 
 ---
 
@@ -3484,6 +3484,6 @@ There is **no global TTL — lifecycle is per-kind.**
 
 - Significance score exact inputs/weights + threshold + enrichment budget — tune from data.
 - `person_profiles` schema finalization (extends the ADR-0042 spec).
-- Storage shape for standing instructions (`user_preferences` vs a sibling directive table) — settle in the plan.
+- Storage shape for standing instructions (`user_preferences` vs a sibling directive table) — settle during P5 implementation.
 - First-run "still learning" UX.
 - Confidence-decay sweep (D2) — still deferred (post-demo).
