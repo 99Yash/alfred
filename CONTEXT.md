@@ -220,6 +220,22 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Todo closure signal (deferred).** `todos.closed_by` (`'user' | 'reconciler'`) + `closed_reason` (`pr_merged | pr_closed | issue_closed | alert_dismissed | alert_fixed | review_threads_resolved`), `.$type<>()`-guarded. One field, three jobs: audit, the evening-recap "loops closed" line (ADR-0048 #5), and the client's auto-dismiss animation (reconciler-closed rows linger briefly in the Replicache pull so the diff is visible).
 
+## Meeting prep
+
+**Meeting prep packet.** Alfred's pre-meeting context note for one calendar event: who's attending, the recent threads with them, relevant memory facts, and open todos that touch the meeting — composed into a short cited note. **MEET-001 scope (locked 2026-06-10/11):** mirrors the briefing pipeline end to end — a deterministic **gather** (event + attendees + email threads + memory facts + todos), a **boss-tier compose** into a short prose note with `[[<kind>:<id>]]` citations, **persisted** to `meeting_preps` and Replicache-synced read-only. The proactive **calendar-watch trigger** is folded into MEET-001; the **delivery surface** (pre-meeting email, web augmentation at send) is MEET-002. See [docs/plans/meeting-prep-v1.md](./docs/plans/meeting-prep-v1.md), proposed ADR-0054.
+
+**`meeting_preps`.** One row per calendar occurrence, keyed `(user_id, event_key)` where `event_key = ${credentialId}:${googleEventId}` (`singleEvents=true` → per-occurrence). Status machine (`pending|gathering|composing|ready|failed|cancelled`) like `briefings`; `gather` jsonb is the audit/replay record, `note` jsonb the composed cited output, `row_version` drives Replicache. **Upsert, recompute-in-place** — no version history; cancelled calendar occurrences are marked `cancelled` and fall out of active sync.
+
+**Gated recompute.** The deterministic (no-LLM) discriminator on re-running `prepareMeeting`: a `material_hash` over attendees + agenda + location + attachments. No row → full gather+compose; material change → full recompute; **time-only shift → cheap path** (update `event_start`, skip compose); unchanged → no-op. The lever that lets the trigger fire often while keeping boss-tier compose cost down — minimize the *number* of composes, not the tier.
+
+**Prep horizon + sweep.** Prep *compose* fires only for qualifying events starting within horizon **H (48h)**. A calendar push preps near-term changed events; a ~20-min cron **sweep** catches events crossing into H that never changed (the webhook-vs-time-passing gap — pushes fire on change, not on time). Event qualification on window-resolution: timed, `attendees ≥ 2`, not declined; an explicit `eventKey` bypasses qualification.
+
+**Calendar watch.** Google Calendar push channel (`events.watch`) — **HTTPS-callback** based, not Pub/Sub like Gmail. State lives in `integration_credentials.metadata.calendarWatch` `{ channelId, resourceId, expiresAt, syncToken, calendarId }` (mirrors Gmail's `metadata.watch`; v1 = `primary` only). **No event mirror** — push handler acts on the `events.list(syncToken)` delta live, sweep/gather read live. Push delta dispatches through the `emitEvent` bus (`calendar.event_scheduled`, ADR-0047). Needs a domain-verified callback URL (GCP) — no localhost in dev.
+
+**`system.prepare_meeting`.** The single entry point all three triggers (chat/boss, calendar push, sweep) converge on. `system.*` → autonomy by default, riskTier `no_risk`. Input `{ eventKey } | { timeMin, timeMax, attendeeHint? }`; resolves the event, runs the gated recompute, gathers, composes, upserts `meeting_preps`.
+
+**Prep reference.** `[[<kind>:<id>]]` placeholder in composed prep prose. Parallel to the *Briefing reference* but its own closed enum + resolver in `@alfred/contracts` (`MEETING_PREP_REFERENCE_KINDS = [meeting, email, todo]`, `resolveMeetingPrepReferences`), expanding against the prep gather — briefing's resolver is untouched. `meeting:<eventKey>` static, `email:<documentId>` → Gmail thread, `todo:<todoId>` → rail. **Memory facts are not a citation kind** in v1 (woven into prose; ids retained in gather for a future SEARCH-001 evidence layer).
+
 ## m12 scope (locked 2026-05-11)
 
 **Authoring + dispatch only. Execution deferred to m13.**
