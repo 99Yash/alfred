@@ -13,7 +13,7 @@ session on email-triage misclassification. Single-user app (Yash); accounts
 |---|------|-------|
 | 1 | **Rule 12e** — activity-feed/task-tracker mail classified by ownership, not subject | ✅ Shipped (PR #112, deploy `9e8415f0`), backfill applied |
 | 2 | **`sanitizeTodoName`** — deterministic hedge-title guard for rail todos | ✅ Shipped (PR #113, deploy `a89ff3b1`) |
-| 3 | **Backfill re-run** to clean the 21 existing hedge-title todos | ⏳ Pending (destructive; awaiting go-ahead) |
+| 3 | **Backfill re-run** — clean 21 hedge todos + re-tag Greptile under 11a | ✅ Ran 2026-06-11 (deploy `037ab37e`); 214 drained, hedge todos clean; residual upsell-deadline leak (see below) |
 | 4 | **Greptile / vendor-upsell** misclassification (Layer 1 rubric — rule 11a) | ✅ Built + validated live (smoke 4/4); uncommitted, PR pending |
 | 5 | **Standing instructions / durable memory** (Layer 2) | 🔭 Designed (ADR-0056/0057), not built |
 | 6 | **Recurrence/dedup** of repeated notifications (Layer 3) | 🔭 Not started |
@@ -159,8 +159,22 @@ to do that." Layer 3 kills the repetition.
    **4/4**): Greptile miss flips `action_needed`→`marketing` under its self-reinforcing prior
    (rationale cites 11a); real Stripe failed-payment and past-due Linear invoice both stay
    `payment` + keep todos (no over-suppression); direct Vercel upgrade pitch → `marketing`, no todo.
-   54/54 pure-fn tests + `@alfred/api`/`server` typecheck clean. **Still pending:** commit+PR, then
-   fold the Greptile re-tag into the backfill (#3).
+   54/54 pure-fn tests + `@alfred/api`/`server` typecheck clean. **Shipped:** PR #114 squash-merged
+   (`037ab37e`), deployed (Railway `server` SUCCESS 13:59Z, rule 11a confirmed in container), backfill
+   re-run (#3 below).
+   **Residual after backfill (flash-lite judgment, NOT a prompt-text gap — per `feedback_principles_over_exemplars`):**
+   a stand-alone upsell with a manufactured DEADLINE — *"Greptile trial capped and tracking ends
+   tomorrow"* — flipped to **`urgent` @0.9**, while *"Your GREPTILE trial ends soon"* correctly went
+   `marketing` in the same sweep. 11a names "trial ending" but the model isn't generalizing it to the
+   "ends tomorrow / capped — act by <date>" scarcity framing. Two upsell-ish todos also leaked:
+   *"Upgrade Visitors.now plan to avoid data loss"* (manufactured data-loss scare) and *"Address
+   Greptile, Visitors.now, and GitHub OAuth"* (vague batched).
+   **RESOLVED 2026-06-11:** tightened 11a with a deadline-immunity clause — a manufactured deadline on
+   an upsell ("trial ends tomorrow", "capped — act by <date>", "before you lose the free tier") does
+   NOT promote to urgent/payment (it's the vendor's conversion lever, rule-16b scarcity; losing a free
+   tier ≠ the access-loss rule 2 means). Principled, cross-refs 16b — not an exemplar patch. Smoke now
+   5/5 (added the exact prod-leak case → `marketing`, rationale cites 11a). Shipped + re-backfilled.
+   The Gap #1 brake (decision 2) remains the structural answer to the prior re-skewing.
 2. **Gap #1 — one-sided sender-prior brake (highest-leverage structural fix).** `detectConflict`'s
    over-classification net only fires for ≥80%-*bulk* priors. There is **no symmetric guard** for
    a sender wrongly skewed toward an *important* category (`action_needed`/`urgent`) — which is
