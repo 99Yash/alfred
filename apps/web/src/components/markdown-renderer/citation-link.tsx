@@ -7,7 +7,12 @@ function domainOf(href: string): string {
   try {
     return new URL(href).hostname.replace(/^www\./, "");
   } catch {
-    return href.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? href;
+    return (
+      href
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "")
+        .split("/")[0] ?? href
+    );
   }
 }
 

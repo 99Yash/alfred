@@ -255,7 +255,9 @@ export function PlanTab({
               <p className="text-xs text-app-red-4">Use a valid 5-field cron expression.</p>
             ) : null}
             {timezoneInvalid ? (
-              <p className="text-xs text-app-red-4">Use a valid IANA timezone, or leave it blank.</p>
+              <p className="text-xs text-app-red-4">
+                Use a valid IANA timezone, or leave it blank.
+              </p>
             ) : null}
           </div>
         ) : null}

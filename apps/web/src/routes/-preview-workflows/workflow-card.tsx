@@ -74,7 +74,9 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
         </span>
         <div className="mt-3 min-w-0 flex-1">
           <p className="line-clamp-2 text-sm font-medium text-app-fg-4">{workflow.name}</p>
-          <p className="mt-1 line-clamp-3 text-xs leading-5 text-app-fg-3">{workflow.description}</p>
+          <p className="mt-1 line-clamp-3 text-xs leading-5 text-app-fg-3">
+            {workflow.description}
+          </p>
         </div>
         <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-md bg-app-bg-2 px-2 py-0.5 text-[11px] text-app-fg-3 tabular-nums">
           <Clock3 size={11} />

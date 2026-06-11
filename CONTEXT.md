@@ -78,6 +78,8 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 
 **Dispatch floor.** Plain code in `dispatchToolCall` that, before execute, (a) resolves bare→qualified tool names and returns `ambiguous_tool` for collisions like `batch_update`, and (b) **hard-enforces** `allowed_integrations` + scope-aware connection health (closing ADR-0043's exposure-only cap hole). The result returned to the boss is always an actionable `{status, message, ...}` envelope. No v1 auto-activation path is needed because connected ∩ allowed tools are already declared eagerly. ADR-0053.
 
+**Run grounding.** The run-start snapshot string concatenated into the boss/chat system prompt by the `AlfredAgent` system resolver — cache-stable by construction (no live DB/health reads mid-turn; ADR-0053 + ADR-0026). **Members:** _date grounding_ (today's date + `IanaTimezone`, via `formatDateGrounding`), the _connected summary_ (ADR-0053), and _standing instructions_ (the bounded set of durable behavior rules — ambient because they bias every turn; relevance-filter if the set grows large). It is the read-surface of ambient, always-true facts. Facts + people are **not** ambient — they stay pull-on-demand via `read_user_context`/`recallMemory`. **Distinct from** _tool-selection recovery_ (the dispatch-floor `unknown_tool` envelope — a recovery concern, not grounding) and from _user context_ (the durable memory read via `system.read_user_context`). The boss perceives the world through three channels: **run grounding** (ambient prompt facts), **declared tool schemas**, and **`read_user_context`** (durable memory). GROUND-001 in [docs/plans/june-demo-triage.md](./docs/plans/june-demo-triage.md).
+
 **Builtin vs user-authored.** `workflows.is_builtin = true` for alfred-curated workflows seeded from the repo (immutable except `status`); `false` for user-authored (full CRUD). Same table, same toggle UX.
 
 ## Runtime primitives
@@ -235,6 +237,26 @@ Cross-references: [`decisions.md`](./decisions.md) (the ADRs, snapshot table at 
 **`system.prepare_meeting`.** The single entry point all three triggers (chat/boss, calendar push, sweep) converge on. `system.*` → autonomy by default, riskTier `no_risk`. Input `{ eventKey } | { timeMin, timeMax, attendeeHint? }`; resolves the event, runs the gated recompute, gathers, composes, upserts `meeting_preps`.
 
 **Prep reference.** `[[<kind>:<id>]]` placeholder in composed prep prose. Parallel to the *Briefing reference* but its own closed enum + resolver in `@alfred/contracts` (`MEETING_PREP_REFERENCE_KINDS = [meeting, email, todo]`, `resolveMeetingPrepReferences`), expanding against the prep gather — briefing's resolver is untouched. `meeting:<eventKey>` static, `email:<documentId>` → Gmail thread, `todo:<todoId>` → rail. **Memory facts are not a citation kind** in v1 (woven into prose; ids retained in gather for a future SEARCH-001 evidence layer).
+
+## Long-term memory
+
+**Memory governance.** ADR-0056 posture: Alfred mutates memory **autonomously via `system.*` tool calls**, kept safe by **transparency + reversibility**, not pre-write HIL. Supersedes ADR-0019's confidence-gated accept gate — confidence now gates _notification cadence_ + the `proposed`/`confirmed` _review label_, not the write. Floor unchanged (≥0.7 written, <0.7 dropped); the agent **hedges on low-confidence** facts in prose. Storage substrate adopted as-is.
+
+**Knowledge kind.** The taxonomy spine memory is organized by (not by table): _identity_, _standing instructions_ (first-class), _people & relationships_ (the team graph), _episodic facts_, _style_, _episodic memory_. Each has its own capture source + lifecycle; **lifecycle is per-kind — there is no global TTL.** ADR-0056.
+
+**Criticality tier.** Drives notification, not gating. _Critical_ (identity change, key-relationship change, superseding a ≥0.85 fact, retracting a confirmed fact) → email on a **~5-min debounce, batched** (reuses the approval-debounce). _Subtle_ (new low-stakes/low-confidence facts, additive aliases) → **digest flushed on count-threshold OR weekly, whichever first**. In-app is real-time Replicache, **one-by-one** (`user_facts.row_version`). ADR-0056.
+
+**Rejection cause.** New field on the rejection record: `cause ∈ {user, write_time_contradiction, decay, superseded_by_newer}` alongside the freeform `reason`. Separates _user corrections_ (high-value training signal) from _system self-corrections_. ADR-0056.
+
+**Memory rationale.** A cheap-model **~2-sentence, telegraphic, grammar-optional, token-frugal** "why" persisted per memory write, paired with the `source` evidence pointers. Surfaced through the **SEARCH-001** evidence layer — memory-justification and cited outputs are one mechanism. ADR-0056.
+
+**Loop 1 / Loop 2.** Two self-correction loops a single user correction drives at once. **Loop 1** = fact maintenance (write-time-contradiction supersession + user-authoritative edit/reject; decay deferred → D2). **Loop 2** = system learning (the user-correction misses dataset, seeded by `rejected_inferences`, feeds the eval lane ADR-0055; **no automatic prompt mutation** — humans gate). ADR-0056.
+
+**Passive capture.** Memory capture is **fully passive** — onboarding stays minimal; the team graph + identity facts are inferred from integrations (Gmail/Calendar) and **enriched/corroborated via web search**, written autonomously (ADR-0056), kept fresh by continuous extraction + Loop-1 supersession. No prompted confirmation card; correction is unprompted via the review surface. Teams change → the change shows up in an integration, so no re-interrogation. **Supersedes ADR-0031's review-before-write gate** for dossiers; `person_profiles` (ADR-0042, unbuilt) is the dossier home. (ADR-0057 pending.)
+
+**Significance score.** A first-class **computed signal over `entities`** — blend of correspondence frequency + recency + reply-reciprocity + same-org-domain + explicit relationship edges. **One source, four consumers:** the web-search dossier-enrichment gate (budget-capped, only above-threshold entities get a dossier; long tail stays name+email), todo personal-relevance significance (ADR-0050 **D1**), triage sender priority, meeting-prep attendee prioritization. Replaces four ad-hoc "who matters" heuristics with one. (ADR-0057 pending.)
+
+**Chat→memory capture.** The explicit-statement write path (vs _passive capture_'s inference). Two paths: **(i) in-band proactive** — the boss recognizes durable intent mid-conversation (not just literal "remember") and calls `system.remember`; **(ii) end-of-thread extraction** (ADR-0019's existing trigger) mines the closed thread for durable facts/prefs stated in passing. Bar to write is low (reversible); behavior-changing standing instructions are critical-tier → notify. **Durable vs run-scoped split:** "for the rest of this conversation" → run-scoped directive (ADR-0035 `user_directives`, dies with the run); "from now on" → durable standing instruction (persisted). The boss classifies on phrasing; only durable hits long-term memory. (ADR-0057 pending.)
 
 ## m12 scope (locked 2026-05-11)
 

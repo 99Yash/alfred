@@ -21,16 +21,16 @@ Everything outside a `.app` ancestor is unaffected.
 
 ## Primitives
 
-| Primitive      | What it is                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------- |
+| Primitive       | What it is                                                                                          |
+| --------------- | --------------------------------------------------------------------------------------------------- |
 | `AppButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.   |
 | `AppCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props. |
-| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                              |
+| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                             |
 | `AppPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                |
 | `AppKpi`        | Label / value / delta stack. No card chrome.                                                        |
 | `AppDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                  |
 | `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                       |
-| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                       |
+| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                      |
 
 ## Tokens
 
@@ -52,8 +52,8 @@ rounded-app-{1..6}      0.125rem → 1rem radius scale
 
 ## Utilities
 
-| Class              | What it does                                                                      |
-| ------------------ | --------------------------------------------------------------------------------- |
+| Class               | What it does                                                                      |
+| ------------------- | --------------------------------------------------------------------------------- |
 | `.app`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.            |
 | `.app-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                    |
 | `.app-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.        |
