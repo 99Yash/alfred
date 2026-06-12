@@ -8,7 +8,8 @@ import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
-import { collectSources, SourcesStrip } from "./sources-strip";
+import { SourcesStrip } from "./sources-strip";
+import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 
 /**
