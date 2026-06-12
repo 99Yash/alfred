@@ -9,6 +9,8 @@ import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
 import { CodeBlock, InlineCode } from "./code-block";
 import { ReasoningSection } from "./reasoning-section";
+import { SourcesStrip } from "./sources-strip";
+import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 
 const MARKDOWN_CLASSES = cn(
@@ -66,6 +68,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
     );
   }
   const tools = message.toolCalls ?? [];
+  const sources = collectSources(tools);
   const failed = message.status === "failed";
   return (
     <div className="group/message flex flex-col gap-2">
@@ -82,6 +85,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
           <AssistantMarkdown text={message.content} />
         </div>
       ) : null}
+      {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
       {failed ? (
         <p className="text-[13px] text-app-red-4" role="alert">
           This reply didn&apos;t finish. Try sending your message again.
