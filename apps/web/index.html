@@ -1,15 +1,8 @@
 <!doctype html>
-<html
-  lang="en"
-  class="dark"
-  style="color-scheme: dark; background-color: #0a0a0a"
->
+<html lang="en" class="dark" style="color-scheme: dark; background-color: #0a0a0a">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
 
     <!--
@@ -32,8 +25,8 @@
     <script>
       (function () {
         try {
-          var raw = localStorage.getItem('app-theme');
-          var mode = 'system';
+          var raw = localStorage.getItem("app-theme");
+          var mode = "system";
           if (raw) {
             try {
               mode = JSON.parse(raw);
@@ -42,14 +35,14 @@
             }
           }
           var dark =
-            mode === 'dark' ||
-            (mode !== 'light' &&
+            mode === "dark" ||
+            (mode !== "light" &&
               window.matchMedia &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches);
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
           var el = document.documentElement;
-          el.classList.toggle('dark', dark);
-          el.style.colorScheme = dark ? 'dark' : 'light';
-          el.style.backgroundColor = dark ? '#0a0a0a' : '#ffffff';
+          el.classList.toggle("dark", dark);
+          el.style.colorScheme = dark ? "dark" : "light";
+          el.style.backgroundColor = dark ? "#0a0a0a" : "#ffffff";
         } catch (e) {
           /* storage/matchMedia unavailable — keep the dark default from <html>. */
         }
@@ -57,24 +50,10 @@
     </script>
 
     <link rel="icon" type="image/svg+xml" href="/images/logo/alfred-logo.svg" />
-    <link
-      rel="icon"
-      type="image/png"
-      sizes="32x32"
-      href="/images/logo/favicon-32.png"
-    />
-    <link
-      rel="icon"
-      type="image/png"
-      sizes="16x16"
-      href="/images/logo/favicon-16.png"
-    />
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/logo/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/logo/favicon-16.png" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link
-      rel="apple-touch-icon"
-      sizes="180x180"
-      href="/images/logo/apple-touch-icon.png"
-    />
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/logo/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#5B43E0" />
 
@@ -91,8 +70,8 @@
       in <head> so it's registered before any module preloads can fail.
     -->
     <script>
-      window.addEventListener('vite:preloadError', function () {
-        var KEY = 'alfred:lastChunkReload';
+      window.addEventListener("vite:preloadError", function () {
+        var KEY = "alfred:lastChunkReload";
         var now = Date.now();
         var last = Number(sessionStorage.getItem(KEY) || 0);
         if (now - last < 10000) return; // reloaded moments ago — don't loop
