@@ -36,6 +36,7 @@ import {
   type DimensionComposerMenuItem,
 } from "~/components/dimension-composer-shell";
 import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifact-pages";
+import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
 
 type SearchResult = {
@@ -1245,10 +1246,4 @@ function IconMini({
       {children}
     </button>
   );
-}
-
-function faviconFor(domain: string) {
-  // DuckDuckGo (cookieless, no 404s) over Google's s2/favicons — see the note
-  // on `faviconUrl` in routes/-preview-chat/inbox-feed.tsx.
-  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
 }
