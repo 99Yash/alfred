@@ -1,5 +1,5 @@
 import type { EventPayload } from "@alfred/schemas/events";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
 import { markChatTimingByAssistant } from "./timing";
 
@@ -47,6 +47,24 @@ interface StreamRef {
   tools: Map<string, StreamingToolCall>;
   awaitingApproval: boolean;
   done: boolean;
+  /**
+   * The user hit stop locally. We flip to done immediately and ignore any late
+   * SSE frames for this run, so the bubble freezes the instant they click
+   * instead of waiting on the worker's Redis-flag poll (~400ms) to round-trip a
+   * `completed` event. The durable synced message still reconciles afterward.
+   */
+  stopped: boolean;
+}
+
+export interface ChatStream {
+  /** The in-flight assistant turn, or null when nothing is streaming. */
+  stream: StreamingMessage | null;
+  /**
+   * Optimistically stop the in-flight turn: freeze the partial reply at what's
+   * shown and flip the composer back to its idle state right away. Pair with
+   * the server-side stop request — this just makes the UI instant.
+   */
+  stopStream: () => void;
 }
 
 /**
@@ -60,11 +78,15 @@ interface StreamRef {
  * The streamed message is ephemeral — once the durable copy syncs via
  * Replicache (same messageId), the conversation view drops this bubble.
  */
-export function useChatStream(threadId: string | undefined): StreamingMessage | null {
+export function useChatStream(threadId: string | undefined): ChatStream {
   const [snapshot, setSnapshot] = useState<StreamingMessage | null>(null);
   const ref = useRef<StreamRef | null>(null);
   const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
+  // The effect installs the real stopper once the SSE stream is open; the
+  // returned `stopStream` is a stable proxy so consumers don't re-bind.
+  const stopFnRef = useRef<(() => void) | null>(null);
+  const stopStream = useCallback(() => stopFnRef.current?.(), []);
 
   useEffect(() => {
     ref.current = null;
@@ -139,9 +161,25 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         tools: new Map(),
         awaitingApproval: false,
         done: false,
+        stopped: false,
       };
       ref.current = fresh;
       return fresh;
+    };
+
+    // Optimistic stop: freeze the eased buffers at what's currently shown and
+    // flip to done so the composer swaps back to the send button this frame.
+    // `stopped` makes onFrame drop any further deltas for this run, so the
+    // bubble doesn't keep typing while the server finalizes in the background.
+    stopFnRef.current = () => {
+      const r = ref.current;
+      if (!r || r.stopped) return;
+      r.stopped = true;
+      r.done = true;
+      r.awaitingApproval = false;
+      r.target = r.target.slice(0, r.shown);
+      r.reasoning = r.reasoning.slice(0, r.reasoningShown);
+      ensureRaf();
     };
 
     const onFrame = (frame: EventStreamFrame) => {
@@ -173,6 +211,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.reasoning">;
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
+        if (r.stopped) return;
         if (p.seq <= r.reasoningSeq) return;
         r.reasoningSeq = p.seq;
         if (r.reasoningStartTs === null) r.reasoningStartTs = Date.now();
@@ -194,6 +233,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.delta">;
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
+        if (r.stopped) return;
         if (p.seq <= r.deltaSeq) return;
         r.deltaSeq = p.seq;
         // First reply token: thinking for the answer is over — freeze its duration.
@@ -221,6 +261,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
         const p = frame.payload as EventPayload<"chat.tool">;
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
+        if (r.stopped) return;
         const prev = r.tools.get(p.toolCallId);
         r.tools.set(p.toolCallId, {
           toolCallId: p.toolCallId,
@@ -245,7 +286,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
       } else if (frame.kind === "approval.requested") {
         const p = frame.payload as EventPayload<"approval.requested">;
         const r = ref.current;
-        if (!r || p.runId !== r.runId) return;
+        if (!r || r.stopped || p.runId !== r.runId) return;
         r.awaitingApproval = true;
         markChatTimingByAssistant(
           r.messageId,
@@ -260,6 +301,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
     const close = openEventStream({ onFrame });
     return () => {
       close();
+      stopFnRef.current = null;
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -267,7 +309,7 @@ export function useChatStream(threadId: string | undefined): StreamingMessage | 
     };
   }, [threadId]);
 
-  return snapshot;
+  return { stream: snapshot, stopStream };
 }
 
 function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {

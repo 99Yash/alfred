@@ -4,6 +4,7 @@ import {
   promoteScratchInput,
   readScratchInput,
   suggestTodoInput,
+  webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
 import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
@@ -11,6 +12,7 @@ import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { suggestTodo } from "../todos/suggest";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
+import { runWebSearch } from "./web-search";
 
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({
@@ -163,6 +165,27 @@ export const systemTools: readonly RegisteredTool[] = [
         assist: input.assist,
         sources: input.sources,
       });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "web_search",
+    // Read-only external lookup with no side effect on the user's accounts,
+    // so it stays off the gate (no_risk → never staged for approval). Cost is
+    // bucketed under api_call_log.kind = 'web_search', not the gate.
+    riskTier: "no_risk",
+    description:
+      "Search the live web and get back a short, cited answer. Use this for current events, facts you're unsure of, or anything outside your training data — do not guess from memory when a lookup would settle it. Returns a synthesized answer plus source URLs, not raw search results.",
+    inputSchema: webSearchInput,
+    execute: async (input, ctx) => {
+      const { answer, citations } = await runWebSearch({
+        query: input.query,
+        userId: ctx.userId,
+        runId: ctx.runId,
+        stepId: ctx.stepId,
+        idempotencyKey: ctx.toolCallId,
+      });
+      return { ok: true, query: input.query, answer, citations };
     },
   }),
 ];
