@@ -5,28 +5,46 @@ import {
   collectColdStartSignals,
   extractColdStartFacts,
   proposeFact,
-  researchUser,
+  researchAspects,
+  resolveIdentity,
+  synthesizeColdStart,
   writeMemoryChunk,
+  type AspectFinding,
   type ColdStartProposal,
   type ColdStartSignals,
+  type IdentityAnchor,
   type ResearchResult,
   type Workflow,
 } from "@alfred/api";
 import { z } from "zod";
 
 /**
- * Cold-start research workflow (ADR-0011 + ADR-0022).
+ * Cold-start research workflow (ADR-0011 + ADR-0022, v2 amendment).
  *
- * Steps:
- *   1. gather-signals — read user row + connected integrations into a
- *                       structured signal bundle.
- *   2. research       — one Sonar Deep Research call. 30–90s; Sonar
- *                       owns the multi-step search internally.
- *   3. extract-facts  — cheap-tier model converts research prose into
- *                       structured `user_facts` proposals.
- *   4. persist        — propose each fact (auto-confirm gated by the
- *                       0.85 threshold) and store the research as a
- *                       `memory_chunks` row for later semantic recall.
+ * v2 swaps the single Perplexity Sonar Deep Research call for the agent
+ * harness, run bounded inside this deterministic onboarding workflow:
+ *   1. gather-signals   — read user row + connected integrations into a
+ *                         structured signal bundle.
+ *   2. seed             — boss identity resolution: one bounded web pass
+ *                         pins the canonical public profile so every aspect
+ *                         researches the same person.
+ *   3. research-aspects — bounded parallel sub-agents, one per facet
+ *                         (professional / employer / online / personal),
+ *                         each looping a local `web_search` tool (see
+ *                         `cold-start/web-tool.ts`, same grounded path as
+ *                         `system.web_search`) for ~500w of findings.
+ *   4. synthesis        — boss folds the findings into one ~300w telegraphic
+ *                         summary (the memory chunk + extractor input).
+ *   5. extract-facts    — cheap-tier model converts the summary into
+ *                         structured `user_facts` proposals (unchanged).
+ *   6. persist          — propose each fact (auto-confirm gated by the 0.85
+ *                         threshold) and store the summary as a
+ *                         `memory_chunks` row for later semantic recall.
+ *
+ * v2.0 is web-only: new users default to `gated`, so live Gmail/Calendar
+ * reads would park in a watcher-less onboarding run. Read-only
+ * calendar/gmail aspects are a v2.1 follow-up gated on the run-scoped
+ * autonomy override.
  *
  * Idempotency:
  *   - Trigger-side: the workflow declares `dedupKey: () => 'cold-start'`,
@@ -39,17 +57,25 @@ import { z } from "zod";
  *     guard + active-dup guard, and `writeMemoryChunk` upserts on
  *     `(user_id, kind, content_hash)`. So an in-step retry after a
  *     worker crash never double-writes.
- *   - Cost: a worker crash mid-research re-bills Perplexity on retry —
- *     Sonar has no idempotency-key API, so the per-step idempotency key
- *     we forward is observability metadata only. Acceptable at ~$0.07
- *     per duplicate; not worth a checkpoint cache for the rare case.
+ *   - Cost: each step checkpoints its result, so a worker crash re-runs
+ *     only the failed step. A crash mid-seed/aspects/synthesis re-bills
+ *     just that step's LLM + web_search calls — cheap, no checkpoint
+ *     cache warranted.
  *
  * Latency budget:
- *   - Sonar Deep Research is the dominant cost. Tagged `kind=web_search`
- *     so cost rollups bucket it apart from the boss/sub-agent LLM line.
- *   - Total wall time per run ~30–120s. Worker heartbeat keeps the lease
- *     alive while step 2 is in flight.
+ *   - The aspect sub-agents run concurrently, so step 3's wall time is the
+ *     slowest single aspect, not their sum. Each web_search lands its own
+ *     `kind=web_search` log row; each reasoning turn a `kind=llm` row.
+ *   - Worker heartbeat keeps the lease alive while a step's loop is in
+ *     flight.
  */
+
+const aspectFindingSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  finding: z.string(),
+  citations: z.array(z.string()),
+});
 
 const stateSchema = z.object({
   reason: z.enum(["signup", "manual"]),
@@ -66,7 +92,17 @@ const stateSchema = z.object({
       }),
     })
     .optional(),
-  /** Computed in step 2; consumed by step 3 and persisted in step 4. */
+  /** Computed in step 2; threaded into aspect briefs + synthesis. */
+  identity: z
+    .object({
+      anchor: z.string(),
+      confident: z.boolean(),
+      citations: z.array(z.string()),
+    })
+    .optional(),
+  /** Computed in step 3; consumed by synthesis. */
+  aspects: z.array(aspectFindingSchema).optional(),
+  /** Computed in step 4; consumed by step 5 and persisted in step 6. */
   research: z
     .object({
       content: z.string(),
@@ -78,7 +114,7 @@ const stateSchema = z.object({
       }),
     })
     .optional(),
-  /** Computed in step 3; consumed in step 4. */
+  /** Computed in step 5; consumed in step 6. */
   proposals: z
     .array(
       z.object({
@@ -96,7 +132,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
   slug: COLD_START_WORKFLOW_SLUG,
   name: "Cold-start research",
   description:
-    "Cold-start research at signup — Sonar Deep Research → cheap-tier extract → user_facts proposals + memory_chunks (ADR-0011 + ADR-0022).",
+    "Cold-start research at signup — boss identity seed → parallel web_search aspect sub-agents → boss synthesis → cheap-tier extract → user_facts proposals + memory_chunks (ADR-0011 + ADR-0022, v2).",
   // Fires from the Google OAuth callback; lifetime-once is enforced by
   // the workflow's own `dedupKey: () => 'cold-start'`.
   trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
@@ -133,30 +169,76 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         return {
           kind: "next",
           state: { ...ctx.state, signals: signals as ColdStartSignals },
-          nextStep: "research",
+          nextStep: "seed",
         };
       },
     },
 
-    research: {
-      id: "research",
+    seed: {
+      id: "seed",
       async run(ctx) {
         if (!ctx.state.signals) {
-          throw new Error("[cold-start] research entered without signals");
+          throw new Error("[cold-start] seed entered without signals");
         }
-        // Stable per-run key (omit attempt) so the api_call_log /
-        // Langfuse trace ties together attempts of the same step. The
-        // key is metadata only — Perplexity has no idempotency-key API,
-        // so a worker-crash retry will re-bill Sonar regardless of what
-        // we forward here.
-        const result: ResearchResult = await researchUser({
+        // Stable per-run key so retries of this step share a trace.
+        const identity: IdentityAnchor = await resolveIdentity({
           signals: ctx.state.signals,
           runId: ctx.runId,
-          stepId: "research",
-          idempotencyKey: `cold-start.research:${ctx.runId}`,
+          stepId: "seed",
+          idempotencyKey: `cold-start.seed:${ctx.runId}`,
         });
         await ctx.log(
-          `research: finishReason=${result.meta.finishReason} chars=${result.content.length} citations=${result.citations.length}`,
+          `seed: confident=${identity.confident} anchorChars=${identity.anchor.length} citations=${identity.citations.length}`,
+        );
+        return {
+          kind: "next",
+          state: { ...ctx.state, identity },
+          nextStep: "research-aspects",
+        };
+      },
+    },
+
+    "research-aspects": {
+      id: "research-aspects",
+      async run(ctx) {
+        if (!ctx.state.signals || !ctx.state.identity) {
+          throw new Error("[cold-start] research-aspects entered without signals/identity");
+        }
+        const aspects: AspectFinding[] = await researchAspects({
+          signals: ctx.state.signals,
+          anchor: ctx.state.identity,
+          runId: ctx.runId,
+          idempotencyKey: `cold-start.aspects:${ctx.runId}`,
+        });
+        await ctx.log(
+          `research-aspects: ${aspects
+            .map((a) => `${a.id}(${a.finding.length}c/${a.citations.length}cit)`)
+            .join(" ")}`,
+        );
+        return {
+          kind: "next",
+          state: { ...ctx.state, aspects },
+          nextStep: "synthesis",
+        };
+      },
+    },
+
+    synthesis: {
+      id: "synthesis",
+      async run(ctx) {
+        if (!ctx.state.signals || !ctx.state.identity || !ctx.state.aspects) {
+          throw new Error("[cold-start] synthesis entered without signals/identity/aspects");
+        }
+        const result: ResearchResult = await synthesizeColdStart({
+          signals: ctx.state.signals,
+          anchor: ctx.state.identity,
+          aspects: ctx.state.aspects,
+          runId: ctx.runId,
+          stepId: "synthesis",
+          idempotencyKey: `cold-start.synthesis:${ctx.runId}`,
+        });
+        await ctx.log(
+          `synthesis: finishReason=${result.meta.finishReason} chars=${result.content.length} citations=${result.citations.length}`,
         );
         return {
           kind: "next",
@@ -172,7 +254,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         if (!ctx.state.signals || !ctx.state.research) {
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
-        // Stable per-run key (see `research` step above for rationale).
+        // Stable per-run key so retries of this step share a trace.
         const proposals: ColdStartProposal[] = await extractColdStartFacts({
           signals: ctx.state.signals,
           research: {

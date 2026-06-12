@@ -43,7 +43,8 @@ const CASES: Case[] = [
   {
     name: "REAL MISS — third-party closure comment",
     from: "Oliv AI <notifications@tasks.clickup.com>",
-    subject: "Conservice : Fix deal views resetting to open deals after saving and ensure filters persist",
+    subject:
+      "Conservice : Fix deal views resetting to open deals after saving and ensure filters persist",
     body: "Akshay Jyothis commented\nNothing to be done here - was a product understanding gap for the user\nView comment or reply to add a comment",
     expectCategory: ["fyi", "done"],
     expectTodo: false,
@@ -84,11 +85,19 @@ async function main() {
         title: c.subject,
         content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
         authoredAt: new Date("2026-06-11T09:51:48Z"),
-        metadata: { from: c.from, to: "yash.k@oliv.ai", labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"] },
+        metadata: {
+          from: c.from,
+          to: "yash.k@oliv.ai",
+          labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+        },
       },
       senderContext,
       observations: baseObs({
-        senderPrior: { key: "service:tasks.clickup.com", categoryCounts: c.prior ?? {}, lastCategory: "action_needed" },
+        senderPrior: {
+          key: "service:tasks.clickup.com",
+          categoryCounts: c.prior ?? {},
+          lastCategory: "action_needed",
+        },
       }),
     });
     const gotTodo = classification.todoDecision?.outcome === "proposed";
@@ -97,8 +106,12 @@ async function main() {
     const ok = catOk && todoOk;
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
-    console.log(`   category: ${classification.category} (want ${c.expectCategory.join("|")}) ${catOk ? "ok" : "WRONG"} · model=${model}`);
-    console.log(`   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`);
+    console.log(
+      `   category: ${classification.category} (want ${c.expectCategory.join("|")}) ${catOk ? "ok" : "WRONG"} · model=${model}`,
+    );
+    console.log(
+      `   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`,
+    );
     console.log(`   rationale: ${classification.rationale}`);
   }
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

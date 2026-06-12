@@ -151,8 +151,12 @@ async function main() {
     const ok = catOk && todoOk;
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
-    console.log(`   category: ${classification.category} (want ${c.expectCategory.join("|")}) ${catOk ? "ok" : "WRONG"} · model=${model}`);
-    console.log(`   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`);
+    console.log(
+      `   category: ${classification.category} (want ${c.expectCategory.join("|")}) ${catOk ? "ok" : "WRONG"} · model=${model}`,
+    );
+    console.log(
+      `   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`,
+    );
     console.log(`   rationale: ${classification.rationale}`);
   }
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

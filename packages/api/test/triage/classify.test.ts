@@ -593,15 +593,27 @@ describe("sanitizeTodoName", () => {
       sanitizeTodoName("Reply to Priya about the Q3 budget"),
       "Reply to Priya about the Q3 budget",
     );
-    assert.equal(sanitizeTodoName("Rotate the exposed Redis credential"), "Rotate the exposed Redis credential");
+    assert.equal(
+      sanitizeTodoName("Rotate the exposed Redis credential"),
+      "Rotate the exposed Redis credential",
+    );
   });
 
   test("does NOT strip ambiguous verbs that can be the real action (left to rule 16f)", () => {
     // review/check/address have a legitimate "the action IS this verb" reading,
     // so they are deliberately out of scope — stripping would mangle them.
-    assert.equal(sanitizeTodoName("Review the contract before signing"), "Review the contract before signing");
-    assert.equal(sanitizeTodoName("Check the wire transfer cleared"), "Check the wire transfer cleared");
-    assert.equal(sanitizeTodoName("Address Dependabot alerts in turbo-insta"), "Address Dependabot alerts in turbo-insta");
+    assert.equal(
+      sanitizeTodoName("Review the contract before signing"),
+      "Review the contract before signing",
+    );
+    assert.equal(
+      sanitizeTodoName("Check the wire transfer cleared"),
+      "Check the wire transfer cleared",
+    );
+    assert.equal(
+      sanitizeTodoName("Address Dependabot alerts in turbo-insta"),
+      "Address Dependabot alerts in turbo-insta",
+    );
   });
 
   test("never drops: a degenerate strip keeps the original rather than empty/one-word", () => {
@@ -611,7 +623,10 @@ describe("sanitizeTodoName", () => {
   });
 
   test("does not false-match a hedge verb embedded in a longer word", () => {
-    assert.equal(sanitizeTodoName("Viewer permissions for the shared doc"), "Viewer permissions for the shared doc");
+    assert.equal(
+      sanitizeTodoName("Viewer permissions for the shared doc"),
+      "Viewer permissions for the shared doc",
+    );
   });
 });
 

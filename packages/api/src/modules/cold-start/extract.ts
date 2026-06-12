@@ -91,7 +91,8 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
-  lines.push(`- Email: ${args.signals.email}`);
+  // Domain only — the local-part is a contact detail the rules already forbid
+  // proposing, and there's no reason to put it in front of the extractor.
   if (args.signals.emailDomain) {
     lines.push(`- Email domain: ${args.signals.emailDomain}`);
   }
