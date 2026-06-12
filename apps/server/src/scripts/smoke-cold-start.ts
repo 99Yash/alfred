@@ -1,5 +1,5 @@
 /**
- * Smoke test for the m11 cold-start-research workflow.
+ * Smoke test for the cold-start-research workflow (v2 — agent harness).
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smoke-cold-start.ts
  *
@@ -7,7 +7,9 @@
  *   - A server process running (`pnpm dev`) so the agent worker can pick
  *     up the run. (Or run this with the worker started in-process — the
  *     script does not start one itself; mirroring smoke-briefing.)
- *   - `PERPLEXITY_API_KEY` set so Sonar Deep Research returns content.
+ *   - `GOOGLE_GENERATIVE_AI_API_KEY` set so the boss seed/synthesis and the
+ *     grounded-Gemini `web_search` aspect loops can run. (Required env, so
+ *     a configured dev tree already has it.)
  *   - At least one user row, ideally with a connected Google credential
  *     so the signal collector contributes more than the bare email.
  *
@@ -16,8 +18,8 @@
  *      so the partial unique index on `agent_runs.dedup_key` doesn't
  *      reject the fresh smoke run.
  *   2. createRun + enqueueRun cycle a `cold-start-research` run.
- *   3. The workflow runs gather-signals → research → extract-facts →
- *      persist to completion.
+ *   3. The workflow runs gather-signals → seed → research-aspects →
+ *      synthesis → extract-facts → persist to completion.
  *   3. The run output reports a non-negative `factsProposed`,
  *      `memoryChunkId`, and `citationCount`.
  *   4. A `memory_chunks` row with `kind='cold_start_research'` exists
@@ -45,7 +47,8 @@ import { serverEnv } from "@alfred/env/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
-// Sonar Deep Research can take 30–120s; budget 5min before giving up.
+// Seed + parallel aspect loops + synthesis can run a couple of minutes
+// of LLM + web_search calls; budget 5min before giving up.
 const POLL_INTERVAL_MS = 1_000;
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
@@ -111,9 +114,9 @@ async function fetchColdStartFacts(userId: string, runId: string) {
 }
 
 async function main() {
-  if (!serverEnv().PERPLEXITY_API_KEY) {
+  if (!serverEnv().GOOGLE_GENERATIVE_AI_API_KEY) {
     console.log(
-      "[smoke-cold-start] PERPLEXITY_API_KEY not set — Sonar Deep Research call will fail. Set it in apps/server/.env first.",
+      "[smoke-cold-start] GOOGLE_GENERATIVE_AI_API_KEY not set — the seed/synthesis boss calls and grounded web_search loops will fail. Set it in apps/server/.env first.",
     );
     return;
   }

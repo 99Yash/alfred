@@ -46,7 +46,13 @@ function linkBrand(href: string): IntegrationBrand | null {
  * property we wrestle from the shared renderer; the glyph carries the brand
  * color, so the text stays neutral and legible inside the sentence.
  */
-export const BriefingLink: Components["a"] = ({ node: _node, href, title, children, className }) => {
+export const BriefingLink: Components["a"] = ({
+  node: _node,
+  href,
+  title,
+  children,
+  className,
+}) => {
   if (!href) return <span>{children}</span>;
   const brand = linkBrand(href);
   return (

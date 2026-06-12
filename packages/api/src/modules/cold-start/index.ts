@@ -1,12 +1,17 @@
 /**
- * Cold-start research at signup (ADR-0011 + ADR-0022).
+ * Cold-start research at signup (ADR-0011 + ADR-0022, v2 amendment).
  *
- * Module shape mirrors briefing/triage:
+ * v2 replaces the single stranded Perplexity Sonar Deep Research call with the
+ * agent harness, run bounded inside a deterministic onboarding workflow:
  *   - `signals`         pure read of identity evidence
- *   - `research`        Sonar Deep Research call (web_search-metered)
+ *   - `seed`            boss identity resolution → an anchor (web_search)
+ *   - `aspects`         bounded parallel sub-agents, one per facet (web_search)
+ *   - `synthesis`       boss folds findings → ~300w telegraphic summary
  *   - `extract`         cheap-tier prose → structured fact proposals
- *   - `dedup`           "has this user already had a research run?"
  *   - `workflow-input`  slug + zod schema for callers that enqueue
+ *
+ * The `synthesis` output keeps the old `ResearchResult` shape, so the
+ * `extract` → persist tail (ADR-0019's two-stage extract) is unchanged.
  *
  * The workflow itself lives in apps/server/builtins/workflows/
  * cold-start-research.ts and only orchestrates these helpers.
@@ -15,8 +20,14 @@
 export { collectColdStartSignals } from "./signals";
 export type { ColdStartSignals } from "./signals";
 
-export { researchUser } from "./research";
-export type { ResearchResult } from "./research";
+export { resolveIdentity } from "./seed";
+export type { IdentityAnchor } from "./seed";
+
+export { researchAspects, selectAspects } from "./aspects";
+export type { AspectFinding, ColdStartAspect } from "./aspects";
+
+export { synthesizeColdStart } from "./synthesis";
+export type { ResearchResult } from "./synthesis";
 
 export {
   extractColdStartFacts,
