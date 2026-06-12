@@ -175,7 +175,7 @@ export async function researchAspects(args: ResearchAspectsArgs): Promise<Aspect
         (err): AspectFinding => ({
           id: aspect.id,
           label: aspect.label,
-          finding: `(research failed for this facet: ${err instanceof Error ? err.message : String(err)})`,
+          finding: "nothing publicly found for this facet (research step failed)",
           citations: [],
         }),
       ),
