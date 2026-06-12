@@ -170,9 +170,9 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "web_search",
-    // Read-only external lookup with no side effect on the user's accounts,
-    // so it stays off the gate (no_risk → never staged for approval). Cost is
-    // bucketed under api_call_log.kind = 'web_search', not the gate.
+    // Read-only external lookup with no side effect on the user's accounts.
+    // `system.*` tools are always dispatched in autonomy mode, so this never awaits approval.
+    // Cost is bucketed under api_call_log.kind = 'web_search', not the gate.
     riskTier: "no_risk",
     description:
       "Search the live web and get back a short, cited answer. Use this for current events, facts you're unsure of, or anything outside your training data — do not guess from memory when a lookup would settle it. Returns a synthesized answer plus source URLs, not raw search results.",
