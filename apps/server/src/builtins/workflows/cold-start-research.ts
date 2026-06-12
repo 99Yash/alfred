@@ -30,8 +30,9 @@ import { z } from "zod";
  *                         researches the same person.
  *   3. research-aspects — bounded parallel sub-agents, one per facet
  *                         (professional / employer / online / personal),
- *                         each looping `system.web_search` for ~500w of
- *                         findings.
+ *                         each looping a local `web_search` tool (see
+ *                         `cold-start/web-tool.ts`, same grounded path as
+ *                         `system.web_search`) for ~500w of findings.
  *   4. synthesis        — boss folds the findings into one ~300w telegraphic
  *                         summary (the memory chunk + extractor input).
  *   5. extract-facts    — cheap-tier model converts the summary into

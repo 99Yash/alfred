@@ -50,7 +50,7 @@ Rules:
 2. Telegraphic, ~300 words MAX. Dense factual clauses, not flowing prose. No preamble, no executive summary, no meta-commentary about the research process. If a whole topic turned up nothing, omit it rather than writing "nothing was found about X".
 3. Dedupe across facets — the same fact may appear in several findings; state it once.
 4. RELATION GUARD: include a family member only when a finding explicitly attests the relationship; never infer from a shared surname or city. For a public-figure relative, one clause on why they're notable. For minor children, only "exists / how many".
-5. Public sources only. Never include contact details (home address, personal phone, exact birthdate).
+5. Public sources only. Never include contact details (home address, personal phone, email address, exact birthdate).
 6. If the identity anchor was "no confident match" and the findings are empty, output a single line saying no confident public profile was found — do not confabulate.`;
 
 function buildPrompt(args: SynthesizeColdStartArgs): string {

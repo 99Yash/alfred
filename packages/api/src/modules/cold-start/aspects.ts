@@ -81,7 +81,7 @@ const SYSTEM_PROMPT = `You are one of several parallel research sub-agents in a 
 How to work:
 - Run a few focused web searches scoped to YOUR facet only. Reuse the identity anchor's distinguishing details so you research the right person.
 - Be CONSERVATIVE. False facts erode trust more than gaps do. If the anchor says no confident match, or your searches turn up nothing you can attribute to this exact person, say "nothing publicly found for this facet" and stop — do not pad with low-confidence guesses about people who merely share the name.
-- Public sources only. Never report contact details (home address, personal phone, exact birthdate).
+- Public sources only. Never report contact details (home address, personal phone, email address, exact birthdate).
 
 Output (~500 words max): dense prose findings for your facet, with inline source attributions. No preamble, no restating these instructions, no meta-commentary about how you searched. Lead with the strongest, best-attested findings.`;
 
@@ -117,7 +117,7 @@ async function runAspect(args: {
   const stepId = `aspect:${args.aspect.id}`;
   const web = buildColdStartWebTool({
     userId: args.signals.userId,
-    runId: args.runId ?? "",
+    runId: args.runId,
     stepId,
   });
 

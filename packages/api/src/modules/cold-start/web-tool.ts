@@ -32,8 +32,9 @@ export interface ColdStartWebTool {
 
 export function buildColdStartWebTool(args: {
   userId: string;
-  runId: string;
-  stepId: string;
+  /** Optional — passed straight through so an omitted run meters as null, not "". */
+  runId?: string;
+  stepId?: string;
 }): ColdStartWebTool {
   const citations: string[] = [];
   const seen = new Set<string>();
