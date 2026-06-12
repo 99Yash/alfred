@@ -53,7 +53,7 @@ Then write a SHORT identity anchor (≤150 words) that downstream research will 
 - Begin the anchor with "CONFIDENT:" if you found a profile you can confidently attribute, or "NO CONFIDENT MATCH:" if the name is too common, the footprint is too thin, or candidates can't be told apart. When unsure, prefer NO CONFIDENT MATCH — a false anchor poisons every downstream step.
 
 Ground rules:
-- Public sources only. Do not report contact details (home address, personal phone, exact birthdate).
+- Public sources only. Do not report contact details (home address, personal phone, email address, exact birthdate) — not even the email you were given.
 - A consumer email domain (gmail.com, outlook.com, …) is NOT the person's employer — never treat it as a company.
 - No preamble or meta-commentary. Output only the anchor.`;
 
@@ -80,7 +80,7 @@ function buildPrompt(signals: ColdStartSignals): string {
 export async function resolveIdentity(args: ResolveIdentityArgs): Promise<IdentityAnchor> {
   const web = buildColdStartWebTool({
     userId: args.signals.userId,
-    runId: args.runId ?? "",
+    runId: args.runId,
     stepId: args.stepId ?? "seed",
   });
 

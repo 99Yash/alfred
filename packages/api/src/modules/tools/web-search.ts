@@ -19,8 +19,9 @@ import { getWebSearchModel, googleSearchGroundingTools, meteredGenerateText } fr
 export interface WebSearchArgs {
   query: string;
   userId: string;
-  runId: string;
-  stepId: string;
+  /** Optional — attribution columns are nullable; omit rather than pass "". */
+  runId?: string;
+  stepId?: string;
   /** Stable per-call key — the tool passes the model's tool_call_id. */
   idempotencyKey?: string;
 }
