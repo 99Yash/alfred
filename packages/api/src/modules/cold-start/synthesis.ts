@@ -57,7 +57,8 @@ function buildPrompt(args: SynthesizeColdStartArgs): string {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
-  lines.push(`- Email: ${args.signals.email}`);
+  // No full email — synthesis output is persisted as the memory chunk, so keep
+  // the contact-detail local-part out of it. Name + domain + anchor suffice.
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`=== Identity anchor ===`);

@@ -93,7 +93,10 @@ function buildPrompt(args: {
   const lines: string[] = [];
   lines.push(`Subject:`);
   lines.push(`- Name: ${args.signals.name}`);
-  lines.push(`- Email: ${args.signals.email}`);
+  // Deliberately NOT the full email — the local-part is a contact detail that
+  // adds nothing to web research and would otherwise ride into the checkpointed
+  // finding + synthesis. The resolved anchor + domain disambiguate. (Identity
+  // resolution in the `seed` step is the only place the full email belongs.)
   if (args.signals.emailDomain) lines.push(`- Email domain: ${args.signals.emailDomain}`);
   lines.push("");
   lines.push(`Identity anchor (from the resolution step — treat as ground truth):`);
@@ -172,7 +175,7 @@ export async function researchAspects(args: ResearchAspectsArgs): Promise<Aspect
         runId: args.runId,
         idempotencyKey: args.idempotencyKey,
       }).catch(
-        (err): AspectFinding => ({
+        (): AspectFinding => ({
           id: aspect.id,
           label: aspect.label,
           finding: "nothing publicly found for this facet (research step failed)",
