@@ -133,11 +133,6 @@ export function setLocalStorageItem<K extends LocalStorageKey>(
   safeSet(key, JSON.stringify(result.data));
 }
 
-/** Remove a registered key. */
-export function removeLocalStorageItem(key: LocalStorageKey): void {
-  safeRemove(key);
-}
-
 /**
  * Subscribe to changes for a registered key made in *other* tabs (the `storage`
  * event never fires in the tab that made the change). The callback receives the

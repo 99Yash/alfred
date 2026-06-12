@@ -7,5 +7,4 @@ export { HeroAtmosphere } from "./hero-atmosphere";
 export { LandingBackground } from "./landing-background";
 export { LandingCtaSection } from "./landing-cta-section";
 export { LandingFooter } from "./landing-footer";
-export { MorningBriefingPanel } from "./morning-briefing-panel";
 export { TopAnnouncement } from "./top-announcement";
