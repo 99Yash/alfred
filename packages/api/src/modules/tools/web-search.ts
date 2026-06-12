@@ -9,7 +9,9 @@
  *
  * Every call routes through `meteredGenerateText` with
  * `attribution.kind = 'web_search'` so `api_call_log` rollups bucket the spend
- * apart from ordinary LLM turns (mirrors `cold-start/research.ts`).
+ * apart from ordinary LLM turns. Cold-start's bounded research loops call this
+ * same function (see `cold-start/web-tool.ts`) so their searches meter the same
+ * way.
  */
 
 import { getWebSearchModel, googleSearchGroundingTools, meteredGenerateText } from "@alfred/ai";
@@ -104,7 +106,8 @@ function extractCitations(
         : undefined;
     if (Array.isArray(chunks)) {
       for (const chunk of chunks) {
-        const web = chunk && typeof chunk === "object" ? (chunk as Record<string, unknown>).web : undefined;
+        const web =
+          chunk && typeof chunk === "object" ? (chunk as Record<string, unknown>).web : undefined;
         if (web && typeof web === "object") {
           const w = web as Record<string, unknown>;
           push(w.uri, w.title);
