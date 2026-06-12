@@ -1,7 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { perplexity } from "@ai-sdk/perplexity";
-import type { LanguageModel } from "ai";
+import type { LanguageModel, ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
@@ -43,15 +43,34 @@ export const COMPACTOR_MODEL: LanguageModel = anthropic("claude-sonnet-4-6");
 export const COMPACTOR_FALLBACK_MODEL: LanguageModel = google("gemini-2.5-flash");
 
 /**
- * Live web-search model for short, agent-driven lookups. Per ADR-0022:
- * Perplexity Sonar Pro for the synthesis-shaped agent tool path.
+ * Live web-search model for short, agent-driven lookups.
+ *
+ * Switched 2026-06-12 from Perplexity Sonar Pro to grounded Gemini 2.5 Flash
+ * (ADR-0022 amended): the Perplexity account lost billing, and Gemini ships
+ * Google Search grounding on the API key we already hold. Flash keeps the
+ * interactive lookup fast; grounding is turned on per-call by passing
+ * {@link googleSearchGroundingTools} into the `tools` field.
  *
  * Caller must route through `meteredGenerateText` with
  * `attribution.kind = 'web_search'` so `api_call_log` rollups bucket the
  * spend correctly.
  */
 export function getWebSearchModel(): LanguageModel {
-  return perplexity("sonar-pro");
+  return google("gemini-2.5-flash");
+}
+
+/**
+ * Provider tool set that turns on live Google Search grounding. Pass into the
+ * `tools` field of a `meteredGenerateText` call alongside
+ * {@link getWebSearchModel}; the model searches server-side and returns a
+ * grounded answer with source uris + citation spans under
+ * `providerMetadata.google.groundingMetadata`.
+ */
+export function googleSearchGroundingTools(): ToolSet {
+  // The SDK over-narrows a provider tool's input schema to `never` inside the
+  // non-generic `ToolSet`, so the concrete grounding tool needs a cast — the
+  // same `as ToolSet` shape `resolveSdkTools` uses for our function tools.
+  return { google_search: google.tools.googleSearch({}) } as ToolSet;
 }
 
 /**

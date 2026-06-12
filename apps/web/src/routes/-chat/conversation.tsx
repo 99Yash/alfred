@@ -8,6 +8,8 @@ import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
+import { SourcesStrip } from "./sources-strip";
+import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 
 /**
@@ -131,6 +133,8 @@ export function Conversation({
                 <ThinkingIndicator />
               </div>
             ) : null}
+
+            {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
             {stream.awaitingApproval ? <ApprovalNotice /> : null}
             {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}

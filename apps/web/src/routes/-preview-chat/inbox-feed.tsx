@@ -27,26 +27,13 @@ import {
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { useInboxDetail, type InboxAttachment, type InboxMessage } from "~/hooks/use-inbox";
+import { faviconFor as faviconUrl } from "~/lib/favicon";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
 import type { InboxPagination } from "./rail-data";
 
 const PAGE_SIZE = 8;
-
-/**
- * DuckDuckGo's favicon CDN. Returns a per-domain logo when one exists
- * (LinkedIn, Notion, Vercel, Stripe …) and a neutral fallback icon otherwise.
- *
- * Chosen over Google's `s2/favicons`, which (a) sets third-party cookies on
- * `www.google.com` — flagged by Lighthouse Best Practices — and (b) redirects
- * to a gstatic endpoint that 404s for unknown domains, spamming the console
- * (the `errors-in-console` audit). DuckDuckGo is cookieless and never 404s, so
- * both audits pass; the `<img>` onError fallback below stays as a safety net.
- */
-function faviconUrl(domain: string): string {
-  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
-}
 
 /**
  * Right-rail Inbox feed.
