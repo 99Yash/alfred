@@ -25,6 +25,7 @@ export const SYSTEM_ACTIONS = [
   "write_scratch",
   "promote",
   "suggest_todo",
+  "web_search",
 ] as const;
 
 export const GMAIL_ACTIONS = ["search", "read_message", "send_draft"] as const;
@@ -198,6 +199,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Suggesting a to-do",
     done: "Suggested a to-do",
     title: "suggest a to-do",
+  },
+  "system.web_search": {
+    running: "Searching the web",
+    done: "Searched the web",
+    title: "search the web",
   },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },

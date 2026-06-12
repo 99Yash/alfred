@@ -399,6 +399,18 @@ export const promoteScratchInput = z
   })
   .strict();
 
+export const webSearchInput = z
+  .object({
+    query: z
+      .string()
+      .min(1)
+      .max(1_000)
+      .describe(
+        "A focused natural-language question to look up on the live web. Phrase it as the thing you want to know, not a bag of keywords.",
+      ),
+  })
+  .strict();
+
 export const suggestTodoInput = z
   .object({
     name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
@@ -457,4 +469,5 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,
   "system.suggest_todo": suggestTodoInput,
+  "system.web_search": webSearchInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;

@@ -139,7 +139,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   useRightRail(railNode);
 
   const messages = useChatMessages(threadId);
-  const stream = useChatStream(threadId);
+  const { stream, stopStream } = useChatStream(threadId);
   useRunComplete(stream);
   const send = useSendMessage();
   const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
@@ -188,15 +188,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ghostSuggestion && ghostDismissedFor !== lastMessageId ? ghostSuggestion.text : undefined;
   const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);
 
-  // Stop the in-flight turn (composer stop button). Best-effort: the worker
-  // notices the Redis flag and finalizes the partial reply through the normal
-  // `chat.message completed` flow, so no client-side reconciliation here.
+  // Stop the in-flight turn (composer stop button). We freeze the bubble and
+  // swap the composer back to send *this frame* via `stopStream()`, then fire
+  // the server stop best-effort — the worker notices the Redis flag and
+  // finalizes the partial reply, which reconciles through the normal
+  // `chat.message completed` / Replicache sync. Decoupling the UI from that
+  // ~400ms round-trip is what makes stop feel instant.
   const onStopGeneration = useCallback(() => {
     if (!activeRunId) return;
+    stopStream();
     void stopChatRun(activeRunId).then((ok) => {
       if (!ok) callToast({ message: "Couldn't stop the reply. Please try again.", type: "danger" });
     });
-  }, [activeRunId]);
+  }, [activeRunId, stopStream]);
 
   return (
     <div className="relative flex h-full min-w-0 flex-col">
