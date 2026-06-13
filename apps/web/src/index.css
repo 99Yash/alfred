@@ -1787,6 +1787,10 @@
    * `data-app-theme`, every token flips with the user's theme even though
    * sonner renders it outside the themed subtree. */
   .app-toast {
+    position: relative;
+    /* Own stacking context so the negative-z glow (below) paints above the
+     * frosted fill but below the text + controls. */
+    isolation: isolate;
     background-color: color-mix(in srgb, var(--app-bg-2) 88%, transparent);
     backdrop-filter: blur(20px) saturate(150%);
     -webkit-backdrop-filter: blur(20px) saturate(150%);
@@ -1794,6 +1798,54 @@
       var(--app-shadow-elevated),
       0 16px 40px -16px rgba(0, 0, 0, 0.55);
     color: var(--app-fg-4);
+  }
+
+  /* Semantic glow — a soft brand-colored gradient bleeds from the leading edge
+   * and dissolves across the card, echoing the emoji-bleed of `--emoji` but
+   * keyed off the variant's vivid `-3` token (which holds its hue across both
+   * themes). Only the intensity flips per mode: gentle on light frost, a touch
+   * more present on the dark fill. `default` opts out — it stays calm neutral. */
+  .app-toast[data-variant="success"] {
+    --app-toast-glow: var(--app-green-3);
+  }
+  .app-toast[data-variant="info"] {
+    --app-toast-glow: var(--app-blue-3);
+  }
+  .app-toast[data-variant="warning"] {
+    --app-toast-glow: var(--app-amber-3);
+  }
+  .app-toast[data-variant="error"] {
+    --app-toast-glow: var(--app-red-3);
+  }
+  .app-toast[data-variant="success"]::before,
+  .app-toast[data-variant="info"]::before,
+  .app-toast[data-variant="warning"]::before,
+  .app-toast[data-variant="error"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(
+      82% 132% at -4% 50%,
+      color-mix(
+        in srgb,
+        var(--app-toast-glow) var(--app-toast-glow-strength, 24%),
+        transparent
+      ),
+      transparent 62%
+    );
+  }
+  /* Dark fill swallows more light, so push the wash a good deal harder. */
+  .app-toast[data-app-theme="dark"] {
+    --app-toast-glow-strength: 46%;
+  }
+  /* System mode leaves the attribute off entirely — match the OS preference. */
+  @media (prefers-color-scheme: dark) {
+    .app-toast:not([data-app-theme="light"]) {
+      --app-toast-glow-strength: 46%;
+    }
   }
   /* Soft tinted disc behind the leading icon. */
   .app-toast-icon {
