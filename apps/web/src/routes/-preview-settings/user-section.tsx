@@ -1,6 +1,16 @@
 import { useNavigate } from "@tanstack/react-router";
-import { FileText, LogOut, Mail, Radio, ShieldCheck, Smartphone, Trash2, User } from "lucide-react";
-import { useState } from "react";
+import {
+  Check,
+  FileText,
+  LogOut,
+  Mail,
+  Radio,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  User,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   AppButton,
   AppInput,
@@ -11,7 +21,12 @@ import {
 } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
 import { IntegrationGlyph } from "~/lib/integration-icons";
+import { useBioFact } from "~/lib/replicache/use-bio-fact";
+import { callToast } from "~/lib/toast";
 import { SettingCard } from "./setting-card";
+
+/** Quiet period after the last keystroke before the bio auto-saves. */
+const BIO_SAVE_DEBOUNCE_MS = 900;
 
 type CommunicationChannel = "email" | "slack" | "imessage" | "mobile";
 
@@ -57,6 +72,36 @@ export function UserSection() {
   const [autoApprove, setAutoApprove] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
+
+  // Background: `draft === null` means "mirror the synced value"; once the user
+  // types, the draft takes over so an incoming pull can't clobber their edit.
+  // Edits auto-save on a trailing debounce — no explicit Save button.
+  const { value: bio, loading: bioLoading, saveBio } = useBioFact();
+  const [bioDraft, setBioDraft] = useState<string | null>(null);
+  const [bioSaving, setBioSaving] = useState(false);
+  const bioValue = bioDraft ?? bio;
+
+  useEffect(() => {
+    if (bioDraft === null) return; // untouched — nothing to persist
+    const next = bioDraft.trim();
+    if (next === bio.trim()) return; // matches synced truth (incl. post-save)
+    if (next === "") return; // don't let a transient empty wipe the bio
+    const timer = setTimeout(async () => {
+      setBioSaving(true);
+      try {
+        await saveBio(next);
+        callToast({
+          message: "Background saved",
+          icon: <Check size={14} className="text-app-green-4" />,
+        });
+      } catch {
+        callToast({ message: "Couldn't save background", type: "danger" });
+      } finally {
+        setBioSaving(false);
+      }
+    }, BIO_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [bioDraft, bio, saveBio]);
 
   const onSignOut = async () => {
     setSigningOut(true);
@@ -135,12 +180,14 @@ export function UserSection() {
         description="Tell Alfred about yourself — used to ground every response."
         icon={FileText}
         tone="pink"
-        footer="Background editing arrives with the m13 settings backend."
+        footer={bioSaving ? "Saving…" : "Alfred drafts this from research. Edits save as you type."}
       >
         <AppTextarea
           rows={5}
+          value={bioValue}
+          onChange={(e) => setBioDraft(e.target.value)}
           placeholder="A few sentences about who you are, how you work, and what context you'd like Alfred to keep in mind."
-          disabled
+          disabled={bioLoading}
           aria-label="Background"
         />
       </SettingCard>
