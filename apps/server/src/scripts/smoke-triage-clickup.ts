@@ -14,7 +14,7 @@ import type { Observations } from "@alfred/api/modules/triage/observations";
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderPrior: { key: "service:tasks.clickup.com", categoryCounts: {}, lastCategory: null },
   persona: "work",
-  thread: { lastUserReplyAt: null, newestDirection: "received", messageCount: 0 },
+  thread: { lastUserReplyAt: null, newestDirection: "received", messageCount: 0, recentMessages: [] },
   knownContact: false,
   gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
   content: {
@@ -37,6 +37,8 @@ interface Case {
   expectTodo: boolean;
   /** A heavy action_needed prior, like prod accumulated — proves the prompt beats the prior. */
   prior?: Record<string, number>;
+  /** Prior messages in the same thread (newest first), fed as ADR-0051 #8 thread context. */
+  recentMessages?: { direction: "sent" | "received"; snippet: string }[];
 }
 
 const CASES: Case[] = [
@@ -68,6 +70,42 @@ const CASES: Case[] = [
     expectTodo: true,
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
+  {
+    // The actual prod miss (thread 19ebcefb0663aaa1, 2026-06-12): a bot's
+    // "Done. Created [task]" trailing message collapsed a thread whose earlier
+    // message assigned the user a bug. With thread context, the live ask wins.
+    name: "REAL MISS — bot 'Done. Created task' must NOT bury an earlier assignment (rules 5/12e/17)",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "dvd",
+    body: "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list.\nView comment or reply to add a comment",
+    expectCategory: ["action_needed", "awaiting_reply"],
+    // A live production bug dvd assigned the user (deal-driver messages not
+    // firing, manually triggered via repl) — a real obligation worth the rail
+    // (rule 16). It dedupes against the todo minted off the original assignment
+    // message via the shared thread source, so re-triage merges, not duplicates.
+    expectTodo: true,
+    prior: { action_needed: 20, done: 6, fyi: 2 },
+    recentMessages: [
+      { direction: "received", snippet: "dvd: @Brain create a task from above in backlog" },
+      {
+        direction: "received",
+        snippet:
+          "dvd assigned you a comment: There is still some bug here, the fix in the morning for the imports did not trigger the deal driver messages, I had manually triggered through repl, please make sure this is fixed as well",
+      },
+    ],
+  },
+  {
+    // Same trailing line, but NO earlier ask in the thread — a task was simply
+    // filed. Awareness only. Must NOT be `done` (work just opened), and without
+    // an assignment in-thread it lands `fyi`, never action_needed.
+    name: "GUARD — bot 'Done. Created task' with no in-thread ask → fyi, never done",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "Backlog",
+    body: "Brain: Done. Created [Investigate slow dashboard load] in the 26.3 Backlog list.\nView comment or reply to add a comment",
+    expectCategory: ["fyi"],
+    expectTodo: false,
+    prior: { action_needed: 20, done: 6, fyi: 2 },
+  },
 ];
 
 async function main() {
@@ -97,6 +135,12 @@ async function main() {
           key: "service:tasks.clickup.com",
           categoryCounts: c.prior ?? {},
           lastCategory: "action_needed",
+        },
+        thread: {
+          lastUserReplyAt: null,
+          newestDirection: "received",
+          messageCount: c.recentMessages?.length ?? 0,
+          recentMessages: (c.recentMessages ?? []).map((m) => ({ ...m, authoredAt: null })),
         },
       }),
     });

@@ -1,7 +1,7 @@
-import * as ContextMenu from "@radix-ui/react-context-menu";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import * as Tooltip from "@radix-ui/react-tooltip";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import * as ContextMenu from '@radix-ui/react-context-menu';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   BookOpen,
   Brain,
@@ -24,20 +24,29 @@ import {
   Workflow,
   Wrench,
   type LucideIcon,
-} from "lucide-react";
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
-} from "react";
-import { Dialog, DialogContent } from "~/components/ui/dialog";
-import { AppButton, AppInput, AppThemeToggle, useAppTheme } from "~/components/ui/v2";
-import { authClient } from "~/lib/auth-client";
-import { cn } from "~/lib/utils";
-import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { Dialog, DialogContent } from '~/components/ui/dialog';
+import {
+  AppButton,
+  AppInput,
+  AppThemeToggle,
+  useAppTheme,
+} from '~/components/ui/v2';
+import { authClient } from '~/lib/auth-client';
+import { cn } from '~/lib/utils';
+import type { SessionUser } from '~/lib/user-display';
+import type {
+  PreviewThreadEntry,
+  PreviewThreadGroup,
+} from './preview-fixtures';
 
 /**
  * Actions a real (Replicache-backed) surface wires into each chat row.
@@ -82,7 +91,7 @@ export interface AppSidebarProps {
   /** Whether the sidebar is visible. Default true. */
   open?: boolean;
   /** Viewport mode: inline (wide, resizable + minimizable) or overlay (narrow drawer). */
-  mode?: "inline" | "overlay";
+  mode?: 'inline' | 'overlay';
   /** Hide the overlay drawer (narrow mode only). */
   onCollapse?: () => void;
 }
@@ -91,15 +100,15 @@ const RAIL_WIDTH = 64;
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 420;
 const DEFAULT_WIDTH = 264;
-const WIDTH_KEY = "alfred:sidebar-width";
-const MINIMIZED_KEY = "alfred:sidebar-minimized";
-const GROUPS_KEY = "alfred:sidebar-collapsed-groups";
+const WIDTH_KEY = 'alfred:sidebar-width';
+const MINIMIZED_KEY = 'alfred:sidebar-minimized';
+const GROUPS_KEY = 'alfred:sidebar-collapsed-groups';
 
 const GROUP_ORDER: ReadonlyArray<{ key: PreviewThreadGroup; label: string }> = [
-  { key: "pinned", label: "Pinned" },
-  { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
-  { key: "earlier", label: "Earlier" },
+  { key: 'pinned', label: 'Pinned' },
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'earlier', label: 'Earlier' },
 ];
 
 export function AppSidebar({
@@ -109,25 +118,33 @@ export function AppSidebar({
   threadActions,
   approvalsBadge,
   open = true,
-  mode = "inline",
+  mode = 'inline',
   onCollapse,
 }: AppSidebarProps) {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const isChat = path === "/chat" || path.startsWith("/chat/");
+  const isChat = path === '/chat' || path.startsWith('/chat/');
 
-  const [width, setWidth] = usePersistentNumber(WIDTH_KEY, DEFAULT_WIDTH, MIN_WIDTH, MAX_WIDTH);
-  const [minimizedPref, setMinimized] = usePersistentBoolean(MINIMIZED_KEY, false);
+  const [width, setWidth] = usePersistentNumber(
+    WIDTH_KEY,
+    DEFAULT_WIDTH,
+    MIN_WIDTH,
+    MAX_WIDTH,
+  );
+  const [minimizedPref, setMinimized] = usePersistentBoolean(
+    MINIMIZED_KEY,
+    false,
+  );
   const [collapsedGroups, toggleGroup] = useCollapsedGroups();
   const [dragging, setDragging] = useState(false);
 
   // Rail only makes sense inline; an overlay drawer is always full-width.
-  const minimized = mode === "inline" && minimizedPref;
+  const minimized = mode === 'inline' && minimizedPref;
   const expandedWidth = minimized ? RAIL_WIDTH : width;
   const asideWidth = open ? expandedWidth : 0;
 
   // Inline → toggle the icon rail; overlay → hide the drawer.
   const handleChevron = () => {
-    if (mode === "overlay") onCollapse?.();
+    if (mode === 'overlay') onCollapse?.();
     else setMinimized((m) => !m);
   };
 
@@ -139,12 +156,14 @@ export function AppSidebar({
   useEffect(() => {
     if (prevPathRef.current === path) return;
     prevPathRef.current = path;
-    if (mode === "overlay" && open) onCollapse?.();
+    if (mode === 'overlay' && open) onCollapse?.();
   }, [path, mode, open, onCollapse]);
 
   // Rename / delete UI state (lifted so the dialog survives row re-renders).
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PreviewThreadEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PreviewThreadEntry | null>(
+    null,
+  );
 
   const startResize = useCallback(
     (e: ReactPointerEvent) => {
@@ -152,10 +171,13 @@ export function AppSidebar({
       const startX = e.clientX;
       const startW = width;
       setDragging(true);
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
       const onMove = (ev: PointerEvent) => {
-        const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (ev.clientX - startX)));
+        const next = Math.min(
+          MAX_WIDTH,
+          Math.max(MIN_WIDTH, startW + (ev.clientX - startX)),
+        );
         setWidth(next);
       };
       // Shared teardown so a `pointercancel` (system alert, permission modal, or
@@ -164,15 +186,15 @@ export function AppSidebar({
       // selection stay stuck on the body until a reload.
       const cleanup = () => {
         setDragging(false);
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", cleanup);
-        window.removeEventListener("pointercancel", cleanup);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', cleanup);
+        window.removeEventListener('pointercancel', cleanup);
       };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", cleanup);
-      window.addEventListener("pointercancel", cleanup);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', cleanup);
+      window.addEventListener('pointercancel', cleanup);
     },
     [width, setWidth],
   );
@@ -215,7 +237,7 @@ export function AppSidebar({
 
   return (
     <Tooltip.Provider delayDuration={250}>
-      {mode === "overlay" ? (
+      {mode === 'overlay' ? (
         /* Narrow viewports: float the sidebar over the conversation as a
          * left-edge drawer with a tap-to-dismiss backdrop — mirrors the right
          * rail's overlay. Out of flow (fixed), so it never steals width from
@@ -227,20 +249,20 @@ export function AppSidebar({
             tabIndex={open ? 0 : -1}
             onClick={onCollapse}
             className={cn(
-              "fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]",
-              "transition-opacity duration-200",
-              open ? "opacity-100" : "opacity-0 pointer-events-none",
+              'fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]',
+              'transition-opacity duration-200',
+              open ? 'opacity-100' : 'opacity-0 pointer-events-none',
             )}
           />
           <aside
             aria-label="Workspace navigation"
             aria-hidden={!open}
             className={cn(
-              "fixed top-0 left-0 bottom-0 z-50 max-w-[88vw]",
-              "border-r border-app-bg-3/60 bg-app-bg-1",
-              "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
-              "transition-transform duration-200 ease-out overflow-hidden",
-              open ? "translate-x-0" : "-translate-x-full",
+              'fixed top-0 left-0 bottom-0 z-50 max-w-[88vw]',
+              'border-r border-app-bg-3/60 bg-app-bg-1',
+              'flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]',
+              'transition-transform duration-200 ease-out overflow-hidden',
+              open ? 'translate-x-0' : '-translate-x-full',
             )}
           >
             {sidebarBody}
@@ -252,12 +274,13 @@ export function AppSidebar({
           aria-hidden={!open}
           style={{ width: asideWidth }}
           className={cn(
-            "relative shrink-0 h-full overflow-hidden",
-            "rounded-2xl bg-app-bg-1",
-            "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-            "flex flex-col",
-            !dragging && "transition-[width,opacity,margin] duration-200 ease-out",
-            open ? "opacity-100" : "opacity-0 -mr-1.5 pointer-events-none",
+            'relative shrink-0 h-full overflow-hidden',
+            'rounded-2xl bg-app-bg-1',
+            'shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]',
+            'flex flex-col',
+            !dragging &&
+              'transition-[width,opacity,margin] duration-200 ease-out',
+            open ? 'opacity-100' : 'opacity-0 -mr-1.5 pointer-events-none',
           )}
         >
           {sidebarBody}
@@ -269,10 +292,10 @@ export function AppSidebar({
               aria-label="Resize sidebar"
               onPointerDown={startResize}
               className={cn(
-                "absolute right-0 top-0 h-full w-1.5 z-10 m-0 border-0 cursor-col-resize",
-                "after:absolute after:right-0 after:top-0 after:h-full after:w-px",
-                "after:bg-transparent hover:after:bg-app-purple-2 after:transition-colors",
-                dragging && "after:bg-app-purple-3",
+                'absolute right-0 top-0 h-full w-1.5 z-10 m-0 border-0 cursor-col-resize',
+                'after:absolute after:right-0 after:top-0 after:h-full after:w-px',
+                'after:bg-transparent hover:after:bg-app-purple-2 after:transition-colors',
+                dragging && 'after:bg-app-purple-3',
               )}
             />
           ) : null}
@@ -298,7 +321,7 @@ export function AppSidebar({
 interface FullContentProps {
   path: string;
   isChat: boolean;
-  chevronMode: "inline" | "overlay";
+  chevronMode: 'inline' | 'overlay';
   onChevron: () => void;
   onOpenSearch: () => void;
   approvalsBadge?: string;
@@ -341,21 +364,27 @@ function FullContent({
           to="/chat"
           aria-label="Alfred — home"
           className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "hover:bg-app-bg-a2 transition-colors app-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            'size-8 inline-flex items-center justify-center rounded-lg',
+            'hover:bg-app-bg-a2 transition-colors app-press',
+            'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
           )}
         >
-          <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+          <img
+            src="/images/logo/alfred-logo.svg"
+            alt=""
+            className="size-6 rounded-[7px]"
+          />
         </Link>
         <button
           type="button"
-          aria-label={chevronMode === "overlay" ? "Hide sidebar" : "Minimize sidebar"}
+          aria-label={
+            chevronMode === 'overlay' ? 'Hide sidebar' : 'Minimize sidebar'
+          }
           onClick={onChevron}
           className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            'size-8 inline-flex items-center justify-center rounded-lg',
+            'text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press',
+            'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
           )}
         >
           <PanelLeft size={14} />
@@ -363,46 +392,72 @@ function FullContent({
       </div>
 
       <div className="px-2 pt-1 pb-2 space-y-0.5">
-        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
-        <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
+        <NavLink
+          icon={SquarePen}
+          label="New chat"
+          to="/chat"
+          kbd="⌘N"
+          active={isChat}
+        />
+        <NavButton
+          icon={Search}
+          label="Search"
+          kbd="⌘K"
+          onClick={onOpenSearch}
+        />
         <NavLink
           icon={Plug}
           label="Integrations"
           to="/integrations"
-          active={path.startsWith("/integrations")}
+          active={path.startsWith('/integrations')}
         />
         <NavLink
           icon={Workflow}
           label="Workflows"
           to="/workflows"
-          active={path.startsWith("/workflows")}
+          active={path.startsWith('/workflows')}
         />
         <NavLink
           icon={Newspaper}
           label="Briefings"
           to="/briefings"
-          active={path.startsWith("/briefings")}
+          active={path.startsWith('/briefings')}
         />
-        <NavLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
+        <NavLink
+          icon={Wrench}
+          label="Skills"
+          to="/skills"
+          active={path.startsWith('/skills')}
+        />
         <NavLink
           icon={BookOpen}
           label="Library"
           to="/library"
-          active={path.startsWith("/library")}
+          active={path.startsWith('/library')}
         />
         <NavLink
           icon={ShieldCheck}
           label="Approvals"
           to="/approvals"
           badge={approvalsBadge}
-          active={path.startsWith("/approvals")}
+          active={path.startsWith('/approvals')}
         />
       </div>
 
       <SidebarHeading>Personal</SidebarHeading>
       <div className="px-2 pb-2 space-y-0.5">
-        <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
-        <NavLink icon={NotebookPen} label="Notes" to="/notes" active={path.startsWith("/notes")} />
+        <NavLink
+          icon={Brain}
+          label="Memory"
+          to="/memory"
+          active={path.startsWith('/memory')}
+        />
+        <NavLink
+          icon={NotebookPen}
+          label="Notes"
+          to="/notes"
+          active={path.startsWith('/notes')}
+        />
       </div>
 
       {threads ? (
@@ -449,7 +504,13 @@ interface RailContentProps {
   onExpand: () => void;
 }
 
-function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: RailContentProps) {
+function RailContent({
+  path,
+  isChat,
+  onOpenSearch,
+  approvalsBadge,
+  onExpand,
+}: RailContentProps) {
   return (
     <>
       <div className="px-2 pt-2.5 pb-1 flex flex-col items-center gap-1">
@@ -457,54 +518,82 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
           to="/chat"
           aria-label="Alfred — home"
           className={cn(
-            "size-9 inline-flex items-center justify-center rounded-lg",
-            "hover:bg-app-bg-a2 transition-colors app-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+            'size-9 inline-flex items-center justify-center rounded-lg',
+            'hover:bg-app-bg-a2 transition-colors app-press',
+            'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2',
           )}
         >
-          <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+          <img
+            src="/images/logo/alfred-logo.svg"
+            alt=""
+            className="size-6 rounded-[7px]"
+          />
         </Link>
-        <RailButton icon={PanelLeftOpen} label="Expand sidebar" onClick={onExpand} />
+        <RailButton
+          icon={PanelLeftOpen}
+          label="Expand sidebar"
+          onClick={onExpand}
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 flex flex-col items-center gap-0.5">
-        <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} />
+        <RailLink
+          icon={SquarePen}
+          label="New chat"
+          to="/chat"
+          active={isChat}
+        />
         <RailButton icon={Search} label="Search" onClick={onOpenSearch} />
         <RailLink
           icon={Plug}
           label="Integrations"
           to="/integrations"
-          active={path.startsWith("/integrations")}
+          active={path.startsWith('/integrations')}
         />
         <RailLink
           icon={Workflow}
           label="Workflows"
           to="/workflows"
-          active={path.startsWith("/workflows")}
+          active={path.startsWith('/workflows')}
         />
         <RailLink
           icon={Newspaper}
           label="Briefings"
           to="/briefings"
-          active={path.startsWith("/briefings")}
+          active={path.startsWith('/briefings')}
         />
-        <RailLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
+        <RailLink
+          icon={Wrench}
+          label="Skills"
+          to="/skills"
+          active={path.startsWith('/skills')}
+        />
         <RailLink
           icon={BookOpen}
           label="Library"
           to="/library"
-          active={path.startsWith("/library")}
+          active={path.startsWith('/library')}
         />
         <RailLink
           icon={ShieldCheck}
           label="Approvals"
           to="/approvals"
           badge={approvalsBadge}
-          active={path.startsWith("/approvals")}
+          active={path.startsWith('/approvals')}
         />
         <div className="my-1 h-px w-6 bg-app-bg-3/60" />
-        <RailLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
-        <RailLink icon={NotebookPen} label="Notes" to="/notes" active={path.startsWith("/notes")} />
+        <RailLink
+          icon={Brain}
+          label="Memory"
+          to="/memory"
+          active={path.startsWith('/memory')}
+        />
+        <RailLink
+          icon={NotebookPen}
+          label="Notes"
+          to="/notes"
+          active={path.startsWith('/notes')}
+        />
       </div>
 
       <div className="p-2 border-t border-app-bg-3/60 flex flex-col items-center gap-1">
@@ -512,9 +601,8 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
           icon={Settings}
           label="Settings"
           to="/settings"
-          active={path.startsWith("/settings")}
+          active={path.startsWith('/settings')}
         />
-        <RailUser />
       </div>
     </>
   );
@@ -542,10 +630,12 @@ interface BaseNavProps {
 
 const navRowClass = (active = false) =>
   cn(
-    "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
-    "transition-[background-color,color] duration-150 app-press",
-    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-    active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+    'group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5',
+    'transition-[background-color,color] duration-150 app-press',
+    'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
+    active
+      ? 'bg-app-bg-2 text-app-fg-4'
+      : 'text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4',
   );
 
 function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
@@ -555,17 +645,19 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
         size={14}
         aria-hidden
         className={cn(
-          "shrink-0 transition-colors",
-          active ? "text-app-fg-4" : "text-app-fg-2 group-hover:text-app-fg-4",
+          'shrink-0 transition-colors',
+          active ? 'text-app-fg-4' : 'text-app-fg-2 group-hover:text-app-fg-4',
         )}
       />
-      <span className="flex-1 min-w-0 truncate text-sm font-medium">{label}</span>
+      <span className="flex-1 min-w-0 truncate text-sm font-medium">
+        {label}
+      </span>
       {badge ? (
         <span
           className={cn(
-            "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full",
-            "text-[10.5px] font-medium tabular-nums",
-            "bg-app-purple-1 text-app-purple-4",
+            'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full',
+            'text-[10.5px] font-medium tabular-nums',
+            'bg-app-purple-1 text-app-purple-4',
           )}
         >
           {badge}
@@ -576,12 +668,15 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
   );
 }
 
-function NavButton({ onClick, ...props }: BaseNavProps & { onClick: () => void }) {
+function NavButton({
+  onClick,
+  ...props
+}: BaseNavProps & { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-current={props.active ? "page" : undefined}
+      aria-current={props.active ? 'page' : undefined}
       className={navRowClass(props.active)}
     >
       <NavInner {...props} />
@@ -593,7 +688,7 @@ function NavLink({ to, ...props }: BaseNavProps & { to: string }) {
   return (
     <Link
       to={to}
-      aria-current={props.active ? "page" : undefined}
+      aria-current={props.active ? 'page' : undefined}
       className={navRowClass(props.active)}
     >
       <NavInner {...props} />
@@ -605,9 +700,9 @@ function KbdHint({ children }: { children: ReactNode }) {
   return (
     <kbd
       className={cn(
-        "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
-        "text-[10.5px] leading-none font-medium tabular-nums",
-        "bg-app-bg-a2 text-app-fg-3 font-sans",
+        'inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md',
+        'text-[10.5px] leading-none font-medium tabular-nums',
+        'bg-app-bg-a2 text-app-fg-3 font-sans',
       )}
     >
       {children}
@@ -621,10 +716,12 @@ function KbdHint({ children }: { children: ReactNode }) {
 
 const railIconClass = (active = false) =>
   cn(
-    "relative size-9 inline-flex items-center justify-center rounded-xl shrink-0",
-    "transition-[background-color,color] duration-150 app-press",
-    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-    active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4",
+    'relative size-9 inline-flex items-center justify-center rounded-xl shrink-0',
+    'transition-[background-color,color] duration-150 app-press',
+    'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2',
+    active
+      ? 'bg-app-bg-2 text-app-fg-4'
+      : 'text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4',
   );
 
 function RailTip({ label, children }: { label: string; children: ReactNode }) {
@@ -638,9 +735,9 @@ function RailTip({ label, children }: { label: string; children: ReactNode }) {
           sideOffset={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-[200] rounded-lg px-2 py-1 text-xs font-medium",
-            "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-            "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
+            'app z-[200] rounded-lg px-2 py-1 text-xs font-medium',
+            'bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]',
+            'select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]',
           )}
         >
           {label}
@@ -668,7 +765,7 @@ function RailLink({
       <Link
         to={to}
         aria-label={label}
-        aria-current={active ? "page" : undefined}
+        aria-current={active ? 'page' : undefined}
         className={railIconClass(active)}
       >
         <Icon size={16} aria-hidden />
@@ -693,7 +790,12 @@ function RailButton({
 }) {
   return (
     <RailTip label={label}>
-      <button type="button" aria-label={label} onClick={onClick} className={railIconClass(false)}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={railIconClass(false)}
+      >
         <Icon size={16} aria-hidden />
       </button>
     </RailTip>
@@ -743,19 +845,22 @@ function ThreadGroupBlock({
         onClick={onToggle}
         aria-expanded={!collapsed}
         className={cn(
-          "group/heading w-full inline-flex items-center gap-1.5 rounded-lg px-3 pt-2 pb-1",
-          "text-[11px] uppercase tracking-tight font-medium text-app-fg-2",
-          "hover:text-app-fg-3 transition-colors",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          'group/heading w-full inline-flex items-center gap-1.5 rounded-lg px-3 pt-2 pb-1',
+          'text-[11px] uppercase tracking-tight font-medium text-app-fg-2',
+          'hover:text-app-fg-3 transition-colors',
+          'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2',
         )}
       >
         <ChevronDown
           size={12}
           aria-hidden
-          className={cn("shrink-0 transition-transform duration-150", collapsed && "-rotate-90")}
+          className={cn(
+            'shrink-0 transition-transform duration-150',
+            collapsed && '-rotate-90',
+          )}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 transition-opacity">
+        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100 transition-opacity">
           {entries.length}
         </span>
       </button>
@@ -802,13 +907,26 @@ function ThreadRow({
   onRequestDelete,
 }: ThreadRowProps) {
   if (renaming) {
-    return <ThreadRenameRow entry={entry} onCommit={onCommitRename} onCancel={onCancelRename} />;
+    return (
+      <ThreadRenameRow
+        entry={entry}
+        onCommit={onCommitRename}
+        onCancel={onCancelRename}
+      />
+    );
   }
 
   const indicator = entry.pinned ? (
-    <Pin size={12} aria-hidden className="shrink-0 text-app-fg-2 group-hover:text-app-fg-3" />
+    <Pin
+      size={12}
+      aria-hidden
+      className="shrink-0 text-app-fg-2 group-hover:text-app-fg-3"
+    />
   ) : entry.unread ? (
-    <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-purple-4" />
+    <span
+      aria-hidden
+      className="size-1.5 shrink-0 rounded-full bg-app-purple-4"
+    />
   ) : (
     <span aria-hidden className="size-1.5 shrink-0" />
   );
@@ -818,18 +936,20 @@ function ThreadRow({
       <Link
         to="/chat/$threadId"
         params={{ threadId: entry.id }}
-        aria-current={active ? "page" : undefined}
+        aria-current={active ? 'page' : undefined}
         className={cn(
-          "w-full text-left rounded-xl h-9 pl-3 pr-2 inline-flex items-center gap-2",
-          "transition-[background-color,color] duration-150 app-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          'w-full text-left rounded-xl h-9 pl-3 pr-2 inline-flex items-center gap-2',
+          'transition-[background-color,color] duration-150 app-press',
+          'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
           active
-            ? "bg-app-bg-2 text-app-fg-4"
-            : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+            ? 'bg-app-bg-2 text-app-fg-4'
+            : 'text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4',
         )}
       >
         {indicator}
-        <span className="flex-1 min-w-0 truncate text-sm font-medium">{entry.title}</span>
+        <span className="flex-1 min-w-0 truncate text-sm font-medium">
+          {entry.title}
+        </span>
         {threadActions ? <span aria-hidden className="w-5 shrink-0" /> : null}
       </Link>
       {threadActions ? (
@@ -876,7 +996,7 @@ function ThreadRenameRow({
     ref.current?.select();
   }, []);
   const commit = () => {
-    const next = ref.current?.value.trim() ?? "";
+    const next = ref.current?.value.trim() ?? '';
     if (next && next !== entry.title) onCommit(entry.id, next);
     else onCancel();
   };
@@ -887,10 +1007,10 @@ function ThreadRenameRow({
         defaultValue={entry.title}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (e.key === 'Enter') {
             e.preventDefault();
             commit();
-          } else if (e.key === "Escape") {
+          } else if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
           }
@@ -924,12 +1044,14 @@ function ThreadRowMenu({
           type="button"
           aria-label="Chat actions"
           className={cn(
-            "absolute right-1.5 top-1/2 -translate-y-1/2 size-6 rounded-lg inline-flex items-center justify-center",
-            "text-app-fg-2 hover:bg-app-bg-3 hover:text-app-fg-4 transition-colors",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+            'absolute right-1.5 top-1/2 -translate-y-1/2 size-6 rounded-lg inline-flex items-center justify-center',
+            'text-app-fg-2 hover:bg-app-bg-3 hover:text-app-fg-4 transition-colors',
+            'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2',
             // Hidden until hover/focus/open, so the title has full width at rest.
-            open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-            active && "text-app-fg-3",
+            open
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            active && 'text-app-fg-3',
           )}
           onClick={(e) => e.preventDefault()}
         >
@@ -948,16 +1070,16 @@ function ThreadRowMenu({
 }
 
 const menuSurfaceClass = cn(
-  "app z-[200] min-w-[168px] rounded-xl p-1",
-  "bg-app-bg-1 border border-app-bg-3/70",
-  "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
-  "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
+  'app z-[200] min-w-[168px] rounded-xl p-1',
+  'bg-app-bg-1 border border-app-bg-3/70',
+  'shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]',
+  'data-[state=open]:animate-[app-fade-in_120ms_ease-out]',
 );
 
 const menuItemClass = cn(
-  "flex items-center gap-2.5 h-8 px-2 rounded-lg text-sm font-medium cursor-default select-none",
-  "text-app-fg-3 outline-none",
-  "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
+  'flex items-center gap-2.5 h-8 px-2 rounded-lg text-sm font-medium cursor-default select-none',
+  'text-app-fg-3 outline-none',
+  'data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4',
 );
 
 /**
@@ -973,22 +1095,30 @@ function ThreadMenuContent({
   onTogglePin,
   onDelete,
 }: {
-  as: "dropdown" | "context";
+  as: 'dropdown' | 'context';
   entry: PreviewThreadEntry;
   onRename: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
   const { resolved } = useAppTheme();
-  const Portal = as === "dropdown" ? DropdownMenu.Portal : ContextMenu.Portal;
-  const Content = as === "dropdown" ? DropdownMenu.Content : ContextMenu.Content;
-  const Item = as === "dropdown" ? DropdownMenu.Item : ContextMenu.Item;
-  const Separator = as === "dropdown" ? DropdownMenu.Separator : ContextMenu.Separator;
+  const Portal = as === 'dropdown' ? DropdownMenu.Portal : ContextMenu.Portal;
+  const Content =
+    as === 'dropdown' ? DropdownMenu.Content : ContextMenu.Content;
+  const Item = as === 'dropdown' ? DropdownMenu.Item : ContextMenu.Item;
+  const Separator =
+    as === 'dropdown' ? DropdownMenu.Separator : ContextMenu.Separator;
   const positionProps =
-    as === "dropdown" ? { align: "end" as const, sideOffset: 4 } : { alignOffset: 2 };
+    as === 'dropdown'
+      ? { align: 'end' as const, sideOffset: 4 }
+      : { alignOffset: 2 };
   return (
     <Portal>
-      <Content data-app-theme={resolved} className={menuSurfaceClass} {...positionProps}>
+      <Content
+        data-app-theme={resolved}
+        className={menuSurfaceClass}
+        {...positionProps}
+      >
         <Item className={menuItemClass} onSelect={onRename}>
           <Pencil size={14} aria-hidden className="text-app-fg-2" />
           Rename
@@ -999,13 +1129,13 @@ function ThreadMenuContent({
           ) : (
             <Pin size={14} aria-hidden className="text-app-fg-2" />
           )}
-          {entry.pinned ? "Unpin" : "Pin"}
+          {entry.pinned ? 'Unpin' : 'Pin'}
         </Item>
         <Separator className="my-1 h-px bg-app-bg-3/70" />
         <Item
           className={cn(
             menuItemClass,
-            "text-app-red-4 data-[highlighted]:text-app-red-4 data-[highlighted]:bg-app-red-1",
+            'text-app-red-4 data-[highlighted]:text-app-red-4 data-[highlighted]:bg-app-red-1',
           )}
           onSelect={onDelete}
         >
@@ -1061,7 +1191,7 @@ function FooterRow({ path }: { path: string }) {
         icon={Settings}
         label="Settings"
         to="/settings"
-        active={path.startsWith("/settings")}
+        active={path.startsWith('/settings')}
       />
       <div className="mt-1">
         <UserRow />
@@ -1077,9 +1207,9 @@ function UserRow() {
       <Link
         to="/settings"
         className={cn(
-          "flex-1 min-w-0 inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2",
-          "hover:bg-app-bg-a2 transition-colors app-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          'flex-1 min-w-0 inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2',
+          'hover:bg-app-bg-a2 transition-colors app-press',
+          'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
         )}
       >
         <span
@@ -1090,9 +1220,11 @@ function UserRow() {
         </span>
         <span className="flex-1 min-w-0 text-left">
           <span className="block text-sm font-medium text-app-fg-4 truncate">
-            {name || "Alfred"}
+            {name || 'Alfred'}
           </span>
-          <span className="block text-[11px] text-app-fg-2 truncate">{email}</span>
+          <span className="block text-[11px] text-app-fg-2 truncate">
+            {email}
+          </span>
         </span>
       </Link>
       <button
@@ -1102,10 +1234,10 @@ function UserRow() {
         aria-label="Sign out"
         title="Sign out"
         className={cn(
-          "size-8 inline-flex items-center justify-center rounded-lg",
-          "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          'size-8 inline-flex items-center justify-center rounded-lg',
+          'text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press',
+          'disabled:opacity-50 disabled:cursor-not-allowed',
+          'outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background',
         )}
       >
         <LogOut size={14} aria-hidden />
@@ -1115,42 +1247,14 @@ function UserRow() {
   );
 }
 
-function RailUser() {
-  const { name, email, initial } = useUserRow();
-  return (
-    <RailTip label={name || email || "Account"}>
-      <Link
-        to="/settings"
-        aria-label="Account settings"
-        className={cn(
-          "size-9 inline-flex items-center justify-center rounded-full app-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-        )}
-      >
-        <span
-          aria-hidden
-          className="size-8 rounded-full bg-app-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
-        >
-          {initial}
-        </span>
-      </Link>
-    </RailTip>
-  );
-}
-
-interface SessionUser {
-  name?: string | null;
-  email?: string | null;
-}
-
 function useUserRow() {
   const { data: session } = authClient.useSession();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
-  const email = session?.user?.email ?? "";
+  const email = session?.user?.email ?? '';
   const name = displayName(session?.user);
-  const initial = (name || email || "·").charAt(0).toUpperCase();
+  const initial = (name || email || '·').charAt(0).toUpperCase();
 
   // Navigate even when signOut() rejects — a stale cookie shouldn't strand the
   // user on a page they no longer trust. The guard prevents a double-click
@@ -1161,9 +1265,12 @@ function useUserRow() {
     try {
       await authClient.signOut();
     } catch (err) {
-      console.error("Sign out failed", err instanceof Error ? err.message : String(err));
+      console.error(
+        'Sign out failed',
+        err instanceof Error ? err.message : String(err),
+      );
     } finally {
-      await navigate({ to: "/login" });
+      await navigate({ to: '/login' });
       setSigningOut(false);
     }
   };
@@ -1172,10 +1279,11 @@ function useUserRow() {
 }
 
 function displayName(user: SessionUser | null | undefined): string {
-  if (!user) return "";
-  if (user.name && user.name.trim()) return user.name.trim().split(/\s+/)[0] ?? "";
-  if (user.email) return user.email.split("@")[0] ?? "";
-  return "";
+  if (!user) return '';
+  if (user.name && user.name.trim())
+    return user.name.trim().split(/\s+/)[0] ?? '';
+  if (user.email) return user.email.split('@')[0] ?? '';
+  return '';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1184,32 +1292,39 @@ function displayName(user: SessionUser | null | undefined): string {
 
 function usePersistentBoolean(key: string, fallback: boolean) {
   const [value, setValue] = useState<boolean>(() => {
-    if (typeof window === "undefined") return fallback;
+    if (typeof window === 'undefined') return fallback;
     const raw = window.localStorage.getItem(key);
-    return raw === null ? fallback : raw === "true";
+    return raw === null ? fallback : raw === 'true';
   });
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(key, String(value));
+    if (typeof window !== 'undefined')
+      window.localStorage.setItem(key, String(value));
   }, [key, value]);
   return [value, setValue] as const;
 }
 
-function usePersistentNumber(key: string, fallback: number, min: number, max: number) {
+function usePersistentNumber(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   const [value, setValue] = useState<number>(() => {
-    if (typeof window === "undefined") return fallback;
+    if (typeof window === 'undefined') return fallback;
     const raw = Number(window.localStorage.getItem(key));
     return Number.isFinite(raw) && raw > 0 ? clamp(raw) : fallback;
   });
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(key, String(value));
+    if (typeof window !== 'undefined')
+      window.localStorage.setItem(key, String(value));
   }, [key, value]);
   return [value, setValue] as const;
 }
 
 function useCollapsedGroups() {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
+    if (typeof window === 'undefined') return new Set();
     try {
       const raw = window.localStorage.getItem(GROUPS_KEY);
       return raw ? new Set<string>(JSON.parse(raw)) : new Set();
@@ -1222,7 +1337,7 @@ function useCollapsedGroups() {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label);
       else next.add(label);
-      if (typeof window !== "undefined") {
+      if (typeof window !== 'undefined') {
         window.localStorage.setItem(GROUPS_KEY, JSON.stringify([...next]));
       }
       return next;
