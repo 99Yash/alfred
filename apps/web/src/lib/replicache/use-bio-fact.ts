@@ -67,7 +67,11 @@ export function useBioFact(): BioFactState {
   const saveBio = useCallback(
     async (text: string): Promise<void> => {
       const trimmed = text.trim();
-      if (!rep || !userId) return;
+      // Sync client not ready yet — surface a failure so the caller's catch
+      // can toast instead of reporting a phantom save.
+      if (!rep || !userId) {
+        throw new Error("Sync client not ready — bio not saved.");
+      }
       if (bio) {
         await rep.mutate.factEdit({
           factId: bio.id,
