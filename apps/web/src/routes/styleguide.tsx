@@ -60,6 +60,7 @@ import {
   AppPill,
   AppSelect,
 } from "~/components/ui/v2";
+import { toast } from "~/lib/toast";
 import { ChatApprovalTray } from "./-chat/approval-tray";
 import { QuickAccessRail } from "~/components/quick-access-rail";
 import { DimensionChatThread } from "~/components/dimension-chat-thread";
@@ -1775,6 +1776,7 @@ function V2Half() {
       />
       <V2ButtonSection />
       <V2SurfaceSection />
+      <V2ToastSection />
       <V2FrostOverlaySection />
       <V2ApprovalTraySection />
     </div>
@@ -1902,6 +1904,160 @@ function V2SurfaceSection() {
           </div>
         )}
       />
+    </Section>
+  );
+}
+
+function V2ToastSection() {
+  return (
+    <Section
+      id="v2-toast"
+      title="Toast"
+      recipe="lib/toast.tsx — sonner-backed frosted notifications. Calm neutral card with a tinted icon disc per intent (error washes the whole card red), a top-left glass sheen, a semantic edge-glow, and a scale-in landing. Self-themes via data-app-theme, so it tracks your saved app theme even though sonner mounts it at the document root. Fire one to verify — it docks per the intent's default position."
+    >
+      <div className="app rounded-2xl p-5 shadow-[0_0_0_1px_var(--app-fg-a1)]">
+        <div className="space-y-4">
+          <V2Row label="intents">
+            <AppButton variant="white" size="sm" onClick={() => toast.message("Draft saved")}>
+              default
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.success("Reply sent to Maya")}
+            >
+              success
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.info("Syncing your calendar…")}
+            >
+              info
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.warning("Gmail needs to reconnect")}
+            >
+              warning
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.error("Couldn't reach the server")}
+            >
+              error
+            </AppButton>
+          </V2Row>
+
+          <V2Row label="description">
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() =>
+                toast.success({
+                  message: "Briefing scheduled",
+                  description: "Alfred will send your morning summary at 6:45am, before you're up.",
+                })
+              }
+            >
+              with description
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() =>
+                toast.error({
+                  message: "Send failed",
+                  description: "The draft to Patrick bounced — his address looks misspelled.",
+                })
+              }
+            >
+              error · description
+            </AppButton>
+          </V2Row>
+
+          <V2Row label="action">
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() =>
+                toast.message({
+                  message: "3 threads archived",
+                  duration: 8000,
+                  action: { label: "Undo", onClick: () => toast.success("Restored") },
+                })
+              }
+            >
+              with action
+            </AppButton>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() =>
+                toast.success({
+                  message: "Event added to your calendar",
+                  description: "Design review · Thursday 2:00pm",
+                  duration: 8000,
+                  action: { label: "View", onClick: () => toast.info("Opening calendar…") },
+                })
+              }
+            >
+              action · description
+            </AppButton>
+          </V2Row>
+
+          <V2Row label="emoji">
+            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "🎉", label: "Turn finished" })}>
+              🎉 finished
+            </AppButton>
+            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "📋", label: "Copied to clipboard" })}>
+              📋 copied
+            </AppButton>
+            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "☕", label: "Taking a break" })}>
+              ☕ break
+            </AppButton>
+          </V2Row>
+
+          <V2Row label="position">
+            <AppButton
+              variant="ghost"
+              size="sm"
+              onClick={() => toast.message({ message: "top-center", position: "top-center" })}
+            >
+              top-center
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="sm"
+              onClick={() => toast.message({ message: "top-right", position: "top-right" })}
+            >
+              top-right
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="sm"
+              onClick={() => toast.message({ message: "bottom-right", position: "bottom-right" })}
+            >
+              bottom-right
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="sm"
+              onClick={() => toast.message({ message: "bottom-center", position: "bottom-center" })}
+            >
+              bottom-center
+            </AppButton>
+          </V2Row>
+
+          <V2Row label="dismiss">
+            <AppButton variant="ghost" size="sm" onClick={() => toast.dismiss()}>
+              Dismiss all
+            </AppButton>
+          </V2Row>
+        </div>
+      </div>
     </Section>
   );
 }
