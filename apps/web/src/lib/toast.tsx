@@ -124,7 +124,7 @@ export function callToast({
     (id) => (
       <div
         className={cn(
-          'app app-toast pointer-events-auto flex w-[22rem] max-w-[calc(100vw-2rem)] gap-2.5 rounded-2xl px-3 py-2.5',
+          'app app-toast pointer-events-auto flex w-88 max-w-[calc(100vw-2rem)] gap-2.5 rounded-2xl px-3 py-2.5',
           multiline ? 'items-start' : 'items-center',
           spec.cardClass,
         )}
@@ -225,16 +225,16 @@ export function emojiToast({
         type="button"
         onClick={() => sonnerToast.dismiss(id)}
         className={cn(
-          'app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full min-w-[15rem] max-w-xs items-center overflow-hidden rounded-2xl px-3 py-2.5 text-left',
+          'app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full min-w-60 max-w-xs items-center overflow-hidden rounded-2xl px-3 py-2.5 text-left',
           'transition-transform duration-150 active:scale-[0.98]',
         )}
         data-app-theme={appThemeAttr()}
       >
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 flex items-center [mask-image:linear-gradient(to_right,#000,transparent_72%)]"
+          className="pointer-events-none absolute inset-0 -z-10 flex items-center mask-[linear-gradient(to_right,#000,transparent_72%)]"
         >
-          <span className="origin-left -translate-x-[28%] text-[3.25em] opacity-15 blur-[2px] saturate-150 motion-safe:animate-[app-toast-emoji-in_420ms_cubic-bezier(0.2,0,0,1)]">
+          <span className="origin-left translate-x-[-28%] text-[3.25em] opacity-15 blur-[2px] saturate-150 motion-safe:animate-[app-toast-emoji-in_420ms_cubic-bezier(0.2,0,0,1)]">
             {emoji}
           </span>
         </span>
