@@ -1789,21 +1789,19 @@
   .app-toast {
     position: relative;
     /* Own stacking context so the negative-z glow (below) paints above the
-     * frosted fill but below the text + controls. */
+     * solid fill but below the text + controls. */
     isolation: isolate;
-    /* Frosted fill + a faint top-left specular highlight, borrowed from the
-     * `app-frost-overlay` recipe so the toast reads as the same glass material
-     * as the approval tray and the AppSelect / picker popovers. The sheen is a
-     * white wash whose strength flips per theme (invisible on light frost, a
-     * quiet edge-light on the dark fill). */
-    background-color: color-mix(in srgb, var(--app-bg-2) 88%, transparent);
+    /* Opaque surface — the card itself is solid so page content never bleeds
+     * through; only the gradients on top of it (the top-left specular sheen
+     * here + the per-variant edge-glow below) carry any transparency. The sheen
+     * is a white wash whose strength flips per theme (invisible on the light
+     * surface, a quiet edge-light on the dark one). */
+    background-color: var(--app-bg-2);
     background-image: radial-gradient(
       132% 104% at 6% -18%,
       rgba(255, 255, 255, var(--app-toast-sheen, 0.045)),
       transparent 58%
     );
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
     box-shadow:
       var(--app-shadow-elevated),
       0 16px 40px -16px rgba(0, 0, 0, 0.55);
@@ -1889,11 +1887,13 @@
    * text on the pale fill never cleared 4.5:1; the red identity now lives in
    * the fill, hairline, icon disc, and edge-glow instead.) */
   .app-toast--danger {
-    background-color: color-mix(in srgb, var(--app-red-2) 92%, transparent);
+    /* No full-card red wash — that read as "completely red". The surface stays
+     * the same neutral opaque fill as every other intent; the error identity is
+     * carried by the red icon disc, the soft red edge-glow gradient (the shared
+     * ::before below), and a slightly stronger red hairline ring. */
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--app-red-4) 32%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--app-red-4) 40%, transparent),
       0 16px 40px -16px rgba(0, 0, 0, 0.55);
-    color: var(--app-fg-4);
   }
 
   /* Semantic icon discs — the card stays the calm frosted neutral; only the
@@ -1947,33 +1947,22 @@
 
   /* Corner close button — sonner's signature affordance, rebuilt for our custom
    * card (sonner doesn't render its own close button for `toast.custom`). A
-   * small circle cut into the top-left corner, filled with the card surface +
-   * a hairline so it reads as part of the card. Hidden until the card is
-   * hovered or focused, then it fades in. */
+   * small circle cut into the top-right corner, filled with the card surface +
+   * a hairline so it reads as part of the card. Always visible so dismissal is
+   * one click away. */
   .app-toast-close {
     background-color: var(--app-bg-2);
     color: var(--app-fg-3);
     box-shadow: 0 0 0 1px var(--app-fg-a1);
-    opacity: 0;
+    opacity: 1;
     transition:
-      opacity 150ms ease,
       color 150ms ease,
       box-shadow 150ms ease;
     z-index: 1;
   }
-  .app-toast:hover .app-toast-close,
-  .app-toast:focus-within .app-toast-close {
-    opacity: 1;
-  }
   .app-toast-close:hover {
     color: var(--app-fg-4);
     box-shadow: 0 0 0 1px var(--app-fg-a2);
-  }
-  /* Touch / coarse pointers can't hover, so keep the button visible there. */
-  @media (hover: none) {
-    .app-toast-close {
-      opacity: 1;
-    }
   }
 
   /* `app-toast--emoji` — the emoji confirmation drops the icon-disc tint and

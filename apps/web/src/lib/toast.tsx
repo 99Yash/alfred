@@ -5,10 +5,10 @@ import { getLocalStorageItem } from '~/lib/storage';
 import { cn } from '~/lib/utils';
 
 /**
- * Semantic intent. `default` is the frosted neutral card; `success` / `info` /
- * `warning` keep the neutral card but tint the leading icon disc so they stay
- * calm and elegant; `error` washes the whole card red so a failure reads as a
- * failure. `danger` is kept as a back-compat alias for `error`.
+ * Semantic intent. Every intent shares the same calm neutral card and only the
+ * leading icon disc (plus a soft edge-glow) carries the color; `error` adds a
+ * red hairline ring on top so a failure still reads clearly without flooding
+ * the whole card red. `danger` is kept as a back-compat alias for `error`.
  */
 export type ToastVariant = 'default' | 'success' | 'info' | 'warning' | 'error';
 type LegacyVariant = ToastVariant | 'danger';
@@ -43,7 +43,7 @@ interface CallToastOptions {
 }
 
 interface VariantSpec {
-  /** Card tint modifier (only `error` paints the whole card). */
+  /** Card-level modifier (only `error` uses it — for the red hairline ring). */
   cardClass?: string;
   /** Icon disc tint + icon accent. */
   iconClass: string;
@@ -124,7 +124,7 @@ export function callToast({
     (id) => (
       <div
         className={cn(
-          'app app-toast pointer-events-auto flex w-full min-w-[17rem] max-w-sm gap-2.5 rounded-2xl px-3 py-2.5',
+          'app app-toast pointer-events-auto flex w-[22rem] max-w-[calc(100vw-2rem)] gap-2.5 rounded-2xl px-3 py-2.5',
           multiline ? 'items-start' : 'items-center',
           spec.cardClass,
         )}
@@ -172,14 +172,14 @@ export function callToast({
           </button>
         ) : null}
         {/* Sonner's signature affordance: a small circular X cut into the
-         * top-left corner, hidden until the card is hovered or focused. */}
+         * top-right corner, always visible so dismissal is one click away. */}
         <button
           type="button"
           aria-label="Dismiss"
           onClick={() => sonnerToast.dismiss(id)}
           className={cn(
-            'app-toast-close absolute left-0 top-0 grid size-5 -translate-x-1/3 -translate-y-1/3 place-items-center rounded-full',
-            'outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-app-fg-a2',
+            'app-toast-close absolute right-0 top-0 grid size-5 -translate-y-1/3 translate-x-1/3 place-items-center rounded-full',
+            'outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2',
           )}
         >
           <X size={12} strokeWidth={2.5} />
