@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { pageMeta } from "~/lib/page-meta";
-import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
+import { createFileRoute } from '@tanstack/react-router';
+import { pageMeta } from '~/lib/page-meta';
+import { PreviewSettingsPage } from './-preview-settings/preview-settings-page';
 
 /**
  * App-grammar port of /settings.
  *
- * Same six sections (User, Billing, Plan, Features, Preferences, Referrals)
+ * Same six sections (User, Billing, Plan, Features, Preferences)
  * with the same form behavior wired to authClient.useSession() + signOut().
  *
  * What changed vs the dimension version
@@ -17,7 +17,7 @@ import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
  *   (bg-app-bg-2) and icon brightening.
  * - Heading-display gradient title → plain ink heading.
  */
-export const Route = createFileRoute("/settings")({
-  head: () => pageMeta({ title: "Settings", path: "/settings" }),
+export const Route = createFileRoute('/settings')({
+  head: () => pageMeta({ title: 'Settings', path: '/settings' }),
   component: PreviewSettingsPage,
 });
