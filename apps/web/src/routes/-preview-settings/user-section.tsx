@@ -1,6 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Check,
   FileText,
   LogOut,
   Mail,
@@ -22,7 +21,7 @@ import {
 import { authClient } from "~/lib/auth-client";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { useBioFact } from "~/lib/replicache/use-bio-fact";
-import { callToast } from "~/lib/toast";
+import { toast } from "~/lib/toast";
 import { SettingCard } from "./setting-card";
 
 /** Quiet period after the last keystroke before the bio auto-saves. */
@@ -90,12 +89,9 @@ export function UserSection() {
       setBioSaving(true);
       try {
         await saveBio(next);
-        callToast({
-          message: "Background saved",
-          icon: <Check size={14} className="text-app-green-4" />,
-        });
+        toast.success("Background saved");
       } catch {
-        callToast({ message: "Couldn't save background", type: "danger" });
+        toast.error("Couldn't save background");
       } finally {
         setBioSaving(false);
       }
