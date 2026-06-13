@@ -110,7 +110,12 @@ async function main() {
         userId: t.userId,
         sourceThreadId: src.id,
         excludeDocumentId: docRow.id,
-      }).catch(() => ({ lastUserReplyAt: null, newestDirection: null, messageCount: 0 })),
+      }).catch(() => ({
+        lastUserReplyAt: null,
+        newestDirection: null,
+        messageCount: 0,
+        recentMessages: [],
+      })),
       senderContext.effectiveAuthor === "person" && scResult.senderAddress
         ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
         : Promise.resolve(false),
