@@ -1,9 +1,16 @@
 /** Shared user-display helpers (greeting line, name derivation). */
 
-export interface SessionUser {
-  name?: string | null;
-  email?: string | null;
-}
+import type { authClient } from "./auth-client";
+
+/**
+ * Display fields these helpers read off the session user. Derived from Better
+ * Auth's inferred session type so it tracks the real user shape — we only need
+ * `name`/`email` here, hence the `Pick`.
+ */
+export type SessionUser = Pick<
+  (typeof authClient)["$Infer"]["Session"]["user"],
+  "name" | "email"
+>;
 
 /** Capitalize the first letter; leaves the rest untouched. */
 export function titleCase(s: string): string {
