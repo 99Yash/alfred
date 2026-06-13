@@ -23,7 +23,7 @@ function observations(overrides: Partial<Observations> = {}): Observations {
   return {
     senderPrior: { key: null, categoryCounts: {}, lastCategory: null },
     persona: null,
-    thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0 },
+    thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
     knownContact: false,
     gmail: { categories: [], important: false, starred: false, inInbox: true },
     content: {

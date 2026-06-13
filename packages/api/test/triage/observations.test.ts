@@ -119,6 +119,7 @@ describe("assembleObservations", () => {
     lastUserReplyAt: null,
     newestDirection: "received",
     messageCount: 1,
+    recentMessages: [],
   };
 
   test("produces a stable, fully-populated observation object", () => {

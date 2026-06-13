@@ -67,7 +67,7 @@ async function main() {
       senderKey: null,
       senderPrior: null,
       persona: "work",
-      thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0 },
+      thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
       knownContact: false,
       labelIds: [],
       signalText: [f.from, f.to, f.subject, content].join("\n"),

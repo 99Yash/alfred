@@ -568,7 +568,12 @@ async function gatherObservations(args: {
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
       excludeDocumentId: args.documentId,
-    }).catch(() => ({ lastUserReplyAt: null, newestDirection: null, messageCount: 0 })),
+    }).catch(() => ({
+      lastUserReplyAt: null,
+      newestDirection: null,
+      messageCount: 0,
+      recentMessages: [],
+    })),
     args.senderContext.effectiveAuthor === "person" && args.senderAddress
       ? isKnownContact(args.userId, args.senderAddress)
       : Promise.resolve(false),
