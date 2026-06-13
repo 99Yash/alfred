@@ -1787,29 +1787,198 @@
    * `data-app-theme`, every token flips with the user's theme even though
    * sonner renders it outside the themed subtree. */
   .app-toast {
-    background-color: color-mix(in srgb, var(--app-bg-2) 88%, transparent);
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    position: relative;
+    /* Own stacking context so the negative-z glow (below) paints above the
+     * solid fill but below the text + controls. */
+    isolation: isolate;
+    /* Opaque surface — the card itself is solid so page content never bleeds
+     * through; only the gradients on top of it (the top-left specular sheen
+     * here + the per-variant edge-glow below) carry any transparency. The sheen
+     * is a white wash whose strength flips per theme (invisible on the light
+     * surface, a quiet edge-light on the dark one). */
+    background-color: var(--app-bg-2);
+    background-image: radial-gradient(
+      132% 104% at 6% -18%,
+      rgba(255, 255, 255, var(--app-toast-sheen, 0.045)),
+      transparent 58%
+    );
     box-shadow:
       var(--app-shadow-elevated),
       0 16px 40px -16px rgba(0, 0, 0, 0.55);
     color: var(--app-fg-4);
+    /* Land the card with a gentle scale-up. sonner already owns the wrapper's
+     * opacity + slide, so we add scale only — a second opacity ramp here would
+     * read as a double-fade. */
+    animation: app-toast-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-toast {
+      animation: none;
+    }
+  }
+  @keyframes app-toast-in {
+    from {
+      transform: translateY(3px) scale(0.965);
+    }
+    to {
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Semantic glow — a soft brand-colored gradient bleeds from the leading edge
+   * and dissolves across the card, echoing the emoji-bleed of `--emoji` but
+   * keyed off the variant's vivid `-3` token (which holds its hue across both
+   * themes). Only the intensity flips per mode: gentle on light frost, a touch
+   * more present on the dark fill. `default` opts out — it stays calm neutral. */
+  .app-toast[data-variant="success"] {
+    --app-toast-glow: var(--app-green-3);
+  }
+  .app-toast[data-variant="info"] {
+    --app-toast-glow: var(--app-blue-3);
+  }
+  .app-toast[data-variant="warning"] {
+    --app-toast-glow: var(--app-amber-3);
+  }
+  .app-toast[data-variant="error"] {
+    --app-toast-glow: var(--app-red-3);
+  }
+  .app-toast[data-variant="success"]::before,
+  .app-toast[data-variant="info"]::before,
+  .app-toast[data-variant="warning"]::before,
+  .app-toast[data-variant="error"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    /* Origin sits off the left edge (-8%) so only the gradient's soft falloff
+     * lands on the card — the hot center never shows — and the peak strength is
+     * gentle. Keeps the wash present without the bright leading edge. */
+    background: radial-gradient(
+      88% 140% at -8% 50%,
+      color-mix(
+        in srgb,
+        var(--app-toast-glow) var(--app-toast-glow-strength, 15%),
+        transparent
+      ),
+      transparent 64%
+    );
+  }
+  /* Dark fill swallows more light, so push the wash a little harder and let the
+   * specular sheen read as a real edge-light. */
+  .app-toast[data-app-theme="dark"] {
+    --app-toast-glow-strength: 30%;
+    --app-toast-sheen: 0.07;
+  }
+  /* System mode leaves the attribute off entirely — match the OS preference. */
+  @media (prefers-color-scheme: dark) {
+    .app-toast:not([data-app-theme="light"]) {
+      --app-toast-glow-strength: 30%;
+      --app-toast-sheen: 0.07;
+    }
   }
   /* Soft tinted disc behind the leading icon. */
   .app-toast-icon {
     background-color: var(--app-bg-a2);
   }
-  /* Danger variant — a faint red wash with a red hairline; text inherits the
-   * theme-aware red-4 accent so it stays legible in both modes. */
+  /* Danger variant — a present red wash + a crisp red hairline so the card
+   * clearly reads as a failure, with neutral high-contrast text on top. (Red
+   * text on the pale fill never cleared 4.5:1; the red identity now lives in
+   * the fill, hairline, icon disc, and edge-glow instead.) */
   .app-toast--danger {
-    background-color: color-mix(in srgb, var(--app-red-1) 90%, transparent);
+    /* No full-card red wash — that read as "completely red". The surface stays
+     * the same neutral opaque fill as every other intent; the error identity is
+     * carried by the red icon disc, the soft red edge-glow gradient (the shared
+     * ::before below), and a slightly stronger red hairline ring. */
     box-shadow:
-      0 0 0 1px var(--app-red-2),
+      0 0 0 1px color-mix(in srgb, var(--app-red-4) 40%, transparent),
       0 16px 40px -16px rgba(0, 0, 0, 0.55);
-    color: var(--app-red-4);
   }
-  .app-toast--danger .app-toast-icon {
-    background-color: color-mix(in srgb, var(--app-red-2) 65%, transparent);
+
+  /* Semantic icon discs — the card stays the calm frosted neutral; only the
+   * leading disc + glyph carry the intent color, so success/info/warning read
+   * as a quiet accent rather than a shouting card. Each accent declares its hue
+   * via --accent (glyph) + --accent-2 (disc fill); the shared rules below pick
+   * contrast-correct values per theme. */
+  .app-toast-icon--success {
+    --accent: var(--app-green-4);
+    --accent-2: var(--app-green-2);
+  }
+  .app-toast-icon--info {
+    --accent: var(--app-blue-4);
+    --accent-2: var(--app-blue-2);
+  }
+  .app-toast-icon--warning {
+    --accent: var(--app-amber-4);
+    --accent-2: var(--app-amber-2);
+  }
+  .app-toast-icon--danger {
+    --accent: var(--app-red-4);
+    --accent-2: var(--app-red-2);
+  }
+  /* Light: the bright `-4` accents read too faint on the pale disc, so darken
+   * the glyph for legibility and let the disc tint sit quiet and transparent. */
+  .app-toast-icon--success,
+  .app-toast-icon--info,
+  .app-toast-icon--warning,
+  .app-toast-icon--danger {
+    background-color: color-mix(in srgb, var(--accent-2) 45%, transparent);
+    color: color-mix(in srgb, var(--accent) 60%, #000);
+  }
+  /* Dark: the `-4` accents are already light, so they pop on the dark frost —
+   * use them straight over a slightly fuller disc. */
+  .app-toast[data-app-theme='dark'] .app-toast-icon--success,
+  .app-toast[data-app-theme='dark'] .app-toast-icon--info,
+  .app-toast[data-app-theme='dark'] .app-toast-icon--warning,
+  .app-toast[data-app-theme='dark'] .app-toast-icon--danger {
+    background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
+    color: var(--accent);
+  }
+  @media (prefers-color-scheme: dark) {
+    .app-toast:not([data-app-theme='light']) .app-toast-icon--success,
+    .app-toast:not([data-app-theme='light']) .app-toast-icon--info,
+    .app-toast:not([data-app-theme='light']) .app-toast-icon--warning,
+    .app-toast:not([data-app-theme='light']) .app-toast-icon--danger {
+      background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
+      color: var(--accent);
+    }
+  }
+
+  /* Corner close button — sonner's signature affordance, rebuilt for our custom
+   * card (sonner doesn't render its own close button for `toast.custom`). A
+   * small circle cut into the top-right corner, filled with the card surface +
+   * a hairline so it reads as part of the card. Always visible so dismissal is
+   * one click away. */
+  .app-toast-close {
+    background-color: var(--app-bg-2);
+    color: var(--app-fg-3);
+    box-shadow: 0 0 0 1px var(--app-fg-a1);
+    opacity: 1;
+    transition:
+      color 150ms ease,
+      box-shadow 150ms ease;
+    z-index: 1;
+  }
+  .app-toast-close:hover {
+    color: var(--app-fg-4);
+    box-shadow: 0 0 0 1px var(--app-fg-a2);
+  }
+
+  /* `app-toast--emoji` — the emoji confirmation drops the icon-disc tint and
+   * lets a giant blurred emoji bleed off the leading edge. */
+  .app-toast--emoji {
+    cursor: pointer;
+  }
+  @keyframes app-toast-emoji-in {
+    from {
+      opacity: 0;
+      transform: translateX(-44%) scale(0.85);
+    }
+    to {
+      opacity: 0.15;
+      transform: translateX(-28%) scale(1);
+    }
   }
 
   /* `app-frost-overlay` — frosted glass for floating surfaces that sit

@@ -6,7 +6,7 @@ import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/hooks/use-integration-status";
 import { authClient } from "~/lib/auth-client";
 import { client } from "~/lib/eden";
-import { callToast } from "~/lib/toast";
+import { toast } from "~/lib/toast";
 
 type OnboardingStep = 1 | 2 | 3;
 
@@ -80,10 +80,9 @@ function OnboardingRoute() {
       await navigate({ to: "/" });
     } catch (err) {
       console.warn("[onboarding] failed to mark complete:", err);
-      callToast({
+      toast.error({
         message: "Couldn't finish setup",
         description: "Something went wrong on our end. Please try again.",
-        type: "danger",
       });
     } finally {
       setFinishing(false);

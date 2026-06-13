@@ -119,9 +119,22 @@ const server = new Elysia({ adapter: node(), normalize: "typebox" })
     console.log(`Alfred server running on http://0.0.0.0:${serverEnv().PORT}`);
   });
 
+let shuttingDown = false;
+
 async function shutdown(signal: string) {
+  // Signals can fire more than once (e.g. SIGTERM then SIGINT); a second
+  // pass would double-close pools and re-throw. Run the teardown once.
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n${signal} received, shutting down...`);
-  await server.stop();
+  try {
+    await server.stop();
+  } catch (err) {
+    // server.stop() throws "Elysia isn't running" if a signal arrives before
+    // listen() resolves or after the adapter has already stopped. That must
+    // not abort the rest of teardown below.
+    console.error("Error stopping server:", err instanceof Error ? err.message : String(err));
+  }
   try {
     // Stop the agent worker FIRST so in-flight steps finish and commit
     // (or roll back) before we yank Redis. Per ADR-0014: graceful
@@ -163,5 +176,9 @@ async function shutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});

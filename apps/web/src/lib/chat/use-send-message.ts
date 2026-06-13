@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { z } from "zod";
 import { authClient } from "~/lib/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
-import { callToast } from "~/lib/toast";
+import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
 
 const API_URL =
@@ -81,7 +81,7 @@ export function useSendMessage(): SendMessage {
             { summarize: true },
           );
           console.error("[chat] turn kick failed:", res.status, body);
-          callToast({ message: "Couldn't send your message. Please try again.", type: "danger" });
+          toast.error("Couldn't send your message. Please try again.");
           return;
         }
 
@@ -109,7 +109,7 @@ export function useSendMessage(): SendMessage {
           { summarize: true },
         );
         console.error("[chat] turn kick error:", err);
-        callToast({ message: "Couldn't send your message. Please try again.", type: "danger" });
+        toast.error("Couldn't send your message. Please try again.");
       }
     },
     [rep, userId, navigate],
