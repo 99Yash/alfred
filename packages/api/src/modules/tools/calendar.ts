@@ -10,9 +10,9 @@ import {
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
-import { isValidTimezone, localDateInTimezone } from "../briefing/preferences";
-import { getPreference } from "../memory/preferences";
+import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
+import { resolveUserTimezone } from "../user-timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -57,14 +57,6 @@ async function calendarWriteCredential(userId: string): Promise<CalendarCredenti
     );
   }
   return { id: active.id, accountLabel: active.accountLabel };
-}
-
-async function resolveUserTimezone(userId: string): Promise<string> {
-  const pref = await getPreference(userId, "timezone");
-  if (pref && typeof pref.value === "string" && isValidTimezone(pref.value)) {
-    return pref.value;
-  }
-  return "UTC";
 }
 
 export function resolveCalendarListWindow(

@@ -22,6 +22,8 @@ import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
+import { buildConnectedSummary } from "../connected-summary";
+import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import type { Step, Workflow } from "../types";
 
 /**
@@ -84,6 +86,9 @@ const chatRunStateSchema = z.object({
   tier: z.enum(["standard", "deep"]),
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
+  // ADR-0053 connected summary, snapshotted once at run start (first turn) and
+  // reused every turn so the system-prompt prefix stays cache-stable.
+  connectedSummary: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
   assistantText: z.string().default(""),
   reasoningText: z.string().default(""),
@@ -96,16 +101,21 @@ const chatRunStateSchema = z.object({
 });
 type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
-const CHAT_SYSTEM_PROMPT = [
+const CHAT_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant. You are chatting with them directly.",
   "Be warm, concise, and direct. Answer the question; don't pad.",
   "Use integration tools for the user's real email, calendar, documents, files, and connected services. Integration tools are named integration.action, for example calendar.list_events; never call a bare action name like list_events.",
   "When the user asks for a real connected service and its tool is not available yet, infer the needed integration and call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
   "For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
+  'You know today\'s date (stated below). Resolve relative or partial dates yourself — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
   "Write actions (sending email, creating events) are gated for user approval — propose them and the user will confirm.",
   "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
   "Finish each turn with a clear reply and no trailing tool calls.",
 ].join("\n\n");
+
+export function buildChatSystemPrompt(grounding: string, connectedSummary: string): string {
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -274,9 +284,13 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
+      const timezone = await resolveUserTimezone(ctx.userId);
+      if (state.connectedSummary === undefined) {
+        state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
+      }
       const agent = new AlfredAgent({
         id: "chat",
-        system: CHAT_SYSTEM_PROMPT,
+        system: buildChatSystemPrompt(formatDateGrounding(timezone), state.connectedSummary),
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
