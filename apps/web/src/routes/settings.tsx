@@ -5,8 +5,8 @@ import { PreviewSettingsPage } from './-preview-settings/preview-settings-page';
 /**
  * App-grammar port of /settings.
  *
- * Same six sections (User, Billing, Plan, Features, Preferences)
- * with the same form behavior wired to authClient.useSession() + signOut().
+ * Three sections (User, Features, Preferences) with form behavior wired to
+ * authClient.useSession() + signOut().
  *
  * What changed vs the dimension version
  * - One big PanelCard → many atomic AppCards (visitors.now's settings page
