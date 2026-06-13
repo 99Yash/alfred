@@ -1812,6 +1812,43 @@
     background-color: color-mix(in srgb, var(--app-red-2) 65%, transparent);
   }
 
+  /* Semantic icon discs — the card stays the calm frosted neutral; only the
+   * leading disc + glyph carry the intent color, so success/info/warning read
+   * as a quiet accent rather than a shouting card. (error/danger is the one
+   * intent that paints the whole card, handled by `.app-toast--danger` above.) */
+  .app-toast-icon--success {
+    background-color: color-mix(in srgb, var(--app-green-2) 60%, transparent);
+    color: var(--app-green-4);
+  }
+  .app-toast-icon--info {
+    background-color: color-mix(in srgb, var(--app-blue-2) 60%, transparent);
+    color: var(--app-blue-4);
+  }
+  .app-toast-icon--warning {
+    background-color: color-mix(in srgb, var(--app-amber-2) 60%, transparent);
+    color: var(--app-amber-4);
+  }
+  .app-toast-icon--danger {
+    background-color: color-mix(in srgb, var(--app-red-2) 65%, transparent);
+    color: var(--app-red-4);
+  }
+
+  /* `app-toast--emoji` — the emoji confirmation drops the icon-disc tint and
+   * lets a giant blurred emoji bleed off the leading edge. */
+  .app-toast--emoji {
+    cursor: pointer;
+  }
+  @keyframes app-toast-emoji-in {
+    from {
+      opacity: 0;
+      transform: translateX(-44%) scale(0.85);
+    }
+    to {
+      opacity: 0.15;
+      transform: translateX(-28%) scale(1);
+    }
+  }
+
   /* `app-frost-overlay` — frosted glass for floating surfaces that sit
    * above page content (chat approval tray; reach for it for future
    * popovers/menus too). Ported from dimension's frost-popover recipe,

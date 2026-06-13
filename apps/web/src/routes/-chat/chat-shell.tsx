@@ -53,7 +53,7 @@ import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage";
-import { callToast } from "~/lib/toast";
+import { toast } from "~/lib/toast";
 import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { InboxItem, TodoItem } from "~/routes/-preview-chat/helpers";
@@ -198,7 +198,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     if (!activeRunId) return;
     stopStream();
     void stopChatRun(activeRunId).then((ok) => {
-      if (!ok) callToast({ message: "Couldn't stop the reply. Please try again.", type: "danger" });
+      if (!ok) toast.error("Couldn't stop the reply. Please try again.");
     });
   }, [activeRunId, stopStream]);
 
@@ -1265,10 +1265,9 @@ function useRailData(): RailData {
     ) {
       setComposing(false);
       if (briefingStatus === "failed") {
-        callToast({
+        toast.error({
           message: "Briefing failed",
           description: "The run stopped before it could send. You can try again.",
-          type: "danger",
         });
       }
     }
@@ -1280,10 +1279,9 @@ function useRailData(): RailData {
       },
       onError: (error) => {
         setComposing(false);
-        callToast({
+        toast.error({
           message: "Briefing did not start",
           description: error.message,
-          type: "danger",
         });
       },
     });
@@ -1568,10 +1566,11 @@ function useSuggestionDismissal(
         void dismissTodo(id);
       }, SUGGESTION_UNDO_MS);
       pendingTimers.set(id, handle);
-      callToast({
+      toast.message({
         message: "Suggestion dismissed",
         description: label,
         duration: SUGGESTION_UNDO_MS,
+        position: "bottom-right",
         action: { label: "Undo", onClick: () => cancel(id) },
       });
     },
