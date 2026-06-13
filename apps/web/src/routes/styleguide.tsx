@@ -1913,7 +1913,7 @@ function V2ToastSection() {
     <Section
       id="v2-toast"
       title="Toast"
-      recipe="lib/toast.tsx — sonner-backed frosted notifications. Calm neutral card with a tinted icon disc per intent (error washes the whole card red), a top-left glass sheen, a semantic edge-glow, and a scale-in landing. Self-themes via data-app-theme, so it tracks your saved app theme even though sonner mounts it at the document root. Fire one to verify — it docks per the intent's default position."
+      recipe="lib/toast.tsx — sonner-backed notifications. One opaque neutral card per intent with a tinted icon disc + soft edge-glow (error adds a red hairline ring); fixed width, top-left glass sheen, scale-in landing, sonner-style corner close on hover. Self-themes via data-app-theme, so it tracks your saved app theme even though sonner mounts it at the document root. Fire one to verify — it docks per the intent's default position."
     >
       <div className="app rounded-2xl p-5 shadow-[0_0_0_1px_var(--app-fg-a1)]">
         <div className="space-y-4">
