@@ -18,6 +18,7 @@ import type {
   ChatThreadRenameArgs,
   ChatThreadSetPinnedArgs,
   FactConfirmArgs,
+  FactCreateArgs,
   FactEditArgs,
   FactRejectArgs,
   NoteCreateArgs,
@@ -101,6 +102,30 @@ export const serverMutators = {
           eq(userFacts.status, "proposed"),
         ),
       );
+  },
+
+  /**
+   * User-authored create: insert a `confirmed` user-sourced fact. Unlike
+   * Alfred's extraction (which `proposeFact`s server-side and runs the
+   * dedup/rejection guards), a user asserting a fact directly via the UI is
+   * authoritative — confidence 1, no guards. Idempotent on id (client mints
+   * it before push) so at-least-once redelivery is a harmless no-op.
+   */
+  async factCreate(tx: DbTx, args: FactCreateArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .insert(userFacts)
+      .values({
+        id: args.id,
+        userId: ctx.userId,
+        key: args.key,
+        value: args.value,
+        confidence: 1,
+        status: "confirmed",
+        source: args.source ?? { kind: "user" },
+        validFrom: new Date(),
+        validUntil: null,
+      })
+      .onConflictDoNothing();
   },
 
   /**

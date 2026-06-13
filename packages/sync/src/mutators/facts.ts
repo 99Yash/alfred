@@ -31,6 +31,21 @@ export const factRejectArgsSchema = z.object({
 });
 export type FactRejectArgs = z.infer<typeof factRejectArgsSchema>;
 
+export const factCreateArgsSchema = z.object({
+  /** Row id — the client mints it (`crypto.randomUUID()`) before push so the
+   * optimistic patch and the server insert share the same key (idempotent). */
+  id: z.string().min(1).max(100),
+  /** Owner; the server re-stamps from the session, used only for the
+   * optimistic patch (mirrors `todoCreate`). */
+  userId: z.string().min(1).max(100),
+  /** Canonical snake_case fact key (e.g. `bio_summary`). */
+  key: z.string().min(1).max(100),
+  value: factValueSchema,
+  /** Optional source override; defaults to `{ kind: 'user' }` server-side. */
+  source: memorySourceSchema.optional(),
+});
+export type FactCreateArgs = z.infer<typeof factCreateArgsSchema>;
+
 export const factEditArgsSchema = z.object({
   factId: z.string().min(1).max(100),
   /**
@@ -53,6 +68,37 @@ async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFac
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
   await tx.set(IDB_KEY.FACT({ id: fact.id }), normalizeToReadonlyJSON(fact));
+}
+
+/**
+ * User-authored create: drop a `confirmed` row under the minted id. Used by
+ * surfaces where the user asserts a fact directly (e.g. the settings bio),
+ * as opposed to Alfred's extraction which proposes server-side. Confidence
+ * is pinned to 1 and the source defaults to `{ kind: 'user' }`. Idempotent
+ * on id — a retry overwrites with the same shape and the next pull replaces
+ * it with the server's authoritative row.
+ */
+export async function factCreateClient(
+  tx: WriteTransaction,
+  args: FactCreateArgs,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const fact: SyncedFact = {
+    id: args.id,
+    userId: args.userId,
+    key: args.key,
+    value: args.value,
+    confidence: 1,
+    status: "confirmed",
+    source: args.source ?? { kind: "user" },
+    validFrom: now,
+    validUntil: null,
+    supersedesId: null,
+    rowVersion: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeFact(tx, fact);
 }
 
 /**
