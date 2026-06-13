@@ -860,7 +860,7 @@ function ThreadGroupBlock({
           )}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 transition-opacity">
+        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100 transition-opacity">
           {entries.length}
         </span>
       </button>

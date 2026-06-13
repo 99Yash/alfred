@@ -63,7 +63,11 @@ const RECENT_SNIPPET_MAX = 220;
 const HEADER_LINE_RE = /^(?:from|to|cc|bcc|reply-to|sender|subject|date):/i;
 
 /** Body lede for the fed thread context: drop the leading header block, collapse whitespace, cap length. PURE. */
-export function buildThreadSnippet(title: string | null, content: string | null, max: number): string {
+export function buildThreadSnippet(
+  title: string | null,
+  content: string | null,
+  max: number,
+): string {
   const lines = (content ?? "").split("\n");
   let i = 0;
   while (i < lines.length) {
@@ -94,26 +98,24 @@ export interface GetThreadStateArgs {
  * queries. Returns the empty state for a brand-new thread.
  */
 export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadState> {
+  const threadWhere = and(
+    eq(documents.userId, args.userId),
+    eq(documents.source, "gmail"),
+    eq(documents.sourceThreadId, args.sourceThreadId),
+    args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
+  );
+  const newestFirst = sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`;
+
   const rows = await db()
     .select({
-      id: documents.id,
       authoredAt: documents.authoredAt,
-      title: documents.title,
-      content: documents.content,
       // Canonical sent detection (isSent flag OR the raw SENT label) so a
       // SENT-labelled doc without the flag is not mis-counted as received,
       // which would corrupt newestDirection / lastUserReplyAt.
       isSent: gmailSentSql(),
     })
     .from(documents)
-    .where(
-      and(
-        eq(documents.userId, args.userId),
-        eq(documents.source, "gmail"),
-        eq(documents.sourceThreadId, args.sourceThreadId),
-        args.excludeDocumentId ? ne(documents.id, args.excludeDocumentId) : undefined,
-      ),
-    )
+    .where(threadWhere)
     // Order before the cap so a >500-message thread truncates deterministically
     // to its most recent rows — otherwise Postgres returns an arbitrary subset
     // and `newestDirection`/`lastUserReplyAt` could be computed from stale rows.
@@ -121,7 +123,7 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     // one out of the window. `documents.id` is a deterministic tiebreaker so
     // two messages sharing an authoredAt (same-second replies) resolve the
     // "newest" slot identically every run. `documents_thread_idx` supports it.
-    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)
+    .orderBy(newestFirst)
     .limit(THREAD_STATE_ROW_LIMIT);
 
   const siblings = rows;
@@ -140,13 +142,28 @@ export async function getThreadState(args: GetThreadStateArgs): Promise<ThreadSt
     }
   }
 
-  // `siblings` is already ordered newest-first, so the first N rows are the most
-  // recent prior messages. Excerpt them as fed context for the classifier.
-  const recentMessages: ThreadMessageContext[] = siblings.slice(0, RECENT_MESSAGE_LIMIT).map((r) => ({
-    direction: r.isSent ? "sent" : "received",
-    authoredAt: r.authoredAt,
-    snippet: buildThreadSnippet(r.title, r.content, RECENT_SNIPPET_MAX),
-  }));
+  // Pull bodies only for the few messages we feed to the classifier. The wider
+  // 500-row pass above stays metadata-only, so long Gmail threads do not drag
+  // hundreds of full email bodies through every triage run.
+  const recentRows = await db()
+    .select({
+      authoredAt: documents.authoredAt,
+      title: documents.title,
+      content: documents.content,
+      isSent: gmailSentSql(),
+    })
+    .from(documents)
+    .where(threadWhere)
+    .orderBy(newestFirst)
+    .limit(RECENT_MESSAGE_LIMIT);
+
+  const recentMessages: ThreadMessageContext[] = recentRows
+    .map((r) => ({
+      direction: r.isSent ? ("sent" as const) : ("received" as const),
+      authoredAt: r.authoredAt,
+      snippet: buildThreadSnippet(r.title, r.content, RECENT_SNIPPET_MAX),
+    }))
+    .filter((m) => m.snippet.length > 0);
 
   return {
     lastUserReplyAt,
