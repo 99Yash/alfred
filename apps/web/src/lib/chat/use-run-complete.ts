@@ -1,7 +1,6 @@
-import { Sparkles } from "lucide-react";
-import { createElement, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { getLocalStorageItem, setLocalStorageItem, type LocalStorageValue } from "~/lib/storage";
-import { callToast } from "~/lib/toast";
+import { toast } from "~/lib/toast";
 import type { StreamingMessage } from "./use-chat-stream";
 
 /** When the completion chime plays. Defaults to unfocused-only so it acts as a notification, not a per-reply ping. */
@@ -44,10 +43,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
     }
     // Only nudge with a toast when the user is away — no noise while they watch.
     if (!focused) {
-      callToast({
-        message: "Alfred finished replying",
-        icon: createElement(Sparkles, { size: 14, className: "text-app-purple-4" }),
-      });
+      toast.emoji({ emoji: "✨", label: "Alfred finished replying" });
     }
   }, [stream?.done, stream?.messageId]);
 }

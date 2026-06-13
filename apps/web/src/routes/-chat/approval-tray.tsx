@@ -24,7 +24,7 @@ import { RiskPill } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
 import { AppButton, AppTextarea } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
-import { callToast } from "~/lib/toast";
+import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 
 export function ChatApprovalTray({
@@ -167,15 +167,11 @@ function ApprovalStep({
       if (responseError) throw new Error(decisionErrorMessage(responseError.value));
       setDecided(true);
       onDecision(decision.decision);
-      callToast({
+      const recorded = decision.decision === "approve" ? toast.success : toast.info;
+      recorded({
         message: decision.decision === "approve" ? "Approval recorded" : "Rejection recorded",
         description: "Alfred is resuming the run.",
-        icon:
-          decision.decision === "approve" ? (
-            <Check size={14} className="text-app-green-4" />
-          ) : (
-            <X size={14} className="text-app-red-4" />
-          ),
+        position: "top-center",
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record decision");
