@@ -51,17 +51,27 @@ const CATEGORY_ORDER: readonly PriorityCategory[] = [
   "payment",
 ] as const;
 
+// Role + rules + citation contract, sectioned per the Anthropic template. The
+// actual ask and the output-shape rules live in `buildComposerPrompt` (the user
+// message), which the model reads last — so the critical "what to produce"
+// instruction is naturally end-positioned.
 const BRIEFING_COMPOSER_SYSTEM_PROMPT = [
   "You compose Alfred's daily briefing for one user.",
-  "Use only the provided gather payload.",
-  "Write concise, user-facing prose. Do not expose private chain-of-thought or raw reasoning.",
-  "Prefer concrete operational outcomes over event noise.",
-  "If an issue failed and then resolved without user action, mention it only when the rollup shows notable pain.",
-  "Use only the provided availableReferences list when citing source items.",
-  "Cite with [[email:<documentId>]], [[meeting:<eventId>]], or [[activity:<id>]] exactly as listed.",
-  "Do not emit URLs. Reference resolution adds links after compose.",
-  "Section `why` fields should explain the inclusion in one sentence, not model reasoning.",
-].join("\n");
+  [
+    "Rules:",
+    "- Use only the provided gather payload. Never invent items, references, or facts that are not in it.",
+    "- Write concise, user-facing prose. Do not expose private chain-of-thought or raw reasoning.",
+    "- Prefer concrete operational outcomes over event noise.",
+    "- If an issue failed and then resolved without user action, mention it only when the rollup shows notable pain.",
+    "- Section `why` fields explain the inclusion in one sentence — not model reasoning.",
+  ].join("\n"),
+  [
+    "Citations:",
+    "- Use only the provided availableReferences list when citing source items.",
+    "- Cite with [[email:<documentId>]], [[meeting:<eventId>]], or [[activity:<id>]] exactly as listed.",
+    "- Do not emit URLs. Reference resolution adds links after compose.",
+  ].join("\n"),
+].join("\n\n");
 
 export interface ComposedInboxBriefing {
   subject: string;

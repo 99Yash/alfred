@@ -1,8 +1,9 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { factValueSchema, memorySourceSchema } from "../schemas";
+import { factValueSchema, memorySourceSchema, syncedFactSchema } from "../schemas";
 import type { SyncedFact } from "../types";
+import { readSyncedValue } from "./read";
 
 /**
  * Client-side mutators for the memory correction loop (ADR-0019).
@@ -61,9 +62,7 @@ export const factEditArgsSchema = z.object({
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
 
 async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFact | null> {
-  const value = await tx.get(IDB_KEY.FACT({ id: factId }));
-  if (!value) return null;
-  return value as unknown as SyncedFact;
+  return readSyncedValue(tx, IDB_KEY.FACT({ id: factId }), syncedFactSchema);
 }
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
@@ -78,10 +77,7 @@ async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> 
  * on id — a retry overwrites with the same shape and the next pull replaces
  * it with the server's authoritative row.
  */
-export async function factCreateClient(
-  tx: WriteTransaction,
-  args: FactCreateArgs,
-): Promise<void> {
+export async function factCreateClient(tx: WriteTransaction, args: FactCreateArgs): Promise<void> {
   const now = new Date().toISOString();
   const fact: SyncedFact = {
     id: args.id,

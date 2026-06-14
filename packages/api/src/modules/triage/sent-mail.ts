@@ -1,3 +1,4 @@
+import { toStringArray } from "@alfred/contracts";
 import { documents } from "@alfred/db/schemas";
 import { sql, type SQL } from "drizzle-orm";
 
@@ -19,7 +20,7 @@ const SENT_LABEL = "SENT";
 /** JS predicate over a document's `metadata` object. */
 export function isSentGmailMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
   const meta = metadata ?? {};
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as unknown[]) : [];
+  const labelIds = toStringArray(meta.labelIds);
   return meta.isSent === true || labelIds.some((label) => label === SENT_LABEL);
 }
 

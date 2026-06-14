@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { actionStagings, agentRuns, workflows } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
@@ -427,8 +427,7 @@ export async function findResumableRunIds(opts: {
     ORDER BY last_checkpoint_at NULLS FIRST, id
     LIMIT ${limit}
   `);
-  const rawRows = (result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[]);
-  const rows = (Array.isArray(rawRows) ? rawRows : []) as { id: string }[];
+  const rows = rowsFromExecute<{ id: string }>(result);
   return rows.map((r) => r.id);
 }
 

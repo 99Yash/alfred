@@ -1,4 +1,4 @@
-import type { AttributionKind } from "@alfred/contracts";
+import type { AttributionKind } from '@alfred/contracts';
 
 /** What `metered()` writes to `api_call_log`. Extracted post-hoc from the SDK result. */
 export interface CallUsage {
@@ -27,13 +27,13 @@ export type CallKind = AttributionKind;
  * and get plumbed when those call sites are revisited.
  */
 export type CallRole =
-  | "compactor"
-  | "boss"
-  | "sub_agent"
-  | "triage"
-  | "briefing"
-  | "cold_start"
-  | "memory_extraction";
+  | 'compactor'
+  | 'boss'
+  | 'sub_agent'
+  | 'triage'
+  | 'briefing'
+  | 'cold_start'
+  | 'memory_extraction';
 
 /**
  * Caller-supplied attribution and free-form metadata persisted with each
@@ -49,7 +49,7 @@ export interface CallAttribution {
   /**
    * Override `api_call_log.kind`. The `meteredGenerateText` /
    * `meteredGenerateObject` wrappers default to `'llm'`; pass
-   * `'web_search'` here when routing a Perplexity Sonar (or future
+   * `'web_search'` here when routing a Google Gemini (or future
    * search-shaped) model so cost rollups bucket it correctly per
    * ADR-0015. `meteredEmbed` always uses `'embedding'` regardless.
    */

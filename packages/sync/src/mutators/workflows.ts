@@ -4,6 +4,7 @@ import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import { syncedWorkflowSchema, workflowStatusSchema } from "../schemas";
 import type { SyncedWorkflow } from "../types";
+import { readSyncedValue } from "./read";
 
 export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
 
@@ -172,11 +173,8 @@ export async function workflowUpdateClient(
   args: WorkflowUpdateArgs,
 ): Promise<void> {
   const key = IDB_KEY.WORKFLOW({ id: args.slug });
-  const existing = await tx.get(key);
-  if (!existing) return;
-  const parsed = syncedWorkflowSchema.safeParse(existing);
-  if (!parsed.success) return;
-  const current = parsed.data;
+  const current = await readSyncedValue(tx, key, syncedWorkflowSchema);
+  if (!current) return;
   if (current.isBuiltin) return;
 
   const next: SyncedWorkflow = {

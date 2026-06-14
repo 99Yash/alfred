@@ -36,6 +36,7 @@ import {
   skillDocumentationDedupKey,
   warmPool,
 } from "@alfred/api";
+import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   agentRuns,
@@ -217,7 +218,7 @@ async function main() {
     .where(eq(skillRevisions.id, docOut.revisionId));
   assert(v2, "v2 skill_revisions row missing");
   assert(v2.kind === "documented", `expected v2 kind=documented, got ${v2.kind}`);
-  const v2Meta = v2.metadata as Record<string, unknown>;
+  const v2Meta = toRecord(v2.metadata);
   assert(v2Meta.previousRevisionId === v1RevisionId, "v2 metadata previousRevisionId mismatch");
   console.log(`[smoke-skill-doc] v2 body preview:\n${v2.body.slice(0, 600)}\n...`);
 

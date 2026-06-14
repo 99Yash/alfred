@@ -1,8 +1,9 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { memorySourceSchema, preferenceValueSchema } from "../schemas";
+import { memorySourceSchema, preferenceValueSchema, syncedPreferenceSchema } from "../schemas";
 import type { SyncedPreference } from "../types";
+import { readSyncedValue } from "./read";
 
 /**
  * Client-side mutators for `user_preferences` (ADR-0012).
@@ -34,7 +35,7 @@ export type PrefDeleteArgs = z.infer<typeof prefDeleteArgsSchema>;
  */
 export async function prefSetClient(tx: WriteTransaction, args: PrefSetArgs): Promise<void> {
   const idbKey = IDB_KEY.PREFERENCE({ id: args.key });
-  const prev = (await tx.get(idbKey)) as SyncedPreference | undefined;
+  const prev = await readSyncedValue(tx, idbKey, syncedPreferenceSchema);
   const replacement: SyncedPreference = {
     key: args.key,
     userId: prev?.userId ?? "",
