@@ -1,4 +1,9 @@
-import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES, type BriefingSlot } from "@alfred/contracts";
+import {
+  TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
+  toRecord,
+  toStringArray,
+  type BriefingSlot,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -488,8 +493,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
           const items: MeInboxItem[] = pageRows.map((r) => {
-            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
-            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            const meta = toRecord(r.metadata);
+            const labelIds = toStringArray(meta.labelIds);
             return {
               documentId: r.documentId,
               threadId: r.threadId ?? null,
@@ -604,8 +609,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
                 );
 
           const messages: MeInboxMessage[] = threadRows.map((row) => {
-            const meta = (row.metadata as Record<string, unknown> | null) ?? {};
-            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            const meta = toRecord(row.metadata);
+            const labelIds = toStringArray(meta.labelIds);
             // `documents.raw` is the verbatim Gmail message we stored at
             // ingest (schema-validated then). Cast back to `GmailMessage`
             // rather than re-running zod per request — the shape is fixed
@@ -675,8 +680,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             );
 
           const unreadRows = rows.filter((r) => {
-            const meta = (r.metadata as Record<string, unknown> | null) ?? {};
-            const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+            const meta = toRecord(r.metadata);
+            const labelIds = toStringArray(meta.labelIds);
             return labelIds.includes("UNREAD");
           });
           if (unreadRows.length === 0) return { marked: 0 };

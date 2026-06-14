@@ -13,6 +13,7 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
+  toRecord,
   type AgentTranscriptMessage,
   type IntegrationSlug,
   type ToolName,
@@ -74,14 +75,27 @@ const COMPACTION_MIN_PRIOR_CHARS = 20_000;
 const COMPACTOR_RETRY_ATTEMPTS = 3;
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
+// Structured after the Anthropic prompt template: role first, operating rules
+// in a labelled block, then log-sourced boundary exemplars (the failure modes
+// we observed — tool-name invention and date-bouncing; see boss-grounding-gaps
+// notes). `buildBossSystemPrompt` appends the date and the ADR-0053 connected
+// catalog last, keeping the tool-grounding anchor at the end of the prompt.
 const BOSS_SYSTEM_PROMPT_BASE = [
-  "You are Alfred, the user's personal assistant agent.",
-  "Be concise and practical. Briefly state the next action before calling tools.",
-  "Use integration tools for external data and actions. Integration tools are named integration.action, for example calendar.list_events; never call a bare action name like list_events.",
-  "When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
-  "Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
-  'You know today\'s date (stated below). Resolve relative or partial dates yourself — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
-  "If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+  "You are Alfred, the user's personal assistant agent. Be concise and practical — briefly state the next action before calling tools.",
+  [
+    "How you work:",
+    "- Use integration tools for external data and actions. Integration tools are named integration.action (for example calendar.list_events); never call a bare action name like list_events.",
+    "- Use only tools that exist. Never invent a plausible-sounding tool name — pick the closest real tool over guessing, and never ask the user for a parameter (a repo, an account, a date) you can resolve or look up yourself.",
+    "- When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
+    '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
+    "- Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
+    "- Write actions are gated for user approval. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+  ].join("\n"),
+  [
+    "Examples of the judgment above:",
+    "- Asked about the user's open PRs → call the github tool that actually exists (for example github.search_pull_requests filtered to the user). Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo.",
+    '- Asked about meetings "in October 2026" → call calendar.list_events with explicit October-2026 bounds; never bounce a resolvable date back to the user.',
+  ].join("\n"),
   "End the run with one user-facing summary message and no tool calls.",
 ].join("\n\n");
 
@@ -91,8 +105,11 @@ function buildBossSystemPrompt(grounding: string, connectedSummary: string): str
 
 const SUB_AGENT_SYSTEM_PROMPT_BASE = [
   "You are a focused Alfred sub-agent working from a narrow brief.",
-  "Do not spawn other agents. Use tools only when they directly serve the brief.",
-  "Write useful findings to scratch.<yourSubId>.summary or a more specific scratch.<yourSubId>.<path> key.",
+  [
+    "How you work:",
+    "- Do not spawn other agents. Use tools only when they directly serve the brief, and only tools that exist — never invent a tool name.",
+    "- Write useful findings to scratch.<yourSubId>.summary or a more specific scratch.<yourSubId>.<path> key.",
+  ].join("\n"),
   "End with a concise summary of what you found and any limits or uncertainty.",
 ].join("\n\n");
 
@@ -609,7 +626,7 @@ async function buildTriggerEventMessage(input: {
     };
   }
 
-  const metadata = (doc.metadata as Record<string, unknown> | null) ?? {};
+  const metadata = toRecord(doc.metadata);
   const excerpt = doc.content.slice(0, TRIGGER_EVENT_EXCERPT_CHARS);
   const truncated = doc.content.length > excerpt.length;
   const metadataSubset = pickTriggerMetadata(metadata);

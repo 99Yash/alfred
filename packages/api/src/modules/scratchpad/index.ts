@@ -13,13 +13,26 @@
  * right zone.
  */
 
-import { SCRATCH_TTL_SECONDS, sharedKey, subAgentKey } from "@alfred/contracts";
+import { parseJsonWith, SCRATCH_TTL_SECONDS, sharedKey, subAgentKey } from "@alfred/contracts";
 import type { ScratchEntry } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRunContext } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
 import type IORedis from "ioredis";
+import { z } from "zod";
 import { createRedisConnection } from "../../queue/connection";
+
+/**
+ * Validates the scratch *envelope* on read — `value`'s concrete type is the
+ * caller's generic `T` (no runtime info for a type parameter), so a corrupt or
+ * stale entry degrades to `null` instead of throwing mid-run.
+ */
+const scratchEntrySchema = z.object({
+  value: z.unknown(),
+  zone: z.enum(["shared", "scratch"]),
+  writtenBy: z.string(),
+  writtenAt: z.number(),
+});
 
 let _client: IORedis | undefined;
 function client(): IORedis {
@@ -69,7 +82,8 @@ export interface ReadScratchArgs {
 export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntry<T> | null> {
   const raw = await client().get(resolveKey(toTarget(args)));
   if (raw === null) return null;
-  return JSON.parse(raw) as ScratchEntry<T>;
+  const entry = parseJsonWith(raw, scratchEntrySchema);
+  return entry === null ? null : (entry as ScratchEntry<T>);
 }
 
 export interface PromoteScratchArgs {
@@ -152,7 +166,11 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
       if (raw === null || raw === undefined || fullKey === undefined) continue;
       const dotted = fullKey.slice(prefix.length);
       if (dotted.length === 0) continue;
-      const entry = JSON.parse(raw) as ScratchEntry<unknown>;
+      const entry = parseJsonWith(raw, scratchEntrySchema);
+      if (entry === null) {
+        console.warn(`[scratchpad] skipping corrupt scratch key during snapshot: ${fullKey}`);
+        continue;
+      }
       rows.push({
         runId,
         key: dotted,

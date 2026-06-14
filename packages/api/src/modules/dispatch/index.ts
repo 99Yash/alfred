@@ -35,6 +35,7 @@
 import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
+  getPath,
   hashToolInput,
   INTEGRATION_ACTIONS,
   integrationFromToolName,
@@ -684,7 +685,6 @@ function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
 }
 
 function readStringProp(input: unknown, prop: string): string | null {
-  if (typeof input !== "object" || input === null) return null;
-  const value = (input as Record<string, unknown>)[prop];
+  const value = getPath(input, prop);
   return typeof value === "string" ? value : null;
 }

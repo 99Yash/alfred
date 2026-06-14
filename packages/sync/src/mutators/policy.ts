@@ -4,6 +4,7 @@ import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import { syncedActionPolicySchema } from "../schemas";
 import type { SyncedActionPolicy } from "../types";
+import { readSyncedValue } from "./read";
 
 export const policySetIntegrationModeArgsSchema = z.object({
   slug: z.enum(LOADABLE_INTEGRATION_SLUGS),
@@ -18,9 +19,8 @@ export async function policySetIntegrationModeClient(
   const prefix = IDB_KEY.ACTION_POLICY({});
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
-  const result = syncedActionPolicySchema.safeParse(await tx.get(key));
-  if (!result.success) return;
-  const current = result.data;
+  const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
+  if (!current) return;
   const next: SyncedActionPolicy = {
     ...current,
     integrationRules: {
@@ -50,9 +50,8 @@ export async function policySetDefaultModeClient(
   const prefix = IDB_KEY.ACTION_POLICY({});
   const [key] = await tx.scan({ prefix }).keys().toArray();
   if (!key) return;
-  const result = syncedActionPolicySchema.safeParse(await tx.get(key));
-  if (!result.success) return;
-  const current = result.data;
+  const current = await readSyncedValue(tx, key, syncedActionPolicySchema);
+  if (!current) return;
   const next: SyncedActionPolicy = {
     ...current,
     defaultMode: args.mode,

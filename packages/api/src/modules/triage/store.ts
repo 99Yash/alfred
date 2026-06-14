@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, user } from "@alfred/db/schemas";
+import { toRecord } from "@alfred/contracts";
 import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
@@ -339,7 +340,7 @@ export async function loadTriageContext(
       title: doc.title,
       content: doc.content,
       authoredAt: doc.authoredAt,
-      metadata: (doc.metadata as Record<string, unknown> | null) ?? {},
+      metadata: toRecord(doc.metadata),
     },
     credentialId: cred.id,
     persona: cred.persona ?? null,

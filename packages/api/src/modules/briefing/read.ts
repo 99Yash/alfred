@@ -1,3 +1,4 @@
+import { toRecord } from "@alfred/contracts";
 import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefingRuns, briefings, documents, emailTriage } from "@alfred/db/schemas";
@@ -102,7 +103,7 @@ export async function listEmailsSinceWatermark(
     .limit(limit);
 
   return rows.map((r) => {
-    const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+    const meta = toRecord(r.metadata);
     return {
       documentId: r.documentId,
       subject: r.subject,
@@ -136,7 +137,7 @@ export async function readEmailDocument(args: {
 
   const row = rows[0];
   if (!row) return null;
-  const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+  const meta = toRecord(row.metadata);
   const full = row.content ?? "";
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;
   return {

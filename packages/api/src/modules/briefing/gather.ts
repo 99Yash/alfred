@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
-import { weatherFallbackFor } from "@alfred/contracts";
+import { isRecord, toRecord, weatherFallbackFor } from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
@@ -184,7 +184,7 @@ export async function gatherBriefingDigest(
     const bucket = buckets[cat];
     if (bucket.length >= maxPerBucket) continue;
 
-    const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+    const meta = toRecord(r.metadata);
     bucket.push({
       documentId: r.documentId,
       category: cat,
@@ -549,8 +549,8 @@ async function resolveWeatherLocation(
 }
 
 function parseWeatherLocation(value: unknown): WeatherLocation | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const record = value;
   const lat = parseCoord(record.lat ?? record.latitude);
   const lng = parseCoord(record.lng ?? record.lon ?? record.longitude);
   if (lat === null || lng === null) return null;

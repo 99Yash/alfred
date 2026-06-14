@@ -13,7 +13,7 @@
  * below until they're added or we wire a Voyage-specific source.
  */
 import { sql } from "drizzle-orm";
-import { db } from "../index";
+import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
@@ -161,16 +161,13 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     ORDER BY valid_from DESC
     LIMIT 1
   `);
-  const rawRows = (existing as { rows?: unknown[] }).rows ?? (existing as unknown as unknown[]);
-  const latest = (Array.isArray(rawRows) ? rawRows[0] : undefined) as
-    | {
-        input_per_mtok: string;
-        output_per_mtok: string;
-        cached_input_per_mtok: string | null;
-        per_call_usd: string | null;
-        context_window: number | null;
-      }
-    | undefined;
+  const latest = rowsFromExecute<{
+    input_per_mtok: string;
+    output_per_mtok: string;
+    cached_input_per_mtok: string | null;
+    per_call_usd: string | null;
+    context_window: number | null;
+  }>(existing)[0];
 
   if (latest) {
     const same = pricesEqual(

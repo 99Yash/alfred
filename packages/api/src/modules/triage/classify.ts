@@ -70,8 +70,13 @@ export const triageClassificationSchema = z.object({
     .object({
       /** Crisp imperative title for the rail checkbox row. */
       name: z.string().min(1).max(120),
-      /** Optional one-liner on how to approach it, or an honest "can't act yet". */
-      assist: z.string().max(280).optional(),
+      /**
+       * Optional one-liner on how to approach it, or an honest "can't act yet".
+       * `.nullish()` (not `.optional()`): the prompt tells the model `assist` is
+       * null BY DEFAULT, so flash-lite routinely emits explicit `null` — which a
+       * bare `.optional()` rejects, throwing AI_NoObjectGeneratedError.
+       */
+      assist: z.string().max(280).nullish(),
     })
     .nullable()
     // Optional on the TYPE so non-cheap-classifier producers need not set it;
@@ -87,8 +92,12 @@ export const triageClassificationSchema = z.object({
   todoDecision: z
     .object({
       outcome: z.enum(TODO_DECISION_OUTCOMES),
-      /** Optional ≤1-clause detail for the log (e.g. "trivial survey"). */
-      note: z.string().max(200).optional(),
+      /**
+       * Optional ≤1-clause detail for the log (e.g. "trivial survey"). `.nullish()`
+       * (not `.optional()`) so an explicit `"note": null` from the model is accepted
+       * rather than throwing on schema mismatch.
+       */
+      note: z.string().max(200).nullish(),
     })
     .optional(),
 });

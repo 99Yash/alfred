@@ -44,6 +44,7 @@ import {
   signalRun,
   warmPool,
 } from "@alfred/api";
+import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -195,7 +196,7 @@ async function pollAndAutoApprove(runId: string): Promise<{
       return {
         status: row.status,
         output: row.output,
-        state: (row.state ?? {}) as Record<string, unknown>,
+        state: toRecord(row.state),
       };
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));

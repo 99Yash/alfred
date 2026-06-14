@@ -1,13 +1,16 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { perplexity } from "@ai-sdk/perplexity";
-import type { LanguageModel, ToolSet } from "ai";
+import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
+import type { LanguageModel, ToolSet } from 'ai';
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
 // warden does; see its packages/ai/src/models.ts.
-import type { LanguageModel as LanguageModelV3 } from "ai-retry";
-import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
+import type { LanguageModel as LanguageModelV3 } from 'ai-retry';
+import {
+  createRetryable,
+  error,
+  timeout,
+} from 'ai-retry/experimental/language-model';
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -18,11 +21,11 @@ import { createRetryable, error, timeout } from "ai-retry/experimental/language-
  * them when the fallback serves.)
  */
 export function getBossModel(): LanguageModel {
-  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+  return withFallback(anthropic('claude-sonnet-4-6'), google('gemini-2.5-pro'));
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+  return withFallback(anthropic('claude-sonnet-4-6'), google('gemini-2.5-pro'));
 }
 
 export function getCheapModel(): LanguageModel {
@@ -31,7 +34,7 @@ export function getCheapModel(): LanguageModel {
   // from `gemini-2.5-flash` after the user flagged label-write lag on a
   // single inbound email; the larger Flash model was the bottleneck, not
   // the pipeline.
-  return google("gemini-2.5-flash-lite");
+  return google('gemini-2.5-flash-lite');
 }
 
 /**
@@ -39,8 +42,9 @@ export function getCheapModel(): LanguageModel {
  * Keep it decoupled from the cheap tier: a bad handoff corrupts the rest
  * of a long boss run, while the incremental cost is negligible.
  */
-export const COMPACTOR_MODEL: LanguageModel = anthropic("claude-sonnet-4-6");
-export const COMPACTOR_FALLBACK_MODEL: LanguageModel = google("gemini-2.5-flash");
+export const COMPACTOR_MODEL: LanguageModel = anthropic('claude-sonnet-4-6');
+export const COMPACTOR_FALLBACK_MODEL: LanguageModel =
+  google('gemini-2.5-flash');
 
 /**
  * Live web-search model for short, agent-driven lookups.
@@ -56,7 +60,7 @@ export const COMPACTOR_FALLBACK_MODEL: LanguageModel = google("gemini-2.5-flash"
  * spend correctly.
  */
 export function getWebSearchModel(): LanguageModel {
-  return google("gemini-2.5-flash");
+  return google('gemini-2.5-flash');
 }
 
 /**
@@ -74,18 +78,6 @@ export function googleSearchGroundingTools(): ToolSet {
 }
 
 /**
- * Multi-step research model for cold-start signup research (ADR-0011 +
- * ADR-0022). Sonar Deep Research takes 30–90s per call and is only
- * appropriate for async workflows; never call from a request handler.
- *
- * Caller must route through `meteredGenerateText` with
- * `attribution.kind = 'web_search'`.
- */
-export function getResearchModel(): LanguageModel {
-  return perplexity("sonar-deep-research");
-}
-
-/**
  * Interactive-chat model tiers (ADR pending; see docs/plans streaming-chat).
  *
  * The chat agent runs on Anthropic by default and escalates to Opus for
@@ -98,7 +90,7 @@ export function getResearchModel(): LanguageModel {
  * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
  * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
  */
-export type ChatModelTier = "standard" | "deep";
+export type ChatModelTier = 'standard' | 'deep';
 
 /**
  * Restored to the intended Anthropic mapping 2026-06-07 (mirrors
@@ -106,10 +98,10 @@ export type ChatModelTier = "standard" | "deep";
  * per-tier Google degradation (Sonnet ↔ 2.5 Pro, Opus ↔ 2.5 Pro) wired via
  * `withFallback` so a provider blip degrades instead of hard-failing the turn.
  */
-export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
-  return tier === "deep"
-    ? withFallback(anthropic("claude-opus-4-8"), google("gemini-2.5-pro"))
-    : withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+export function getChatModel(tier: ChatModelTier = 'standard'): LanguageModel {
+  return tier === 'deep'
+    ? withFallback(anthropic('claude-opus-4-8'), google('gemini-2.5-pro'))
+    : withFallback(anthropic('claude-sonnet-4-6'), google('gemini-2.5-pro'));
 }
 
 /**
@@ -125,10 +117,13 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  *   - Anthropic (when the cap clears): extended thinking with a modest budget —
  *     interactive chat wants a fast first token, not a deep deliberation.
  */
-export function getChatProviderOptions(): Record<string, Record<string, unknown>> {
+export function getChatProviderOptions(): Record<
+  string,
+  Record<string, unknown>
+> {
   return {
     google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
-    anthropic: { thinking: { type: "enabled", budgetTokens: 2_048 } },
+    anthropic: { thinking: { type: 'enabled', budgetTokens: 2_048 } },
   };
 }
 
@@ -156,11 +151,17 @@ export function getChatProviderOptions(): Record<string, Record<string, unknown>
  * model from the response (`served` in `MeteredResult`), so `api_call_log`
  * stays correct when the fallback fires.
  */
-export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3): LanguageModel {
+export function withFallback(
+  primary: LanguageModelV3,
+  fallback: LanguageModelV3,
+): LanguageModel {
   return createRetryable({
     model: primary,
     retries: [
-      error.isRetryable(true).or(timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+      error
+        .isRetryable(true)
+        .or(timeout())
+        .retry({ delay: 1_000, maxAttempts: 2 }),
       error(() => true)
         .or(timeout())
         .switch({ model: fallback }),
