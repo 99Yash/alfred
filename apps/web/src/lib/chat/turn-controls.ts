@@ -6,6 +6,8 @@
  * truth for everything durable).
  */
 
+import { apiErrorMessage } from "@alfred/contracts";
+
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
@@ -25,8 +27,8 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
     signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(body?.message ?? `Transcription failed (${res.status})`);
+    const body = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(body, `Transcription failed (${res.status})`));
   }
   const payload = (await res.json()) as { text?: string };
   return typeof payload.text === "string" ? payload.text : "";

@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
+import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
@@ -33,7 +34,7 @@ const CLEAR_FILTERS_LEADING = <X size={14} />;
 
 async function decideApproval(stagingId: string, decision: ApprovalDecision) {
   const { error } = await client.api.approvals({ stagingId }).decision.post(decision);
-  if (error) throw new Error(decisionErrorMessage(error.value));
+  if (error) throw new Error(responseErrorMessage(error.value, error.status, "Approval decision"));
 }
 
 interface Facet<T extends string> {
@@ -371,12 +372,4 @@ function EmptyState({
       {action ? <div className="mt-2">{action}</div> : null}
     </AppCard>
   );
-}
-
-function decisionErrorMessage(value: unknown): string {
-  if (value && typeof value === "object" && "message" in value) {
-    const message = (value as { message: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return "Failed to record decision";
 }

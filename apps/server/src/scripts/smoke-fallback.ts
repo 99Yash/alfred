@@ -29,9 +29,7 @@ async function lastLogRow(idempotencyKey: string) {
     .where(eq(apiCallLog.kind, "llm"))
     .orderBy(desc(apiCallLog.createdAt))
     .limit(5);
-  return rows.find(
-    (r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey,
-  );
+  return rows.find((r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey);
 }
 
 async function main() {

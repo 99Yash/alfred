@@ -156,7 +156,7 @@ export function AppDateTimePicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 w-[19rem] rounded-2xl p-3",
+            "app app-frost-overlay z-50 w-76 rounded-2xl p-3 my-1",
             "outline-none app-fade-in",
           )}
         >

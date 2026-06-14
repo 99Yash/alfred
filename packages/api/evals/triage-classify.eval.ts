@@ -1,9 +1,5 @@
 import path from "node:path";
-import {
-  type AccountPersona,
-  type SenderContext,
-  type TriageCategory,
-} from "@alfred/contracts";
+import { type AccountPersona, type SenderContext, type TriageCategory } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";

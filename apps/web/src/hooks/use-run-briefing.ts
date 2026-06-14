@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 
 /**
@@ -23,11 +24,7 @@ export function useRunBriefing() {
     mutationFn: async () => {
       const res = await client.api.me.briefings.run.post();
       if (res.error) {
-        const detail =
-          res.error.value && typeof res.error.value === "object" && "message" in res.error.value
-            ? String((res.error.value as { message: unknown }).message)
-            : `Generate briefing failed (${res.status})`;
-        throw new Error(detail);
+        throw new Error(responseErrorMessage(res.error.value, res.status, "Generate briefing"));
       }
       return res.data as RunBriefingResult;
     },

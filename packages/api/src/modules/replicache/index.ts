@@ -1,6 +1,7 @@
-import { Elysia, status } from "elysia";
+import { Elysia } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { subscribeUserPokes } from "../../events/replicache-events";
+import { ForbiddenError, PayloadTooLargeError } from "../../middleware/errors";
 import { ReplicacheModel } from "./model";
 import { handlePull } from "./pull";
 import { handlePush } from "./push";
@@ -14,7 +15,7 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
         async ({ body, user }) => {
           const result = await handlePull(user.id, body);
           if ("forbidden" in result) {
-            return status(403, { message: "Client group is bound to another user" });
+            throw new ForbiddenError("Client group is bound to another user");
           }
           return result;
         },
@@ -24,13 +25,13 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
         "/push",
         async ({ body, user }) => {
           if (body.mutations.length > ReplicacheModel.MAX_MUTATIONS) {
-            return status(413, {
-              message: `Push exceeds ${ReplicacheModel.MAX_MUTATIONS} mutations`,
-            });
+            throw new PayloadTooLargeError(
+              `Push exceeds ${ReplicacheModel.MAX_MUTATIONS} mutations`,
+            );
           }
           const result = await handlePush(user.id, body);
           if ("forbidden" in result) {
-            return status(403, { message: "Client group is bound to another user" });
+            throw new ForbiddenError("Client group is bound to another user");
           }
           return result;
         },
