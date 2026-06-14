@@ -14,7 +14,12 @@ import type { Observations } from "@alfred/api/modules/triage/observations";
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderPrior: { key: "service:tasks.clickup.com", categoryCounts: {}, lastCategory: null },
   persona: "work",
-  thread: { lastUserReplyAt: null, newestDirection: "received", messageCount: 0, recentMessages: [] },
+  thread: {
+    lastUserReplyAt: null,
+    newestDirection: "received",
+    messageCount: 0,
+    recentMessages: [],
+  },
   knownContact: false,
   gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
   content: {

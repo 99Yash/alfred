@@ -1,4 +1,8 @@
-import { INTEGRATION_ACTIONS, toStringArray, type LoadableIntegrationSlug } from "@alfred/contracts";
+import {
+  INTEGRATION_ACTIONS,
+  toStringArray,
+  type LoadableIntegrationSlug,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -45,17 +49,37 @@ interface SummarySlug {
  * `imessage`) are intentionally omitted — ADR-0053 skips empty-action slugs.
  */
 const SUMMARY_SLUGS: readonly SummarySlug[] = [
-  { slug: "gmail", provider: "google", anyOfScopes: [GMAIL_READONLY_SCOPE], blurb: "the user's email" },
+  {
+    slug: "gmail",
+    provider: "google",
+    anyOfScopes: [GMAIL_READONLY_SCOPE],
+    blurb: "the user's email",
+  },
   {
     slug: "calendar",
     provider: "google",
     anyOfScopes: [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE],
     blurb: "the user's calendar",
   },
-  { slug: "drive", provider: "google", anyOfScopes: [DRIVE_SCOPE], blurb: "the user's Drive files" },
+  {
+    slug: "drive",
+    provider: "google",
+    anyOfScopes: [DRIVE_SCOPE],
+    blurb: "the user's Drive files",
+  },
   { slug: "docs", provider: "google", anyOfScopes: [DOCS_SCOPE], blurb: "the user's Google Docs" },
-  { slug: "sheets", provider: "google", anyOfScopes: [SHEETS_SCOPE], blurb: "the user's spreadsheets" },
-  { slug: "slides", provider: "google", anyOfScopes: [SLIDES_SCOPE], blurb: "the user's presentations" },
+  {
+    slug: "sheets",
+    provider: "google",
+    anyOfScopes: [SHEETS_SCOPE],
+    blurb: "the user's spreadsheets",
+  },
+  {
+    slug: "slides",
+    provider: "google",
+    anyOfScopes: [SLIDES_SCOPE],
+    blurb: "the user's presentations",
+  },
   { slug: "github", provider: "github", anyOfScopes: [], blurb: "the user's GitHub pull requests" },
 ];
 
@@ -79,7 +103,10 @@ interface ProviderRow {
  * `needs_reauth`; no relevant row at all means the slug is not connected (`null`,
  * omitted from the summary).
  */
-function healthForSlug(spec: SummarySlug, byProvider: Map<string, ProviderRow[]>): SlugHealth | null {
+function healthForSlug(
+  spec: SummarySlug,
+  byProvider: Map<string, ProviderRow[]>,
+): SlugHealth | null {
   const rows = byProvider.get(spec.provider);
   if (!rows || rows.length === 0) return null;
   const capable = rows.some(
