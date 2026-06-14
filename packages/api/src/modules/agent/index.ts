@@ -1,5 +1,6 @@
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
 import { listPublicWorkflows, listWorkflows, registerWorkflow } from "./registry";
@@ -83,12 +84,12 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             // distinguish "already running / already done" from a real
             // 4xx — the raw constraint name is unhelpful to clients.
             if (isUniqueViolation(err)) {
-              return status(409, {
-                message: `An active run for workflow "${body.workflowSlug}" already exists.`,
-              });
+              throw new ConflictError(
+                `An active run for workflow "${body.workflowSlug}" already exists.`,
+              );
             }
             const msg = err instanceof Error ? err.message : String(err);
-            return status(400, { message: msg });
+            throw new BadRequestError(msg);
           }
         },
         {
@@ -104,7 +105,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId",
         async ({ params, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) return status(404, { message: "Run not found" });
+          if (!run) throw new NotFoundError("Run not found");
           return run;
         },
         { params: t.Object({ runId: t.String() }) },
@@ -113,7 +114,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId/signal",
         async ({ params, body, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) return status(404, { message: "Run not found" });
+          if (!run) throw new NotFoundError("Run not found");
           // Reshape the flat body into the discriminated union that
           // `signalRun` consumes. `kind` is `t.String()` rather than a
           // literal-union because Elysia 1.4's `exact-mirror` validator
@@ -126,7 +127,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             const kind = body.match.kind;
             if (kind === "hil") {
               if (!body.match.approvalId) {
-                return status(400, { message: "match.kind='hil' requires approvalId" });
+                throw new BadRequestError("match.kind='hil' requires approvalId");
               }
               match = {
                 kind: "hil",
@@ -138,19 +139,19 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               };
             } else if (kind === "signal") {
               if (!body.match.name) {
-                return status(400, { message: "match.kind='signal' requires name" });
+                throw new BadRequestError("match.kind='signal' requires name");
               }
               match = { kind: "signal", name: body.match.name };
             } else if (kind === "any") {
               match = { kind: "any" };
             } else {
-              return status(400, {
-                message: `match.kind must be 'hil' | 'signal' | 'any'; got ${String(kind)}`,
-              });
+              throw new BadRequestError(
+                `match.kind must be 'hil' | 'signal' | 'any'; got ${String(kind)}`,
+              );
             }
           }
           const woken = await signalRun({ runId: params.runId, match });
-          if (!woken) return status(409, { message: "Run not waiting on a matching condition" });
+          if (!woken) throw new ConflictError("Run not waiting on a matching condition");
           await enqueueRun(params.runId);
           return { ok: true };
         },

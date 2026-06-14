@@ -1,3 +1,4 @@
+import { mapConcurrent } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { embedDocument } from "@alfred/ingestion";
@@ -725,35 +726,6 @@ async function filterKnownGmailIds(
     );
   const known = new Set(existing.map((r) => r.sourceId));
   return refs.filter((r) => !known.has(r.id));
-}
-
-/**
- * Bounded-concurrency map. Spawns up to `concurrency` workers that pull
- * from a shared index. Per-task try/catch is the caller's job: if `fn`
- * throws, `Promise.all` rejects with the first error but the other
- * already-running workers keep going to completion (no cancellation).
- * The sole caller wraps each task body in try/catch so the loop drains
- * even when individual messages fail.
- */
-async function mapConcurrent<T>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  if (!items.length) return;
-  const workers = Math.min(Math.max(1, concurrency), items.length);
-  let i = 0;
-  await Promise.all(
-    Array.from({ length: workers }, async () => {
-      while (true) {
-        const idx = i++;
-        if (idx >= items.length) return;
-        // `idx < items.length` guarantees presence; the non-null is for
-        // `noUncheckedIndexedAccess`, not a runtime claim.
-        await fn(items[idx] as T);
-      }
-    }),
-  );
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */

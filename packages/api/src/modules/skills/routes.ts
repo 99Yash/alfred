@@ -1,9 +1,10 @@
 import { db } from "@alfred/db";
 import { skills } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
+import { ConflictError, InternalServerError, NotFoundError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { recordSkillRun } from "./revisions";
@@ -51,7 +52,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             .returning({ id: skills.id, slug: skills.slug });
 
           const skill = inserted[0];
-          if (!skill) return status(500, { message: "Failed to insert skill" });
+          if (!skill) throw new InternalServerError("Failed to insert skill");
 
           const trimmedPrompt = body.prompt?.trim() ?? "";
           if (trimmedPrompt.length === 0) {
@@ -97,7 +98,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             .from(skills)
             .where(and(eq(skills.id, params.id), eq(skills.userId, user.id)))
             .limit(1);
-          if (!owner[0]) return status(404, { message: "Skill not found" });
+          if (!owner[0]) throw new NotFoundError("Skill not found");
 
           const input: LearnSkillWorkflowInput = {
             skillId: params.id,
@@ -121,8 +122,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             return { runId: created.runId };
           } catch (err) {
             if (isUniqueViolation(err)) {
-              return status(409, {
-                message: "A learn run is already in flight for this skill",
+              throw new ConflictError("A learn run is already in flight for this skill", {
                 dedupKey: learnSkillDedupKey(params.id),
               });
             }

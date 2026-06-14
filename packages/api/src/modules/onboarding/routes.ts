@@ -1,8 +1,9 @@
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
-import { Elysia, status } from "elysia";
+import { Elysia } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import { NotFoundError } from "../../middleware/errors";
 
 /**
  * Onboarding state routes.
@@ -25,7 +26,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
           .where(eq(user.id, u.id))
           .limit(1);
         const row = rows[0];
-        if (!row) return status(404, { message: "User not found" });
+        if (!row) throw new NotFoundError("User not found");
         return {
           routeToOnboarding: row.onboardedAt === null,
           onboardedAt: row.onboardedAt?.toISOString() ?? null,
@@ -38,7 +39,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
           .where(eq(user.id, u.id))
           .returning({ onboardedAt: user.onboardedAt });
         const row = rows[0];
-        if (!row) return status(404, { message: "User not found" });
+        if (!row) throw new NotFoundError("User not found");
         return {
           routeToOnboarding: false,
           onboardedAt: row.onboardedAt?.toISOString() ?? null,
