@@ -1,4 +1,5 @@
 import { getSubAgentModel, meteredGenerateText, stepCountIs } from "@alfred/ai";
+import { settleTaskGroup } from "@alfred/contracts";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
@@ -113,12 +114,14 @@ async function runAspect(args: {
   aspect: ColdStartAspect;
   runId?: string;
   idempotencyKey?: string;
+  abortSignal?: AbortSignal;
 }): Promise<AspectFinding> {
   const stepId = `aspect:${args.aspect.id}`;
   const web = buildColdStartWebTool({
     userId: args.signals.userId,
     runId: args.runId,
     stepId,
+    abortSignal: args.abortSignal,
   });
 
   const result = await meteredGenerateText(
@@ -130,6 +133,7 @@ async function runAspect(args: {
       stopWhen: stepCountIs(ASPECT_MAX_STEPS),
       maxOutputTokens: ASPECT_MAX_OUTPUT_TOKENS,
       temperature: 0,
+      abortSignal: args.abortSignal,
     },
     {
       kind: "llm",
@@ -159,29 +163,36 @@ export interface ResearchAspectsArgs {
 }
 
 /**
- * Fan the aspect set out concurrently. One slow aspect doesn't block the rest;
- * the whole step finishes when the slowest aspect returns. A single aspect that
- * throws shouldn't sink the run — we degrade it to an explicit empty finding so
- * synthesis still gets the others.
+ * Fan the aspect set out concurrently. If one aspect throws, abort the shared
+ * provider/web-search signal so sibling loops don't keep spending API calls in
+ * the background. The workflow still degrades to explicit empty findings after
+ * the task group has settled, preserving cold-start's best-effort contract.
  */
 export async function researchAspects(args: ResearchAspectsArgs): Promise<AspectFinding[]> {
   const aspects = selectAspects(args.signals);
-  return Promise.all(
-    aspects.map((aspect) =>
-      runAspect({
-        signals: args.signals,
-        anchor: args.anchor,
-        aspect,
-        runId: args.runId,
-        idempotencyKey: args.idempotencyKey,
-      }).catch(
-        (): AspectFinding => ({
-          id: aspect.id,
-          label: aspect.label,
-          finding: "nothing publicly found for this facet (research step failed)",
-          citations: [],
-        }),
-      ),
+  const settled = await settleTaskGroup(
+    aspects.map(
+      (aspect) =>
+        async ({ signal }) =>
+          runAspect({
+            signals: args.signals,
+            anchor: args.anchor,
+            aspect,
+            runId: args.runId,
+            idempotencyKey: args.idempotencyKey,
+            abortSignal: signal,
+          }),
     ),
   );
+
+  return settled.map((result, index): AspectFinding => {
+    if (result.status === "fulfilled") return result.value;
+    const aspect = aspects[index] as ColdStartAspect;
+    return {
+      id: aspect.id,
+      label: aspect.label,
+      finding: "nothing publicly found for this facet (research step failed)",
+      citations: [],
+    };
+  });
 }

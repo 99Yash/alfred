@@ -23,6 +23,7 @@ import { InputRenderer } from "~/components/approvals/input-renderer";
 import { RiskPill } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
 import { AppButton, AppTextarea } from "~/components/ui/v2";
+import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -164,7 +165,11 @@ function ApprovalStep({
       const { error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
         .decision.post(decision);
-      if (responseError) throw new Error(decisionErrorMessage(responseError.value));
+      if (responseError) {
+        throw new Error(
+          responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
+        );
+      }
       setDecided(true);
       onDecision(decision.decision);
       const recorded = decision.decision === "approve" ? toast.success : toast.info;
@@ -404,12 +409,4 @@ function policyCopy(riskTier: ToolRiskTier): string {
     return "This integration is set to ask first. Review the target before Alfred reads more context.";
   }
   return "This action can change data outside Alfred. Review the details before it runs.";
-}
-
-function decisionErrorMessage(value: unknown): string {
-  if (value && typeof value === "object" && "message" in value) {
-    const message = (value as { message: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return "Failed to record decision";
 }

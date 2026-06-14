@@ -1,6 +1,7 @@
 import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
@@ -81,11 +82,7 @@ export function useMarkInboxRead() {
         documentIds: [...documentIds],
       });
       if (res.error) {
-        const detail =
-          res.error.value && typeof res.error.value === "object" && "message" in res.error.value
-            ? String((res.error.value as { message: unknown }).message)
-            : `Mark-read failed (${res.status})`;
-        throw new Error(detail);
+        throw new Error(responseErrorMessage(res.error.value, res.status, "Mark-read"));
       }
       return res.data;
     },
