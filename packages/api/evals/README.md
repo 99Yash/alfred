@@ -29,7 +29,7 @@ Two kinds, both used:
   arithmetic, "did a todo mint." Prefer these wherever the answer is checkable in
   code; they're the hard signal.
 - **LLM-as-judge** (`lib/llm-judge.ts`) — for the subjective dimensions a
-  deterministic check can't see (is the *reasoning* sound? is a todo title written
+  deterministic check can't see (is the _reasoning_ sound? is a todo title written
   the way a human would jot it?). The judge returns a LETTER grade (A/B/C/D)
   against an explicit rubric, mapped to a number in code — LLMs grade letters far
   more consistently than they grade 0–100 — and must explain itself; the
@@ -40,11 +40,11 @@ Two kinds, both used:
 
 The eval-tier model (dev / CI / regression) we're working toward:
 
-| Tier | Size | Cadence | Contents |
-| --- | --- | --- | --- |
-| **Dev** | 5–10 | every local change | hardest / current-priority cases — what's here today |
-| **CI** | medium | every commit | recent dev cases + golden cases; < ~15 min |
-| **Regression** | large | scheduled | everything, tracked over time |
+| Tier           | Size   | Cadence            | Contents                                             |
+| -------------- | ------ | ------------------ | ---------------------------------------------------- |
+| **Dev**        | 5–10   | every local change | hardest / current-priority cases — what's here today |
+| **CI**         | medium | every commit       | recent dev cases + golden cases; < ~15 min           |
+| **Regression** | large  | scheduled          | everything, tracked over time                        |
 
 Today everything is the **dev** tier: small, hand-authored, weighted toward the
 hardest cases. The triage dataset is seeded from golden positives + the

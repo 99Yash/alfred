@@ -1,6 +1,6 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { pageMeta } from '~/lib/page-meta';
-import { PreviewSettingsPage } from './-preview-settings/preview-settings-page';
+import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
+import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
 
 /**
  * App-grammar port of /settings.
@@ -17,7 +17,7 @@ import { PreviewSettingsPage } from './-preview-settings/preview-settings-page';
  *   (bg-app-bg-2) and icon brightening.
  * - Heading-display gradient title → plain ink heading.
  */
-export const Route = createFileRoute('/settings')({
-  head: () => pageMeta({ title: 'Settings', path: '/settings' }),
+export const Route = createFileRoute("/settings")({
+  head: () => pageMeta({ title: "Settings", path: "/settings" }),
   component: PreviewSettingsPage,
 });

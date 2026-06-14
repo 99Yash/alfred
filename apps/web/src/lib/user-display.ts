@@ -7,10 +7,7 @@ import type { authClient } from "./auth-client";
  * Auth's inferred session type so it tracks the real user shape — we only need
  * `name`/`email` here, hence the `Pick`.
  */
-export type SessionUser = Pick<
-  (typeof authClient)["$Infer"]["Session"]["user"],
-  "name" | "email"
->;
+export type SessionUser = Pick<(typeof authClient)["$Infer"]["Session"]["user"], "name" | "email">;
 
 /** Capitalize the first letter; leaves the rest untouched. */
 export function titleCase(s: string): string {

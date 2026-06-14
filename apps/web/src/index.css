@@ -1857,11 +1857,7 @@
      * gentle. Keeps the wash present without the bright leading edge. */
     background: radial-gradient(
       88% 140% at -8% 50%,
-      color-mix(
-        in srgb,
-        var(--app-toast-glow) var(--app-toast-glow-strength, 15%),
-        transparent
-      ),
+      color-mix(in srgb, var(--app-toast-glow) var(--app-toast-glow-strength, 15%), transparent),
       transparent 64%
     );
   }
@@ -1928,18 +1924,18 @@
   }
   /* Dark: the `-4` accents are already light, so they pop on the dark frost —
    * use them straight over a slightly fuller disc. */
-  .app-toast[data-app-theme='dark'] .app-toast-icon--success,
-  .app-toast[data-app-theme='dark'] .app-toast-icon--info,
-  .app-toast[data-app-theme='dark'] .app-toast-icon--warning,
-  .app-toast[data-app-theme='dark'] .app-toast-icon--danger {
+  .app-toast[data-app-theme="dark"] .app-toast-icon--success,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--info,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--warning,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--danger {
     background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
     color: var(--accent);
   }
   @media (prefers-color-scheme: dark) {
-    .app-toast:not([data-app-theme='light']) .app-toast-icon--success,
-    .app-toast:not([data-app-theme='light']) .app-toast-icon--info,
-    .app-toast:not([data-app-theme='light']) .app-toast-icon--warning,
-    .app-toast:not([data-app-theme='light']) .app-toast-icon--danger {
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--success,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--info,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--warning,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--danger {
       background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
       color: var(--accent);
     }

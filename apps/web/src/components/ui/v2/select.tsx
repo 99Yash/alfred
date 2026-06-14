@@ -156,7 +156,7 @@ export function AppSelect({
           onKeyDown={handleListKeyDown}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 max-h-72 w-[var(--radix-popover-trigger-width)] min-w-44 overflow-auto rounded-2xl p-1.5",
+            "app app-frost-overlay z-50 max-h-72 w-(--radix-popover-trigger-width) min-w-44 overflow-auto rounded-2xl p-1.5 my-1",
             "outline-none app-fade-in",
           )}
         >

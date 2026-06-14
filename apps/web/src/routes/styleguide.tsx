@@ -2009,13 +2009,25 @@ function V2ToastSection() {
           </V2Row>
 
           <V2Row label="emoji">
-            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "🎉", label: "Turn finished" })}>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.emoji({ emoji: "🎉", label: "Turn finished" })}
+            >
               🎉 finished
             </AppButton>
-            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "📋", label: "Copied to clipboard" })}>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.emoji({ emoji: "📋", label: "Copied to clipboard" })}
+            >
               📋 copied
             </AppButton>
-            <AppButton variant="white" size="sm" onClick={() => toast.emoji({ emoji: "☕", label: "Taking a break" })}>
+            <AppButton
+              variant="white"
+              size="sm"
+              onClick={() => toast.emoji({ emoji: "☕", label: "Taking a break" })}
+            >
               ☕ break
             </AppButton>
           </V2Row>
