@@ -8,9 +8,10 @@ import {
   upsertGithubCredential,
 } from "@alfred/integrations/github";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
+import { BadRequestError } from "../../middleware/errors";
 import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
 
 /**
@@ -110,14 +111,14 @@ export const githubIntegrationRoutes = new Elysia({
       }
 
       const decoded = verifyState(query.state);
-      if (!decoded) return status(400, { message: "Invalid state" });
+      if (!decoded) throw new BadRequestError("Invalid state");
 
       const storedUserId = await consumeOAuthNonce("github", decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
-        return status(400, { message: "Invalid or expired state" });
+        throw new BadRequestError("Invalid or expired state");
       }
-      if (!query.code) return status(400, { message: "Missing code" });
-      if (!query.installation_id) return status(400, { message: "Missing installation_id" });
+      if (!query.code) throw new BadRequestError("Missing code");
+      if (!query.installation_id) throw new BadRequestError("Missing installation_id");
 
       const tokens = await exchangeUserCode(query.code);
       const installationId = query.installation_id;
@@ -126,7 +127,7 @@ export const githubIntegrationRoutes = new Elysia({
         installationId,
       });
       if (!installationMatchesUser) {
-        return status(400, { message: "GitHub installation is not accessible to this user" });
+        throw new BadRequestError("GitHub installation is not accessible to this user");
       }
 
       // Onboarding lookup is independent of the credential upsert — race them.

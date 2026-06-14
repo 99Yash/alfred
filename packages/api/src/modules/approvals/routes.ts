@@ -1,9 +1,10 @@
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
+import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
 import {
   cancelRunInTx,
   enqueueRun,
@@ -44,14 +45,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
       async ({ params, body, user }) => {
         const decision = parseDecision(body.decision);
         if (!decision) {
-          return status(400, {
-            message: "decision must be 'approve' | 'reject' | 'cancel_run'",
-          });
+          throw new BadRequestError("decision must be 'approve' | 'reject' | 'cancel_run'");
         }
         const reason = body.reason?.trim();
 
         if ((decision === "reject" || decision === "cancel_run") && !reason) {
-          return status(400, { message: "Rejecting an action requires a reason" });
+          throw new BadRequestError("Rejecting an action requires a reason");
         }
 
         const outcome = await db().transaction<
@@ -149,8 +148,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           return { runId: row.runId, decision, status: "rejected", shouldEnqueue };
         });
 
-        if ("notFound" in outcome) return status(404, { message: "Approval not found" });
-        if ("conflict" in outcome) return status(409, { message: outcome.conflict });
+        if ("notFound" in outcome) throw new NotFoundError("Approval not found");
+        if ("conflict" in outcome) throw new ConflictError(outcome.conflict);
 
         emitReplicachePokes([user.id], params.stagingId);
         // A `cancel_run` bulk-rejects every gated pending row on the run,

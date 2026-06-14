@@ -5,8 +5,15 @@ import { createId } from "@alfred/db/helpers";
 import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, sql } from "drizzle-orm";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import {
+  BadGatewayError,
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "../../middleware/errors";
 import { createRun, enqueueRun, getRun, isUniqueViolation } from "../agent/index";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
 import { requestChatStop } from "./stop-signal";
@@ -42,12 +49,12 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/transcribe",
         async ({ body }) => {
           if (!serverEnv().OPENAI_API_KEY) {
-            return status(503, {
-              message: "Voice transcription isn't configured — set OPENAI_API_KEY on the server.",
-            });
+            throw new ServiceUnavailableError(
+              "Voice transcription isn't configured — set OPENAI_API_KEY on the server.",
+            );
           }
           const audio = new Uint8Array(await body.audio.arrayBuffer());
-          if (audio.byteLength === 0) return status(400, { message: "audio must not be empty" });
+          if (audio.byteLength === 0) throw new BadRequestError("audio must not be empty");
           try {
             const { text } = await transcribeAudio(audio);
             return { text: text.trim() };
@@ -59,7 +66,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               "[chat] transcription failed:",
               err instanceof Error ? err.message : String(err),
             );
-            return status(502, { message: "Transcription failed. Try again." });
+            throw new BadGatewayError("Transcription failed. Try again.");
           }
         },
         {
@@ -80,21 +87,19 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/runs/:runId/stop",
         async ({ params, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) return status(404, { message: "Run not found" });
+          if (!run) throw new NotFoundError("Run not found");
           if (run.workflowSlug !== CHAT_TURN_WORKFLOW_SLUG) {
-            return status(400, { message: "Not a chat run" });
+            throw new BadRequestError("Not a chat run");
           }
           if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
-            return status(409, { message: "Run already finished" });
+            throw new ConflictError("Run already finished");
           }
           if (run.status === "waiting") {
-            return status(409, {
-              message: "Run is awaiting approval — resolve the approval instead",
-            });
+            throw new ConflictError("Run is awaiting approval — resolve the approval instead");
           }
           const recorded = await requestChatStop(params.runId);
           if (!recorded)
-            return status(503, { message: "Couldn't reach the stop channel — try again" });
+            throw new ServiceUnavailableError("Couldn't reach the stop channel — try again");
           return { ok: true };
         },
         { params: t.Object({ runId: t.String({ minLength: 1, maxLength: 120 }) }) },
@@ -104,7 +109,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         async ({ params, body, user }) => {
           const threadId = params.threadId;
           const content = body.content.trim();
-          if (content.length === 0) return status(400, { message: "content must not be empty" });
+          if (content.length === 0) throw new BadRequestError("content must not be empty");
 
           // Thread must be the caller's (or new). Reject cross-user posts.
           const existing = await db()
@@ -114,7 +119,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             .limit(1);
           const thread = existing[0];
           if (thread && thread.userId !== user.id) {
-            return status(404, { message: "thread not found" });
+            throw new NotFoundError("thread not found");
           }
 
           const now = new Date();

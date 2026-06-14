@@ -25,6 +25,7 @@ export interface WebSearchArgs {
   stepId?: string;
   /** Stable per-call key — the tool passes the model's tool_call_id. */
   idempotencyKey?: string;
+  abortSignal?: AbortSignal;
 }
 
 export interface WebSearchSource {
@@ -117,6 +118,7 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
       // single interactive lookup cheap.
       maxOutputTokens: 1_500,
       temperature: 0,
+      abortSignal: args.abortSignal,
     },
     {
       kind: "web_search",

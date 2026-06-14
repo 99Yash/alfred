@@ -15,9 +15,10 @@ import {
   upsertCredential,
 } from "@alfred/integrations/google";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
@@ -92,9 +93,9 @@ export const googleIntegrationRoutes = new Elysia({
               .filter(Boolean);
             const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
             if (known.length !== parsed.length) {
-              return status(400, {
-                message: `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
-              });
+              throw new BadRequestError(
+                `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
+              );
             }
             // An explicit param that parses to nothing (e.g. `?features=,`)
             // requests identity scopes only — it must not silently widen to
@@ -158,7 +159,7 @@ export const googleIntegrationRoutes = new Elysia({
               ),
             )
             .returning({ id: integrationCredentials.id, persona: integrationCredentials.persona });
-          if (!updated[0]) return status(404, { message: "Credential not found" });
+          if (!updated[0]) throw new NotFoundError("Credential not found");
           return { credentialId: updated[0].id, persona: updated[0].persona };
         },
         {
@@ -178,9 +179,9 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.userId, user.id),
               ),
             );
-          if (!owner[0]) return status(404, { message: "Credential not found" });
+          if (!owner[0]) throw new NotFoundError("Credential not found");
           const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
-          if (!topic) return status(503, { message: "GOOGLE_PUBSUB_TOPIC not configured" });
+          if (!topic) throw new ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
           const state = await installGmailWatch({ credentialId: params.id, topicName: topic });
           return { credentialId: params.id, watch: state };
         },
@@ -200,7 +201,7 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.userId, user.id),
               ),
             );
-          if (!owner[0]) return status(404, { message: "Credential not found" });
+          if (!owner[0]) throw new NotFoundError("Credential not found");
           await uninstallGmailWatch(params.id);
           return { credentialId: params.id, ok: true };
         },
@@ -220,7 +221,7 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.userId, user.id),
               ),
             );
-          if (!owner[0]) return status(404, { message: "Credential not found" });
+          if (!owner[0]) throw new NotFoundError("Credential not found");
           const state = await getGmailWatchState(params.id);
           return { credentialId: params.id, watch: state };
         },
@@ -243,7 +244,7 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.userId, user.id),
               ),
             );
-          if (!owner[0]) return status(404, { message: "Credential not found" });
+          if (!owner[0]) throw new NotFoundError("Credential not found");
 
           const queue = getIngestionQueue();
           const job = await queue.add("gmail.ingest_recent", {
@@ -272,10 +273,10 @@ export const googleIntegrationRoutes = new Elysia({
     "/callback",
     async ({ query, set }) => {
       if (!query.code || !query.state) {
-        return status(400, { message: "Missing code or state" });
+        throw new BadRequestError("Missing code or state");
       }
       const decoded = verifyState(query.state);
-      if (!decoded) return status(400, { message: "Invalid state" });
+      if (!decoded) throw new BadRequestError("Invalid state");
 
       // Atomically consume the nonce. If it's missing/expired/already used,
       // reject — this is what makes captured `state` values single-use.
@@ -283,7 +284,7 @@ export const googleIntegrationRoutes = new Elysia({
       // the signed state as a sanity check.
       const storedUserId = await consumeOAuthNonce("google", decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
-        return status(400, { message: "Invalid or expired state" });
+        throw new BadRequestError("Invalid or expired state");
       }
 
       const tokens = await exchangeCode(query.code);

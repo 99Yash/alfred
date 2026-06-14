@@ -1,10 +1,11 @@
 import { Elysia } from "elysia";
+import { UnauthorizedError } from "./errors.js";
 import { getSessionCached } from "./session-cache.js";
 
 export const authMacro = new Elysia({ name: "auth-macro", normalize: "typebox" }).macro("auth", {
-  async resolve({ status, request }) {
+  async resolve({ request }) {
     const session = await getSessionCached(request);
-    if (!session) return status(401);
+    if (!session) throw new UnauthorizedError();
     return { user: session.user };
   },
 });

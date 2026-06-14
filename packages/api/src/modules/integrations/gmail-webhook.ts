@@ -1,7 +1,8 @@
 import { findCredentialByEmail } from "@alfred/integrations/google";
 import { serverEnv } from "@alfred/env/server";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { UnauthorizedError } from "../../middleware/errors";
 import { getIngestionQueue } from "./queue";
 
 /**
@@ -103,7 +104,7 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "
       // 401 → Pub/Sub will retry, but a misconfigured audience would
       // retry forever. Logging at warn level keeps this visible without
       // paging on every notification.
-      return status(401, { message: "Invalid OIDC token" });
+      throw new UnauthorizedError("Invalid OIDC token");
     }
 
     const envelope = body as PubSubEnvelope;

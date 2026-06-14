@@ -30,8 +30,14 @@ import {
   or,
   sql as drizzleSql,
 } from "drizzle-orm";
-import { Elysia, status, t } from "elysia";
+import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  TooManyRequestsError,
+} from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
 import {
   localDateInTimezone,
@@ -420,7 +426,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // with `lt` would leak the tied row off the next page).
           const parsedCursor = parseInboxCursor(query.cursor);
           if (parsedCursor === "invalid") {
-            return status(400, { message: "Invalid cursor" });
+            throw new BadRequestError("Invalid cursor");
           }
 
           const baseWhere = and(
@@ -546,7 +552,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .limit(1);
 
           const selected = selectedRows[0];
-          if (!selected) return status(404, { message: "Not found" });
+          if (!selected) throw new NotFoundError("Not found");
 
           // Fan out to every sibling message in the same thread. Falls
           // back to the single row when the thread id is null (extremely
@@ -728,9 +734,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             return granted.includes(modifyScope);
           });
           if (modifyCreds.length === 0) {
-            return status(409, {
-              message: "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
-            });
+            throw new ConflictError(
+              "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
+            );
           }
           const credByAccount = new Map(modifyCreds.map((c) => [c.accountId, c]));
           // Fallback for legacy NULL-accountId docs: the unique
@@ -751,10 +757,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             markedRows.push(...group);
           }
           if (markedRows.length === 0) {
-            return status(409, {
-              message:
-                "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
-            });
+            throw new ConflictError(
+              "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
+            );
           }
 
           // Strip UNREAD from each row's stored metadata so the next
@@ -952,9 +957,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
         const claimed = await claimBriefingRunRetry({ userId: u.id, briefingDate, slot });
         if (!claimed) {
-          return status(429, {
-            message: "Briefing generation is already retrying. Try again in a minute.",
-          });
+          throw new TooManyRequestsError(
+            "Briefing generation is already retrying. Try again in a minute.",
+          );
         }
 
         const { runId } = await enqueueBriefingRun({

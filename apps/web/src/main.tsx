@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { DefaultCatchBoundary, NotFound } from "./components/error-boundary";
 import { ReplicacheProvider } from "./lib/replicache/context";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
@@ -11,6 +12,8 @@ const queryClient = new QueryClient();
 const router = createRouter({
   routeTree,
   context: { queryClient },
+  defaultErrorComponent: DefaultCatchBoundary,
+  defaultNotFoundComponent: NotFound,
 });
 
 declare module "@tanstack/react-router" {

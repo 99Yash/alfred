@@ -35,6 +35,7 @@ export function buildColdStartWebTool(args: {
   /** Optional — passed straight through so an omitted run meters as null, not "". */
   runId?: string;
   stepId?: string;
+  abortSignal?: AbortSignal;
 }): ColdStartWebTool {
   const citations: string[] = [];
   const seen = new Set<string>();
@@ -53,6 +54,7 @@ export function buildColdStartWebTool(args: {
         userId: args.userId,
         runId: args.runId,
         stepId: args.stepId,
+        abortSignal: args.abortSignal,
         // Stable per-search key so a retried turn re-uses the same trace id.
         idempotencyKey: toolCallId,
       });

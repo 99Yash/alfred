@@ -8,7 +8,7 @@ export function CapabilityChip({ children }: { children: ReactNode }) {
       className={cn(
         "inline-flex items-center gap-2 rounded-full h-8 pl-2 pr-3.5",
         "bg-app-bg-1 ring-1 ring-app-bg-3 text-[12.5px] font-medium text-app-fg-4",
-        "shadow-[var(--app-shadow-elevated)]",
+        "shadow-(--app-shadow-elevated)",
       )}
     >
       <span

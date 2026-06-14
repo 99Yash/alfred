@@ -1,4 +1,5 @@
 import { Queue, Worker, type Job } from "bullmq";
+import { mapConcurrent, runTaskGroup } from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
   findExpiringGmailWatches,
@@ -25,6 +26,8 @@ import { reconcileThreadLabel } from "../triage/tags";
  *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
  */
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
+const REALTIME_EMIT_CONCURRENCY = 10;
+const REALTIME_EMBED_CONCURRENCY = 4;
 
 export type IngestionJobData =
   | {
@@ -159,11 +162,15 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // large bulk seed doesn't pay the latencies in series. Triage fans
         // over `triageDocumentIds` only — sent mail is ingested + embedded
         // (inline in the ingestor) but never triaged/labeled (ADR-0051 #7).
-        await Promise.all([
-          data.triageInsertedDocs
-            ? emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest")
-            : Promise.resolve(),
-          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        await runTaskGroup([
+          async () => {
+            if (data.triageInsertedDocs) {
+              await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+            }
+          },
+          async () => {
+            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+          },
         ]);
       }
       return result;
@@ -187,12 +194,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // each function swallows its own errors. Fan them out so the
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
-        await Promise.all([
+        await runTaskGroup([
           // Triage non-sent inserts only; embed ALL inserts (sent mail is
           // embedded for chat recall but never triaged — ADR-0051 #7).
-          emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook"),
-          embedRealtimeInserts(result.insertedDocumentIds),
-          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+          async () => {
+            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook");
+          },
+          async () => {
+            await embedRealtimeInserts(result.insertedDocumentIds);
+          },
+          async () => {
+            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+          },
         ]);
       }
       return result;
@@ -211,9 +224,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // `messagesAdded` history entry. We still fan triage so a missed
       // realtime ingestion doesn't go untagged.
       if (!result.fullResync && result.insertedDocumentIds.length) {
-        await Promise.all([
-          emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest"),
-          publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length),
+        await runTaskGroup([
+          async () => {
+            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+          },
+          async () => {
+            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+          },
         ]);
       }
       return result;
@@ -352,24 +369,22 @@ async function emitGmailMessageEvents(
   documentIds: string[],
   reason: "webhook" | "manual" | "ingest" | "reply",
 ): Promise<void> {
-  await Promise.all(
-    documentIds.map(async (documentId) => {
-      try {
-        await emitEvent({
-          userId,
-          source: "gmail",
-          type: "message_received",
-          eventId: documentId,
-          payload: { documentId, reason },
-        });
-      } catch (err) {
-        console.warn(
-          `[ingestion:worker] failed to emit gmail.message_received for doc=${documentId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }),
-  );
+  await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
+    try {
+      await emitEvent({
+        userId,
+        source: "gmail",
+        type: "message_received",
+        eventId: documentId,
+        payload: { documentId, reason },
+      });
+    } catch (err) {
+      console.warn(
+        `[ingestion:worker] failed to emit gmail.message_received for doc=${documentId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  });
 }
 
 /**
@@ -410,16 +425,14 @@ async function publishInboxUpdate(
  * the user-visible tag-latency budget (ADR-0037).
  */
 async function embedRealtimeInserts(documentIds: string[]): Promise<void> {
-  await Promise.all(
-    documentIds.map(async (documentId) => {
-      try {
-        await embedDocument({ documentId });
-      } catch (err) {
-        console.warn(
-          `[ingestion:worker] gmail.poll_recent embed failed for doc=${documentId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }),
-  );
+  await mapConcurrent(documentIds, REALTIME_EMBED_CONCURRENCY, async (documentId) => {
+    try {
+      await embedDocument({ documentId });
+    } catch (err) {
+      console.warn(
+        `[ingestion:worker] gmail.poll_recent embed failed for doc=${documentId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  });
 }
