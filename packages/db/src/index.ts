@@ -49,6 +49,17 @@ export function db() {
   return _db;
 }
 
+function hasRows(result: unknown): result is { rows: unknown[] } {
+  return (
+    typeof result === "object" && result !== null && "rows" in result && Array.isArray(result.rows)
+  );
+}
+
+export function rowsFromExecute<T>(result: unknown): T[] {
+  const rawRows = hasRows(result) ? result.rows : result;
+  return Array.isArray(rawRows) ? (rawRows as T[]) : [];
+}
+
 /**
  * Pre-warm the connection pool so the first requests don't pay
  * the TCP + SSL + auth handshake cost (~2-3 s to Neon).

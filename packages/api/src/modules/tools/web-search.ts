@@ -15,6 +15,7 @@
  */
 
 import { getWebSearchModel, googleSearchGroundingTools, meteredGenerateText } from "@alfred/ai";
+import { getPath, isNonEmptyString, isRecord } from "@alfred/contracts";
 
 export interface WebSearchArgs {
   query: string;
@@ -82,12 +83,9 @@ function extractCitations(
   const seen = new Set<string>();
   const out: WebSearchSource[] = [];
   const push = (url: unknown, title: unknown): void => {
-    if (typeof url === "string" && url.length > 0 && !seen.has(url)) {
+    if (isNonEmptyString(url) && !seen.has(url)) {
       seen.add(url);
-      out.push({
-        url,
-        title: typeof title === "string" && title.length > 0 ? title : undefined,
-      });
+      out.push({ url, title: isNonEmptyString(title) ? title : undefined });
     }
   };
 
@@ -95,25 +93,11 @@ function extractCitations(
     for (const s of sources) push(s?.url, s?.title);
   }
 
-  if (providerMetadata && typeof providerMetadata === "object") {
-    const google = (providerMetadata as Record<string, unknown>).google;
-    const grounding =
-      google && typeof google === "object"
-        ? (google as Record<string, unknown>).groundingMetadata
-        : undefined;
-    const chunks =
-      grounding && typeof grounding === "object"
-        ? (grounding as Record<string, unknown>).groundingChunks
-        : undefined;
-    if (Array.isArray(chunks)) {
-      for (const chunk of chunks) {
-        const web =
-          chunk && typeof chunk === "object" ? (chunk as Record<string, unknown>).web : undefined;
-        if (web && typeof web === "object") {
-          const w = web as Record<string, unknown>;
-          push(w.uri, w.title);
-        }
-      }
+  const chunks = getPath(providerMetadata, "google", "groundingMetadata", "groundingChunks");
+  if (Array.isArray(chunks)) {
+    for (const chunk of chunks) {
+      const web = getPath(chunk, "web");
+      if (isRecord(web)) push(web.uri, web.title);
     }
   }
 

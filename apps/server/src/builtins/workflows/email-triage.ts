@@ -28,7 +28,12 @@ import {
   type TriageClassification,
   type Workflow,
 } from "@alfred/api";
-import { senderContextSchema, type AccountPersona, type SenderContext } from "@alfred/contracts";
+import {
+  senderContextSchema,
+  toStringArray,
+  type AccountPersona,
+  type SenderContext,
+} from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 
@@ -555,7 +560,7 @@ async function gatherObservations(args: {
   senderAddress: string | null;
 }): Promise<Observations> {
   const meta = args.document.metadata;
-  const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+  const labelIds = toStringArray(meta.labelIds);
 
   // Read key uses the same derivation as the write key (humans → null) but no
   // sent/fallback guard: reads are harmless and the classify step only runs on

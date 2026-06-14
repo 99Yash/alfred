@@ -16,6 +16,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { getBossModel, getChatModel, meteredGenerateText, withFallback } from "@alfred/ai";
+import { toRecord } from "@alfred/contracts";
 import { db, closeConnections } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
 import { desc, eq } from "drizzle-orm";
@@ -29,7 +30,7 @@ async function lastLogRow(idempotencyKey: string) {
     .orderBy(desc(apiCallLog.createdAt))
     .limit(5);
   return rows.find(
-    (r) => (r.requestMeta as Record<string, unknown> | null)?.idempotencyKey === idempotencyKey,
+    (r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey,
   );
 }
 

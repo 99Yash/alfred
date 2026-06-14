@@ -2,7 +2,9 @@ import { triageCategorySchema } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
+import { syncedTriageTagSchema } from "../schemas";
 import type { SyncedTriageTag } from "../types";
+import { readSyncedValue } from "./read";
 
 /**
  * Client-side triage-tag mutator (rfc-triage-tags.md). The user overrides a
@@ -22,9 +24,7 @@ export const triageTagOverrideArgsSchema = z.object({
 export type TriageTagOverrideArgs = z.infer<typeof triageTagOverrideArgsSchema>;
 
 async function readTag(tx: WriteTransaction, threadId: string): Promise<SyncedTriageTag | null> {
-  const value = await tx.get(IDB_KEY.TRIAGE_TAG({ id: threadId }));
-  if (!value) return null;
-  return value as unknown as SyncedTriageTag;
+  return readSyncedValue(tx, IDB_KEY.TRIAGE_TAG({ id: threadId }), syncedTriageTagSchema);
 }
 
 async function writeTag(tx: WriteTransaction, tag: SyncedTriageTag): Promise<void> {

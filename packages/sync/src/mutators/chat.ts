@@ -1,8 +1,13 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { isoDateTimeStringSchema } from "../schemas";
+import {
+  isoDateTimeStringSchema,
+  syncedChatMessageSchema,
+  syncedChatThreadSchema,
+} from "../schemas";
 import type { SyncedChatMessage, SyncedChatThread } from "../types";
+import { parseSyncedValue, readSyncedValue } from "./read";
 
 /**
  * Client-side chat mutators (streaming-chat plan). Only the *user* side is a
@@ -50,8 +55,7 @@ export const chatThreadDeleteArgsSchema = z.object({
 export type ChatThreadDeleteArgs = z.infer<typeof chatThreadDeleteArgsSchema>;
 
 async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatThread | null> {
-  const value = await tx.get(IDB_KEY.CHAT_THREAD({ id }));
-  return value ? (value as unknown as SyncedChatThread) : null;
+  return readSyncedValue(tx, IDB_KEY.CHAT_THREAD({ id }), syncedChatThreadSchema);
 }
 
 /** Create an empty thread. Idempotent on id. */
@@ -121,7 +125,8 @@ export async function chatThreadDeleteClient(
     .entries()
     .toArray();
   for (const [key, value] of messages) {
-    if ((value as unknown as SyncedChatMessage)?.threadId === args.id) {
+    const message = parseSyncedValue(value, syncedChatMessageSchema);
+    if (message?.threadId === args.id) {
       await tx.del(key);
     }
   }

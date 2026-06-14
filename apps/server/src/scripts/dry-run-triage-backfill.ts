@@ -25,6 +25,7 @@ import {
   senderKeyFor,
   todoSuppressionReason,
 } from "@alfred/api";
+import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
@@ -103,7 +104,7 @@ async function main() {
     const senderContext = scResult.context;
     const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
     const meta = ctxData.document.metadata;
-    const labelIds = Array.isArray(meta.labelIds) ? (meta.labelIds as string[]) : [];
+    const labelIds = toStringArray(meta.labelIds);
     const [senderPrior, thread, knownContact] = await Promise.all([
       senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
       getThreadState({
