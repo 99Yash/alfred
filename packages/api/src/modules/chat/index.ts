@@ -1,4 +1,5 @@
 import { transcribeAudio } from "@alfred/ai";
+import { getPath, isNonEmptyString } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
@@ -175,11 +176,10 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               )
               .limit(1);
             const existing = active[0];
-            const existingMessageId =
-              existing &&
-              typeof (existing.metadata as Record<string, unknown>)?.assistantMessageId === "string"
-                ? ((existing.metadata as Record<string, unknown>).assistantMessageId as string)
-                : assistantMessageId;
+            const existingAssistantId = getPath(existing?.metadata, "assistantMessageId");
+            const existingMessageId = isNonEmptyString(existingAssistantId)
+              ? existingAssistantId
+              : assistantMessageId;
             return { runId: existing?.id ?? null, assistantMessageId: existingMessageId };
           }
         },

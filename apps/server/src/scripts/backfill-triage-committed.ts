@@ -38,7 +38,7 @@ import {
   TRIAGE_WORKFLOW_SLUG,
   warmPool,
 } from "@alfred/api";
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
@@ -57,11 +57,6 @@ const COMMIT = process.argv.includes("--commit");
 interface TargetUser {
   userId: string;
   email: string;
-}
-
-function rowsFromExecute<T>(result: unknown): T[] {
-  const rawRows = (result as { rows?: unknown[] }).rows ?? (result as unknown[]);
-  return (Array.isArray(rawRows) ? rawRows : []) as T[];
 }
 
 /** Newest gmail document id for each target thread, plus the recency-ordered thread list. */

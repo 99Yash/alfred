@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -138,10 +138,7 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
       FOR UPDATE SKIP LOCKED
     `);
 
-    const rawRows = (result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[]);
-    const row = (Array.isArray(rawRows) ? rawRows[0] : undefined) as
-      | (RunRow & { staleMs: number | string | null })
-      | undefined;
+    const row = rowsFromExecute<RunRow & { staleMs: number | string | null }>(result)[0];
     if (!row) return null;
 
     const status = runStatusSchema.parse(row.status);

@@ -1,4 +1,4 @@
-import { INTEGRATION_ACTIONS, type LoadableIntegrationSlug } from "@alfred/contracts";
+import { INTEGRATION_ACTIONS, toStringArray, type LoadableIntegrationSlug } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -110,7 +110,7 @@ export async function buildConnectedSummary(
 
   const byProvider = new Map<string, ProviderRow[]>();
   for (const row of rows) {
-    const scopeList = Array.isArray(row.scopes) ? (row.scopes as string[]) : [];
+    const scopeList = toStringArray(row.scopes);
     const list = byProvider.get(row.provider) ?? [];
     list.push({ status: row.status, scopes: new Set(scopeList) });
     byProvider.set(row.provider, list);

@@ -1,3 +1,4 @@
+import { getPath } from "@alfred/contracts";
 import { z } from "zod";
 
 export const subAgentIdSchema = z
@@ -18,8 +19,6 @@ export const subAgentMetadataSchema = z
 export type SubAgentMetadata = z.infer<typeof subAgentMetadataSchema>;
 
 export function readSubAgentMetadata(metadata: unknown): SubAgentMetadata | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const raw = (metadata as Record<string, unknown>).subAgent;
-  const parsed = subAgentMetadataSchema.safeParse(raw);
+  const parsed = subAgentMetadataSchema.safeParse(getPath(metadata, "subAgent"));
   return parsed.success ? parsed.data : null;
 }

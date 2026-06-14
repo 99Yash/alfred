@@ -1,8 +1,9 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
-import { isoDateTimeStringSchema } from "../schemas";
+import { isoDateTimeStringSchema, syncedTodoSchema } from "../schemas";
 import type { SyncedTodo } from "../types";
+import { readSyncedValue } from "./read";
 
 /**
  * Client-side todo mutators (ADR-0050). User-authored todos and user-initiated
@@ -49,9 +50,7 @@ export const todoEditArgsSchema = z
 export type TodoEditArgs = z.infer<typeof todoEditArgsSchema>;
 
 async function readTodo(tx: WriteTransaction, id: string): Promise<SyncedTodo | null> {
-  const value = await tx.get(IDB_KEY.TODO({ id }));
-  if (!value) return null;
-  return value as unknown as SyncedTodo;
+  return readSyncedValue(tx, IDB_KEY.TODO({ id }), syncedTodoSchema);
 }
 
 async function writeTodo(tx: WriteTransaction, todo: SyncedTodo): Promise<void> {
