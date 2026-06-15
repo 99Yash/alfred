@@ -24,6 +24,7 @@ export type { BriefingPreferences } from "./preferences";
 
 export {
   gatherBriefing,
+  gatherBriefingWithSuppressionAudit,
   gatherBriefingDigest,
   PRIORITY_CATEGORIES,
   SUPPRESSED_CATEGORIES,
@@ -33,8 +34,10 @@ export type {
   BriefingItem,
   PriorityCategory,
   SuppressedCategory,
+  BriefingInstructionSuppression,
   GatherBriefingDigestArgs,
   GatherBriefingArgs,
+  GatherBriefingWithSuppressionAuditResult,
 } from "./gather";
 
 export { composeBriefing, composeInboxBriefing } from "./compose";
