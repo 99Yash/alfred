@@ -25,6 +25,7 @@ export const SYSTEM_ACTIONS = [
   "write_scratch",
   "promote",
   "remember",
+  "resolve_todo",
   "suggest_todo",
   "web_search",
 ] as const;
@@ -200,6 +201,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Remembering an instruction",
     done: "Remembered an instruction",
     title: "remember an instruction",
+  },
+  "system.resolve_todo": {
+    running: "Resolving a to-do",
+    done: "Resolved a to-do",
+    title: "resolve a to-do",
   },
   "system.suggest_todo": {
     running: "Suggesting a to-do",

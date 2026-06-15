@@ -11,10 +11,15 @@ import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import {
+  resolveTodosForGmailSender,
+  type ResolveTodosForGmailSenderResult,
+} from "../todos/resolve";
 import { recallActiveByKey, type FactRow } from "./facts";
+import { normalizeSenderEmail } from "./sender-email";
 import { memorySourceSchema, type MemorySource } from "./types";
 
-const senderEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
+export { normalizeSenderEmail } from "./sender-email";
 
 export interface ActiveSuppressionInstruction {
   factId: string;
@@ -50,6 +55,7 @@ export type RememberSenderSuppressionResult =
       status: "remembered" | "already_exists";
       factId: string;
       instruction: StandingInstructionValue;
+      resolvedTodos: ResolveTodosForGmailSenderResult;
     }
   | {
       ok: false;
@@ -95,11 +101,18 @@ export async function rememberSenderSuppression(
     effect: "block_todo_suggestion",
   });
   if (existing && SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))) {
+    const resolvedTodos = await resolveTodosForGmailSender({
+      userId: parsed.userId,
+      senderEmail: existing.value.target.email,
+      accountId: existing.value.target.accountId,
+      reason: "standing_instruction_sender_suppression",
+    });
     return {
       ok: true,
       status: "already_exists",
       factId: existing.factId,
       instruction: existing.value,
+      resolvedTodos,
     };
   }
 
@@ -119,12 +132,19 @@ export async function rememberSenderSuppression(
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
   emitReplicachePokes([parsed.userId]);
+  const resolvedTodos = await resolveTodosForGmailSender({
+    userId: parsed.userId,
+    senderEmail: instruction.target.email,
+    accountId: instruction.target.accountId,
+    reason: "standing_instruction_sender_suppression",
+  });
 
   return {
     ok: true,
     status: "remembered",
     factId: row.id,
     instruction,
+    resolvedTodos,
   };
 }
 
@@ -168,16 +188,6 @@ export function findSenderSuppression(
   }
 
   return null;
-}
-
-export function normalizeSenderEmail(value: string | null | undefined): string | null {
-  const raw = value?.trim();
-  if (!raw) return null;
-
-  const angleAddress = raw.match(/<([^<>]+)>/)?.[1];
-  const candidate = (angleAddress ?? raw).replace(/^mailto:/i, "").trim();
-  const parsed = senderEmailSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : null;
 }
 
 function instructionFromFact(fact: FactRow): ActiveSuppressionInstruction | null {
