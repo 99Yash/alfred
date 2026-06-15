@@ -43,7 +43,7 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
-import { actionStagingStatusSchema, type ActionStagingStatus } from "@alfred/schemas";
+import { actionStagingStatusSchema } from "@alfred/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
@@ -127,21 +127,22 @@ export type DispatchResult =
       result: UnknownToolResult;
     };
 
-interface StagingRow {
-  id: string;
-  runId: string;
-  status: ActionStagingStatus;
-  requiresApproval: boolean;
-  toolName: ToolName;
-  proposedInput: unknown;
-  decidedInput: unknown;
-  rejectReason: string | null;
-  executeResult: unknown;
-  executeError: unknown;
-  notifyAfterAt: Date | null;
-  notifiedAt: Date | null;
-  expiresAt: Date | null;
-}
+type StagingRow = Pick<
+  typeof actionStagings.$inferSelect,
+  | "id"
+  | "runId"
+  | "status"
+  | "requiresApproval"
+  | "toolName"
+  | "proposedInput"
+  | "decidedInput"
+  | "rejectReason"
+  | "executeResult"
+  | "executeError"
+  | "notifyAfterAt"
+  | "notifiedAt"
+  | "expiresAt"
+>;
 
 const STAGING_COLUMNS = {
   id: actionStagings.id,

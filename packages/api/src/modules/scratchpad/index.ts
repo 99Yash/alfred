@@ -143,14 +143,7 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
   const match = `${prefix}*`;
   const conn = client();
 
-  const rows: {
-    runId: string;
-    key: string;
-    zone: string;
-    value: unknown;
-    writtenBy: string;
-    writtenAt: Date;
-  }[] = [];
+  const rows: (typeof agentRunContext.$inferSelect)[] = [];
 
   let cursor = "0";
   do {

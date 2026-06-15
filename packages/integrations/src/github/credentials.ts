@@ -66,13 +66,10 @@ export async function upsertGithubCredential(
   return { id: row.id };
 }
 
-export interface GithubCredentialSummary {
-  id: string;
-  status: string;
-  accountId: string;
-  accountLabel: string | null;
-  installationId: string | null;
-}
+export type GithubCredentialSummary = Pick<
+  typeof integrationCredentials.$inferSelect,
+  "id" | "status" | "accountId" | "accountLabel" | "installationId"
+>;
 
 /**
  * List a user's GitHub credential rows (parity with Google's
