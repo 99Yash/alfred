@@ -87,3 +87,6 @@ export const chatMessages = pgTable(
     index("chat_messages_thread_created_idx").on(t.threadId, t.createdAt),
   ],
 );
+
+export type ChatThread = typeof chatThreads.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;

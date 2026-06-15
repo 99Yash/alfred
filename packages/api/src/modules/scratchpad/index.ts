@@ -16,7 +16,7 @@
 import { parseJsonWith, SCRATCH_TTL_SECONDS, sharedKey, subAgentKey } from "@alfred/contracts";
 import type { ScratchEntry } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { agentRunContext } from "@alfred/db/schemas";
+import { agentRunContext, type AgentRunContextRow } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { z } from "zod";
@@ -143,14 +143,7 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
   const match = `${prefix}*`;
   const conn = client();
 
-  const rows: {
-    runId: string;
-    key: string;
-    zone: string;
-    value: unknown;
-    writtenBy: string;
-    writtenAt: Date;
-  }[] = [];
+  const rows: AgentRunContextRow[] = [];
 
   let cursor = "0";
   do {

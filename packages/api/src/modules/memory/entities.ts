@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { entities, entityRelations } from "@alfred/db/schemas";
+import { entities, entityRelations, type Entity } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
@@ -35,7 +35,7 @@ export interface EntityRow {
   rowVersion: number;
 }
 
-function rowToEntity(r: typeof entities.$inferSelect): EntityRow {
+function rowToEntity(r: Entity): EntityRow {
   return {
     id: r.id,
     userId: r.userId,

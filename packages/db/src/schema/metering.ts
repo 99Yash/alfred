@@ -94,3 +94,6 @@ export const modelPrices = pgTable(
     index("model_prices_lookup_idx").on(t.provider, t.model, t.validFrom),
   ],
 );
+
+export type ApiCallLog = typeof apiCallLog.$inferSelect;
+export type ModelPrice = typeof modelPrices.$inferSelect;

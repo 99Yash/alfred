@@ -15,6 +15,7 @@ This is a **pnpm workspace monorepo**. Packages are `@alfred/*` (never `@milkpod
 
 Progressively disclose the details:
 
+- [docs/reference/code-style.md](./docs/reference/code-style.md) — code style + review checklist. **Read before writing or reviewing code.** Leads with the type-duplication rules (derive from `$inferSelect` / `z.infer`, never hand-roll a source-of-truth shape).
 - [docs/reference/architecture.md](./docs/reference/architecture.md) — monorepo layout, how web/API/auth/DB coordinate, package boundaries, env vars.
 - [docs/reference/typescript.md](./docs/reference/typescript.md) — `moduleResolution`, `verbatimModuleSyntax`, per-package typecheck.
 - [docs/reference/elysia.md](./docs/reference/elysia.md) — request lifecycle, auth macro, error handler, session cache.

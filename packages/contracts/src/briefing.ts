@@ -173,32 +173,13 @@ export const INTEGRATION_ACTIVITY_SEVERITIES = ["info", "warning", "critical"] a
 export type IntegrationActivitySeverity = (typeof INTEGRATION_ACTIVITY_SEVERITIES)[number];
 export const integrationActivitySeveritySchema = z.enum(INTEGRATION_ACTIVITY_SEVERITIES);
 
-export interface IntegrationActivityRollup {
-  eventCount: number;
-  attemptCount?: number;
-  durationMinutes?: number;
-  suppressedEventIds?: string[];
-}
+export type IntegrationActivityRollup = z.infer<typeof integrationActivityRollupSchema>;
 
-export interface IntegrationActivityItem {
-  id: string;
-  provider: IntegrationSlug;
-  source: IntegrationActivitySource;
-  activityCategory: IntegrationActivityCategory;
-  /** Provider-scoped detail, e.g. `github.pr_review_requested`. */
-  providerKind: string;
-  title: string;
-  status?: IntegrationActivityStatus;
-  severity?: IntegrationActivitySeverity;
-  occurredAt: string;
-  url?: string;
-  relatedRepo?: string;
-  rollup?: IntegrationActivityRollup;
-}
+export type IntegrationActivityItem = z.infer<typeof integrationActivityItemSchema>;
 
-export interface IntegrationActivityContribution {
-  items: IntegrationActivityItem[];
-}
+export type IntegrationActivityContribution = z.infer<
+  typeof integrationActivityContributionSchema
+>;
 
 export interface WeatherContribution {
   current: {

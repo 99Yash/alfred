@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { userPreferences } from "@alfred/db/schemas";
+import { userPreferences, type UserPreference } from "@alfred/db/schemas";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type MemorySource, memorySourceSchema, parseMemorySourceOrDefault } from "./types";
@@ -22,7 +22,7 @@ export interface PreferenceRow {
   rowVersion: number;
 }
 
-function rowToPref(r: typeof userPreferences.$inferSelect): PreferenceRow {
+function rowToPref(r: UserPreference): PreferenceRow {
   return {
     id: r.id,
     userId: r.userId,

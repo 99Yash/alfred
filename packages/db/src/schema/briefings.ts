@@ -109,3 +109,6 @@ export const briefings = pgTable(
       .where(sql`${t.status} in ('sent', 'suppressed')`),
   ],
 );
+
+export type Briefing = typeof briefings.$inferSelect;
+export type NewBriefing = typeof briefings.$inferInsert;

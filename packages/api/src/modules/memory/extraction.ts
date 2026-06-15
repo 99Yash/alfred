@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import type { Document } from "@alfred/db/schemas";
 import { factValueSchema } from "@alfred/sync";
 import { z } from "zod";
 
@@ -35,13 +36,12 @@ export const extractionResultSchema = z.object({
 
 export interface ExtractDocumentArgs {
   userId: string;
-  document: {
-    id: string;
-    title: string | null;
-    content: string;
-    source: string;
-    authoredAt: Date | null;
-  };
+  /**
+   * The document to extract facts from. Derived from the `documents` table
+   * so the shape (and its nullability) can never drift from the schema —
+   * see the duplication rules in docs/reference/code-style.md.
+   */
+  document: Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
   /** Existing confirmed facts so the model can avoid duplicates. Top-N most relevant. */
   existingFacts?: Array<{ key: string; value: unknown }>;
   /** Run/step ids forwarded to the metering log + Langfuse trace. */

@@ -55,3 +55,8 @@ export const verification = pgTable("verification", {
   expiresAt: timestamp("expires_at").notNull(),
   ...lifecycle_dates,
 });
+
+export type User = typeof user.$inferSelect;
+export type Session = typeof session.$inferSelect;
+export type Account = typeof account.$inferSelect;
+export type Verification = typeof verification.$inferSelect;

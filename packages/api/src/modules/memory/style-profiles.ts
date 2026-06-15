@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { styleProfiles } from "@alfred/db/schemas";
+import { styleProfiles, type StyleProfile } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -53,7 +53,7 @@ export interface StyleProfileRow {
   rowVersion: number;
 }
 
-function rowToProfile(r: typeof styleProfiles.$inferSelect): StyleProfileRow {
+function rowToProfile(r: StyleProfile): StyleProfileRow {
   return {
     id: r.id,
     userId: r.userId,
@@ -166,7 +166,7 @@ export async function getStyleProfile(
 
   // Sort by specificity manually since SQL ORDER BY across two nullable
   // dimensions is awkward to express.
-  const score = (r: typeof styleProfiles.$inferSelect) => {
+  const score = (r: StyleProfile) => {
     let s = 0;
     if (r.recipientId != null && r.recipientId === recipientId) s += 4;
     if (r.audienceBucket === audienceBucket && audienceBucket !== "generic") s += 2;

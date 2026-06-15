@@ -51,6 +51,7 @@ import {
   userActionPolicies,
   user as userTable,
   workflows,
+  type UserActionPolicy,
 } from "@alfred/db/schemas";
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
@@ -89,7 +90,7 @@ async function pickGoogleConnectedUser(): Promise<{
   return rows[0] ?? null;
 }
 
-type PolicyRow = typeof userActionPolicies.$inferSelect;
+type PolicyRow = UserActionPolicy;
 
 /**
  * Snapshot the user's policy row (or null if none), then install the

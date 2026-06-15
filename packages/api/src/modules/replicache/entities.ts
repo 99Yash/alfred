@@ -15,6 +15,20 @@ import {
   userPreferences,
   workflows,
   type AgentRunTrigger,
+  type ActionStaging,
+  type Briefing,
+  type ChatMessage,
+  type ChatThread,
+  type EmailTriage,
+  type Note,
+  type Skill,
+  type SkillRevision,
+  type SkillRun,
+  type Todo,
+  type UserActionPolicy,
+  type UserFact,
+  type UserPreference,
+  type Workflow,
 } from "@alfred/db/schemas";
 import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
 import {
@@ -123,7 +137,7 @@ const ENTITY_FETCHERS = {
       .from(notes)
       .where(eq(notes.userId, userId))
       .orderBy(asc(notes.id));
-    return rows.flatMap((n: typeof notes.$inferSelect) =>
+    return rows.flatMap((n: Note) =>
       toEntityRow({
         slug: "NOTE",
         id: n.id,
@@ -143,7 +157,7 @@ const ENTITY_FETCHERS = {
         and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
       )
       .orderBy(asc(userFacts.id));
-    return rows.flatMap((f: typeof userFacts.$inferSelect) =>
+    return rows.flatMap((f: UserFact) =>
       toEntityRow({
         slug: "FACT",
         id: f.id,
@@ -162,7 +176,7 @@ const ENTITY_FETCHERS = {
       .from(briefings)
       .where(and(eq(briefings.userId, userId), gte(briefings.briefingDate, cutoffDate)))
       .orderBy(desc(briefings.briefingDate), asc(briefings.slot));
-    return rows.flatMap((b: typeof briefings.$inferSelect) =>
+    return rows.flatMap((b: Briefing) =>
       toEntityRow({
         slug: "BRIEFING",
         id: `${b.briefingDate}/${b.slot}`,
@@ -180,7 +194,7 @@ const ENTITY_FETCHERS = {
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
       .orderBy(asc(userPreferences.key));
-    return rows.flatMap((p: typeof userPreferences.$inferSelect) =>
+    return rows.flatMap((p: UserPreference) =>
       toEntityRow({
         slug: "PREFERENCE",
         id: p.key,
@@ -196,7 +210,7 @@ const ENTITY_FETCHERS = {
       .from(skills)
       .where(eq(skills.userId, userId))
       .orderBy(asc(skills.id));
-    return rows.flatMap((s: typeof skills.$inferSelect) =>
+    return rows.flatMap((s: Skill) =>
       toEntityRow({
         slug: "SKILL",
         id: s.id,
@@ -212,7 +226,7 @@ const ENTITY_FETCHERS = {
       .from(skillRevisions)
       .where(eq(skillRevisions.userId, userId))
       .orderBy(asc(skillRevisions.id));
-    return rows.flatMap((r: typeof skillRevisions.$inferSelect) =>
+    return rows.flatMap((r: SkillRevision) =>
       toEntityRow({
         slug: "SKILL_REVISION",
         id: r.id,
@@ -228,7 +242,7 @@ const ENTITY_FETCHERS = {
       .from(skillRuns)
       .where(eq(skillRuns.userId, userId))
       .orderBy(asc(skillRuns.id));
-    return rows.flatMap((r: typeof skillRuns.$inferSelect) =>
+    return rows.flatMap((r: SkillRun) =>
       toEntityRow({
         slug: "SKILL_RUN",
         id: r.id,
@@ -273,7 +287,7 @@ const ENTITY_FETCHERS = {
 
     return rows.flatMap(
       (r: {
-        staging: typeof actionStagings.$inferSelect;
+        staging: ActionStaging;
         workflowSlug: string;
         workflowName: string | null;
         trigger: AgentRunTrigger | null;
@@ -303,7 +317,7 @@ const ENTITY_FETCHERS = {
       .select()
       .from(userActionPolicies)
       .where(eq(userActionPolicies.userId, userId));
-    return rows.flatMap((p: typeof userActionPolicies.$inferSelect) =>
+    return rows.flatMap((p: UserActionPolicy) =>
       toEntityRow({
         slug: "ACTION_POLICY",
         id: p.userId,
@@ -324,8 +338,8 @@ const ENTITY_FETCHERS = {
       .where(eq(workflows.userId, userId))
       .orderBy(asc(workflows.slug));
     return rows
-      .filter((w: typeof workflows.$inferSelect) => !isInternalWorkflowSlug(w.slug))
-      .flatMap((w: typeof workflows.$inferSelect) =>
+      .filter((w: Workflow) => !isInternalWorkflowSlug(w.slug))
+      .flatMap((w: Workflow) =>
         toEntityRow({
           slug: "WORKFLOW",
           id: w.slug,
@@ -351,7 +365,7 @@ const ENTITY_FETCHERS = {
         ),
       )
       .orderBy(asc(todos.createdAt), asc(todos.id));
-    return rows.flatMap((t: typeof todos.$inferSelect) =>
+    return rows.flatMap((t: Todo) =>
       toEntityRow({
         slug: "TODO",
         id: t.id,
@@ -372,7 +386,7 @@ const ENTITY_FETCHERS = {
       .from(chatThreads)
       .where(eq(chatThreads.userId, userId))
       .orderBy(desc(chatThreads.pinned), desc(chatThreads.lastMessageAt), asc(chatThreads.id));
-    return rows.flatMap((t: typeof chatThreads.$inferSelect) =>
+    return rows.flatMap((t: ChatThread) =>
       toEntityRow({
         slug: "CHAT_THREAD",
         id: t.id,
@@ -389,7 +403,7 @@ const ENTITY_FETCHERS = {
       .where(eq(chatMessages.userId, userId))
       .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
       .limit(CHAT_MESSAGE_PULL_LIMIT);
-    return rows.flatMap((m: typeof chatMessages.$inferSelect) =>
+    return rows.flatMap((m: ChatMessage) =>
       toEntityRow({
         slug: "CHAT_MESSAGE",
         id: m.id,
@@ -421,7 +435,7 @@ const ENTITY_FETCHERS = {
         ),
       )
       .orderBy(asc(emailTriage.sourceThreadId));
-    return rows.flatMap((r: typeof emailTriage.$inferSelect) =>
+    return rows.flatMap((r: EmailTriage) =>
       toEntityRow({
         slug: "TRIAGE_TAG",
         id: r.sourceThreadId,
@@ -462,7 +476,7 @@ function serializeNote(n: {
   });
 }
 
-function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
+function serializeFact(f: UserFact): SyncedFact {
   if (f.status !== "proposed" && f.status !== "confirmed") {
     throw new Error(`[replicache] cannot sync fact with status '${f.status}'`);
   }
@@ -483,7 +497,7 @@ function serializeFact(f: typeof userFacts.$inferSelect): SyncedFact {
   });
 }
 
-function serializeBriefing(b: typeof briefings.$inferSelect): SyncedBriefing {
+function serializeBriefing(b: Briefing): SyncedBriefing {
   return syncedBriefingSchema.parse({
     id: b.id,
     userId: b.userId,
@@ -505,7 +519,7 @@ function serializeBriefing(b: typeof briefings.$inferSelect): SyncedBriefing {
   });
 }
 
-function serializeTodo(t: typeof todos.$inferSelect): SyncedTodo {
+function serializeTodo(t: Todo): SyncedTodo {
   if (t.status === "dismissed") {
     throw new Error("[replicache] cannot sync a dismissed todo");
   }
@@ -530,7 +544,7 @@ function serializeTodo(t: typeof todos.$inferSelect): SyncedTodo {
   });
 }
 
-function serializeChatThread(t: typeof chatThreads.$inferSelect): SyncedChatThread {
+function serializeChatThread(t: ChatThread): SyncedChatThread {
   return syncedChatThreadSchema.parse({
     id: t.id,
     userId: t.userId,
@@ -543,7 +557,7 @@ function serializeChatThread(t: typeof chatThreads.$inferSelect): SyncedChatThre
   });
 }
 
-function serializeChatMessage(m: typeof chatMessages.$inferSelect): SyncedChatMessage {
+function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
   return syncedChatMessageSchema.parse({
     id: m.id,
     userId: m.userId,
@@ -569,7 +583,7 @@ function serializeChatMessage(m: typeof chatMessages.$inferSelect): SyncedChatMe
  * rationale/classifiedAt, an `auto` row drops overriddenAt. `zod` validates
  * the category string against `TRIAGE_CATEGORIES` on the way out.
  */
-function serializeTriageTag(t: typeof emailTriage.$inferSelect): SyncedTriageTag {
+function serializeTriageTag(t: EmailTriage): SyncedTriageTag {
   const shared = {
     threadId: t.sourceThreadId,
     userId: t.userId,
@@ -595,7 +609,7 @@ function serializeTriageTag(t: typeof emailTriage.$inferSelect): SyncedTriageTag
   });
 }
 
-function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPreference {
+function serializePreference(p: UserPreference): SyncedPreference {
   return syncedPreferenceSchema.parse({
     key: p.key,
     userId: p.userId,
@@ -605,7 +619,7 @@ function serializePreference(p: typeof userPreferences.$inferSelect): SyncedPref
   });
 }
 
-function serializeActionPolicy(p: typeof userActionPolicies.$inferSelect): SyncedActionPolicy {
+function serializeActionPolicy(p: UserActionPolicy): SyncedActionPolicy {
   return syncedActionPolicySchema.parse({
     userId: p.userId,
     defaultMode: p.defaultMode,
@@ -615,7 +629,7 @@ function serializeActionPolicy(p: typeof userActionPolicies.$inferSelect): Synce
   });
 }
 
-function serializeWorkflow(w: typeof workflows.$inferSelect): SyncedWorkflow {
+function serializeWorkflow(w: Workflow): SyncedWorkflow {
   return syncedWorkflowSchema.parse({
     id: w.id,
     userId: w.userId,
@@ -636,7 +650,7 @@ function serializeWorkflow(w: typeof workflows.$inferSelect): SyncedWorkflow {
   });
 }
 
-function serializeSkill(s: typeof skills.$inferSelect): SyncedSkill {
+function serializeSkill(s: Skill): SyncedSkill {
   return syncedSkillSchema.parse({
     id: s.id,
     userId: s.userId,
@@ -653,7 +667,7 @@ function serializeSkill(s: typeof skills.$inferSelect): SyncedSkill {
   });
 }
 
-function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSkillRevision {
+function serializeSkillRevision(r: SkillRevision): SyncedSkillRevision {
   return syncedSkillRevisionSchema.parse({
     id: r.id,
     skillId: r.skillId,
@@ -667,7 +681,7 @@ function serializeSkillRevision(r: typeof skillRevisions.$inferSelect): SyncedSk
   });
 }
 
-function serializeSkillRun(r: typeof skillRuns.$inferSelect): SyncedSkillRun {
+function serializeSkillRun(r: SkillRun): SyncedSkillRun {
   return syncedSkillRunSchema.parse({
     id: r.id,
     skillId: r.skillId,
@@ -691,7 +705,7 @@ interface RecentRejection {
 async function loadRecentRejectionsByTool(
   tx: DbTx,
   userId: string,
-  pendingRows: Array<{ staging: typeof actionStagings.$inferSelect }>,
+  pendingRows: Array<{ staging: ActionStaging }>,
 ): Promise<Map<string, RecentRejection>> {
   if (pendingRows.length === 0) return new Map();
 
@@ -752,7 +766,7 @@ function narrowTrigger(trigger: AgentRunTrigger | null): {
 }
 
 function serializeActionStaging(
-  s: typeof actionStagings.$inferSelect,
+  s: ActionStaging,
   provenance: {
     workflowSlug: string;
     workflowName: string | null;

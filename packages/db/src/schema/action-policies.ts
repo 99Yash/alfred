@@ -94,3 +94,6 @@ export const actionStagings = pgTable(
       .where(sql`${t.status} = 'rejected'`),
   ],
 );
+
+export type UserActionPolicy = typeof userActionPolicies.$inferSelect;
+export type ActionStaging = typeof actionStagings.$inferSelect;
