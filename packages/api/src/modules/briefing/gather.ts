@@ -121,6 +121,11 @@ export interface GatherBriefingArgs {
   windowEnd?: Date;
 }
 
+export interface GatherBriefingWithSuppressionAuditResult {
+  gather: BriefingGather;
+  suppressedByInstruction: BriefingInstructionSuppression[];
+}
+
 const DEFAULT_WINDOW_HOURS = 24;
 const DEFAULT_MAX_PER_BUCKET = 8;
 const MAX_CALENDAR_EVENTS = 40;
@@ -251,6 +256,12 @@ export async function gatherBriefingDigest(
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
+  return (await gatherBriefingWithSuppressionAudit(args)).gather;
+}
+
+export async function gatherBriefingWithSuppressionAudit(
+  args: GatherBriefingArgs,
+): Promise<GatherBriefingWithSuppressionAuditResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
   // Integration activity shares the email digest's window so the briefing
@@ -291,13 +302,16 @@ export async function gatherBriefing(args: GatherBriefingArgs): Promise<Briefing
   }
 
   return {
-    email: {
-      categories,
+    gather: {
+      email: {
+        categories,
+      },
+      calendar,
+      integration_activity: { items: integrationActivity },
+      weather,
+      day_of_week: dayContribution(args.briefingDate, args.timezone),
     },
-    calendar,
-    integration_activity: { items: integrationActivity },
-    weather,
-    day_of_week: dayContribution(args.briefingDate, args.timezone),
+    suppressedByInstruction: digest.suppressedByInstruction,
   };
 }
 

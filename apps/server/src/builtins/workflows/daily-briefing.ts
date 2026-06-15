@@ -3,7 +3,7 @@ import {
   beginBriefing,
   dailyBriefingWorkflowInputSchema,
   fetchLatestWatermark,
-  gatherBriefing,
+  gatherBriefingWithSuppressionAudit,
   localDateInTimezone,
   markBriefingComposed,
   markBriefingComposing,
@@ -13,6 +13,7 @@ import {
   markBriefingSuppressed,
   notify,
   resolveBriefingPreferences,
+  type BriefingInstructionSuppression,
   type Workflow,
 } from "@alfred/api";
 import { assertIanaTimezone, type BriefingGather, type IanaTimezone } from "@alfred/contracts";
@@ -159,12 +160,13 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         const until = new Date();
 
         let gather: BriefingGather;
+        let suppressedByInstruction: BriefingInstructionSuppression[] = [];
         try {
           // Deterministic structured gather over the same watermark window the
           // agent composes from. Cheap (DB reads against email_triage +
           // calendar/activity) — it feeds the suppression signal and the
           // surface's `gather` payload; the agent still authors the prose.
-          gather = await gatherBriefing({
+          const gathered = await gatherBriefingWithSuppressionAudit({
             userId: ctx.userId,
             briefingDate,
             slot: ctx.state.slot,
@@ -172,6 +174,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             windowStart: since ?? undefined,
             windowEnd: until,
           });
+          gather = gathered.gather;
+          suppressedByInstruction = gathered.suppressedByInstruction;
           await markBriefingGathering({ briefingId: begun.row.id, gather });
         } catch (err) {
           await markBriefingFailed(begun.row.id);
@@ -184,7 +188,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         await ctx.log(
           `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
             `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
-            `email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}`,
+            `email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
         );
 
         return {
@@ -414,6 +418,14 @@ function gatherCounts(gather: BriefingGather): {
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
   };
+}
+
+function instructionSuppressionLogPart(
+  items: readonly BriefingInstructionSuppression[],
+): string {
+  if (items.length === 0) return " instruction_suppressions=0";
+  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }
 
 function ianaTimezone(value: string): IanaTimezone {

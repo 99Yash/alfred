@@ -3,7 +3,7 @@ import {
   beginBriefing,
   briefingWorkflowInputSchema,
   composeBriefing,
-  gatherBriefing,
+  gatherBriefingWithSuppressionAudit,
   localDateInTimezone,
   markBriefingComposed,
   markBriefingComposing,
@@ -15,6 +15,7 @@ import {
   renderBriefingEmailHtml,
   resolveBriefingPreferences,
   resolveBriefingReferences,
+  type BriefingInstructionSuppression,
   type BriefingRow,
   type Workflow,
 } from "@alfred/api";
@@ -174,13 +175,16 @@ export const morningBriefingWorkflow: Workflow<State> = {
         }
 
         let gather: BriefingGather;
+        let suppressedByInstruction: BriefingInstructionSuppression[] = [];
         try {
-          gather = await gatherBriefing({
+          const gathered = await gatherBriefingWithSuppressionAudit({
             userId: ctx.userId,
             briefingDate,
             slot: ctx.state.slot,
             timezone,
           });
+          gather = gathered.gather;
+          suppressedByInstruction = gathered.suppressedByInstruction;
           await markBriefingGathering({ briefingId: begun.row.id, gather });
         } catch (err) {
           await markBriefingFailed(begun.row.id);
@@ -189,7 +193,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
 
         const counts = gatherCounts(gather);
         await ctx.log(
-          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}`,
+          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}${instructionSuppressionLogPart(suppressedByInstruction)}`,
         );
 
         return {
@@ -484,4 +488,12 @@ function gatherCounts(gather: BriefingGather): {
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
   };
+}
+
+function instructionSuppressionLogPart(
+  items: readonly BriefingInstructionSuppression[],
+): string {
+  if (items.length === 0) return " instruction_suppressions=0";
+  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }
