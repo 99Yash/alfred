@@ -1,34 +1,15 @@
-import type {
-  BriefingGather,
-  BriefingSendDecision,
-  BriefingSlot,
-  BriefingStatus,
-  FullBriefing,
-  IanaTimezone,
-} from "@alfred/contracts";
+import type { BriefingGather, BriefingSlot, FullBriefing, IanaTimezone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 
-export interface BriefingRow {
-  id: string;
-  userId: string;
-  briefingDate: string;
-  slot: BriefingSlot;
-  timezone: IanaTimezone;
-  status: BriefingStatus;
-  watermarkAt: Date | null;
-  gather: BriefingGather | null;
-  breakingSummary: string | null;
-  fullBriefing: FullBriefing | null;
-  model: string | null;
-  composeFallback: boolean;
-  sendDecision: BriefingSendDecision | null;
-  gateReason: string | null;
-  emailSendId: string | null;
-  agentRunId: string | null;
-  rowVersion: number;
-}
+/**
+ * The DB row minus the lifecycle dates, which `rowToBriefing` doesn't surface.
+ * Every column is already branded on the table via `.$type<T>()`, so no field
+ * needs re-narrowing — this is `Briefing` ($inferSelect) with two columns
+ * dropped.
+ */
+export type BriefingRow = Omit<Briefing, "createdAt" | "updatedAt">;
 
 export type BeginBriefingResult =
   | { action: "created"; row: BriefingRow }
