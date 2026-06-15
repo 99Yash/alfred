@@ -420,9 +420,7 @@ function gatherCounts(gather: BriefingGather): {
   };
 }
 
-function instructionSuppressionLogPart(
-  items: readonly BriefingInstructionSuppression[],
-): string {
+function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
   return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;

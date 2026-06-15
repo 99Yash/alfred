@@ -425,13 +425,17 @@ export const rememberInput = z
       .max(200)
       .nullable()
       .optional()
-      .describe("Optional account scope. Null or omitted means suppress this sender across accounts."),
+      .describe(
+        "Optional account scope. Null or omitted means suppress this sender across accounts.",
+      ),
     directive: z
       .string()
       .trim()
       .max(1_000)
       .optional()
-      .describe("Resolved instruction sentence. Omit to use the default open-loop suppression wording."),
+      .describe(
+        "Resolved instruction sentence. Omit to use the default open-loop suppression wording.",
+      ),
     phrasing: z
       .string()
       .trim()
@@ -452,7 +456,9 @@ export const resolveTodoInput = z
       .toLowerCase()
       .max(320)
       .optional()
-      .describe("Resolved sender email. If unresolved, omit it and provide sourceThreadId if known."),
+      .describe(
+        "Resolved sender email. If unresolved, omit it and provide sourceThreadId if known.",
+      ),
     sourceThreadId: z
       .string()
       .trim()

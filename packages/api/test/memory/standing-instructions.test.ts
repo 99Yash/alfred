@@ -14,9 +14,7 @@ import {
   type ActiveSuppressionInstruction,
 } from "../../src/modules/memory/standing-instructions";
 
-function instruction(
-  overrides: Partial<StandingInstructionValue> = {},
-): StandingInstructionValue {
+function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
   return standingInstructionValueSchema.parse({
     schemaVersion: 1,
     action: "suppress",

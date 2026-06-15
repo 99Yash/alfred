@@ -177,9 +177,7 @@ export type IntegrationActivityRollup = z.infer<typeof integrationActivityRollup
 
 export type IntegrationActivityItem = z.infer<typeof integrationActivityItemSchema>;
 
-export type IntegrationActivityContribution = z.infer<
-  typeof integrationActivityContributionSchema
->;
+export type IntegrationActivityContribution = z.infer<typeof integrationActivityContributionSchema>;
 
 export interface WeatherContribution {
   current: {
