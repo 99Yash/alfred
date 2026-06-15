@@ -62,21 +62,15 @@ export type RejectFactArgs = z.infer<typeof rejectFactArgsSchema>;
 // row shape
 // ---------------------------------------------------------------------------
 
-export interface FactRow {
-  id: string;
-  userId: string;
-  key: string;
-  value: unknown;
-  confidence: number;
+/**
+ * Like the DB row, but with the two jsonb columns narrowed to their parsed
+ * shapes. Every other column tracks `UserFact` ($inferSelect) automatically —
+ * only `status`/`source`, which `rowToFact` zod-parses, are restated.
+ */
+export type FactRow = Omit<UserFact, "status" | "source"> & {
   status: FactStatus;
   source: MemorySource;
-  validFrom: Date;
-  validUntil: Date | null;
-  supersedesId: string | null;
-  rowVersion: number;
-  createdAt: Date;
-  updatedAt: Date | null;
-}
+};
 
 /** Assertion helper for INSERT…RETURNING — drizzle's type is `T | undefined`. */
 function requireRow<T>(row: T | undefined, op: string): T {
@@ -86,19 +80,9 @@ function requireRow<T>(row: T | undefined, op: string): T {
 
 function rowToFact(r: UserFact): FactRow {
   return {
-    id: r.id,
-    userId: r.userId,
-    key: r.key,
-    value: r.value,
-    confidence: r.confidence,
+    ...r,
     status: factStatusSchema.parse(r.status),
     source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `user_facts:${r.id}`),
-    validFrom: r.validFrom,
-    validUntil: r.validUntil,
-    supersedesId: r.supersedesId,
-    rowVersion: r.rowVersion,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
   };
 }
 
