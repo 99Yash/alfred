@@ -1,18 +1,22 @@
-import { db } from "@alfred/db";
-import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
-import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
-import { z } from "zod";
-import { emitReplicachePokes } from "../../events/replicache-events";
-import { publishEvent } from "../../events/publish";
-import { valueSignature } from "./signature";
+import { db } from '@alfred/db';
+import {
+  rejectedInferences,
+  userFacts,
+  type UserFact,
+} from '@alfred/db/schemas';
+import { and, asc, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { publishEvent } from '../../events/publish';
+import { emitReplicachePokes } from '../../events/replicache-events';
+import { valueSignature } from './signature';
 import {
   AUTO_CONFIRM_THRESHOLD,
-  type FactStatus,
-  type MemorySource,
   factStatusSchema,
   memorySourceSchema,
   parseMemorySourceOrDefault,
-} from "./types";
+  type FactStatus,
+  type MemorySource,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // schemas
@@ -67,7 +71,7 @@ export type RejectFactArgs = z.infer<typeof rejectFactArgsSchema>;
  * shapes. Every other column tracks `UserFact` ($inferSelect) automatically —
  * only `status`/`source`, which `rowToFact` zod-parses, are restated.
  */
-export type FactRow = Omit<UserFact, "status" | "source"> & {
+export type FactRow = Omit<UserFact, 'status' | 'source'> & {
   status: FactStatus;
   source: MemorySource;
 };
@@ -82,7 +86,11 @@ function rowToFact(r: UserFact): FactRow {
   return {
     ...r,
     status: factStatusSchema.parse(r.status),
-    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `user_facts:${r.id}`),
+    source: parseMemorySourceOrDefault(
+      r.source,
+      { kind: 'agent' },
+      `user_facts:${r.id}`,
+    ),
   };
 }
 
@@ -106,7 +114,9 @@ function rowToFact(r: UserFact): FactRow {
  *     the claim. A future iteration can promote a stale `proposed` to
  *     `confirmed` when evidence accumulates — out of scope here.
  */
-export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null> {
+export async function proposeFact(
+  args: ProposeFactArgs,
+): Promise<FactRow | null> {
   const parsed = proposeFactArgsSchema.parse(args);
   const sig = valueSignature(parsed.value);
 
@@ -125,10 +135,13 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   if (rejectedHit) return null;
 
   // (2) Bypass if an active row with the same value already exists.
-  const active = await recallActiveByKey(parsed.userId, parsed.key, { includeProposed: true });
+  const active = await recallActiveByKey(parsed.userId, parsed.key, {
+    includeProposed: true,
+  });
   if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
-  const status: FactStatus = parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
+  const status: FactStatus =
+    parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? 'confirmed' : 'proposed';
 
   const fact = await db().transaction(async (tx) => {
     const [row] = await tx
@@ -144,17 +157,17 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         validUntil: parsed.validUntil ?? null,
       })
       .returning();
-    const inserted = rowToFact(requireRow(row, "proposeFact"));
+    const inserted = rowToFact(requireRow(row, 'proposeFact'));
 
     // Auto-confirm fires a soft-notification event in the same tx so the
     // outbox row commits atomically with the fact (no phantom toasts on
     // rollback). User-facing confirms via push handler emit nothing —
     // the Memory page UI already has its own affordance.
-    if (status === "confirmed") {
+    if (status === 'confirmed') {
       await publishEvent({
         tx,
         userId: parsed.userId,
-        kind: "memory.fact_learned",
+        kind: 'memory.fact_learned',
         payload: {
           factId: inserted.id,
           key: inserted.key,
@@ -174,7 +187,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 /** ≤280-char one-line preview of a fact value, for soft-notification toasts. */
 function previewValue(value: unknown): string {
   let s: string;
-  if (typeof value === "string") s = value;
+  if (typeof value === 'string') s = value;
   else {
     try {
       s = JSON.stringify(value);
@@ -182,7 +195,7 @@ function previewValue(value: unknown): string {
       s = String(value);
     }
   }
-  return s.length > 280 ? s.slice(0, 277) + "…" : s;
+  return s.length > 280 ? s.slice(0, 277) + '…' : s;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +203,19 @@ function previewValue(value: unknown): string {
 // ---------------------------------------------------------------------------
 
 /** Move a `proposed` row to `confirmed`. No-op if already confirmed. */
-export async function confirmFact(factId: string, userId: string): Promise<FactRow | null> {
+export async function confirmFact(
+  factId: string,
+  userId: string,
+): Promise<FactRow | null> {
   const [row] = await db()
     .update(userFacts)
-    .set({ status: "confirmed", rowVersion: sql`${userFacts.rowVersion} + 1` })
+    .set({ status: 'confirmed', rowVersion: sql`${userFacts.rowVersion} + 1` })
     .where(
-      and(eq(userFacts.id, factId), eq(userFacts.userId, userId), eq(userFacts.status, "proposed")),
+      and(
+        eq(userFacts.id, factId),
+        eq(userFacts.userId, userId),
+        eq(userFacts.status, 'proposed'),
+      ),
     )
     .returning();
   if (!row) return null;
@@ -212,20 +232,27 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
  * `rejected_inferences` so the extraction sub-agent doesn't re-propose
  * it. Idempotent on the signature row via the unique index.
  */
-export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> {
+export async function rejectFact(
+  args: RejectFactArgs,
+): Promise<FactRow | null> {
   const parsed = rejectFactArgsSchema.parse(args);
   const fact = await db().transaction(async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
-      .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
+      .where(
+        and(
+          eq(userFacts.id, parsed.factId),
+          eq(userFacts.userId, parsed.userId),
+        ),
+      )
       .limit(1);
     if (!old) return null;
 
     const [row] = await tx
       .update(userFacts)
       .set({
-        status: "rejected",
+        status: 'rejected',
         validUntil: new Date(),
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
@@ -243,7 +270,7 @@ export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> 
       })
       .onConflictDoNothing();
 
-    return rowToFact(requireRow(row, "rejectFact.update"));
+    return rowToFact(requireRow(row, 'rejectFact.update'));
   });
   if (fact) emitReplicachePokes([parsed.userId]);
   return fact;
@@ -260,21 +287,26 @@ export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> 
  */
 export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
   const parsed = editFactArgsSchema.parse(args);
-  const source: MemorySource = parsed.source ?? { kind: "user" };
+  const source: MemorySource = parsed.source ?? { kind: 'user' };
   const now = new Date();
 
   const fact = await db().transaction(async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
-      .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
+      .where(
+        and(
+          eq(userFacts.id, parsed.factId),
+          eq(userFacts.userId, parsed.userId),
+        ),
+      )
       .limit(1);
     if (!old) return null;
 
     await tx
       .update(userFacts)
       .set({
-        status: "edited",
+        status: 'edited',
         validUntil: now,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
@@ -287,14 +319,14 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
         key: old.key,
         value: parsed.newValue,
         confidence: 1,
-        status: "confirmed",
+        status: 'confirmed',
         source,
         validFrom: now,
         validUntil: null,
         supersedesId: old.id,
       })
       .returning();
-    return rowToFact(requireRow(row, "editFact.insert"));
+    return rowToFact(requireRow(row, 'editFact.insert'));
   });
   if (fact) emitReplicachePokes([parsed.userId]);
   return fact;
@@ -309,23 +341,31 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
  * resolution). Old row → `superseded`; new row inherits confirm/proposed
  * status from `confidence` like `proposeFact`.
  */
-export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | null> {
+export async function supersedeFact(
+  args: SupersedeFactArgs,
+): Promise<FactRow | null> {
   const parsed = supersedeFactArgsSchema.parse(args);
   const now = new Date();
-  const status: FactStatus = parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
+  const status: FactStatus =
+    parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? 'confirmed' : 'proposed';
 
   const fact = await db().transaction(async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
-      .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
+      .where(
+        and(
+          eq(userFacts.id, parsed.factId),
+          eq(userFacts.userId, parsed.userId),
+        ),
+      )
       .limit(1);
     if (!old) return null;
 
     await tx
       .update(userFacts)
       .set({
-        status: "superseded",
+        status: 'superseded',
         validUntil: now,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
@@ -345,7 +385,7 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
         supersedesId: old.id,
       })
       .returning();
-    return rowToFact(requireRow(row, "supersedeFact.insert"));
+    return rowToFact(requireRow(row, 'supersedeFact.insert'));
   });
   if (fact) emitReplicachePokes([parsed.userId]);
   return fact;
@@ -378,8 +418,8 @@ export async function recallActiveByKey(
 ): Promise<FactRow[]> {
   const limit = opts.limit ?? 50;
   const statuses = opts.includeProposed
-    ? or(eq(userFacts.status, "confirmed"), eq(userFacts.status, "proposed"))
-    : eq(userFacts.status, "confirmed");
+    ? or(eq(userFacts.status, 'confirmed'), eq(userFacts.status, 'proposed'))
+    : eq(userFacts.status, 'confirmed');
 
   const rows = await db()
     .select()
@@ -402,7 +442,7 @@ export async function recallActiveByKey(
 export async function recallLatestByKey(
   userId: string,
   key: string,
-  opts: Omit<RecallOpts, "limit"> = {},
+  opts: Omit<RecallOpts, 'limit'> = {},
 ): Promise<FactRow | null> {
   const [row] = await recallActiveByKey(userId, key, { ...opts, limit: 1 });
   return row ?? null;
@@ -427,7 +467,10 @@ export async function listFactsByStatus(
 }
 
 /** Walk the supersession chain from a row back to its origin. */
-export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
+export async function getSupersessionChain(
+  userId: string,
+  factId: string,
+): Promise<FactRow[]> {
   const chain: FactRow[] = [];
   let cursor: string | null = factId;
   while (cursor) {
