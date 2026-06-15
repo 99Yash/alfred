@@ -173,3 +173,7 @@ export const webhookEvents = pgTable(
     index("webhook_events_user_provider_idx").on(t.userId, t.provider, t.deliveredAt),
   ],
 );
+
+export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
+export type IngestionState = typeof ingestionState.$inferSelect;
+export type WebhookEvent = typeof webhookEvents.$inferSelect;

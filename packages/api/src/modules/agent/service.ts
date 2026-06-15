@@ -1,5 +1,10 @@
 import { db, rowsFromExecute } from "@alfred/db";
-import { actionStagings, agentRuns, workflows } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  workflows,
+  type Workflow as WorkflowRow,
+} from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   runStatusSchema,
@@ -59,11 +64,7 @@ export interface CreateRunResult {
   runId: string;
 }
 
-interface UserAuthoredWorkflowRow {
-  brief: string | null;
-  allowedIntegrations: string[];
-  isBuiltin: boolean;
-}
+type UserAuthoredWorkflowRow = Pick<WorkflowRow, "brief" | "allowedIntegrations" | "isBuiltin">;
 
 interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;

@@ -218,3 +218,8 @@ export const agentRunContext = pgTable(
     index("agent_run_context_zone_idx").on(t.runId, t.zone),
   ],
 );
+
+export type AgentRun = typeof agentRuns.$inferSelect;
+export type AgentStep = typeof agentSteps.$inferSelect;
+export type PendingAction = typeof pendingActions.$inferSelect;
+export type AgentRunContextRow = typeof agentRunContext.$inferSelect;

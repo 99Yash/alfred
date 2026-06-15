@@ -99,4 +99,6 @@ export const briefingRuns = pgTable(
   ],
 );
 
-export type BriefingSlot = "morning" | "evening";
+export type { BriefingSlot } from "@alfred/contracts";
+
+export type BriefingRun = typeof briefingRuns.$inferSelect;

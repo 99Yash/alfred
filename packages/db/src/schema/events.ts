@@ -35,3 +35,5 @@ export const eventsOutbox = pgTable(
       .where(sql`${t.publishedAt} IS NULL`),
   ],
 );
+
+export type OutboxEvent = typeof eventsOutbox.$inferSelect;
