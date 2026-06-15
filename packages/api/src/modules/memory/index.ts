@@ -23,6 +23,7 @@ export * from "./types";
 export * from "./signature";
 export * from "./facts";
 export * from "./preferences";
+export * from "./standing-instructions";
 export * from "./chunks";
 export * from "./entities";
 export * from "./style-profiles";

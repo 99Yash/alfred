@@ -3,6 +3,7 @@ import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
   extractSenderContext,
+  findActiveSenderSuppression,
   getDocumentAuthoredAt,
   getSenderPrior,
   getThreadState,
@@ -392,6 +393,26 @@ export const emailTriageWorkflow: Workflow<State> = {
           // Pass the email's send time so relative deadlines ("due tomorrow")
           // resolve to an absolute date instead of going stale on the rail.
           const todoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
+          let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
+          let standingSuppressionReadFailed = false;
+          if (todoSuggestion) {
+            try {
+              standingSuppression = await findActiveSenderSuppression(ctx.userId, {
+                senderEmail:
+                  senderContextResult.senderAddress ??
+                  metadataString(ctxData.document.metadata, "from"),
+                accountId: ctxData.document.accountId,
+                effect: "block_todo_suggestion",
+              });
+            } catch (err) {
+              standingSuppressionReadFailed = true;
+              await ctx.log(
+                `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
           // Structural disqualifier (the cheap model won't reliably self-apply it):
           // a GitHub PR-review thread with nothing live at stake, or Alfred's own
           // HIL approval mail, mints no rail todo even when the model proposed one.
@@ -412,7 +433,15 @@ export const emailTriageWorkflow: Workflow<State> = {
           // todo, so a superseded older message can't mint a stray suggestion.
           // `flags.actionItems` gate: the user can switch off action-item
           // suggestions while keeping email tagging on (they share this classify).
-          if (written && todoSuggestion && suppression) {
+          if (written && todoSuggestion && standingSuppression) {
+            await ctx.log(
+              `suggest_todo: suppressed reason=standing_instruction ` +
+                `effect=${standingSuppression.effect} fact=${standingSuppression.factId} ` +
+                `sender=${standingSuppression.matchedEmail}`,
+            );
+          } else if (written && todoSuggestion && standingSuppressionReadFailed) {
+            await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
+          } else if (written && todoSuggestion && suppression) {
             await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
           } else if (written && todoSuggestion && flags.actionItems) {
             try {
@@ -445,6 +474,8 @@ export const emailTriageWorkflow: Workflow<State> = {
                 audit,
                 classification,
                 todoSuggested: Boolean(todoSuggestion),
+                standingSuppression,
+                standingSuppressionReadFailed,
               }),
             )}`,
           );
@@ -641,6 +672,10 @@ interface SenderExtractionEvent {
   finalCategory: TriageCategory;
   finalConfidence: number;
   todoSuggested: boolean;
+  standingInstructionSuppressedTodo: boolean;
+  standingInstructionFactId: string | null;
+  standingInstructionEffect: string | null;
+  standingInstructionReadFailed: boolean;
   /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
   todoOutcome: string | null;
   todoNote: string | null;
@@ -657,6 +692,8 @@ function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
+  standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>>;
+  standingSuppressionReadFailed: boolean;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
@@ -692,6 +729,10 @@ function senderExtractionEvent(args: {
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,
     todoSuggested: args.todoSuggested,
+    standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
+    standingInstructionFactId: args.standingSuppression?.factId ?? null,
+    standingInstructionEffect: args.standingSuppression?.effect ?? null,
+    standingInstructionReadFailed: args.standingSuppressionReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };

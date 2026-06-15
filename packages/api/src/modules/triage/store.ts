@@ -259,6 +259,7 @@ export interface TriageDocumentContext {
     userId: string;
     sourceId: string;
     sourceThreadId: string | null;
+    accountId: string;
     title: string | null;
     content: string;
     authoredAt: Date | null;
@@ -337,6 +338,7 @@ export async function loadTriageContext(
       userId: doc.userId,
       sourceId: doc.sourceId,
       sourceThreadId: doc.sourceThreadId,
+      accountId: doc.accountId,
       title: doc.title,
       content: doc.content,
       authoredAt: doc.authoredAt,
