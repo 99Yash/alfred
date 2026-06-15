@@ -59,11 +59,10 @@ export interface CreateRunResult {
   runId: string;
 }
 
-interface UserAuthoredWorkflowRow {
-  brief: string | null;
-  allowedIntegrations: string[];
-  isBuiltin: boolean;
-}
+type UserAuthoredWorkflowRow = Pick<
+  typeof workflows.$inferSelect,
+  "brief" | "allowedIntegrations" | "isBuiltin"
+>;
 
 interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
