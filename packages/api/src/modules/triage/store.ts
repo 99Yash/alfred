@@ -1,5 +1,11 @@
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials, user } from "@alfred/db/schemas";
+import {
+  documents,
+  emailTriage,
+  integrationCredentials,
+  user,
+  type EmailTriage,
+} from "@alfred/db/schemas";
 import { toRecord } from "@alfred/contracts";
 import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
@@ -353,7 +359,7 @@ export async function loadTriageContext(
   };
 }
 
-function rowToTriage(row: typeof emailTriage.$inferSelect): TriageRow {
+function rowToTriage(row: EmailTriage): TriageRow {
   return {
     userId: row.userId,
     sourceThreadId: row.sourceThreadId,

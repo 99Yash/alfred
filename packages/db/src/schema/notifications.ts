@@ -56,3 +56,5 @@ export const emailSends = pgTable(
     index("email_sends_user_kind_idx").on(t.userId, t.kind, t.createdAt),
   ],
 );
+
+export type EmailSend = typeof emailSends.$inferSelect;

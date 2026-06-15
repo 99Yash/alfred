@@ -72,3 +72,5 @@ export const emailTriage = pgTable(
     index("email_triage_user_classified_idx").on(t.userId, t.classifiedAt),
   ],
 );
+
+export type EmailTriage = typeof emailTriage.$inferSelect;

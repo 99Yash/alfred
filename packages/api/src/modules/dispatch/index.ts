@@ -42,7 +42,7 @@ import {
   isToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { actionStagings } from "@alfred/db/schemas";
+import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
@@ -128,7 +128,7 @@ export type DispatchResult =
     };
 
 type StagingRow = Pick<
-  typeof actionStagings.$inferSelect,
+  ActionStaging,
   | "id"
   | "runId"
   | "status"

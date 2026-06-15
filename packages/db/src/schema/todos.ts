@@ -86,3 +86,5 @@ export const todos = pgTable(
     index("todos_user_completed_idx").on(t.userId, t.completedAt),
   ],
 );
+
+export type Todo = typeof todos.$inferSelect;

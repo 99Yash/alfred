@@ -45,3 +45,5 @@ export const senderPriors = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.senderKey] })],
 );
+
+export type SenderPrior = typeof senderPriors.$inferSelect;

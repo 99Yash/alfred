@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { rejectedInferences, userFacts } from "@alfred/db/schemas";
+import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
 import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
@@ -84,7 +84,7 @@ function requireRow<T>(row: T | undefined, op: string): T {
   return row;
 }
 
-function rowToFact(r: typeof userFacts.$inferSelect): FactRow {
+function rowToFact(r: UserFact): FactRow {
   return {
     id: r.id,
     userId: r.userId,

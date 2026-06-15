@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
 
@@ -67,7 +67,7 @@ export async function upsertGithubCredential(
 }
 
 export type GithubCredentialSummary = Pick<
-  typeof integrationCredentials.$inferSelect,
+  IntegrationCredential,
   "id" | "status" | "accountId" | "accountLabel" | "installationId"
 >;
 
