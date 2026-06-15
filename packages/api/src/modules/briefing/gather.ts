@@ -20,6 +20,10 @@ import {
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import { getPreference } from "../memory/preferences";
+import {
+  findSenderSuppression,
+  listActiveSuppressionInstructions,
+} from "../memory/standing-instructions";
 import { addLocalDays, localStartOfDay } from "../timezone";
 
 /**
@@ -83,8 +87,18 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   /** Last-24h counts for the suppressed categories — surfaced as a tail line. */
   suppressedCounts: Record<SuppressedCategory, number>;
+  /** Priority items dropped because a standing instruction matched the sender. */
+  suppressedByInstruction: BriefingInstructionSuppression[];
   totalPriority: number;
   totalSuppressed: number;
+}
+
+export interface BriefingInstructionSuppression {
+  documentId: string;
+  category: PriorityCategory;
+  sender: string | null;
+  factId: string;
+  effect: "exclude_briefing_priority";
 }
 
 export interface GatherBriefingDigestArgs {
@@ -128,34 +142,38 @@ export async function gatherBriefingDigest(
   // One query gets every triaged document in window — we partition into
   // buckets in JS afterwards. At single-user scale (a few hundred emails
   // a day, max), the JS partition is faster than 6 separate queries.
-  const rows = await db()
-    .select({
-      // Select from the documents side of the inner-join — `emailTriage.documentId`
-      // is nullable in the thread-keyed schema (pointer can dangle after a doc
-      // purge); the joined `documents.id` is guaranteed non-null here.
-      documentId: documents.id,
-      category: emailTriage.category,
-      confidence: emailTriage.confidence,
-      rationale: emailTriage.rationale,
-      title: documents.title,
-      authoredAt: documents.authoredAt,
-      sourceThreadId: documents.sourceThreadId,
-      metadata: documents.metadata,
-      ingestedAt: documents.ingestedAt,
-    })
-    .from(emailTriage)
-    .innerJoin(documents, eq(emailTriage.documentId, documents.id))
-    .where(
-      and(
-        eq(emailTriage.userId, args.userId),
-        // Use ingestedAt as the window pivot — `documents.authoredAt` can
-        // be days old if a thread surfaces a backfilled message; what
-        // matters for "today's briefing" is what alfred saw today.
-        gte(documents.ingestedAt, windowStart),
-        lte(documents.ingestedAt, windowEnd),
-      ),
-    )
-    .orderBy(desc(documents.authoredAt));
+  const [rows, suppressionInstructions] = await Promise.all([
+    db()
+      .select({
+        // Select from the documents side of the inner-join — `emailTriage.documentId`
+        // is nullable in the thread-keyed schema (pointer can dangle after a doc
+        // purge); the joined `documents.id` is guaranteed non-null here.
+        documentId: documents.id,
+        accountId: documents.accountId,
+        category: emailTriage.category,
+        confidence: emailTriage.confidence,
+        rationale: emailTriage.rationale,
+        title: documents.title,
+        authoredAt: documents.authoredAt,
+        sourceThreadId: documents.sourceThreadId,
+        metadata: documents.metadata,
+        ingestedAt: documents.ingestedAt,
+      })
+      .from(emailTriage)
+      .innerJoin(documents, eq(emailTriage.documentId, documents.id))
+      .where(
+        and(
+          eq(emailTriage.userId, args.userId),
+          // Use ingestedAt as the window pivot — `documents.authoredAt` can
+          // be days old if a thread surfaces a backfilled message; what
+          // matters for "today's briefing" is what alfred saw today.
+          gte(documents.ingestedAt, windowStart),
+          lte(documents.ingestedAt, windowEnd),
+        ),
+      )
+      .orderBy(desc(documents.authoredAt)),
+    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
+  ]);
 
   const buckets: Record<PriorityCategory, BriefingItem[]> = {
     urgent: [],
@@ -171,9 +189,11 @@ export async function gatherBriefingDigest(
     newsletter: 0,
     marketing: 0,
   };
+  const suppressedByInstruction: BriefingInstructionSuppression[] = [];
 
   for (const r of rows) {
     const cat = r.category;
+    const meta = toRecord(r.metadata);
 
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
@@ -181,10 +201,26 @@ export async function gatherBriefingDigest(
     }
     if (!isPriority(cat)) continue;
 
+    const from = typeof meta.from === "string" ? meta.from : null;
+    const instructionSuppression = findSenderSuppression(suppressionInstructions, {
+      senderEmail: from,
+      accountId: r.accountId,
+      effect: "exclude_briefing_priority",
+    });
+    if (instructionSuppression) {
+      suppressedByInstruction.push({
+        documentId: r.documentId,
+        category: cat,
+        sender: from,
+        factId: instructionSuppression.factId,
+        effect: "exclude_briefing_priority",
+      });
+      continue;
+    }
+
     const bucket = buckets[cat];
     if (bucket.length >= maxPerBucket) continue;
 
-    const meta = toRecord(r.metadata);
     bucket.push({
       documentId: r.documentId,
       category: cat,
@@ -208,6 +244,7 @@ export async function gatherBriefingDigest(
     windowEnd,
     buckets,
     suppressedCounts,
+    suppressedByInstruction,
     totalPriority,
     totalSuppressed,
   };

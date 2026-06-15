@@ -13,6 +13,7 @@ export * from "./weather.js";
 export * from "./metering.js";
 export * from "./event-triggers.js";
 export * from "./todos.js";
+export * from "./standing-instructions.js";
 export * from "./features.js";
 export * from "./api-errors.js";
 export * from "./concurrency.js";
