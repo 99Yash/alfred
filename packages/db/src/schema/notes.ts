@@ -13,3 +13,5 @@ export const notes = pgTable("notes", {
   rowVersion: integer("row_version").notNull().default(0),
   ...lifecycle_dates,
 });
+
+export type Note = typeof notes.$inferSelect;

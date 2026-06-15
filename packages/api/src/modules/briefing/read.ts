@@ -1,7 +1,7 @@
 import { toRecord } from "@alfred/contracts";
 import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { briefingRuns, briefings, documents, emailTriage } from "@alfred/db/schemas";
+import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 
 /**
@@ -218,7 +218,7 @@ export async function fetchLatestWatermark(args: {
 }
 
 function priorBriefingBodyText(
-  fullBriefing: (typeof briefings.$inferSelect)["fullBriefing"],
+  fullBriefing: Briefing["fullBriefing"],
   breakingSummary: string | null,
 ): string | null {
   if (!fullBriefing) return breakingSummary;

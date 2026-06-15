@@ -89,3 +89,6 @@ export const chunks = pgTable(
     index("chunks_user_idx").on(t.userId),
   ],
 );
+
+export type Document = typeof documents.$inferSelect;
+export type DocumentChunk = typeof chunks.$inferSelect;

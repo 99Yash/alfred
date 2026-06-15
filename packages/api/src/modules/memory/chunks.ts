@@ -1,7 +1,7 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
-import { memoryChunks } from "@alfred/db/schemas";
+import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -35,7 +35,7 @@ export interface MemoryChunkRow {
 }
 
 function rowToChunk(
-  r: Omit<typeof memoryChunks.$inferSelect, "embedding"> & { embedding: number[] | null },
+  r: Omit<MemoryChunk, "embedding"> & { embedding: number[] | null },
 ): MemoryChunkRow {
   return {
     id: r.id,

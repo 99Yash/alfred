@@ -7,7 +7,7 @@ import type {
   IanaTimezone,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { briefings } from "@alfred/db/schemas";
+import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 
 export interface BriefingRow {
@@ -179,10 +179,7 @@ async function getBriefingByUserDateSlot(
   return row ? rowToBriefing(row) : null;
 }
 
-async function updateBriefing(
-  briefingId: string,
-  set: Partial<typeof briefings.$inferInsert>,
-): Promise<BriefingRow> {
+async function updateBriefing(briefingId: string, set: Partial<NewBriefing>): Promise<BriefingRow> {
   const rows = await db()
     .update(briefings)
     .set({
@@ -197,7 +194,7 @@ async function updateBriefing(
   return rowToBriefing(row);
 }
 
-function rowToBriefing(row: typeof briefings.$inferSelect): BriefingRow {
+function rowToBriefing(row: Briefing): BriefingRow {
   return {
     id: row.id,
     userId: row.userId,

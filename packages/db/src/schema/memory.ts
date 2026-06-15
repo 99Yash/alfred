@@ -387,3 +387,12 @@ export const rejectedInferences = pgTable(
     index("rejected_inferences_key_idx").on(t.userId, t.key),
   ],
 );
+
+export type UserFact = typeof userFacts.$inferSelect;
+export type UserPreference = typeof userPreferences.$inferSelect;
+export type StyleProfile = typeof styleProfiles.$inferSelect;
+export type Entity = typeof entities.$inferSelect;
+export type EntityRelation = typeof entityRelations.$inferSelect;
+export type MemoryChunk = typeof memoryChunks.$inferSelect;
+export type MemoryExtractionStatus = typeof memoryExtractionStatus.$inferSelect;
+export type RejectedInference = typeof rejectedInferences.$inferSelect;

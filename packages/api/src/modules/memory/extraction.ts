@@ -1,5 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
-import type { documents } from "@alfred/db/schemas";
+import type { Document } from "@alfred/db/schemas";
 import { factValueSchema } from "@alfred/sync";
 import { z } from "zod";
 
@@ -41,7 +41,7 @@ export interface ExtractDocumentArgs {
    * so the shape (and its nullability) can never drift from the schema —
    * see the duplication rules in docs/reference/code-style.md.
    */
-  document: Pick<typeof documents.$inferSelect, "id" | "title" | "content" | "source" | "authoredAt">;
+  document: Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
   /** Existing confirmed facts so the model can avoid duplicates. Top-N most relevant. */
   existingFacts?: Array<{ key: string; value: unknown }>;
   /** Run/step ids forwarded to the metering log + Langfuse trace. */

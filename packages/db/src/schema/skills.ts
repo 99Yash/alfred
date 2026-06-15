@@ -163,3 +163,7 @@ export const skillRuns = pgTable(
     uniqueIndex("skill_runs_agent_run_idx").on(t.agentRunId),
   ],
 );
+
+export type Skill = typeof skills.$inferSelect;
+export type SkillRevision = typeof skillRevisions.$inferSelect;
+export type SkillRun = typeof skillRuns.$inferSelect;

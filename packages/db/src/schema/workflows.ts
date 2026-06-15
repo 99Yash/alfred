@@ -155,3 +155,5 @@ export const workflows = pgTable(
       .where(sql`${t.status} = 'active' AND ${t.trigger}->>'kind' = 'cron'`),
   ],
 );
+
+export type Workflow = typeof workflows.$inferSelect;
