@@ -25,15 +25,20 @@ export const linkEntitiesArgsSchema = z.object({
 });
 export type LinkEntitiesArgs = z.infer<typeof linkEntitiesArgsSchema>;
 
-export interface EntityRow {
-  id: string;
-  userId: string;
+/**
+ * DB row with the jsonb/enum columns narrowed to their parsed shapes. Other
+ * columns track `Entity` ($inferSelect); the lifecycle dates are dropped
+ * deliberately — `rowToEntity` doesn't surface them. Only `kind`/`aliases`/
+ * `metadata`, which are zod-parsed, are restated.
+ */
+export type EntityRow = Omit<
+  Entity,
+  "kind" | "aliases" | "metadata" | "createdAt" | "updatedAt"
+> & {
   kind: EntityKind;
-  canonicalName: string;
   aliases: string[];
   metadata: Record<string, unknown>;
-  rowVersion: number;
-}
+};
 
 function rowToEntity(r: Entity): EntityRow {
   return {

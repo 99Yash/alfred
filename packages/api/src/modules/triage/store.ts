@@ -7,7 +7,7 @@ import {
   type EmailTriage,
 } from "@alfred/db/schemas";
 import { toRecord } from "@alfred/contracts";
-import type { AccountPersona, TriageCategory, TriageTagSource } from "@alfred/contracts";
+import type { AccountPersona, TriageCategory } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
@@ -58,21 +58,15 @@ export async function withTriageThreadLock<T>(
   });
 }
 
-export interface TriageRow {
-  userId: string;
-  sourceThreadId: string;
-  documentId: string | null;
+/**
+ * DB row with `category` narrowed to the triage enum. `source` is already
+ * branded on the column (`.$type<TriageTagSource>()`); every other column
+ * tracks `EmailTriage` ($inferSelect). The lifecycle dates are dropped
+ * deliberately — `rowToTriage` doesn't surface them.
+ */
+export type TriageRow = Omit<EmailTriage, "category" | "createdAt" | "updatedAt"> & {
   category: TriageCategory;
-  confidence: number;
-  rationale: string | null;
-  model: string;
-  appliedLabelId: string | null;
-  classifiedAt: Date;
-  runId: string | null;
-  source: TriageTagSource;
-  overriddenAt: Date | null;
-  rowVersion: number;
-}
+};
 
 export async function getTriage(userId: string, sourceThreadId: string): Promise<TriageRow | null> {
   const rows = await db()
