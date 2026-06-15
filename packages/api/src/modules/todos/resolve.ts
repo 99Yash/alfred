@@ -13,9 +13,7 @@ export const resolveTodosForGmailSenderArgsSchema = z.object({
   accountId: z.string().nullable().optional(),
   reason: z.string().nullish(),
 });
-export type ResolveTodosForGmailSenderArgs = z.infer<
-  typeof resolveTodosForGmailSenderArgsSchema
->;
+export type ResolveTodosForGmailSenderArgs = z.infer<typeof resolveTodosForGmailSenderArgsSchema>;
 
 export type ResolveTodosForGmailSenderResult =
   | {
@@ -56,7 +54,8 @@ export async function resolveTodosForGmailSender(
       ok: false,
       status: "needs_clarification",
       reason: "missing_source_or_sender",
-      message: "I could not identify the todo source or sender to resolve. Which sender or thread should I use?",
+      message:
+        "I could not identify the todo source or sender to resolve. Which sender or thread should I use?",
     };
   }
 
@@ -67,7 +66,10 @@ export async function resolveTodosForGmailSender(
   if (relevant.length === 0) return notFound();
 
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
-  const threadMetadata = senderEmail || accountId ? await loadThreadMetadata(parsed.userId, allThreadIds) : new Map<string, GmailThreadMetadata>();
+  const threadMetadata =
+    senderEmail || accountId
+      ? await loadThreadMetadata(parsed.userId, allThreadIds)
+      : new Map<string, GmailThreadMetadata>();
 
   const todoIds = new Set<string>();
   const matchedThreadIds = new Set<string>();

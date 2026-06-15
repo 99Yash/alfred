@@ -100,7 +100,10 @@ export async function rememberSenderSuppression(
     accountId: instruction.target.accountId,
     effect: "block_todo_suggestion",
   });
-  if (existing && SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))) {
+  if (
+    existing &&
+    SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
+  ) {
     const resolvedTodos = await resolveTodosForGmailSender({
       userId: parsed.userId,
       senderEmail: existing.value.target.email,
