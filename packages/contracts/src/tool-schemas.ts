@@ -399,6 +399,82 @@ export const promoteScratchInput = z
   })
   .strict();
 
+export const rememberInput = z
+  .object({
+    kind: z
+      .literal("sender_suppression")
+      .describe("Persist a resolved sender-level standing instruction."),
+    senderEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(320)
+      .optional()
+      .describe(
+        "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
+      ),
+    senderLabel: z
+      .string()
+      .trim()
+      .max(200)
+      .nullish()
+      .describe("Human display label for the sender, if known."),
+    accountId: z
+      .string()
+      .trim()
+      .max(200)
+      .nullable()
+      .optional()
+      .describe("Optional account scope. Null or omitted means suppress this sender across accounts."),
+    directive: z
+      .string()
+      .trim()
+      .max(1_000)
+      .optional()
+      .describe("Resolved instruction sentence. Omit to use the default open-loop suppression wording."),
+    phrasing: z
+      .string()
+      .trim()
+      .max(1_000)
+      .optional()
+      .describe("Verbatim user phrasing that asked Alfred to remember this."),
+  })
+  .strict();
+
+export const resolveTodoInput = z
+  .object({
+    kind: z
+      .literal("gmail_sender")
+      .describe("Dismiss live todos that came from Gmail threads matching a sender/source."),
+    senderEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(320)
+      .optional()
+      .describe("Resolved sender email. If unresolved, omit it and provide sourceThreadId if known."),
+    sourceThreadId: z
+      .string()
+      .trim()
+      .max(512)
+      .optional()
+      .describe("Optional Gmail thread id to resolve exactly."),
+    accountId: z
+      .string()
+      .trim()
+      .max(200)
+      .nullable()
+      .optional()
+      .describe("Optional account scope. Null or omitted means match across accounts."),
+    reason: z
+      .string()
+      .trim()
+      .max(1_000)
+      .optional()
+      .describe("Short audit reason for why the todo is being dismissed."),
+  })
+  .strict();
+
 export const webSearchInput = z
   .object({
     query: z
@@ -468,6 +544,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.read_scratch": readScratchInput,
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,
+  "system.remember": rememberInput,
+  "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;

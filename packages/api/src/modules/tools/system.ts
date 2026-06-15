@@ -3,12 +3,16 @@ import {
   loadIntegrationInput,
   promoteScratchInput,
   readScratchInput,
+  rememberInput,
+  resolveTodoInput,
   suggestTodoInput,
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
 import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
+import { rememberSenderSuppression } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
+import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
@@ -144,6 +148,49 @@ export const systemTools: readonly RegisteredTool[] = [
       });
       if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
       return { ok: true, promoted: true, fromKey: input.fromKey, toKey: input.toKey, entry };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "remember",
+    riskTier: "no_risk",
+    description:
+      "Persist a resolved sender-level suppression standing instruction. Only persists when the sender email is resolved; otherwise returns a clarification request.",
+    inputSchema: rememberInput,
+    execute: async (input, ctx) => {
+      return await rememberSenderSuppression({
+        userId: ctx.userId,
+        senderEmail: input.senderEmail,
+        senderLabel: input.senderLabel,
+        accountId: input.accountId ?? null,
+        directive: input.directive,
+        phrasing: input.phrasing,
+        source: {
+          kind: "tool_call",
+          id: ctx.toolCallId,
+          meta: {
+            runId: ctx.runId,
+            stepId: ctx.stepId,
+          },
+        },
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "resolve_todo",
+    riskTier: "no_risk",
+    description:
+      "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a sender suppression so current matching todos disappear instead of lingering.",
+    inputSchema: resolveTodoInput,
+    execute: async (input, ctx) => {
+      return await resolveTodosForGmailSender({
+        userId: ctx.userId,
+        senderEmail: input.senderEmail,
+        sourceThreadId: input.sourceThreadId,
+        accountId: input.accountId ?? null,
+        reason: input.reason,
+      });
     },
   }),
   liveTool({
