@@ -21,6 +21,7 @@ export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 export const SYSTEM_ACTIONS = [
   "load_integration",
   "spawn_sub_agent",
+  "read_user_context",
   "read_scratch",
   "write_scratch",
   "promote",
@@ -189,6 +190,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Delegating a sub-task",
     done: "Delegated a sub-task",
     title: "delegate a sub-task",
+  },
+  "system.read_user_context": {
+    running: "Reading user context",
+    done: "Read user context",
+    title: "read user context",
   },
   "system.read_scratch": { running: "Reading notes", done: "Read notes", title: "read notes" },
   "system.write_scratch": { running: "Saving notes", done: "Saved notes", title: "save notes" },

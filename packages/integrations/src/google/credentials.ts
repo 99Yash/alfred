@@ -148,7 +148,7 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
       // ingestion dark for 36h), and the UI can surface a reconnect prompt.
       await db()
         .update(integrationCredentials)
-        .set({ status: "needs_reauth", updatedAt: new Date() })
+        .set({ status: "needs_reauth" })
         .where(eq(integrationCredentials.id, credentialId));
     }
     throw err;
@@ -162,7 +162,6 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
       // Don't overwrite scopes from refresh — Google sometimes omits them.
       scopes: refreshed.scopes.length ? refreshed.scopes : cred.scopes,
       lastRefreshedAt: new Date(),
-      updatedAt: new Date(),
     })
     .where(eq(integrationCredentials.id, credentialId));
   return refreshed.accessToken;

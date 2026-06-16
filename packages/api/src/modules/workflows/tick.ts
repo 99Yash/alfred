@@ -117,7 +117,7 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
       );
       await db()
         .update(workflows)
-        .set({ nextRunAt: null, updatedAt: new Date() })
+        .set({ nextRunAt: null })
         .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, row.nextRunAt)));
       continue;
     }
@@ -154,7 +154,7 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
     // tick on a broken expression.
     await db()
       .update(workflows)
-      .set({ nextRunAt: null, updatedAt: new Date() })
+      .set({ nextRunAt: null })
       .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)));
     return "invalid";
   }
@@ -167,7 +167,6 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
     .set({
       nextRunAt: newNext,
       lastScheduledAt: scheduledFor,
-      updatedAt: new Date(),
     })
     .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
     .returning({ id: workflows.id });
