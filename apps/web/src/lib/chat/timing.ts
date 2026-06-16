@@ -210,7 +210,7 @@ function printSummary(turn: ChatTurnTiming, stage: string): void {
 }
 
 function timelineRows(turn: ChatTurnTiming): Array<Record<string, unknown>> {
-  const rows = [...turn.marks.values()].sort((a, b) => a.at - b.at);
+  const rows = Array.from(turn.marks.values()).toSorted((a, b) => a.at - b.at);
   const submitAt = turn.marks.get("submit")?.at ?? rows[0]?.at ?? 0;
   return rows.map((row, index) => {
     const previous = rows[index - 1];

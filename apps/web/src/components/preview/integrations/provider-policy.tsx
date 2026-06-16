@@ -22,6 +22,8 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
   { value: "gated", label: "Gated", icon: <ShieldCheck size={13} aria-hidden /> },
 ];
 
+const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
+
 export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) {
   const slug = PROVIDER_TO_SLUG[provider.id];
   const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
@@ -51,7 +53,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
             <AppButton
               size="sm"
               variant="ghost"
-              leading={<RefreshCw size={13} aria-hidden />}
+              leading={RETRY_LEADING}
               onClick={retry}
               className="shrink-0"
             >

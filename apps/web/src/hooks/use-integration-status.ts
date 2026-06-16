@@ -180,14 +180,14 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
     if (active.length === 0) {
       return { connected: false, accountLabel: null, missing: [] };
     }
-    const missing = INTEGRATION_PROVIDERS.filter((p) => PROVIDER_BACKEND[p.id] === "google")
-      .filter((p) => {
-        const required = PROVIDER_REQUIRED_SCOPES[p.id];
-        if (!required) return false;
-        // Missing iff no active credential carries every required scope.
-        return !active.some((c) => required.every((r) => meetsScopeRequirement(c.scopes, r)));
-      })
-      .map((p) => ({ providerId: p.id, name: p.name }));
+    const missing = INTEGRATION_PROVIDERS.flatMap((p) => {
+      if (PROVIDER_BACKEND[p.id] !== "google") return [];
+      const required = PROVIDER_REQUIRED_SCOPES[p.id];
+      if (!required) return [];
+      // Missing iff no active credential carries every required scope.
+      if (active.some((c) => required.every((r) => meetsScopeRequirement(c.scopes, r)))) return [];
+      return [{ providerId: p.id, name: p.name }];
+    });
     return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
   }, [googleCreds]);
 }

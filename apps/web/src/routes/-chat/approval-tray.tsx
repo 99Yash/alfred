@@ -28,6 +28,13 @@ import { client } from "~/lib/eden";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 
+// Hoisted so the `leading` props below don't allocate a fresh element per render.
+const ICON_X = <X size={13} />;
+const ICON_PENCIL = <Pencil size={13} />;
+const ICON_BAN = <Ban size={13} />;
+const ICON_XCIRCLE = <XCircle size={13} />;
+const ICON_CHECK = <Check size={13} />;
+
 export function ChatApprovalTray({
   runId,
   approvals,
@@ -41,7 +48,7 @@ export function ChatApprovalTray({
   preview?: boolean;
 }) {
   const ordered = useMemo(
-    () => [...approvals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    () => approvals.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [approvals],
   );
   const [index, setIndex] = useState(0);
@@ -314,7 +321,7 @@ function ApprovalStep({
             <AppButton
               variant="ghost"
               size="sm"
-              leading={editing ? <X size={13} /> : <Pencil size={13} />}
+              leading={editing ? ICON_X : ICON_PENCIL}
               disabled={busy}
               onClick={() => setEditing((v) => !v)}
             >
@@ -325,7 +332,7 @@ function ApprovalStep({
                 <AppButton
                   variant="ghost"
                   size="sm"
-                  leading={<Ban size={13} />}
+                  leading={ICON_BAN}
                   disabled={busy || reasonMissing}
                   onClick={() => decide({ decision: "cancel_run", reason: reason.trim() })}
                 >
@@ -334,7 +341,7 @@ function ApprovalStep({
                 <AppButton
                   variant="destructive"
                   size="sm"
-                  leading={<XCircle size={13} />}
+                  leading={ICON_XCIRCLE}
                   disabled={busy || reasonMissing}
                   onClick={() => decide({ decision: "reject", reason: reason.trim() })}
                 >
@@ -345,7 +352,7 @@ function ApprovalStep({
               <AppButton
                 variant="ghost"
                 size="sm"
-                leading={<XCircle size={13} />}
+                leading={ICON_XCIRCLE}
                 disabled={busy}
                 onClick={() => setShowReason(true)}
               >
@@ -355,7 +362,7 @@ function ApprovalStep({
             <AppButton
               variant="primary"
               size="sm"
-              leading={edited ? <Pencil size={13} /> : <Check size={13} />}
+              leading={edited ? ICON_PENCIL : ICON_CHECK}
               loading={busy}
               disabled={busy}
               onClick={() =>

@@ -11,7 +11,7 @@ import { useReplicacheStatus } from "./context";
  * web bundle boundary forbids it — so the constants are duplicated with this
  * note. Keep them in sync if the server defaults change.
  */
-export const BRIEFING_PREF_KEYS = {
+const BRIEFING_PREF_KEYS = {
   timezone: "briefing.timezone",
   morningHour: "briefing.delivery_hour",
   eveningHour: "briefing.evening_hour",
