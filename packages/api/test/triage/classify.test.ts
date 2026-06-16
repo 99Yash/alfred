@@ -25,6 +25,7 @@ function observations(overrides: Partial<Observations> = {}): Observations {
     persona: null,
     thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
     knownContact: false,
+    senderRelationship: null,
     gmail: { categories: [], important: false, starred: false, inInbox: true },
     content: {
       hasUnsubscribe: false,

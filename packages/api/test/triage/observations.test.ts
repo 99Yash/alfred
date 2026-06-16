@@ -129,6 +129,7 @@ describe("assembleObservations", () => {
       persona: "work",
       thread,
       knownContact: false,
+      senderRelationship: "weak · one-way inbound (you never replied)",
       labelIds: ["INBOX", "CATEGORY_UPDATES"],
       signalText: "Your invoice for $42.00 is ready. Unsubscribe",
     });
@@ -142,6 +143,7 @@ describe("assembleObservations", () => {
       persona: "work",
       thread,
       knownContact: false,
+      senderRelationship: "weak · one-way inbound (you never replied)",
       gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
       content: {
         hasUnsubscribe: true,
@@ -161,6 +163,7 @@ describe("assembleObservations", () => {
       persona: null,
       thread,
       knownContact: true,
+      senderRelationship: null,
       labelIds: [],
       signalText: "hey, quick question",
     });
@@ -168,5 +171,6 @@ describe("assembleObservations", () => {
     assert.deepEqual(obs.senderPrior, { key: null, categoryCounts: {}, lastCategory: null });
     assert.equal(obs.persona, null);
     assert.equal(obs.knownContact, true);
+    assert.equal(obs.senderRelationship, null);
   });
 });

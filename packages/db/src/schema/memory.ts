@@ -346,6 +346,14 @@ export const memoryExtractionStatus = pgTable(
     lastRunId: text("last_run_id"),
     /** How many facts the extractor proposed for this doc on the last run. */
     proposedCount: integer("proposed_count").notNull().default(0),
+    /**
+     * Set once this doc's headers have been folded into the team graph
+     * (ADR-0059 P4a). Distinct from `last_extracted_at`: extraction (LLM facts)
+     * and graph capture (header counts) are independent markers. The capture
+     * step folds + stamps in one transaction, so a failed apply leaves this
+     * `null` and the next run retries — at-least-once, never double-counted.
+     */
+    capturedIntoGraphAt: timestamp("captured_into_graph_at", { withTimezone: true }),
   },
   (t) => [index("memory_extraction_status_user_idx").on(t.userId, t.lastExtractedAt)],
 );

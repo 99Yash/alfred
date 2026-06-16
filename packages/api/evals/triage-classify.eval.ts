@@ -66,6 +66,12 @@ interface Case {
   labelIds?: string[];
   persona?: AccountPersona;
   knownContact?: boolean;
+  /**
+   * Rendered Sender relationship descriptor (ADR-0059) for a human sender —
+   * set directly here so the rubric's person-waiting gate is exercised
+   * deterministically without a populated graph. `undefined` → no line.
+   */
+  senderRelationship?: string | null;
   /** Prior-key + histogram for senders that should carry a prior (services/bulk). */
   senderKey?: string | null;
   senderPrior?: Record<string, number>;
@@ -191,7 +197,7 @@ const CASES: Case[] = [
     expected: {
       category: "action_needed",
       todo: "suppress",
-      note: "Optional nicety; 'Senior <IC role>' is not senior leadership, and the urgency is the sender's (16a-i no_obligation) — no todo.",
+      note: "A connection request is an optional nicety — the sender's want, not the user's obligation — whatever the title (16a-i no_obligation); no todo.",
     },
   },
   {
@@ -238,6 +244,98 @@ const CASES: Case[] = [
       note: "Subscribed editorial digest — newsletter, no obligation.",
     },
   },
+
+  // ── ADR-0059 directional significance — the Sender relationship gate.
+  // Cases 1/2/6 prove relationship disambiguates the person-waiting stake;
+  // cases 3/5 are the over-correction guardrail (intrinsic stakes survive a
+  // cold sender); case 4 proves the 16a title carve-out is deleted.
+  {
+    label: "cold-recommendation-seeker",
+    from: "Rahul Mehta <rahul@unknownstartup.io>",
+    subject: "Quick favor — a recommendation?",
+    body: "Hi, we haven't really met, but I'm applying for a new role and would love a LinkedIn recommendation from you. Could you write a few lines about my work? Would mean a lot.",
+    persona: "work",
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "no prior contact on record",
+    expected: {
+      category: "awaiting_reply",
+      todo: "suppress",
+      note: "Cold sender, no correspondence history — not a real person waiting (16b cold_sender). The direct ask keeps awaiting_reply honest, but no todo. THIS is failure A.",
+    },
+  },
+  {
+    label: "strong-twoway-colleague-ask",
+    from: "Priya <priya@acme.com>",
+    subject: "Need your changes on the Q3 budget",
+    body: "Can you review the Q3 budget sheet and send me your edits? Finance review is blocked on your numbers.",
+    persona: "work",
+    knownContact: true,
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
+    expected: {
+      category: "action_needed",
+      todo: "mint",
+      note: "Strong two-way same-org colleague with a direct, blocking ask — a real person is waiting (16b passes). Same ask shape as the cold seeker, opposite todo call.",
+    },
+  },
+  {
+    label: "cold-sender-invoice-overdue",
+    from: "Maya Designs <maya@mayadesigns.co>",
+    subject: "Invoice #44 — $4,000 now overdue",
+    body: "Following up on invoice #44 for the design work delivered in May. The $4,000 balance is now 15 days overdue — please remit payment this week.",
+    persona: "work",
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "no prior contact on record",
+    expected: {
+      category: "payment",
+      todo: "mint",
+      note: "Cold sender, but money owed is an INTRINSIC stake — NOT gated by the person-waiting rule. Over-correction guard: the relationship gate must not kill real bills.",
+    },
+  },
+  {
+    label: "cold-founder-linkedin-connect",
+    from: "LinkedIn <invitations@linkedin.com>",
+    subject: "Arjun Rao wants to connect",
+    body: "Arjun Rao, Founder & CEO at NimbusAI, would like to connect with you on LinkedIn. Accept or ignore.",
+    senderKey: "invitations@linkedin.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "action_needed",
+      todo: "suppress",
+      note: "Category action_needed — accepting/ignoring a connection request IS a discrete user action. Todo SUPPRESSED, though: an optional nicety carries no obligation even from a 'Founder & CEO' (the 16a title carve-out is deleted, 16a-i no_obligation). Category and todo legitimately disagree.",
+    },
+  },
+  {
+    label: "weak-oneway-hard-deadline",
+    from: "Program Chair <chair@confxyz.org>",
+    subject: "Camera-ready due Jun 18",
+    body: "Your accepted paper's camera-ready version is due Jun 18. Submit via the portal by then or it will be withdrawn from the proceedings.",
+    persona: "work",
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "weak · one-way inbound (you never replied)",
+    authoredAt: NOW,
+    expected: {
+      category: "action_needed",
+      todo: "mint",
+      note: "Weak/one-way sender, but a hard deadline + loss of publication is an INTRINSIC stake — ungated. Over-correction guard alongside the invoice case.",
+    },
+  },
+  {
+    label: "moderate-sameorg-blocking-ask",
+    from: "Karan <karan@acme.com>",
+    subject: "Staging migration plan?",
+    body: "Can you put together the staging migration plan and send it over by EOD? I'm blocked on it for my PR.",
+    persona: "work",
+    knownContact: true,
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "moderate · two-way thread · same-org",
+    authoredAt: NOW,
+    expected: {
+      category: "action_needed",
+      todo: "mint",
+      note: "Moderate, two-way, same-org colleague with a concrete blocking ask — a real person waiting (16b passes).",
+    },
+  },
 ];
 
 interface TaskOutput {
@@ -267,6 +365,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
       recentMessages: c.recentMessages ?? [],
     },
     knownContact: c.knownContact ?? false,
+    senderRelationship: c.senderRelationship ?? null,
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
   });

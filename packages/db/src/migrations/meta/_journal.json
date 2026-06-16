@@ -267,6 +267,13 @@
       "when": 1781057211903,
       "tag": "0037_unique_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1781623180683,
+      "tag": "0038_silent_lord_hawal",
+      "breakpoints": true
     }
   ]
 }
