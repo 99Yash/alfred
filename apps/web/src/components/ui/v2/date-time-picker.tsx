@@ -184,7 +184,7 @@ export function AppDateTimePicker({
             <div role="row" className="contents">
               {WEEKDAYS.map((d, i) => (
                 <div
-                  key={i}
+                  key={d}
                   role="columnheader"
                   aria-label={weekdayLabel(i)}
                   className="grid h-7 place-items-center text-[11px] font-medium text-app-fg-2"
@@ -378,7 +378,9 @@ function buildMinuteOptions(selected: Date | null): AppSelectOption[] {
   const steps = new Set<number>();
   for (let m = 0; m < 60; m += 5) steps.add(m);
   if (selected) steps.add(selected.getMinutes());
-  return [...steps].sort((a, b) => a - b).map((m) => ({ value: pad(m), label: pad(m) }));
+  return Array.from(steps)
+    .toSorted((a, b) => a - b)
+    .map((m) => ({ value: pad(m), label: pad(m) }));
 }
 
 function pad(n: number): string {

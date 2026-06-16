@@ -5,6 +5,8 @@ import { AgentRow } from "./agent-row";
 import { BriefingScheduleSection } from "./briefing-schedule-section";
 import { BACKGROUND_AGENTS } from "./helpers";
 
+const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
+
 export function FeaturesSection() {
   const { isOn, setFlag, error, retry } = useFeatureFlags();
 
@@ -32,7 +34,7 @@ export function FeaturesSection() {
             <AppButton
               size="sm"
               variant="ghost"
-              leading={<RefreshCw size={13} aria-hidden />}
+              leading={RETRY_LEADING}
               onClick={retry}
               className="shrink-0"
             >

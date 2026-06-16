@@ -77,6 +77,17 @@ import { MorningBriefingPanel } from "~/components/landing/morning-briefing-pane
 import { TabPill } from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
+/* Static prop icons hoisted to module scope so they keep a stable reference
+   across renders instead of allocating a fresh element each time. */
+const sparklesLeading = <Sparkles size={14} />;
+const plusLeading = <Plus size={14} />;
+const logOutLeading = <LogOut size={14} />;
+const searchLeading = <Search size={14} />;
+const checkLeading = <Check size={14} />;
+const mailLeading = <Mail size={13} />;
+const cmdKKbd = <Kbd>⌘K</Kbd>;
+const cmdEnterKbd = <Kbd>⌘↵</Kbd>;
+
 export const Route = createFileRoute("/styleguide")({
   head: () => pageMeta({ title: "Styleguide", path: "/styleguide" }),
   component: StyleguidePage,
@@ -336,7 +347,7 @@ export function ButtonSection() {
         <Button variant="primary" size="lg">
           Create Workflow
         </Button>
-        <Button variant="primary" size="lg" leading={<Sparkles size={14} />}>
+        <Button variant="primary" size="lg" leading={sparklesLeading}>
           Learn
         </Button>
         <Button variant="primary" size="lg" disabled>
@@ -366,7 +377,7 @@ export function ButtonSection() {
         <Button variant="white" size="lg">
           Upgrade Plan
         </Button>
-        <Button variant="white" size="mdPlus" leading={<Plus size={14} />}>
+        <Button variant="white" size="mdPlus" leading={plusLeading}>
           New chat
         </Button>
         <Button variant="white" size="lg" disabled>
@@ -375,7 +386,7 @@ export function ButtonSection() {
       </Row>
 
       <Row label="destructive">
-        <Button variant="destructive" size="lg" leading={<LogOut size={14} />}>
+        <Button variant="destructive" size="lg" leading={logOutLeading}>
           Sign out
         </Button>
         <Button variant="destructive" size="mdPlus">
@@ -475,16 +486,12 @@ export function InputSection() {
       </Row>
       <Row label="search">
         <div className="w-80">
-          <Input
-            variant="search"
-            placeholder="Search integrations"
-            leading={<Search size={14} />}
-          />
+          <Input variant="search" placeholder="Search integrations" leading={searchLeading} />
         </div>
       </Row>
       <Row label="with trailing">
         <div className="w-80">
-          <Input placeholder="Press ⌘K" trailing={<Kbd>⌘K</Kbd>} />
+          <Input placeholder="Press ⌘K" trailing={cmdKKbd} />
         </div>
       </Row>
     </Section>
@@ -775,7 +782,7 @@ export function KbdSection() {
         <Kbd>⌥⇧K</Kbd>
       </Row>
       <Row label="in context">
-        <Button variant="primary" size="md" trailing={<Kbd>⌘↵</Kbd>}>
+        <Button variant="primary" size="md" trailing={cmdEnterKbd}>
           Learn
         </Button>
       </Row>
@@ -1562,6 +1569,15 @@ export function FeatureCardSection() {
   );
 }
 
+type FeatureCardTone = "indigo" | "peach" | "rose" | "emerald";
+
+const FEATURE_CARD_TONE: Record<FeatureCardTone, { text: string; bg: string; ring: string }> = {
+  indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
+  peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
+  rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
+  emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
+};
+
 export function FeatureCardDemo({
   tone,
   eyebrow,
@@ -1569,19 +1585,13 @@ export function FeatureCardDemo({
   body,
   bullets,
 }: {
-  tone: "indigo" | "peach" | "rose" | "emerald";
+  tone: FeatureCardTone;
   eyebrow: string;
   title: string;
   body: string;
   bullets: ReadonlyArray<string>;
 }) {
-  const TONE: Record<typeof tone, { text: string; bg: string; ring: string }> = {
-    indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
-    peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
-    rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
-    emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
-  };
-  const t = TONE[tone];
+  const t = FEATURE_CARD_TONE[tone];
   return (
     <article
       className={cn(
@@ -1830,7 +1840,7 @@ export function V2ButtonSection() {
           <div className="space-y-4">
             <V2Row label="primary">
               <AppButton variant="primary">Approve</AppButton>
-              <AppButton variant="primary" leading={<Check size={14} />}>
+              <AppButton variant="primary" leading={checkLeading}>
                 Allow once
               </AppButton>
               <AppButton variant="primary" disabled>
@@ -1839,7 +1849,7 @@ export function V2ButtonSection() {
             </V2Row>
             <V2Row label="white">
               <AppButton variant="white">New chat</AppButton>
-              <AppButton variant="white" leading={<Plus size={14} />}>
+              <AppButton variant="white" leading={plusLeading}>
                 Add
               </AppButton>
               <AppButton variant="white" disabled>
@@ -1895,7 +1905,7 @@ export function V2SurfaceSection() {
             </AppCard>
             <div className="flex flex-wrap items-center gap-2">
               <AppPill>Today</AppPill>
-              <AppPill leading={<Mail size={13} />}>Gmail</AppPill>
+              <AppPill leading={mailLeading}>Gmail</AppPill>
               <AppPill chevron>30 days</AppPill>
             </div>
             <div className="max-w-md">

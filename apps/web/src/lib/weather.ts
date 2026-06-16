@@ -28,7 +28,7 @@
 
 import { z } from "zod";
 
-export const weatherConditionSchema = z.enum([
+const weatherConditionSchema = z.enum([
   "clear",
   "partly_cloudy",
   "cloudy",
@@ -40,7 +40,7 @@ export const weatherConditionSchema = z.enum([
 ]);
 export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
 
-export const temperatureUnitSchema = z.enum(["C", "F"]);
+const temperatureUnitSchema = z.enum(["C", "F"]);
 export type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
 
 /**

@@ -54,8 +54,8 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
       {sections.length > 0 ? (
         <Disclosure summary={`Detail (${sections.length})`}>
           <div className="space-y-4 pt-3">
-            {sections.map((section, i) => (
-              <div key={i} className="space-y-1">
+            {sections.map((section) => (
+              <div key={section.source} className="space-y-1">
                 <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
                   <SourceIcon source={section.source} />
                   {section.label}

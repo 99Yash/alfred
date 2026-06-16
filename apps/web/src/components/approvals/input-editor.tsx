@@ -211,10 +211,10 @@ function FieldControl({
           disabled={disabled}
           placeholder="One per line"
           onChange={(e) => {
-            const items = e.target.value
-              .split("\n")
-              .map((item) => item.trim())
-              .filter(Boolean);
+            const items = e.target.value.split("\n").flatMap((item) => {
+              const trimmed = item.trim();
+              return trimmed ? [trimmed] : [];
+            });
             onChange(items.length > 0 ? items : undefined);
           }}
           className="min-h-24"

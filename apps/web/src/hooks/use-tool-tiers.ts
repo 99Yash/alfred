@@ -37,7 +37,7 @@ function parseTierMap(value: unknown): TierMap {
  * boot, so a long stale time is fine. Returns `{}` on any error so
  * callers render the honest "no tools" branch instead of throwing.
  */
-export function useToolTiers(): TierMap {
+function useToolTiers(): TierMap {
   const { data } = useQuery<TierMap>({
     queryKey: ["integrations", "tool-tiers"],
     queryFn: async () => {
