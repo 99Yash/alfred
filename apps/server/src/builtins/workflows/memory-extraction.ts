@@ -1,15 +1,20 @@
 import {
+  accumulateDoc,
+  applyCorrespondenceIncrements,
+  type ContactAggregate,
   extractFactsFromDocument,
   listFactsByStatus,
   proposeFact,
+  runSignificancePass,
   type FactProposal,
   factProposalSchema,
   type Workflow,
   writeMemoryChunk,
 } from "@alfred/api";
+import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, memoryExtractionStatus, userFacts } from "@alfred/db/schemas";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
+import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 /**
@@ -156,6 +161,39 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           ctx.state.mode === "auto" ? await listFactsByStatus(ctx.userId, "confirmed", 50) : [];
         const existingForPrompt = existing.map((f) => ({ key: f.key, value: f.value }));
 
+        // Team-graph capture (ADR-0059 P4a) rides this same per-doc loop:
+        // not-yet-captured Gmail docs increment the sender graph header-only (no
+        // LLM). Skipped in manual mode (smoke tests bypass the real doc window).
+        // Capture is gated by its OWN marker (`captured_into_graph_at`), not by
+        // extraction state, so the two stay independent.
+        const captureEnabled = ctx.state.mode === "auto";
+        const [selfRow] = captureEnabled
+          ? await db().select({ email: user.email }).from(user).where(eq(user.id, ctx.userId)).limit(1)
+          : [];
+        const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
+        const captureContacts = new Map<string, ContactAggregate>();
+        // Docs whose headers we fold this run; stamped captured only after the
+        // increments commit (see the post-loop transaction).
+        const capturedThisRun: string[] = [];
+        // Docs in this batch already folded on a prior run — skip them.
+        const alreadyCaptured =
+          captureEnabled && ctx.state.documentIds.length > 0
+            ? new Set(
+                (
+                  await db()
+                    .select({ documentId: memoryExtractionStatus.documentId })
+                    .from(memoryExtractionStatus)
+                    .where(
+                      and(
+                        eq(memoryExtractionStatus.userId, ctx.userId),
+                        inArray(memoryExtractionStatus.documentId, ctx.state.documentIds),
+                        isNotNull(memoryExtractionStatus.capturedIntoGraphAt),
+                      ),
+                    )
+                ).map((r) => r.documentId),
+              )
+            : new Set<string>();
+
         for (const docId of ctx.state.documentIds) {
           const doc = await loadDocument(docId, ctx.userId);
           if (!doc) {
@@ -200,7 +238,9 @@ export const memoryExtractionWorkflow: Workflow<State> = {
 
           // Mark the doc processed even if no proposals landed — same row
           // updated on subsequent runs so we don't re-LLM until the
-          // extracted_at falls outside the sinceDays window.
+          // extracted_at falls outside the sinceDays window. (Graph capture
+          // tracks itself separately via `captured_into_graph_at`, stamped
+          // after the post-loop increments commit — never here.)
           await db()
             .insert(memoryExtractionStatus)
             .values({
@@ -218,9 +258,52 @@ export const memoryExtractionWorkflow: Workflow<State> = {
               },
             });
 
+          if (
+            captureEnabled &&
+            !alreadyCaptured.has(doc.id) &&
+            doc.source === "gmail" &&
+            isRecord(doc.metadata)
+          ) {
+            accumulateDoc(captureContacts, doc.metadata, doc.authoredAt ?? null, selfEmail);
+            capturedThisRun.push(doc.id);
+          }
+
           processed++;
           proposed += docProposed;
           blocked += docBlocked;
+        }
+
+        // Fold the run's newly-seen correspondence into the team graph
+        // (increment, not overwrite) and stamp those docs captured — both in
+        // ONE transaction, so a failed apply rolls the stamp back too and the
+        // next run retries (at-least-once, never double-counted). Zero-yield
+        // docs (all-service senders) still get stamped so we don't rescan them.
+        // The significance re-pass runs in finalize. Best-effort: a failure
+        // here never fails the run.
+        if (captureEnabled && capturedThisRun.length > 0) {
+          try {
+            const applied = await db().transaction(async (tx) => {
+              const res = await applyCorrespondenceIncrements(ctx.userId, captureContacts, tx);
+              await tx
+                .update(memoryExtractionStatus)
+                .set({ capturedIntoGraphAt: new Date() })
+                .where(
+                  and(
+                    eq(memoryExtractionStatus.userId, ctx.userId),
+                    inArray(memoryExtractionStatus.documentId, capturedThisRun),
+                  ),
+                );
+              return res;
+            });
+            await ctx.log(
+              `team-graph capture: ${capturedThisRun.length} new doc(s) → ` +
+                `${applied.contacts} contact(s), ${applied.organizations} org(s), ${applied.relations} edge(s)`,
+            );
+          } catch (err) {
+            await ctx.log(
+              `team-graph capture failed (un-stamped docs retry next run): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
 
         await ctx.log(`process: docs=${processed} proposed=${proposed} blocked=${blocked}`);
@@ -235,6 +318,23 @@ export const memoryExtractionWorkflow: Workflow<State> = {
     finalize: {
       id: "finalize",
       async run(ctx) {
+        // Full significance re-pass over every person entity (ADR-0059 P4a).
+        // Recency decay drifts even untouched scores day-to-day, so a full pass
+        // (not just the contacts touched this run) keeps the scalar fresh. Cheap
+        // and in-memory; skipped in manual mode. Best-effort — never fails the run.
+        let significanceScored = 0;
+        if (ctx.state.mode === "auto") {
+          try {
+            const pass = await runSignificancePass(ctx.userId, { commit: true });
+            significanceScored = pass.scored;
+            await ctx.log(`significance pass: scored ${pass.scored}/${pass.total} person entit(ies)`);
+          } catch (err) {
+            await ctx.log(
+              `significance pass failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
         // Write a memory_chunk so the run leaves a recallable trace —
         // future "what did alfred learn this week" queries hit this.
         // Idempotent on (user, kind, content_hash) so a retry is safe.
@@ -242,7 +342,8 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           `Memory-extraction run ${ctx.runId} (${ctx.state.startedAt}): ` +
           `processed ${ctx.state.processed} document(s); ` +
           `proposed ${ctx.state.proposed} fact(s); ` +
-          `${ctx.state.blocked} suppressed by dedup/rejection guards.`;
+          `${ctx.state.blocked} suppressed by dedup/rejection guards; ` +
+          `significance scored ${significanceScored} contact(s).`;
 
         await writeMemoryChunk({
           userId: ctx.userId,
@@ -284,6 +385,7 @@ async function loadDocument(docId: string, userId: string) {
       content: documents.content,
       source: documents.source,
       authoredAt: documents.authoredAt,
+      metadata: documents.metadata,
     })
     .from(documents)
     .where(and(eq(documents.id, docId), eq(documents.userId, userId)))
