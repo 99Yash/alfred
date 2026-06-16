@@ -248,7 +248,6 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
       status: "runnable",
       wakeCondition: null,
       lastCheckpointAt: new Date(),
-      updatedAt: new Date(),
     })
     .where(eq(agentRuns.id, args.runId));
   return "woken";

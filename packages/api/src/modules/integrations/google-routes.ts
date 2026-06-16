@@ -150,7 +150,7 @@ export const googleIntegrationRoutes = new Elysia({
           // ownership check (no row updated for someone else's id).
           const updated = await db()
             .update(integrationCredentials)
-            .set({ persona: body.persona, updatedAt: new Date() })
+            .set({ persona: body.persona })
             .where(
               and(
                 eq(integrationCredentials.id, params.id),
