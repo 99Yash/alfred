@@ -41,7 +41,7 @@ export interface ColdStartSignals {
  * directly. Kept short on purpose — research over a work domain is the
  * common path and a missed entry just costs one wasted research subtopic.
  */
-const CONSUMER_EMAIL_DOMAINS = new Set([
+export const CONSUMER_EMAIL_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
   "yahoo.com",
@@ -64,6 +64,18 @@ function parseDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at < 0 || at === email.length - 1) return null;
   return email.slice(at + 1).toLowerCase();
+}
+
+/**
+ * Is `domain` a free/consumer mailbox (gmail.com, icloud.com, …) rather than
+ * an organization domain? Used by passive team-graph capture (ADR-0059 P4a) to
+ * avoid minting a bogus `organization` entity per personal mailbox — a consumer
+ * domain is not the contact's employer. Shares the {@link CONSUMER_EMAIL_DOMAINS}
+ * list with cold-start so the two stay in sync.
+ */
+export function isConsumerEmailDomain(domain: string | null | undefined): boolean {
+  if (!domain) return false;
+  return CONSUMER_EMAIL_DOMAINS.has(domain.toLowerCase());
 }
 
 /**

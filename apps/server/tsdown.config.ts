@@ -1,10 +1,14 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  // Second entry: a committed one-off run on prod via `railway ssh -s server`
-  // (`node dist/scripts/trigger-cold-start-committed.js --commit`). The prod
-  // image has no tsx/loose @alfred sources, so the script must be bundled.
-  entry: ["./src/index.ts", "./src/scripts/trigger-cold-start-committed.ts"],
+  // Extra entries: committed one-off runs on prod via `railway ssh -s server`
+  // (`node dist/scripts/<name>.js --commit`). The prod image has no tsx/loose
+  // @alfred sources, so each script must be bundled.
+  entry: [
+    "./src/index.ts",
+    "./src/scripts/trigger-cold-start-committed.ts",
+    "./src/scripts/backfill-team-graph-committed.ts",
+  ],
   format: "esm",
   outDir: "./dist",
   clean: true,
