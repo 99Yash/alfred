@@ -48,11 +48,13 @@ export function ChatApprovalTray({
   const [recentDecision, setRecentDecision] = useState<"approve" | "reject" | "cancel_run" | null>(
     null,
   );
+  const previousRunIdRef = useRef(runId);
 
-  useEffect(() => {
+  if (runId !== previousRunIdRef.current) {
+    previousRunIdRef.current = runId;
     setIndex(0);
     setRecentDecision(null);
-  }, [runId]);
+  }
 
   useEffect(() => {
     if (index >= ordered.length) setIndex(Math.max(0, ordered.length - 1));
@@ -111,10 +113,18 @@ function ApprovalStep({
   const [busy, setBusy] = useState(false);
   const [decided, setDecided] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previousStagingRef = useRef({
+    id: staging.id,
+    proposedInput: staging.proposedInput,
+  });
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const notifiedIdsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
+  if (
+    staging.id !== previousStagingRef.current.id ||
+    staging.proposedInput !== previousStagingRef.current.proposedInput
+  ) {
+    previousStagingRef.current = { id: staging.id, proposedInput: staging.proposedInput };
     setDraftInput(staging.proposedInput);
     setEditing(false);
     setShowReason(false);
@@ -122,7 +132,7 @@ function ApprovalStep({
     setBusy(false);
     setDecided(false);
     setError(null);
-  }, [staging.id, staging.proposedInput]);
+  }
 
   useEffect(() => {
     if (showReason) reasonRef.current?.focus();

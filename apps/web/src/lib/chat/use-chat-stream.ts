@@ -67,6 +67,11 @@ export interface ChatStream {
   stopStream: () => void;
 }
 
+interface StreamSnapshot {
+  threadId: string;
+  message: StreamingMessage;
+}
+
 /**
  * Assembles the in-flight assistant turn for `threadId` from the SSE event bus.
  * `chat.delta` text and `chat.reasoning` thinking are each buffered and eased
@@ -79,7 +84,7 @@ export interface ChatStream {
  * Replicache (same messageId), the conversation view drops this bubble.
  */
 export function useChatStream(threadId: string | undefined): ChatStream {
-  const [snapshot, setSnapshot] = useState<StreamingMessage | null>(null);
+  const [snapshot, setSnapshot] = useState<StreamSnapshot | null>(null);
   const ref = useRef<StreamRef | null>(null);
   const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -91,7 +96,6 @@ export function useChatStream(threadId: string | undefined): ChatStream {
   useEffect(() => {
     ref.current = null;
     lastSnapshotRef.current = null;
-    setSnapshot(null);
     if (!threadId) return;
 
     const ensureRaf = () => {
@@ -119,7 +123,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         };
         if (!streamSnapshotsEqual(lastSnapshotRef.current, nextSnapshot)) {
           lastSnapshotRef.current = nextSnapshot;
-          setSnapshot(nextSnapshot);
+          setSnapshot({ threadId, message: nextSnapshot });
         }
         // Keep ticking only while the eased buffers are catching up. Future
         // SSE frames call `ensureRaf()` again, including approval/completed
@@ -309,7 +313,8 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     };
   }, [threadId]);
 
-  return { stream: snapshot, stopStream };
+  const stream = snapshot && snapshot.threadId === threadId ? snapshot.message : null;
+  return { stream, stopStream };
 }
 
 function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {

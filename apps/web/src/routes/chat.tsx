@@ -17,12 +17,12 @@ export const Route = createFileRoute("/chat")({
   component: ChatRoute,
 });
 
-function ChatRoute() {
+export function ChatRoute() {
   const hasChild = useChildMatches().length > 0;
   return hasChild ? <Outlet /> : <ChatIndex />;
 }
 
-function ChatIndex() {
+export function ChatIndex() {
   // `/chat` is always a fresh conversation — no thread until the first send,
   // which mints the id and navigates to `/chat/$threadId`.
   return <ChatShell threadId={undefined} title="New chat" />;

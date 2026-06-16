@@ -12,7 +12,7 @@ export const Route = createFileRoute("/debug/events")({
   component: DebugEventsPage,
 });
 
-function DebugEventsPage() {
+export function DebugEventsPage() {
   const { data: session } = authClient.useSession();
   const frames = useEventStream(100);
   const [message, setMessage] = useState("");

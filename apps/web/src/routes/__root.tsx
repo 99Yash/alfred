@@ -13,7 +13,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootLayout,
 });
 
-function RootLayout() {
+export function RootLayout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <HeadContent />
