@@ -46,7 +46,7 @@ interface CommandPaletteProps {
   children?: ReactNode;
 }
 
-function Root({
+export function CommandPalette({
   open,
   onOpenChange,
   placeholder = "Type a command or search…",
@@ -101,7 +101,7 @@ interface GroupProps {
   children: ReactNode;
 }
 
-function Group({ heading, children }: GroupProps) {
+export function Group({ heading, children }: GroupProps) {
   return (
     <CommandPrimitive.Group
       heading={heading}
@@ -138,7 +138,15 @@ interface ItemProps {
   children: ReactNode;
 }
 
-function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, children }: ItemProps) {
+export function Item({
+  value,
+  keywords,
+  onSelect,
+  icon: Icon,
+  shortcut,
+  disabled,
+  children,
+}: ItemProps) {
   return (
     <CommandPrimitive.Item
       value={value}
@@ -179,7 +187,7 @@ function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, child
 /* Legend (footer keyboard hints)                                              */
 /* -------------------------------------------------------------------------- */
 
-function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
+export function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
   const items = hints ?? [
     { keys: "↑↓", label: "Navigate" },
     { keys: "↵", label: "Select" },
@@ -197,10 +205,12 @@ function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: str
   );
 }
 
-/* -------------------------------------------------------------------------- */
+const groupComponent = Group;
+const itemComponent = Item;
+const legendComponent = Legend;
 
-export const CommandPalette = Object.assign(Root, {
-  Group,
-  Item,
-  Legend,
-});
+export namespace CommandPalette {
+  export const Group = groupComponent;
+  export const Item = itemComponent;
+  export const Legend = legendComponent;
+}

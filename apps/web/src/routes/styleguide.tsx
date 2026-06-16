@@ -84,7 +84,7 @@ export const Route = createFileRoute("/styleguide")({
 
 type StyleguideMode = "app" | "v2" | "dimension";
 
-function StyleguidePage() {
+export function StyleguidePage() {
   const [mode, setMode] = useState<StyleguideMode>("app");
 
   return (
@@ -130,7 +130,7 @@ function StyleguidePage() {
 /* Dimension half — the original primitives, untouched.                        */
 /* -------------------------------------------------------------------------- */
 
-function DimensionHalf() {
+export function DimensionHalf() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -160,7 +160,7 @@ function DimensionHalf() {
   );
 }
 
-function HalfBanner({
+export function HalfBanner({
   tone,
   eyebrow,
   title,
@@ -198,7 +198,7 @@ function HalfBanner({
 /* Section scaffolding                                                         */
 /* -------------------------------------------------------------------------- */
 
-function Section({
+export function Section({
   id,
   title,
   recipe,
@@ -220,7 +220,7 @@ function Section({
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-4 py-3 border-t border-white/5 first:border-t-0">
       <div className="text-[12.5px] text-gray-800 tabular">{label}</div>
@@ -229,7 +229,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function ChatThreadSection() {
+export function ChatThreadSection() {
   return (
     <Section
       id="chat-thread"
@@ -281,7 +281,7 @@ const PURPLE_STOPS = [
   "950",
 ] as const;
 
-function TokensSection() {
+export function TokensSection() {
   return (
     <Section
       id="tokens"
@@ -294,7 +294,7 @@ function TokensSection() {
   );
 }
 
-function Swatches<T extends string>({
+export function Swatches<T extends string>({
   name,
   scale,
   stops,
@@ -325,7 +325,7 @@ function Swatches<T extends string>({
 /* Button                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function ButtonSection() {
+export function ButtonSection() {
   return (
     <Section
       id="button"
@@ -414,7 +414,7 @@ function ButtonSection() {
 /* IconButton                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function IconButtonSection() {
+export function IconButtonSection() {
   return (
     <Section
       id="icon-button"
@@ -451,7 +451,7 @@ function IconButtonSection() {
 /* Input                                                                       */
 /* -------------------------------------------------------------------------- */
 
-function InputSection() {
+export function InputSection() {
   return (
     <Section
       id="input"
@@ -495,7 +495,7 @@ function InputSection() {
 /* Textarea                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function TextareaSection() {
+export function TextareaSection() {
   return (
     <Section
       id="textarea"
@@ -534,7 +534,7 @@ function TextareaSection() {
 /* Switch                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function SwitchSection() {
+export function SwitchSection() {
   return (
     <Section
       id="switch"
@@ -567,7 +567,7 @@ function SwitchSection() {
   );
 }
 
-function ControlledSwitchDemo() {
+export function ControlledSwitchDemo() {
   const [on, setOn] = useState(true);
   return (
     <div className="flex items-center gap-3">
@@ -581,7 +581,7 @@ function ControlledSwitchDemo() {
 /* Tabs                                                                        */
 /* -------------------------------------------------------------------------- */
 
-function TabsSection() {
+export function TabsSection() {
   const [underline, setUnderline] = useState<"learn" | "history">("learn");
   const [segmented, setSegmented] = useState<"chat" | "todos" | "agents">("chat");
   const [pill, setPill] = useState<"gmail" | "slack" | "imessage">("gmail");
@@ -631,7 +631,7 @@ function TabsSection() {
   );
 }
 
-function QuickAccessRailSection() {
+export function QuickAccessRailSection() {
   return (
     <Section
       id="quick-access-rail"
@@ -649,7 +649,7 @@ function QuickAccessRailSection() {
 /* Card                                                                        */
 /* -------------------------------------------------------------------------- */
 
-function CardSection() {
+export function CardSection() {
   return (
     <Section
       id="card"
@@ -697,7 +697,7 @@ function CardSection() {
 /* FrostPanel                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function FrostPanelSection() {
+export function FrostPanelSection() {
   return (
     <Section
       id="frost-panel"
@@ -732,7 +732,7 @@ function FrostPanelSection() {
 /* Avatar                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function AvatarSection() {
+export function AvatarSection() {
   return (
     <Section
       id="avatar"
@@ -757,7 +757,7 @@ function AvatarSection() {
 /* Kbd                                                                         */
 /* -------------------------------------------------------------------------- */
 
-function KbdSection() {
+export function KbdSection() {
   return (
     <Section
       id="kbd"
@@ -787,7 +787,7 @@ function KbdSection() {
 /* StatusDot                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function StatusDotSection() {
+export function StatusDotSection() {
   return (
     <Section
       id="status-dot"
@@ -828,7 +828,7 @@ function StatusDotSection() {
 /* frost-border showcase                                                       */
 /* -------------------------------------------------------------------------- */
 
-function FrostBorderSection() {
+export function FrostBorderSection() {
   return (
     <Section
       id="frost-border"
@@ -877,7 +877,7 @@ function FrostBorderSection() {
 /* Command palette                                                             */
 /* -------------------------------------------------------------------------- */
 
-function CommandPaletteSection() {
+export function CommandPaletteSection() {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   return (
@@ -1000,7 +1000,7 @@ function CommandPaletteSection() {
 /* Typography                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function TypographySection() {
+export function TypographySection() {
   return (
     <Section
       id="typography"
@@ -1039,7 +1039,7 @@ function TypographySection() {
 /* every preview reads on the new #0a0a0a canvas with its faint grid.         */
 /* ========================================================================== */
 
-function AppHalf() {
+export function AppHalf() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -1075,7 +1075,7 @@ function AppHalf() {
  * landing background (#0a0a0a + 80px grid + Open Runde) so primitives like
  * FrostButton read identically to the production page.
  */
-function AppCanvas({
+export function AppCanvas({
   children,
   className,
   height,
@@ -1093,7 +1093,7 @@ function AppCanvas({
 
 /* ----------------------------- Tokens ----------------------------- */
 
-function AppTokensSection() {
+export function AppTokensSection() {
   return (
     <Section
       id="app-tokens"
@@ -1160,7 +1160,7 @@ function AppTokensSection() {
 
 /* ----------------------------- Hero typography ----------------------------- */
 
-function AppHeroTypographySection() {
+export function AppHeroTypographySection() {
   return (
     <Section
       id="app-hero-typography"
@@ -1192,7 +1192,7 @@ function AppHeroTypographySection() {
 
 /* ----------------------------- FrostButton ----------------------------- */
 
-function FrostButtonSection() {
+export function FrostButtonSection() {
   return (
     <Section
       id="frost-button"
@@ -1256,7 +1256,7 @@ function FrostButtonSection() {
 
 /* ----------------------------- EyebrowChip ----------------------------- */
 
-function EyebrowChipSection() {
+export function EyebrowChipSection() {
   return (
     <Section
       id="app-eyebrow-chip"
@@ -1283,7 +1283,7 @@ function EyebrowChipSection() {
   );
 }
 
-function EyebrowChip({
+export function EyebrowChip({
   children,
   icon,
   accent = "neutral",
@@ -1310,7 +1310,7 @@ function EyebrowChip({
   );
 }
 
-function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
+export function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
   return (
     <span
       aria-hidden
@@ -1326,7 +1326,7 @@ function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
 
 /* ----------------------------- TopAnnouncement ----------------------------- */
 
-function TopAnnouncementSection() {
+export function TopAnnouncementSection() {
   return (
     <Section
       id="app-top-announcement"
@@ -1370,7 +1370,7 @@ function TopAnnouncementSection() {
 
 /* ----------------------------- FloatingPillNav ----------------------------- */
 
-function FloatingPillNavSection() {
+export function FloatingPillNavSection() {
   return (
     <Section
       id="app-floating-nav"
@@ -1429,7 +1429,7 @@ function FloatingPillNavSection() {
 
 /* ----------------------------- TabPill ----------------------------- */
 
-function TabPillSection() {
+export function TabPillSection() {
   const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
   return (
     <Section
@@ -1457,7 +1457,7 @@ function TabPillSection() {
 
 /* ----------------------------- AuroraGlow ----------------------------- */
 
-function AuroraGlowSection() {
+export function AuroraGlowSection() {
   return (
     <Section
       id="app-aurora-glow"
@@ -1486,7 +1486,7 @@ function AuroraGlowSection() {
 
 /* ----------------------------- DeviceBezel ----------------------------- */
 
-function DeviceBezelSection() {
+export function DeviceBezelSection() {
   return (
     <Section
       id="app-device-bezel"
@@ -1509,7 +1509,7 @@ function DeviceBezelSection() {
 
 /* ----------------------------- BenefitsRow ----------------------------- */
 
-function BenefitsRowSection() {
+export function BenefitsRowSection() {
   return (
     <Section
       id="app-benefits-row"
@@ -1525,7 +1525,7 @@ function BenefitsRowSection() {
 
 /* ----------------------------- FeatureCard ----------------------------- */
 
-function FeatureCardSection() {
+export function FeatureCardSection() {
   return (
     <Section
       id="app-feature-card"
@@ -1562,7 +1562,7 @@ function FeatureCardSection() {
   );
 }
 
-function FeatureCardDemo({
+export function FeatureCardDemo({
   tone,
   eyebrow,
   title,
@@ -1625,7 +1625,7 @@ function FeatureCardDemo({
 
 /* ----------------------------- Operational pill ----------------------------- */
 
-function OperationalPillSection() {
+export function OperationalPillSection() {
   return (
     <Section
       id="app-operational-pill"
@@ -1655,7 +1655,7 @@ function OperationalPillSection() {
 
 /* ----------------------------- FadeInOnScroll ----------------------------- */
 
-function FadeInOnScrollSection() {
+export function FadeInOnScrollSection() {
   const [key, setKey] = useState(0);
   return (
     <Section
@@ -1697,7 +1697,7 @@ function FadeInOnScrollSection() {
 
 /* ----------------------------- HeroShowcase ----------------------------- */
 
-function HeroShowcaseSection() {
+export function HeroShowcaseSection() {
   return (
     <Section
       id="app-hero-showcase"
@@ -1713,7 +1713,7 @@ function HeroShowcaseSection() {
 
 /* ----------------------------- MorningBriefingPanel ----------------------------- */
 
-function MorningBriefingSection() {
+export function MorningBriefingSection() {
   return (
     <Section
       id="app-morning-briefing"
@@ -1731,7 +1731,7 @@ function MorningBriefingSection() {
 
 /* ----------------------------- Closing CTA + footer ----------------------------- */
 
-function LandingCtaSectionPreview() {
+export function LandingCtaSectionPreview() {
   return (
     <Section
       id="app-cta"
@@ -1745,7 +1745,7 @@ function LandingCtaSectionPreview() {
   );
 }
 
-function LandingFooterPreview() {
+export function LandingFooterPreview() {
   return (
     <Section
       id="app-footer"
@@ -1765,7 +1765,7 @@ function LandingFooterPreview() {
 /* once per forced theme, so light/dark regressions are visible side by side. */
 /* ========================================================================== */
 
-function V2Half() {
+export function V2Half() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -1784,7 +1784,7 @@ function V2Half() {
 }
 
 /** Side-by-side forced light / forced dark panes for an app-grammar preview. */
-function ThemePanes({
+export function ThemePanes({
   render,
   stacked = false,
 }: {
@@ -1809,7 +1809,7 @@ function ThemePanes({
   );
 }
 
-function V2Row({ label, children }: { label: string; children: ReactNode }) {
+export function V2Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[88px_1fr] items-center gap-3">
       <div className="text-[12px] tabular-nums text-app-fg-2">{label}</div>
@@ -1818,7 +1818,7 @@ function V2Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function V2ButtonSection() {
+export function V2ButtonSection() {
   return (
     <Section
       id="v2-button"
@@ -1877,7 +1877,7 @@ function V2ButtonSection() {
   );
 }
 
-function V2SurfaceSection() {
+export function V2SurfaceSection() {
   return (
     <Section
       id="v2-surfaces"
@@ -1908,7 +1908,7 @@ function V2SurfaceSection() {
   );
 }
 
-function V2ToastSection() {
+export function V2ToastSection() {
   return (
     <Section
       id="v2-toast"
@@ -2074,7 +2074,7 @@ function V2ToastSection() {
   );
 }
 
-function V2FrostOverlaySection() {
+export function V2FrostOverlaySection() {
   const [selectValue, setSelectValue] = useState<string | undefined>("primary");
   const [pickerValue, setPickerValue] = useState<string | undefined>("2026-06-11T14:00:00.000Z");
   return (
@@ -2196,7 +2196,7 @@ const V2_STAGING_EVENT: SyncedActionStaging = {
   createdAt: "2026-06-07T08:31:00.000Z",
 };
 
-function V2ApprovalTraySection() {
+export function V2ApprovalTraySection() {
   return (
     <Section
       id="v2-approval-tray"

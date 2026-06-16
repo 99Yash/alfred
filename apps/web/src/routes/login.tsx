@@ -16,7 +16,7 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-function LoginPage() {
+export function LoginPage() {
   return (
     <AppThemeProvider>
       <AppThemed className="relative min-h-dvh bg-app-background-subtle">
