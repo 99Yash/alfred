@@ -10,6 +10,8 @@ export interface ToolCallView {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string;
   resultPreview?: string;
+  /** Narration segment this call follows — orders it against the narration trail. */
+  segmentIndex?: number;
 }
 
 export interface ToolPresentation {
@@ -36,6 +38,60 @@ function humanizeTool(toolName: string): string {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** What a tool *did*, for the run summary. */
+export type ToolCategory = "source" | "action" | "system";
+
+// Read-ish verbs gather context; write-ish verbs change the world. Keyed off
+// the leading verb of the tool's action segment (`gmail.send_draft` → "send").
+const SOURCE_VERBS = new Set([
+  "search",
+  "read",
+  "list",
+  "get",
+  "check",
+  "open",
+  "fetch",
+  "view",
+  "export",
+  "download",
+]);
+const ACTION_VERBS = new Set([
+  "send",
+  "create",
+  "update",
+  "append",
+  "add",
+  "write",
+  "save",
+  "delete",
+  "remove",
+  "resolve",
+  "suggest",
+  "promote",
+  "remember",
+  "batch",
+]);
+
+/**
+ * Classify a tool for the group headline: `"source"` (gathered information),
+ * `"action"` (changed something), or `"system"` (plumbing like connecting an
+ * integration or spawning a sub-agent — excluded from the "searched / did" tally
+ * so it never inflates the count). Pure name-based heuristic; the verb registry
+ * carries no category field, so this is the one place that judgment lives.
+ */
+export function toolCategory(toolName: string): ToolCategory {
+  if (toolName === "system.load_integration" || toolName === "system.spawn_sub_agent") {
+    return "system";
+  }
+  if (toolName === "system.web_search") return "source";
+  const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
+  const verb = last.split("_")[0] ?? "";
+  if (ACTION_VERBS.has(verb)) return "action";
+  if (SOURCE_VERBS.has(verb)) return "source";
+  // Unknown verb: treat as a source so a stray read never reads as a write.
+  return "source";
 }
 
 /**

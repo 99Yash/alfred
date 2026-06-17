@@ -20,7 +20,7 @@ export function RootLayout() {
       <AppShell>
         <Outlet />
       </AppShell>
-      <Toaster theme="dark" position="top-center" expand gap={10} />
+      <Toaster theme="dark" position="top-center" gap={10} />
     </div>
   );
 }

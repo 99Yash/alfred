@@ -18,6 +18,8 @@ export function DebugEventsPage() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
 
+  // Signed-out visitors are redirected to /login by AppShell's auth guard
+  // before this route renders, so there's no need for a sign-in fallback here.
   const sendDemo = async () => {
     if (!session?.user) return;
     setSending(true);
@@ -37,19 +39,6 @@ export function DebugEventsPage() {
       setSending(false);
     }
   };
-
-  if (!session?.user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center space-y-4">
-          <p className="text-muted-foreground">Not signed in.</p>
-          <a href="/login" className="underline text-sm">
-            Sign in
-          </a>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">

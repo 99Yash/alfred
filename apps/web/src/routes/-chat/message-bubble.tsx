@@ -79,7 +79,9 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
           durationMs={message.reasoningMs}
         />
       ) : null}
-      {tools.length > 0 ? <ToolCallGroup tools={tools} active={false} /> : null}
+      {tools.length > 0 ? (
+        <ToolCallGroup tools={tools} narration={message.narration ?? undefined} active={false} />
+      ) : null}
       {message.content.length > 0 ? (
         <div ref={bodyRef}>
           <AssistantMarkdown text={message.content} />

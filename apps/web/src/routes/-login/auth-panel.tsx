@@ -7,7 +7,7 @@ import { GoogleMark } from "./google-mark";
 const GOOGLE_LEADING = <GoogleMark />;
 const ARROW_TRAILING = <ArrowRight size={14} />;
 
-export function AuthPanel() {
+export function AuthPanel({ redirect }: { redirect?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +19,9 @@ export function AuthPanel() {
         provider: "google",
         // Absolute URL so Better Auth doesn't resolve it against BETTER_AUTH_URL
         // (the server origin) and strand the user on :3001 after the OAuth callback.
-        callbackURL: `${window.location.origin}/`,
+        // `redirect` (sanitized in the route's validateSearch) returns the user to
+        // wherever the auth guard bounced them from; default `/` for a cold sign-in.
+        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
       });
       if (signInError) {
         setError(signInError.message ?? "Couldn't start Google sign-in");

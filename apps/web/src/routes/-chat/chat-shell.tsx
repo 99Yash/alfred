@@ -14,7 +14,6 @@ import {
   Paperclip,
   Share2,
   ShieldCheck,
-  Sparkles,
   Square,
   X,
   Zap,
@@ -31,23 +30,21 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Particles } from "~/components/ui/particles";
-import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
+import { useResolvedIntegrations } from "~/hooks/use-integration-status";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
-import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
+import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
 import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { useResolvedIntegrations } from "~/hooks/use-integration-status";
-import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
@@ -63,18 +60,17 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { Conversation } from "./conversation";
+import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
-import { formatElapsed } from "./mic-recording-format";
 import { MicWaveform, useMicRecording } from "./mic-recording";
+import { formatElapsed } from "./mic-recording-format";
+import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
 import {
   TiptapComposer,
   type SuggestionRenderState,
   type TiptapComposerHandle,
 } from "./tiptap-composer";
-
-const MODEL_LEADING = <Sparkles size={12} />;
 
 // Module-level empties so the `?? EMPTY` fallback in `useRailData` returns a
 // referentially stable value before react-query's first fetch resolves —
@@ -142,7 +138,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const { stream, stopStream } = useChatStream(threadId);
   useRunComplete(stream);
   const send = useSendMessage();
-  const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
+  // Model tier from the composer's picker (Auto vs Deep). Persisted so the
+  // choice survives reloads and thread switches; rides with every turn.
+  const [tier, setTier] = useModelTier();
+  const onSend = useCallback((text: string) => void send(threadId, text, tier), [send, threadId, tier]);
   const showStream = shouldShowStream(messages, stream);
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
@@ -233,6 +232,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 autoApprove={autoApprove}
                 autoApprovePending={autoApprovePending}
                 onToggleAutoApprove={onToggleAutoApprove}
+                tier={tier}
+                onTierChange={setTier}
               />
             </div>
           </div>
@@ -245,6 +246,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           autoApprove={autoApprove}
           autoApprovePending={autoApprovePending}
           onToggleAutoApprove={onToggleAutoApprove}
+          tier={tier}
+          onTierChange={setTier}
         />
       )}
     </div>
@@ -303,6 +306,8 @@ function EmptyHero({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -310,6 +315,8 @@ function EmptyHero({
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
@@ -346,6 +353,8 @@ function EmptyHero({
           autoApprove={autoApprove}
           autoApprovePending={autoApprovePending}
           onToggleAutoApprove={onToggleAutoApprove}
+          tier={tier}
+          onTierChange={onTierChange}
         />
         <ConnectToolsBar />
       </div>
@@ -575,6 +584,8 @@ function Composer({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -590,6 +601,9 @@ function Composer({
   /** Policy row not yet synced — render the toggle disabled until it lands. */
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  /** Model-tier picker (Auto vs Deep) state + setter. */
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const { resolved: theme } = useAppTheme();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
@@ -650,19 +664,6 @@ function Composer({
           disabled && "opacity-70",
         )}
       >
-        {/* Ambient drifting particles inside the composer surface. Sits
-         * underneath the editor + controls via stacking order (rendered first
-         * + pointer-events-none from the component). Re-keyed on theme so the
-         * canvas re-mounts with the right color. Stardust away while the
-         * user has text in the editor — mirrors the placeholder exit. */}
-        <Particles
-          key={theme}
-          className="absolute inset-0"
-          quantity={20}
-          color={theme === "dark" ? "#ffffff" : "#000000"}
-          maxAlpha={theme === "dark" ? 0.3 : 0.45}
-          dispersed={!isEmpty}
-        />
         {/* Wrap editor + controls in a positioned container so they paint
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
@@ -709,6 +710,8 @@ function Composer({
             autoApprove={autoApprove}
             autoApprovePending={autoApprovePending}
             onToggleAutoApprove={onToggleAutoApprove}
+            tier={tier}
+            onTierChange={onTierChange}
           />
         </div>
       </div>
@@ -984,6 +987,8 @@ function ComposerToolbar({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
@@ -999,6 +1004,8 @@ function ComposerToolbar({
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
   return (
@@ -1015,15 +1022,7 @@ function ComposerToolbar({
         >
           <AtSign size={14} />
         </ComposerIcon>
-        <AppPill
-          className="h-7 px-2 text-[12px] text-app-fg-3"
-          leading={MODEL_LEADING}
-          chevron
-          disabled
-          title="Model picker — coming with m13"
-        >
-          Auto
-        </AppPill>
+        <ModelTierPicker value={tier} onChange={onTierChange} disabled={disabled || mic.recording} />
         {onToggleAutoApprove ? (
           <AutoApproveToggle
             on={Boolean(autoApprove)}
@@ -1230,6 +1229,24 @@ function ComposerIcon({
 }
 
 /* ----------- helpers ----------- */
+
+const TIER_STORAGE_KEY = "alfred:chat-tier";
+
+/**
+ * Model-tier selection (Auto vs Deep) persisted to localStorage, so the choice
+ * is sticky across reloads and thread switches. Single-user, so this is a plain
+ * local preference — no synced user-row field yet (a multi-device follow-up).
+ */
+function useModelTier(): [ChatTier, (tier: ChatTier) => void] {
+  const [tier, setTierState] = useState<ChatTier>(() =>
+    safeGet(TIER_STORAGE_KEY) === "deep" ? "deep" : "standard",
+  );
+  const setTier = useCallback((next: ChatTier) => {
+    setTierState(next);
+    safeSet(TIER_STORAGE_KEY, next);
+  }, []);
+  return [tier, setTier];
+}
 
 /**
  * Builds the `RailData` bundle that drives the right rail's three tabs

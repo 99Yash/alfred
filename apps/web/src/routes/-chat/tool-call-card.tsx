@@ -70,7 +70,11 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
       >
         <span
           aria-hidden
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
+          className={cn(
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2",
+            // The step in flight glows so the eye lands on what's happening now.
+            running && "chat-node-glow",
+          )}
         >
           {brand ? (
             <IntegrationGlyph brand={brand} size={14} />

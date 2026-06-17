@@ -29,10 +29,16 @@ import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import { readSubAgentMetadata, subAgentMetadataSchema } from "../sub-agent-metadata";
+import {
+  readSubAgentMetadata,
+  subAgentMetadataSchema,
+  SUB_AGENT_WORKFLOW_SLUG,
+} from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 
-export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
+// This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
+// keep the slug single-sourced so the two never drift.
+export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
 
 const TURN_CAP_MAX = 30;
 

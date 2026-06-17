@@ -10,13 +10,36 @@ import { ShowcasePanel } from "./-login/showcase-panel";
  * to Google's consent screen and back to `/api/auth/callback/google`
  * (handled by Better Auth). The single-email allowlist still applies via
  * the `user.create.before` hook in `@alfred/auth`.
+ *
+ * `?redirect=` carries the path a signed-out visitor was bounced from (set by
+ * `AppShell`'s auth guard) so sign-in returns them there instead of `/`.
  */
+export interface LoginSearch {
+  redirect?: string;
+}
+
+/**
+ * Only same-origin absolute paths survive — reject anything that isn't a
+ * leading-slash path, and reject protocol-relative `//host` (which the browser
+ * treats as an external origin). This keeps the value safe to feed straight
+ * into the OAuth `callbackURL` without opening a redirect to an attacker's site.
+ */
+export function sanitizeRedirect(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (!value.startsWith("/") || value.startsWith("//")) return undefined;
+  return value;
+}
+
 export const Route = createFileRoute("/login")({
   head: () => pageMeta({ title: "Sign in", path: "/login" }),
   component: LoginPage,
+  validateSearch: (search): LoginSearch => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 });
 
 export function LoginPage() {
+  const { redirect } = Route.useSearch();
   return (
     <AppThemeProvider>
       <AppThemed className="relative min-h-dvh bg-app-background-subtle">
@@ -27,7 +50,7 @@ export function LoginPage() {
          * are the whole page (this route renders chromeless, so it must supply
          * its own main, unlike authed routes which get one from the shell). */}
         <main className="grid min-h-dvh lg:grid-cols-2">
-          <AuthPanel />
+          <AuthPanel redirect={redirect} />
           <ShowcasePanel />
         </main>
       </AppThemed>
