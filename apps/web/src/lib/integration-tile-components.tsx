@@ -1107,6 +1107,351 @@ const SlackTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   );
 };
 
+const NotionTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <rect width="50" height="50" fill="#171717" />
+      <rect width="50" height="50" fill={`url(#paint0_linear_${idJitter})`} />
+      <g filter={`url(#filter0_d_${idJitter})`}>
+        <path
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M29.1559 9.76696L12.2566 11.0152C10.8932 11.1331 10.4189 12.0239 10.4189 13.0917V31.6178C10.4189 32.4495 10.7143 33.1611 11.4268 34.1121L15.3993 39.2775C16.0519 40.1092 16.6453 40.2875 17.8914 40.2283L37.5162 39.0402C39.1755 38.922 39.651 38.1493 39.651 36.8434V16.0013C39.651 15.3263 39.3844 15.1318 38.5995 14.5558L33.0703 10.6575C31.7653 9.70862 31.2317 9.5886 29.1559 9.76665V9.76696ZM18.3352 15.6602C16.7327 15.768 16.3693 15.7924 15.4591 15.0524L13.1453 13.212C12.9102 12.9738 13.0284 12.6766 13.6209 12.6174L29.8666 11.4302C31.2308 11.3111 31.9412 11.7866 32.4748 12.202L35.261 14.2208C35.3801 14.2809 35.6764 14.6361 35.32 14.6361L18.5429 15.6461L18.3352 15.6602ZM16.467 36.6654V18.972C16.467 18.1993 16.7043 17.8429 17.4147 17.7831L36.6842 16.6549C37.3378 16.5959 37.6331 17.0113 37.6331 17.7828V35.3582C37.6331 36.1309 37.514 36.7845 36.4472 36.8434L18.0075 37.9123C16.9407 37.9713 16.4673 37.6161 16.4673 36.6654H16.467ZM34.6694 19.9206C34.7876 20.4551 34.6694 20.9896 34.135 21.0506L33.2462 21.2269V34.2902C32.4745 34.7055 31.7641 34.9428 31.1704 34.9428C30.2214 34.9428 29.9844 34.6457 29.2738 33.7557L23.4618 24.6117V33.4585L25.3004 33.8748C25.3004 33.8748 25.3004 34.9438 23.817 34.9438L19.7275 35.1811C19.6084 34.9428 19.7275 34.3494 20.142 34.2312L21.21 33.935V22.2378L19.7279 22.1177C19.6087 21.5833 19.905 20.8115 20.7357 20.7516L25.1235 20.4563L31.1707 29.7185V21.5243L29.6293 21.3472C29.5101 20.6927 29.9844 20.2172 30.5769 20.1592L34.6694 19.9206Z"
+          fill="black"
+        />
+      </g>
+      <defs>
+        <filter
+          id={`filter0_d_${idJitter}`}
+          x="6.77877"
+          y="7.87718"
+          width="36.5123"
+          height="37.8214"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="1.82009" />
+          <feGaussianBlur stdDeviation="1.82009" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend mode="normal" in2="BackgroundImageFix" result={`effect1_dropShadow_${idJitter}`} />
+          <feBlend
+            mode="normal"
+            in="SourceGraphic"
+            in2={`effect1_dropShadow_${idJitter}`}
+            result="shape"
+          />
+        </filter>
+        <linearGradient
+          id={`paint0_linear_${idJitter}`}
+          x1="25"
+          y1="6.5"
+          x2="25"
+          y2="50"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="#D9D9D9" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+};
+
+const RailwayTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g clipPath={`url(#clip0_${idJitter})`}>
+        <rect width="50" height="50" fill={`url(#paint0_radial_${idJitter})`} />
+        <g filter={`url(#filter0_ddddi_${idJitter})`}>
+          <path
+            d="M7.82509 22.5005C7.7425 23.0793 7.68876 23.662 7.66406 24.2462H33.9983C33.9063 24.0665 33.7828 23.9045 33.6582 23.746C29.1562 17.9296 26.7344 18.4339 23.2701 18.2862C22.1151 18.2387 21.3318 18.2196 16.7344 18.2196C14.2737 18.2196 11.5986 18.2259 8.99364 18.2328C8.65642 19.143 8.33119 20.0253 8.17284 20.743H21.6674V22.5005H7.82509ZM34.2059 26.0054H7.67757C7.70533 26.4744 7.74908 26.9371 7.81226 27.3935H32.3043C33.3962 27.3935 34.0073 26.7741 34.2059 26.0054ZM9.18822 32.1881C9.18822 32.1881 13.2485 42.1579 24.9807 42.335C31.993 42.335 38.0182 38.1703 40.7551 32.1881H9.18822Z"
+            fill={`url(#paint1_linear_${idJitter})`}
+          />
+          <path
+            d="M24.9805 7.66504C18.4968 7.66504 12.8548 11.2255 9.87528 16.4887C12.2037 16.4838 16.7383 16.481 16.7383 16.481H16.7394V16.4793C22.0993 16.4793 22.2985 16.5032 23.3455 16.5469L23.9939 16.5708C26.2522 16.6461 29.0279 16.8886 31.2119 18.541C32.3974 19.4372 34.1091 21.4154 35.1295 22.8246C36.0728 24.1281 36.3441 25.6265 35.7028 27.0622C35.1125 28.3816 33.8423 29.1686 32.3041 29.1686H8.22914C8.22914 29.1686 8.37246 29.7761 8.58735 30.4467H41.4504C42.034 28.6926 42.3323 26.8561 42.334 25.0074C42.3343 15.4304 34.5648 7.66504 24.9805 7.66504Z"
+            fill={`url(#paint2_linear_${idJitter})`}
+          />
+        </g>
+      </g>
+      <defs>
+        <filter
+          id={`filter0_ddddi_${idJitter}`}
+          x="1.92877"
+          y="6.51798"
+          width="46.1405"
+          height="56.464"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="1.14706" />
+          <feGaussianBlur stdDeviation="1.14706" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend mode="normal" in2="BackgroundImageFix" result={`effect1_dropShadow_${idJitter}`} />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="3.44118" />
+          <feGaussianBlur stdDeviation="1.72059" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect1_dropShadow_${idJitter}`}
+            result={`effect2_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="8.02941" />
+          <feGaussianBlur stdDeviation="2.29412" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect2_dropShadow_${idJitter}`}
+            result={`effect3_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="14.9118" />
+          <feGaussianBlur stdDeviation="2.86765" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.01 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect3_dropShadow_${idJitter}`}
+            result={`effect4_dropShadow_${idJitter}`}
+          />
+          <feBlend
+            mode="normal"
+            in="SourceGraphic"
+            in2={`effect4_dropShadow_${idJitter}`}
+            result="shape"
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset />
+          <feGaussianBlur stdDeviation="0.458823" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0" />
+          <feBlend mode="normal" in2="shape" result={`effect5_innerShadow_${idJitter}`} />
+        </filter>
+        <radialGradient
+          id={`paint0_radial_${idJitter}`}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="translate(25.335 51.5) rotate(-90) scale(54.5 44.0328)"
+        >
+          <stop stopColor="#9C07B5" />
+          <stop offset="1" stopColor="#6114B9" />
+        </radialGradient>
+        <linearGradient
+          id={`paint1_linear_${idJitter}`}
+          x1="24.999"
+          y1="7.66504"
+          x2="24.8599"
+          y2="41.9994"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="white" stopOpacity="0.5" />
+        </linearGradient>
+        <linearGradient
+          id={`paint2_linear_${idJitter}`}
+          x1="24.999"
+          y1="7.66504"
+          x2="24.8599"
+          y2="41.9994"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="white" stopOpacity="0.5" />
+        </linearGradient>
+        <clipPath id={`clip0_${idJitter}`}>
+          <rect width="50" height="50" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  );
+};
+
+const VercelTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g clipPath={`url(#clip0_${idJitter})`}>
+        <rect width="50" height="50" fill={`url(#paint0_radial_${idJitter})`} />
+        <g filter={`url(#filter0_ddddi_${idJitter})`}>
+          <path
+            d="M37.6934 35.7358L25 13.75L12.3066 35.7358H37.6934Z"
+            fill={`url(#paint1_linear_${idJitter})`}
+          />
+        </g>
+      </g>
+      <defs>
+        <filter
+          id={`filter0_ddddi_${idJitter}`}
+          x="4.03536"
+          y="12.0957"
+          width="41.9293"
+          height="53.4167"
+          filterUnits="userSpaceOnUse"
+          colorInterpolationFilters="sRGB"
+        >
+          <feFlood floodOpacity="0" result="BackgroundImageFix" />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="1.65426" />
+          <feGaussianBlur stdDeviation="1.65426" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
+          <feBlend mode="normal" in2="BackgroundImageFix" result={`effect1_dropShadow_${idJitter}`} />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="4.96277" />
+          <feGaussianBlur stdDeviation="2.48138" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect1_dropShadow_${idJitter}`}
+            result={`effect2_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="11.5798" />
+          <feGaussianBlur stdDeviation="3.30851" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect2_dropShadow_${idJitter}`}
+            result={`effect3_dropShadow_${idJitter}`}
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset dy="21.5053" />
+          <feGaussianBlur stdDeviation="4.13564" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.01 0" />
+          <feBlend
+            mode="normal"
+            in2={`effect3_dropShadow_${idJitter}`}
+            result={`effect4_dropShadow_${idJitter}`}
+          />
+          <feBlend
+            mode="normal"
+            in="SourceGraphic"
+            in2={`effect4_dropShadow_${idJitter}`}
+            result="shape"
+          />
+          <feColorMatrix
+            in="SourceAlpha"
+            type="matrix"
+            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+            result="hardAlpha"
+          />
+          <feOffset />
+          <feGaussianBlur stdDeviation="0.661703" />
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0" />
+          <feBlend mode="normal" in2="shape" result={`effect5_innerShadow_${idJitter}`} />
+        </filter>
+        <radialGradient
+          id={`paint0_radial_${idJitter}`}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientUnits="userSpaceOnUse"
+          gradientTransform="translate(25.333 50) rotate(-90) scale(50 167.578)"
+        >
+          <stop stopColor="#1D1D1D" />
+          <stop offset="1" stopColor="#4F4D4D" />
+        </radialGradient>
+        <linearGradient
+          id={`paint1_linear_${idJitter}`}
+          x1="25"
+          y1="13.75"
+          x2="25.9223"
+          y2="37.7718"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="white" stopOpacity="0.5" />
+        </linearGradient>
+        <clipPath id={`clip0_${idJitter}`}>
+          <rect width="50" height="50" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  );
+};
+
 export {
   GithubTile,
   GmailTile,
@@ -1116,5 +1461,8 @@ export {
   GoogleSheetsTile,
   GoogleSlidesTile,
   LinearTile,
+  NotionTile,
+  RailwayTile,
   SlackTile,
+  VercelTile,
 };
