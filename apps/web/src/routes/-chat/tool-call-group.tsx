@@ -1,6 +1,6 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { ToolCallCard } from "./tool-call-card";
@@ -131,12 +131,15 @@ export function ToolCallGroup({
 }) {
   const contentId = useId();
   // Open while the turn runs so narration + tools stream into view; collapse to
-  // the summary once it finishes. The user can still toggle mid-run (the effect
-  // only re-asserts on the active→done transition).
+  // the summary once it finishes. Re-asserting on the active transition during
+  // render (rather than in an effect) avoids a flash and lets the user still
+  // toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
-  useEffect(() => {
+  const prevActive = useRef(active);
+  if (prevActive.current !== active) {
+    prevActive.current = active;
     setValue(active ? ITEM : "");
-  }, [active]);
+  }
 
   if (tools.length === 0) return null;
   if (tools.length === 1 && narration.length === 0) return <ToolCallCard tool={tools[0]!} />;

@@ -109,7 +109,7 @@ export function StyleguidePage() {
           <p className="text-sm text-gray-800 max-w-prose">
             Toggle between the new <strong className="text-white">App revamp</strong> landing
             grammar and the <strong className="text-white">Dimension</strong> primitives that still
-            power the in-app surfaces. Both halves are kept side-by-side on purpose — Dimension
+            power the in-app surfaces. Both halves are kept side-by-side on purpose: Dimension
             recipes (gray ramp, frost-border, lavender headings) carry forward into the new
             direction and are not going away.
           </p>
@@ -1357,7 +1357,7 @@ export function TopAnnouncementSection() {
             )}
           >
             <span aria-hidden className="size-1 shrink-0 rounded-full bg-amber-200/70" />
-            <span className="whitespace-nowrap">Now in private beta — request access</span>
+            <span className="whitespace-nowrap">Now in private beta. Request access</span>
             <span
               aria-hidden
               className="text-white/55 transition-transform group-hover:translate-x-0.5 group-hover:text-white/80"
@@ -1367,7 +1367,7 @@ export function TopAnnouncementSection() {
           </button>
           <p className="text-[11px] text-gray-700 tabular">
             See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
-            components/landing/top-announcement.tsx — production renders fixed at top:5.
+            components/landing/top-announcement.tsx (production renders fixed at top:5).
           </p>
         </div>
       </AppCanvas>
@@ -2111,8 +2111,8 @@ export function V2FrostOverlaySection() {
               <div className="app-frost-overlay relative max-w-sm rounded-2xl p-4">
                 <p className="text-sm font-medium text-app-fg-4">Frosted surface</p>
                 <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">
-                  The pattern behind this panel stays readable through the blur — that depth is the
-                  whole point of the recipe.
+                  The pattern behind this panel stays readable through the blur, and that depth is
+                  the whole point of the recipe.
                 </p>
               </div>
             </div>

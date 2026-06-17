@@ -36,7 +36,7 @@ export function TermsOfService() {
         <ul className="ml-5 list-disc space-y-1.5 text-neutral-400">
           <li>You must own, or be authorized to connect, the accounts you link to Alfred.</li>
           <li>
-            You are responsible for actions taken through Alfred at your direction — including
+            You are responsible for actions taken through Alfred at your direction, including
             messages sent and documents created or modified.
           </li>
           <li>
