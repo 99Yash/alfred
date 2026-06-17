@@ -111,7 +111,7 @@ export type RunPass = (input: {
 }) => Promise<TriageClassification>;
 
 export interface ClassifyEmailArgs {
-  /** Optional metering attribution. The classifier itself does not read user context. */
+  /** Optional metering attribution; the userId itself is never sent to the model. */
   userId?: string;
   /**
    * Minimal identity signal (ADR-0050/0051 amendment 2026-06-09) — the user's
