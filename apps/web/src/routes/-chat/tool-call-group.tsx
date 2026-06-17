@@ -234,13 +234,13 @@ function NarrationRow({ text }: { text: string }) {
   );
 }
 
-/** Overlapping integration app-icon tiles for the services a run touched (max 3). */
+/** Overlapping integration app-icon coins for the services a run touched (max 3). */
 function BrandCluster({ brands }: { brands: IntegrationBrand[] }) {
   if (brands.length === 0) {
     return (
       <span
         aria-hidden
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]"
       >
         <Wrench size={13} />
       </span>
