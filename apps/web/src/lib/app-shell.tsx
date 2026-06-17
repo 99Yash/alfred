@@ -262,16 +262,18 @@ export function AppShell({ children }: { children: ReactNode }) {
    * and stays put. `replace` so the dead authed URL doesn't linger in history.
    * Covers chat, memory, notes, skills, settings, integrations, briefings,
    * library, workflows, approvals, debug — every route AppShell wraps. */
+  const pathname = location.pathname;
+  const searchStr = location.searchStr;
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
   useEffect(() => {
     if (!mustRedirectToLogin) return;
-    const target = location.pathname + location.searchStr;
+    const target = pathname + searchStr;
     void navigate({
       to: "/login",
       search: { redirect: target === "/" ? undefined : target },
       replace: true,
     });
-  }, [mustRedirectToLogin, location.pathname, location.searchStr, navigate]);
+  }, [mustRedirectToLogin, pathname, searchStr, navigate]);
 
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && !chromeless;

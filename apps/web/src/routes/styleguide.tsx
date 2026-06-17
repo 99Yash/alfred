@@ -1344,8 +1344,8 @@ export function TopAnnouncementSection() {
         <div className="relative flex flex-col items-center gap-4">
           {/* Inline simulation — strip the `fixed` positioning so the pill
               renders within the styleguide column. */}
-          <a
-            href="#"
+          <button
+            type="button"
             className={cn(
               "group relative flex items-center gap-2 sm:gap-2.5",
               "rounded-full px-3 py-1.5 sm:px-3.5 text-[12px] sm:text-[12.5px]",
@@ -1364,7 +1364,7 @@ export function TopAnnouncementSection() {
             >
               →
             </span>
-          </a>
+          </button>
           <p className="text-[11px] text-gray-700 tabular">
             See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
             components/landing/top-announcement.tsx — production renders fixed at top:5.
@@ -1400,27 +1400,27 @@ export function FloatingPillNavSection() {
             )}
           >
             <div className="ml-2 flex items-center gap-2">
-              <a href="#" className="flex items-center gap-2">
+              <button type="button" className="flex items-center gap-2">
                 <span className="grid size-5 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
                   A
                 </span>
                 <span className="text-sm font-semibold text-white">Alfred</span>
-              </a>
+              </button>
             </div>
             <div aria-hidden className="h-6 w-px shrink-0 bg-white/10" />
             <div className="flex items-center gap-0 text-sm text-white">
-              <a
-                href="#"
+              <button
+                type="button"
                 className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Why Alfred
-              </a>
-              <a
-                href="#"
+              </button>
+              <button
+                type="button"
                 className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Pricing
-              </a>
+              </button>
             </div>
             <div className="shrink-0">
               <FrostButton tone="light" size="sm">

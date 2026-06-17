@@ -37,9 +37,9 @@ function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[])
   const narrationBySegment = new Map<number, string>();
   for (const segment of narration) narrationBySegment.set(segment.index, segment.text);
 
-  const segments = [...new Set([...toolsBySegment.keys(), ...narrationBySegment.keys()])].sort(
-    (a, b) => a - b,
-  );
+  const segments = Array.from(
+    new Set([...toolsBySegment.keys(), ...narrationBySegment.keys()]),
+  ).toSorted((a, b) => a - b);
   const items: TrailItem[] = [];
   for (const seg of segments) {
     const text = narrationBySegment.get(seg);
