@@ -8,7 +8,10 @@ import {
   GoogleSheetsTile,
   GoogleSlidesTile,
   LinearTile,
+  NotionTile,
+  RailwayTile,
   SlackTile,
+  VercelTile,
 } from "~/lib/integration-tile-components";
 
 export type IntegrationTileSlug =
@@ -20,7 +23,10 @@ export type IntegrationTileSlug =
   | "google_slides"
   | "github"
   | "linear"
-  | "slack";
+  | "notion"
+  | "railway"
+  | "slack"
+  | "vercel";
 
 export const INTEGRATION_TILES: Record<
   IntegrationTileSlug,
@@ -34,5 +40,8 @@ export const INTEGRATION_TILES: Record<
   google_slides: GoogleSlidesTile,
   github: GithubTile,
   linear: LinearTile,
+  notion: NotionTile,
+  railway: RailwayTile,
   slack: SlackTile,
+  vercel: VercelTile,
 };
