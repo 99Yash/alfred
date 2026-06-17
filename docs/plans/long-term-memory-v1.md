@@ -1,6 +1,6 @@
 # Long-term memory v1 — grounding + persistent memory foundation
 
-Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store) + **ADR-0059** (directional triage significance — un-defers D1, **reorders P3 + P4a ahead of vertical slice 1**, splits P4 into P4a/P4b, 2026-06-15 grill-with-docs). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).
+Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store) + **ADR-0059** (directional triage significance — un-defers D1, **reorders P3 + P4a ahead of vertical slice 1**, splits P4 into P4a/P4b, 2026-06-15 grill-with-docs) + **ADR-0060** (standing-instructions generalization — prose-first central store + deterministic-enforcement carve-out, 2026-06-17 grill-with-docs; build order under _Standing instructions — generalization build order_). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).
 
 ## Why this exists
 
@@ -177,11 +177,44 @@ Population is **passive-capture only — never cold-start** (cold-start is accou
 - Loop-2 misses dataset → eval lane (ADR-0055) wiring; no auto-tuning.
 - Hybrid retrieval: Postgres tsvector FTS + pgvector fused (RRF) — no new infra; better recall for names/IDs. (Not turbopuffer.)
 
+## Standing instructions — generalization build order (ADR-0060)
+
+The shipped suppress-sender slice is one corner of a 3-axis space (action × target × effect). ADR-0060 generalizes it into **one central store + one retriever + prose-first application + a deterministic-enforcement carve-out**. This is **one coherent ship, ordered by dependency — not staged scope** (no V1/V2). Each step lands behind the next; the existing slice keeps working throughout (the suppression row is the `enforcement`-bearing special case of schema v2).
+
+### SI-1 — Schema v2 + generalized reader/retriever (foundation)
+- `@alfred/contracts/standing-instructions.ts` → `schemaVersion:2`: `directive` (always) + `target?` (`kind: sender_email|sender_domain|person|category|topic`, resolved-at-write key) + `enforcement?` (`{effect, params?}`, registered set). **Drop `action`/`surface`.** Reader parses v1 **and** v2 (near-free migration; prod has a handful of rows).
+- Generalize `listActiveSuppressionInstructions`/`findSenderSuppression` into **`getRelevantInstructions(context)`** — inject-all-active behind a context-aware signature (the semantic-filter swap lives behind this later, no call-site change).
+- **Accept:** v1 suppression rows still match; a v2 row round-trips; the retriever returns active instructions for a given context.
+
+### SI-2 — Deterministic enforcement generalization (triage classify + briefing gather)
+- Triage: generalize today's veto into a **post-classification override layer** — `block/force_todo_suggestion`, `force_category{category}` (the override **logs `overriddenByInstruction:{factId,from,to}`** — non-negotiable), consumed alongside the existing security override-floor.
+- Briefing gather: add `include_briefing_priority` symmetric to today's `exclude_briefing_priority`.
+- **Precedence resolver** (shared): specificity (`sender_email`/`person` > `sender_domain` > `category` > `topic`) then recency; the **protective floor beats a user down-rank, never an up-rank**; `enforcement` authoritative over intrinsic judgment for the touched dimension.
+- **Accept:** "tag Priya urgent" force-stamps + logs; "always track X" forces a todo; the security floor still wins over a `force_category:fyi` down-rank.
+
+### SI-3 — Prose-first application (briefing compose + chat + meeting-prep)
+- Each pulls `getRelevantInstructions(context)` and applies the `directive` by judgment; **no-double-application** (skip any instruction already honored by an `enforcement` this consumer owns).
+- Boss/chat keeps ambient delivery via Run grounding; compose/meeting-prep inject at compose time.
+- **Accept:** a prose-only topic rule ("don't dwell on the Q3 launch in my brief") changes compose output; a suppressed sender never appears in compose (already dropped by gather).
+
+### SI-4 — Generalized capture (`system.remember` + conflict + disambiguation)
+- Generalize `system.remember` from sender-suppression to the full taxonomy: boss resolves `target`, decides prose-only vs `+enforcement`, writes schema v2.
+- **Structural conflict detection in the tool** → `status:"conflict"` + conflicting fact(s) (extends `already_exists`); **never overwrite a contradiction**. Boss prompt: **semantic/counterproductive** check via `read_user_context`; **multi-candidate disambiguation** ("which Ben"); **offline conflict → hold `proposed`**.
+- **Accept:** "always surface Ben" against an existing "suppress Ben" returns `conflict` and the boss asks; "mute @oliv.ai" warns about the manager; an ambiguous name asks which.
+
+### SI-5 — Review surface (`/settings` Standing instructions panel)
+- Read-only list of active rules (plain-English `directive`) + **undo/reject** + **edit**, over the already-synced facts (`row_version`) + existing reject/edit mutations. No new sync.
+- **Accept:** every active instruction is visible; reject makes it inert (reader filters `proposed|confirmed`); edit supersedes.
+
+### SI-6 — Evals (ADR-0055 lane)
+- Deterministic-scorer cases: `force_category` override + breadcrumb; block/force todo; include/exclude briefing; structural-conflict detection; precedence (specificity, recency, floor-vs-down-rank); no-double-application.
+- **Accept:** the suite pins the override/conflict/precedence contracts before they regress.
+
 ## Schema deltas (additive only)
 - `rejected_inferences.cause` (+ cause on the superseded `user_facts` row's `source` or a sibling).
 - `rationale` on the memory write path (`user_facts` column or its `source` jsonb — decide in P2).
 - `person_profiles` table (P4; extends the ADR-0042 spec).
-- Standing-instruction storage shape — **decided (slice 1):** a `user_facts` row, `key="standing_instruction"`, structured `value` (see slice); no new table, no migration (JSONB `value`). Chosen over `user_preferences` for `supersedes_id` + `status` + `valid_until` + the Replicache changelog `row_version`.
+- Standing-instruction storage shape — **decided (slice 1), generalized (ADR-0060):** a `user_facts` row, `key="standing_instruction"`, JSONB `value` — **`schemaVersion:2`** = `directive` (always) + `target?` + `enforcement?`, `action`/`surface` dropped (reader handles v1; near-free in-place migration, no new table). Chosen over `user_preferences` for `supersedes_id` + `status` + `valid_until` + the Replicache changelog `row_version`. See _Standing instructions — generalization build order_ above.
 
 ## Open questions (settle from data/build, not now)
 - Significance weights + threshold + enrichment budget.
@@ -190,5 +223,5 @@ Population is **passive-capture only — never cold-start** (cold-start is accou
 - `person_profiles` final columns. (Standing-instruction storage now decided — see Schema deltas.)
 
 ## References
-- ADR-0056, ADR-0057 (this design). Amends/builds on ADR-0019, ADR-0020, ADR-0031, ADR-0035, ADR-0042, ADR-0050 (D1/D2/D3), ADR-0053, ADR-0055.
+- ADR-0056, ADR-0057, ADR-0058 (slice), ADR-0059 (directional significance), **ADR-0060 (standing-instructions generalization)**. Amends/builds on ADR-0017, ADR-0019, ADR-0020, ADR-0027, ADR-0031, ADR-0035, ADR-0042, ADR-0050 (D1/D2/D3), ADR-0051, ADR-0053, ADR-0055.
 - [cold-start.md](../reference/cold-start.md), [triage.md](../reference/triage.md), [briefing.md](../reference/briefing.md).
