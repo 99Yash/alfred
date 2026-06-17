@@ -77,9 +77,9 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
 };
 
 const TILE_SIZE_CLASS = {
-  sm: "size-7 rounded-[9px]",
-  md: "size-10 rounded-xl",
-  xs: "size-6 rounded-[7px]",
+  sm: "size-7 rounded-full",
+  md: "size-10 rounded-full",
+  xs: "size-6 rounded-full",
 } as const;
 
 const GLYPH_SIZE = {
@@ -88,9 +88,12 @@ const GLYPH_SIZE = {
   xs: 15,
 } as const;
 
+// Offsets sit the check on the tile's 4:30 edge. Because the corner of a circle
+// recedes from its bounding box, the badge hugs the edge with a smaller outset
+// than a square would need (a -1 outset on `md` would float clear of the rim).
 const CHECK_SIZE_CLASS = {
   sm: "size-3.5 -bottom-0.5 -right-0.5",
-  md: "size-4 -bottom-1 -right-1",
+  md: "size-4 -bottom-0.5 -right-0.5",
   xs: "size-3 -bottom-0.5 -right-0.5",
 } as const;
 
@@ -100,15 +103,16 @@ function hasTile(brand: IntegrationBrand): brand is IntegrationTileSlug {
 }
 
 /**
- * An integration's brand mark as a polished, full-bleed app-icon tile — the
- * artwork fills the rounded square edge-to-edge, lit by the gloss baked into
- * each SVG, and finished with a hairline frost border (no inner glow over the
- * art). This is the app-store-style tile used on connect surfaces, the
- * approval tray, onboarding and the integrations catalog. Inline contexts that
- * want just the bare logo next to text use `IntegrationGlyph` instead.
+ * An integration's brand mark as a polished, full-bleed app-icon coin — the
+ * artwork fills the circle edge-to-edge, lit by the gloss baked into each SVG,
+ * and finished with a hairline frost border (no inner glow over the art). The
+ * round tile is what makes these read as Alfred's own marks rather than stock
+ * app-store tiles; it's used on connect surfaces, the approval tray, onboarding
+ * and the integrations catalog. Inline contexts that want just the bare logo
+ * next to text use `IntegrationGlyph` instead.
  *
  * Brands without bespoke artwork (`web`, `collaborators`) fall back to their
- * Lucide mark centered on a dark frost tile so every brand still renders a
+ * Lucide mark centered on a dark frost coin so every brand still renders a
  * tile rather than a naked glyph.
  */
 export function IntegrationIcon({
@@ -148,7 +152,7 @@ export function IntegrationIcon({
         className={cn("relative block shrink-0", TILE_SIZE_CLASS[size], className)}
         title={title}
       >
-        {/* Inner layer clips the full-bleed artwork to the rounded square. The
+        {/* Inner layer clips the full-bleed artwork to the circle. The
          * elevated shadow is a theme-aware hairline + soft drop: a faint dark
          * rim frames the light Google tiles on a light canvas, a faint light
          * rim lifts the dark GitHub/Linear tiles on dark. */}

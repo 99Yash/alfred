@@ -465,7 +465,7 @@ function MentionPalette({
                 "outline-none",
               )}
             >
-              <span className="grid size-6 shrink-0 place-items-center rounded-md bg-app-bg-2">
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-app-bg-2">
                 {opt.brand ? (
                   <IntegrationGlyph brand={opt.brand} size={14} />
                 ) : Icon ? (
