@@ -67,7 +67,7 @@ export function BriefingScheduleSection() {
           <AppButton
             size="sm"
             variant="ghost"
-            leading={<RefreshCw size={13} aria-hidden />}
+            leading={retryIcon}
             onClick={retry}
             className="shrink-0"
           >
@@ -93,7 +93,7 @@ export function BriefingScheduleSection() {
                 if (next) void setTimezone(next);
               }}
               options={timezoneOptions}
-              leading={<Clock size={14} aria-hidden />}
+              leading={clockIcon}
               disabled={loading}
               className="w-64"
             />
@@ -188,15 +188,21 @@ function ScheduleRow({
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
+// Static icons passed as props — hoisted so they aren't reallocated each render.
+const retryIcon = <RefreshCw size={13} aria-hidden />;
+const clockIcon = <Clock size={14} aria-hidden />;
+
+const HOUR_FORMAT = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZone: "UTC",
+});
+
 /** "7:00 AM", "6:00 PM" — a stable label for an hour-of-day 0–23. */
 function hourLabel(hour: number): string {
   const d = new Date(Date.UTC(2000, 0, 1, hour, 0, 0));
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC",
-  }).format(d);
+  return HOUR_FORMAT.format(d);
 }
 
 /** Compact display label for an IANA zone: "Asia/Kolkata · GMT+5:30". */

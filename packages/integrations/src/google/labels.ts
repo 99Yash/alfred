@@ -158,7 +158,6 @@ async function persistCachedLabels(credentialId: string, map: AlfredLabelMap): P
     .update(integrationCredentials)
     .set({
       metadata: sql`jsonb_set(coalesce(${integrationCredentials.metadata}, '{}'::jsonb), '{alfredLabels}', ${value}::jsonb, true)`,
-      updatedAt: new Date(),
     })
     .where(eq(integrationCredentials.id, credentialId));
 }

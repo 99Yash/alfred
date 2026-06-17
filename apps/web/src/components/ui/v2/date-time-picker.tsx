@@ -176,62 +176,66 @@ export function AppDateTimePicker({
             </div>
           </div>
 
-          <div
-            role="grid"
+          <table
             aria-label={monthLabel(viewMonth)}
-            className="mt-2 grid grid-cols-7 gap-0.5"
+            className="mt-2 w-full table-fixed border-separate border-spacing-0.5"
           >
-            <div role="row" className="contents">
-              {WEEKDAYS.map((d, i) => (
-                <div
-                  key={i}
-                  role="columnheader"
-                  aria-label={weekdayLabel(i)}
-                  className="grid h-7 place-items-center text-[11px] font-medium text-app-fg-2"
-                >
-                  {d}
-                </div>
+            <thead>
+              <tr>
+                {WEEKDAYS.map((d, i) => (
+                  <th
+                    key={`${d}-${i}`}
+                    scope="col"
+                    aria-label={weekdayLabel(i)}
+                    className="h-7 text-center text-[11px] font-medium text-app-fg-2"
+                  >
+                    {d}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {weeks.map((week, weekIndex) => (
+                <tr key={week.map((day) => day.toISOString()).join(":")}>
+                  {week.map((day, dayIndex) => {
+                    const index = weekIndex * 7 + dayIndex;
+                    const inMonth = day.getMonth() === viewMonth.getMonth();
+                    const isSelected = selected ? isSameDay(day, selected) : false;
+                    const isToday = isSameDay(day, todayLocal());
+                    return (
+                      <td key={day.toISOString()} aria-selected={isSelected}>
+                        <button
+                          type="button"
+                          aria-label={dayLabel(day, isSelected)}
+                          tabIndex={index === dayFocusIndex ? 0 : -1}
+                          ref={(node) => {
+                            dayRefs.current[index] = node;
+                          }}
+                          onClick={() => commitDay(day)}
+                          onKeyDown={(event) => handleDayKeyDown(event, index)}
+                          className={cn(
+                            "grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums outline-none transition-colors",
+                            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
+                            isSelected
+                              ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                              : cn(
+                                  inMonth ? "text-app-fg-4" : "text-app-fg-1",
+                                  "hover:bg-app-bg-a1",
+                                  isToday
+                                    ? "shadow-[inset_0_0_0_1px_var(--app-purple-2)]"
+                                    : undefined,
+                                ),
+                          )}
+                        >
+                          {day.getDate()}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
               ))}
-            </div>
-            {weeks.map((week, weekIndex) => (
-              <div key={weekIndex} role="row" className="contents">
-                {week.map((day, dayIndex) => {
-                  const index = weekIndex * 7 + dayIndex;
-                  const inMonth = day.getMonth() === viewMonth.getMonth();
-                  const isSelected = selected ? isSameDay(day, selected) : false;
-                  const isToday = isSameDay(day, todayLocal());
-                  return (
-                    <button
-                      key={day.toISOString()}
-                      type="button"
-                      role="gridcell"
-                      aria-selected={isSelected}
-                      aria-label={dayLabel(day, isSelected)}
-                      tabIndex={index === dayFocusIndex ? 0 : -1}
-                      ref={(node) => {
-                        dayRefs.current[index] = node;
-                      }}
-                      onClick={() => commitDay(day)}
-                      onKeyDown={(event) => handleDayKeyDown(event, index)}
-                      className={cn(
-                        "grid h-8 place-items-center rounded-lg text-[13px] tabular-nums outline-none transition-colors",
-                        "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
-                        isSelected
-                          ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                          : cn(
-                              inMonth ? "text-app-fg-4" : "text-app-fg-1",
-                              "hover:bg-app-bg-a1",
-                              isToday ? "shadow-[inset_0_0_0_1px_var(--app-purple-2)]" : undefined,
-                            ),
-                      )}
-                    >
-                      {day.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+            </tbody>
+          </table>
 
           {/* Time controls */}
           <div className="mt-3 flex items-center gap-2 border-t border-app-bg-3 pt-3">
@@ -378,7 +382,9 @@ function buildMinuteOptions(selected: Date | null): AppSelectOption[] {
   const steps = new Set<number>();
   for (let m = 0; m < 60; m += 5) steps.add(m);
   if (selected) steps.add(selected.getMinutes());
-  return [...steps].sort((a, b) => a - b).map((m) => ({ value: pad(m), label: pad(m) }));
+  return Array.from(steps)
+    .toSorted((a, b) => a - b)
+    .map((m) => ({ value: pad(m), label: pad(m) }));
 }
 
 function pad(n: number): string {

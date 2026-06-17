@@ -8,6 +8,13 @@ import { cn } from "~/lib/utils";
 
 const ITEM = "reasoning";
 
+// A *finished* reasoning block earns a row only if it reflects real thinking:
+// either it took a beat or it's long enough to be worth reading. Below both
+// thresholds it renders as a useless "Thought for 0.0s" stub (the model emitted
+// a token or two with no measurable pause), so we drop it entirely.
+const MIN_COMPLETE_MS = 400;
+const MIN_COMPLETE_CHARS = 160;
+
 /** "1.2s" under a minute, "1m 4s" beyond — matches the streamed/persisted label. */
 function formatDuration(ms: number): string {
   const totalSeconds = ms / 1000;
@@ -49,7 +56,12 @@ export function ReasoningSection({
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning, active]);
 
-  if (reasoning.trim().length === 0 && !active) return null;
+  if (!active) {
+    const substantive =
+      reasoning.trim().length >= MIN_COMPLETE_CHARS ||
+      (durationMs != null && durationMs >= MIN_COMPLETE_MS);
+    if (!substantive) return null;
+  }
 
   return (
     <Accordion.Root
@@ -71,12 +83,17 @@ export function ReasoningSection({
             )}
           >
             <span>
-              {!active && durationMs != null ? (
+              {active ? (
+                "Thinking"
+              ) : durationMs != null && durationMs >= MIN_COMPLETE_MS ? (
+                // Only quote a duration we actually measured — a sub-threshold
+                // value renders as a silly "for 0.0s", so drop the suffix and
+                // keep the bare "Thought" (the content itself is still useful).
                 <>
                   <span className="text-app-fg-4">Thought</span> for {formatDuration(durationMs)}
                 </>
               ) : (
-                "Thinking"
+                <span className="text-app-fg-4">Thought</span>
               )}
             </span>
             {!active ? (

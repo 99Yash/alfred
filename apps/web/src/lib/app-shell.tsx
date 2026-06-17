@@ -253,6 +253,28 @@ export function AppShell({ children }: { children: ReactNode }) {
     location.pathname === "/terms-of-service" ||
     location.pathname.startsWith("/onboarding");
 
+  /* Auth guard: a signed-out visitor on any non-chromeless (i.e. authed) route
+   * is bounced to `/login`, carrying the path they were on as `?redirect=` so
+   * sign-in returns them here. This is the inverse of the signed-in → `/chat`
+   * redirect in `routes/index.tsx`; together they keep every route's auth state
+   * self-correcting. Gated on `!isPending` so we never redirect during the
+   * session round-trip — a refresh of a still-valid session resolves to a user
+   * and stays put. `replace` so the dead authed URL doesn't linger in history.
+   * Covers chat, memory, notes, skills, settings, integrations, briefings,
+   * library, workflows, approvals, debug — every route AppShell wraps. */
+  const pathname = location.pathname;
+  const searchStr = location.searchStr;
+  const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
+  useEffect(() => {
+    if (!mustRedirectToLogin) return;
+    const target = pathname + searchStr;
+    void navigate({
+      to: "/login",
+      search: { redirect: target === "/" ? undefined : target },
+      replace: true,
+    });
+  }, [mustRedirectToLogin, pathname, searchStr, navigate]);
+
   // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
   const authed = !isPending && !!session?.user && !chromeless;
   const togglePaletteEvent = useEffectEvent(() => setPaletteOpen((o) => !o));
@@ -331,6 +353,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   sidebarMode={sidebarMode}
                 />
               </Suspense>
+            ) : mustRedirectToLogin ? (
+              // Redirect to /login is in flight (effect above) — hold a blank
+              // frame rather than flashing the bare authed route (e.g. the
+              // chrome-less ChatShell) at a signed-out visitor.
+              <AuthedShellFallback />
             ) : (
               children
             )}

@@ -1,12 +1,12 @@
 import type { SyncedChatMessage } from "@alfred/sync";
-import { Loader2, ShieldQuestion } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import { ArrowDown, ShieldQuestion } from "lucide-react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
-import { AssistantMarkdown, MessageBubble } from "./message-bubble";
+import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
@@ -22,16 +22,25 @@ export function Conversation({
   messages,
   stream,
   onFollowUp,
+  onRetry,
   followUps = EMPTY_FOLLOW_UPS,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
   onFollowUp?: (text: string) => void;
+  /** Re-send the user turn behind a failed reply (the "Retry" affordance). */
+  onRetry?: (text: string) => void;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
   followUps?: ReadonlyArray<FollowUpSuggestion>;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  // Body of the just-finished stream, so its copy button can lift the rendered
+  // HTML before the durable copy syncs in and takes over (see below).
+  const streamBodyRef = useRef<HTMLDivElement | null>(null);
+  // Drives the floating "scroll to latest" button — shown only while the user
+  // has scrolled up off the live edge.
+  const [showJump, setShowJump] = useState(false);
 
   const showStream = shouldShowStream(messages, stream);
 
@@ -60,7 +69,19 @@ export function Conversation({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickRef.current = atBottom;
+    setShowJump(!atBottom);
+  };
+
+  // Jump back to the live edge and re-engage stick-to-bottom. Smooth so the
+  // motion reads as "catching up" rather than a teleport.
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = true;
+    setShowJump(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
   // Re-stick to the bottom whenever the feed grows. `stream` is a fresh
@@ -92,56 +113,125 @@ export function Conversation({
   }, [messages]);
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className="min-h-0 flex-1 overflow-y-auto scroll-stable"
-    >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable"
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+          {messages.map((m, i) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              onRetry={
+                onRetry && m.role === "assistant" && m.status === "failed"
+                  ? prevUserText(messages, i, onRetry)
+                  : undefined
+              }
+            />
+          ))}
 
-        {onFollowUp && followUps.length > 0 ? (
-          <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
-        ) : null}
+          {onFollowUp && followUps.length > 0 ? (
+            <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
+          ) : null}
 
-        {showStream && stream ? (
-          <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
-            {stream.reasoning.length > 0 || stream.reasoningActive ? (
-              <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
-                <ReasoningSection
-                  reasoning={stream.reasoning}
-                  active={stream.reasoningActive}
-                  durationMs={stream.reasoningMs}
+          {showStream && stream ? (
+            <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
+              {stream.reasoning.length > 0 || stream.reasoningActive ? (
+                <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
+                  <ReasoningSection
+                    reasoning={stream.reasoning}
+                    active={stream.reasoningActive}
+                    durationMs={stream.reasoningMs}
+                  />
+                </div>
+              ) : null}
+
+              {stream.tools.length > 0 ? (
+                <ToolCallGroup
+                  tools={stream.tools}
+                  narration={stream.narration}
+                  active={!stream.done}
                 />
-              </div>
-            ) : null}
+              ) : null}
 
-            {stream.tools.length > 0 ? (
-              <ToolCallGroup tools={stream.tools} active={!stream.done} />
-            ) : null}
+              {stream.text.length > 0 ? (
+                <div ref={streamBodyRef}>
+                  <div ref={streamTimingRefs.text}>
+                    <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+                  </div>
+                </div>
+              ) : stream.tools.length === 0 &&
+                stream.reasoning.length === 0 &&
+                !stream.reasoningActive ? (
+                <div ref={streamTimingRefs.thinking}>
+                  <ThinkingIndicator />
+                </div>
+              ) : null}
 
-            {stream.text.length > 0 ? (
-              <div ref={streamTimingRefs.text}>
-                <AssistantMarkdown text={stream.text} streaming={!stream.done} />
-              </div>
-            ) : stream.tools.length === 0 &&
-              stream.reasoning.length === 0 &&
-              !stream.reasoningActive ? (
-              <div ref={streamTimingRefs.thinking}>
-                <ThinkingIndicator />
-              </div>
-            ) : null}
+              {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
-            {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
+              {/* The live bubble holds the copy affordance during the brief window
+               * between "done" and the durable copy syncing in (which then renders
+               * its own MessageBubble copy button). */}
+              {stream.done && stream.text.length > 0 ? (
+                <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+              ) : null}
 
-            {stream.awaitingApproval ? <ApprovalNotice /> : null}
-            {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
-          </div>
-        ) : null}
+              {stream.awaitingApproval ? <ApprovalNotice /> : null}
+              {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
+            </div>
+          ) : null}
+        </div>
       </div>
+      <ScrollToBottomButton show={showJump} onClick={jumpToBottom} />
     </div>
+  );
+}
+
+/** Resolves the user message preceding a failed reply into a bound retry handler. */
+function prevUserText(
+  messages: readonly SyncedChatMessage[],
+  failedIndex: number,
+  onRetry: (text: string) => void,
+): (() => void) | undefined {
+  for (let i = failedIndex - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === "user" && m.content.trim().length > 0) {
+      const text = m.content;
+      return () => onRetry(text);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Floating jump-to-latest control. Appears only when the user has scrolled up
+ * off the live edge; clicking re-attaches stick-to-bottom. Borrowed from
+ * dimension's chat, whose long threads surface the same affordance.
+ */
+function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Scroll to latest"
+      disabled={!show}
+      tabIndex={show ? 0 : -1}
+      className={cn(
+        "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",
+        "inline-flex size-9 items-center justify-center rounded-full",
+        "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
+        "transition-[opacity,scale] duration-150 ease-out",
+        "hover:text-app-fg-4 hover:scale-105 active:scale-95",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        show ? "opacity-100" : "pointer-events-none opacity-0 disabled:cursor-default",
+      )}
+    >
+      <ArrowDown size={16} />
+    </button>
   );
 }
 
@@ -237,12 +327,12 @@ function FollowUpSuggestions({
           type="button"
           onClick={() => onPick(suggestion.text)}
           className={cn(
-            "inline-flex min-h-10 max-w-full items-center gap-2 rounded-full px-3 text-left",
+            "group/chip inline-flex min-h-10 max-w-full items-center gap-2 rounded-full px-3.5 text-left",
             "bg-app-bg-2/70 text-[13px] font-medium leading-snug text-app-fg-3",
             "shadow-[inset_0_0_0_1px_var(--app-fg-a1)]",
-            "transition-[background-color,color,transform,box-shadow] duration-150 ease-out",
-            "hover:bg-app-bg-a2 hover:text-app-fg-4",
-            "active:scale-[0.96]",
+            "transition-[background-color,color,translate,box-shadow] duration-150 ease-out",
+            "hover:-translate-y-px hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_0_0_1px_var(--app-fg-a2)]",
+            "active:translate-y-0 active:scale-[0.97]",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
@@ -252,9 +342,10 @@ function FollowUpSuggestions({
           {i < 9 ? (
             <kbd
               className={cn(
-                "shrink-0 inline-flex items-center justify-center h-[16px] px-1 rounded",
+                "shrink-0 inline-flex items-center justify-center h-[17px] min-w-[17px] px-1 rounded-md",
                 "text-[10px] leading-none font-medium font-sans tabular-nums",
-                "bg-app-bg-a2 text-app-fg-2",
+                "bg-app-bg-a2 text-app-fg-2 transition-colors duration-150",
+                "group-hover/chip:bg-app-bg-3 group-hover/chip:text-app-fg-3",
               )}
             >
               {IS_MAC ? `⌥${i + 1}` : `Alt+${i + 1}`}
@@ -268,8 +359,13 @@ function FollowUpSuggestions({
 
 function ThinkingIndicator() {
   return (
-    <div className="flex items-center gap-2 text-[14px] text-app-fg-3">
-      <Loader2 size={14} className="animate-spin" />
+    <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
+      {/* Branded pulsing mark in place of a generic spinner — the Alfred glyph
+       * breathes inside a soft halo while the turn spins up. Mirrors
+       * dimension's pulsing AI icon to the left of its working state. */}
+      <span className="chat-think-mark inline-flex shrink-0">
+        <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
+      </span>
       <span className="animate-chat-shimmer">Thinking…</span>
     </div>
   );

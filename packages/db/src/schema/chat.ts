@@ -28,6 +28,23 @@ export interface ChatMessageToolCall {
   status: "succeeded" | "failed";
   argsPreview?: string;
   resultPreview?: string;
+  /**
+   * The narration segment this call follows, so a reload can interleave it
+   * with the model's narration in the activity trail. Absent on rows written
+   * before interleaved narration shipped (read back as 0).
+   */
+  segmentIndex?: number;
+}
+
+/**
+ * One closed narration segment captured on a finished assistant turn: the
+ * brief line the model wrote before a tool step. `index` matches the
+ * `segmentIndex` carried on the tool calls so a reload re-interleaves them.
+ * The final (answer) segment is never stored here — it lives in `content`.
+ */
+export interface ChatMessageNarration {
+  index: number;
+  text: string;
 }
 
 export const chatThreads = pgTable(
@@ -76,6 +93,12 @@ export const chatMessages = pgTable(
     status: text("status").notNull().default("complete").$type<ChatMessageStatus>(),
     /** Tool cards to re-render on reload (assistant turns only). */
     toolCalls: jsonb("tool_calls").$type<ChatMessageToolCall[]>(),
+    /**
+     * Closed narration segments (the brief lines the model wrote before each
+     * tool step), interleaved with `toolCalls` by `segmentIndex` on reload.
+     * Null when the turn produced none.
+     */
+    narration: jsonb("narration").$type<ChatMessageNarration[]>(),
     /** The agent run servicing this turn (set on both the user turn and its reply). */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     /** Replicache row-version. Bumped on any content/status change. */

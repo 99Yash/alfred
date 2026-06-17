@@ -146,6 +146,12 @@ export interface Observations {
   thread: ThreadState;
   /** The sender is a known contact in the user's entity graph. */
   knownContact: boolean;
+  /**
+   * Rendered `Sender relationship` descriptor for a human sender (ADR-0059) —
+   * significance + reciprocity + same-org + the user's role, or `no prior
+   * contact on record`. `null` for non-human senders (line omitted).
+   */
+  senderRelationship: string | null;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -161,6 +167,8 @@ export interface AssembleObservationsArgs {
   persona: AccountPersona | null;
   thread: ThreadState;
   knownContact: boolean;
+  /** Pre-resolved `Sender relationship` descriptor (ADR-0059); `null` for non-human senders. */
+  senderRelationship: string | null;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -180,6 +188,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     persona: args.persona,
     thread: args.thread,
     knownContact: args.knownContact,
+    senderRelationship: args.senderRelationship,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

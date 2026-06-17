@@ -8,15 +8,11 @@ import { authClient } from "~/lib/auth-client";
  * Replicache and posts approve / reject / cancel decisions through the Eden
  * decision API (`POST /api/approvals/:stagingId/decision`).
  *
- * Auth is gated here, not in the Replicache hook: `useActionStagings` returns
- * `loading` whenever no client exists, which is true both while the session
- * resolves *and* when nobody is signed in. Collapsing those would spin the
- * loader forever for signed-out visitors, so we split them at the route —
- * `useActionStagings` stays purely about Replicache readiness.
- *
- * Signed-out/pending states render outside the themed app chrome (see
- * `AppShell`'s `showChrome`), so they use plain grammar like
- * `routes/debug.events.tsx` rather than the `app-*` tokens.
+ * Auth is gated centrally: `AppShell`'s guard redirects signed-out visitors to
+ * `/login` before this route renders, so we only handle the session-pending
+ * window here (the loader below) and then assume an authed user. The pending
+ * state renders outside the themed app chrome (see `AppShell`'s `showChrome`),
+ * so it uses plain grammar like `routes/debug.events.tsx` rather than `app-*`.
  */
 /** Normalize a search value to a string[] (single value or repeated key). */
 function toStringArray(value: unknown): string[] | undefined {
@@ -43,26 +39,13 @@ export const Route = createFileRoute("/approvals")({
   }),
 });
 
-function ApprovalsRoute() {
-  const { data: session, isPending } = authClient.useSession();
+export function ApprovalsRoute() {
+  const { isPending } = authClient.useSession();
 
   if (isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-sm text-muted-foreground">Loading…</p>
-      </div>
-    );
-  }
-
-  if (!session?.user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="space-y-4 text-center">
-          <p className="text-muted-foreground">Sign in to review pending approvals.</p>
-          <a href="/login" className="text-sm underline">
-            Sign in
-          </a>
-        </div>
       </div>
     );
   }

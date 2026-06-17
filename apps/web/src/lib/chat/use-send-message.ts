@@ -9,7 +9,14 @@ import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-export type SendMessage = (threadId: string | undefined, text: string) => Promise<void>;
+/** Mirrors the server's `ChatModelTier`; declared locally to keep `@alfred/ai` out of the web bundle. */
+export type ChatTier = "standard" | "deep";
+
+export type SendMessage = (
+  threadId: string | undefined,
+  text: string,
+  tier?: ChatTier,
+) => Promise<void>;
 
 const turnKickResponseSchema = z.object({
   runId: z.string().nullable(),
@@ -38,7 +45,7 @@ export function useSendMessage(): SendMessage {
   const navigate = useNavigate();
 
   return useCallback(
-    async (threadId, text) => {
+    async (threadId, text, tier) => {
       const content = text.trim();
       if (!rep || !userId || content.length === 0) return;
 
@@ -69,7 +76,7 @@ export function useSendMessage(): SendMessage {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ userMessageId, content }),
+          body: JSON.stringify({ userMessageId, content, tier: tier ?? "standard" }),
           signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
         if (!res.ok) {

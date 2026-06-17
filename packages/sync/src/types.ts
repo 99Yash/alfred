@@ -6,6 +6,7 @@ export type {
   SyncedActionStaging,
   SyncedBriefing,
   SyncedChatMessage,
+  SyncedChatNarration,
   SyncedChatThread,
   SyncedEntity,
   SyncedFact,

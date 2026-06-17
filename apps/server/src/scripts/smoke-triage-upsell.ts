@@ -23,6 +23,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
     recentMessages: [],
   },
   knownContact: false,
+  senderRelationship: null,
   gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
   content: {
     hasUnsubscribe: false,

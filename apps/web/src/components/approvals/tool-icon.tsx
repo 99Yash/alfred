@@ -36,7 +36,8 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
     return <IntegrationIcon brand={brand} size="md" title={integration} />;
   }
 
-  // No brand mark — render a neutral tile matching IntegrationIcon's md shell.
+  // No brand artwork — render the Lucide mark on a theme-aware neutral tile so
+  // it sits in the same family as the full-bleed app-icon tiles beside it.
   const Glyph = GLYPH_FALLBACK[integration] ?? Settings2;
   return (
     <span
@@ -44,7 +45,7 @@ export function ToolIcon({ integration }: { integration: IntegrationSlug }) {
       title={integration}
       className={cn(
         "grid size-10 shrink-0 place-items-center rounded-xl",
-        "bg-background text-app-fg-3 shadow-soft ring-1 ring-border/60",
+        "bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
       )}
     >
       <Glyph size={18} />

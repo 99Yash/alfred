@@ -254,7 +254,20 @@ export const syncedChatToolCallSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  /**
+   * The narration segment this call follows, so a reload interleaves it with
+   * the stored narration. Defaulted so rows written before this field existed
+   * still parse (they read back at segment 0).
+   */
+  segmentIndex: z.number().default(0),
 });
+
+/** A closed narration segment captured on a finished assistant turn. */
+export const syncedChatNarrationSchema = z.object({
+  index: z.number(),
+  text: z.string(),
+});
+export type SyncedChatNarration = z.infer<typeof syncedChatNarrationSchema>;
 
 /**
  * A persisted chat message. `user` rows come from the client mutator;
@@ -276,6 +289,12 @@ export const syncedChatMessageSchema = z.object({
   reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
+  /**
+   * Closed narration segments interleaved with `toolCalls` (by `segmentIndex`)
+   * in the activity trail on reload. Defaulted so rows cached before this
+   * field existed still parse (they read back with no narration).
+   */
+  narration: z.array(syncedChatNarrationSchema).nullable().default(null),
   runId: z.string().nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,

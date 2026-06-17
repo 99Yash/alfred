@@ -33,7 +33,7 @@ export function buildFollowUpSuggestions(
     out.push(suggestion);
     seen.add(suggestion.text);
   }
-  return out.slice(0, 2);
+  return out.slice(0, 5);
 }
 
 function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
@@ -66,6 +66,18 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
       text: "What should I prep for my next meeting?",
       brand: "google_calendar",
     };
+  }
+
+  if (tool.toolName === "gmail.search") {
+    const hasMessages = result
+      ? Array.isArray(result.messages) && result.messages.length > 0
+      : /"messages"\s*:\s*\[\s*\{/.test(raw);
+    if (!hasMessages) return null;
+    return { id: "gmail-draft-reply", text: "Draft a reply to one of these.", brand: "gmail" };
+  }
+
+  if (tool.toolName === "system.web_search") {
+    return { id: "web-go-deeper", text: "Go deeper on this.", brand: "web" };
   }
 
   return null;

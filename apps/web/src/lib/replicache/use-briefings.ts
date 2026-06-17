@@ -1,7 +1,13 @@
 import { IDB_KEY, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
+import type { AlfredReplicache } from "./client";
 import { useReplicacheStatus } from "./context";
+
+interface ReplicacheSnapshot<T> {
+  rep: AlfredReplicache;
+  value: T;
+}
 
 /** morning reads above evening within a day (orientation → close, ADR-0049). */
 const SLOT_ORDER: Record<string, number> = { morning: 0, evening: 1 };
@@ -26,13 +32,10 @@ export interface BriefingsState {
  */
 export function useBriefings(): BriefingsState {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [briefings, setBriefings] = useState<SyncedBriefing[] | null>(null);
+  const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedBriefing[]> | null>(null);
 
   useEffect(() => {
-    if (!rep) {
-      setBriefings(null);
-      return;
-    }
+    if (!rep) return;
     const prefix = IDB_KEY.BRIEFING({});
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
@@ -47,11 +50,12 @@ export function useBriefings(): BriefingsState {
             return b.briefingDate.localeCompare(a.briefingDate);
           return compareSlots(a, b);
         });
-        setBriefings(parsed);
+        setSnapshot({ rep, value: parsed });
       },
     );
   }, [rep]);
 
+  const briefings = snapshot?.rep === rep ? snapshot.value : null;
   return {
     briefings: briefings ?? [],
     loading: briefings === null && !loadError,
@@ -75,13 +79,14 @@ export interface BriefingDayState {
  */
 export function useBriefing(date: string): BriefingDayState {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [slots, setSlots] = useState<SyncedBriefing[] | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    date: string;
+    slots: SyncedBriefing[];
+  } | null>(null);
 
   useEffect(() => {
-    if (!rep) {
-      setSlots(null);
-      return;
-    }
+    if (!rep) return;
     const prefix = IDB_KEY.BRIEFING({ id: `${date}/` });
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
@@ -92,11 +97,12 @@ export function useBriefing(date: string): BriefingDayState {
           if (result.success) parsed.push(result.data);
         }
         parsed.sort(compareSlots);
-        setSlots(parsed);
+        setSnapshot({ rep, date, slots: parsed });
       },
     );
   }, [rep, date]);
 
+  const slots = snapshot?.rep === rep && snapshot.date === date ? snapshot.slots : null;
   return {
     slots: slots ?? [],
     loading: slots === null && !loadError,

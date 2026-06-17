@@ -3,10 +3,10 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  BookOpen,
   Brain,
   ChevronDown,
   Ellipsis,
+  Library,
   LogOut,
   Newspaper,
   NotebookPen,
@@ -36,8 +36,8 @@ import {
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { AppButton, AppInput, AppThemeToggle, useAppTheme } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
-import { cn } from "~/lib/utils";
 import type { SessionUser } from "~/lib/user-display";
+import { cn } from "~/lib/utils";
 import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";
 
 /**
@@ -359,11 +359,11 @@ function FullContent({
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
-          <PanelLeft size={14} />
+          <PanelLeft size={15} strokeWidth={1.75} />
         </button>
       </div>
 
-      <div className="px-2 pt-1 pb-2 space-y-0.5">
+      <div className="px-2 pt-1 pb-2 space-y-0.5 animate-sidebar-reveal">
         <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
         <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
         <NavLink
@@ -386,7 +386,7 @@ function FullContent({
         />
         <NavLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
         <NavLink
-          icon={BookOpen}
+          icon={Library}
           label="Library"
           to="/library"
           active={path.startsWith("/library")}
@@ -400,16 +400,23 @@ function FullContent({
         />
       </div>
 
-      <SidebarHeading>Personal</SidebarHeading>
-      <div className="px-2 pb-2 space-y-0.5">
-        <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
-        <NavLink icon={NotebookPen} label="Notes" to="/notes" active={path.startsWith("/notes")} />
+      <div className="animate-sidebar-reveal [animation-delay:55ms]">
+        <SidebarHeading>Personal</SidebarHeading>
+        <div className="px-2 pb-2 space-y-0.5">
+          <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
+          <NavLink
+            icon={NotebookPen}
+            label="Notes"
+            to="/notes"
+            active={path.startsWith("/notes")}
+          />
+        </div>
       </div>
 
       {threads ? (
         <nav
           aria-label="Chats"
-          className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 scroll-stable"
+          className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 scroll-stable sidebar-scroll-fade animate-sidebar-reveal [animation-delay:110ms]"
         >
           {GROUP_ORDER.map(({ key, label }) => (
             <ThreadGroupBlock
@@ -453,19 +460,38 @@ interface RailContentProps {
 function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: RailContentProps) {
   return (
     <>
-      <div className="px-2 pt-2.5 pb-1 flex flex-col items-center gap-1">
-        <Link
-          to="/chat"
-          aria-label="Alfred — home"
-          className={cn(
-            "size-9 inline-flex items-center justify-center rounded-lg",
-            "hover:bg-app-bg-a2 transition-colors app-press",
-            "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-          )}
-        >
-          <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
-        </Link>
-        <RailButton icon={PanelLeftOpen} label="Expand sidebar" onClick={onExpand} />
+      {/* Logo slot doubles as the expand affordance: the logo home-link sits at
+          rest, and hovering (or focusing) the slot cross-fades it to an expand
+          toggle — so the rail spends no dedicated row on a collapse button. */}
+      <div className="px-2 pt-2.5 pb-2 flex justify-center">
+        <div className="group/logo relative size-9">
+          <Link
+            to="/chat"
+            aria-label="Alfred — home"
+            className={cn(
+              "absolute inset-0 inline-flex items-center justify-center rounded-xl",
+              "transition-opacity duration-150 group-hover/logo:opacity-0",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+            )}
+          >
+            <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+          </Link>
+          <RailTip label="Expand sidebar">
+            <button
+              type="button"
+              aria-label="Expand sidebar"
+              onClick={onExpand}
+              className={cn(
+                railIconClass(false),
+                "absolute inset-0 opacity-0 pointer-events-none transition-opacity duration-150",
+                "group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto",
+                "focus-visible:opacity-100 focus-visible:pointer-events-auto",
+              )}
+            >
+              <PanelLeftOpen size={16} strokeWidth={1.75} aria-hidden />
+            </button>
+          </RailTip>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 flex flex-col items-center gap-0.5">
@@ -491,7 +517,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
         />
         <RailLink icon={Wrench} label="Skills" to="/skills" active={path.startsWith("/skills")} />
         <RailLink
-          icon={BookOpen}
+          icon={Library}
           label="Library"
           to="/library"
           active={path.startsWith("/library")}
@@ -515,8 +541,35 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
           to="/settings"
           active={path.startsWith("/settings")}
         />
+        <RailUserButton />
       </div>
     </>
+  );
+}
+
+/** Collapsed-rail avatar — mirrors the expanded footer's user row, linking to
+ *  /settings with the initial bubble and a name/email tooltip. */
+function RailUserButton() {
+  const { name, email, initial } = useUserRow();
+  const label = name || email || "Account";
+  return (
+    <RailTip label={label}>
+      <Link
+        to="/settings"
+        aria-label={`${label} — settings`}
+        className={cn(
+          "size-9 inline-flex items-center justify-center rounded-xl shrink-0 app-press",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        )}
+      >
+        <span
+          aria-hidden
+          className="size-7 rounded-full bg-app-pink-4 text-white inline-flex items-center justify-center text-xs font-semibold"
+        >
+          {initial}
+        </span>
+      </Link>
+    </RailTip>
   );
 }
 
@@ -545,14 +598,17 @@ const navRowClass = (active = false) =>
     "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
     "transition-[background-color,color] duration-150 app-press",
     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-    active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+    active
+      ? "sidebar-tile text-app-fg-4"
+      : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
   );
 
 function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
   return (
     <>
       <Icon
-        size={14}
+        size={15}
+        strokeWidth={1.75}
         aria-hidden
         className={cn(
           "shrink-0 transition-colors",
@@ -624,7 +680,9 @@ const railIconClass = (active = false) =>
     "relative size-9 inline-flex items-center justify-center rounded-xl shrink-0",
     "transition-[background-color,color] duration-150 app-press",
     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-    active ? "bg-app-bg-2 text-app-fg-4" : "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4",
+    active
+      ? "sidebar-tile text-app-fg-4"
+      : "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
   );
 
 function RailTip({ label, children }: { label: string; children: ReactNode }) {
@@ -671,7 +729,7 @@ function RailLink({
         aria-current={active ? "page" : undefined}
         className={railIconClass(active)}
       >
-        <Icon size={16} aria-hidden />
+        <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
           <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-app-purple-4 text-white text-[9px] font-semibold inline-flex items-center justify-center tabular-nums">
             {badge}
@@ -694,7 +752,7 @@ function RailButton({
   return (
     <RailTip label={label}>
       <button type="button" aria-label={label} onClick={onClick} className={railIconClass(false)}>
-        <Icon size={16} aria-hidden />
+        <Icon size={16} strokeWidth={1.75} aria-hidden />
       </button>
     </RailTip>
   );
@@ -755,7 +813,7 @@ function ThreadGroupBlock({
           className={cn("shrink-0 transition-transform duration-150", collapsed && "-rotate-90")}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100 transition-opacity">
+        <span className="ml-auto tabular-nums text-app-fg-2/70">
           {entries.length}
         </span>
       </button>
@@ -824,8 +882,8 @@ function ThreadRow({
           "transition-[background-color,color] duration-150 app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           active
-            ? "bg-app-bg-2 text-app-fg-4"
-            : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+            ? "sidebar-tile text-app-fg-4"
+            : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
         )}
       >
         {indicator}

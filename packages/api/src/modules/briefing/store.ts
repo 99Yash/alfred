@@ -166,7 +166,6 @@ async function updateBriefing(briefingId: string, set: Partial<NewBriefing>): Pr
     .set({
       ...set,
       rowVersion: sql`${briefings.rowVersion} + 1`,
-      updatedAt: new Date(),
     })
     .where(eq(briefings.id, briefingId))
     .returning();

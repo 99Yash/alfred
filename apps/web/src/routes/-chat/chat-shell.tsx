@@ -1,5 +1,6 @@
 import type { TriageCategory } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/react";
 import {
@@ -14,40 +15,39 @@ import {
   Paperclip,
   Share2,
   ShieldCheck,
-  Sparkles,
   Square,
   X,
   Zap,
 } from "lucide-react";
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
+  type ButtonHTMLAttributes,
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
   type RefObject,
 } from "react";
-import { Particles } from "~/components/ui/particles";
-import { AppPill } from "~/components/ui/v2";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
+import { useResolvedIntegrations } from "~/hooks/use-integration-status";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
-import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
+import { useRunBriefing } from "~/hooks/use-run-briefing";
 import { useRightRail, useSidebarState } from "~/lib/app-shell";
 import { authClient } from "~/lib/auth-client";
 import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { useResolvedIntegrations } from "~/hooks/use-integration-status";
-import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
@@ -63,18 +63,18 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { Conversation } from "./conversation";
+import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
-import { formatElapsed } from "./mic-recording-format";
 import { MicWaveform, useMicRecording } from "./mic-recording";
+import { formatElapsed } from "./mic-recording-format";
+import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
+import { Tip } from "./tip";
 import {
   TiptapComposer,
   type SuggestionRenderState,
   type TiptapComposerHandle,
 } from "./tiptap-composer";
-
-const MODEL_LEADING = <Sparkles size={12} />;
 
 // Module-level empties so the `?? EMPTY` fallback in `useRailData` returns a
 // referentially stable value before react-query's first fetch resolves —
@@ -142,7 +142,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const { stream, stopStream } = useChatStream(threadId);
   useRunComplete(stream);
   const send = useSendMessage();
-  const onSend = useCallback((text: string) => void send(threadId, text), [send, threadId]);
+  // Model tier from the composer's picker (Auto vs Deep). Persisted so the
+  // choice survives reloads and thread switches; rides with every turn.
+  const [tier, setTier] = useModelTier();
+  const onSend = useCallback((text: string) => void send(threadId, text, tier), [send, threadId, tier]);
   const showStream = shouldShowStream(messages, stream);
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
@@ -203,6 +206,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   }, [activeRunId, stopStream]);
 
   return (
+    <Tooltip.Provider delayDuration={300}>
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       {hasConversation ? (
@@ -211,6 +215,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             messages={messages}
             stream={stream}
             onFollowUp={onSend}
+            onRetry={onSend}
             followUps={chipFollowUps}
           />
           <div className="shrink-0 px-4 pb-4">
@@ -233,6 +238,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 autoApprove={autoApprove}
                 autoApprovePending={autoApprovePending}
                 onToggleAutoApprove={onToggleAutoApprove}
+                tier={tier}
+                onTierChange={setTier}
               />
             </div>
           </div>
@@ -245,9 +252,12 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           autoApprove={autoApprove}
           autoApprovePending={autoApprovePending}
           onToggleAutoApprove={onToggleAutoApprove}
+          tier={tier}
+          onTierChange={setTier}
         />
       )}
     </div>
+    </Tooltip.Provider>
   );
 }
 
@@ -277,20 +287,26 @@ function TopBar({
         <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
       </div>
       <div className="flex items-center gap-1.5">
-        <IconButton label="Share thread">
-          <Share2 size={14} />
-        </IconButton>
-        <IconButton label="Thread settings">
-          <Ellipsis size={14} />
-        </IconButton>
+        <Tip label="Share thread">
+          <IconButton label="Share thread">
+            <Share2 size={14} />
+          </IconButton>
+        </Tip>
+        <Tip label="Thread settings">
+          <IconButton label="Thread settings">
+            <Ellipsis size={14} />
+          </IconButton>
+        </Tip>
         <span aria-hidden className="mx-1 h-5 w-px bg-app-bg-3" />
-        <IconButton
-          label={railOpen ? "Hide today panel" : "Show today panel"}
-          onClick={onToggleRail}
-          active={railOpen}
-        >
-          <PanelRight size={14} />
-        </IconButton>
+        <Tip label={railOpen ? "Hide today panel" : "Show today panel"}>
+          <IconButton
+            label={railOpen ? "Hide today panel" : "Show today panel"}
+            onClick={onToggleRail}
+            active={railOpen}
+          >
+            <PanelRight size={14} />
+          </IconButton>
+        </Tip>
       </div>
     </header>
   );
@@ -303,6 +319,8 @@ function EmptyHero({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -310,6 +328,8 @@ function EmptyHero({
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
@@ -346,6 +366,8 @@ function EmptyHero({
           autoApprove={autoApprove}
           autoApprovePending={autoApprovePending}
           onToggleAutoApprove={onToggleAutoApprove}
+          tier={tier}
+          onTierChange={onTierChange}
         />
         <ConnectToolsBar />
       </div>
@@ -575,6 +597,8 @@ function Composer({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -587,9 +611,13 @@ function Composer({
   onGhostDismiss?: () => void;
   /** Chat "Auto" mode state + toggle; absent hides the control. */
   autoApprove?: boolean;
-  /** Policy row not yet synced — render the toggle disabled until it lands. */
+  /** Initial policy load hasn't resolved yet — disable the toggle until we
+   *  know the current mode (the row may not exist; clicking creates it). */
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  /** Model-tier picker (Auto vs Deep) state + setter. */
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const { resolved: theme } = useAppTheme();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
@@ -650,19 +678,6 @@ function Composer({
           disabled && "opacity-70",
         )}
       >
-        {/* Ambient drifting particles inside the composer surface. Sits
-         * underneath the editor + controls via stacking order (rendered first
-         * + pointer-events-none from the component). Re-keyed on theme so the
-         * canvas re-mounts with the right color. Stardust away while the
-         * user has text in the editor — mirrors the placeholder exit. */}
-        <Particles
-          key={theme}
-          className="absolute inset-0"
-          quantity={20}
-          color={theme === "dark" ? "#ffffff" : "#000000"}
-          maxAlpha={theme === "dark" ? 0.3 : 0.45}
-          dispersed={!isEmpty}
-        />
         {/* Wrap editor + controls in a positioned container so they paint
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
@@ -709,6 +724,8 @@ function Composer({
             autoApprove={autoApprove}
             autoApprovePending={autoApprovePending}
             onToggleAutoApprove={onToggleAutoApprove}
+            tier={tier}
+            onTierChange={onTierChange}
           />
         </div>
       </div>
@@ -984,6 +1001,8 @@ function ComposerToolbar({
   autoApprove,
   autoApprovePending,
   onToggleAutoApprove,
+  tier,
+  onTierChange,
 }: {
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
@@ -999,31 +1018,29 @@ function ComposerToolbar({
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
+  tier: ChatTier;
+  onTierChange: (tier: ChatTier) => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
-        <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
-          <Paperclip size={14} />
-        </ComposerIcon>
-        <ComposerIcon
-          label="Mention a source"
-          disabled={disabled || mic.recording}
-          onClick={onMentionClick}
-          active={!disabled && mentionActive}
-        >
-          <AtSign size={14} />
-        </ComposerIcon>
-        <AppPill
-          className="h-7 px-2 text-[12px] text-app-fg-3"
-          leading={MODEL_LEADING}
-          chevron
-          disabled
-          title="Model picker — coming with m13"
-        >
-          Auto
-        </AppPill>
+        <Tip label="Attach file">
+          <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
+            <Paperclip size={14} />
+          </ComposerIcon>
+        </Tip>
+        <Tip label="Mention a source" keys={["@"]}>
+          <ComposerIcon
+            label="Mention a source"
+            disabled={disabled || mic.recording}
+            onClick={onMentionClick}
+            active={!disabled && mentionActive}
+          >
+            <AtSign size={14} />
+          </ComposerIcon>
+        </Tip>
+        <ModelTierPicker value={tier} onChange={onTierChange} disabled={disabled || mic.recording} />
         {onToggleAutoApprove ? (
           <AutoApproveToggle
             on={Boolean(autoApprove)}
@@ -1067,14 +1084,17 @@ function ComposerToolbar({
           </>
         ) : (
           <>
-            <ComposerIcon
-              label="Dictate"
-              onClick={onVoiceStart}
-              disabled={disabled || transcribing}
-            >
-              {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
-            </ComposerIcon>
+            <Tip label="Dictate">
+              <ComposerIcon
+                label="Dictate"
+                onClick={onVoiceStart}
+                disabled={disabled || transcribing}
+              >
+                {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+              </ComposerIcon>
+            </Tip>
             {isStreaming && onStopGeneration ? (
+              <Tip label="Stop generating">
               <button
                 type="button"
                 onClick={onStopGeneration}
@@ -1091,7 +1111,9 @@ function ComposerToolbar({
               >
                 <Square size={12} strokeWidth={2.5} fill="currentColor" />
               </button>
+              </Tip>
             ) : (
+              <Tip label="Send" keys={["↵"]}>
               <button
                 type="submit"
                 disabled={!canSend}
@@ -1117,6 +1139,7 @@ function ComposerToolbar({
               >
                 <ArrowUp size={16} strokeWidth={2.25} />
               </button>
+              </Tip>
             )}
           </>
         )}
@@ -1194,26 +1217,25 @@ function RecordingPanel({
   );
 }
 
-function ComposerIcon({
-  label,
-  children,
-  disabled,
-  onClick,
-  active,
-}: {
-  label: string;
-  children: ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  active?: boolean;
-}) {
+const ComposerIcon = forwardRef<
+  HTMLButtonElement,
+  {
+    label: string;
+    children: ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+    active?: boolean;
+  } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">
+>(function ComposerIcon({ label, children, disabled, onClick, active, ...rest }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       aria-label={label}
       aria-pressed={onClick ? Boolean(active) : undefined}
       disabled={disabled}
       onClick={onClick}
+      {...rest}
       className={cn(
         "size-8 inline-flex items-center justify-center rounded-full",
         "transition-colors app-press",
@@ -1227,9 +1249,27 @@ function ComposerIcon({
       {children}
     </button>
   );
-}
+});
 
 /* ----------- helpers ----------- */
+
+const TIER_STORAGE_KEY = "alfred:chat-tier";
+
+/**
+ * Model-tier selection (Auto vs Deep) persisted to localStorage, so the choice
+ * is sticky across reloads and thread switches. Single-user, so this is a plain
+ * local preference — no synced user-row field yet (a multi-device follow-up).
+ */
+function useModelTier(): [ChatTier, (tier: ChatTier) => void] {
+  const [tier, setTierState] = useState<ChatTier>(() =>
+    safeGet(TIER_STORAGE_KEY) === "deep" ? "deep" : "standard",
+  );
+  const setTier = useCallback((next: ChatTier) => {
+    setTierState(next);
+    safeSet(TIER_STORAGE_KEY, next);
+  }, []);
+  return [tier, setTier];
+}
 
 /**
  * Builds the `RailData` bundle that drives the right rail's three tabs

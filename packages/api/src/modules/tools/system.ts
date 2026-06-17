@@ -3,6 +3,7 @@ import {
   loadIntegrationInput,
   promoteScratchInput,
   readScratchInput,
+  readUserContextInput,
   rememberInput,
   resolveTodoInput,
   suggestTodoInput,
@@ -10,6 +11,7 @@ import {
   writeScratchInput,
 } from "@alfred/contracts";
 import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
+import { readUserContext } from "../memory/user-context";
 import { rememberSenderSuppression } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
@@ -68,6 +70,21 @@ export const systemTools: readonly RegisteredTool[] = [
         subId: input.subId,
         brief: input.brief,
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "read_user_context",
+    riskTier: "no_risk",
+    description:
+      "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
+    inputSchema: readUserContextInput,
+    execute: async (input, ctx) => {
+      return await readUserContext(ctx.userId, {
+        subjectEmail: input.subjectEmail,
+        query: input.query,
+        include: input.include,
       });
     },
   }),

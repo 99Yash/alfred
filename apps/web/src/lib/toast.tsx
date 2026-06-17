@@ -197,7 +197,7 @@ function shorthand(variant: ToastVariant, defaultPosition: ToastPosition) {
  * finished", "copied") where a full status card would be too much. Click or
  * wait to dismiss.
  */
-export function emojiToast({
+function emojiToast({
   emoji,
   label,
   duration = 4000,

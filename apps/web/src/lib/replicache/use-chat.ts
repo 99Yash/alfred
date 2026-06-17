@@ -7,7 +7,13 @@ import {
 } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
+import type { AlfredReplicache } from "./client";
 import { useReplicache } from "./context";
+
+interface ReplicacheSnapshot<T> {
+  rep: AlfredReplicache;
+  value: T;
+}
 
 /**
  * Reactive list of the user's chat threads, newest activity first. Mirrors
@@ -15,13 +21,10 @@ import { useReplicache } from "./context";
  */
 export function useChatThreads(): SyncedChatThread[] {
   const rep = useReplicache();
-  const [rows, setRows] = useState<SyncedChatThread[]>([]);
+  const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedChatThread[]> | null>(null);
 
   useEffect(() => {
-    if (!rep) {
-      setRows([]);
-      return;
-    }
+    if (!rep) return;
     const prefix = IDB_KEY.CHAT_THREAD({});
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
@@ -32,12 +35,12 @@ export function useChatThreads(): SyncedChatThread[] {
           if (result.success) parsed.push(result.data);
         }
         parsed.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
-        setRows(parsed);
+        setSnapshot({ rep, value: parsed });
       },
     );
   }, [rep]);
 
-  return rows;
+  return snapshot?.rep === rep ? snapshot.value : [];
 }
 
 /**
@@ -46,23 +49,24 @@ export function useChatThreads(): SyncedChatThread[] {
  */
 export function useChatThread(threadId: string | undefined): SyncedChatThread | null {
   const rep = useReplicache();
-  const [thread, setThread] = useState<SyncedChatThread | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    threadId: string;
+    thread: SyncedChatThread | null;
+  } | null>(null);
 
   useEffect(() => {
-    if (!rep || !threadId) {
-      setThread(null);
-      return;
-    }
+    if (!rep || !threadId) return;
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.get(IDB_KEY.CHAT_THREAD({ id: threadId })),
       (value) => {
         const result = syncedChatThreadSchema.safeParse(value);
-        setThread(result.success ? result.data : null);
+        setSnapshot({ rep, threadId, thread: result.success ? result.data : null });
       },
     );
   }, [rep, threadId]);
 
-  return thread;
+  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.thread : null;
 }
 
 /**
@@ -71,13 +75,14 @@ export function useChatThread(threadId: string | undefined): SyncedChatThread | 
  */
 export function useChatMessages(threadId: string | undefined): SyncedChatMessage[] {
   const rep = useReplicache();
-  const [rows, setRows] = useState<SyncedChatMessage[]>([]);
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    threadId: string;
+    rows: SyncedChatMessage[];
+  } | null>(null);
 
   useEffect(() => {
-    if (!rep || !threadId) {
-      setRows([]);
-      return;
-    }
+    if (!rep || !threadId) return;
     const prefix = IDB_KEY.CHAT_MESSAGE({});
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
@@ -88,10 +93,10 @@ export function useChatMessages(threadId: string | undefined): SyncedChatMessage
           if (result.success && result.data.threadId === threadId) parsed.push(result.data);
         }
         parsed.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        setRows(parsed);
+        setSnapshot({ rep, threadId, rows: parsed });
       },
     );
   }, [rep, threadId]);
 
-  return rows;
+  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : [];
 }

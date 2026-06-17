@@ -11,6 +11,13 @@ import { InputRenderer } from "./input-renderer";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
 
+// Hoisted so the `leading` props below don't allocate a fresh element per render.
+const ICON_X = <X size={14} />;
+const ICON_PENCIL = <Pencil size={14} />;
+const ICON_XCIRCLE = <XCircle size={14} />;
+const ICON_XCIRCLE_SM = <XCircle size={13} />;
+const ICON_CHECK = <Check size={14} />;
+
 export type ApprovalDecision =
   | { decision: "approve"; editedInput?: unknown; reason?: undefined }
   | { decision: "reject"; reason: string }
@@ -165,7 +172,7 @@ export function ApprovalCard({
             <AppButton
               variant="white"
               size="sm"
-              leading={<XCircle size={13} />}
+              leading={ICON_XCIRCLE_SM}
               disabled={busy || reasonMissing}
               onClick={() => decide({ decision: "reject", reason: reason.trim() })}
             >
@@ -181,7 +188,7 @@ export function ApprovalCard({
         <AppButton
           variant="ghost"
           size="sm"
-          leading={editing ? <X size={14} /> : <Pencil size={14} />}
+          leading={editing ? ICON_X : ICON_PENCIL}
           disabled={busy}
           onClick={() => setEditing((v) => !v)}
         >
@@ -191,7 +198,7 @@ export function ApprovalCard({
           <AppButton
             variant="ghost"
             size="md"
-            leading={showReason ? <X size={14} /> : <XCircle size={14} />}
+            leading={showReason ? ICON_X : ICON_XCIRCLE}
             disabled={busy}
             onClick={() => setShowReason((v) => !v)}
           >
@@ -200,7 +207,7 @@ export function ApprovalCard({
           <AppButton
             variant="primary"
             size="md"
-            leading={edited ? <Pencil size={14} /> : <Check size={14} />}
+            leading={edited ? ICON_PENCIL : ICON_CHECK}
             loading={busy}
             disabled={busy}
             onClick={() =>

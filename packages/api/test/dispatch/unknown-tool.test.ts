@@ -8,15 +8,30 @@ describe("undeclaredToolMessage", () => {
     const message = undeclaredToolMessage("list_events");
 
     assert.match(message, /calendar\.list_events/);
+    assert.match(message, /calendar exposes: `list_events`, `create_event`/);
     assert.match(message, /system\.load_integration/);
     assert.match(message, /slug 'calendar'/);
     assert.match(message, /Do not ask the user/);
+  });
+
+  test("enumerates valid actions for an invented qualified integration tool", () => {
+    const message = undeclaredToolMessage("github.list_pull_requests", ["github"]);
+
+    assert.match(message, /github exposes: `search_pull_requests`/);
+    assert.match(message, /Use 'github\.search_pull_requests' instead/);
+    assert.match(message, /system\.load_integration/);
   });
 
   test("does not suggest integrations outside a workflow allowlist", () => {
     const message = undeclaredToolMessage("list_events", ["github"]);
 
     assert.equal(message, "Tool 'list_events' is not declared");
+  });
+
+  test("does not enumerate qualified tools outside a workflow allowlist", () => {
+    const message = undeclaredToolMessage("calendar.read_events", ["github"]);
+
+    assert.equal(message, "Tool 'calendar.read_events' is not declared");
   });
 
   test("does not suggest an integration for ambiguous bare actions", () => {

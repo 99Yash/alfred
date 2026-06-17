@@ -29,10 +29,16 @@ import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import { readSubAgentMetadata, subAgentMetadataSchema } from "../sub-agent-metadata";
+import {
+  readSubAgentMetadata,
+  subAgentMetadataSchema,
+  SUB_AGENT_WORKFLOW_SLUG,
+} from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 
-export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = "__user-authored-brief__";
+// This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
+// keep the slug single-sourced so the two never drift.
+export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
 
 const TURN_CAP_MAX = 30;
 
@@ -88,7 +94,9 @@ const BOSS_SYSTEM_PROMPT_BASE = [
     "- Use only tools that exist. Never invent a plausible-sounding tool name — pick the closest real tool over guessing, and never ask the user for a parameter (a repo, an account, a date) you can resolve or look up yourself.",
     "- When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
+    "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
     "- Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
+    "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- When the user asks to stop surfacing reminders, todos, or briefing items from a sender, use system.remember after resolving a concrete sender email. If the tool asks for clarification, ask the user rather than claiming it is done. When system.remember succeeds, say Alfred will stop surfacing reminders and briefing items from that sender, and that emails will still arrive in Gmail unless the user wants a Gmail filter.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions are gated for user approval. If a tool result says status is rejected_by_user, do not retry the identical proposal.",

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getLocalStorageItem, setLocalStorageItem, type LocalStorageValue } from "~/lib/storage";
+import { getLocalStorageItem, type LocalStorageValue } from "~/lib/storage";
 import { toast } from "~/lib/toast";
 import type { StreamingMessage } from "./use-chat-stream";
 
@@ -9,12 +9,8 @@ export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference
 const PREF_KEY = "alfred.chat.soundPreference";
 const SFX_SRC = "/sounds/run-finished.mp3";
 
-export function getChatSoundPreference(): ChatSoundPreference {
+function getChatSoundPreference(): ChatSoundPreference {
   return getLocalStorageItem(PREF_KEY);
-}
-
-export function setChatSoundPreference(pref: ChatSoundPreference): void {
-  setLocalStorageItem(PREF_KEY, pref);
 }
 
 /**

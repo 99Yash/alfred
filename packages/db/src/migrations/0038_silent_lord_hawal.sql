@@ -1,0 +1,1 @@
+ALTER TABLE "memory_extraction_status" ADD COLUMN "captured_into_graph_at" timestamp with time zone;

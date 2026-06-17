@@ -60,6 +60,7 @@ export type { TriageUserContext } from "./user-context";
 export { getThreadState } from "./thread-state";
 export type { ThreadState, GetThreadStateArgs } from "./thread-state";
 export { isKnownContact } from "./contacts";
+export { resolveSenderRelationship } from "./sender-relationship";
 export {
   getSenderPrior,
   incrementSenderPrior,
