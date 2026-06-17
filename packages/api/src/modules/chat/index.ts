@@ -159,7 +159,12 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               userId: user.id,
               workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
               trigger: { kind: "manual" },
-              metadata: { threadId, assistantMessageId, userMessageId: body.userMessageId },
+              metadata: {
+                threadId,
+                assistantMessageId,
+                userMessageId: body.userMessageId,
+                tier: body.tier ?? "standard",
+              },
             });
             await enqueueRun(runId);
             return { runId, assistantMessageId };
@@ -193,6 +198,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           body: t.Object({
             userMessageId: t.String({ minLength: 1, maxLength: 100 }),
             content: t.String({ minLength: 1, maxLength: 100_000 }),
+            // Model tier from the composer's picker; `getChatModel` maps it.
+            tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
           }),
         },
       ),

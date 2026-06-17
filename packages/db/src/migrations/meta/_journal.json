@@ -274,6 +274,13 @@
       "when": 1781623180683,
       "tag": "0038_silent_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1781628617855,
+      "tag": "0039_vengeful_namorita",
+      "breakpoints": true
     }
   ]
 }

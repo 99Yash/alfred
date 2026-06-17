@@ -1,5 +1,5 @@
 import type { SyncedChatMessage } from "@alfred/sync";
-import { Loader2, ShieldQuestion } from "lucide-react";
+import { ShieldQuestion } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
@@ -119,7 +119,11 @@ export function Conversation({
             ) : null}
 
             {stream.tools.length > 0 ? (
-              <ToolCallGroup tools={stream.tools} active={!stream.done} />
+              <ToolCallGroup
+                tools={stream.tools}
+                narration={stream.narration}
+                active={!stream.done}
+              />
             ) : null}
 
             {stream.text.length > 0 ? (
@@ -237,12 +241,12 @@ function FollowUpSuggestions({
           type="button"
           onClick={() => onPick(suggestion.text)}
           className={cn(
-            "inline-flex min-h-10 max-w-full items-center gap-2 rounded-full px-3 text-left",
+            "group/chip inline-flex min-h-10 max-w-full items-center gap-2 rounded-full px-3.5 text-left",
             "bg-app-bg-2/70 text-[13px] font-medium leading-snug text-app-fg-3",
             "shadow-[inset_0_0_0_1px_var(--app-fg-a1)]",
-            "transition-[background-color,color,transform,box-shadow] duration-150 ease-out",
-            "hover:bg-app-bg-a2 hover:text-app-fg-4",
-            "active:scale-[0.96]",
+            "transition-[background-color,color,translate,box-shadow] duration-150 ease-out",
+            "hover:-translate-y-px hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_0_0_1px_var(--app-fg-a2)]",
+            "active:translate-y-0 active:scale-[0.97]",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
@@ -252,9 +256,10 @@ function FollowUpSuggestions({
           {i < 9 ? (
             <kbd
               className={cn(
-                "shrink-0 inline-flex items-center justify-center h-[16px] px-1 rounded",
+                "shrink-0 inline-flex items-center justify-center h-[17px] min-w-[17px] px-1 rounded-md",
                 "text-[10px] leading-none font-medium font-sans tabular-nums",
-                "bg-app-bg-a2 text-app-fg-2",
+                "bg-app-bg-a2 text-app-fg-2 transition-colors duration-150",
+                "group-hover/chip:bg-app-bg-3 group-hover/chip:text-app-fg-3",
               )}
             >
               {IS_MAC ? `⌥${i + 1}` : `Alt+${i + 1}`}
@@ -268,8 +273,13 @@ function FollowUpSuggestions({
 
 function ThinkingIndicator() {
   return (
-    <div className="flex items-center gap-2 text-[14px] text-app-fg-3">
-      <Loader2 size={14} className="animate-spin" />
+    <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
+      {/* Branded pulsing mark in place of a generic spinner — the Alfred glyph
+       * breathes inside a soft halo while the turn spins up. Mirrors
+       * dimension's pulsing AI icon to the left of its working state. */}
+      <span className="chat-think-mark inline-flex shrink-0">
+        <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
+      </span>
       <span className="animate-chat-shimmer">Thinking…</span>
     </div>
   );

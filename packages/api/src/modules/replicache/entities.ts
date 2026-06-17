@@ -568,6 +568,7 @@ function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
     reasoningMs: m.reasoningMs ?? null,
     status: m.status,
     toolCalls: m.toolCalls ?? null,
+    narration: m.narration ?? null,
     runId: m.runId,
     rowVersion: m.rowVersion,
     createdAt: toRequiredIso(m.createdAt, "chatMessages.createdAt"),

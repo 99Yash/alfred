@@ -41,6 +41,10 @@ export {
 } from "./modules/agent/index.js";
 export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./modules/agent/workflows/chat-turn.js";
 export {
+  userAuthoredBriefWorkflow,
+  USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+} from "./modules/agent/workflows/user-authored-brief.js";
+export {
   startIngestionWorker,
   stopIngestionWorker,
   closeIngestionQueue,
