@@ -36,8 +36,8 @@ import {
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { AppButton, AppInput, AppThemeToggle, useAppTheme } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth-client";
-import { cn } from "~/lib/utils";
 import type { SessionUser } from "~/lib/user-display";
+import { cn } from "~/lib/utils";
 import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";
 
 /**
@@ -813,7 +813,7 @@ function ThreadGroupBlock({
           className={cn("shrink-0 transition-transform duration-150", collapsed && "-rotate-90")}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70 opacity-0 group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100 transition-opacity">
+        <span className="ml-auto tabular-nums text-app-fg-2/70">
           {entries.length}
         </span>
       </button>
