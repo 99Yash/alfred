@@ -598,7 +598,8 @@ function Composer({
   onGhostDismiss?: () => void;
   /** Chat "Auto" mode state + toggle; absent hides the control. */
   autoApprove?: boolean;
-  /** Policy row not yet synced — render the toggle disabled until it lands. */
+  /** Initial policy load hasn't resolved yet — disable the toggle until we
+   *  know the current mode (the row may not exist; clicking creates it). */
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
   /** Model-tier picker (Auto vs Deep) state + setter. */

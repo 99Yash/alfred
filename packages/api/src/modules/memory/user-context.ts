@@ -8,7 +8,38 @@ import {
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
-import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+
+/** The sections {@link readUserContext} can be narrowed to via `include`. */
+export type UserContextSection =
+  | "profile"
+  | "integrations"
+  | "facts"
+  | "preferences"
+  | "entities"
+  | "relationships"
+  | "recent_memory";
+
+export interface ReadUserContextOptions {
+  /**
+   * A specific contact to GUARANTEE is in the result, matched by email alias —
+   * pulled in even when it falls outside the significance-ranked top slice, so
+   * "what do I know about <person>?" never silently misses them.
+   */
+  subjectEmail?: string;
+  /**
+   * Free-text focus. Its tokens are matched (case-insensitive) against entity
+   * names/aliases; any hit is guaranteed into the result so a named person or
+   * project survives the entity cap.
+   */
+  query?: string;
+  /**
+   * Section hints. When given, only these sections are populated (profile is
+   * always kept for provenance); omitted sections come back empty. Bounded
+   * either way.
+   */
+  include?: readonly UserContextSection[];
+}
 
 export interface UserContext {
   profile: {
@@ -55,79 +86,153 @@ const ENTITY_LIMIT = 50;
 const RELATION_LIMIT = 80;
 const MEMORY_LIMIT = 6;
 const MEMORY_PREVIEW_CHARS = 900;
+/** Cap on the extra entities a `query`/`subjectEmail` focus may pull in past the ranked slice. */
+const FOCUS_MATCH_LIMIT = 10;
 
-export async function readUserContext(userId: string): Promise<UserContext> {
+type EntityRow = {
+  id: string;
+  kind: string;
+  canonicalName: string;
+  aliases: unknown;
+  metadata: unknown;
+};
+
+const ENTITY_COLUMNS = {
+  id: entities.id,
+  kind: entities.kind,
+  canonicalName: entities.canonicalName,
+  aliases: entities.aliases,
+  metadata: entities.metadata,
+} as const;
+
+/** `metadata.significance.score` as a sortable float — NULL (unscored) sorts last. */
+const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->> 'score')::float8`;
+
+/** Tokenize a free-text query into the alpha-numeric terms worth matching against names. */
+function queryTokens(query: string | undefined): string[] {
+  if (!query) return [];
+  return Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 3),
+    ),
+  ).slice(0, 6);
+}
+
+/**
+ * Read Alfred's compact, bounded user context. Entities are ranked by the
+ * significance scalar (ADR-0057) — NOT alphabetically — so the bounded slice
+ * keeps who-matters; a `subjectEmail`/`query` focus is then guaranteed into the
+ * result even if it falls below the cap. `include` narrows which sections come
+ * back (profile is always kept for provenance).
+ */
+export async function readUserContext(
+  userId: string,
+  options: ReadUserContextOptions = {},
+): Promise<UserContext> {
   const now = new Date();
-  const [profileRows, integrationRows, factRows, prefRows, entityRows, memoryRows] =
+  const wants = (section: UserContextSection): boolean =>
+    !options.include || options.include.includes(section);
+
+  const subjectEmail = options.subjectEmail?.trim().toLowerCase() || undefined;
+  const tokens = queryTokens(options.query);
+
+  const [profileRows, integrationRows, factRows, prefRows, rankedEntityRows, memoryRows] =
     await Promise.all([
       db()
         .select({ name: user.name, email: user.email })
         .from(user)
         .where(eq(user.id, userId))
         .limit(1),
-      db()
-        .select({
-          provider: integrationCredentials.provider,
-          accountLabel: integrationCredentials.accountLabel,
-        })
-        .from(integrationCredentials)
-        .where(
-          and(
-            eq(integrationCredentials.userId, userId),
-            eq(integrationCredentials.status, "active"),
-          ),
-        )
-        .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel)),
-      db()
-        .select({
-          key: userFacts.key,
-          value: userFacts.value,
-          confidence: userFacts.confidence,
-          updatedAt: userFacts.updatedAt,
-          createdAt: userFacts.createdAt,
-        })
-        .from(userFacts)
-        .where(
-          and(
-            eq(userFacts.userId, userId),
-            eq(userFacts.status, "confirmed"),
-            or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
-          ),
-        )
-        .orderBy(desc(userFacts.updatedAt), desc(userFacts.createdAt))
-        .limit(FACT_LIMIT),
-      db()
-        .select({ key: userPreferences.key, value: userPreferences.value })
-        .from(userPreferences)
-        .where(eq(userPreferences.userId, userId))
-        .orderBy(asc(userPreferences.key))
-        .limit(PREF_LIMIT),
-      db()
-        .select({
-          id: entities.id,
-          kind: entities.kind,
-          canonicalName: entities.canonicalName,
-          aliases: entities.aliases,
-          metadata: entities.metadata,
-        })
-        .from(entities)
-        .where(eq(entities.userId, userId))
-        .orderBy(asc(entities.kind), asc(entities.canonicalName))
-        .limit(ENTITY_LIMIT),
-      db()
-        .select({ kind: memoryChunks.kind, content: memoryChunks.content })
-        .from(memoryChunks)
-        .where(eq(memoryChunks.userId, userId))
-        .orderBy(desc(memoryChunks.createdAt))
-        .limit(MEMORY_LIMIT),
+      wants("integrations")
+        ? db()
+            .select({
+              provider: integrationCredentials.provider,
+              accountLabel: integrationCredentials.accountLabel,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, userId),
+                eq(integrationCredentials.status, "active"),
+              ),
+            )
+            .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel))
+        : Promise.resolve([]),
+      wants("facts")
+        ? db()
+            .select({
+              key: userFacts.key,
+              value: userFacts.value,
+              confidence: userFacts.confidence,
+              updatedAt: userFacts.updatedAt,
+              createdAt: userFacts.createdAt,
+            })
+            .from(userFacts)
+            .where(
+              and(
+                eq(userFacts.userId, userId),
+                eq(userFacts.status, "confirmed"),
+                or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+              ),
+            )
+            .orderBy(desc(userFacts.updatedAt), desc(userFacts.createdAt))
+            .limit(FACT_LIMIT)
+        : Promise.resolve([]),
+      wants("preferences")
+        ? db()
+            .select({ key: userPreferences.key, value: userPreferences.value })
+            .from(userPreferences)
+            .where(eq(userPreferences.userId, userId))
+            .orderBy(asc(userPreferences.key))
+            .limit(PREF_LIMIT)
+        : Promise.resolve([]),
+      // Entities are needed whenever the caller wants entities OR relationships
+      // (relation endpoints resolve to entity names from this set).
+      wants("entities") || wants("relationships")
+        ? db()
+            .select(ENTITY_COLUMNS)
+            .from(entities)
+            .where(eq(entities.userId, userId))
+            .orderBy(
+              sql`${significanceScore} desc nulls last`,
+              asc(entities.kind),
+              asc(entities.canonicalName),
+            )
+            .limit(ENTITY_LIMIT)
+        : Promise.resolve([] as EntityRow[]),
+      wants("recent_memory")
+        ? db()
+            .select({ kind: memoryChunks.kind, content: memoryChunks.content })
+            .from(memoryChunks)
+            .where(eq(memoryChunks.userId, userId))
+            .orderBy(desc(memoryChunks.createdAt))
+            .limit(MEMORY_LIMIT)
+        : Promise.resolve([]),
     ]);
 
-  const entityNameById = new Map(entityRows.map((row) => [row.id, row.canonicalName]));
-  const entityIds = entityRows.map((row) => row.id);
+  // Guarantee the focused contact/query matches survive the ranked cap: fetch
+  // them directly and merge ahead of the ranked slice (deduped by id).
+  const focusRows =
+    (subjectEmail || tokens.length > 0) && (wants("entities") || wants("relationships"))
+      ? await fetchFocusEntities(userId, subjectEmail, tokens)
+      : [];
+
+  const mergedEntities: EntityRow[] = [];
+  const seenIds = new Set<string>();
+  for (const row of [...focusRows, ...rankedEntityRows]) {
+    if (seenIds.has(row.id)) continue;
+    seenIds.add(row.id);
+    mergedEntities.push(row);
+  }
+
+  const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
+  const entityIds = mergedEntities.map((row) => row.id);
   const relationRows =
-    entityIds.length === 0
-      ? []
-      : await db()
+    wants("relationships") && entityIds.length > 0
+      ? await db()
           .select({
             relation: entityRelations.relation,
             fromEntityId: entityRelations.fromEntityId,
@@ -145,7 +250,8 @@ export async function readUserContext(userId: string): Promise<UserContext> {
             ),
           )
           .orderBy(asc(entityRelations.relation), asc(entityRelations.createdAt))
-          .limit(RELATION_LIMIT);
+          .limit(RELATION_LIMIT)
+      : [];
 
   const profile = profileRows[0] ?? null;
   return {
@@ -160,13 +266,15 @@ export async function readUserContext(userId: string): Promise<UserContext> {
       confidence: row.confidence,
     })),
     preferences: prefRows.map((row) => ({ key: row.key, value: row.value })),
-    entities: entityRows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      canonicalName: row.canonicalName,
-      aliases: row.aliases,
-      metadata: row.metadata,
-    })),
+    entities: wants("entities")
+      ? mergedEntities.map((row) => ({
+          id: row.id,
+          kind: row.kind,
+          canonicalName: row.canonicalName,
+          aliases: row.aliases,
+          metadata: row.metadata,
+        }))
+      : [],
     relations: relationRows.map((row) => ({
       relation: row.relation,
       fromEntityId: row.fromEntityId,
@@ -183,4 +291,39 @@ export async function readUserContext(userId: string): Promise<UserContext> {
           : row.content,
     })),
   };
+}
+
+/**
+ * Entities a `subjectEmail` (exact alias match) or `query` (name/alias ILIKE on
+ * any token) points at — fetched separately from the ranked slice so a focused
+ * lookup never misses its target. Bounded by {@link FOCUS_MATCH_LIMIT}.
+ */
+async function fetchFocusEntities(
+  userId: string,
+  subjectEmail: string | undefined,
+  tokens: string[],
+): Promise<EntityRow[]> {
+  const focusClauses = [];
+  if (subjectEmail) {
+    focusClauses.push(sql`EXISTS (
+      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+      WHERE lower(alias) = ${subjectEmail}
+    )`);
+  }
+  for (const token of tokens) {
+    const like = `%${token}%`;
+    focusClauses.push(ilike(entities.canonicalName, like));
+    focusClauses.push(sql`EXISTS (
+      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+      WHERE alias ILIKE ${like}
+    )`);
+  }
+  if (focusClauses.length === 0) return [];
+
+  return db()
+    .select(ENTITY_COLUMNS)
+    .from(entities)
+    .where(and(eq(entities.userId, userId), or(...focusClauses)))
+    .orderBy(sql`${significanceScore} desc nulls last`, asc(entities.canonicalName))
+    .limit(FOCUS_MATCH_LIMIT);
 }

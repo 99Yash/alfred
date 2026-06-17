@@ -115,8 +115,12 @@ export async function resolveSenderRelationship(args: {
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
   const significance = meta.significance;
 
+  // A row with correspondence but no significance pass yet is `unscored`, NOT
+  // `weak` — `weak` is a real low score the rubric reads as cold, and a
+  // not-yet-scored two-way contact must not be mistaken for one. With no score,
+  // reciprocity (below) carries the relationship signal.
   const parts: string[] = [
-    bucketSignificance(significance?.score ?? 0),
+    significance ? bucketSignificance(significance.score) : "unscored",
     reciprocityPhrase(stats),
   ];
   // same-org is read straight from the stored significance components — no
