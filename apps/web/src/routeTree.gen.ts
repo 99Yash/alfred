@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -44,6 +45,11 @@ const WorkflowsRoute = WorkflowsRouteImport.update({
 const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
   id: '/terms-of-service',
   path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StyleguideRoute = StyleguideRouteImport.update({
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/support': typeof SupportRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/support': typeof SupportRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRouteWithChildren
   '/styleguide': typeof StyleguideRoute
+  '/support': typeof SupportRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/workflows': typeof WorkflowsRouteWithChildren
   '/briefings/$date': typeof BriefingsDateRoute
@@ -269,6 +278,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/support'
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
@@ -297,6 +307,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/support'
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/skills'
     | '/styleguide'
+    | '/support'
     | '/terms-of-service'
     | '/workflows'
     | '/briefings/$date'
@@ -354,6 +366,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   StyleguideRoute: typeof StyleguideRoute
+  SupportRoute: typeof SupportRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
   WorkflowsRoute: typeof WorkflowsRouteWithChildren
   DebugEventsRoute: typeof DebugEventsRoute
@@ -375,6 +388,13 @@ declare module '@tanstack/react-router' {
       path: '/terms-of-service'
       fullPath: '/terms-of-service'
       preLoaderRoute: typeof TermsOfServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/styleguide': {
@@ -643,6 +663,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRouteWithChildren,
   StyleguideRoute: StyleguideRoute,
+  SupportRoute: SupportRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
   WorkflowsRoute: WorkflowsRouteWithChildren,
   DebugEventsRoute: DebugEventsRoute,

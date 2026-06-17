@@ -1,3 +1,5 @@
+import { serverEnv } from "@alfred/env/server";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "../../queue/connection";
 
@@ -47,4 +49,38 @@ export async function consumeOAuthNonce(provider: string, nonce: string): Promis
 
 function key(provider: string, nonce: string): string {
   return `${KEY_PREFIX}${provider}:${nonce}`;
+}
+
+/**
+ * HMAC-signed `state` carrying `(userId, nonce)`. The signature (keyed on
+ * `BETTER_AUTH_SECRET`) proves the state wasn't fabricated client-side; the
+ * nonce (above) is the real replay defense. Shared so every integration's
+ * connect route signs identically — Google and GitHub keep their own inlined
+ * copies for now; new providers (Notion, Vercel) use these.
+ */
+export interface SignedOAuthState {
+  userId: string;
+  nonce: string;
+}
+
+export function signOAuthState(state: SignedOAuthState): string {
+  const env = serverEnv();
+  const payload = Buffer.from(JSON.stringify(state)).toString("base64url");
+  const sig = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+export function verifyOAuthState(raw: string): SignedOAuthState | null {
+  const env = serverEnv();
+  const [payload, sig] = raw.split(".");
+  if (!payload || !sig) return null;
+  const expected = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SignedOAuthState;
+  } catch {
+    return null;
+  }
 }

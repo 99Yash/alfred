@@ -81,6 +81,27 @@ const SUMMARY_SLUGS: readonly SummarySlug[] = [
     blurb: "the user's presentations",
   },
   { slug: "github", provider: "github", anyOfScopes: [], blurb: "the user's GitHub pull requests" },
+  // Bearer-token providers (Notion OAuth, Railway API token, Vercel OAuth):
+  // connection is proven by an active credential, not a granted scope, so
+  // `anyOfScopes` is empty like GitHub.
+  {
+    slug: "notion",
+    provider: "notion",
+    anyOfScopes: [],
+    blurb: "the user's Notion pages and databases",
+  },
+  {
+    slug: "railway",
+    provider: "railway",
+    anyOfScopes: [],
+    blurb: "the user's Railway projects, deployments, and logs",
+  },
+  {
+    slug: "vercel",
+    provider: "vercel",
+    anyOfScopes: [],
+    blurb: "the user's Vercel projects and deployments",
+  },
 ];
 
 const CONNECTED_HEADER =

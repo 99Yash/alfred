@@ -5,6 +5,7 @@ import {
   INTEGRATION_PROVIDERS,
   PROVIDER_BACKEND,
   PROVIDER_REQUIRED_SCOPES,
+  type IntegrationBackend,
   type ProviderScopeRequirement,
   type IntegrationProvider,
 } from "~/lib/integrations";
@@ -49,14 +50,26 @@ export interface ResolvedIntegration extends IntegrationProvider {
  * any error (unauthenticated, network, …) so callers can render the
  * honest "not connected" state without a special-case loading branch.
  */
-function useProviderCredentials(backend: "google" | "github") {
+async function fetchBackendCredentials(backend: IntegrationBackend) {
+  switch (backend) {
+    case "google":
+      return client.api.integrations.google.credentials.get();
+    case "github":
+      return client.api.integrations.github.credentials.get();
+    case "notion":
+      return client.api.integrations.notion.credentials.get();
+    case "railway":
+      return client.api.integrations.railway.credentials.get();
+    case "vercel":
+      return client.api.integrations.vercel.credentials.get();
+  }
+}
+
+function useProviderCredentials(backend: IntegrationBackend) {
   return useQuery<ReadonlyArray<CredentialRow>>({
     queryKey: ["integrations", backend, "credentials"],
     queryFn: async () => {
-      const res =
-        backend === "google"
-          ? await client.api.integrations.google.credentials.get()
-          : await client.api.integrations.github.credentials.get();
+      const res = await fetchBackendCredentials(backend);
       if (res.error || !res.data) return [];
       const raw = res.data.credentials as ReadonlyArray<Record<string, unknown>>;
       return raw.map((r) => ({
@@ -84,6 +97,18 @@ function useGithubCredentials() {
   return useProviderCredentials("github");
 }
 
+function useNotionCredentials() {
+  return useProviderCredentials("notion");
+}
+
+function useRailwayCredentials() {
+  return useProviderCredentials("railway");
+}
+
+function useVercelCredentials() {
+  return useProviderCredentials("vercel");
+}
+
 /**
  * The display label of the first active credential for a backend, or
  * `null` if none. Used by onboarding to keep the Google and GitHub
@@ -91,7 +116,7 @@ function useGithubCredentials() {
  * param — each provider's OAuth callback only carries its own param, so a
  * second connect would otherwise blank the first badge.
  */
-export function useConnectedAccountLabel(backend: "google" | "github"): string | null {
+export function useConnectedAccountLabel(backend: IntegrationBackend): string | null {
   const { data } = useProviderCredentials(backend);
   const active = (data ?? []).find((c) => c.status === "active");
   return active?.accountLabel ?? active?.accountId ?? null;
@@ -106,16 +131,22 @@ export function useConnectedAccountLabel(backend: "google" | "github"): string |
 export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
   const { data: googleCreds } = useGoogleCredentials();
   const { data: githubCreds } = useGithubCredentials();
-  return useMemo(
-    () =>
-      INTEGRATION_PROVIDERS.map((p) => {
-        const backend = PROVIDER_BACKEND[p.id];
-        const creds =
-          backend === "google" ? googleCreds : backend === "github" ? githubCreds : undefined;
-        return resolveOne(p, creds);
-      }),
-    [googleCreds, githubCreds],
-  );
+  const { data: notionCreds } = useNotionCredentials();
+  const { data: railwayCreds } = useRailwayCredentials();
+  const { data: vercelCreds } = useVercelCredentials();
+  return useMemo(() => {
+    const byBackend: Record<IntegrationBackend, ReadonlyArray<CredentialRow> | undefined> = {
+      google: googleCreds,
+      github: githubCreds,
+      notion: notionCreds,
+      railway: railwayCreds,
+      vercel: vercelCreds,
+    };
+    return INTEGRATION_PROVIDERS.map((p) => {
+      const backend = PROVIDER_BACKEND[p.id];
+      return resolveOne(p, backend ? byBackend[backend] : undefined);
+    });
+  }, [googleCreds, githubCreds, notionCreds, railwayCreds, vercelCreds]);
 }
 
 export function useResolvedIntegration(providerId: string): ResolvedIntegration | undefined {
@@ -130,8 +161,9 @@ function resolveOne(
   if (!creds) {
     return { ...provider, connectedAccounts: [] };
   }
+  const backend = PROVIDER_BACKEND[provider.id];
   const matching =
-    PROVIDER_BACKEND[provider.id] === "github"
+    backend === "github"
       ? // GitHub App installs carry no OAuth scopes — App *permissions*
         // (metadata/PRs/issues/contents, ADR-0052) never flow into the
         // credential's `scopes` array, so the scope-completeness probe Google
@@ -141,7 +173,12 @@ function resolveOne(
         // installation tokens, so they read as not-connected here and the
         // reconnect nag (`useGithubNeedsReconnect`) drives the upgrade.
         creds.filter((c) => c.status === "active" && c.installationId)
-      : matchByScopes(provider, creds);
+      : backend === "notion" || backend === "railway" || backend === "vercel"
+        ? // Bearer-token providers: connected once an active credential exists.
+          // No scopes (Railway/Notion non-expiring tokens) and no installation
+          // id to probe — the row's presence is the proof.
+          creds.filter((c) => c.status === "active")
+        : matchByScopes(provider, creds);
   if (matching.length === 0) {
     return { ...provider, connectedAccounts: [] };
   }

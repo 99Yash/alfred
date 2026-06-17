@@ -19,7 +19,7 @@ export function HeroTile({
         brand={brand}
         className={cn(
           "shadow-[var(--app-shadow-elevated)]",
-          isCenter ? "size-[112px] rounded-[26px]" : "size-[84px] rounded-[20px] opacity-90",
+          isCenter ? "size-[112px] rounded-full" : "size-[84px] rounded-full opacity-90",
         )}
       />
     </div>
