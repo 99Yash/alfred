@@ -2,11 +2,7 @@ import type { IntegrationProvider } from "~/lib/integrations";
 import { cn } from "~/lib/utils";
 import { HeroTile } from "./hero-tile";
 
-const MONOCHROME_BRANDS = new Set<IntegrationProvider["brand"]>(["github"]);
-
 export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
-  const isMono = MONOCHROME_BRANDS.has(provider.brand);
-
   return (
     <div
       aria-hidden
@@ -36,9 +32,9 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
         }}
       />
       <div className="relative flex h-full items-center justify-center gap-6">
-        <HeroTile brand={provider.brand} variant="side" rotate={-4} isMono={isMono} />
-        <HeroTile brand={provider.brand} variant="center" isMono={isMono} />
-        <HeroTile brand={provider.brand} variant="side" rotate={4} isMono={isMono} />
+        <HeroTile brand={provider.brand} variant="side" rotate={-4} />
+        <HeroTile brand={provider.brand} variant="center" />
+        <HeroTile brand={provider.brand} variant="side" rotate={4} />
       </div>
     </div>
   );

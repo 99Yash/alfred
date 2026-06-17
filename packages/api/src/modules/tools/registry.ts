@@ -152,9 +152,9 @@ function emptyTierCounts(): RiskTierCounts {
 }
 
 /**
- * Tier breakdown for a single integration, e.g. `{ high: 1, medium: 1,
- * low: 0, no_risk: 1 }`. Drives the integration detail page's
- * "Gmail — 3 tools (1 high, 1 medium, 1 no-risk)" summary. The web can't
+ * Tier breakdown for a single integration, e.g. `{ high: 1, medium: 0,
+ * low: 1, no_risk: 1 }`. Drives the integration detail page's
+ * "Gmail — 3 tools (1 high, 1 low, 1 no-risk)" summary. The web can't
  * import the registry, so this is exposed through the integrations API.
  */
 export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCounts {

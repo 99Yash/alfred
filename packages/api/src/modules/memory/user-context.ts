@@ -220,9 +220,13 @@ export async function readUserContext(
       ? await fetchFocusEntities(userId, subjectEmail, tokens)
       : [];
 
+  // Focus rows go first so they survive the cap; the ranked slice fills the
+  // remainder up to ENTITY_LIMIT, keeping the merged set bounded (focus matches
+  // would otherwise push the total to ENTITY_LIMIT + FOCUS_MATCH_LIMIT).
   const mergedEntities: EntityRow[] = [];
   const seenIds = new Set<string>();
   for (const row of [...focusRows, ...rankedEntityRows]) {
+    if (mergedEntities.length >= ENTITY_LIMIT) break;
     if (seenIds.has(row.id)) continue;
     seenIds.add(row.id);
     mergedEntities.push(row);

@@ -1,7 +1,7 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
@@ -234,30 +234,29 @@ function NarrationRow({ text }: { text: string }) {
   );
 }
 
-/** Overlapping integration logos for the services a run touched (max 3 shown). */
+/** Overlapping integration app-icon tiles for the services a run touched (max 3). */
 function BrandCluster({ brands }: { brands: IntegrationBrand[] }) {
   if (brands.length === 0) {
     return (
       <span
         aria-hidden
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]"
       >
-        <Wrench size={13} className="text-app-fg-3" />
+        <Wrench size={13} />
       </span>
     );
   }
   return (
     <span aria-hidden className="flex shrink-0 items-center">
       {brands.slice(0, 3).map((brand, i) => (
-        <span
+        // ring matches the page background so overlapping tiles read as a
+        // clean stack rather than a smudge.
+        <IntegrationIcon
           key={brand}
-          className={cn(
-            "inline-flex size-6 items-center justify-center rounded-md bg-app-bg-2 ring-1 ring-app-background",
-            i > 0 && "-ml-2",
-          )}
-        >
-          <IntegrationGlyph brand={brand} size={14} />
-        </span>
+          brand={brand}
+          size="xs"
+          className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
+        />
       ))}
     </span>
   );

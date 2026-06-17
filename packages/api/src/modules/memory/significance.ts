@@ -187,6 +187,7 @@ export async function runSignificancePass(
     .where(and(eq(entities.userId, userId), eq(entities.kind, "person")));
 
   const scoredRows: Array<{ canonicalName: string; address: string | null; score: number }> = [];
+  const pendingWrites: Array<{ id: string; metadata: Record<string, unknown> }> = [];
 
   for (const row of rows) {
     const meta = parsePersonEntityMetadata(row.metadata);
@@ -203,12 +204,25 @@ export async function runSignificancePass(
     });
 
     if (commit) {
-      const merged = { ...jsonRecordSchema.parse(row.metadata), significance };
-      await db()
-        .update(entities)
-        .set({ metadata: merged, rowVersion: sql`${entities.rowVersion} + 1` })
-        .where(eq(entities.id, row.id));
+      pendingWrites.push({
+        id: row.id,
+        metadata: { ...jsonRecordSchema.parse(row.metadata), significance },
+      });
     }
+  }
+
+  // Issue the per-entity writes concurrently rather than awaiting each in the
+  // loop — the pass is idempotent (re-runnable after a partial failure), so the
+  // round-trips don't need a serial barrier or a single-connection transaction.
+  if (pendingWrites.length > 0) {
+    await Promise.all(
+      pendingWrites.map((write) =>
+        db()
+          .update(entities)
+          .set({ metadata: write.metadata, rowVersion: sql`${entities.rowVersion} + 1` })
+          .where(eq(entities.id, write.id)),
+      ),
+    );
   }
 
   scoredRows.sort((a, b) => b.score - a.score);
