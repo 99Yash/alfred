@@ -1,4 +1,12 @@
-import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
+import {
+  Check,
+  Globe2,
+  NotebookText,
+  TrainFront,
+  Triangle,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { useId } from "react";
 import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integration-svgs";
 import { INTEGRATION_TILES, type IntegrationTileSlug } from "~/lib/integration-tiles";
@@ -15,6 +23,9 @@ export type IntegrationBrand =
   | "google_slides"
   | "linear"
   | "slack"
+  | "notion"
+  | "railway"
+  | "vercel"
   | "web";
 
 type BrandIconMeta =
@@ -58,6 +69,10 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
     frostColor: "#ffffff",
   },
   slack: { kind: "svg", slug: "slack" },
+  // No bespoke brand artwork yet — Lucide marks on the neutral fallback tile.
+  notion: { kind: "lucide", icon: NotebookText, color: "#e5e7eb" },
+  railway: { kind: "lucide", icon: TrainFront, color: "#c8b6ff" },
+  vercel: { kind: "lucide", icon: Triangle, color: "#f4f4f5" },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 };
 

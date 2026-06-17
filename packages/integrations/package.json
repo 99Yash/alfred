@@ -4,7 +4,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./google": "./src/google/index.ts",
-    "./github": "./src/github/index.ts"
+    "./github": "./src/github/index.ts",
+    "./notion": "./src/notion/index.ts",
+    "./railway": "./src/railway/index.ts",
+    "./vercel": "./src/vercel/index.ts",
+    "./shared": "./src/shared/credentials.ts"
   },
   "scripts": {
     "build": "tsdown",

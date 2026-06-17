@@ -371,6 +371,139 @@ export const slidesAddSlideInput = z
   })
   .strict();
 
+/* ── notion ───────────────────────────────────────────────────────────── */
+
+export const notionSearchInput = z
+  .object({
+    query: z
+      .string()
+      .max(500)
+      .optional()
+      .describe("Text to search across the workspace's shared pages and databases. Omit to list recently-edited items."),
+    filter: z
+      .enum(["page", "database", "all"])
+      .default("all")
+      .describe("Restrict results to pages, databases, or both."),
+    pageSize: z.number().int().min(1).max(50).default(10).catch(10),
+  })
+  .strict();
+
+export const notionGetPageInput = z
+  .object({
+    pageId: z.string().min(1).max(200).describe("The Notion page id (with or without dashes)."),
+  })
+  .strict();
+
+export const notionCreatePageInput = z
+  .object({
+    parentPageId: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Id of the parent page the new page is nested under. The integration must be shared with it."),
+    title: z.string().min(1).max(2_000).describe("Title of the new page."),
+    content: z
+      .string()
+      .max(50_000)
+      .optional()
+      .describe("Optional body text. Each line becomes its own paragraph block."),
+  })
+  .strict();
+
+export const notionAppendBlocksInput = z
+  .object({
+    blockId: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Id of the page (or block) to append content to."),
+    content: z
+      .string()
+      .min(1)
+      .max(50_000)
+      .describe("Text to append. Each line becomes its own paragraph block."),
+  })
+  .strict();
+
+/* ── railway ──────────────────────────────────────────────────────────── */
+
+export const railwayListProjectsInput = z.object({}).strict();
+
+export const railwayListDeploymentsInput = z
+  .object({
+    projectId: z.string().min(1).max(200).describe("Railway project id to list deployments for."),
+    serviceId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Optional service id to narrow deployments to a single service."),
+    environmentId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Optional environment id (e.g. production) to narrow deployments."),
+    limit: z.number().int().min(1).max(20).default(5).catch(5),
+  })
+  .strict();
+
+export const railwayGetLogsInput = z
+  .object({
+    deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
+    limit: z.number().int().min(1).max(500).default(100).catch(100),
+  })
+  .strict();
+
+export const railwayRedeployInput = z
+  .object({
+    deploymentId: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Railway deployment id to redeploy (re-runs the same build/release)."),
+  })
+  .strict();
+
+/* ── vercel ───────────────────────────────────────────────────────────── */
+
+export const vercelListProjectsInput = z
+  .object({
+    limit: z.number().int().min(1).max(50).default(20).catch(20),
+  })
+  .strict();
+
+export const vercelListDeploymentsInput = z
+  .object({
+    projectId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Optional Vercel project id or name to scope deployments to."),
+    limit: z.number().int().min(1).max(20).default(10).catch(10),
+  })
+  .strict();
+
+export const vercelRedeployInput = z
+  .object({
+    deploymentId: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Id of the existing deployment to redeploy."),
+    name: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Project name the deployment belongs to (Vercel requires it on redeploy)."),
+    target: z
+      .enum(["production", "preview"])
+      .optional()
+      .describe("Deployment target. Omit to keep the original deployment's target."),
+  })
+  .strict();
+
 /* ── system ───────────────────────────────────────────────────────────── */
 
 export const loadIntegrationInput = z
@@ -573,6 +706,17 @@ export const TOOL_INPUT_SCHEMAS = {
   "drive.export_file": driveExportFileInput,
   "drive.download_file": driveDownloadFileInput,
   "github.search_pull_requests": searchPullRequestsInput,
+  "notion.search": notionSearchInput,
+  "notion.get_page": notionGetPageInput,
+  "notion.create_page": notionCreatePageInput,
+  "notion.append_blocks": notionAppendBlocksInput,
+  "railway.list_projects": railwayListProjectsInput,
+  "railway.list_deployments": railwayListDeploymentsInput,
+  "railway.get_logs": railwayGetLogsInput,
+  "railway.redeploy": railwayRedeployInput,
+  "vercel.list_projects": vercelListProjectsInput,
+  "vercel.list_deployments": vercelListDeploymentsInput,
+  "vercel.redeploy": vercelRedeployInput,
   "gmail.search": gmailSearchInput,
   "gmail.send_draft": gmailSendDraftInput,
   "gmail.read_message": gmailReadMessageInput,
