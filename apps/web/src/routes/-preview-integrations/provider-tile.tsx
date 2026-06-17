@@ -1,6 +1,4 @@
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
-import { cn } from "~/lib/utils";
-import { MONOCHROME_BRANDS } from "./helpers";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
 
 export function ProviderTile({
   brand,
@@ -9,27 +7,7 @@ export function ProviderTile({
   brand: IntegrationBrand;
   connected: boolean;
 }) {
-  const isMono = MONOCHROME_BRANDS.has(brand);
-  return (
-    <span
-      className={cn(
-        "relative grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-2 ring-1 ring-app-bg-3",
-        // For brands whose glyph relies on currentColor (via colorOverride below),
-        // text-app-fg-4 supplies the legible tone in both themes.
-        isMono && "text-app-fg-4",
-      )}
-    >
-      <IntegrationGlyph
-        brand={brand}
-        size={22}
-        colorOverride={isMono ? "var(--app-fg-4)" : undefined}
-      />
-      {connected ? (
-        <span
-          className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-app-green-4 ring-2 ring-app-background"
-          aria-label="Connected"
-        />
-      ) : null}
-    </span>
-  );
+  // Full-bleed app-icon tile — the artwork (background + gloss) fills the
+  // rounded square, so there's no neutral box for the mark to rattle around in.
+  return <IntegrationIcon brand={brand} connected={connected} className="size-9 rounded-xl" />;
 }

@@ -1,6 +1,7 @@
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integration-svgs";
+import { INTEGRATION_TILES, type IntegrationTileSlug } from "~/lib/integration-tiles";
 import { cn } from "~/lib/utils";
 
 export type IntegrationBrand =
@@ -61,15 +62,15 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
 };
 
 const TILE_SIZE_CLASS = {
-  sm: "size-7 rounded-lg",
+  sm: "size-7 rounded-[9px]",
   md: "size-10 rounded-xl",
-  xs: "size-6 rounded-full",
+  xs: "size-6 rounded-[7px]",
 } as const;
 
 const GLYPH_SIZE = {
-  sm: 22,
-  md: 32,
-  xs: 18,
+  sm: 18,
+  md: 24,
+  xs: 15,
 } as const;
 
 const CHECK_SIZE_CLASS = {
@@ -78,46 +79,86 @@ const CHECK_SIZE_CLASS = {
   xs: "size-3 -bottom-0.5 -right-0.5",
 } as const;
 
+/** Brands that ship a full-bleed app-icon tile (background + gloss baked in). */
+function hasTile(brand: IntegrationBrand): brand is IntegrationTileSlug {
+  return Object.prototype.hasOwnProperty.call(INTEGRATION_TILES, brand);
+}
+
+/**
+ * An integration's brand mark as a polished, full-bleed app-icon tile — the
+ * artwork fills the rounded square edge-to-edge, lit by the gloss baked into
+ * each SVG, and finished with a hairline frost border (no inner glow over the
+ * art). This is the app-store-style tile used on connect surfaces, the
+ * approval tray, onboarding and the integrations catalog. Inline contexts that
+ * want just the bare logo next to text use `IntegrationGlyph` instead.
+ *
+ * Brands without bespoke artwork (`web`, `collaborators`) fall back to their
+ * Lucide mark centered on a dark frost tile so every brand still renders a
+ * tile rather than a naked glyph.
+ */
 export function IntegrationIcon({
   brand,
   connected = false,
   size = "sm",
-  variant = "plain",
   title,
   className,
 }: {
   brand: IntegrationBrand;
   connected?: boolean;
   size?: keyof typeof TILE_SIZE_CLASS;
+  /** Retained for source compatibility; tiles carry their own background. */
   variant?: "plain" | "frost";
   title?: string;
   className?: string;
 }) {
+  const badge = connected ? (
+    <span
+      className={cn(
+        "absolute z-10 grid place-items-center rounded-full bg-emerald-400 text-black",
+        // ring tracks the canvas so the check reads as a cut-out in both themes.
+        "shadow-[0_1px_4px_rgba(0,0,0,0.28)] ring-2 ring-app-background",
+        CHECK_SIZE_CLASS[size],
+      )}
+      title="Connected"
+      aria-label="Connected"
+    >
+      <Check size={size === "md" ? 11 : 9} strokeWidth={3} />
+    </span>
+  ) : null;
+
+  if (hasTile(brand)) {
+    const Tile = INTEGRATION_TILES[brand];
+    return (
+      <span
+        className={cn("relative block shrink-0", TILE_SIZE_CLASS[size], className)}
+        title={title}
+      >
+        {/* Inner layer clips the full-bleed artwork to the rounded square. The
+         * elevated shadow is a theme-aware hairline + soft drop: a faint dark
+         * rim frames the light Google tiles on a light canvas, a faint light
+         * rim lifts the dark GitHub/Linear tiles on dark. */}
+        <span className="block size-full overflow-hidden rounded-[inherit] shadow-[var(--app-shadow-elevated)]">
+          <Tile aria-hidden className="block size-full" />
+        </span>
+        {badge}
+      </span>
+    );
+  }
+
+  // No bespoke artwork (web, collaborators) — center the Lucide mark on a
+  // theme-aware neutral tile so it stays in the same family as the app tiles
+  // in both light and dark.
   return (
     <span
       className={cn(
-        "relative grid shrink-0 place-items-center",
+        "relative grid shrink-0 place-items-center bg-app-bg-2 shadow-[var(--app-shadow-elevated)]",
         TILE_SIZE_CLASS[size],
-        variant === "frost" ? "frost-icon-tile" : "bg-background shadow-soft ring-1 ring-border/60",
         className,
       )}
       title={title}
     >
-      <IntegrationGlyph brand={brand} size={GLYPH_SIZE[size]} variant={variant} />
-      {connected ? (
-        <span
-          className={cn(
-            "absolute grid place-items-center rounded-full bg-emerald-400 text-black",
-            "shadow-[0_1px_4px_rgba(0,0,0,0.28)] ring-2",
-            variant === "frost" ? "ring-[#080808]" : "ring-card",
-            CHECK_SIZE_CLASS[size],
-          )}
-          title="Connected"
-          aria-label="Connected"
-        >
-          <Check size={size === "md" ? 11 : 9} strokeWidth={3} />
-        </span>
-      ) : null}
+      <IntegrationGlyph brand={brand} size={GLYPH_SIZE[size]} />
+      {badge}
     </span>
   );
 }

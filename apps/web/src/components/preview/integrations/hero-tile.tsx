@@ -1,4 +1,4 @@
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationIcon } from "~/lib/integration-icons";
 import type { IntegrationProvider } from "~/lib/integrations";
 import { cn } from "~/lib/utils";
 
@@ -6,28 +6,22 @@ export function HeroTile({
   brand,
   variant,
   rotate = 0,
-  isMono,
 }: {
   brand: IntegrationProvider["brand"];
   variant: "center" | "side";
   rotate?: number;
-  isMono: boolean;
 }) {
   const isCenter = variant === "center";
+  // The full-bleed tile is the artwork itself; the wrapper only carries the
+  // rotation and the elevated drop shadow that floats it off the backdrop.
   return (
-    <div
-      className={cn(
-        "grid place-items-center bg-app-bg-1 transition-transform",
-        isCenter ? "size-[120px] rounded-[26px]" : "size-[88px] rounded-[22px] opacity-90",
-        "shadow-[var(--app-shadow-elevated)]",
-        isMono && "text-app-fg-4",
-      )}
-      style={{ transform: `rotate(${rotate}deg)` }}
-    >
-      <IntegrationGlyph
+    <div className="transition-transform" style={{ transform: `rotate(${rotate}deg)` }}>
+      <IntegrationIcon
         brand={brand}
-        size={isCenter ? 52 : 38}
-        colorOverride={isMono ? "var(--app-fg-4)" : undefined}
+        className={cn(
+          "shadow-[var(--app-shadow-elevated)]",
+          isCenter ? "size-[120px] rounded-[26px]" : "size-[88px] rounded-[22px] opacity-90",
+        )}
       />
     </div>
   );

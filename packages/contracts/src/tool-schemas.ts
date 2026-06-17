@@ -447,10 +447,11 @@ export const rememberInput = z
       .string()
       .trim()
       .toLowerCase()
+      .email()
       .max(320)
       .optional()
       .describe(
-        "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
+        "Resolved sender email to suppress. Must be a real address — if unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
       ),
     senderLabel: z
       .string()

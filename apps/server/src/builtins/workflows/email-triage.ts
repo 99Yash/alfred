@@ -613,7 +613,7 @@ async function gatherObservations(args: {
       recentMessages: [],
     })),
     isHumanSender && args.senderAddress
-      ? isKnownContact(args.userId, args.senderAddress)
+      ? isKnownContact(args.userId, args.senderAddress).catch(() => false)
       : Promise.resolve(false),
     resolveSenderRelationship({
       userId: args.userId,

@@ -33,7 +33,7 @@ import type { Step, Workflow } from "../types";
  * existing HIL/approval interrupt), and the finished assistant message is
  * persisted to `chat_messages` so it survives reload and reaches every device.
  *
- * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.6) escalation is
+ * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.8) escalation is
  * wired through state for a future heuristic / the boss-worker harness. The
  * agent can `system.load_integration` to reach email/calendar/etc and
  * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
