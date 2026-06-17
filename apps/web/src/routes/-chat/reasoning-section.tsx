@@ -41,10 +41,15 @@ export function ReasoningSection({
   durationMs: number | null;
 }) {
   // Open while thinking; collapse the moment the reply starts (active → false).
+  // Tracking the previous `active` during render lets us re-assert the collapse
+  // on the transition without an effect (an effect would flash the open panel
+  // for a frame). The user can still toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
-  useEffect(() => {
+  const prevActive = useRef(active);
+  if (prevActive.current !== active) {
+    prevActive.current = active;
     if (!active) setValue("");
-  }, [active]);
+  }
 
   // While reasoning streams, the capped scroll box would otherwise pin to the
   // top and hide the newest lines — keep it stuck to the bottom so the live

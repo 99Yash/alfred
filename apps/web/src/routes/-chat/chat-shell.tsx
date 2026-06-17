@@ -20,7 +20,6 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  forwardRef,
   useCallback,
   useEffect,
   useMemo,
@@ -31,6 +30,7 @@ import {
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
+  type Ref,
   type RefObject,
 } from "react";
 import { useAppTheme } from "~/components/ui/v2/theme";
@@ -1217,16 +1217,22 @@ function RecordingPanel({
   );
 }
 
-const ComposerIcon = forwardRef<
-  HTMLButtonElement,
-  {
-    label: string;
-    children: ReactNode;
-    disabled?: boolean;
-    onClick?: () => void;
-    active?: boolean;
-  } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">
->(function ComposerIcon({ label, children, disabled, onClick, active, ...rest }, ref) {
+function ComposerIcon({
+  label,
+  children,
+  disabled,
+  onClick,
+  active,
+  ref,
+  ...rest
+}: {
+  label: string;
+  children: ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+  active?: boolean;
+  ref?: Ref<HTMLButtonElement>;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
   return (
     <button
       ref={ref}
@@ -1249,7 +1255,7 @@ const ComposerIcon = forwardRef<
       {children}
     </button>
   );
-});
+}
 
 /* ----------- helpers ----------- */
 

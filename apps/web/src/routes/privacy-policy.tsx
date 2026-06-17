@@ -38,21 +38,21 @@ export function PrivacyPolicy() {
         </p>
         <ul className="ml-5 list-disc space-y-1.5 text-neutral-400">
           <li>
-            <strong className="text-neutral-200">Gmail</strong> — read messages and metadata to
+            <strong className="text-neutral-200">Gmail</strong>: read messages and metadata to
             triage your inbox, apply labels, and prepare draft replies; send mail you explicitly
             approve.
           </li>
           <li>
-            <strong className="text-neutral-200">Google Calendar</strong> — read events to build
+            <strong className="text-neutral-200">Google Calendar</strong>: read events to build
             your daily briefing and meeting prep.
           </li>
           <li>
-            <strong className="text-neutral-200">Drive, Docs, Sheets &amp; Slides</strong> — read
+            <strong className="text-neutral-200">Drive, Docs, Sheets &amp; Slides</strong>: read
             and (where you enable it) write files you point Alfred at, to summarize, draft, or
             update documents on your request.
           </li>
           <li>
-            <strong className="text-neutral-200">Basic profile</strong> — your name and email
+            <strong className="text-neutral-200">Basic profile</strong>: your name and email
             address, to identify your account.
           </li>
         </ul>
@@ -60,7 +60,7 @@ export function PrivacyPolicy() {
 
       <LegalSection heading="How we use it">
         <p>
-          Google user data is used solely to provide Alfred&rsquo;s features to you — inbox triage,
+          Google user data is used solely to provide Alfred&rsquo;s features to you: inbox triage,
           morning briefings, meeting prep, drafting, and the tasks you ask it to perform. We do not
           use your Google data for advertising, and we do not sell it. We do not use your Google
           user data to train generalized AI or machine-learning models.
