@@ -1,5 +1,5 @@
 import type { SyncedChatMessage } from "@alfred/sync";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
@@ -53,7 +53,14 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 }
 
 /** A persisted message (user or assistant) from the synced store. */
-export function MessageBubble({ message }: { message: SyncedChatMessage }) {
+export function MessageBubble({
+  message,
+  onRetry,
+}: {
+  message: SyncedChatMessage;
+  /** Present on a failed assistant reply — re-sends the user turn behind it. */
+  onRetry?: () => void;
+}) {
   // Rendered-markdown container; CopyMessageButton lifts its innerHTML for
   // the rich (text/html) clipboard flavor. Unconditional — hooks can't sit
   // behind the user/assistant branch.
@@ -89,9 +96,25 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
       ) : null}
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
       {failed ? (
-        <p className="text-[13px] text-app-red-4" role="alert">
-          This reply didn&apos;t finish. Try sending your message again.
-        </p>
+        <div className="flex items-center gap-2.5" role="alert">
+          <p className="text-[13px] text-app-red-4">This reply didn&apos;t finish.</p>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
+                "text-app-fg-3 hover:bg-app-bg-2 hover:text-app-fg-4",
+                "transition-[background-color,color] duration-150",
+                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              )}
+            >
+              <RotateCcw size={13} />
+              Retry
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {message.content.length > 0 ? (
         <CopyMessageButton content={message.content} htmlRef={bodyRef} />
@@ -108,7 +131,7 @@ export function MessageBubble({ message }: { message: SyncedChatMessage }) {
  * message is hovered (or the button itself is focused) so the transcript
  * stays quiet; the copied state holds the check for a beat as feedback.
  */
-function CopyMessageButton({
+export function CopyMessageButton({
   content,
   htmlRef,
 }: {
