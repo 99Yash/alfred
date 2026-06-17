@@ -1,12 +1,4 @@
-import {
-  Check,
-  Globe2,
-  NotebookText,
-  TrainFront,
-  Triangle,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integration-svgs";
 import { INTEGRATION_TILES, type IntegrationTileSlug } from "~/lib/integration-tiles";
@@ -69,10 +61,28 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
     frostColor: "#ffffff",
   },
   slack: { kind: "svg", slug: "slack" },
-  // No bespoke brand artwork yet — Lucide marks on the neutral fallback tile.
-  notion: { kind: "lucide", icon: NotebookText, color: "#e5e7eb" },
-  railway: { kind: "lucide", icon: TrainFront, color: "#c8b6ff" },
-  vercel: { kind: "lucide", icon: Triangle, color: "#f4f4f5" },
+  // Monochrome marks: like GitHub, the bare glyph is single-tone, so it tracks
+  // --app-fg-4 on chrome (dark in light mode, light in dark) and stays white on
+  // the dark integration tiles via `frost`. Full-color artwork lives in the
+  // app-icon coins (integration-tile-components.tsx).
+  notion: {
+    kind: "svg",
+    slug: "notion",
+    plainColor: "var(--app-fg-4)",
+    frostColor: "#f4f4f5",
+  },
+  railway: {
+    kind: "svg",
+    slug: "railway",
+    plainColor: "var(--app-fg-4)",
+    frostColor: "#f4f4f5",
+  },
+  vercel: {
+    kind: "svg",
+    slug: "vercel",
+    plainColor: "var(--app-fg-4)",
+    frostColor: "#f4f4f5",
+  },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 };
 
