@@ -11,6 +11,9 @@ export const LOADABLE_INTEGRATION_SLUGS = [
   "slack",
   "linear",
   "github",
+  "notion",
+  "railway",
+  "vercel",
   "imessage",
 ] as const;
 export type LoadableIntegrationSlug = (typeof LOADABLE_INTEGRATION_SLUGS)[number];
@@ -57,6 +60,18 @@ export const SLIDES_ACTIONS = [
 export const SLACK_ACTIONS = [] as const;
 export const LINEAR_ACTIONS = [] as const;
 export const GITHUB_ACTIONS = ["search_pull_requests"] as const;
+
+export const NOTION_ACTIONS = ["search", "get_page", "create_page", "append_blocks"] as const;
+
+export const RAILWAY_ACTIONS = [
+  "list_projects",
+  "list_deployments",
+  "get_logs",
+  "redeploy",
+] as const;
+
+export const VERCEL_ACTIONS = ["list_projects", "list_deployments", "redeploy"] as const;
+
 export const IMESSAGE_ACTIONS = [] as const;
 
 export const INTEGRATION_ACTIONS = {
@@ -70,6 +85,9 @@ export const INTEGRATION_ACTIONS = {
   slack: SLACK_ACTIONS,
   linear: LINEAR_ACTIONS,
   github: GITHUB_ACTIONS,
+  notion: NOTION_ACTIONS,
+  railway: RAILWAY_ACTIONS,
+  vercel: VERCEL_ACTIONS,
   imessage: IMESSAGE_ACTIONS,
 } as const satisfies Record<IntegrationSlug, readonly string[]>;
 
@@ -326,6 +344,64 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Searching pull requests",
     done: "Searched pull requests",
     title: "search pull requests",
+  },
+
+  "notion.search": {
+    running: "Searching Notion",
+    done: "Searched Notion",
+    title: "search Notion",
+  },
+  "notion.get_page": {
+    running: "Reading a Notion page",
+    done: "Read a Notion page",
+    title: "read a Notion page",
+  },
+  "notion.create_page": {
+    running: "Creating a Notion page",
+    done: "Created a Notion page",
+    title: "create a Notion page",
+  },
+  "notion.append_blocks": {
+    running: "Adding to a Notion page",
+    done: "Added to a Notion page",
+    title: "add content to a Notion page",
+  },
+
+  "railway.list_projects": {
+    running: "Listing Railway projects",
+    done: "Listed Railway projects",
+    title: "list Railway projects",
+  },
+  "railway.list_deployments": {
+    running: "Checking Railway deployments",
+    done: "Checked Railway deployments",
+    title: "check Railway deployments",
+  },
+  "railway.get_logs": {
+    running: "Reading Railway logs",
+    done: "Read Railway logs",
+    title: "read Railway logs",
+  },
+  "railway.redeploy": {
+    running: "Redeploying on Railway",
+    done: "Triggered a Railway redeploy",
+    title: "redeploy a Railway service",
+  },
+
+  "vercel.list_projects": {
+    running: "Listing Vercel projects",
+    done: "Listed Vercel projects",
+    title: "list Vercel projects",
+  },
+  "vercel.list_deployments": {
+    running: "Checking Vercel deployments",
+    done: "Checked Vercel deployments",
+    title: "check Vercel deployments",
+  },
+  "vercel.redeploy": {
+    running: "Redeploying on Vercel",
+    done: "Triggered a Vercel redeploy",
+    title: "redeploy a Vercel deployment",
   },
 };
 

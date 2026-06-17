@@ -1,19 +1,25 @@
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { cn } from "~/lib/utils";
 
 /**
  * Forwards its ref and spreads extra props so it can sit inside a Radix
  * `Tooltip.Trigger asChild` (which injects pointer handlers + a ref).
  */
-export const IconButton = forwardRef<
-  HTMLButtonElement,
-  {
-    label: string;
-    children: ReactNode;
-    onClick?: () => void;
-    active?: boolean;
-  } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">
->(function IconButton({ label, children, onClick, active = false, className, ...rest }, ref) {
+export function IconButton({
+  label,
+  children,
+  onClick,
+  active = false,
+  className,
+  ref,
+  ...rest
+}: {
+  label: string;
+  children: ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+  ref?: Ref<HTMLButtonElement>;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
   return (
     <button
       ref={ref}
@@ -35,4 +41,4 @@ export const IconButton = forwardRef<
       {children}
     </button>
   );
-});
+}

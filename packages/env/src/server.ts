@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+/**
+ * Optional secret that tolerates an empty string in `.env`. A blank
+ * `FOO=` line yields `""` (defined), which would fail a bare
+ * `.min(1).optional()` and break boot — so we coerce empty/whitespace to
+ * `undefined` first. Used for integrations that may be half-configured
+ * (Notion/Vercel) without bouncing the whole server.
+ */
+const optionalSecret = () =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  );
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
@@ -62,6 +75,31 @@ const serverEnvSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1),
   /** User-to-server OAuth callback, e.g. `https://api.alfred.beauty/api/integrations/github/callback`. */
   GITHUB_APP_REDIRECT_URI: z.string().url(),
+  /**
+   * Notion public OAuth integration (https://www.notion.so/my-integrations).
+   * Optional so the server still boots before the integration is registered;
+   * the connect route throws a clean 503 when these are absent. Notion access
+   * tokens are long-lived (no refresh), so there is no refresh secret here.
+   */
+  NOTION_OAUTH_CLIENT_ID: optionalSecret(),
+  NOTION_OAUTH_CLIENT_SECRET: optionalSecret(),
+  NOTION_OAUTH_REDIRECT_URI: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
+  /**
+   * Vercel integration (https://vercel.com/dashboard → Integrations → Develop).
+   * `VERCEL_APP_SLUG` is the integration's slug used to build the install URL
+   * (`https://vercel.com/integrations/<slug>/new`). Optional for the same
+   * boot-before-setup reason as Notion; Vercel access tokens don't expire.
+   */
+  VERCEL_CLIENT_ID: optionalSecret(),
+  VERCEL_CLIENT_SECRET: optionalSecret(),
+  VERCEL_REDIRECT_URI: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
+  VERCEL_APP_SLUG: optionalSecret(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

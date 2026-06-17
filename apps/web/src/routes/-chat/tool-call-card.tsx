@@ -69,12 +69,12 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         )}
       >
         {brand ? (
-          // The integration's own app-icon tile. While in flight an indigo→
+          // The integration's own app-icon coin. While in flight an indigo→
           // violet halo drifts behind it (chat-node-glow inherits the tile's
           // radius) so the eye lands on what's happening now.
           <span
             aria-hidden
-            className={cn("inline-flex shrink-0 rounded-[7px]", running && "chat-node-glow")}
+            className={cn("inline-flex shrink-0 rounded-full", running && "chat-node-glow")}
           >
             <IntegrationIcon brand={brand} size="xs" />
           </span>
@@ -82,7 +82,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
           <span
             aria-hidden
             className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
               running && "chat-node-glow",
             )}
           >

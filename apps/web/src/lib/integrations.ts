@@ -230,6 +230,66 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
         "Connecting Linear gives Alfred full access to read and write issues, documents, and projects. This enables both search/indexing and AI-powered actions like creating issues and adding comments.",
     },
   },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Search, read, and write Notion pages.",
+    status: "available",
+    category: "Productivity",
+    brand: "notion",
+    actionLabel: "Connect",
+    capabilities: ["Search Workspace", "Read Pages", "Create Pages", "Append Content"],
+    trust: {
+      title: "Alfred only sees what you share",
+      body: "Notion's OAuth grant scopes Alfred to the pages and databases you explicitly share with the integration. Nothing else in your workspace is visible.",
+    },
+    overview: {
+      body: "Connect Notion so Alfred can find and read your docs and write new pages or notes on your behalf.",
+      heading: "Workspace Intelligence",
+      detail:
+        "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
+    },
+  },
+  {
+    id: "railway",
+    name: "Railway",
+    description: "Inspect and redeploy Railway services.",
+    status: "available",
+    category: "Development",
+    brand: "railway",
+    actionLabel: "Connect",
+    capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
+    trust: {
+      title: "Your token, your control",
+      body: "Railway has no OAuth, so you paste an account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
+    },
+    overview: {
+      body: "Connect Railway with an account API token so Alfred can answer questions about your projects and deployments — and redeploy when you ask.",
+      heading: "Deployment Intelligence",
+      detail:
+        "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",
+    },
+  },
+  {
+    id: "vercel",
+    name: "Vercel",
+    description: "Inspect and redeploy Vercel projects.",
+    status: "available",
+    category: "Development",
+    brand: "vercel",
+    actionLabel: "Connect",
+    capabilities: ["List Projects", "Check Deployments", "Redeploy"],
+    trust: {
+      title: "Scoped to your install",
+      body: "Vercel's OAuth scopes Alfred to the account or team you install it on. Manage or remove access from your Vercel integrations page any time.",
+    },
+    overview: {
+      body: "Connect Vercel so Alfred can report on your projects and deployments and redeploy on request.",
+      heading: "Deployment Intelligence",
+      detail:
+        "Alfred can list projects, check recent deployments and their state, and redeploy an existing deployment.",
+    },
+  },
 ];
 
 export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
@@ -318,7 +378,9 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
  * by `useResolvedIntegrations`; everything else falls back to the catalog
  * status (currently always `"available"`).
  */
-export const PROVIDER_BACKEND: Readonly<Record<string, "google" | "github">> = {
+export type IntegrationBackend = "google" | "github" | "notion" | "railway" | "vercel";
+
+export const PROVIDER_BACKEND: Readonly<Record<string, IntegrationBackend>> = {
   google_gmail: "google",
   google_calendar: "google",
   google_drive: "google",
@@ -326,4 +388,7 @@ export const PROVIDER_BACKEND: Readonly<Record<string, "google" | "github">> = {
   google_sheets: "google",
   google_slides: "google",
   github: "github",
+  notion: "notion",
+  railway: "railway",
+  vercel: "vercel",
 };

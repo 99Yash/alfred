@@ -319,7 +319,7 @@ function JsonFallbackEditor({
   return (
     <div className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]">
       <p className="text-[12px] leading-5 text-app-fg-3">
-        This tool has no structured form yet — edit the raw input below.
+        This tool has no structured form yet. Edit the raw input below.
       </p>
       <AppTextarea
         value={text}
