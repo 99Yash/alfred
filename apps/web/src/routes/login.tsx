@@ -2,10 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { AppThemed, AppThemeProvider, AppThemeToggle } from "~/components/ui/v2";
 import { AuthPanel } from "./-login/auth-panel";
+import { sanitizeRedirect, type LoginSearch } from "./-login/login-search";
 import { ShowcasePanel } from "./-login/showcase-panel";
 
 /**
- * Sign-in surface. Google is the only authentication method — the panel
+ * Sign-in surface. Google is the only authentication method: the panel
  * fires `authClient.signIn.social({ provider: "google" })`, which redirects
  * to Google's consent screen and back to `/api/auth/callback/google`
  * (handled by Better Auth). The single-email allowlist still applies via
@@ -14,22 +15,6 @@ import { ShowcasePanel } from "./-login/showcase-panel";
  * `?redirect=` carries the path a signed-out visitor was bounced from (set by
  * `AppShell`'s auth guard) so sign-in returns them there instead of `/`.
  */
-export interface LoginSearch {
-  redirect?: string;
-}
-
-/**
- * Only same-origin absolute paths survive — reject anything that isn't a
- * leading-slash path, and reject protocol-relative `//host` (which the browser
- * treats as an external origin). This keeps the value safe to feed straight
- * into the OAuth `callbackURL` without opening a redirect to an attacker's site.
- */
-export function sanitizeRedirect(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  if (!value.startsWith("/") || value.startsWith("//")) return undefined;
-  return value;
-}
-
 export const Route = createFileRoute("/login")({
   head: () => pageMeta({ title: "Sign in", path: "/login" }),
   component: LoginPage,
@@ -46,9 +31,6 @@ export function LoginPage() {
         <div className="absolute top-3 right-3 z-50">
           <AppThemeToggle />
         </div>
-        {/* `<main>` is the page's primary landmark — the login form + showcase
-         * are the whole page (this route renders chromeless, so it must supply
-         * its own main, unlike authed routes which get one from the shell). */}
         <main className="grid min-h-dvh lg:grid-cols-2">
           <AuthPanel redirect={redirect} />
           <ShowcasePanel />

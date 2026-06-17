@@ -120,69 +120,69 @@ export function Conversation({
         className="min-h-0 flex-1 overflow-y-auto scroll-stable"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-        {messages.map((m, i) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            onRetry={
-              onRetry && m.role === "assistant" && m.status === "failed"
-                ? prevUserText(messages, i, onRetry)
-                : undefined
-            }
-          />
-        ))}
+          {messages.map((m, i) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              onRetry={
+                onRetry && m.role === "assistant" && m.status === "failed"
+                  ? prevUserText(messages, i, onRetry)
+                  : undefined
+              }
+            />
+          ))}
 
-        {onFollowUp && followUps.length > 0 ? (
-          <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
-        ) : null}
+          {onFollowUp && followUps.length > 0 ? (
+            <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
+          ) : null}
 
-        {showStream && stream ? (
-          <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
-            {stream.reasoning.length > 0 || stream.reasoningActive ? (
-              <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
-                <ReasoningSection
-                  reasoning={stream.reasoning}
-                  active={stream.reasoningActive}
-                  durationMs={stream.reasoningMs}
-                />
-              </div>
-            ) : null}
-
-            {stream.tools.length > 0 ? (
-              <ToolCallGroup
-                tools={stream.tools}
-                narration={stream.narration}
-                active={!stream.done}
-              />
-            ) : null}
-
-            {stream.text.length > 0 ? (
-              <div ref={streamBodyRef}>
-                <div ref={streamTimingRefs.text}>
-                  <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+          {showStream && stream ? (
+            <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
+              {stream.reasoning.length > 0 || stream.reasoningActive ? (
+                <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
+                  <ReasoningSection
+                    reasoning={stream.reasoning}
+                    active={stream.reasoningActive}
+                    durationMs={stream.reasoningMs}
+                  />
                 </div>
-              </div>
-            ) : stream.tools.length === 0 &&
-              stream.reasoning.length === 0 &&
-              !stream.reasoningActive ? (
-              <div ref={streamTimingRefs.thinking}>
-                <ThinkingIndicator />
-              </div>
-            ) : null}
+              ) : null}
 
-            {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
+              {stream.tools.length > 0 ? (
+                <ToolCallGroup
+                  tools={stream.tools}
+                  narration={stream.narration}
+                  active={!stream.done}
+                />
+              ) : null}
 
-            {/* The live bubble holds the copy affordance during the brief window
-             * between "done" and the durable copy syncing in (which then renders
-             * its own MessageBubble copy button). */}
-            {stream.done && stream.text.length > 0 ? (
-              <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
-            ) : null}
+              {stream.text.length > 0 ? (
+                <div ref={streamBodyRef}>
+                  <div ref={streamTimingRefs.text}>
+                    <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+                  </div>
+                </div>
+              ) : stream.tools.length === 0 &&
+                stream.reasoning.length === 0 &&
+                !stream.reasoningActive ? (
+                <div ref={streamTimingRefs.thinking}>
+                  <ThinkingIndicator />
+                </div>
+              ) : null}
 
-            {stream.awaitingApproval ? <ApprovalNotice /> : null}
-            {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
-          </div>
-        ) : null}
+              {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
+
+              {/* The live bubble holds the copy affordance during the brief window
+               * between "done" and the durable copy syncing in (which then renders
+               * its own MessageBubble copy button). */}
+              {stream.done && stream.text.length > 0 ? (
+                <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+              ) : null}
+
+              {stream.awaitingApproval ? <ApprovalNotice /> : null}
+              {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
+            </div>
+          ) : null}
         </div>
       </div>
       <ScrollToBottomButton show={showJump} onClick={jumpToBottom} />
@@ -217,7 +217,7 @@ function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () =>
       type="button"
       onClick={onClick}
       aria-label="Scroll to latest"
-      aria-hidden={!show}
+      disabled={!show}
       tabIndex={show ? 0 : -1}
       className={cn(
         "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",
@@ -227,7 +227,7 @@ function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () =>
         "hover:text-app-fg-4 hover:scale-105 active:scale-95",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        show ? "opacity-100" : "pointer-events-none opacity-0",
+        show ? "opacity-100" : "pointer-events-none opacity-0 disabled:cursor-default",
       )}
     >
       <ArrowDown size={16} />
