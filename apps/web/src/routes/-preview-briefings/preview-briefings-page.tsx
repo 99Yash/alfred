@@ -3,7 +3,7 @@ import { ChevronRight, Sparkles } from "lucide-react";
 import type { SyncedBriefing } from "@alfred/sync";
 import { AppCard } from "~/components/ui/v2";
 import { useBriefings } from "~/lib/replicache/use-briefings";
-import { briefingPlainText } from "./briefing-prose";
+import { briefingPlainText } from "./briefing-prose-utils";
 import { formatDayHeading, slotLabel } from "./briefing-utils";
 
 /** Group the (already newest-first, morning-before-evening) rows by day, preserving order. */

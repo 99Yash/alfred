@@ -1,4 +1,4 @@
-import { chatTurnWorkflow, registerWorkflow } from "@alfred/api";
+import { chatTurnWorkflow, registerWorkflow, userAuthoredBriefWorkflow } from "@alfred/api";
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 import { dailyBriefingWorkflow } from "./workflows/daily-briefing";
 import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
@@ -23,4 +23,8 @@ export function registerBuiltinWorkflows(): void {
   registerWorkflow(learnSkillWorkflow);
   registerWorkflow(skillDocumentationWorkflow);
   registerWorkflow(chatTurnWorkflow);
+  // The sub-agent / focused-brief executor. Sub-agents spawned from any parent
+  // (including the thread-coupled chat-turn) run on this slug, so it must be
+  // resolvable by the registry — not only via the authored-workflow DB path.
+  registerWorkflow(userAuthoredBriefWorkflow);
 }

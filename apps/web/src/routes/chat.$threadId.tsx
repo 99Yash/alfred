@@ -17,7 +17,7 @@ export const Route = createFileRoute("/chat/$threadId")({
   component: ChatThreadRoute,
 });
 
-function ChatThreadRoute() {
+export function ChatThreadRoute() {
   const { threadId } = useParams({ from: "/chat/$threadId" });
   const { activeThread, setActiveThread } = useChatContext();
   const thread = useChatThread(threadId);

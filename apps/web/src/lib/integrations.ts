@@ -287,7 +287,8 @@ export function matchesIntegration(provider: IntegrationProvider, query: string)
  * Provider → required OAuth scopes the user must have granted for the
  * provider tile to render as "Connected". A provider absent from this map
  * has no live backend yet; its catalog-declared `status` is the source of
- * truth (typically `"soon"`).
+ * truth (currently every provider is `"available"`; `"soon"` is supported by
+ * the type but unused).
  */
 export type ProviderScopeRequirement = string | ReadonlyArray<string>;
 
@@ -315,7 +316,7 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
  * Provider id → the upstream provider key in the `integration_credentials`
  * table. Providers in this map are checked against real credential rows
  * by `useResolvedIntegrations`; everything else falls back to the catalog
- * status (typically `"soon"`).
+ * status (currently always `"available"`).
  */
 export const PROVIDER_BACKEND: Readonly<Record<string, "google" | "github">> = {
   google_gmail: "google",

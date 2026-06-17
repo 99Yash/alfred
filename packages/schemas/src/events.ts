@@ -92,6 +92,15 @@ export const chatDeltaSchema = z.object({
   messageId: z.string().min(1).max(120),
   seq: z.number().int().nonnegative(),
   text: z.string().max(CHAT_DELTA_MAX),
+  /**
+   * Which narration segment this text belongs to. A turn's text is split into
+   * segments at tool-call boundaries: segment N is the brief narration the
+   * model writes before its Nth tool step, and the final (highest) segment is
+   * the answer. The client interleaves the closed narration segments with the
+   * tool cards in the activity trail and renders the answer below. Defaults to
+   * 0 so a plain no-tool turn streams exactly as before.
+   */
+  segmentIndex: z.number().int().nonnegative().default(0),
 });
 
 /**
@@ -127,6 +136,12 @@ export const chatToolSchema = z.object({
   argsPreview: z.string().max(2_000).optional(),
   /** Trimmed preview of the tool result for the card's done state. */
   resultPreview: z.string().max(2_000).optional(),
+  /**
+   * The narration segment this call follows (see `chatDeltaSchema.segmentIndex`)
+   * so the client can order the card relative to the model's interleaved
+   * narration. Defaults to 0.
+   */
+  segmentIndex: z.number().int().nonnegative().default(0),
 });
 
 /**

@@ -19,6 +19,8 @@ import { useEffect } from "react";
 import { Button } from "~/components/ui/button";
 import { FrostPanel } from "~/components/ui/frost-panel";
 
+const RELOAD_TRAILING = <RefreshCcw className="size-3.5" />;
+
 export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
 
@@ -55,7 +57,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
           <Button
             variant="primary"
             size="md"
-            trailing={<RefreshCcw className="size-3.5" />}
+            trailing={RELOAD_TRAILING}
             onClick={() => {
               window.location.reload();
             }}

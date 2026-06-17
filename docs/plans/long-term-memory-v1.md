@@ -1,6 +1,6 @@
 # Long-term memory v1 — grounding + persistent memory foundation
 
-Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).
+Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store) + **ADR-0059** (directional triage significance — un-defers D1, **reorders P3 + P4a ahead of vertical slice 1**, splits P4 into P4a/P4b, 2026-06-15 grill-with-docs) + **ADR-0060** (standing-instructions generalization — prose-first central store + deterministic-enforcement carve-out, 2026-06-17 grill-with-docs; build order under _Standing instructions — generalization build order_). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).
 
 ## Why this exists
 
@@ -26,7 +26,7 @@ User told Alfred in chat: *"can you stop emailing me about replying to ben book.
 
 | # | Failure | This slice |
 |---|---------|-----------|
-| A | Cold sales email escalated to `awaiting_reply` (triage root miss) | **Out of slice** — a sender-prior/rubric improvement; the suppression is the user's *override on top*, not a substitute |
+| A | Cold sales email escalated to `awaiting_reply` (triage root miss) | **Now in scope via ADR-0059** (was out-of-slice) — the LinkedIn-recommendation complaint (2026-06-15) is the same root miss; fixed at the root by directional significance (P3 + P4a + rubric rewrite), pulled *ahead* of this slice. The per-sender suppression here remains the user's *override on top*, not the substitute |
 | B | Briefing escalated by **persistence** ("survived every briefing") | **In** — recurrence-decay principle |
 | C | Boss had **no resolve/dismiss tool**; said "I marked it resolved" but only called `suggest_todo` (kept the todo alive) | **In** — `system.resolve_todo` |
 | D | **Nothing** captured "stop / that's spam"; triage + briefing read no user signal | **In** — the suppression standing instruction + the non-boss read path |
@@ -105,11 +105,11 @@ This keeps the slice honest (no implied mailbox mutation) and leaves "create a G
 
 ### Slice scope boundary
 
-**In:** date+tz grounding recovery (GROUND-001); `system.remember` + source-resolving `system.resolve_todo`; the suppression row + the single shared reader + the dual-surface check + audit breadcrumbs; the honest chat copy; recurrence-decay **as an eval-backed prompt generalization** (defense-in-depth, not the load-bearing fix). **Out (deferred):** failure A (cold-outreach mis-classification — sender-prior/rubric); topic-scoped suppression; time-boxed snooze; a polished memory changelog/revoke UI (rely on the existing `factEdit`/reject mutation in-slice); eager connected tool declaration + dispatch floor (rest of P0); Gmail-filter creation (real mailbox mutation — a separate explicit action); confidence-decay sweep (D2); forced re-triage of stale rows; the significance score + team graph (P3/P4).
+**In:** date+tz grounding recovery (GROUND-001); `system.remember` + source-resolving `system.resolve_todo`; the suppression row + the single shared reader + the dual-surface check + audit breadcrumbs; the honest chat copy; recurrence-decay **as an eval-backed prompt generalization** (defense-in-depth, not the load-bearing fix). **Out (deferred):** failure A (cold-outreach mis-classification — sender-prior/rubric); topic-scoped suppression; time-boxed snooze; a polished memory changelog/revoke UI (rely on the existing `factEdit`/reject mutation in-slice); eager connected tool declaration + dispatch floor (rest of P0); Gmail-filter creation (real mailbox mutation — a separate explicit action); confidence-decay sweep (D2); forced re-triage of stale rows. **Note (ADR-0059):** failure A and the significance score + team graph are **no longer deferred behind this slice** — P3 + P4a are reordered *ahead* of it as the root fix; the slice's per-sender suppression is the override on top, not the substitute.
 
 ## Phases
 
-Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5 = Track 2 foundation. P6 = post-demo. **Vertical slice 1 (above) cuts across P0/P1/P2/P5** — build it as the first end-to-end thread, then generalize into the full phases.
+Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5 = Track 2 foundation. P6 = post-demo. **Vertical slice 1 (above) cuts across P0/P1/P2/P5** — build it as the first end-to-end thread, then generalize into the full phases. **ADR-0059 reorder:** P3 + P4a are pulled **ahead** of vertical slice 1 (the root fix for failure A); P4b stays deferred behind the run-scoped autonomy override.
 
 ### P0 — Run grounding + recovery envelope (`GROUND-001`, `GROUND-003`)
 - Recover the stranded date commits from `fix/briefing-too-long` (`c3ba3433`): `grounding.ts`, `user-timezone.ts`, `date-grounding.eval.ts`.
@@ -132,17 +132,39 @@ Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5
 - In-app **memory review/changelog surface**: `user_facts` Replicache-synced (has `row_version`), changes appear one-by-one; confirm/edit/reject affordances (extends ADR-0019's memory-page intent).
 - **Accept:** an autonomous fact write lands live, fires the right notification tier, shows in the changelog, and a reject records `cause='user'`.
 
-### P3 — Significance score (ADR-0057, builds ADR-0050 D1)
-- Computed signal over `entities`: frequency + recency + reply-reciprocity + same-org-domain + explicit relation edges. Start simple; weights tunable.
-- Expose as the shared primitive consumed by the P4 enrichment gate, todo significance (D1), triage priority, meeting-prep.
-- **Accept:** one query returns ranked significant people; todo/triage/meeting-prep read it instead of local heuristics.
+### P3 — Significance score + directional triage resolver (ADR-0057 + ADR-0059, builds ADR-0050 D1)
 
-### P4 — Passive capture + web enrichment (ADR-0057; MEM-001)
-- Extend extraction to build the **team graph** from Gmail/Calendar (attendees, senders, recurring threads) → `entities` + `entity_relations`.
+**Reordered ahead of vertical slice 1 (ADR-0059)** — this is the root fix for failure A (the LinkedIn-recommendation complaint).
+
+- **Significance score (scalar, unchanged contract):** computed signal over `entities` — frequency + recency + reply-reciprocity + same-org-domain + explicit relation edges. Start simple; weights tunable. Stays a **scalar**; the four consumers (enrichment gate, triage sender priority, meeting-prep, todo D1) are unchanged.
+- **`Sender relationship` resolver (triage-local, ADR-0059):** composes the scalar score + the sender's `entities` row (org/designation) + the user's identity `user_facts` (`company`/`job_title`) + a shared-org-domain test → `{ relationType, direction, theirDesignation, yourRole }`. **No self-entity** — direction is derived; `user_facts` stays the source of truth for who the user is. Lives in the triage module, not the shared primitive (only D1 needs the edge).
+- **Rubric rewrite (`classify.ts`):** inject the resolver output as deterministic context (alongside sender priors/persona/observations); 16b flips from "judge the stake from the email ALONE" to "judge stake from the email **plus the `Sender relationship` block**; never infer beyond it" — **degrades to today's intrinsic-only when the graph is empty** (additive, safe). **Delete** the founder/CEO/CTO LinkedIn carve-out in 16a. Gate the **todo**; `awaiting_reply` **stays the honest category**; low-significance cold asks deprioritize within the bucket via the `triage sender priority` consumer. Eval-backed (ADR-0055): cold recommendation-seeker → `awaiting_reply`, no todo; significant person's ask → todo.
+- **Accept:** one query returns ranked significant people; a cold LinkedIn recommendation-seeker → `awaiting_reply` + **no** todo; a real report/investor ask → todo; with an empty graph, behavior == today.
+
+### P4 — Passive capture + web enrichment (ADR-0057; MEM-001) — split along the autonomy seam (ADR-0059)
+
+Population is **passive-capture only — never cold-start** (cold-start is account-holder-scoped and has nothing ingested to read at callback). `upsertEntity`/`linkEntities` exist with **zero call sites today** — the missing code is the extractor.
+
+**P4a — backfill over already-ingested correspondence (build now, ahead of slice 1):** _(built 2026-06-16)_
+- Standalone extraction job over the existing `documents` + calendar → `entities` + `entity_relations` (attendees, senders, recurring threads; designation + org-domain into `metadata` — typed-column decision deferred to build).
+- First significance pass over the populated graph.
+- **No autonomy-override or cold-start dependency** — the existing single user is already connected under watcher-approved autonomy; this is the path that unblocks failure A / P3's resolver.
+- **Accept:** prod `entities` is no longer 0; `isKnownContact` + the `Sender relationship` resolver return real data for known senders.
+
+  **Implementation (2026-06-16):**
+  - `memory/team-graph.ts` — `backfillTeamGraph(userId, userEmail, opts)` + `aggregateCorrespondence`. Header-level, **no LLM/network**: parses `from`/`to`/`cc` + `isSent` into `person` entities (email in `aliases` → `isKnownContact` matches; correspondence aggregate in `metadata`), `organization` entities per **non-consumer** domain (reuses cold-start's `isConsumerEmailDomain`), and `works_at` edges. Person inclusion reuses triage's `extractSenderContext` (`fromKind === 'person'`) — humans incl. cold one-way senders captured, `noreply`/role/service dropped.
+  - `memory/significance.ts` — `computeSignificance` (pure scalar in `[0,1]`) + `runSignificancePass`. Blend: **activity = frequency × recency** (a fresh cold blast must not score like a relationship), reply-reciprocity, same-org-domain. Weights are named constants (`DEFAULT_SIGNIFICANCE_WEIGHTS`), tunable per the open item.
+  - `memory/entity-metadata.ts` — zod source-of-truth for the `person`-entity metadata bag (`correspondence`, `significance`).
+  - **Storage decision (was deferred to build):** designation/org-domain/score go in the `metadata` bag, **not** new typed columns — additive, matches `upsertEntity`'s metadata-merge; revisit only if a query needs to index them.
+  - `apps/server/src/scripts/backfill-team-graph-committed.ts` — committed, **dry-by-default** (`--commit`), bundled as a tsdown entry for `railway ssh -s server`. Idempotent.
+  - **v1 limits (honest, not gaps):** **email-only** (no `gcal` ingest path yet → no attendee edges); **no `theirDesignation`** (not in headers → waits on P4b web enrichment); user-domain set = the `user.email` domain only. Unit-tested in `test/memory/team-graph.test.ts`.
+
+**P4b — onboarding-time seeding for new users (deferred):**
+- Header-level `gmail.search`/`calendar.list_events` seed (senders, attendees, frequencies) at onboarding, **gated on the unbuilt run-scoped autonomy override** (v2.1) since new users default to `gated`.
 - Build **`person_profiles`** (ADR-0042, unbuilt) with `identity_confidence`-tier TTL.
-- Significance-gated, budget-capped **web-search dossier** enrichment (Perplexity Sonar, cold-start tooling) for above-threshold entities; corroboration raises confidence.
+- Significance-gated, budget-capped **web-search dossier** enrichment for above-threshold entities; corroboration raises confidence.
 - First-run "still learning about you" state (steal dimension's live-progress pattern).
-- **Accept:** prod `entities` is no longer 0; the boss can name the user's top collaborators with roles + citations.
+- **Accept:** a fresh signup populates a header-level graph without manual interrogation; the boss can name top collaborators with roles + citations.
 
 ### P5 — chat→memory (ADR-0057)
 - In-band proactive `system.remember` on durable intent; end-of-thread extraction (ADR-0019 trigger) for passing statements.
@@ -155,11 +177,44 @@ Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5
 - Loop-2 misses dataset → eval lane (ADR-0055) wiring; no auto-tuning.
 - Hybrid retrieval: Postgres tsvector FTS + pgvector fused (RRF) — no new infra; better recall for names/IDs. (Not turbopuffer.)
 
+## Standing instructions — generalization build order (ADR-0060)
+
+The shipped suppress-sender slice is one corner of a 3-axis space (action × target × effect). ADR-0060 generalizes it into **one central store + one retriever + prose-first application + a deterministic-enforcement carve-out**. This is **one coherent ship, ordered by dependency — not staged scope** (no V1/V2). Each step lands behind the next; the existing slice keeps working throughout (the suppression row is the `enforcement`-bearing special case of schema v2).
+
+### SI-1 — Schema v2 + generalized reader/retriever (foundation)
+- `@alfred/contracts/standing-instructions.ts` → `schemaVersion:2`: `directive` (always) + `target?` (`kind: sender_email|sender_domain|person|category|topic`, resolved-at-write key) + `enforcement?` (`{effect, params?}`, registered set). **Drop `action`/`surface`.** Reader parses v1 **and** v2 (near-free migration; prod has a handful of rows).
+- Generalize `listActiveSuppressionInstructions`/`findSenderSuppression` into **`getRelevantInstructions(context)`** — inject-all-active behind a context-aware signature (the semantic-filter swap lives behind this later, no call-site change).
+- **Accept:** v1 suppression rows still match; a v2 row round-trips; the retriever returns active instructions for a given context.
+
+### SI-2 — Deterministic enforcement generalization (triage classify + briefing gather)
+- Triage: generalize today's veto into a **post-classification override layer** — `block/force_todo_suggestion`, `force_category{category}` (the override **logs `overriddenByInstruction:{factId,from,to}`** — non-negotiable), consumed alongside the existing security override-floor.
+- Briefing gather: add `include_briefing_priority` symmetric to today's `exclude_briefing_priority`.
+- **Precedence resolver** (shared): specificity (`sender_email`/`person` > `sender_domain` > `category` > `topic`) then recency; the **protective floor beats a user down-rank, never an up-rank**; `enforcement` authoritative over intrinsic judgment for the touched dimension.
+- **Accept:** "tag Priya urgent" force-stamps + logs; "always track X" forces a todo; the security floor still wins over a `force_category:fyi` down-rank.
+
+### SI-3 — Prose-first application (briefing compose + chat + meeting-prep)
+- Each pulls `getRelevantInstructions(context)` and applies the `directive` by judgment; **no-double-application** (skip any instruction already honored by an `enforcement` this consumer owns).
+- Boss/chat keeps ambient delivery via Run grounding; compose/meeting-prep inject at compose time.
+- **Accept:** a prose-only topic rule ("don't dwell on the Q3 launch in my brief") changes compose output; a suppressed sender never appears in compose (already dropped by gather).
+
+### SI-4 — Generalized capture (`system.remember` + conflict + disambiguation)
+- Generalize `system.remember` from sender-suppression to the full taxonomy: boss resolves `target`, decides prose-only vs `+enforcement`, writes schema v2.
+- **Structural conflict detection in the tool** → `status:"conflict"` + conflicting fact(s) (extends `already_exists`); **never overwrite a contradiction**. Boss prompt: **semantic/counterproductive** check via `read_user_context`; **multi-candidate disambiguation** ("which Ben"); **offline conflict → hold `proposed`**.
+- **Accept:** "always surface Ben" against an existing "suppress Ben" returns `conflict` and the boss asks; "mute @oliv.ai" warns about the manager; an ambiguous name asks which.
+
+### SI-5 — Review surface (`/settings` Standing instructions panel)
+- Read-only list of active rules (plain-English `directive`) + **undo/reject** + **edit**, over the already-synced facts (`row_version`) + existing reject/edit mutations. No new sync.
+- **Accept:** every active instruction is visible; reject makes it inert (reader filters `proposed|confirmed`); edit supersedes.
+
+### SI-6 — Evals (ADR-0055 lane)
+- Deterministic-scorer cases: `force_category` override + breadcrumb; block/force todo; include/exclude briefing; structural-conflict detection; precedence (specificity, recency, floor-vs-down-rank); no-double-application.
+- **Accept:** the suite pins the override/conflict/precedence contracts before they regress.
+
 ## Schema deltas (additive only)
 - `rejected_inferences.cause` (+ cause on the superseded `user_facts` row's `source` or a sibling).
 - `rationale` on the memory write path (`user_facts` column or its `source` jsonb — decide in P2).
 - `person_profiles` table (P4; extends the ADR-0042 spec).
-- Standing-instruction storage shape — **decided (slice 1):** a `user_facts` row, `key="standing_instruction"`, structured `value` (see slice); no new table, no migration (JSONB `value`). Chosen over `user_preferences` for `supersedes_id` + `status` + `valid_until` + the Replicache changelog `row_version`.
+- Standing-instruction storage shape — **decided (slice 1), generalized (ADR-0060):** a `user_facts` row, `key="standing_instruction"`, JSONB `value` — **`schemaVersion:2`** = `directive` (always) + `target?` + `enforcement?`, `action`/`surface` dropped (reader handles v1; near-free in-place migration, no new table). Chosen over `user_preferences` for `supersedes_id` + `status` + `valid_until` + the Replicache changelog `row_version`. See _Standing instructions — generalization build order_ above.
 
 ## Open questions (settle from data/build, not now)
 - Significance weights + threshold + enrichment budget.
@@ -168,5 +223,5 @@ Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5
 - `person_profiles` final columns. (Standing-instruction storage now decided — see Schema deltas.)
 
 ## References
-- ADR-0056, ADR-0057 (this design). Amends/builds on ADR-0019, ADR-0020, ADR-0031, ADR-0035, ADR-0042, ADR-0050 (D1/D2/D3), ADR-0053, ADR-0055.
+- ADR-0056, ADR-0057, ADR-0058 (slice), ADR-0059 (directional significance), **ADR-0060 (standing-instructions generalization)**. Amends/builds on ADR-0017, ADR-0019, ADR-0020, ADR-0027, ADR-0031, ADR-0035, ADR-0042, ADR-0050 (D1/D2/D3), ADR-0051, ADR-0053, ADR-0055.
 - [cold-start.md](../reference/cold-start.md), [triage.md](../reference/triage.md), [briefing.md](../reference/briefing.md).

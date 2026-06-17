@@ -9,13 +9,27 @@ export interface StreamingToolCall {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string;
   resultPreview?: string;
+  /** Narration segment this call follows — orders it against the narration trail. */
+  segmentIndex: number;
+}
+
+/** A closed narration segment streamed before a tool step (interleaved in the trail). */
+export interface StreamingNarration {
+  index: number;
+  text: string;
 }
 
 export interface StreamingMessage {
   messageId: string;
   runId: string;
-  /** Drip-buffered text — eases toward the full received text for smooth typing. */
+  /**
+   * Drip-buffered text of the current (latest) segment — the live reply,
+   * eased toward the full received text for smooth typing. Closed narration
+   * segments move into `narration` as later segments begin.
+   */
   text: string;
+  /** Closed narration segments to interleave with the tool cards in the trail. */
+  narration: StreamingNarration[];
   /** Drip-buffered reasoning — the model's thinking, shown in the accordion. */
   reasoning: string;
   /** True while thinking is still arriving (reply hasn't started) — drives the shimmer. */
@@ -32,8 +46,14 @@ export interface StreamingMessage {
 interface StreamRef {
   messageId: string;
   runId: string;
-  target: string;
+  /** Received text per narration segment (full, pre-easing). */
+  segments: Map<number, string>;
+  /** Highest segment index seen — the current/answer segment. */
+  currentSegment: number;
+  /** Eased chars shown for the current segment; reset when the segment advances. */
   shown: number;
+  /** Segment `shown` is counting against — guards the reset on segment change. */
+  shownSegment: number;
   reasoning: string;
   reasoningShown: number;
   reasoningStartTs: number | null;
@@ -67,6 +87,11 @@ export interface ChatStream {
   stopStream: () => void;
 }
 
+interface StreamSnapshot {
+  threadId: string;
+  message: StreamingMessage;
+}
+
 /**
  * Assembles the in-flight assistant turn for `threadId` from the SSE event bus.
  * `chat.delta` text and `chat.reasoning` thinking are each buffered and eased
@@ -79,7 +104,7 @@ export interface ChatStream {
  * Replicache (same messageId), the conversation view drops this bubble.
  */
 export function useChatStream(threadId: string | undefined): ChatStream {
-  const [snapshot, setSnapshot] = useState<StreamingMessage | null>(null);
+  const [snapshot, setSnapshot] = useState<StreamSnapshot | null>(null);
   const ref = useRef<StreamRef | null>(null);
   const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -91,7 +116,6 @@ export function useChatStream(threadId: string | undefined): ChatStream {
   useEffect(() => {
     ref.current = null;
     lastSnapshotRef.current = null;
-    setSnapshot(null);
     if (!threadId) return;
 
     const ensureRaf = () => {
@@ -104,12 +128,26 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         }
         const ease = (shown: number, full: number) =>
           shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
+        // The current segment is the live reply; when it advances, restart the
+        // typing counter so the new segment eases in from the start (the prior
+        // segment has by then moved into the narration trail).
+        if (r.shownSegment !== r.currentSegment) {
+          r.shownSegment = r.currentSegment;
+          r.shown = 0;
+        }
+        const answer = r.segments.get(r.currentSegment) ?? "";
         r.reasoningShown = ease(r.reasoningShown, r.reasoning.length);
-        r.shown = ease(r.shown, r.target.length);
+        r.shown = ease(r.shown, answer.length);
+        const narration: StreamingNarration[] = [];
+        for (const [index, text] of r.segments) {
+          if (index < r.currentSegment && text.trim().length > 0) narration.push({ index, text });
+        }
+        narration.sort((a, b) => a.index - b.index);
         const nextSnapshot: StreamingMessage = {
           messageId: r.messageId,
           runId: r.runId,
-          text: r.target.slice(0, r.shown),
+          text: answer.slice(0, r.shown),
+          narration,
           reasoning: r.reasoning.slice(0, r.reasoningShown),
           reasoningActive: r.reasoning.length > 0 && !r.replyStarted && !r.done,
           reasoningMs: r.reasoningMs,
@@ -119,12 +157,12 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         };
         if (!streamSnapshotsEqual(lastSnapshotRef.current, nextSnapshot)) {
           lastSnapshotRef.current = nextSnapshot;
-          setSnapshot(nextSnapshot);
+          setSnapshot({ threadId, message: nextSnapshot });
         }
         // Keep ticking only while the eased buffers are catching up. Future
         // SSE frames call `ensureRaf()` again, including approval/completed
         // state changes, so an approval wait does not spin at 60fps.
-        const caughtUp = r.shown >= r.target.length && r.reasoningShown >= r.reasoning.length;
+        const caughtUp = r.shown >= answer.length && r.reasoningShown >= r.reasoning.length;
         if (!caughtUp) {
           rafRef.current = requestAnimationFrame(tick);
         } else {
@@ -149,8 +187,10 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       const fresh: StreamRef = {
         messageId,
         runId,
-        target: "",
+        segments: new Map(),
+        currentSegment: 0,
         shown: 0,
+        shownSegment: 0,
         reasoning: "",
         reasoningShown: 0,
         reasoningStartTs: null,
@@ -177,7 +217,9 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       r.stopped = true;
       r.done = true;
       r.awaitingApproval = false;
-      r.target = r.target.slice(0, r.shown);
+      // Freeze the current segment at what's shown so the bubble stops typing.
+      const answer = r.segments.get(r.currentSegment) ?? "";
+      r.segments.set(r.currentSegment, answer.slice(0, r.shown));
       r.reasoning = r.reasoning.slice(0, r.reasoningShown);
       ensureRaf();
     };
@@ -243,17 +285,22 @@ export function useChatStream(threadId: string | undefined): ChatStream {
             r.reasoningMs = Date.now() - r.reasoningStartTs;
           }
         }
-        r.target += p.text;
+        // Append to this delta's segment. A higher segment means the prior
+        // segment just closed (the model wrote it before a tool step) — it
+        // drops into the narration trail and this becomes the live reply.
+        const segment = p.segmentIndex ?? 0;
+        r.segments.set(segment, (r.segments.get(segment) ?? "") + p.text);
+        if (segment > r.currentSegment) r.currentSegment = segment;
         markChatTimingByAssistant(
           p.messageId,
           "first_delta_frame",
-          { seq: p.seq, chars: p.text.length, totalTextChars: r.target.length },
+          { seq: p.seq, chars: p.text.length, totalTextChars: r.segments.get(segment)?.length ?? 0 },
           { threadId, runId: p.runId },
         );
         markChatTimingByAssistant(
           p.messageId,
           "last_delta_frame",
-          { seq: p.seq, chars: p.text.length, totalTextChars: r.target.length },
+          { seq: p.seq, chars: p.text.length, totalTextChars: r.segments.get(segment)?.length ?? 0 },
           { threadId, runId: p.runId, repeat: "update", log: false },
         );
         ensureRaf();
@@ -269,6 +316,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           status: p.status,
           argsPreview: p.argsPreview ?? prev?.argsPreview,
           resultPreview: p.resultPreview ?? prev?.resultPreview,
+          segmentIndex: p.segmentIndex ?? prev?.segmentIndex ?? 0,
         });
         markChatTimingByAssistant(
           p.messageId,
@@ -309,7 +357,8 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     };
   }, [threadId]);
 
-  return { stream: snapshot, stopStream };
+  const stream = snapshot && snapshot.threadId === threadId ? snapshot.message : null;
+  return { stream, stopStream };
 }
 
 function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {
@@ -323,9 +372,15 @@ function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): 
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
     a.done !== b.done ||
-    a.tools.length !== b.tools.length
+    a.tools.length !== b.tools.length ||
+    a.narration.length !== b.narration.length
   ) {
     return false;
+  }
+  for (let i = 0; i < a.narration.length; i += 1) {
+    const left = a.narration[i]!;
+    const right = b.narration[i]!;
+    if (left.index !== right.index || left.text !== right.text) return false;
   }
   for (let i = 0; i < a.tools.length; i += 1) {
     const left = a.tools[i]!;
@@ -335,7 +390,8 @@ function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): 
       left.toolName !== right.toolName ||
       left.status !== right.status ||
       left.argsPreview !== right.argsPreview ||
-      left.resultPreview !== right.resultPreview
+      left.resultPreview !== right.resultPreview ||
+      left.segmentIndex !== right.segmentIndex
     ) {
       return false;
     }

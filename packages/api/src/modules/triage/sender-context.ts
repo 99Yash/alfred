@@ -237,6 +237,27 @@ function isLikelyPersonDisplayName(displayName: string | null): boolean {
   return true;
 }
 
+/**
+ * The "human reality check" the `KNOWN_SERVICE_DOMAINS` note above references.
+ *
+ * `classifyFromKind` deliberately tags whole service domains (`google.com`,
+ * `github.com`, …) as `service` for inbox triage, which is right there but
+ * wrong for the team-graph extractor: a real colleague at `jane.doe@google.com`
+ * must still become a `person` node. This predicate answers "does this address
+ * look like a real human despite riding a service domain?" — a strong person
+ * signal (a person-like display name OR a `first.last` local part) qualifies,
+ * UNLESS the local part is an unambiguous automated envelope (`noreply@`,
+ * `notifications@`, …). It reuses the same constants the classifier ranks
+ * above the domain check, so the two stay in lockstep. Triage classification is
+ * intentionally left untouched (its eval lane depends on the current ordering);
+ * only the graph extractor opts into the rescue.
+ */
+export function isHumanLikeSender(localPart: string, displayName: string | null): boolean {
+  if (STRONG_SERVICE_LOCAL.has(localPart)) return false;
+  if (SERVICE_LOCAL_PREFIX_RE.test(localPart)) return false;
+  return isLikelyPersonDisplayName(displayName) || FIRST_LAST_LOCAL_RE.test(localPart);
+}
+
 // ---------------------------------------------------------------------------
 // Body-actor parsers
 // ---------------------------------------------------------------------------

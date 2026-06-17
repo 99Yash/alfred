@@ -4,17 +4,11 @@ import {
   type IntegrationCategory,
   type IntegrationProvider,
 } from "~/lib/integrations";
-import type { IntegrationBrand } from "~/lib/integration-icons";
 
 export type Section = {
   title: IntegrationCategory;
   providers: ReadonlyArray<IntegrationProvider>;
 };
-
-/* Brands whose monochrome glyph was tuned for dark surfaces only (white on
- * dark gradient). On light backgrounds the glyph disappears, so we flip
- * them to currentColor and let the wrapper provide the legible tone. */
-export const MONOCHROME_BRANDS = new Set<IntegrationBrand>(["github"]);
 
 export const MCP_SECTION = {
   heading: "Your Integrations",

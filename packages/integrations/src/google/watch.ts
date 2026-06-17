@@ -70,7 +70,6 @@ export async function installGmailWatch(args: {
     .update(integrationCredentials)
     .set({
       metadata: sql`${integrationCredentials.metadata} || ${JSON.stringify({ watch: state })}::jsonb`,
-      updatedAt: new Date(),
     })
     .where(eq(integrationCredentials.id, args.credentialId));
 
@@ -106,7 +105,6 @@ export async function uninstallGmailWatch(credentialId: string): Promise<void> {
     .update(integrationCredentials)
     .set({
       metadata: sql`${integrationCredentials.metadata} - 'watch'`,
-      updatedAt: new Date(),
     })
     .where(eq(integrationCredentials.id, credentialId));
 }

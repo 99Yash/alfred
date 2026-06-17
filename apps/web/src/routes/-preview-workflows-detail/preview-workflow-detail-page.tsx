@@ -21,6 +21,8 @@ const TABS = [
 ];
 
 const SHARE_LEADING = <Share2 size={14} />;
+const PAUSE_LEADING = <Pause size={14} />;
+const PLAY_LEADING = <Play size={14} />;
 
 export function PreviewWorkflowDetailPage() {
   const { workflow: slug } = useParams({ from: "/workflows/$workflow" });
@@ -96,7 +98,7 @@ export function PreviewWorkflowDetailPage() {
           <AppButton
             variant="primary"
             size="lg"
-            leading={active ? <Pause size={14} /> : <Play size={14} />}
+            leading={active ? PAUSE_LEADING : PLAY_LEADING}
             onClick={toggleActive}
             disabled={workflow.isBuiltin}
             title={workflow.isBuiltin ? "Built-in workflows can't be paused here" : undefined}

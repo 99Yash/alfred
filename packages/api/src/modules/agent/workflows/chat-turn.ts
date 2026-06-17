@@ -33,7 +33,7 @@ import type { Step, Workflow } from "../types";
  * existing HIL/approval interrupt), and the finished assistant message is
  * persisted to `chat_messages` so it survives reload and reaches every device.
  *
- * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.6) escalation is
+ * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.8) escalation is
  * wired through state for a future heuristic / the boss-worker harness. The
  * agent can `system.load_integration` to reach email/calendar/etc and
  * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
@@ -69,6 +69,8 @@ const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
   input: z.unknown(),
+  /** Narration segment this call follows (see `chatRunStateSchema.segmentIndex`). */
+  segmentIndex: z.number().int().nonnegative().default(0),
 });
 type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
@@ -78,6 +80,12 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  segmentIndex: z.number().int().nonnegative().default(0),
+});
+
+const narrationSegmentSchema = z.object({
+  index: z.number().int().nonnegative(),
+  text: z.string(),
 });
 
 const chatRunStateSchema = z.object({
@@ -90,7 +98,14 @@ const chatRunStateSchema = z.object({
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
+  // Text of the current (latest) narration segment. Accumulates within a step;
+  // when a step ends with tool calls it's pushed onto `narration` and reset,
+  // so by turn's end this holds only the final answer (what `content` persists).
   assistantText: z.string().default(""),
+  // Closed narration segments — the brief lines written before each tool step.
+  narration: z.array(narrationSegmentSchema).default([]),
+  // Index of the current segment; bumped each time a tool-bearing step closes.
+  segmentIndex: z.number().int().min(0).default(0),
   reasoningText: z.string().default(""),
   reasoningMs: z.number().int().min(0).default(0),
   toolCallsLog: z.array(toolCallLogSchema).default([]),
@@ -115,10 +130,15 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- Use only tools that exist. Never invent a plausible-sounding tool name — pick the closest real tool over guessing, and never ask the user for a parameter (a repo, an account, a date) you can resolve or look up yourself.",
     "- When the user asks for a real connected service whose tool is not active yet, infer the integration and call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
+    "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
     "- For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
+    "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- When the user asks to stop surfacing reminders, todos, or briefing items from a sender, use system.remember after resolving a concrete sender email. If the tool asks for clarification, ask the user rather than claiming it is done. When system.remember succeeds, say Alfred will stop surfacing reminders and briefing items from that sender, and that emails will still arrive in Gmail unless the user wants a Gmail filter.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions (sending email, creating events) are gated for user approval — propose them and the user confirms. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+    '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
+    "- Don't over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries (\"my mistake, I need to connect first\") or thank the user for their patience.",
+    "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
   ].join("\n"),
   [
     "Examples of the judgment above:",
@@ -265,6 +285,18 @@ function applyLoadIntegrationEffect(
   }
 }
 
+/**
+ * All of this turn's assistant prose in order: the closed narration segments
+ * followed by the current segment. Used where the transcript needs the full
+ * thing (e.g. a stopped turn); the persisted `content` keeps only the final
+ * segment so the durable reply stays free of narration lead-ins.
+ */
+function fullAssistantText(state: ChatRunState): string {
+  return [...state.narration.map((n) => n.text), state.assistantText]
+    .filter((t) => t.trim().length > 0)
+    .join("\n\n");
+}
+
 function splitEventText(text: string): string[] {
   const chunks: string[] = [];
   for (let i = 0; i < text.length; i += CHAT_DELTA_MAX) {
@@ -360,6 +392,7 @@ const chatTurnStep: Step<ChatRunState> = {
               messageId: state.messageId,
               seq: state.deltaSeq,
               text: chunk,
+              segmentIndex: state.segmentIndex,
             },
           });
         }
@@ -433,6 +466,7 @@ const chatTurnStep: Step<ChatRunState> = {
                 toolName: part.toolName,
                 status: "started",
                 argsPreview: preview(part.input),
+                segmentIndex: state.segmentIndex,
               },
             });
           } else if (part.type === "error") {
@@ -464,13 +498,16 @@ const chatTurnStep: Step<ChatRunState> = {
         // assistant row (renders as nothing), which is honest: the user
         // stopped before the model said anything.
         await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        // The transcript's assistant turn should reflect everything the model
+        // said this turn — earlier narration segments plus the current one.
+        const stoppedText = fullAssistantText(state);
         const stoppedTranscript =
-          state.assistantText.length > 0
+          stoppedText.length > 0
             ? [
                 ...transcript,
                 {
                   role: "assistant",
-                  content: state.assistantText,
+                  content: stoppedText,
                 } satisfies AgentTranscriptMessage,
               ]
             : transcript;
@@ -495,7 +532,21 @@ const chatTurnStep: Step<ChatRunState> = {
           toolCallId: call.toolCallId,
           toolName: call.toolName,
           input: call.input,
+          segmentIndex: state.segmentIndex,
         }));
+        // Close the current narration segment: the text the model wrote this
+        // step was a lead-in to these tools, not the answer. Stash it (if any)
+        // and advance so the next step's text — and the eventual answer — lands
+        // in a fresh segment. `assistantText` thus always holds just the latest
+        // segment, which at turn's end is the final reply.
+        if (state.assistantText.trim().length > 0) {
+          state.narration = [
+            ...state.narration,
+            { index: state.segmentIndex, text: state.assistantText },
+          ];
+        }
+        state.assistantText = "";
+        state.segmentIndex += 1;
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
@@ -583,6 +634,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           toolName: call.toolName,
           status,
           resultPreview,
+          segmentIndex: call.segmentIndex,
         });
         await publishEvent({
           userId: ctx.userId,
@@ -595,6 +647,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             toolName: call.toolName,
             status,
             resultPreview,
+            segmentIndex: call.segmentIndex,
           },
         });
 
@@ -636,6 +689,7 @@ async function finalizeAssistantMessage(
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "complete",
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+      narration: state.narration.length > 0 ? state.narration : null,
       runId,
     })
     .onConflictDoUpdate({
@@ -646,6 +700,7 @@ async function finalizeAssistantMessage(
         reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
         status: "complete",
         toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+        narration: state.narration.length > 0 ? state.narration : null,
         runId,
         rowVersion: sql`${chatMessages.rowVersion} + 1`,
         updatedAt: now,
@@ -820,6 +875,7 @@ async function finalizeFailedMessage(
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+      narration: state.narration.length > 0 ? state.narration : null,
       runId,
     })
     .onConflictDoNothing();
@@ -866,6 +922,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       allowedIntegrations,
       pendingToolCalls: [],
       assistantText: "",
+      narration: [],
+      segmentIndex: 0,
       reasoningText: "",
       reasoningMs: 0,
       toolCallsLog: [],

@@ -15,7 +15,7 @@
 const SITE_NAME = "Alfred";
 const SITE_TAGLINE = "The AI coworker that never sleeps.";
 
-export const SITE_DESCRIPTION =
+const SITE_DESCRIPTION =
   "Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done.";
 
 /** Production origin, used to build absolute OG/canonical URLs. */

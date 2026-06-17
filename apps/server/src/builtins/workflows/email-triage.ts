@@ -15,6 +15,7 @@ import {
   publishEvent,
   reconcileThreadLabel,
   resolveFeatureFlags,
+  resolveSenderRelationship,
   resolveTodoSuggestion,
   todoSuppressionReason,
   senderKeyFor,
@@ -598,7 +599,8 @@ async function gatherObservations(args: {
   // received mail anyway.
   const senderKey = senderKeyFor(args.senderContext, args.senderAddress);
 
-  const [senderPrior, thread, knownContact] = await Promise.all([
+  const isHumanSender = args.senderContext.effectiveAuthor === "person";
+  const [senderPrior, thread, knownContact, senderRelationship] = await Promise.all([
     senderKey ? getSenderPrior(args.userId, senderKey).catch(() => null) : Promise.resolve(null),
     getThreadState({
       userId: args.userId,
@@ -610,9 +612,14 @@ async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    args.senderContext.effectiveAuthor === "person" && args.senderAddress
-      ? isKnownContact(args.userId, args.senderAddress)
+    isHumanSender && args.senderAddress
+      ? isKnownContact(args.userId, args.senderAddress).catch(() => false)
       : Promise.resolve(false),
+    resolveSenderRelationship({
+      userId: args.userId,
+      senderAddress: args.senderAddress,
+      isHumanSender,
+    }).catch(() => null),
   ]);
 
   const signalText = [
@@ -633,6 +640,7 @@ async function gatherObservations(args: {
     persona: args.persona,
     thread,
     knownContact,
+    senderRelationship,
     labelIds,
     signalText,
   });
@@ -657,6 +665,8 @@ interface SenderExtractionEvent {
   senderPriorKey: string | null;
   senderPriorCounts: Record<string, number>;
   knownContact: boolean;
+  /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
+  senderRelationship: string | null;
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -712,6 +722,7 @@ function senderExtractionEvent(args: {
     senderPriorKey: obs.senderPrior.key,
     senderPriorCounts: obs.senderPrior.categoryCounts,
     knownContact: obs.knownContact,
+    senderRelationship: obs.senderRelationship,
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,

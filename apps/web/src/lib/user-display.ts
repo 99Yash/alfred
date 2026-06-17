@@ -10,7 +10,7 @@ import type { authClient } from "./auth-client";
 export type SessionUser = Pick<(typeof authClient)["$Infer"]["Session"]["user"], "name" | "email">;
 
 /** Capitalize the first letter; leaves the rest untouched. */
-export function titleCase(s: string): string {
+function titleCase(s: string): string {
   if (!s) return "";
   return s.charAt(0).toUpperCase() + s.slice(1);
 }

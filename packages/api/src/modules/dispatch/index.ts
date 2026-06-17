@@ -39,6 +39,7 @@ import {
   hashToolInput,
   INTEGRATION_ACTIONS,
   integrationFromToolName,
+  isIntegrationSlug,
   isToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -495,20 +496,49 @@ export function undeclaredToolMessage(
   const suggestion = integrationActionSuggestion(toolName, allowedIntegrations);
   if (!suggestion) return `Tool '${toolName}' is not declared`;
 
+  const validActions =
+    suggestion.validActions.length > 0
+      ? `${suggestion.integration} exposes: ${suggestion.validActions.map((action) => `\`${action}\``).join(", ")}.`
+      : `${suggestion.integration} exposes no callable actions yet.`;
+  const retry =
+    suggestion.toolName === null
+      ? null
+      : suggestion.inputWasQualified
+        ? `Use '${suggestion.toolName}' instead.`
+        : `Integration tools use qualified names like '${suggestion.toolName}'.`;
   return [
     `Tool '${toolName}' is not declared.`,
-    `Integration tools use qualified names like '${suggestion.toolName}'.`,
+    validActions,
+    retry,
     `Call system.load_integration with slug '${suggestion.integration}' first if that integration is not active,`,
-    `then retry '${suggestion.toolName}'.`,
+    suggestion.toolName === null ? null : `then retry '${suggestion.toolName}'.`,
     "Do not ask the user just to load an integration.",
-  ].join(" ");
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" ");
 }
 
 function integrationActionSuggestion(
-  action: string,
+  input: string,
   allowedIntegrations: readonly string[],
-): { integration: IntegrationSlug; toolName: ToolName } | null {
-  if (action.includes(".")) return null;
+): {
+  integration: IntegrationSlug;
+  toolName: ToolName | null;
+  validActions: readonly string[];
+  inputWasQualified: boolean;
+} | null {
+  const qualified = parseQualifiedToolName(input);
+  if (qualified) {
+    const { integration, action } = qualified;
+    if (integration === "system") return null;
+    if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
+      return null;
+    }
+    const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
+    const closest = closestAction(action, actions);
+    const toolName = closest ? toolNameForAction(integration, closest) : null;
+    return { integration, toolName, validActions: actions, inputWasQualified: true };
+  }
 
   const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
     if (integration === "system") return false;
@@ -516,15 +546,62 @@ function integrationActionSuggestion(
       return false;
     }
     const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
-    return actions.includes(action);
+    return actions.includes(input);
   });
   if (matches.length !== 1) return null;
 
   const integration = matches[0];
   if (!integration) return null;
-  const toolName = `${integration}.${action}`;
-  if (!isToolName(toolName)) return null;
-  return { integration, toolName };
+  const toolName = toolNameForAction(integration, input);
+  if (!toolName) return null;
+  return {
+    integration,
+    toolName,
+    validActions: INTEGRATION_ACTIONS[integration],
+    inputWasQualified: false,
+  };
+}
+
+function parseQualifiedToolName(
+  toolName: string,
+): { integration: IntegrationSlug; action: string } | null {
+  const separator = toolName.indexOf(".");
+  if (separator <= 0 || separator !== toolName.lastIndexOf(".")) return null;
+  const integration = toolName.slice(0, separator);
+  if (!isIntegrationSlug(integration)) return null;
+  const action = toolName.slice(separator + 1);
+  if (!action) return null;
+  return { integration, action };
+}
+
+function toolNameForAction(integration: IntegrationSlug, action: string): ToolName | null {
+  const name = `${integration}.${action}`;
+  return isToolName(name) ? name : null;
+}
+
+function closestAction(input: string, actions: readonly string[]): string | null {
+  if (actions.length === 0) return null;
+  if (actions.includes(input)) return input;
+  if (actions.length === 1) return actions[0] ?? null;
+
+  const inputTokens = actionTokens(input);
+  let best: { action: string; score: number } | null = null;
+  for (const action of actions) {
+    const actionTokenSet = new Set(actionTokens(action));
+    const common = inputTokens.filter((token) => actionTokenSet.has(token)).length;
+    const substring = action.includes(input) || input.includes(action) ? 1 : 0;
+    const score = common * 10 + substring * 5 - Math.abs(action.length - input.length) / 10;
+    if (!best || score > best.score) best = { action, score };
+  }
+
+  return best && best.score > 0 ? best.action : null;
+}
+
+function actionTokens(action: string): string[] {
+  return action
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0);
 }
 
 async function executeAndCommit(

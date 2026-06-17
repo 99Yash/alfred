@@ -5,7 +5,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createRun } from "./service";
 import { enqueueRun } from "./queue";
-import { readSubAgentMetadata, subAgentIdSchema } from "./sub-agent-metadata";
+import {
+  readSubAgentMetadata,
+  subAgentIdSchema,
+  SUB_AGENT_WORKFLOW_SLUG,
+} from "./sub-agent-metadata";
 
 export const spawnSubAgentInputSchema = z
   .object({
@@ -39,7 +43,6 @@ export async function spawnSubAgent(
     .select({
       id: agentRuns.id,
       userId: agentRuns.userId,
-      workflowSlug: agentRuns.workflowSlug,
       metadata: agentRuns.metadata,
     })
     .from(agentRuns)
@@ -79,7 +82,11 @@ export async function spawnSubAgent(
 
   const created = await createRun({
     userId: args.userId,
-    workflowSlug: parent.workflowSlug,
+    // Sub-agents always run the sub-agent-aware brief workflow — never the
+    // parent's own slug, which may be thread-coupled (chat-turn) and unable to
+    // initialize from a bare brief. For boss / authored parents this is the
+    // same workflow they already resolve to, so behavior is unchanged there.
+    workflowSlug: SUB_AGENT_WORKFLOW_SLUG,
     brief: args.brief,
     metadata,
     trigger: { kind: "manual" },

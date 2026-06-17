@@ -21,10 +21,13 @@ export function animateWords(children: ReactNode): ReactNode {
 
 function wrapString(text: string, childIndex: number): ReactNode {
   // Split keeping the whitespace tokens so spacing survives the round-trip.
-  return text.split(/(\s+)/).map((token, i) => {
+  let offset = 0;
+  return text.split(/(\s+)/).map((token) => {
+    const start = offset;
+    offset += token.length;
     if (token === "" || /^\s+$/.test(token)) return token;
     return (
-      <span key={`w-${childIndex}-${i}`} className="animate-chat-word">
+      <span key={`w-${childIndex}-${start}-${token}`} className="animate-chat-word">
         {token}
       </span>
     );

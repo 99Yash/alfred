@@ -224,7 +224,6 @@ export async function setAppliedLabelId(
     .set({
       appliedLabelId,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
-      updatedAt: new Date(),
     })
     .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
 }

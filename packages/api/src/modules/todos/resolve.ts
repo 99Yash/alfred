@@ -95,7 +95,6 @@ export async function resolveTodosForGmailSender(
       status: "dismissed",
       completedAt: null,
       rowVersion: sql`${todos.rowVersion} + 1`,
-      updatedAt: new Date(),
     })
     .where(
       and(

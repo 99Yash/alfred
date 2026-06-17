@@ -69,6 +69,7 @@ async function main() {
       persona: "work",
       thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
       knownContact: false,
+      senderRelationship: null,
       labelIds: [],
       signalText: [f.from, f.to, f.subject, content].join("\n"),
     });

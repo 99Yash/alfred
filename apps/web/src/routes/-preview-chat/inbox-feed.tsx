@@ -38,7 +38,7 @@ const PAGE_SIZE = 8;
 /**
  * Right-rail Inbox feed.
  *
- * Renders the top ~12 Gmail rows surfaced by `/api/me/inbox`. Each row
+ * Renders the top Gmail rows surfaced by `/api/me/inbox` (PAGE_SIZE = 8 per page). Each row
  * carries the triage `category` (when classified) and the sender's
  * domain-derived brand. The list supports:
  *
@@ -47,7 +47,7 @@ const PAGE_SIZE = 8;
  *  - click-through to Gmail web via the row's `threadId`.
  *
  * The component is presentation-only — refresh cadence (window-focus +
- * 60s poll) lives in `useInbox`.
+ * 5-minute poll) lives in `useInbox`.
  */
 export interface InboxFeedProps {
   items: ReadonlyArray<InboxItem>;

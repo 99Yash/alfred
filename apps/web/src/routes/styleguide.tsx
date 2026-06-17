@@ -77,6 +77,17 @@ import { MorningBriefingPanel } from "~/components/landing/morning-briefing-pane
 import { TabPill } from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
+/* Static prop icons hoisted to module scope so they keep a stable reference
+   across renders instead of allocating a fresh element each time. */
+const sparklesLeading = <Sparkles size={14} />;
+const plusLeading = <Plus size={14} />;
+const logOutLeading = <LogOut size={14} />;
+const searchLeading = <Search size={14} />;
+const checkLeading = <Check size={14} />;
+const mailLeading = <Mail size={13} />;
+const cmdKKbd = <Kbd>⌘K</Kbd>;
+const cmdEnterKbd = <Kbd>⌘↵</Kbd>;
+
 export const Route = createFileRoute("/styleguide")({
   head: () => pageMeta({ title: "Styleguide", path: "/styleguide" }),
   component: StyleguidePage,
@@ -84,7 +95,7 @@ export const Route = createFileRoute("/styleguide")({
 
 type StyleguideMode = "app" | "v2" | "dimension";
 
-function StyleguidePage() {
+export function StyleguidePage() {
   const [mode, setMode] = useState<StyleguideMode>("app");
 
   return (
@@ -130,7 +141,7 @@ function StyleguidePage() {
 /* Dimension half — the original primitives, untouched.                        */
 /* -------------------------------------------------------------------------- */
 
-function DimensionHalf() {
+export function DimensionHalf() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -160,7 +171,7 @@ function DimensionHalf() {
   );
 }
 
-function HalfBanner({
+export function HalfBanner({
   tone,
   eyebrow,
   title,
@@ -198,7 +209,7 @@ function HalfBanner({
 /* Section scaffolding                                                         */
 /* -------------------------------------------------------------------------- */
 
-function Section({
+export function Section({
   id,
   title,
   recipe,
@@ -220,7 +231,7 @@ function Section({
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-4 py-3 border-t border-white/5 first:border-t-0">
       <div className="text-[12.5px] text-gray-800 tabular">{label}</div>
@@ -229,7 +240,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function ChatThreadSection() {
+export function ChatThreadSection() {
   return (
     <Section
       id="chat-thread"
@@ -281,7 +292,7 @@ const PURPLE_STOPS = [
   "950",
 ] as const;
 
-function TokensSection() {
+export function TokensSection() {
   return (
     <Section
       id="tokens"
@@ -294,7 +305,7 @@ function TokensSection() {
   );
 }
 
-function Swatches<T extends string>({
+export function Swatches<T extends string>({
   name,
   scale,
   stops,
@@ -325,7 +336,7 @@ function Swatches<T extends string>({
 /* Button                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function ButtonSection() {
+export function ButtonSection() {
   return (
     <Section
       id="button"
@@ -336,7 +347,7 @@ function ButtonSection() {
         <Button variant="primary" size="lg">
           Create Workflow
         </Button>
-        <Button variant="primary" size="lg" leading={<Sparkles size={14} />}>
+        <Button variant="primary" size="lg" leading={sparklesLeading}>
           Learn
         </Button>
         <Button variant="primary" size="lg" disabled>
@@ -366,7 +377,7 @@ function ButtonSection() {
         <Button variant="white" size="lg">
           Upgrade Plan
         </Button>
-        <Button variant="white" size="mdPlus" leading={<Plus size={14} />}>
+        <Button variant="white" size="mdPlus" leading={plusLeading}>
           New chat
         </Button>
         <Button variant="white" size="lg" disabled>
@@ -375,7 +386,7 @@ function ButtonSection() {
       </Row>
 
       <Row label="destructive">
-        <Button variant="destructive" size="lg" leading={<LogOut size={14} />}>
+        <Button variant="destructive" size="lg" leading={logOutLeading}>
           Sign out
         </Button>
         <Button variant="destructive" size="mdPlus">
@@ -414,7 +425,7 @@ function ButtonSection() {
 /* IconButton                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function IconButtonSection() {
+export function IconButtonSection() {
   return (
     <Section
       id="icon-button"
@@ -451,7 +462,7 @@ function IconButtonSection() {
 /* Input                                                                       */
 /* -------------------------------------------------------------------------- */
 
-function InputSection() {
+export function InputSection() {
   return (
     <Section
       id="input"
@@ -475,16 +486,12 @@ function InputSection() {
       </Row>
       <Row label="search">
         <div className="w-80">
-          <Input
-            variant="search"
-            placeholder="Search integrations"
-            leading={<Search size={14} />}
-          />
+          <Input variant="search" placeholder="Search integrations" leading={searchLeading} />
         </div>
       </Row>
       <Row label="with trailing">
         <div className="w-80">
-          <Input placeholder="Press ⌘K" trailing={<Kbd>⌘K</Kbd>} />
+          <Input placeholder="Press ⌘K" trailing={cmdKKbd} />
         </div>
       </Row>
     </Section>
@@ -495,7 +502,7 @@ function InputSection() {
 /* Textarea                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function TextareaSection() {
+export function TextareaSection() {
   return (
     <Section
       id="textarea"
@@ -534,7 +541,7 @@ function TextareaSection() {
 /* Switch                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function SwitchSection() {
+export function SwitchSection() {
   return (
     <Section
       id="switch"
@@ -567,7 +574,7 @@ function SwitchSection() {
   );
 }
 
-function ControlledSwitchDemo() {
+export function ControlledSwitchDemo() {
   const [on, setOn] = useState(true);
   return (
     <div className="flex items-center gap-3">
@@ -581,7 +588,7 @@ function ControlledSwitchDemo() {
 /* Tabs                                                                        */
 /* -------------------------------------------------------------------------- */
 
-function TabsSection() {
+export function TabsSection() {
   const [underline, setUnderline] = useState<"learn" | "history">("learn");
   const [segmented, setSegmented] = useState<"chat" | "todos" | "agents">("chat");
   const [pill, setPill] = useState<"gmail" | "slack" | "imessage">("gmail");
@@ -631,7 +638,7 @@ function TabsSection() {
   );
 }
 
-function QuickAccessRailSection() {
+export function QuickAccessRailSection() {
   return (
     <Section
       id="quick-access-rail"
@@ -649,7 +656,7 @@ function QuickAccessRailSection() {
 /* Card                                                                        */
 /* -------------------------------------------------------------------------- */
 
-function CardSection() {
+export function CardSection() {
   return (
     <Section
       id="card"
@@ -697,7 +704,7 @@ function CardSection() {
 /* FrostPanel                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function FrostPanelSection() {
+export function FrostPanelSection() {
   return (
     <Section
       id="frost-panel"
@@ -732,7 +739,7 @@ function FrostPanelSection() {
 /* Avatar                                                                      */
 /* -------------------------------------------------------------------------- */
 
-function AvatarSection() {
+export function AvatarSection() {
   return (
     <Section
       id="avatar"
@@ -757,7 +764,7 @@ function AvatarSection() {
 /* Kbd                                                                         */
 /* -------------------------------------------------------------------------- */
 
-function KbdSection() {
+export function KbdSection() {
   return (
     <Section
       id="kbd"
@@ -775,7 +782,7 @@ function KbdSection() {
         <Kbd>⌥⇧K</Kbd>
       </Row>
       <Row label="in context">
-        <Button variant="primary" size="md" trailing={<Kbd>⌘↵</Kbd>}>
+        <Button variant="primary" size="md" trailing={cmdEnterKbd}>
           Learn
         </Button>
       </Row>
@@ -787,7 +794,7 @@ function KbdSection() {
 /* StatusDot                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function StatusDotSection() {
+export function StatusDotSection() {
   return (
     <Section
       id="status-dot"
@@ -828,7 +835,7 @@ function StatusDotSection() {
 /* frost-border showcase                                                       */
 /* -------------------------------------------------------------------------- */
 
-function FrostBorderSection() {
+export function FrostBorderSection() {
   return (
     <Section
       id="frost-border"
@@ -877,7 +884,7 @@ function FrostBorderSection() {
 /* Command palette                                                             */
 /* -------------------------------------------------------------------------- */
 
-function CommandPaletteSection() {
+export function CommandPaletteSection() {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   return (
@@ -1000,7 +1007,7 @@ function CommandPaletteSection() {
 /* Typography                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function TypographySection() {
+export function TypographySection() {
   return (
     <Section
       id="typography"
@@ -1039,7 +1046,7 @@ function TypographySection() {
 /* every preview reads on the new #0a0a0a canvas with its faint grid.         */
 /* ========================================================================== */
 
-function AppHalf() {
+export function AppHalf() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -1075,7 +1082,7 @@ function AppHalf() {
  * landing background (#0a0a0a + 80px grid + Open Runde) so primitives like
  * FrostButton read identically to the production page.
  */
-function AppCanvas({
+export function AppCanvas({
   children,
   className,
   height,
@@ -1093,7 +1100,7 @@ function AppCanvas({
 
 /* ----------------------------- Tokens ----------------------------- */
 
-function AppTokensSection() {
+export function AppTokensSection() {
   return (
     <Section
       id="app-tokens"
@@ -1160,7 +1167,7 @@ function AppTokensSection() {
 
 /* ----------------------------- Hero typography ----------------------------- */
 
-function AppHeroTypographySection() {
+export function AppHeroTypographySection() {
   return (
     <Section
       id="app-hero-typography"
@@ -1192,7 +1199,7 @@ function AppHeroTypographySection() {
 
 /* ----------------------------- FrostButton ----------------------------- */
 
-function FrostButtonSection() {
+export function FrostButtonSection() {
   return (
     <Section
       id="frost-button"
@@ -1256,7 +1263,7 @@ function FrostButtonSection() {
 
 /* ----------------------------- EyebrowChip ----------------------------- */
 
-function EyebrowChipSection() {
+export function EyebrowChipSection() {
   return (
     <Section
       id="app-eyebrow-chip"
@@ -1283,7 +1290,7 @@ function EyebrowChipSection() {
   );
 }
 
-function EyebrowChip({
+export function EyebrowChip({
   children,
   icon,
   accent = "neutral",
@@ -1310,7 +1317,7 @@ function EyebrowChip({
   );
 }
 
-function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
+export function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
   return (
     <span
       aria-hidden
@@ -1326,7 +1333,7 @@ function DemoStatusDot({ tone }: { tone: "emerald" | "amber" | "neutral" }) {
 
 /* ----------------------------- TopAnnouncement ----------------------------- */
 
-function TopAnnouncementSection() {
+export function TopAnnouncementSection() {
   return (
     <Section
       id="app-top-announcement"
@@ -1337,8 +1344,8 @@ function TopAnnouncementSection() {
         <div className="relative flex flex-col items-center gap-4">
           {/* Inline simulation — strip the `fixed` positioning so the pill
               renders within the styleguide column. */}
-          <a
-            href="#"
+          <button
+            type="button"
             className={cn(
               "group relative flex items-center gap-2 sm:gap-2.5",
               "rounded-full px-3 py-1.5 sm:px-3.5 text-[12px] sm:text-[12.5px]",
@@ -1357,7 +1364,7 @@ function TopAnnouncementSection() {
             >
               →
             </span>
-          </a>
+          </button>
           <p className="text-[11px] text-gray-700 tabular">
             See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
             components/landing/top-announcement.tsx — production renders fixed at top:5.
@@ -1370,7 +1377,7 @@ function TopAnnouncementSection() {
 
 /* ----------------------------- FloatingPillNav ----------------------------- */
 
-function FloatingPillNavSection() {
+export function FloatingPillNavSection() {
   return (
     <Section
       id="app-floating-nav"
@@ -1393,27 +1400,27 @@ function FloatingPillNavSection() {
             )}
           >
             <div className="ml-2 flex items-center gap-2">
-              <a href="#" className="flex items-center gap-2">
+              <button type="button" className="flex items-center gap-2">
                 <span className="grid size-5 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
                   A
                 </span>
                 <span className="text-sm font-semibold text-white">Alfred</span>
-              </a>
+              </button>
             </div>
             <div aria-hidden className="h-6 w-px shrink-0 bg-white/10" />
             <div className="flex items-center gap-0 text-sm text-white">
-              <a
-                href="#"
+              <button
+                type="button"
                 className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Why Alfred
-              </a>
-              <a
-                href="#"
+              </button>
+              <button
+                type="button"
                 className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Pricing
-              </a>
+              </button>
             </div>
             <div className="shrink-0">
               <FrostButton tone="light" size="sm">
@@ -1429,7 +1436,7 @@ function FloatingPillNavSection() {
 
 /* ----------------------------- TabPill ----------------------------- */
 
-function TabPillSection() {
+export function TabPillSection() {
   const [tab, setTab] = useState<"briefing" | "inbox" | "meetings">("briefing");
   return (
     <Section
@@ -1457,7 +1464,7 @@ function TabPillSection() {
 
 /* ----------------------------- AuroraGlow ----------------------------- */
 
-function AuroraGlowSection() {
+export function AuroraGlowSection() {
   return (
     <Section
       id="app-aurora-glow"
@@ -1486,7 +1493,7 @@ function AuroraGlowSection() {
 
 /* ----------------------------- DeviceBezel ----------------------------- */
 
-function DeviceBezelSection() {
+export function DeviceBezelSection() {
   return (
     <Section
       id="app-device-bezel"
@@ -1509,7 +1516,7 @@ function DeviceBezelSection() {
 
 /* ----------------------------- BenefitsRow ----------------------------- */
 
-function BenefitsRowSection() {
+export function BenefitsRowSection() {
   return (
     <Section
       id="app-benefits-row"
@@ -1525,7 +1532,7 @@ function BenefitsRowSection() {
 
 /* ----------------------------- FeatureCard ----------------------------- */
 
-function FeatureCardSection() {
+export function FeatureCardSection() {
   return (
     <Section
       id="app-feature-card"
@@ -1562,26 +1569,29 @@ function FeatureCardSection() {
   );
 }
 
-function FeatureCardDemo({
+type FeatureCardTone = "indigo" | "peach" | "rose" | "emerald";
+
+const FEATURE_CARD_TONE: Record<FeatureCardTone, { text: string; bg: string; ring: string }> = {
+  indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
+  peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
+  rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
+  emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
+};
+
+export function FeatureCardDemo({
   tone,
   eyebrow,
   title,
   body,
   bullets,
 }: {
-  tone: "indigo" | "peach" | "rose" | "emerald";
+  tone: FeatureCardTone;
   eyebrow: string;
   title: string;
   body: string;
   bullets: ReadonlyArray<string>;
 }) {
-  const TONE: Record<typeof tone, { text: string; bg: string; ring: string }> = {
-    indigo: { text: "text-indigo-300", bg: "bg-indigo-400/[0.08]", ring: "ring-indigo-400/20" },
-    peach: { text: "text-orange-300", bg: "bg-orange-400/[0.08]", ring: "ring-orange-400/20" },
-    rose: { text: "text-rose-300", bg: "bg-rose-400/[0.08]", ring: "ring-rose-400/20" },
-    emerald: { text: "text-emerald-300", bg: "bg-emerald-400/[0.08]", ring: "ring-emerald-400/20" },
-  };
-  const t = TONE[tone];
+  const t = FEATURE_CARD_TONE[tone];
   return (
     <article
       className={cn(
@@ -1625,7 +1635,7 @@ function FeatureCardDemo({
 
 /* ----------------------------- Operational pill ----------------------------- */
 
-function OperationalPillSection() {
+export function OperationalPillSection() {
   return (
     <Section
       id="app-operational-pill"
@@ -1655,7 +1665,7 @@ function OperationalPillSection() {
 
 /* ----------------------------- FadeInOnScroll ----------------------------- */
 
-function FadeInOnScrollSection() {
+export function FadeInOnScrollSection() {
   const [key, setKey] = useState(0);
   return (
     <Section
@@ -1697,7 +1707,7 @@ function FadeInOnScrollSection() {
 
 /* ----------------------------- HeroShowcase ----------------------------- */
 
-function HeroShowcaseSection() {
+export function HeroShowcaseSection() {
   return (
     <Section
       id="app-hero-showcase"
@@ -1713,7 +1723,7 @@ function HeroShowcaseSection() {
 
 /* ----------------------------- MorningBriefingPanel ----------------------------- */
 
-function MorningBriefingSection() {
+export function MorningBriefingSection() {
   return (
     <Section
       id="app-morning-briefing"
@@ -1731,7 +1741,7 @@ function MorningBriefingSection() {
 
 /* ----------------------------- Closing CTA + footer ----------------------------- */
 
-function LandingCtaSectionPreview() {
+export function LandingCtaSectionPreview() {
   return (
     <Section
       id="app-cta"
@@ -1745,7 +1755,7 @@ function LandingCtaSectionPreview() {
   );
 }
 
-function LandingFooterPreview() {
+export function LandingFooterPreview() {
   return (
     <Section
       id="app-footer"
@@ -1765,7 +1775,7 @@ function LandingFooterPreview() {
 /* once per forced theme, so light/dark regressions are visible side by side. */
 /* ========================================================================== */
 
-function V2Half() {
+export function V2Half() {
   return (
     <div className="space-y-16">
       <HalfBanner
@@ -1784,7 +1794,7 @@ function V2Half() {
 }
 
 /** Side-by-side forced light / forced dark panes for an app-grammar preview. */
-function ThemePanes({
+export function ThemePanes({
   render,
   stacked = false,
 }: {
@@ -1809,7 +1819,7 @@ function ThemePanes({
   );
 }
 
-function V2Row({ label, children }: { label: string; children: ReactNode }) {
+export function V2Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[88px_1fr] items-center gap-3">
       <div className="text-[12px] tabular-nums text-app-fg-2">{label}</div>
@@ -1818,7 +1828,7 @@ function V2Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function V2ButtonSection() {
+export function V2ButtonSection() {
   return (
     <Section
       id="v2-button"
@@ -1830,7 +1840,7 @@ function V2ButtonSection() {
           <div className="space-y-4">
             <V2Row label="primary">
               <AppButton variant="primary">Approve</AppButton>
-              <AppButton variant="primary" leading={<Check size={14} />}>
+              <AppButton variant="primary" leading={checkLeading}>
                 Allow once
               </AppButton>
               <AppButton variant="primary" disabled>
@@ -1839,7 +1849,7 @@ function V2ButtonSection() {
             </V2Row>
             <V2Row label="white">
               <AppButton variant="white">New chat</AppButton>
-              <AppButton variant="white" leading={<Plus size={14} />}>
+              <AppButton variant="white" leading={plusLeading}>
                 Add
               </AppButton>
               <AppButton variant="white" disabled>
@@ -1877,7 +1887,7 @@ function V2ButtonSection() {
   );
 }
 
-function V2SurfaceSection() {
+export function V2SurfaceSection() {
   return (
     <Section
       id="v2-surfaces"
@@ -1895,7 +1905,7 @@ function V2SurfaceSection() {
             </AppCard>
             <div className="flex flex-wrap items-center gap-2">
               <AppPill>Today</AppPill>
-              <AppPill leading={<Mail size={13} />}>Gmail</AppPill>
+              <AppPill leading={mailLeading}>Gmail</AppPill>
               <AppPill chevron>30 days</AppPill>
             </div>
             <div className="max-w-md">
@@ -1908,7 +1918,7 @@ function V2SurfaceSection() {
   );
 }
 
-function V2ToastSection() {
+export function V2ToastSection() {
   return (
     <Section
       id="v2-toast"
@@ -2074,7 +2084,7 @@ function V2ToastSection() {
   );
 }
 
-function V2FrostOverlaySection() {
+export function V2FrostOverlaySection() {
   const [selectValue, setSelectValue] = useState<string | undefined>("primary");
   const [pickerValue, setPickerValue] = useState<string | undefined>("2026-06-11T14:00:00.000Z");
   return (
@@ -2196,7 +2206,7 @@ const V2_STAGING_EVENT: SyncedActionStaging = {
   createdAt: "2026-06-07T08:31:00.000Z",
 };
 
-function V2ApprovalTraySection() {
+export function V2ApprovalTraySection() {
   return (
     <Section
       id="v2-approval-tray"

@@ -1,6 +1,6 @@
 import { Check, ChevronRight, X } from "lucide-react";
 import { useId, useState } from "react";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationIcon } from "~/lib/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
@@ -68,16 +68,27 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
           expandable ? "cursor-pointer hover:bg-app-bg-a2" : "cursor-default",
         )}
       >
-        <span
-          aria-hidden
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
-        >
-          {brand ? (
-            <IntegrationGlyph brand={brand} size={14} />
-          ) : (
-            <FallbackIcon size={13} className="text-app-fg-3" />
-          )}
-        </span>
+        {brand ? (
+          // The integration's own app-icon tile. While in flight an indigo→
+          // violet halo drifts behind it (chat-node-glow inherits the tile's
+          // radius) so the eye lands on what's happening now.
+          <span
+            aria-hidden
+            className={cn("inline-flex shrink-0 rounded-[7px]", running && "chat-node-glow")}
+          >
+            <IntegrationIcon brand={brand} size="xs" />
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            className={cn(
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
+              running && "chat-node-glow",
+            )}
+          >
+            <FallbackIcon size={13} />
+          </span>
+        )}
         <span
           className={cn(
             "min-w-0 truncate font-medium",

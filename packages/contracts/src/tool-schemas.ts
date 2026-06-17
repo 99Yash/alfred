@@ -399,6 +399,45 @@ export const promoteScratchInput = z
   })
   .strict();
 
+export const readUserContextInput = z
+  .object({
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe(
+        "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
+      ),
+    include: z
+      .array(
+        z.enum([
+          "profile",
+          "integrations",
+          "facts",
+          "preferences",
+          "entities",
+          "relationships",
+          "recent_memory",
+        ]),
+      )
+      .max(7)
+      .optional()
+      .describe(
+        "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
+      ),
+    subjectEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email()
+      .max(320)
+      .optional()
+      .describe("Optional person/contact email to focus on."),
+  })
+  .strict();
+
 export const rememberInput = z
   .object({
     kind: z
@@ -408,10 +447,11 @@ export const rememberInput = z
       .string()
       .trim()
       .toLowerCase()
+      .email()
       .max(320)
       .optional()
       .describe(
-        "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
+        "Resolved sender email to suppress. Must be a real address — if unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
       ),
     senderLabel: z
       .string()
@@ -547,6 +587,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.batch_update": slidesBatchUpdateInput,
   "slides.add_slide": slidesAddSlideInput,
   "system.load_integration": loadIntegrationInput,
+  "system.read_user_context": readUserContextInput,
   "system.read_scratch": readScratchInput,
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,

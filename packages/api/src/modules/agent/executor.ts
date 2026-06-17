@@ -188,7 +188,6 @@ async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number }
         attempt,
         startedAt: status === "pending" ? new Date() : undefined,
         lastCheckpointAt: new Date(),
-        updatedAt: new Date(),
       })
       .where(eq(agentRuns.id, runId));
 
@@ -441,7 +440,6 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
       status: "failed",
       error: { message: error },
       endedAt: new Date(),
-      updatedAt: new Date(),
     })
     .where(eq(agentRuns.id, runId));
 }

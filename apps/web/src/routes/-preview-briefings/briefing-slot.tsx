@@ -4,7 +4,8 @@ import { AppCard } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { BriefingProse } from "./briefing-prose";
 import { slotLabel } from "./briefing-utils";
-import { formatEventRange, parseActivitySubtitle, ProviderGlyph, SourceIcon } from "./source-meta";
+import { ProviderGlyph, SourceIcon } from "./source-meta";
+import { formatEventRange, parseActivitySubtitle } from "./source-meta-utils";
 
 /** Statuses that never produced prose — render a calm placeholder, not a blank. */
 const NON_TERMINAL = new Set(["pending", "gathering", "composing", "failed"]);
@@ -53,8 +54,8 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
       {sections.length > 0 ? (
         <Disclosure summary={`Detail (${sections.length})`}>
           <div className="space-y-4 pt-3">
-            {sections.map((section, i) => (
-              <div key={i} className="space-y-1">
+            {sections.map((section) => (
+              <div key={section.source} className="space-y-1">
                 <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
                   <SourceIcon source={section.source} />
                   {section.label}

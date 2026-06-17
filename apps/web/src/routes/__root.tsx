@@ -13,14 +13,14 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootLayout,
 });
 
-function RootLayout() {
+export function RootLayout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <HeadContent />
       <AppShell>
         <Outlet />
       </AppShell>
-      <Toaster theme="dark" position="top-center" expand gap={10} />
+      <Toaster theme="dark" position="top-center" gap={10} />
     </div>
   );
 }

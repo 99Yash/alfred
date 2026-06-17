@@ -269,6 +269,14 @@
   --app-button-primary-shadow-hover:
     inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 2px 4px rgba(0, 0, 0, 0.22),
     0 12px 32px var(--app-accent-glow);
+
+  /* Sidebar active/hover "glass tile" — the lifted chip behind the active nav
+   * row and the minimized rail icon. Theme-aware: a soft raised chip on light,
+   * a frosted highlight on dark. Consumed by `.sidebar-tile`. */
+  --app-sidebar-tile-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.015), rgba(0, 0, 0, 0.045));
+  --app-sidebar-tile-border: rgba(0, 0, 0, 0.07);
+  --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.7);
+  --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* -----------------------------------------------------------------------------
@@ -399,6 +407,13 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
       inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
       0 12px 28px rgba(0, 0, 0, 0.5);
+
+    --app-sidebar-tile-bg:
+      radial-gradient(120% 100% at 12% -24%, rgba(255, 255, 255, 0.1), transparent 62%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.022));
+    --app-sidebar-tile-border: rgba(255, 255, 255, 0.09);
+    --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.08);
+    --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
   }
 }
 
@@ -496,6 +511,13 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
     inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
     0 12px 28px rgba(0, 0, 0, 0.5);
+
+  --app-sidebar-tile-bg:
+    radial-gradient(120% 100% at 12% -24%, rgba(255, 255, 255, 0.1), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.022));
+  --app-sidebar-tile-border: rgba(255, 255, 255, 0.09);
+  --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.08);
+  --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
 }
 
 @theme inline {
@@ -876,6 +898,45 @@
     mask-size: 200% 100%;
     animation: chat-shimmer-mask 2s linear infinite;
   }
+  /* Brand "thinking" mark — the Alfred glyph breathes with a soft indigo halo
+   * while a turn is spinning up, standing in for a generic spinner. Mirrors
+   * dimension's pulsing AI icon to the left of its working state. */
+  .chat-think-mark {
+    position: relative;
+    isolation: isolate;
+    animation: chat-think-breathe 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .chat-think-mark::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(129 112 248 / 0.55), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.35;
+    animation: chat-think-halo 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes chat-think-breathe {
+    0%,
+    100% {
+      transform: scale(0.9);
+    }
+    50% {
+      transform: scale(1);
+    }
+  }
+  @keyframes chat-think-halo {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(1.12);
+    }
+  }
   /* Radix accordion height collapse for the reasoning section. */
   @keyframes chat-accordion-down {
     from {
@@ -899,6 +960,40 @@
   .animate-chat-accordion-up {
     animation: chat-accordion-up 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
+  /* The node of the step Alfred is *currently* running glows — a soft indigo→
+   * violet halo drifting behind the icon tile, standing in for a dead spinner.
+   * Mirrors dimension's frosted, gradient-lit active trail node. The halo lives
+   * on a ::before so it sits under the icon and bleeds slightly past the tile. */
+  .chat-node-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .chat-node-glow::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(
+        60% 80% at 25% 100%,
+        rgb(199 162 252 / 0.55) 0%,
+        transparent 70%
+      ),
+      radial-gradient(90% 70% at 80% 100%, rgb(129 112 248 / 0.6) 0%, transparent 70%);
+    filter: blur(5px);
+    animation: chat-node-glow 2.4s ease-in-out infinite;
+  }
+  @keyframes chat-node-glow {
+    0%,
+    100% {
+      opacity: 0.45;
+      transform: scale(0.92);
+    }
+    50% {
+      opacity: 0.95;
+      transform: scale(1.08);
+    }
+  }
 
   /* Right-rail header entrance. Each row of the weather hero (greeting,
    * temperature, caption, date) fades up in sequence via staggered
@@ -918,8 +1013,29 @@
     animation: rail-head-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  /* Sidebar expand reveal. When the icon rail expands to the full sidebar, the
+   * nav sections blur + slide in with a short stagger (via `animation-delay`
+   * arbitrary classes on each block). `both` holds the from-state through the
+   * delay so nothing flashes before its turn. */
+  @keyframes sidebar-reveal {
+    from {
+      opacity: 0;
+      filter: blur(4px);
+      transform: translateX(-5px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateX(0);
+    }
+  }
+  .animate-sidebar-reveal {
+    animation: sidebar-reveal 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-rail-head,
+    .animate-sidebar-reveal,
     .animate-settings-panel-in,
     .animate-carousel-progress,
     .drawer-slide-in,
@@ -931,6 +1047,9 @@
     .animate-chat-word,
     .animate-chat-accordion-down,
     .animate-chat-accordion-up,
+    .chat-think-mark,
+    .chat-think-mark::before,
+    .chat-node-glow::before,
     .animate-chat-caret {
       animation: none !important;
     }
@@ -1120,6 +1239,35 @@
       0 2px 10px rgba(0, 0, 0, 0.32);
     backdrop-filter: blur(18px) saturate(1.18);
     -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  }
+
+  /* Sidebar active/hover glass chip — see `--app-sidebar-tile-*` tokens.
+   * Border-radius is inherited from the host element's `rounded-*` class. */
+  .sidebar-tile {
+    background: var(--app-sidebar-tile-bg);
+    border: 1px solid var(--app-sidebar-tile-border);
+    box-shadow:
+      inset 0 1px 0 var(--app-sidebar-tile-highlight),
+      var(--app-sidebar-tile-shadow);
+  }
+
+  /* Soft fade at the top + bottom of the scrolling thread list so rows trail
+   * out under the nav block instead of clipping at a hard edge. */
+  .sidebar-scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 16px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 16px),
+      transparent 100%
+    );
   }
 
   .frost-icon-tile {
@@ -1823,6 +1971,20 @@
     to {
       transform: translateY(0) scale(1);
     }
+  }
+
+  /* Stacked-pile peek. When toasts collapse into sonner's stack, the cards
+   * behind the front one should read as clean frosted slivers, not a busy
+   * pile of legible content. sonner does this for its own toasts via
+   * `[data-styled=true][data-front=false]>*{opacity:0}`, but our cards come
+   * from `toast.custom()` which renders `data-styled=false`, so that rule
+   * never matches. Mirror it here: fade the inner content (icon, text,
+   * buttons) of every non-front collapsed toast while the card surface keeps
+   * peeking. On hover the stack expands (`data-expanded=true`) and the
+   * content fades back in. */
+  [data-sonner-toast][data-expanded="false"][data-front="false"] .app-toast > * {
+    opacity: 0;
+    transition: opacity 0.3s;
   }
 
   /* Semantic glow — a soft brand-colored gradient bleeds from the leading edge

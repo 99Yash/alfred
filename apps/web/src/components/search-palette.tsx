@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
-  BookOpen,
   Brain,
   CornerDownLeft,
+  Library,
   MessageSquare,
   NotebookPen,
   Plug,
@@ -104,7 +104,7 @@ const COMMANDS: ReadonlyArray<CommandItem> = [
     kind: "command",
     label: "Library",
     hint: "Saved artifacts and outputs",
-    icon: BookOpen,
+    icon: Library,
     keywords: "files documents artifacts",
   },
   {
@@ -286,7 +286,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
         )}
       >
         <div className="flex items-center gap-2.5 px-4 h-12 border-b border-app-bg-3/60">
-          <Search size={15} className="text-app-fg-2 shrink-0" aria-hidden />
+          <Search size={16} strokeWidth={1.75} className="text-app-fg-2 shrink-0" aria-hidden />
           <input
             ref={inputRef}
             value={query}
@@ -414,8 +414,8 @@ function PaletteRow({
         "transition-colors",
         "outline-none",
         active
-          ? "bg-app-bg-2 text-app-fg-4"
-          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+          ? "sidebar-tile text-app-fg-4"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
       )}
     >
       <span
@@ -426,7 +426,7 @@ function PaletteRow({
           active && "bg-app-purple-1 text-app-purple-4",
         )}
       >
-        <Icon size={13} />
+        <Icon size={14} strokeWidth={1.75} />
       </span>
       <span className="flex-1 min-w-0 text-left">
         <span className="block text-sm font-medium text-app-fg-4 truncate">{item.label}</span>
