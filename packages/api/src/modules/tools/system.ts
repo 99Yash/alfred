@@ -80,8 +80,12 @@ export const systemTools: readonly RegisteredTool[] = [
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
     inputSchema: readUserContextInput,
-    execute: async (_input, ctx) => {
-      return await readUserContext(ctx.userId);
+    execute: async (input, ctx) => {
+      return await readUserContext(ctx.userId, {
+        subjectEmail: input.subjectEmail,
+        query: input.query,
+        include: input.include,
+      });
     },
   }),
   liveTool({
