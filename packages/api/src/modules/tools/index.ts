@@ -12,10 +12,13 @@ import { docsTools } from "./docs";
 import { driveTools } from "./drive";
 import { githubTools } from "./github";
 import { gmailTools } from "./gmail";
+import { notionTools } from "./notion";
+import { railwayTools } from "./railway";
 import { registerTools } from "./registry";
 import { sheetsTools } from "./sheets";
 import { slidesTools } from "./slides";
 import { systemTools } from "./system";
+import { vercelTools } from "./vercel";
 
 export {
   liveTool,
@@ -40,4 +43,7 @@ export function registerBuiltinTools(): void {
   registerTools(docsTools);
   registerTools(sheetsTools);
   registerTools(slidesTools);
+  registerTools(notionTools);
+  registerTools(railwayTools);
+  registerTools(vercelTools);
 }
