@@ -251,6 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     location.pathname === "/login" ||
     location.pathname === "/privacy-policy" ||
     location.pathname === "/terms-of-service" ||
+    location.pathname === "/support" ||
     location.pathname.startsWith("/onboarding");
 
   /* Auth guard: a signed-out visitor on any non-chromeless (i.e. authed) route
