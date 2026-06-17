@@ -1,12 +1,12 @@
 import type { SyncedChatMessage } from "@alfred/sync";
-import { ShieldQuestion } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import { ArrowDown, ShieldQuestion } from "lucide-react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph } from "~/lib/integration-icons";
 import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
-import { AssistantMarkdown, MessageBubble } from "./message-bubble";
+import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
@@ -22,16 +22,25 @@ export function Conversation({
   messages,
   stream,
   onFollowUp,
+  onRetry,
   followUps = EMPTY_FOLLOW_UPS,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
   onFollowUp?: (text: string) => void;
+  /** Re-send the user turn behind a failed reply (the "Retry" affordance). */
+  onRetry?: (text: string) => void;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
   followUps?: ReadonlyArray<FollowUpSuggestion>;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  // Body of the just-finished stream, so its copy button can lift the rendered
+  // HTML before the durable copy syncs in and takes over (see below).
+  const streamBodyRef = useRef<HTMLDivElement | null>(null);
+  // Drives the floating "scroll to latest" button — shown only while the user
+  // has scrolled up off the live edge.
+  const [showJump, setShowJump] = useState(false);
 
   const showStream = shouldShowStream(messages, stream);
 
@@ -60,7 +69,19 @@ export function Conversation({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickRef.current = atBottom;
+    setShowJump(!atBottom);
+  };
+
+  // Jump back to the live edge and re-engage stick-to-bottom. Smooth so the
+  // motion reads as "catching up" rather than a teleport.
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = true;
+    setShowJump(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
   // Re-stick to the bottom whenever the feed grows. `stream` is a fresh
@@ -92,14 +113,23 @@ export function Conversation({
   }, [messages]);
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className="min-h-0 flex-1 overflow-y-auto scroll-stable"
-    >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable"
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
+        {messages.map((m, i) => (
+          <MessageBubble
+            key={m.id}
+            message={m}
+            onRetry={
+              onRetry && m.role === "assistant" && m.status === "failed"
+                ? prevUserText(messages, i, onRetry)
+                : undefined
+            }
+          />
         ))}
 
         {onFollowUp && followUps.length > 0 ? (
@@ -127,8 +157,10 @@ export function Conversation({
             ) : null}
 
             {stream.text.length > 0 ? (
-              <div ref={streamTimingRefs.text}>
-                <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+              <div ref={streamBodyRef}>
+                <div ref={streamTimingRefs.text}>
+                  <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+                </div>
               </div>
             ) : stream.tools.length === 0 &&
               stream.reasoning.length === 0 &&
@@ -140,12 +172,66 @@ export function Conversation({
 
             {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
+            {/* The live bubble holds the copy affordance during the brief window
+             * between "done" and the durable copy syncing in (which then renders
+             * its own MessageBubble copy button). */}
+            {stream.done && stream.text.length > 0 ? (
+              <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+            ) : null}
+
             {stream.awaitingApproval ? <ApprovalNotice /> : null}
             {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
           </div>
         ) : null}
+        </div>
       </div>
+      <ScrollToBottomButton show={showJump} onClick={jumpToBottom} />
     </div>
+  );
+}
+
+/** Resolves the user message preceding a failed reply into a bound retry handler. */
+function prevUserText(
+  messages: readonly SyncedChatMessage[],
+  failedIndex: number,
+  onRetry: (text: string) => void,
+): (() => void) | undefined {
+  for (let i = failedIndex - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === "user" && m.content.trim().length > 0) {
+      const text = m.content;
+      return () => onRetry(text);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Floating jump-to-latest control. Appears only when the user has scrolled up
+ * off the live edge; clicking re-attaches stick-to-bottom. Borrowed from
+ * dimension's chat, whose long threads surface the same affordance.
+ */
+function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Scroll to latest"
+      aria-hidden={!show}
+      tabIndex={show ? 0 : -1}
+      className={cn(
+        "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",
+        "inline-flex size-9 items-center justify-center rounded-full",
+        "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
+        "transition-[opacity,scale] duration-150 ease-out",
+        "hover:text-app-fg-4 hover:scale-105 active:scale-95",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        show ? "opacity-100" : "pointer-events-none opacity-0",
+      )}
+    >
+      <ArrowDown size={16} />
+    </button>
   );
 }
 

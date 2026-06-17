@@ -1,5 +1,6 @@
 import type { TriageCategory } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link } from "@tanstack/react-router";
 import type { JSONContent } from "@tiptap/react";
 import {
@@ -19,12 +20,14 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
+  type ButtonHTMLAttributes,
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
@@ -66,6 +69,7 @@ import { filterMentionOptions, type MentionOption } from "./mention-options";
 import { MicWaveform, useMicRecording } from "./mic-recording";
 import { formatElapsed } from "./mic-recording-format";
 import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
+import { Tip } from "./tip";
 import {
   TiptapComposer,
   type SuggestionRenderState,
@@ -202,6 +206,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   }, [activeRunId, stopStream]);
 
   return (
+    <Tooltip.Provider delayDuration={300}>
     <div className="relative flex h-full min-w-0 flex-col">
       <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
       {hasConversation ? (
@@ -210,6 +215,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             messages={messages}
             stream={stream}
             onFollowUp={onSend}
+            onRetry={onSend}
             followUps={chipFollowUps}
           />
           <div className="shrink-0 px-4 pb-4">
@@ -251,6 +257,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         />
       )}
     </div>
+    </Tooltip.Provider>
   );
 }
 
@@ -280,20 +287,26 @@ function TopBar({
         <h1 className="truncate text-sm font-medium text-app-fg-4">{title}</h1>
       </div>
       <div className="flex items-center gap-1.5">
-        <IconButton label="Share thread">
-          <Share2 size={14} />
-        </IconButton>
-        <IconButton label="Thread settings">
-          <Ellipsis size={14} />
-        </IconButton>
+        <Tip label="Share thread">
+          <IconButton label="Share thread">
+            <Share2 size={14} />
+          </IconButton>
+        </Tip>
+        <Tip label="Thread settings">
+          <IconButton label="Thread settings">
+            <Ellipsis size={14} />
+          </IconButton>
+        </Tip>
         <span aria-hidden className="mx-1 h-5 w-px bg-app-bg-3" />
-        <IconButton
-          label={railOpen ? "Hide today panel" : "Show today panel"}
-          onClick={onToggleRail}
-          active={railOpen}
-        >
-          <PanelRight size={14} />
-        </IconButton>
+        <Tip label={railOpen ? "Hide today panel" : "Show today panel"}>
+          <IconButton
+            label={railOpen ? "Hide today panel" : "Show today panel"}
+            onClick={onToggleRail}
+            active={railOpen}
+          >
+            <PanelRight size={14} />
+          </IconButton>
+        </Tip>
       </div>
     </header>
   );
@@ -1012,17 +1025,21 @@ function ComposerToolbar({
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
-        <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
-          <Paperclip size={14} />
-        </ComposerIcon>
-        <ComposerIcon
-          label="Mention a source"
-          disabled={disabled || mic.recording}
-          onClick={onMentionClick}
-          active={!disabled && mentionActive}
-        >
-          <AtSign size={14} />
-        </ComposerIcon>
+        <Tip label="Attach file">
+          <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
+            <Paperclip size={14} />
+          </ComposerIcon>
+        </Tip>
+        <Tip label="Mention a source" keys={["@"]}>
+          <ComposerIcon
+            label="Mention a source"
+            disabled={disabled || mic.recording}
+            onClick={onMentionClick}
+            active={!disabled && mentionActive}
+          >
+            <AtSign size={14} />
+          </ComposerIcon>
+        </Tip>
         <ModelTierPicker value={tier} onChange={onTierChange} disabled={disabled || mic.recording} />
         {onToggleAutoApprove ? (
           <AutoApproveToggle
@@ -1067,14 +1084,17 @@ function ComposerToolbar({
           </>
         ) : (
           <>
-            <ComposerIcon
-              label="Dictate"
-              onClick={onVoiceStart}
-              disabled={disabled || transcribing}
-            >
-              {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
-            </ComposerIcon>
+            <Tip label="Dictate">
+              <ComposerIcon
+                label="Dictate"
+                onClick={onVoiceStart}
+                disabled={disabled || transcribing}
+              >
+                {transcribing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+              </ComposerIcon>
+            </Tip>
             {isStreaming && onStopGeneration ? (
+              <Tip label="Stop generating">
               <button
                 type="button"
                 onClick={onStopGeneration}
@@ -1091,7 +1111,9 @@ function ComposerToolbar({
               >
                 <Square size={12} strokeWidth={2.5} fill="currentColor" />
               </button>
+              </Tip>
             ) : (
+              <Tip label="Send" keys={["↵"]}>
               <button
                 type="submit"
                 disabled={!canSend}
@@ -1117,6 +1139,7 @@ function ComposerToolbar({
               >
                 <ArrowUp size={16} strokeWidth={2.25} />
               </button>
+              </Tip>
             )}
           </>
         )}
@@ -1194,26 +1217,25 @@ function RecordingPanel({
   );
 }
 
-function ComposerIcon({
-  label,
-  children,
-  disabled,
-  onClick,
-  active,
-}: {
-  label: string;
-  children: ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  active?: boolean;
-}) {
+const ComposerIcon = forwardRef<
+  HTMLButtonElement,
+  {
+    label: string;
+    children: ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+    active?: boolean;
+  } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">
+>(function ComposerIcon({ label, children, disabled, onClick, active, ...rest }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       aria-label={label}
       aria-pressed={onClick ? Boolean(active) : undefined}
       disabled={disabled}
       onClick={onClick}
+      {...rest}
       className={cn(
         "size-8 inline-flex items-center justify-center rounded-full",
         "transition-colors app-press",
@@ -1227,7 +1249,7 @@ function ComposerIcon({
       {children}
     </button>
   );
-}
+});
 
 /* ----------- helpers ----------- */
 
