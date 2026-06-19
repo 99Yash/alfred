@@ -77,9 +77,12 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
     })
     .returning({ id: emailSends.id });
 
-  if (!inserted[0]) {
+  let emailSendId: string;
+  if (inserted[0]) {
+    emailSendId = inserted[0].id;
+  } else {
     const existing = await db()
-      .select({ id: emailSends.id })
+      .select({ id: emailSends.id, status: emailSends.status })
       .from(emailSends)
       .where(
         and(eq(emailSends.userId, args.userId), eq(emailSends.idempotencyKey, args.idempotencyKey)),
@@ -90,10 +93,20 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       // Caller should treat this as a transient and retry.
       throw new Error("[notify] idempotency-key conflict but no row found on lookup");
     }
-    return { status: "duplicate", emailSendId: row.id };
+    // Only an already-SENT row is a true duplicate to short-circuit. A
+    // 'queued'/'failed' row is a prior attempt that never delivered (a crash
+    // between send + status update, or a transient Resend failure) — re-send
+    // it rather than collapse the retry to 'duplicate', which would otherwise
+    // permanently lose the email. Reset to 'queued' so the row's state stays
+    // coherent through the retry.
+    if (row.status === "sent") return { status: "duplicate", emailSendId: row.id };
+    emailSendId = row.id;
+    await db()
+      .update(emailSends)
+      .set({ status: "queued", error: null })
+      .where(eq(emailSends.id, emailSendId));
   }
 
-  const emailSendId = inserted[0].id;
   const resend = getResendClient();
 
   try {
