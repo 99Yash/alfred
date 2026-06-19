@@ -44,7 +44,9 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        # pgvector image, not plain postgres — a migration does CREATE EXTENSION
+        # vector for the embeddings column, which the stock image can't satisfy.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
