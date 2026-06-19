@@ -26,6 +26,7 @@ export {
   gatherBriefing,
   gatherBriefingWithSuppressionAudit,
   gatherBriefingDigest,
+  gatherCalendarContribution,
   PRIORITY_CATEGORIES,
   SUPPRESSED_CATEGORIES,
 } from "./gather";
@@ -37,6 +38,7 @@ export type {
   BriefingInstructionSuppression,
   GatherBriefingDigestArgs,
   GatherBriefingArgs,
+  GatherCalendarArgs,
   GatherBriefingWithSuppressionAuditResult,
 } from "./gather";
 

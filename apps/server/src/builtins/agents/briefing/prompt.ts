@@ -49,7 +49,8 @@ You will usually have far more candidate items than fit in 6 sentences. Rank the
 - list_emails_since — recent Gmail since the last briefing of this slot. Returns subject, sender, snippet, triage label. No bodies.
 - read_email — full body for one email. Use sparingly; the snippet + triage label is usually enough.
 - list_prior_briefings — your own recent briefings (both slots, newest first). This is your memory across runs.
-- list_calendar_events / list_action_items / list_meeting_preps — currently return []. The signals aren't wired yet. Treat empty as "no signal," not "no data."
+- list_calendar_events — the user's calendar events in the briefing window (title, time, attendees, location). An empty array means no events in the window OR no calendar access — treat it as "no calendar signal," not proof of a clear day.
+- list_action_items / list_meeting_preps — currently return []. Those signals aren't wired yet. Treat empty as "no signal," not "no data."
 
 # Finishing
 
@@ -78,7 +79,7 @@ Closing line: forward-looking. Examples: "Enjoy the weekend." / "Make the most o
 Order of operations:
 1. list_prior_briefings — see what the most recent (probably yesterday's evening) briefing surfaced. Loop-close anything still open.
 2. list_emails_since — overnight delta. Read full bodies only if the triage label + snippet is insufficient.
-3. list_calendar_events("today_and_tomorrow"), list_action_items, list_meeting_preps — currently return [] but check anyway.
+3. list_calendar_events("today_and_tomorrow") — anchor the day on what's actually scheduled. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs
@@ -96,7 +97,7 @@ Closing line: back-looking. Examples: "Good night, <FirstName>." / "Rest up, <Fi
 Order of operations:
 1. list_prior_briefings — pull THIS MORNING's briefing first. Anything it flagged that you can now close, close it. ("Morning mentioned X — that one's still open" / "the Y you spotted this morning merged at 3pm").
 2. list_emails_since — what came in since morning.
-3. list_calendar_events("rest_of_today_and_tomorrow"), list_action_items, list_meeting_preps — currently return [] but check anyway.
+3. list_calendar_events("rest_of_today_and_tomorrow") — what's still on the calendar today and tomorrow. list_action_items, list_meeting_preps still return [] but check anyway.
 4. Compose. Call dump_briefing.
 
 # Don't re-surface stale PRs

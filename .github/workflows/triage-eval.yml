@@ -1,0 +1,101 @@
+# Triage eval gate (issue #142).
+#
+# Runs the behavioral triage-classifier eval suite (packages/api/evals) over
+# the REAL classifier + LLM judge and fails the build if the average score
+# drops below the threshold. The dataset deliberately includes documented
+# misses, so the bar is below 100 — start at 70 and tune as real runs land.
+#
+# Spends real Gemini (classifier) + Sonnet (judge) tokens, so it is scoped to
+# PRs that touch the classifier or the eval fixtures, plus manual dispatch.
+#
+# Required repo secrets:
+#   - GOOGLE_GENERATIVE_AI_API_KEY  (the cheap-tier classifier under test)
+#   - ANTHROPIC_API_KEY             (the LLM-as-judge scorer, claude-sonnet-4-6)
+#
+# The classifier itself is DB-free, but the metering wrapper that every model
+# call goes through (cost attribution, ADR-0015) looks up `model_prices` and
+# writes an `api_call_log` row — `getPrice()` is awaited in the hot path and
+# rethrows on an unreachable DB. So CI runs a throwaway Postgres, applies the
+# committed migrations (so both tables exist), and points DATABASE_URL at it.
+# `model_prices` stays empty: getPrice returns null, cost computes to 0, and
+# the api_call_log insert still succeeds. Every other env var is a
+# format-valid dummy — serverEnv() validates the whole schema, but the
+# classifier and judge only ever reach for the two real keys above.
+name: triage-eval
+
+on:
+  pull_request:
+    paths:
+      - "packages/api/src/modules/triage/**"
+      - "packages/api/evals/**"
+      - ".github/workflows/triage-eval.yml"
+  workflow_dispatch:
+
+# A newer push to the same PR cancels the in-flight (token-spending) run.
+concurrency:
+  group: triage-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    # The LLM portion is a couple of minutes; a longer hang means something is
+    # wedged (e.g. a dead DB pool), so fail cheap rather than burn 20 minutes.
+    timeout-minutes: 10
+    services:
+      postgres:
+        # pgvector image, not plain postgres — a migration does CREATE EXTENSION
+        # vector for the embeddings column, which the stock image can't satisfy.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Real secrets — the only external services the eval actually calls.
+      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Throwaway Postgres for the metering writes (migrated below, empty data).
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      # Format-valid dummies so serverEnv() passes; never used to connect.
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: pnpm --filter @alfred/db db:migrate
+
+      - name: Run triage eval (fails below threshold)
+        run: pnpm --filter @alfred/api exec evalite run --threshold 70
