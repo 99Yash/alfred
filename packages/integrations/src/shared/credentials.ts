@@ -156,7 +156,6 @@ export async function getActiveBearerCredential(
     accessToken: row.accessToken,
     accountId: row.accountId,
     accountLabel: row.accountLabel,
-    // `metadata` is jsonb NOT NULL DEFAULT '{}' — never SQL NULL.
-    metadata: row.metadata as Record<string, unknown>,
+    metadata: row.metadata,
   };
 }

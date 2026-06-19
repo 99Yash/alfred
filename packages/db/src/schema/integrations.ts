@@ -48,6 +48,7 @@ export const integrationCredentials = pgTable(
       .default(sql`'[]'::jsonb`),
     /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */
     metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /**
