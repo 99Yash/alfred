@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "skill_revisions_run_idx" ON "skill_revisions" USING btree ("skill_id","created_by_run_id") WHERE "skill_revisions"."created_by_run_id" IS NOT NULL;

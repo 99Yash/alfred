@@ -14,6 +14,13 @@ const ReplicacheContext = createContext<ReplicacheContextValue>({
   retry: () => {},
 });
 
+/**
+ * Shown across every synced surface when the data path starts 401ing — the
+ * session cookie expired while the tab stayed open. Without this, pull/push
+ * retry forever and the UI silently serves stale data with no signal.
+ */
+const SESSION_EXPIRED_MESSAGE = "Your session expired. Please sign in again.";
+
 export function ReplicacheProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
@@ -34,6 +41,13 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     let cancelled = false;
     let close: (() => void) | undefined;
 
+    // Set once on the first 401 — Replicache retries the pull/push forever, so
+    // onAuthError fires repeatedly; collapse that to a single state update.
+    const handleAuthError = () => {
+      if (cancelled) return;
+      setLoadError((prev) => prev ?? SESSION_EXPIRED_MESSAGE);
+    };
+
     const MAX_ATTEMPTS = 3;
     const load = async () => {
       setLoadError(null);
@@ -41,7 +55,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
         try {
           const { createReplicache } = await import("./client");
           if (cancelled) return;
-          const instance = createReplicache(userId);
+          const instance = createReplicache(userId, { onAuthError: handleAuthError });
           close = instance.close;
           setRep(instance.rep);
           return;
