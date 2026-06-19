@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { modelPrices } from "@alfred/db/schemas";
 import type { LanguageModel } from "ai";
 import { and, desc, eq, lte } from "drizzle-orm";
+import { identifyLanguageModel } from "../models";
 import type { CallUsage } from "./types";
 
 /**
@@ -97,12 +98,13 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
  * compaction threshold from this value; a silent fallback would mean
  * unbounded transcript growth).
  *
- * Provider id normalization mirrors `wrappers.modelIdsFor`: AI SDK exposes
- * namespaced ids (`google.generative-ai`, `anthropic.messages`), models.dev
- * uses the head (`google`, `anthropic`).
+ * Provider id normalization is handled by `identifyLanguageModel` (shared with
+ * the metering wrappers): AI SDK exposes namespaced ids
+ * (`google.generative-ai`, `anthropic.messages`), models.dev uses the head
+ * (`google`, `anthropic`).
  */
 export async function resolveModelContextWindow(model: LanguageModel): Promise<number> {
-  const { provider, modelId } = identifyModel(model);
+  const { provider, modelId } = identifyLanguageModel(model);
   const price = await getPrice(provider, modelId);
   if (!price || price.contextWindow == null) {
     throw new Error(
@@ -110,15 +112,6 @@ export async function resolveModelContextWindow(model: LanguageModel): Promise<n
     );
   }
   return price.contextWindow;
-}
-
-function identifyModel(model: LanguageModel): { provider: string; modelId: string } {
-  if (typeof model === "object" && model && "provider" in model && "modelId" in model) {
-    const raw = String(model.provider);
-    const head = raw.split(".")[0] ?? raw;
-    return { provider: head, modelId: String(model.modelId) };
-  }
-  return { provider: "unknown", modelId: String(model) };
 }
 
 /**
