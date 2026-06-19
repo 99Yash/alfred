@@ -281,6 +281,13 @@
       "when": 1781628617855,
       "tag": "0039_vengeful_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781848611356,
+      "tag": "0040_shallow_alex_wilder",
+      "breakpoints": true
     }
   ]
 }

@@ -44,6 +44,17 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
       throw new Error(`[learn-skill] skill not found or not owned by user: ${args.skillId}`);
     }
 
+    const createdByRunId = args.createdByRunId ?? null;
+
+    // Idempotent on (skillId, createdByRunId) via the partial unique
+    // `skill_revisions_run_idx`. A step retry that re-enters commit after the
+    // row already committed hits the conflict and inserts nothing, so we fall
+    // back to the existing row and skip the pointer/rowVersion update below —
+    // re-running that would double-bump `row_version` and defeat optimistic-
+    // concurrency consumers. `manual` edits carry a null run id (outside the
+    // partial index), so they never conflict and always append. The arbiter
+    // `where` must restate the index predicate or Postgres can't match the
+    // partial index for the ON CONFLICT clause.
     const [revision] = await tx
       .insert(skillRevisions)
       .values({
@@ -52,12 +63,35 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
         kind: args.kind,
         body: args.body,
         metadata: args.metadata ?? {},
-        createdByRunId: args.createdByRunId ?? null,
+        createdByRunId,
+      })
+      .onConflictDoNothing({
+        target: [skillRevisions.skillId, skillRevisions.createdByRunId],
+        where: sql`${skillRevisions.createdByRunId} IS NOT NULL`,
       })
       .returning({ id: skillRevisions.id });
 
     if (!revision) {
-      throw new Error(`[learn-skill] revision insert returned no row`);
+      // Conflict (createdByRunId is non-null): this run already committed its
+      // revision on a prior attempt. Return the existing pointer untouched —
+      // the first attempt already advanced `current_revision_id` and bumped
+      // `row_version`, so we must not touch the skill row again.
+      const [existing] = await tx
+        .select({ id: skillRevisions.id })
+        .from(skillRevisions)
+        .where(
+          and(
+            eq(skillRevisions.skillId, args.skillId),
+            eq(skillRevisions.createdByRunId, createdByRunId as string),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        throw new Error(
+          `[learn-skill] revision insert conflicted but no row found for run ${createdByRunId}`,
+        );
+      }
+      return { revisionId: existing.id, skillStatus: skill.status };
     }
 
     // First revision flips draft → active. Subsequent revisions only
