@@ -1,4 +1,4 @@
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { SectionHeading } from "./section-heading";
 
 export function Overview({ provider }: { provider: IntegrationProvider }) {

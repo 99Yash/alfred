@@ -1,4 +1,4 @@
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type IntegrationStatus = "connected" | "available" | "soon";
 

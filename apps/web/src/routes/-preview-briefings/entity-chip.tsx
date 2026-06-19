@@ -1,6 +1,6 @@
 import type { BriefingReferenceKind } from "@alfred/contracts";
 import { Activity } from "lucide-react";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 /**

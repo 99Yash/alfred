@@ -1,7 +1,7 @@
 import { toolLabel } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
-import { type IntegrationBrand } from "~/lib/integration-icons";
-import { getIntegrationProvider } from "~/lib/integrations";
+import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { getIntegrationProvider } from "~/lib/integrations/integrations";
 import { parseJsonRecord } from "~/lib/json-record";
 
 export interface ToolCallView {

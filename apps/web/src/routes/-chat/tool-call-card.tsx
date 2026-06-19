@@ -1,6 +1,6 @@
 import { Check, ChevronRight, X } from "lucide-react";
 import { useId, useState } from "react";
-import { IntegrationIcon } from "~/lib/integration-icons";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";

@@ -1,4 +1,4 @@
-import { humanizeSlug, humanizeToolName } from "@alfred/contracts";
+import { humanizeSlug, humanizeToolName, isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -280,10 +280,6 @@ function summarizeInput(input: unknown): Array<{ label: string; value: string }>
     label: humanizeSlug(key),
     value: truncate(formatValue(value), 500),
   }));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function formatValue(value: unknown): string {

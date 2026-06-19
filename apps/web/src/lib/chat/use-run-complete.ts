@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getLocalStorageItem, type LocalStorageValue } from "~/lib/storage";
+import { getLocalStorageItem, type LocalStorageValue } from "~/lib/storage/storage";
 import { toast } from "~/lib/toast";
 import type { StreamingMessage } from "./use-chat-stream";
 

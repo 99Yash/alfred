@@ -3,7 +3,7 @@ import { BackLink } from "~/components/preview/integrations/back-link";
 import { NotFound } from "~/components/preview/integrations/not-found";
 import { ProviderDetail } from "~/components/preview/integrations/provider-detail";
 import { useResolvedIntegration } from "~/hooks/use-integration-status";
-import { getIntegrationProvider } from "~/lib/integrations";
+import { getIntegrationProvider } from "~/lib/integrations/integrations";
 
 export function PreviewIntegrationDetailPage() {
   const { provider: providerId } = useParams({ from: "/integrations/$provider" });

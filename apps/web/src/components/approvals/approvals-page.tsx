@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
 import { ApprovalCard, type ApprovalDecision } from "./approval-card";

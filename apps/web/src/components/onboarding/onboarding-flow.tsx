@@ -18,7 +18,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { FrostButton, HeroAtmosphere, TopAnnouncement } from "~/components/landing";
 import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 export type OnboardingStep = 1 | 2 | 3;

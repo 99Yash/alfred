@@ -1,5 +1,5 @@
 import type { IntegrationSlug } from "@alfred/contracts";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 /**
  * Activity panel subtitles arrive as `provider · [repo ·] kind` from the

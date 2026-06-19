@@ -1,4 +1,4 @@
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 export function HeroTile({

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { ApprovalsPage } from "~/components/approvals/approvals-page";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 
 /**
  * Live `/approvals` surface. Subscribes to pending `action_stagings` via

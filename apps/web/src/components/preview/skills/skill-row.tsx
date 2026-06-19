@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Sparkles, type LucideIcon } from "lucide-react";
 import { AppPill } from "~/components/ui/v2";
 import type { PreviewSkill, PreviewSkillTint } from "~/lib/preview-skills";
+import { formatRelative } from "~/lib/strings";
 import { cn } from "~/lib/utils";
 
 const TINT: Record<
@@ -28,18 +29,6 @@ const TINT: Record<
     pillTone: "green",
   },
 };
-
-function formatRelative(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / (60 * 1000));
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number }) {
   const tint = TINT[skill.tint];

@@ -3,7 +3,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
 
 export const INBOX_PAGE_SIZE = 8;
@@ -195,7 +195,7 @@ export function useInboxDetail(documentId: string | null) {
               body: m.body,
               htmlBody: m.htmlBody ?? null,
               authoredAt: m.authoredAt,
-              authoredAtRelative: formatRelative(m.authoredAt),
+              authoredAtRelative: formatRelativeShort(m.authoredAt),
               unread: m.unread,
               attachments,
             };
@@ -252,7 +252,7 @@ function toInboxItem(row: InboxResponseItem): InboxItem {
     sender: display || "Unknown sender",
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
-    time: formatRelative(row.authoredAt),
+    time: formatRelativeShort(row.authoredAt),
     unread: row.unread,
     initial: initialFor(display),
     tone: toneFor(display),
@@ -388,7 +388,8 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-function formatRelative(iso: string | null): string {
+/** Short relative time ("now" / "5m" / "3h" / "Mar 4") for dense inbox rows. */
+function formatRelativeShort(iso: string | null): string {
   if (!iso) return "";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";

@@ -9,8 +9,8 @@ import {
   AppTextarea,
   type AppSegmentedItem,
 } from "~/components/ui/v2";
-import { authClient } from "~/lib/auth-client";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { authClient } from "~/lib/auth/auth-client";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useBioFact } from "~/lib/replicache/use-bio-fact";
 import { toast } from "~/lib/toast";
 import { SettingCard } from "./setting-card";

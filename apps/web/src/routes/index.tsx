@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { LandingPage } from "~/components/landing/landing-page";
-import { authClient } from "~/lib/auth-client";
-import { readAuthHint } from "~/lib/auth-hint";
+import { authClient } from "~/lib/auth/auth-client";
+import { readAuthHint } from "~/lib/auth/auth-hint";
 import { pageMeta } from "~/lib/page-meta";
-import { useHealth } from "~/lib/use-health";
+import { useHealth } from "~/lib/integrations/use-health";
 
 /**
  * Root index — `/`.

@@ -8,7 +8,7 @@ import {
   type IntegrationBackend,
   type ProviderScopeRequirement,
   type IntegrationProvider,
-} from "~/lib/integrations";
+} from "~/lib/integrations/integrations";
 
 export interface CredentialRow {
   id: string;
