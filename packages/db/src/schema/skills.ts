@@ -113,7 +113,7 @@ export const skillRevisions = pgTable(
     /** Pointer to the `agent_runs.id` that produced this revision (null for `manual`). */
     createdByRunId: text("created_by_run_id"),
     rowVersion: integer("row_version").notNull().default(0),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index("skill_revisions_skill_idx").on(t.skillId, t.createdAt),
