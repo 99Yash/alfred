@@ -1,4 +1,4 @@
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { HeroTile } from "./hero-tile";
 

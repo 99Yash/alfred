@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
 export function ActionPill({

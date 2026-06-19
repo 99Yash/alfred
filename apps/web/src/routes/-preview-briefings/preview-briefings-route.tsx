@@ -1,5 +1,5 @@
 import { Outlet, useChildMatches } from "@tanstack/react-router";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import { PreviewBriefingsPage } from "./preview-briefings-page";
 
 export function PreviewBriefingsRoute() {

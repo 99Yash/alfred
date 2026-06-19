@@ -17,10 +17,10 @@ import {
 } from "react";
 import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
-import { authClient } from "~/lib/auth-client";
-import { writeAuthHint } from "~/lib/auth-hint";
+import { authClient } from "~/lib/auth/auth-client";
+import { writeAuthHint } from "~/lib/auth/auth-hint";
 import { client } from "~/lib/eden";
-import { readOnboardingHint, writeOnboardingHint } from "~/lib/onboarding-hint";
+import { readOnboardingHint, writeOnboardingHint } from "~/lib/auth/onboarding-hint";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot

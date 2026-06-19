@@ -3,7 +3,7 @@ import {
   matchesIntegration,
   type IntegrationCategory,
   type IntegrationProvider,
-} from "~/lib/integrations";
+} from "~/lib/integrations/integrations";
 
 export type Section = {
   title: IntegrationCategory;

@@ -1,6 +1,6 @@
 import type { SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 
 export interface FollowUpSuggestion {

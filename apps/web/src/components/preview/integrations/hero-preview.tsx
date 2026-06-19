@@ -1,4 +1,4 @@
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 import { HeroTile } from "./hero-tile";
 

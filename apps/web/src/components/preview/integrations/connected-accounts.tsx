@@ -1,6 +1,6 @@
 import { AppButton, AppCard } from "~/components/ui/v2";
 import type { ConnectedAccount } from "~/hooks/use-integration-status";
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 

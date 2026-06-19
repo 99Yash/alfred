@@ -12,6 +12,7 @@ import {
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
   buildBriefingSourcePanels,
+  escapeHtml,
   listBriefingReferenceOptions,
   referencesFromSections,
 } from "./references";
@@ -469,15 +470,6 @@ function shortenFrom(from: string | null): string | null {
     return angleMatch[2] ?? null;
   }
   return trimmed;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 // Inline styles only — Gmail strips <style> blocks, and inlining is the

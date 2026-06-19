@@ -1,6 +1,6 @@
 import { isBriefingReferenceKind } from "@alfred/contracts";
 import type { Components } from "react-markdown";
-import { type IntegrationBrand, IntegrationGlyph } from "~/lib/integration-icons";
+import { type IntegrationBrand, IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { EntityChip } from "./entity-chip";
 

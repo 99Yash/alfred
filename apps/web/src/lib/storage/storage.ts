@@ -28,7 +28,7 @@ import {
   LOCAL_STORAGE_SCHEMAS,
   type LocalStorageKey,
   type LocalStorageValue,
-} from "~/lib/storage-schemas";
+} from "~/lib/storage/storage-schemas";
 
 export type { LocalStorageKey, LocalStorageValue };
 export { LOCAL_STORAGE_SCHEMAS };

@@ -1,7 +1,6 @@
 import {
   EVENT_KINDS,
   eventPayloadSchemas,
-  isKnownEventKind,
   type EventFrame,
   type EventKind,
 } from "@alfred/schemas/events";
@@ -21,10 +20,6 @@ export interface EventStreamFrame extends Pick<EventFrame, "id" | "kind" | "crea
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;
   onError?: (err: Event) => void;
-}
-
-function isKnownKind(value: string): value is EventKind {
-  return isKnownEventKind(value);
 }
 
 interface EventStreamSubscriber {
@@ -119,5 +114,3 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
     }
   };
 }
-
-export { isKnownKind };

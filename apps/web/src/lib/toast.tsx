@@ -1,7 +1,7 @@
 import { Check, Info, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast as sonnerToast } from "sonner";
-import { getLocalStorageItem } from "~/lib/storage";
+import { getLocalStorageItem } from "~/lib/storage/storage";
 import { cn } from "~/lib/utils";
 
 /**

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { getRelatedProviders, type IntegrationProvider } from "~/lib/integrations";
-import { IntegrationIcon } from "~/lib/integration-icons";
+import { getRelatedProviders, type IntegrationProvider } from "~/lib/integrations/integrations";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { SectionHeading } from "./section-heading";
 

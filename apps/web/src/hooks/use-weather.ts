@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 import { fetchWeather, type WeatherSnapshot } from "~/lib/weather";
 
 /** Cache window — survives reloads and gates refetches. */

@@ -22,10 +22,6 @@ export function generateRandomCode(length: number = 8) {
   return customAlphabet("123456789", length)();
 }
 
-export function firstOrNull<T>(rows: T[]): T | null {
-  return rows[0] ?? null;
-}
-
 /**
  * Format a number with just enough precision to round-trip the float32
  * pgvector actually stores. Embedding providers return JS float64s, but

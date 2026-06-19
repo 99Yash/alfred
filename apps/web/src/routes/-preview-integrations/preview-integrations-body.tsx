@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppInput } from "~/components/ui/v2";
 import { useResolvedIntegrations } from "~/hooks/use-integration-status";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { FeaturedHero } from "./featured-hero";
 import { buildConnectedSection, filterSections, matches, MCP_HAYSTACK } from "./helpers";
 import { MCPServerSection } from "./mcp-server-section";

@@ -1,6 +1,6 @@
 import type { TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { useEffect, useState } from "react";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export type ThreadGroup = "today" | "yesterday" | "earlier";
 

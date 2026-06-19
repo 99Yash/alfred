@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatContext } from "~/components/chat-context";
-import { useRightRail } from "~/lib/app-shell";
+import { useRightRail } from "~/lib/shell/app-shell";
 import { ComposerDock } from "./composer-dock";
 import { ConversationPlaceholder } from "./conversation-placeholder";
 import { ConversationScroll } from "./conversation-scroll";

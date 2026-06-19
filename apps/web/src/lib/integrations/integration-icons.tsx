@@ -1,7 +1,7 @@
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
-import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integration-svgs";
-import { INTEGRATION_TILES, type IntegrationTileSlug } from "~/lib/integration-tiles";
+import { BRAND_SVGS, type BrandSvgSlug } from "~/lib/integrations/integration-svgs";
+import { INTEGRATION_TILES, type IntegrationTileSlug } from "~/lib/integrations/integration-tiles";
 import { cn } from "~/lib/utils";
 
 export type IntegrationBrand =

@@ -21,7 +21,7 @@
  * same redirect effect still fires for a genuinely-not-onboarded user). Mirrors
  * `lib/auth-hint`.
  */
-import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 
 const KEY = "alfred.onboarding-complete";
 

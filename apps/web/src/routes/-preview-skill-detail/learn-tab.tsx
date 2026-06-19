@@ -2,6 +2,7 @@ import { Command, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { AppTextarea } from "~/components/ui/v2";
 import type { PreviewSkill } from "~/lib/preview-skills";
+import { formatRelative } from "~/lib/strings";
 import { cn } from "~/lib/utils";
 import { EmptyMemoryCard } from "./empty-memory-card";
 import { Kbd } from "./kbd";
@@ -96,16 +97,4 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
       </section>
     </div>
   );
-}
-
-function formatRelative(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / (60 * 1000));
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
 }

@@ -12,7 +12,7 @@ import {
   RailwayTile,
   SlackTile,
   VercelTile,
-} from "~/lib/integration-tile-components";
+} from "~/lib/integrations/integration-tile-components";
 
 export type IntegrationTileSlug =
   | "gmail"

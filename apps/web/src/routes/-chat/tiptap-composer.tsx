@@ -9,7 +9,7 @@ import {
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 

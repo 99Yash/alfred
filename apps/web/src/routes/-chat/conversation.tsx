@@ -3,7 +3,7 @@ import { ArrowDown, ShieldQuestion } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";

@@ -1,7 +1,8 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
 import { useId, useRef, useState } from "react";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
@@ -51,11 +52,6 @@ function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[])
     }
   }
   return items;
-}
-
-/** Lowercase the first letter so a done-label reads as a sentence tail. */
-function lowerFirst(value: string): string {
-  return value.length > 0 ? value[0]!.toLowerCase() + value.slice(1) : value;
 }
 
 /** Distinct integration glyphs touched across the run, in first-seen order. */
