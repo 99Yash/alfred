@@ -37,6 +37,14 @@ export function createReplicache(
   rep: AlfredReplicache;
   close: () => void;
 } {
+  // One place for "this pull/push failed": a 401 means the session cookie
+  // expired (notify the caller), and a bounded body makes any failure
+  // diagnosable instead of a blank errorMessage. Keeps puller/pusher in step.
+  const failureInfo = async (response: Response) => {
+    if (response.status === 401) options.onAuthError?.();
+    return { httpStatusCode: response.status, errorMessage: await describeFailure(response) };
+  };
+
   const rep = new Replicache<ClientMutators>({
     name: `alfred-${userId}`,
     mutators: clientMutators,
@@ -54,13 +62,7 @@ export function createReplicache(
           httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
         };
       }
-      if (response.status === 401) options.onAuthError?.();
-      return {
-        httpRequestInfo: {
-          httpStatusCode: response.status,
-          errorMessage: await describeFailure(response),
-        },
-      };
+      return { httpRequestInfo: await failureInfo(response) };
     },
 
     pusher: async (req) => {
@@ -70,13 +72,10 @@ export function createReplicache(
         body: JSON.stringify(req),
         credentials: "include",
       });
-      if (response.status === 401) options.onAuthError?.();
-      return {
-        httpRequestInfo: {
-          httpStatusCode: response.status,
-          errorMessage: response.ok ? "" : await describeFailure(response),
-        },
-      };
+      if (response.ok) {
+        return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" } };
+      }
+      return { httpRequestInfo: await failureInfo(response) };
     },
   });
 
