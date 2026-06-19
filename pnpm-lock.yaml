@@ -88,7 +88,7 @@ catalogs:
       specifier: ^19.0.0
       version: 19.2.5
     replicache:
-      specifier: ^15.3.0
+      specifier: 15.3.0
       version: 15.3.0
     resend:
       specifier: ^6.9.3
@@ -3744,6 +3744,7 @@ packages:
   '@rocicorp/resolver@1.0.2':
     resolution: {integrity: sha512-TfjMTQp9cNNqNtHFfa+XHEGdA7NnmDRu+ZJH4YF3dso0Xk/b9DMhg/sl+b6CR4ThFZArXXDsG1j8Mwl34wcOZQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+    deprecated: Use Promise.withResolvers instead
 
   '@rolldown/binding-android-arm64@1.0.0-beta.45':
     resolution: {integrity: sha512-bfgKYhFiXJALeA/riil908+2vlyWGdwa7Ju5S+JgWZYdR4jtiPOGdM6WLfso1dojCh+4ZWeiTwPeV9IKQEX+4g==}
