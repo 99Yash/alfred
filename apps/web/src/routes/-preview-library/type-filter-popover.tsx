@@ -1,6 +1,6 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown, Filter } from "lucide-react";
-import type { ArtifactType } from "~/lib/library-artifacts";
+import type { ArtifactType } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
 
 const TYPE_OPTIONS: ReadonlyArray<{ label: string; value: ArtifactType | "all" }> = [

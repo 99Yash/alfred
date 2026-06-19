@@ -1,7 +1,7 @@
 import type { LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { SectionHeading } from "./section-heading";
 

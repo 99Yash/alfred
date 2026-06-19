@@ -1,5 +1,5 @@
 import { createContext, use, useEffect, useMemo, useState } from "react";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import type { AlfredReplicache } from "./client";
 
 interface ReplicacheContextValue {

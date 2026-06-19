@@ -1,5 +1,5 @@
-import { IntegrationIcon } from "~/lib/integration-icons";
-import type { IntegrationProvider } from "~/lib/integrations";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
 export function HeroTile({

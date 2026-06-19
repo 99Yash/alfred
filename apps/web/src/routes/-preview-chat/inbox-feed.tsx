@@ -28,7 +28,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { useInboxDetail, type InboxAttachment, type InboxMessage } from "~/hooks/use-inbox";
 import { faviconFor as faviconUrl } from "~/lib/favicon";
-import { IntegrationGlyph } from "~/lib/integration-icons";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type InboxItem } from "./helpers";
 import type { InboxPagination } from "./rail-data";

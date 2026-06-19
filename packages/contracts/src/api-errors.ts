@@ -1,3 +1,5 @@
+import { isRecord } from "./guards.js";
+
 export const API_ERROR_CODES = [
   "BAD_REQUEST",
   "UNAUTHORIZED",
@@ -42,8 +44,4 @@ export function apiErrorMessage(value: unknown, fallback: string): string {
 
 function isApiErrorCode(value: unknown): value is ApiErrorCode {
   return typeof value === "string" && API_ERROR_CODES.includes(value as ApiErrorCode);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

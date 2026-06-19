@@ -1,5 +1,6 @@
 import { humanizeToolName, type ToolName } from "@alfred/contracts";
 import { asRecord } from "~/lib/json-record";
+import { capitalize } from "~/lib/strings";
 import { stringArray, stringValue } from "./format";
 
 /**
@@ -24,10 +25,6 @@ const TITLE_OVERRIDES: Partial<Record<ToolName, (input: Record<string, unknown>)
     return summary ? `Schedule “${summary}”` : "Create a calendar event";
   },
 };
-
-function capitalize(value: string): string {
-  return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
-}
 
 /**
  * Human card title: the tool's input-aware override when present, else the

@@ -1,4 +1,4 @@
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
 import { DetailHeader } from "./detail-header";

@@ -1,4 +1,5 @@
 import type { SyncedWorkflow } from "@alfred/sync";
+import { lowerFirst } from "./strings";
 import {
   CalendarClock,
   CheckCircle2,
@@ -63,10 +64,6 @@ function titleCase(slug: string): string {
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
-}
-
-function lowerFirst(value: string): string {
-  return value ? value.charAt(0).toLowerCase() + value.slice(1) : value;
 }
 
 /** "0 7 * * *" → "Every day at 07:00"; falls back to the raw expression. */

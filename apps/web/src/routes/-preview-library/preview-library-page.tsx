@@ -6,7 +6,7 @@ import {
   LIBRARY_ARTIFACTS,
   matchesArtifact,
   type ArtifactType,
-} from "~/lib/library-artifacts";
+} from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
 import { ArtifactCard } from "./artifact-card";
 import type { LibraryFilter } from "./helpers";

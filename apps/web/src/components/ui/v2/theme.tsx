@@ -37,7 +37,7 @@ import {
   setLocalStorageItem,
   subscribeToStorage,
   type LocalStorageValue,
-} from "~/lib/storage";
+} from "~/lib/storage/storage";
 
 /** The persisted theme choice — defined once, in the `app-theme` storage schema. */
 export type AppThemeMode = LocalStorageValue<"app-theme">;

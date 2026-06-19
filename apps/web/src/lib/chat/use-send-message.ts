@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";

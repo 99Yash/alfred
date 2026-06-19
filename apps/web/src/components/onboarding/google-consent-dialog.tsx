@@ -2,7 +2,7 @@ import { ShieldCheck, SquareCheckBig } from "lucide-react";
 import type { ReactNode } from "react";
 import { FrostButton } from "~/components/landing";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
-import { IntegrationIcon } from "~/lib/integration-icons";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 
 /**
  * Pre-OAuth consent coaching. Borrowed from dimension's

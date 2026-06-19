@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
-import { IntegrationIcon } from "~/lib/integration-icons";
-import type { IntegrationProvider } from "~/lib/integrations";
+import { IntegrationIcon } from "~/lib/integrations/integration-icons";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { toast } from "~/lib/toast";
 
 const API_URL =

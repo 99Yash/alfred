@@ -35,7 +35,7 @@ import {
   DimensionModelPicker,
   type DimensionComposerMenuItem,
 } from "~/components/dimension-composer-shell";
-import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifact-pages";
+import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifacts/artifact-pages";
 import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
 

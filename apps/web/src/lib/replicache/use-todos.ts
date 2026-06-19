@@ -1,7 +1,7 @@
 import { IDB_KEY, type SyncedTodo, syncedTodoSchema } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import { useReplicacheStatus } from "./context";
 
 export interface TodosState {

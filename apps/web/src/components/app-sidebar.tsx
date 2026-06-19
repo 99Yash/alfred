@@ -35,7 +35,7 @@ import {
 } from "react";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { AppButton, AppInput, AppThemeToggle, useAppTheme } from "~/components/ui/v2";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import type { SessionUser } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";

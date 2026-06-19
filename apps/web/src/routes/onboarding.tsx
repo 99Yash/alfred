@@ -4,7 +4,7 @@ import { pageMeta } from "~/lib/page-meta";
 import { useEffect, useState } from "react";
 import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/hooks/use-integration-status";
-import { authClient } from "~/lib/auth-client";
+import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
 import { toast } from "~/lib/toast";
 
