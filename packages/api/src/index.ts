@@ -128,13 +128,18 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       checks.db = "error";
     }
 
+    let conn: ReturnType<typeof createUntrackedRedisConnection> | undefined;
     try {
-      const conn = createUntrackedRedisConnection();
+      conn = createUntrackedRedisConnection();
       await conn.ping();
-      await conn.quit();
       checks.redis = "ok";
     } catch {
       checks.redis = "error";
+    } finally {
+      // Untracked connection — close it here so a failing probe can't leak a
+      // perpetually-reconnecting socket. quit() can reject if already broken;
+      // fall back to a hard disconnect.
+      await conn?.quit().catch(() => conn?.disconnect());
     }
 
     const allOk = Object.values(checks).every((v) => v === "ok");
