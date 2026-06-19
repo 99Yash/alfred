@@ -83,7 +83,10 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
+    // Log the upstream body for debugging, but don't forward it in the thrown
+    // message — matches how the callback avoids leaking exchange errors.
+    console.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
+    throw new Error(`[notion.oauth] token exchange failed (${res.status})`);
   }
   const json = (await res.json()) as {
     access_token: string;

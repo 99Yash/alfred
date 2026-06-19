@@ -98,7 +98,6 @@ export const vercelIntegrationRoutes = new Elysia({
         state: t.Optional(t.String()),
         configurationId: t.Optional(t.String()),
         teamId: t.Optional(t.String()),
-        next: t.Optional(t.String()),
         error: t.Optional(t.String()),
       }),
     },
