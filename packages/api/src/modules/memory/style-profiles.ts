@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { styleProfiles, type StyleProfile } from "@alfred/db/schemas";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type StyleAudienceBucket,
@@ -151,6 +151,15 @@ export async function getStyleProfile(
   audienceBucket: StyleAudienceBucket,
   recipientId?: string | null,
 ): Promise<StyleProfileRow | null> {
+  // Recipient scoping: only a recipient-level row for *this* recipient (or a
+  // recipient-agnostic row, NULL recipientId) may apply. Without this, a row
+  // authored for a different recipient in the same audience bucket leaks into
+  // the candidate set and can tie/beat the correct bucket-level generic row.
+  const recipientScope =
+    recipientId != null
+      ? or(isNull(styleProfiles.recipientId), eq(styleProfiles.recipientId, recipientId))
+      : isNull(styleProfiles.recipientId);
+
   const candidates = await db()
     .select()
     .from(styleProfiles)
@@ -160,18 +169,19 @@ export async function getStyleProfile(
         eq(styleProfiles.channel, channel),
         eq(styleProfiles.status, "active"),
         inArray(styleProfiles.audienceBucket, [audienceBucket, "generic"]),
+        recipientScope,
       ),
     )
     .orderBy(desc(styleProfiles.generatedFromCount));
 
   // Sort by specificity manually since SQL ORDER BY across two nullable
-  // dimensions is awkward to express.
+  // dimensions is awkward to express. The WHERE above guarantees every
+  // candidate's recipientId is either NULL or === recipientId, so the only
+  // distinctions left are: exact-recipient match, exact-bucket match, generic.
   const score = (r: StyleProfile) => {
     let s = 0;
     if (r.recipientId != null && r.recipientId === recipientId) s += 4;
     if (r.audienceBucket === audienceBucket && audienceBucket !== "generic") s += 2;
-    if (r.audienceBucket === "generic") s += 0;
-    else s += 1; // any non-generic match
     return s;
   };
   candidates.sort((a, b) => score(b) - score(a));
