@@ -11,7 +11,12 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
-import { isIntegrationSlug, type AgentTranscriptMessage, type ToolName } from "@alfred/contracts";
+import {
+  isIntegrationSlug,
+  toJsonValue,
+  type AgentTranscriptMessage,
+  type ToolName,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
@@ -261,15 +266,6 @@ function dispatchResultToToolOutput(
       return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
     default:
       return { type: "json", value: toJsonValue(result.result) };
-  }
-}
-
-function toJsonValue(value: unknown): unknown {
-  if (value === undefined) return null;
-  try {
-    return JSON.parse(JSON.stringify(value)) as unknown;
-  } catch {
-    return { unserializable: String(value) };
   }
 }
 

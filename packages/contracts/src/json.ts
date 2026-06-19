@@ -46,3 +46,18 @@ export function parseJsonWith<T>(
   const result = schema.safeParse(safeJsonParse(raw));
   return result.success ? result.data : fallback;
 }
+
+/**
+ * Coerce an arbitrary value into a JSON-safe one for storage on a transcript or
+ * tool-result message: `undefined` becomes `null`, and anything that can't
+ * round-trip through `JSON.stringify` (cycles, BigInt, …) degrades to a
+ * `{ unserializable }` marker rather than throwing.
+ */
+export function toJsonValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return { unserializable: String(value) };
+  }
+}
