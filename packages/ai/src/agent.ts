@@ -312,12 +312,11 @@ function decorateTools(tools: ToolSet, cacheTtl: "5m" | "1h" | undefined): ToolS
 
 function stripExecute(t: Tool): Tool {
   if (!("execute" in t) || t.execute === undefined) return t;
-  // `Tool` carries an `execute` property in its type union; copying via
-  // spread + delete keeps the rest of the object identity intact (so
-  // schema, providerOptions, etc. survive).
-  const copy: Record<string, unknown> = { ...(t as unknown as Record<string, unknown>) };
-  delete copy.execute;
-  return copy as unknown as Tool;
+  // Drop `execute` while preserving the rest of the tool (schema,
+  // providerOptions, etc.). A tool without `execute` is still a valid `Tool`
+  // (it's optional), so the rest object needs no cast.
+  const { execute: _execute, ...rest } = t;
+  return rest;
 }
 
 function withAnthropicCacheControl(t: Tool, ttl: "5m" | "1h"): Tool {
