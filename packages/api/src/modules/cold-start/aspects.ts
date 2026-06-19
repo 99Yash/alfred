@@ -1,5 +1,4 @@
 import { getSubAgentModel, meteredGenerateText, stepCountIs } from "@alfred/ai";
-import { settleTaskGroup } from "@alfred/contracts";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
@@ -167,41 +166,29 @@ export interface ResearchAspectsArgs {
  * catches its own failure and degrades to an explicit-empty finding, so one
  * transient casualty (a web_search 429, a provider hiccup, a single model
  * error) can't take down its siblings. These facets are independent
- * best-effort research, not coupled billable work, so settleTaskGroup's
- * cancel-on-first-error is the wrong primitive here — we never let one aspect's
- * rejection abort the shared signal. Empty findings still flow through to
- * synthesis, preserving cold-start's best-effort contract.
+ * best-effort research, not coupled billable work — there is deliberately no
+ * shared abort scope, so one aspect's failure never cancels the others. Empty
+ * findings still flow through to synthesis, preserving cold-start's best-effort
+ * contract.
  */
 export async function researchAspects(args: ResearchAspectsArgs): Promise<AspectFinding[]> {
-  const aspects = selectAspects(args.signals);
-  const settled = await settleTaskGroup(
-    aspects.map(
-      (aspect) =>
-        async ({ signal }) => {
-          try {
-            return await runAspect({
-              signals: args.signals,
-              anchor: args.anchor,
-              aspect,
-              runId: args.runId,
-              idempotencyKey: args.idempotencyKey,
-              abortSignal: signal,
-            });
-          } catch {
-            // Isolate this aspect's failure — return its own empty finding
-            // rather than rethrow, so siblings keep running.
-            return emptyAspectFinding(aspect);
-          }
-        },
-    ),
+  return Promise.all(
+    selectAspects(args.signals).map(async (aspect) => {
+      try {
+        return await runAspect({
+          signals: args.signals,
+          anchor: args.anchor,
+          aspect,
+          runId: args.runId,
+          idempotencyKey: args.idempotencyKey,
+        });
+      } catch {
+        // Isolate this aspect's failure — degrade to an empty finding rather
+        // than rethrow, so siblings keep running.
+        return emptyAspectFinding(aspect);
+      }
+    }),
   );
-
-  return settled.map((result, index): AspectFinding => {
-    if (result.status === "fulfilled") return result.value;
-    // Defensive fallback — the per-aspect catch above means rejections should
-    // never reach here.
-    return emptyAspectFinding(aspects[index] as ColdStartAspect);
-  });
 }
 
 function emptyAspectFinding(aspect: ColdStartAspect): AspectFinding {
