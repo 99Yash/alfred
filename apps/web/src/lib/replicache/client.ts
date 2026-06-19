@@ -7,7 +7,33 @@ const API_URL =
 
 export type AlfredReplicache = Replicache<ClientMutators>;
 
-export function createReplicache(userId: string): {
+export interface CreateReplicacheOptions {
+  /**
+   * Fired when the synced data path looks unauthenticated — a pull/push that
+   * 401s, or a poke `EventSource` that errors into a permanently CLOSED state
+   * (a 401 closes it with no auto-reconnect). Lets the caller surface a
+   * "session expired" state instead of an invisible infinite retry loop.
+   */
+  onAuthError?: () => void;
+}
+
+// Replicache surfaces a non-200 `errorMessage` via its logging /
+// onClientStateNotFound paths; a blank string throws away the only diagnostic
+// we get. Read the body (bounded) so a 401/5xx says *why* it failed.
+async function describeFailure(response: Response): Promise<string> {
+  let body = "";
+  try {
+    body = (await response.text()).slice(0, 500);
+  } catch {
+    // Body already consumed or unreadable — fall back to the status line.
+  }
+  return `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`;
+}
+
+export function createReplicache(
+  userId: string,
+  options: CreateReplicacheOptions = {},
+): {
   rep: AlfredReplicache;
   close: () => void;
 } {
@@ -22,11 +48,19 @@ export function createReplicache(userId: string): {
         body: JSON.stringify(req),
         credentials: "include",
       });
-      const httpRequestInfo = { httpStatusCode: response.status, errorMessage: "" };
-      if (response.status === 200) {
-        return { response: await response.json(), httpRequestInfo };
+      if (response.ok) {
+        return {
+          response: await response.json(),
+          httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
+        };
       }
-      return { httpRequestInfo };
+      if (response.status === 401) options.onAuthError?.();
+      return {
+        httpRequestInfo: {
+          httpStatusCode: response.status,
+          errorMessage: await describeFailure(response),
+        },
+      };
     },
 
     pusher: async (req) => {
@@ -36,7 +70,13 @@ export function createReplicache(userId: string): {
         body: JSON.stringify(req),
         credentials: "include",
       });
-      return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" } };
+      if (response.status === 401) options.onAuthError?.();
+      return {
+        httpRequestInfo: {
+          httpStatusCode: response.status,
+          errorMessage: response.ok ? "" : await describeFailure(response),
+        },
+      };
     },
   });
 
@@ -48,7 +88,10 @@ export function createReplicache(userId: string): {
     rep.pull();
   });
   source.onerror = () => {
-    // SSE will auto-reconnect; silence the console noise.
+    // A transient drop leaves the source CONNECTING (it auto-reconnects) — stay
+    // quiet. A 401 closes it permanently (readyState CLOSED, no reconnect); that
+    // mirrors an expired session, so surface it rather than silently dying.
+    if (source.readyState === EventSource.CLOSED) options.onAuthError?.();
   };
 
   return {

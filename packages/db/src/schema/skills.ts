@@ -118,6 +118,15 @@ export const skillRevisions = pgTable(
   (t) => [
     index("skill_revisions_skill_idx").on(t.skillId, t.createdAt),
     index("skill_revisions_user_idx").on(t.userId, t.createdAt),
+    // Idempotency guard for `commitSkillRevision`: an agent-produced revision
+    // is unique per (skill, producing run), so a step retry that re-enters
+    // commit after the row already landed collapses onto the existing row via
+    // `onConflictDoNothing` rather than appending a duplicate + double-bumping
+    // `skills.row_version`. Partial on a non-null run id — `manual` edits carry
+    // no run id and are intentionally unconstrained (the editor can save many).
+    uniqueIndex("skill_revisions_run_idx")
+      .on(t.skillId, t.createdByRunId)
+      .where(sql`${t.createdByRunId} IS NOT NULL`),
   ],
 );
 
