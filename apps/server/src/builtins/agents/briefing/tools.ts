@@ -1,4 +1,5 @@
 import {
+  gatherCalendarContribution,
   listEmailsSinceWatermark,
   listPriorBriefings,
   readEmailDocument,
@@ -7,6 +8,7 @@ import {
   type PriorBriefingSummary,
 } from "@alfred/api";
 import { tool, type ToolSet } from "@alfred/ai";
+import type { CalendarContribution, IanaTimezone } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -22,11 +24,12 @@ import { z } from "zod";
  *      boundary, not in the prompt, so the renderer always sees a
  *      well-formed payload.
  *
- * Stubs (`list_calendar_events`, `list_action_items`,
- * `list_meeting_preps`) return `[]` for now — the briefing feature scope
- * includes calendar.readonly, but the calendar/action/meeting-prep
- * contributors still need to be wired. The tool surface is stable so the
- * prompt + agent shell don't change when those land.
+ * `list_calendar_events` is wired to the deterministic calendar
+ * contributor (`gatherCalendarContribution`) over the briefing window.
+ * The remaining stubs (`list_action_items`, `list_meeting_preps`) return
+ * `[]` for now — those contributors still need to be wired. The tool
+ * surface is stable so the prompt + agent shell don't change when those
+ * land.
  */
 
 export interface BriefingToolBag {
@@ -58,6 +61,10 @@ interface BuildArgs {
   sinceIngestedAt: Date | null;
   /** Frozen "now" — `until` for the email window. */
   untilIngestedAt: Date;
+  /** YYYY-MM-DD calendar date in the user's timezone — anchors the calendar window. */
+  briefingDate: string;
+  /** User's IANA timezone — defines local day boundaries for the calendar window. */
+  timezone: IanaTimezone;
 }
 
 const dumpInputSchema = z.object({
@@ -126,14 +133,22 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_calendar_events: tool({
       description:
-        "List the user's calendar events in the briefing window. NOT YET WIRED — returns []. The briefing feature scope includes calendar.readonly, but this tool still needs the calendar contributor. Treat an empty return as 'no calendar signal available,' not 'no events.'",
+        "List the user's calendar events in the briefing window (today through end of tomorrow; for the evening slot, from now onward). Returns title, start/end, attendees, and location per event. An empty array means either no events in the window or no calendar scope granted — treat it as 'no calendar signal,' not necessarily 'no events.'",
       inputSchema: z.object({
         window: z
           .enum(["today", "today_and_tomorrow", "rest_of_today_and_tomorrow"])
-          .describe("Which date range the agent wants."),
+          .describe(
+            "Hint for which range you want. The actual window is derived from the briefing slot — morning covers today+tomorrow, evening covers the rest of today+tomorrow.",
+          ),
       }),
-      execute: async (_input): Promise<unknown[]> => {
-        return [];
+      execute: async (_input): Promise<CalendarContribution["events"]> => {
+        const contribution = await gatherCalendarContribution({
+          userId: args.userId,
+          briefingDate: args.briefingDate,
+          timezone: args.timezone,
+          slot: args.slot,
+        });
+        return contribution?.events ?? [];
       },
     }),
 

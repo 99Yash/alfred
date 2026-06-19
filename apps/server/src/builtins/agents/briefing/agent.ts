@@ -5,6 +5,7 @@ import {
   type LanguageModel,
   type ModelMessage,
 } from "@alfred/ai";
+import type { IanaTimezone } from "@alfred/contracts";
 import { buildSystemPrompt } from "./prompt";
 import { buildBriefingTools, type DumpedBriefing } from "./tools";
 
@@ -31,6 +32,10 @@ export interface RunBriefingAgentArgs {
   sinceIngestedAt: Date | null;
   /** Upper bound on `documents.ingested_at` — frozen at run start. */
   untilIngestedAt: Date;
+  /** YYYY-MM-DD calendar date in the user's timezone — anchors the calendar tool's window. */
+  briefingDate: string;
+  /** User's IANA timezone — defines local day boundaries for the calendar tool. */
+  timezone: IanaTimezone;
   /** Forwarded to the metering wrapper for per-call attribution. */
   runId: string;
   stepId: string;
@@ -63,6 +68,8 @@ export async function runBriefingAgent(
     slot: args.slot,
     sinceIngestedAt: args.sinceIngestedAt,
     untilIngestedAt: args.untilIngestedAt,
+    briefingDate: args.briefingDate,
+    timezone: args.timezone,
   });
 
   const seed: ModelMessage[] = [
