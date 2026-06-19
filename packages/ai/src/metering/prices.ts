@@ -131,11 +131,24 @@ export function computeCost(price: PriceLookup | null, usage: CallUsage | undefi
   if (!price) return 0;
   if (price.perCallUsd != null) return price.perCallUsd;
   if (!usage) return 0;
-  const input = (usage.inputTokens ?? 0) / 1_000_000;
-  const cachedInput = (usage.cachedInputTokens ?? 0) / 1_000_000;
+  // The SDK's `inputTokens` is the TOTAL prompt, INCLUDING cache reads
+  // (anthropic/google both report total = uncached + cache_creation +
+  // cache_read). Bill only the uncached remainder at the full input rate, then
+  // add cache reads at the cached rate — otherwise cache reads are charged
+  // twice (full rate via the total, plus the cached rate). Cache-creation
+  // (write) tokens, lacking a dedicated price column, fall into the uncached
+  // remainder and are billed at the plain input rate.
+  const cachedInputTokens = usage.cachedInputTokens ?? 0;
+  const uncachedInput =
+    Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens) / 1_000_000;
+  const cachedInput = cachedInputTokens / 1_000_000;
   const output = (usage.outputTokens ?? 0) / 1_000_000;
   const cachedRate = price.cachedInputPerMtok ?? price.inputPerMtok;
-  return input * price.inputPerMtok + cachedInput * cachedRate + output * price.outputPerMtok;
+  return (
+    uncachedInput * price.inputPerMtok +
+    cachedInput * cachedRate +
+    output * price.outputPerMtok
+  );
 }
 
 /** Test-only: drop the cache so the next lookup refetches. */

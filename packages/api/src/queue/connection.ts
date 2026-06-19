@@ -21,11 +21,21 @@ export function createRedisConnection(): IORedis {
   return conn;
 }
 
+/**
+ * Untracked, fail-fast connection for one-shot probes (e.g. the `/ready`
+ * readiness check). Not added to `connections`, so the caller MUST close it
+ * itself (in a `finally`). `enableOfflineQueue: false` + `commandTimeout` make
+ * a `ping` against a down/flapping Redis reject promptly instead of queueing
+ * and waiting forever for reconnect — otherwise each failing probe would leak a
+ * perpetually-reconnecting socket precisely when Redis is already unhealthy.
+ */
 export function createUntrackedRedisConnection(): IORedis {
   const url = serverEnv().REDIS_URL;
   return new IORedis(url, {
-    maxRetriesPerRequest: null,
+    maxRetriesPerRequest: 1,
     enableReadyCheck: false,
+    enableOfflineQueue: false,
+    commandTimeout: 500,
   });
 }
 

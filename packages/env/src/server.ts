@@ -34,10 +34,14 @@ const serverEnvSchema = z.object({
         .filter(Boolean),
     )
     .pipe(z.array(z.string().email()).min(1)),
-  RESEND_API_KEY: z.string(),
-  RESEND_FROM_EMAIL: z.string(),
-  ANTHROPIC_API_KEY: z.string(),
-  GOOGLE_GENERATIVE_AI_API_KEY: z.string(),
+  // Required secrets: `.min(1)` so a blank `FOO=` line fails fast at boot
+  // instead of constructing an empty-key client that errors mid-request. Not
+  // `.email()` on RESEND_FROM_EMAIL — the display-name form
+  // `Alfred <noreply@example.com>` is valid and `.email()` would reject it.
+  RESEND_API_KEY: z.string().min(1),
+  RESEND_FROM_EMAIL: z.string().min(1),
+  ANTHROPIC_API_KEY: z.string().min(1),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
