@@ -388,7 +388,11 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Short relative time ("now" / "5m" / "3h" / "Mar 4") for dense inbox rows. */
+/**
+ * Short relative time ("now" / "5m" / "3h" / "Mar 4") for dense inbox rows.
+ * Intentionally distinct from `lib/strings#formatRelative` — different output
+ * contract (no "ago" suffix, absolute date past a week), so don't consolidate.
+ */
 function formatRelativeShort(iso: string | null): string {
   if (!iso) return "";
   const t = Date.parse(iso);
