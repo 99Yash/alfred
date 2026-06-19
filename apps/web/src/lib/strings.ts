@@ -1,5 +1,6 @@
-// Shared string helpers. Keep these pure and presentation-only — anything that
-// needs locale/timezone awareness belongs with its domain hook, not here.
+// Shared string helpers. Side-effect-free (formatRelative reads the clock) and
+// presentation-only — anything that needs locale/timezone awareness belongs
+// with its domain hook, not here.
 
 /** "foo" → "Foo". Empty strings pass through untouched. */
 export function capitalize(value: string): string {
