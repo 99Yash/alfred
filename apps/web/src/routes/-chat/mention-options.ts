@@ -1,5 +1,5 @@
 import { Brain, NotebookPen, type LucideIcon } from "lucide-react";
-import type { IntegrationBrand } from "~/lib/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 export interface MentionOption {
   value: string;

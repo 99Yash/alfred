@@ -1,6 +1,6 @@
 import type { IntegrationSlug } from "@alfred/contracts";
 import { MessageSquare, Settings2, type LucideIcon } from "lucide-react";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 /**

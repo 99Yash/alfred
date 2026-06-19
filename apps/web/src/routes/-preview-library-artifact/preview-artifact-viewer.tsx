@@ -3,7 +3,7 @@ import { Download, Maximize2, Share2, X } from "lucide-react";
 import { useCallback, useEffect } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { AppButton } from "~/components/ui/v2";
-import { getArtifact } from "~/lib/library-artifacts";
+import { getArtifact } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
 
 export function PreviewArtifactViewer() {

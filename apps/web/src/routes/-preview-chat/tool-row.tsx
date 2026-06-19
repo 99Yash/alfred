@@ -1,5 +1,5 @@
 import { CheckCircle2, type LucideIcon } from "lucide-react";
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { TOOL_TONE, type ToolTone } from "./helpers";
 

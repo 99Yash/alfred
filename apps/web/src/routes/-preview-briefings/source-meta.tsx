@@ -7,7 +7,7 @@ import {
   Mail,
   type LucideIcon,
 } from "lucide-react";
-import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integration-icons";
+import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BRAND, PROVIDER_COLOR } from "./source-meta-utils";
 
 /**

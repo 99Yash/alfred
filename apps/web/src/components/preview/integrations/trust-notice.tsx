@@ -1,6 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
-import type { IntegrationProvider } from "~/lib/integrations";
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 import { TrustDial } from "./trust-dial";
 

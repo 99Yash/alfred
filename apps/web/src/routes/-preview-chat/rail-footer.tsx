@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import { capitalize } from "~/lib/strings";
 import { cn } from "~/lib/utils";
 import type { RailBriefingSummary } from "./rail-data";
 
@@ -124,9 +125,4 @@ function formatBriefingSubtitle(b: RailBriefingSummary): string {
   }
   const date = ran.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return `${slot} · ${date}`;
-}
-
-function capitalize(s: string): string {
-  if (!s) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }

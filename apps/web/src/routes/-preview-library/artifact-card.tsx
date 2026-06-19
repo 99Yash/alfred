@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
-import type { ArtifactType, LibraryArtifact } from "~/lib/library-artifacts";
+import type { ArtifactType, LibraryArtifact } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
 
 const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }> =

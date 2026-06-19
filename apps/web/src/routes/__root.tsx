@@ -1,7 +1,7 @@
 import { createRootRouteWithContext, HeadContent, Outlet } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { AppShell } from "~/lib/app-shell";
+import { AppShell } from "~/lib/shell/app-shell";
 import { siteMeta } from "~/lib/page-meta";
 
 export interface RouterContext {

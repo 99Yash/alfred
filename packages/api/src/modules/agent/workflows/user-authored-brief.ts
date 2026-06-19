@@ -13,6 +13,7 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
+  toJsonValue,
   toRecord,
   type AgentTranscriptMessage,
   type IntegrationSlug,
@@ -569,15 +570,6 @@ function readAllowedIntegrations(metadata: Record<string, unknown> | undefined):
   const raw = metadata?.allowedIntegrations;
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
-}
-
-function toJsonValue(value: unknown): unknown {
-  if (value === undefined) return null;
-  try {
-    return JSON.parse(JSON.stringify(value)) as unknown;
-  } catch {
-    return { unserializable: String(value) };
-  }
 }
 
 async function buildTriggerEventMessage(input: {

@@ -1,5 +1,8 @@
 import { type RiskTierCounts, useIntegrationTierCounts } from "~/hooks/use-tool-tiers";
-import { type IntegrationProvider, integrationSlugForProvider } from "~/lib/integrations";
+import {
+  type IntegrationProvider,
+  integrationSlugForProvider,
+} from "~/lib/integrations/integrations";
 import { CapabilityChip } from "./capability-chip";
 import { SectionHeading } from "./section-heading";
 

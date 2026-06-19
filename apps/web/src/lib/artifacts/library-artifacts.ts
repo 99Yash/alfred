@@ -1,4 +1,4 @@
-import { SYCAMORE_BRIEF_PAGES, type ArtifactPage } from "~/lib/artifact-pages";
+import { SYCAMORE_BRIEF_PAGES, type ArtifactPage } from "~/lib/artifacts/artifact-pages";
 
 export type ArtifactType = "presentation" | "document" | "spreadsheet" | "pdf";
 
