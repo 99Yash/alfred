@@ -104,7 +104,9 @@ export async function listBearerCredentials(
     .from(integrationCredentials)
     .where(
       and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider)),
-    );
+    )
+    .orderBy(desc(integrationCredentials.createdAt))
+    .limit(100);
 }
 
 export interface ActiveBearerCredential {
@@ -146,7 +148,7 @@ export async function getActiveBearerCredential(
   const row = rows[0];
   if (!row) {
     throw new Error(
-      `[${provider}.credentials] user ${userId} has no active ${provider} credential — connect ${provider} in settings`,
+      `[${provider}.credentials] no active ${provider} credential — connect ${provider} in settings`,
     );
   }
   return {
@@ -154,6 +156,7 @@ export async function getActiveBearerCredential(
     accessToken: row.accessToken,
     accountId: row.accountId,
     accountLabel: row.accountLabel,
-    metadata: (row.metadata as Record<string, unknown> | null) ?? {},
+    // `metadata` is jsonb NOT NULL DEFAULT '{}' — never SQL NULL.
+    metadata: row.metadata as Record<string, unknown>,
   };
 }

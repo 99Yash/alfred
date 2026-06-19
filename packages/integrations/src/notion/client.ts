@@ -26,12 +26,19 @@ async function notionFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
+    // Keep the upstream body for server logs, but don't splice it into the
+    // thrown message: these errors propagate to the tool dispatcher and on
+    // into logs/telemetry, and Notion's body can echo request fragments.
+    console.error(
       `[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${text.slice(0, 300)}`,
     );
+    throw new Error(`[notion] request failed (${res.status} ${init?.method ?? "GET"} ${path})`);
   }
   return (await res.json()) as T;
 }
+
+/** Notion rejects a single request with more than 100 child blocks. */
+const NOTION_MAX_CHILDREN_PER_REQUEST = 100;
 
 interface RichText {
   plain_text?: string;
@@ -113,14 +120,15 @@ export async function notionGetPage(args: {
   accessToken: string;
   pageId: string;
 }): Promise<NotionPage> {
-  const page = await notionFetch<Record<string, unknown>>(
-    args.accessToken,
-    `/pages/${args.pageId}`,
-  );
-  const blocks = await notionFetch<{ results: Array<Record<string, unknown>> }>(
-    args.accessToken,
-    `/blocks/${args.pageId}/children?page_size=100`,
-  );
+  // The two reads are independent — fetch them concurrently (~half the latency).
+  const id = encodeURIComponent(args.pageId);
+  const [page, blocks] = await Promise.all([
+    notionFetch<Record<string, unknown>>(args.accessToken, `/pages/${id}`),
+    notionFetch<{ results: Array<Record<string, unknown>> }>(
+      args.accessToken,
+      `/blocks/${id}/children?page_size=100`,
+    ),
+  ]);
   return {
     id: String(page.id ?? args.pageId),
     title: titleOf(page),
@@ -149,6 +157,21 @@ function paragraphBlocks(content: string | undefined): Array<Record<string, unkn
   }));
 }
 
+/** PATCH children onto a block in ≤100-block batches (Notion's per-request cap). */
+async function appendChildrenInBatches(
+  accessToken: string,
+  blockId: string,
+  children: Array<Record<string, unknown>>,
+): Promise<void> {
+  const id = encodeURIComponent(blockId);
+  for (let i = 0; i < children.length; i += NOTION_MAX_CHILDREN_PER_REQUEST) {
+    await notionFetch(accessToken, `/blocks/${id}/children`, {
+      method: "PATCH",
+      body: { children: children.slice(i, i + NOTION_MAX_CHILDREN_PER_REQUEST) },
+    });
+  }
+}
+
 export interface NotionCreatedPage {
   id: string;
   url: string | null;
@@ -160,6 +183,9 @@ export async function notionCreatePage(args: {
   title: string;
   content?: string;
 }): Promise<NotionCreatedPage> {
+  // Notion caps a single request at 100 child blocks: create the page with the
+  // first batch inline, then PATCH the remainder in further ≤100 batches.
+  const children = paragraphBlocks(args.content);
   const json = await notionFetch<Record<string, unknown>>(args.accessToken, "/pages", {
     method: "POST",
     body: {
@@ -167,10 +193,18 @@ export async function notionCreatePage(args: {
       properties: {
         title: { title: [{ type: "text", text: { content: args.title } }] },
       },
-      children: paragraphBlocks(args.content),
+      children: children.slice(0, NOTION_MAX_CHILDREN_PER_REQUEST),
     },
   });
-  return { id: String(json.id ?? ""), url: typeof json.url === "string" ? json.url : null };
+  const pageId = String(json.id ?? "");
+  if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
+    await appendChildrenInBatches(
+      args.accessToken,
+      pageId,
+      children.slice(NOTION_MAX_CHILDREN_PER_REQUEST),
+    );
+  }
+  return { id: pageId, url: typeof json.url === "string" ? json.url : null };
 }
 
 export async function notionAppendBlocks(args: {
@@ -179,9 +213,6 @@ export async function notionAppendBlocks(args: {
   content: string;
 }): Promise<{ appended: number }> {
   const children = paragraphBlocks(args.content);
-  await notionFetch(args.accessToken, `/blocks/${args.blockId}/children`, {
-    method: "PATCH",
-    body: { children },
-  });
+  await appendChildrenInBatches(args.accessToken, args.blockId, children);
   return { appended: children.length };
 }
