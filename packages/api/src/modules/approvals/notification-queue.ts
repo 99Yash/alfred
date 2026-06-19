@@ -175,6 +175,17 @@ async function processApprovalNotificationJob(
     },
   });
 
+  // A failed send must NOT stamp notified_at (the guard on line 143 would then
+  // block every future attempt) and must NOT complete the job green — throw so
+  // BullMQ retries. notify() returns 'failed' instead of throwing, so re-raise
+  // it here; the staging row stays 'pending' and the in-app /approvals fallback
+  // is unaffected.
+  if (result.status === "failed") {
+    throw new Error(
+      `[approval-notification] send failed for staging ${stagingId}: ${result.error}`,
+    );
+  }
+
   const now = new Date();
   const updated = await db()
     .update(actionStagings)

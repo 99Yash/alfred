@@ -58,15 +58,24 @@ export async function getSessionCached(request: Request): Promise<Session> {
       return inflight;
     }
 
-    const promise = fetchSession(request).then((session) => {
+    const base = fetchSession(request);
+    const promise = base.then((session) => {
       if (tokenCache.size >= MAX_TOKEN_CACHE_SIZE) {
         const oldest = tokenCache.keys().next().value;
         if (oldest) tokenCache.delete(oldest);
       }
       tokenCache.set(token, { session, expiresAt: Date.now() + TOKEN_TTL_MS });
-      tokenInflight.delete(token);
       return session;
     });
+
+    // Evict from the inflight map on BOTH outcomes. A failed lookup (transient
+    // DB/network blip) must remove the rejected promise rather than memoize it
+    // — otherwise every later request with the same token replays the same
+    // rejection and the user is locked out of all routes until restart. The
+    // side handle on `base` keeps the eviction independent of `promise`'s
+    // own rejection (which callers await + handle) and avoids an
+    // unhandled-rejection warning.
+    base.catch(() => {}).finally(() => tokenInflight.delete(token));
 
     tokenInflight.set(token, promise);
     perRequest.set(request, promise);

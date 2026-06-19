@@ -1,5 +1,4 @@
 import { getSubAgentModel, meteredGenerateText, stepCountIs } from "@alfred/ai";
-import { settleTaskGroup } from "@alfred/contracts";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
@@ -163,36 +162,40 @@ export interface ResearchAspectsArgs {
 }
 
 /**
- * Fan the aspect set out concurrently. If one aspect throws, abort the shared
- * provider/web-search signal so sibling loops don't keep spending API calls in
- * the background. The workflow still degrades to explicit empty findings after
- * the task group has settled, preserving cold-start's best-effort contract.
+ * Fan the aspect set out concurrently with PER-ASPECT isolation: each aspect
+ * catches its own failure and degrades to an explicit-empty finding, so one
+ * transient casualty (a web_search 429, a provider hiccup, a single model
+ * error) can't take down its siblings. These facets are independent
+ * best-effort research, not coupled billable work — there is deliberately no
+ * shared abort scope, so one aspect's failure never cancels the others. Empty
+ * findings still flow through to synthesis, preserving cold-start's best-effort
+ * contract.
  */
 export async function researchAspects(args: ResearchAspectsArgs): Promise<AspectFinding[]> {
-  const aspects = selectAspects(args.signals);
-  const settled = await settleTaskGroup(
-    aspects.map(
-      (aspect) =>
-        async ({ signal }) =>
-          runAspect({
-            signals: args.signals,
-            anchor: args.anchor,
-            aspect,
-            runId: args.runId,
-            idempotencyKey: args.idempotencyKey,
-            abortSignal: signal,
-          }),
-    ),
+  return Promise.all(
+    selectAspects(args.signals).map(async (aspect) => {
+      try {
+        return await runAspect({
+          signals: args.signals,
+          anchor: args.anchor,
+          aspect,
+          runId: args.runId,
+          idempotencyKey: args.idempotencyKey,
+        });
+      } catch {
+        // Isolate this aspect's failure — degrade to an empty finding rather
+        // than rethrow, so siblings keep running.
+        return emptyAspectFinding(aspect);
+      }
+    }),
   );
+}
 
-  return settled.map((result, index): AspectFinding => {
-    if (result.status === "fulfilled") return result.value;
-    const aspect = aspects[index] as ColdStartAspect;
-    return {
-      id: aspect.id,
-      label: aspect.label,
-      finding: "nothing publicly found for this facet (research step failed)",
-      citations: [],
-    };
-  });
+function emptyAspectFinding(aspect: ColdStartAspect): AspectFinding {
+  return {
+    id: aspect.id,
+    label: aspect.label,
+    finding: "nothing publicly found for this facet (research step failed)",
+    citations: [],
+  };
 }
