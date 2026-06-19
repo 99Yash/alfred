@@ -211,8 +211,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
     compose: {
       id: "compose",
       async run(ctx) {
-        const { briefingId, untilIngestedAt, briefingDate } = ctx.state;
-        if (!briefingId || !untilIngestedAt || !briefingDate) {
+        const { briefingId, untilIngestedAt, briefingDate, timezone } = ctx.state;
+        if (!briefingId || !untilIngestedAt || !briefingDate || !timezone) {
           throw new Error("[daily-briefing] compose entered without gather output");
         }
 
@@ -258,6 +258,8 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             recipientFirstName: ctx.state.recipientName ?? null,
             sinceIngestedAt: since,
             untilIngestedAt: until,
+            briefingDate,
+            timezone: ianaTimezone(timezone),
             runId: ctx.runId,
             stepId: "compose",
           });

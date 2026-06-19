@@ -424,12 +424,17 @@ async function gatherIntegrationActivity(args: {
   });
 }
 
-async function gatherCalendarContribution(args: {
+export interface GatherCalendarArgs {
   userId: string;
+  /** YYYY-MM-DD calendar date in the user's timezone. */
   briefingDate: string;
   timezone: IanaTimezone;
   slot: BriefingSlot;
-}): Promise<CalendarContribution | null> {
+}
+
+export async function gatherCalendarContribution(
+  args: GatherCalendarArgs,
+): Promise<CalendarContribution | null> {
   const creds = await db()
     .select({
       id: integrationCredentials.id,
