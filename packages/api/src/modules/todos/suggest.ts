@@ -86,7 +86,10 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
               inArray(todos.status, ["open", "suggested"]),
               // Recently-resolved rows are dedup candidates too, so the same
               // source isn't re-suggested after the user already handled it.
-              and(inArray(todos.status, ["done", "dismissed"]), gte(todos.updatedAt, resolvedCutoff)),
+              and(
+                inArray(todos.status, ["done", "dismissed"]),
+                gte(todos.updatedAt, resolvedCutoff),
+              ),
             ),
           ),
         );
@@ -96,7 +99,10 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       // closed duplicate. So scan live candidates first.
       const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources ?? [], sources));
       const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
-      const resolved = overlapping.filter((c) => c.status === "done" || c.status === "dismissed");
+      const resolved = overlapping.filter(
+        (c): c is typeof c & { status: "done" | "dismissed" } =>
+          c.status === "done" || c.status === "dismissed",
+      );
 
       const liveMatch = live[0];
       if (liveMatch) {
@@ -117,7 +123,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         return {
           status: "suppressed" as const,
           todoId: resolvedMatch.id,
-          reason: resolvedMatch.status as "done" | "dismissed",
+          reason: resolvedMatch.status,
         };
       }
     }
@@ -148,10 +154,19 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
 
   switch (result.status) {
     case "merged":
-      return { ok: true, status: "merged", todoId: result.todoId, addedSources: result.addedSources };
+      return {
+        ok: true,
+        status: "merged",
+        todoId: result.todoId,
+        addedSources: result.addedSources,
+      };
     case "suppressed":
       return { ok: true, status: "suppressed", todoId: result.todoId, reason: result.reason };
-    default:
+    case "created":
       return { ok: true, status: "created", todoId: result.todoId };
+    default: {
+      const _exhaustive: never = result;
+      throw new Error(`[suggestTodo] unhandled result: ${JSON.stringify(_exhaustive)}`);
+    }
   }
 }
