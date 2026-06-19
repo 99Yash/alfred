@@ -142,8 +142,12 @@ export async function vercelRedeploy(args: {
       ...(args.target ? { target: args.target } : {}),
     },
   });
+  // A 2xx with neither id nor uid would otherwise mask as a "successful"
+  // redeploy carrying an unusable handle — surface it as a failure instead.
+  const uid = json.uid ?? json.id;
+  if (!uid) throw new Error("[vercel] redeploy returned no deployment id");
   return {
-    uid: String(json.uid ?? json.id ?? ""),
+    uid,
     url: json.url ?? null,
     state: json.readyState ?? null,
   };
