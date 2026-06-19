@@ -1,3 +1,12 @@
+// MUST be the first import: Sentry.init() has to run before the instrumented
+// libraries (http/pg/ioredis/undici, all pulled in transitively by
+// @alfred/api) are evaluated, or the HTTP/fetch auto-instrumentation never
+// patches them. In dev (tsx, unbundled) ESM source order guarantees this. In
+// the bundled prod build, the `start` script ALSO preloads it via
+// `node --import ./dist/instrument.js` — bundlers don't preserve import order
+// across inlined modules, so the preload is the authoritative fix there; this
+// import is then a harmless cache hit on the same module instance.
+import "./instrument";
 import {
   app,
   closeAgentQueue,
@@ -47,7 +56,29 @@ import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
 import { Elysia } from "elysia";
 import { registerBuiltinWorkflows } from "./builtins";
-import "./instrument";
+
+// Global crash safety net, registered before any worker starts. An unhandled
+// rejection or uncaught exception in a background BullMQ processor or the event
+// bridge must NOT leave a half-dead process that keeps leasing jobs it can no
+// longer complete. Capture it (a no-op when Sentry is unconfigured) and exit(1)
+// so the orchestrator restarts a clean worker. This is DSN-independent: without
+// a DSN there are no Sentry handlers at all, and Sentry's own unhandledRejection
+// integration defaults to 'warn' (logs without exiting) even when configured.
+let crashing = false;
+async function handleFatal(kind: string, err: unknown): Promise<void> {
+  if (crashing) return;
+  crashing = true;
+  console.error(`Fatal ${kind}:`, err instanceof Error ? (err.stack ?? err.message) : String(err));
+  try {
+    Sentry.captureException(err);
+    await Sentry.flush(2000);
+  } catch {
+    // Never let the crash handler itself throw.
+  }
+  process.exit(1);
+}
+process.on("unhandledRejection", (reason) => void handleFatal("unhandledRejection", reason));
+process.on("uncaughtException", (err) => void handleFatal("uncaughtException", err));
 
 // Boot sequence: connect to Postgres pool, realtime event bridge, Replicache poke bus.
 await warmPool();
