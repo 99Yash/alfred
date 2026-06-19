@@ -41,7 +41,10 @@ catalog:
   posthog-js: ^1.372.0
   react: ^19.0.0
   react-dom: ^19.0.0
-  replicache: ^15.3.0
+  # Pinned exact (not ^) — ADR-0061: Replicache is in upstream maintenance mode
+  # and we deliberately freeze the version. A caret would silently accept a
+  # future 15.x; the whole point of the ADR is that the pin stands.
+  replicache: 15.3.0
   resend: ^6.9.3
   sonner: ^2.0.0
   tailwind-merge: ^3.3.0

@@ -1,8 +1,16 @@
 import { mergeTodoSources, todoSourceKey, type TodoSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { todos } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
+
+/**
+ * How far back a resolved (`done`/`dismissed`) todo still suppresses a
+ * re-suggestion of the same source. Bounds the dedup scan and means a signal
+ * the user acted on once won't be re-proposed for a month. Generous on purpose
+ * — re-suggesting closed work is high-friction (ADR-0050; #139).
+ */
+const RESUGGEST_SUPPRESSION_WINDOW_DAYS = 30;
 
 export interface SuggestTodoInput {
   userId: string;
@@ -18,7 +26,8 @@ export interface SuggestTodoInput {
 
 export type SuggestTodoResult =
   | { ok: true; status: "created"; todoId: string }
-  | { ok: true; status: "merged"; todoId: string; addedSources: number };
+  | { ok: true; status: "merged"; todoId: string; addedSources: number }
+  | { ok: true; status: "suppressed"; todoId: string; reason: "done" | "dismissed" };
 
 /**
  * Structural dedup predicate: does a candidate todo's existing sources overlap
@@ -46,6 +55,12 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
  * into that row instead of creating a duplicate. This is the v1 cross-channel
  * dedup guard — the *structural* case (recognizable, shares an id). Semantic
  * dedup of independent same-topic signals is deferred.
+ *
+ * **No re-suggesting resolved work**: if the only overlap is a recently
+ * `done`/`dismissed` todo (the user already acted on or rejected this exact
+ * source), we suppress rather than mint a fresh suggestion — re-proposing
+ * closed work trains the user to distrust the rail (#139). A live overlap
+ * always wins over a resolved one (merge beats suppress).
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
   const sources = input.sources ?? [];
@@ -58,24 +73,58 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       const lockKey = `todo:suggest:${input.userId}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
+      const resolvedCutoff = new Date(
+        Date.now() - RESUGGEST_SUPPRESSION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      );
       const candidates = await tx
-        .select({ id: todos.id, sources: todos.sources })
+        .select({ id: todos.id, status: todos.status, sources: todos.sources })
         .from(todos)
-        .where(and(eq(todos.userId, input.userId), inArray(todos.status, ["open", "suggested"])));
+        .where(
+          and(
+            eq(todos.userId, input.userId),
+            or(
+              inArray(todos.status, ["open", "suggested"]),
+              // Recently-resolved rows are dedup candidates too, so the same
+              // source isn't re-suggested after the user already handled it.
+              and(
+                inArray(todos.status, ["done", "dismissed"]),
+                gte(todos.updatedAt, resolvedCutoff),
+              ),
+            ),
+          ),
+        );
 
-      for (const candidate of candidates) {
-        const existing = candidate.sources ?? [];
-        if (!todoSourcesOverlap(existing, sources)) continue;
+      // Prefer a live overlap (merge) over a resolved one (suppress): a still-
+      // open item should accrue the new ref rather than be shadowed by a
+      // closed duplicate. So scan live candidates first.
+      const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources ?? [], sources));
+      const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
+      const resolved = overlapping.filter(
+        (c): c is typeof c & { status: "done" | "dismissed" } =>
+          c.status === "done" || c.status === "dismissed",
+      );
 
+      const liveMatch = live[0];
+      if (liveMatch) {
+        const existing = liveMatch.sources ?? [];
         const merged = mergeTodoSources(existing, sources);
         const addedSources = merged.length - existing.length;
         if (addedSources > 0) {
           await tx
             .update(todos)
             .set({ sources: merged, rowVersion: sql`${todos.rowVersion} + 1` })
-            .where(eq(todos.id, candidate.id));
+            .where(eq(todos.id, liveMatch.id));
         }
-        return { status: "merged" as const, todoId: candidate.id, addedSources };
+        return { status: "merged" as const, todoId: liveMatch.id, addedSources };
+      }
+
+      const resolvedMatch = resolved[0];
+      if (resolvedMatch) {
+        return {
+          status: "suppressed" as const,
+          todoId: resolvedMatch.id,
+          reason: resolvedMatch.status,
+        };
       }
     }
 
@@ -100,9 +149,24 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
   });
 
   // Poke AFTER commit so the client's pull sees the write (events contract).
-  emitReplicachePokes([input.userId]);
+  // A suppressed suggestion wrote nothing, so there's nothing new to sync.
+  if (result.status !== "suppressed") emitReplicachePokes([input.userId]);
 
-  return result.status === "merged"
-    ? { ok: true, status: "merged", todoId: result.todoId, addedSources: result.addedSources }
-    : { ok: true, status: "created", todoId: result.todoId };
+  switch (result.status) {
+    case "merged":
+      return {
+        ok: true,
+        status: "merged",
+        todoId: result.todoId,
+        addedSources: result.addedSources,
+      };
+    case "suppressed":
+      return { ok: true, status: "suppressed", todoId: result.todoId, reason: result.reason };
+    case "created":
+      return { ok: true, status: "created", todoId: result.todoId };
+    default: {
+      const _exhaustive: never = result;
+      throw new Error(`[suggestTodo] unhandled result: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
 }
