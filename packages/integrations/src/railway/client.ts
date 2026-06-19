@@ -32,13 +32,18 @@ async function railwayGraphql<T>(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`[railway] ${res.status} graphql :: ${text.slice(0, 300)}`);
+    // Keep the upstream body for server logs, but don't splice it into the
+    // thrown message (it reaches the tool dispatcher / telemetry). The connect
+    // route sanitizes separately; this covers the agent-tool call path.
+    console.error(`[railway] ${res.status} graphql :: ${text.slice(0, 300)}`);
+    throw new Error(`[railway] request failed (${res.status})`);
   }
   let json: { data?: T; errors?: GraphqlError[] };
   try {
     json = JSON.parse(text) as { data?: T; errors?: GraphqlError[] };
   } catch {
-    throw new Error(`[railway] non-JSON response :: ${text.slice(0, 300)}`);
+    console.error(`[railway] non-JSON response :: ${text.slice(0, 300)}`);
+    throw new Error("[railway] invalid response from upstream");
   }
   if (json.errors && json.errors.length > 0) {
     throw new Error(`[railway] graphql error :: ${json.errors.map((e) => e.message).join("; ")}`);
@@ -83,8 +88,9 @@ interface Connection<T> {
 interface ProjectNode {
   id: string;
   name: string;
-  services: Connection<{ id: string; name: string }>;
-  environments: Connection<{ id: string; name: string }>;
+  // GraphQL connections can come back null; guard rather than trust the shape.
+  services: Connection<{ id: string; name: string }> | null;
+  environments: Connection<{ id: string; name: string }> | null;
 }
 
 export async function railwayListProjects(token: string): Promise<{ projects: RailwayProject[] }> {
@@ -93,7 +99,7 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   // `me.workspaces[].team.projects`, so we traverse and flatten that.
   const data = await railwayGraphql<{
     me: {
-      workspaces: Array<{ team: { projects: Connection<ProjectNode> } | null } | null>;
+      workspaces: Array<{ team: { projects: Connection<ProjectNode> | null } | null } | null>;
     };
   }>(
     token,
@@ -118,12 +124,12 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   );
   const projects: RailwayProject[] = [];
   for (const workspace of data.me.workspaces) {
-    for (const edge of workspace?.team?.projects.edges ?? []) {
+    for (const edge of workspace?.team?.projects?.edges ?? []) {
       projects.push({
         id: edge.node.id,
         name: edge.node.name,
-        services: edge.node.services.edges.map((e) => e.node),
-        environments: edge.node.environments.edges.map((e) => e.node),
+        services: edge.node.services?.edges.map((e) => e.node) ?? [],
+        environments: edge.node.environments?.edges.map((e) => e.node) ?? [],
       });
     }
   }
@@ -187,6 +193,13 @@ export interface RailwayLogLine {
   severity: string | null;
 }
 
+/**
+ * Per-line cap on forwarded log text. The input bounds the line *count*
+ * (limit ≤ 500), but a single stack trace / JSON dump can be many KB; cap each
+ * line so a noisy deployment can't hand the model a giant unbounded blob.
+ */
+const MAX_LOG_LINE_CHARS = 2_000;
+
 export async function railwayGetLogs(args: {
   token: string;
   deploymentId: string;
@@ -205,7 +218,15 @@ export async function railwayGetLogs(args: {
     }`,
     { deploymentId: args.deploymentId, limit: args.limit },
   );
-  return { logs: data.deploymentLogs };
+  return {
+    logs: data.deploymentLogs.map((line) => ({
+      ...line,
+      message:
+        line.message.length > MAX_LOG_LINE_CHARS
+          ? `${line.message.slice(0, MAX_LOG_LINE_CHARS)}… [truncated]`
+          : line.message,
+    })),
+  };
 }
 
 export async function railwayRedeploy(args: {

@@ -62,6 +62,12 @@ async function fetchBackendCredentials(backend: IntegrationBackend) {
       return client.api.integrations.railway.credentials.get();
     case "vercel":
       return client.api.integrations.vercel.credentials.get();
+    default: {
+      // Adding an IntegrationBackend without a case here is a compile error,
+      // not a silent `undefined` return.
+      const _exhaustive: never = backend;
+      throw new Error(`Unhandled integration backend: ${String(_exhaustive)}`);
+    }
   }
 }
 

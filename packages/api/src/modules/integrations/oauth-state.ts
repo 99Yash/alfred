@@ -1,4 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
+import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "../../queue/connection";
@@ -58,10 +59,12 @@ function key(provider: string, nonce: string): string {
  * connect route signs identically — Google and GitHub keep their own inlined
  * copies for now; new providers (Notion, Vercel) use these.
  */
-export interface SignedOAuthState {
-  userId: string;
-  nonce: string;
-}
+const signedOAuthStateSchema = z.object({
+  userId: z.string(),
+  nonce: z.string(),
+});
+
+export type SignedOAuthState = z.infer<typeof signedOAuthStateSchema>;
 
 export function signOAuthState(state: SignedOAuthState): string {
   const env = serverEnv();
@@ -79,7 +82,10 @@ export function verifyOAuthState(raw: string): SignedOAuthState | null {
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SignedOAuthState;
+    const parsed = signedOAuthStateSchema.safeParse(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }

@@ -377,6 +377,7 @@ export const notionSearchInput = z
   .object({
     query: z
       .string()
+      .min(1)
       .max(500)
       .optional()
       .describe(
