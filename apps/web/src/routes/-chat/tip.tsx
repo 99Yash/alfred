@@ -42,10 +42,7 @@ export function Tip({
         >
           <span>{label}</span>
           {keys?.map((k) => (
-            <Kbd
-              key={k}
-              className="border-app-bg-1/20 bg-app-bg-1/10 text-app-bg-1/80"
-            >
+            <Kbd key={k} className="border-app-bg-1/20 bg-app-bg-1/10 text-app-bg-1/80">
               {k}
             </Kbd>
           ))}

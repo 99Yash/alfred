@@ -294,13 +294,21 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         markChatTimingByAssistant(
           p.messageId,
           "first_delta_frame",
-          { seq: p.seq, chars: p.text.length, totalTextChars: r.segments.get(segment)?.length ?? 0 },
+          {
+            seq: p.seq,
+            chars: p.text.length,
+            totalTextChars: r.segments.get(segment)?.length ?? 0,
+          },
           { threadId, runId: p.runId },
         );
         markChatTimingByAssistant(
           p.messageId,
           "last_delta_frame",
-          { seq: p.seq, chars: p.text.length, totalTextChars: r.segments.get(segment)?.length ?? 0 },
+          {
+            seq: p.seq,
+            chars: p.text.length,
+            totalTextChars: r.segments.get(segment)?.length ?? 0,
+          },
           { threadId, runId: p.runId, repeat: "update", log: false },
         );
         ensureRaf();

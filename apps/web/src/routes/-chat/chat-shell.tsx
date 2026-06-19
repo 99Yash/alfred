@@ -145,7 +145,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Model tier from the composer's picker (Auto vs Deep). Persisted so the
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
-  const onSend = useCallback((text: string) => void send(threadId, text, tier), [send, threadId, tier]);
+  const onSend = useCallback(
+    (text: string) => void send(threadId, text, tier),
+    [send, threadId, tier],
+  );
   const showStream = shouldShowStream(messages, stream);
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
@@ -207,56 +210,56 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   return (
     <Tooltip.Provider delayDuration={300}>
-    <div className="relative flex h-full min-w-0 flex-col">
-      <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
-      {hasConversation ? (
-        <>
-          <Conversation
-            messages={messages}
-            stream={stream}
-            onFollowUp={onSend}
-            onRetry={onSend}
-            followUps={chipFollowUps}
-          />
-          <div className="shrink-0 px-4 pb-4">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-              <ChatApprovalTray
-                runId={activeRunId}
-                approvals={runApprovals}
-                awaitingApproval={awaitingApproval}
-              />
-              <Composer
-                key={threadId ?? "new"}
-                threadId={threadId}
-                isStreaming={isStreaming}
-                disabled={approvalTrayActive}
-                onSend={onSend}
-                onStopGeneration={onStopGeneration}
-                ghostText={ghostText}
-                onGhostAccept={onGhostDone}
-                onGhostDismiss={onGhostDone}
-                autoApprove={autoApprove}
-                autoApprovePending={autoApprovePending}
-                onToggleAutoApprove={onToggleAutoApprove}
-                tier={tier}
-                onTierChange={setTier}
-              />
+      <div className="relative flex h-full min-w-0 flex-col">
+        <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
+        {hasConversation ? (
+          <>
+            <Conversation
+              messages={messages}
+              stream={stream}
+              onFollowUp={onSend}
+              onRetry={onSend}
+              followUps={chipFollowUps}
+            />
+            <div className="shrink-0 px-4 pb-4">
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+                <ChatApprovalTray
+                  runId={activeRunId}
+                  approvals={runApprovals}
+                  awaitingApproval={awaitingApproval}
+                />
+                <Composer
+                  key={threadId ?? "new"}
+                  threadId={threadId}
+                  isStreaming={isStreaming}
+                  disabled={approvalTrayActive}
+                  onSend={onSend}
+                  onStopGeneration={onStopGeneration}
+                  ghostText={ghostText}
+                  onGhostAccept={onGhostDone}
+                  onGhostDismiss={onGhostDone}
+                  autoApprove={autoApprove}
+                  autoApprovePending={autoApprovePending}
+                  onToggleAutoApprove={onToggleAutoApprove}
+                  tier={tier}
+                  onTierChange={setTier}
+                />
+              </div>
             </div>
-          </div>
-        </>
-      ) : (
-        <EmptyHero
-          threadId={threadId}
-          isStreaming={isStreaming}
-          onSend={onSend}
-          autoApprove={autoApprove}
-          autoApprovePending={autoApprovePending}
-          onToggleAutoApprove={onToggleAutoApprove}
-          tier={tier}
-          onTierChange={setTier}
-        />
-      )}
-    </div>
+          </>
+        ) : (
+          <EmptyHero
+            threadId={threadId}
+            isStreaming={isStreaming}
+            onSend={onSend}
+            autoApprove={autoApprove}
+            autoApprovePending={autoApprovePending}
+            onToggleAutoApprove={onToggleAutoApprove}
+            tier={tier}
+            onTierChange={setTier}
+          />
+        )}
+      </div>
     </Tooltip.Provider>
   );
 }
@@ -1040,7 +1043,11 @@ function ComposerToolbar({
             <AtSign size={14} />
           </ComposerIcon>
         </Tip>
-        <ModelTierPicker value={tier} onChange={onTierChange} disabled={disabled || mic.recording} />
+        <ModelTierPicker
+          value={tier}
+          onChange={onTierChange}
+          disabled={disabled || mic.recording}
+        />
         {onToggleAutoApprove ? (
           <AutoApproveToggle
             on={Boolean(autoApprove)}
@@ -1095,50 +1102,54 @@ function ComposerToolbar({
             </Tip>
             {isStreaming && onStopGeneration ? (
               <Tip label="Stop generating">
-              <button
-                type="button"
-                onClick={onStopGeneration}
-                aria-label="Stop generating"
-                className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-                  "app-press transition-[opacity,filter,transform]",
-                  "bg-app-red-4 text-white",
-                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
-                  "hover:brightness-[1.05]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-                )}
-              >
-                <Square size={12} strokeWidth={2.5} fill="currentColor" />
-              </button>
+                <button
+                  type="button"
+                  onClick={onStopGeneration}
+                  aria-label="Stop generating"
+                  className={cn(
+                    "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                    "app-press transition-[opacity,filter,transform]",
+                    "bg-app-red-4 text-white",
+                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
+                    "hover:brightness-[1.05]",
+                    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                    "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                  )}
+                >
+                  <Square size={12} strokeWidth={2.5} fill="currentColor" />
+                </button>
               </Tip>
             ) : (
               <Tip label="Send" keys={["↵"]}>
-              <button
-                type="submit"
-                disabled={!canSend}
-                aria-label={
-                  disabled ? "Waiting for approval" : isStreaming ? "Waiting for response" : "Send"
-                }
-                className={cn(
-                  "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
-                  "app-press transition-[opacity,filter,transform]",
-                  "enabled:hover:scale-[1.04] active:scale-[0.97]",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-                  canSend
-                    ? cn(
-                        "text-(--app-accent-fg)",
-                        "bg-(image:--app-cta-bg)",
-                        "shadow-(--app-button-primary-shadow)",
-                        "hover:brightness-[1.06]",
-                        "hover:shadow-(--app-button-primary-shadow-hover)",
-                      )
-                    : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
-                )}
-              >
-                <ArrowUp size={16} strokeWidth={2.25} />
-              </button>
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  aria-label={
+                    disabled
+                      ? "Waiting for approval"
+                      : isStreaming
+                        ? "Waiting for response"
+                        : "Send"
+                  }
+                  className={cn(
+                    "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                    "app-press transition-[opacity,filter,transform]",
+                    "enabled:hover:scale-[1.04] active:scale-[0.97]",
+                    "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                    "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                    canSend
+                      ? cn(
+                          "text-(--app-accent-fg)",
+                          "bg-(image:--app-cta-bg)",
+                          "shadow-(--app-button-primary-shadow)",
+                          "hover:brightness-[1.06]",
+                          "hover:shadow-(--app-button-primary-shadow-hover)",
+                        )
+                      : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+                  )}
+                >
+                  <ArrowUp size={16} strokeWidth={2.25} />
+                </button>
               </Tip>
             )}
           </>

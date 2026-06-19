@@ -78,8 +78,7 @@ export const notionTools: readonly RegisteredTool[] = [
     integration: "notion",
     action: "append_blocks",
     riskTier: "medium",
-    description:
-      "Append paragraph blocks (one per line) to an existing Notion page or block.",
+    description: "Append paragraph blocks (one per line) to an existing Notion page or block.",
     inputSchema: notionAppendBlocksInput,
     execute: async (input, ctx) => {
       const accessToken = await tokenFor(ctx.userId);

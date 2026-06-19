@@ -168,7 +168,11 @@ export const memoryExtractionWorkflow: Workflow<State> = {
         // extraction state, so the two stay independent.
         const captureEnabled = ctx.state.mode === "auto";
         const [selfRow] = captureEnabled
-          ? await db().select({ email: user.email }).from(user).where(eq(user.id, ctx.userId)).limit(1)
+          ? await db()
+              .select({ email: user.email })
+              .from(user)
+              .where(eq(user.id, ctx.userId))
+              .limit(1)
           : [];
         const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
         const captureContacts = new Map<string, ContactAggregate>();
@@ -327,7 +331,9 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           try {
             const pass = await runSignificancePass(ctx.userId, { commit: true });
             significanceScored = pass.scored;
-            await ctx.log(`significance pass: scored ${pass.scored}/${pass.total} person entit(ies)`);
+            await ctx.log(
+              `significance pass: scored ${pass.scored}/${pass.total} person entit(ies)`,
+            );
           } catch (err) {
             await ctx.log(
               `significance pass failed: ${err instanceof Error ? err.message : String(err)}`,

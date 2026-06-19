@@ -55,10 +55,9 @@ export interface RailwayAccount {
 
 /** Validate a pasted token and return the owning account — used by the connect route. */
 export async function railwayValidateToken(token: string): Promise<RailwayAccount> {
-  const data = await railwayGraphql<{ me: { id: string; name: string | null; email: string | null } }>(
-    token,
-    `query { me { id name email } }`,
-  );
+  const data = await railwayGraphql<{
+    me: { id: string; name: string | null; email: string | null };
+  }>(token, `query { me { id name email } }`);
   return { id: data.me.id, name: data.me.name, email: data.me.email };
 }
 

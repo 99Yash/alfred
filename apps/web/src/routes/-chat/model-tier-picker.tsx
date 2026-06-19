@@ -115,14 +115,14 @@ export function ModelTierPicker({
                   <Icon size={13} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium text-app-fg-4">{option.label}</span>
+                  <span className="block text-[13px] font-medium text-app-fg-4">
+                    {option.label}
+                  </span>
                   <span className="block text-[11.5px] leading-snug text-app-fg-2">
                     {option.description}
                   </span>
                 </span>
-                {checked ? (
-                  <Check size={14} className="mt-0.5 shrink-0 text-app-purple-4" />
-                ) : null}
+                {checked ? <Check size={14} className="mt-0.5 shrink-0 text-app-purple-4" /> : null}
               </button>
             );
           })}

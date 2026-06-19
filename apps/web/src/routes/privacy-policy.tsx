@@ -43,13 +43,13 @@ export function PrivacyPolicy() {
             approve.
           </li>
           <li>
-            <strong className="text-neutral-200">Google Calendar</strong>: read events to build
-            your daily briefing and meeting prep.
+            <strong className="text-neutral-200">Google Calendar</strong>: read events to build your
+            daily briefing and meeting prep.
           </li>
           <li>
-            <strong className="text-neutral-200">Drive, Docs, Sheets &amp; Slides</strong>: read
-            and (where you enable it) write files you point Alfred at, to summarize, draft, or
-            update documents on your request.
+            <strong className="text-neutral-200">Drive, Docs, Sheets &amp; Slides</strong>: read and
+            (where you enable it) write files you point Alfred at, to summarize, draft, or update
+            documents on your request.
           </li>
           <li>
             <strong className="text-neutral-200">Basic profile</strong>: your name and email

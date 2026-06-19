@@ -66,7 +66,9 @@ async function seedEntities(userId: string, specs: SeedEntity[]): Promise<void> 
 describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     // Clear any rows a previously-crashed run left behind.
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {

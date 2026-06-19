@@ -379,7 +379,9 @@ export const notionSearchInput = z
       .string()
       .max(500)
       .optional()
-      .describe("Text to search across the workspace's shared pages and databases. Omit to list recently-edited items."),
+      .describe(
+        "Text to search across the workspace's shared pages and databases. Omit to list recently-edited items.",
+      ),
     filter: z
       .enum(["page", "database", "all"])
       .default("all")
@@ -400,7 +402,9 @@ export const notionCreatePageInput = z
       .string()
       .min(1)
       .max(200)
-      .describe("Id of the parent page the new page is nested under. The integration must be shared with it."),
+      .describe(
+        "Id of the parent page the new page is nested under. The integration must be shared with it.",
+      ),
     title: z.string().min(1).max(2_000).describe("Title of the new page."),
     content: z
       .string()
@@ -412,11 +416,7 @@ export const notionCreatePageInput = z
 
 export const notionAppendBlocksInput = z
   .object({
-    blockId: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Id of the page (or block) to append content to."),
+    blockId: z.string().min(1).max(200).describe("Id of the page (or block) to append content to."),
     content: z
       .string()
       .min(1)
@@ -487,11 +487,7 @@ export const vercelListDeploymentsInput = z
 
 export const vercelRedeployInput = z
   .object({
-    deploymentId: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe("Id of the existing deployment to redeploy."),
+    deploymentId: z.string().min(1).max(200).describe("Id of the existing deployment to redeploy."),
     name: z
       .string()
       .min(1)

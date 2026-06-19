@@ -55,7 +55,8 @@ export const vercelIntegrationRoutes = new Elysia({
       const origin = serverEnv().CORS_ORIGIN;
       if (query.error) {
         set.status = 302;
-        set.headers["Location"] = `${origin}/integrations?vercel_error=${encodeURIComponent(query.error)}`;
+        set.headers["Location"] =
+          `${origin}/integrations?vercel_error=${encodeURIComponent(query.error)}`;
         return null;
       }
       if (!query.code || !query.state) throw new BadRequestError("Missing code or state");
@@ -87,7 +88,8 @@ export const vercelIntegrationRoutes = new Elysia({
       });
 
       set.status = 302;
-      set.headers["Location"] = `${origin}/integrations?vercel_connected=${encodeURIComponent(label)}`;
+      set.headers["Location"] =
+        `${origin}/integrations?vercel_connected=${encodeURIComponent(label)}`;
       return null;
     },
     {

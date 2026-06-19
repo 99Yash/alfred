@@ -139,15 +139,12 @@ export function computeCost(price: PriceLookup | null, usage: CallUsage | undefi
   // (write) tokens, lacking a dedicated price column, fall into the uncached
   // remainder and are billed at the plain input rate.
   const cachedInputTokens = usage.cachedInputTokens ?? 0;
-  const uncachedInput =
-    Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens) / 1_000_000;
+  const uncachedInput = Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens) / 1_000_000;
   const cachedInput = cachedInputTokens / 1_000_000;
   const output = (usage.outputTokens ?? 0) / 1_000_000;
   const cachedRate = price.cachedInputPerMtok ?? price.inputPerMtok;
   return (
-    uncachedInput * price.inputPerMtok +
-    cachedInput * cachedRate +
-    output * price.outputPerMtok
+    uncachedInput * price.inputPerMtok + cachedInput * cachedRate + output * price.outputPerMtok
   );
 }
 

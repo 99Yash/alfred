@@ -26,7 +26,9 @@ async function notionFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${text.slice(0, 300)}`);
+    throw new Error(
+      `[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${text.slice(0, 300)}`,
+    );
   }
   return (await res.json()) as T;
 }
@@ -41,7 +43,9 @@ function titleOf(result: Record<string, unknown>): string {
   const topTitle = result.title;
   if (Array.isArray(topTitle)) return joinRichText(topTitle as RichText[]);
   // Page object: find the property whose type is "title".
-  const props = result.properties as Record<string, { type?: string; title?: RichText[] }> | undefined;
+  const props = result.properties as
+    | Record<string, { type?: string; title?: RichText[] }>
+    | undefined;
   if (props) {
     for (const value of Object.values(props)) {
       if (value?.type === "title" && Array.isArray(value.title)) return joinRichText(value.title);
@@ -109,7 +113,10 @@ export async function notionGetPage(args: {
   accessToken: string;
   pageId: string;
 }): Promise<NotionPage> {
-  const page = await notionFetch<Record<string, unknown>>(args.accessToken, `/pages/${args.pageId}`);
+  const page = await notionFetch<Record<string, unknown>>(
+    args.accessToken,
+    `/pages/${args.pageId}`,
+  );
   const blocks = await notionFetch<{ results: Array<Record<string, unknown>> }>(
     args.accessToken,
     `/blocks/${args.pageId}/children?page_size=100`,
@@ -127,7 +134,8 @@ export async function notionGetPage(args: {
 function blockToText(block: Record<string, unknown>): string {
   const type = typeof block.type === "string" ? block.type : "";
   const payload = block[type] as { rich_text?: RichText[] } | undefined;
-  if (payload?.rich_text && Array.isArray(payload.rich_text)) return joinRichText(payload.rich_text);
+  if (payload?.rich_text && Array.isArray(payload.rich_text))
+    return joinRichText(payload.rich_text);
   return "";
 }
 
