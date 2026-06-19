@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { emailSends, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
 
 /**
@@ -61,7 +61,14 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
 
   const toAddress = args.toAddress ?? (await resolveUserEmail(args.userId));
 
-  const inserted = await db()
+  // Insert the row, or re-claim a prior attempt that never delivered. Only an
+  // already-'sent' row is a true duplicate: `setWhere` skips it so a delivered
+  // email is never re-sent, and the empty-returning case is handled below. A
+  // 'queued'/'failed' row (a crash between send + status update, or a transient
+  // Resend failure) is reset to 'queued' with its error cleared and re-sent —
+  // collapsing it to 'duplicate' would permanently lose the email. This single
+  // upsert replaces the old insert-then-select-then-conditional-update path.
+  const upserted = await db()
     .insert(emailSends)
     .values({
       userId: args.userId,
@@ -72,39 +79,32 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       payload: args.payload ?? {},
       status: "queued",
     })
-    .onConflictDoNothing({
+    .onConflictDoUpdate({
       target: [emailSends.userId, emailSends.idempotencyKey],
+      set: { status: "queued", error: null },
+      setWhere: ne(emailSends.status, "sent"),
     })
     .returning({ id: emailSends.id });
 
   let emailSendId: string;
-  if (inserted[0]) {
-    emailSendId = inserted[0].id;
+  if (upserted[0]) {
+    emailSendId = upserted[0].id;
   } else {
+    // Empty returning means the conflict hit an already-'sent' row that
+    // `setWhere` skipped — a true duplicate. Look up its id to return it.
     const existing = await db()
-      .select({ id: emailSends.id, status: emailSends.status })
+      .select({ id: emailSends.id })
       .from(emailSends)
       .where(
         and(eq(emailSends.userId, args.userId), eq(emailSends.idempotencyKey, args.idempotencyKey)),
       );
     const row = existing[0];
     if (!row) {
-      // Race: someone deleted the conflicting row between our insert and select.
+      // Race: someone deleted the conflicting row between our upsert and select.
       // Caller should treat this as a transient and retry.
       throw new Error("[notify] idempotency-key conflict but no row found on lookup");
     }
-    // Only an already-SENT row is a true duplicate to short-circuit. A
-    // 'queued'/'failed' row is a prior attempt that never delivered (a crash
-    // between send + status update, or a transient Resend failure) — re-send
-    // it rather than collapse the retry to 'duplicate', which would otherwise
-    // permanently lose the email. Reset to 'queued' so the row's state stays
-    // coherent through the retry.
-    if (row.status === "sent") return { status: "duplicate", emailSendId: row.id };
-    emailSendId = row.id;
-    await db()
-      .update(emailSends)
-      .set({ status: "queued", error: null })
-      .where(eq(emailSends.id, emailSendId));
+    return { status: "duplicate", emailSendId: row.id };
   }
 
   const resend = getResendClient();
