@@ -7,6 +7,14 @@ import type { LanguageModel, ToolSet } from "ai";
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV3 } from "ai-retry";
 import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
+import type { ModelIdFor } from "./models";
+
+// Provider factories constrained to ids that actually exist in MODEL_REGISTRY
+// for that provider. Routing every `anthropic(...)`/`google(...)` literal
+// through these makes registry drift (a typo, or an id the registry never
+// listed) a compile error rather than a silent cost-attribution miss.
+const anthropicModel = (id: ModelIdFor<"anthropic">) => anthropic(id);
+const googleModel = (id: ModelIdFor<"google">) => google(id);
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -17,11 +25,11 @@ import { createRetryable, error, timeout } from "ai-retry/experimental/language-
  * them when the fallback serves.)
  */
 export function getBossModel(): LanguageModel {
-  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
 }
 
 export function getCheapModel(): LanguageModel {
@@ -30,7 +38,7 @@ export function getCheapModel(): LanguageModel {
   // from `gemini-2.5-flash` after the user flagged label-write lag on a
   // single inbound email; the larger Flash model was the bottleneck, not
   // the pipeline.
-  return google("gemini-2.5-flash-lite");
+  return googleModel("gemini-2.5-flash-lite");
 }
 
 /**
@@ -38,8 +46,8 @@ export function getCheapModel(): LanguageModel {
  * Keep it decoupled from the cheap tier: a bad handoff corrupts the rest
  * of a long boss run, while the incremental cost is negligible.
  */
-export const COMPACTOR_MODEL: LanguageModel = anthropic("claude-sonnet-4-6");
-export const COMPACTOR_FALLBACK_MODEL: LanguageModel = google("gemini-2.5-flash");
+export const COMPACTOR_MODEL: LanguageModel = anthropicModel("claude-sonnet-4-6");
+export const COMPACTOR_FALLBACK_MODEL: LanguageModel = googleModel("gemini-2.5-flash");
 
 /**
  * Live web-search model for short, agent-driven lookups.
@@ -55,7 +63,7 @@ export const COMPACTOR_FALLBACK_MODEL: LanguageModel = google("gemini-2.5-flash"
  * spend correctly.
  */
 export function getWebSearchModel(): LanguageModel {
-  return google("gemini-2.5-flash");
+  return googleModel("gemini-2.5-flash");
 }
 
 /**
@@ -95,8 +103,8 @@ export type ChatModelTier = "standard" | "deep";
  */
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
   return tier === "deep"
-    ? withFallback(anthropic("claude-opus-4-8"), google("gemini-2.5-pro"))
-    : withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-pro"));
+    ? withFallback(anthropicModel("claude-opus-4-8"), googleModel("gemini-2.5-pro"))
+    : withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
 }
 
 /**

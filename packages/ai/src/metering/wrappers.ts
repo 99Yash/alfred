@@ -12,6 +12,7 @@ import {
   type StreamTextResult,
   type ToolSet,
 } from "ai";
+import { identifyLanguageModel } from "../models";
 import { metered, meteredStream } from "./metered";
 import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
 
@@ -29,6 +30,17 @@ import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
 interface ModelIdentifiers {
   provider: string;
   model: string;
+}
+
+/**
+ * Resolve `{ provider, model }` for the metering meta off a `LanguageModel`.
+ * Thin adapter over the shared `identifyLanguageModel` (which returns
+ * `{ provider, modelId }`) — the provider-head normalization and SDK-shape
+ * narrowing live there, shared with `prices.resolveModelContextWindow`.
+ */
+function modelIdsFor(model: LanguageModel): ModelIdentifiers {
+  const { provider, modelId } = identifyLanguageModel(model);
+  return { provider, model: modelId };
 }
 
 /**
@@ -54,30 +66,6 @@ export const DEFAULT_LLM_TIMEOUT_MS = 600_000;
  * callers.)
  */
 const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_MS } as const;
-
-function modelIdsFor(model: LanguageModel): ModelIdentifiers {
-  // AI SDK v6: LanguageModel is a union; narrow it to the object shape that
-  // exposes provider + modelId. Fallback to "unknown" so missing fields
-  // don't blow up the call — the log row still lands.
-  if (typeof model === "object" && model && "provider" in model && "modelId" in model) {
-    return {
-      provider: normalizeProvider(String(model.provider)),
-      model: String(model.modelId),
-    };
-  }
-  return { provider: "unknown", model: String(model) };
-}
-
-/**
- * AI SDK exposes namespaced provider ids (`google.generative-ai`,
- * `anthropic.messages`, `openai.responses`). models.dev uses the short
- * names (`google`, `anthropic`, `openai`). Normalize so price lookups hit.
- */
-function normalizeProvider(raw: string): string {
-  // Take everything up to the first `.` — keeps unknown providers intact.
-  const head = raw.split(".")[0] ?? raw;
-  return head;
-}
 
 // `metered()` only reads `totalUsage`/`finishReason`/`toolCalls`/`steps`,
 // none of which depend on the OUTPUT generic — so we collapse to the
