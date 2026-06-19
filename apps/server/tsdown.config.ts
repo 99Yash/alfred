@@ -6,6 +6,11 @@ export default defineConfig({
   // @alfred sources, so each script must be bundled.
   entry: [
     "./src/index.ts",
+    // Separate entry (not inlined into index.js) so the prod `start` script can
+    // preload it via `node --import ./dist/instrument.js` — Sentry.init() must
+    // run before the instrumented libs load, and bundlers don't preserve import
+    // order across inlined modules.
+    "./src/instrument.ts",
     "./src/scripts/trigger-cold-start-committed.ts",
     "./src/scripts/backfill-team-graph-committed.ts",
   ],
