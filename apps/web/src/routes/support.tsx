@@ -48,9 +48,9 @@ export function Support() {
 
         <div className="legal-prose mt-10 space-y-8 text-[15px] leading-[1.65] text-neutral-300">
           <p>
-            Need a hand with Alfred? Whether something isn&rsquo;t working, you have a question about
-            an integration, or you want to request a feature, reach out and we&rsquo;ll get back to
-            you.
+            Need a hand with Alfred? Whether something isn&rsquo;t working, you have a question
+            about an integration, or you want to request a feature, reach out and we&rsquo;ll get
+            back to you.
           </p>
 
           <LegalSection heading="Get in touch">

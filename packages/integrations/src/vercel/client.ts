@@ -58,7 +58,12 @@ export async function vercelListProjects(args: {
       framework?: string | null;
       latestDeployments?: Array<{ readyState?: string | null }>;
     }>;
-  }>({ accessToken: args.accessToken, teamId: args.teamId, path: "/v10/projects", query: { limit: args.limit } });
+  }>({
+    accessToken: args.accessToken,
+    teamId: args.teamId,
+    path: "/v10/projects",
+    query: { limit: args.limit },
+  });
   return {
     projects: json.projects.map((p) => ({
       id: p.id,
@@ -120,7 +125,12 @@ export async function vercelRedeploy(args: {
   name: string;
   target?: "production" | "preview";
 }): Promise<{ uid: string; url: string | null; state: string | null }> {
-  const json = await vercelFetch<{ id?: string; uid?: string; url?: string | null; readyState?: string | null }>({
+  const json = await vercelFetch<{
+    id?: string;
+    uid?: string;
+    url?: string | null;
+    readyState?: string | null;
+  }>({
     accessToken: args.accessToken,
     teamId: args.teamId,
     path: "/v13/deployments",

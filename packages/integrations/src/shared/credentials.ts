@@ -75,7 +75,14 @@ export async function upsertBearerCredential(
 
 export type BearerCredentialSummary = Pick<
   IntegrationCredential,
-  "id" | "status" | "accountId" | "accountLabel" | "scopes" | "expiresAt" | "createdAt" | "lastRefreshedAt"
+  | "id"
+  | "status"
+  | "accountId"
+  | "accountLabel"
+  | "scopes"
+  | "expiresAt"
+  | "createdAt"
+  | "lastRefreshedAt"
 >;
 
 /** List a user's credential rows for a bearer-token provider (UI status + management). */
@@ -96,10 +103,7 @@ export async function listBearerCredentials(
     })
     .from(integrationCredentials)
     .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, provider),
-      ),
+      and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider)),
     );
 }
 

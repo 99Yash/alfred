@@ -137,7 +137,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions (sending email, creating events) are gated for user approval — propose them and the user confirms. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
-    "- Don't over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries (\"my mistake, I need to connect first\") or thank the user for their patience.",
+    '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
   ].join("\n"),
   [

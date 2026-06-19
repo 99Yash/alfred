@@ -40,7 +40,10 @@ export function getVercelOAuthConfig(): VercelOAuthConfig {
 export function isVercelConfigured(): boolean {
   const env = serverEnv();
   return Boolean(
-    env.VERCEL_CLIENT_ID && env.VERCEL_CLIENT_SECRET && env.VERCEL_REDIRECT_URI && env.VERCEL_APP_SLUG,
+    env.VERCEL_CLIENT_ID &&
+    env.VERCEL_CLIENT_SECRET &&
+    env.VERCEL_REDIRECT_URI &&
+    env.VERCEL_APP_SLUG,
   );
 }
 

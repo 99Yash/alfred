@@ -154,7 +154,12 @@ function RailwayConnect({ connected }: { connected: boolean }) {
         <AppButton variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={pending}>
           Cancel
         </AppButton>
-        <AppButton variant="white" size="sm" onClick={() => void submit()} disabled={pending || !token.trim()}>
+        <AppButton
+          variant="white"
+          size="sm"
+          onClick={() => void submit()}
+          disabled={pending || !token.trim()}
+        >
           {pending ? "Connecting…" : "Save"}
         </AppButton>
       </div>

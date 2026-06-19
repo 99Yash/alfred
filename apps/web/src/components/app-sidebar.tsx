@@ -813,9 +813,7 @@ function ThreadGroupBlock({
           className={cn("shrink-0 transition-transform duration-150", collapsed && "-rotate-90")}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70">
-          {entries.length}
-        </span>
+        <span className="ml-auto tabular-nums text-app-fg-2/70">{entries.length}</span>
       </button>
       {collapsed ? null : (
         <div className="flex flex-col gap-0.5">

@@ -222,7 +222,10 @@ function maxIso(a: string | null, b: string | null): string | null {
 }
 
 /** Add a per-run delta onto a contact's prior correspondence aggregate (increment, not overwrite). */
-function mergeStats(prior: CorrespondenceStats | undefined, delta: ContactAggregate): CorrespondenceStats {
+function mergeStats(
+  prior: CorrespondenceStats | undefined,
+  delta: ContactAggregate,
+): CorrespondenceStats {
   const d = toStats(delta);
   return {
     inbound: (prior?.inbound ?? 0) + d.inbound,

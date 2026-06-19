@@ -19,7 +19,11 @@ export interface NotionOAuthConfig {
 /** Read + assert the Notion OAuth env. Throws when the integration isn't configured yet. */
 export function getNotionOAuthConfig(): NotionOAuthConfig {
   const env = serverEnv();
-  if (!env.NOTION_OAUTH_CLIENT_ID || !env.NOTION_OAUTH_CLIENT_SECRET || !env.NOTION_OAUTH_REDIRECT_URI) {
+  if (
+    !env.NOTION_OAUTH_CLIENT_ID ||
+    !env.NOTION_OAUTH_CLIENT_SECRET ||
+    !env.NOTION_OAUTH_REDIRECT_URI
+  ) {
     throw new Error(
       "[notion.oauth] Notion is not configured — set NOTION_OAUTH_CLIENT_ID, NOTION_OAUTH_CLIENT_SECRET, NOTION_OAUTH_REDIRECT_URI",
     );
