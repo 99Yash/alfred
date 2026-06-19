@@ -11,9 +11,16 @@
 # Required repo secrets:
 #   - GOOGLE_GENERATIVE_AI_API_KEY  (the cheap-tier classifier under test)
 #   - ANTHROPIC_API_KEY             (the LLM-as-judge scorer, claude-sonnet-4-6)
-# Every other env var below is a syntactically-valid dummy: the eval calls
-# serverEnv(), which format-validates the whole schema, but the classifier and
-# judge only ever reach for the two real keys above.
+#
+# The classifier itself is DB-free, but the metering wrapper that every model
+# call goes through (cost attribution, ADR-0015) looks up `model_prices` and
+# writes an `api_call_log` row — `getPrice()` is awaited in the hot path and
+# rethrows on an unreachable DB. So CI runs a throwaway Postgres, applies the
+# committed migrations (so both tables exist), and points DATABASE_URL at it.
+# `model_prices` stays empty: getPrice returns null, cost computes to 0, and
+# the api_call_log insert still succeeds. Every other env var is a
+# format-valid dummy — serverEnv() validates the whole schema, but the
+# classifier and judge only ever reach for the two real keys above.
 name: triage-eval
 
 on:
@@ -32,13 +39,30 @@ concurrency:
 jobs:
   eval:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The LLM portion is a couple of minutes; a longer hang means something is
+    # wedged (e.g. a dead DB pool), so fail cheap rather than burn 20 minutes.
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      # Real secrets — the only env the classifier + judge actually use.
+      # Real secrets — the only external services the eval actually calls.
       GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Throwaway Postgres for the metering writes (migrated below, empty data).
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
       # Format-valid dummies so serverEnv() passes; never used to connect.
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
       BETTER_AUTH_URL: http://localhost:3001
@@ -67,6 +91,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: pnpm --filter @alfred/db db:migrate
 
       - name: Run triage eval (fails below threshold)
         run: pnpm --filter @alfred/api exec evalite run --threshold 70
