@@ -585,9 +585,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
     let transcript = [...ctx.transcript];
 
     try {
-      while (state.pendingToolCalls.length > 0) {
-        // User hit stop while tools were dispatching: drop the remaining
-        // calls and finalize with whatever streamed + completed so far.
+      const calls = state.pendingToolCalls;
+      if (calls.length > 0) {
+        // User hit stop before the batch went out: drop the pending calls and
+        // finalize with whatever streamed so far. Checked once up front — the
+        // batch dispatches concurrently below, so there's no mid-loop point to
+        // bail at (and a per-call check would race the in-flight dispatches).
         if (await isChatStopRequested(ctx.runId)) {
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
           return {
@@ -597,58 +600,87 @@ const dispatchToolsStep: Step<ChatRunState> = {
             output: { messageId: state.messageId, stopped: true },
           };
         }
-        const call = state.pendingToolCalls[0]!;
-        const result = await dispatchToolCall({
-          runId: ctx.runId,
-          stepId: "dispatch-tools",
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          input: call.input,
-          userId: ctx.userId,
-          caller: "boss",
-          scratchpadRunId: ctx.runId,
-          allowedIntegrations: state.allowedIntegrations,
-        });
 
-        if (result.kind === "staged") {
-          // Write action awaiting approval — park the run. The HIL approval
-          // card surfaces via `approval.requested`; resume re-enters this step.
-          return { kind: "interrupt", state, transcript, wake: result.wake };
+        // Dispatch the whole batch concurrently. The model already chose this
+        // batch's tools in one step, so there's no ordering dependency between
+        // the dispatches themselves; latency drops from Σ(tool) to max(tool).
+        // `dispatchToolCall` is idempotent on `(runId, toolCallId)` — see the
+        // `executed` short-circuit in `dispatch/index.ts` — which is what makes
+        // the staged/resume path below safe.
+        const results = await Promise.all(
+          calls.map((call) =>
+            dispatchToolCall({
+              runId: ctx.runId,
+              stepId: "dispatch-tools",
+              toolCallId: call.toolCallId,
+              toolName: call.toolName,
+              input: call.input,
+              userId: ctx.userId,
+              caller: "boss",
+              scratchpadRunId: ctx.runId,
+              allowedIntegrations: state.allowedIntegrations,
+            }),
+          ),
+        );
+
+        // A gated write parks the run. Return the interrupt for the
+        // first-staged call (in transcript order) WITHOUT committing any
+        // sibling result: leave `pendingToolCalls` and `transcript` untouched
+        // so that on resume the entire batch re-dispatches — the already-
+        // executed siblings short-circuit on `(runId, toolCallId)` idempotency
+        // and the now-approved write runs. The transcript is then assembled in
+        // a single ordered pass once nothing stages. (Multiple gated writes in
+        // one batch surface one approval at a time across successive resumes.)
+        const stagedResult = results.find(
+          (r): r is Extract<DispatchResult, { kind: "staged" }> => r.kind === "staged",
+        );
+        if (stagedResult) {
+          return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
-        applyLoadIntegrationEffect(state, call.toolName, result);
+        // No gate in the batch — commit every result in original call order
+        // (transcript order is load-bearing).
+        for (let i = 0; i < calls.length; i++) {
+          const call = calls[i]!;
+          const result = results[i]!;
+          // Already handled above; the guard also narrows `result` away from
+          // `staged` for the helpers below.
+          if (result.kind === "staged") continue;
 
-        const status = result.kind === "executed" ? "succeeded" : "failed";
-        const resultPreview =
-          result.kind === "executed"
-            ? preview(result.toolResult)
-            : result.kind === "failed"
-              ? preview(result.error)
-              : preview(result.result);
-        state.toolCallsLog.push({
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          status,
-          resultPreview,
-          segmentIndex: call.segmentIndex,
-        });
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.tool",
-          payload: {
-            runId: ctx.runId,
-            threadId: state.threadId,
-            messageId: state.messageId,
+          applyLoadIntegrationEffect(state, call.toolName, result);
+
+          const status = result.kind === "executed" ? "succeeded" : "failed";
+          const resultPreview =
+            result.kind === "executed"
+              ? preview(result.toolResult)
+              : result.kind === "failed"
+                ? preview(result.error)
+                : preview(result.result);
+          state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
             resultPreview,
             segmentIndex: call.segmentIndex,
-          },
-        });
+          });
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.tool",
+            payload: {
+              runId: ctx.runId,
+              threadId: state.threadId,
+              messageId: state.messageId,
+              toolCallId: call.toolCallId,
+              toolName: call.toolName,
+              status,
+              resultPreview,
+              segmentIndex: call.segmentIndex,
+            },
+          });
 
-        transcript = [...transcript, toolResultMessage(call, result)];
-        state.pendingToolCalls = state.pendingToolCalls.slice(1);
+          transcript = [...transcript, toolResultMessage(call, result)];
+        }
+        state.pendingToolCalls = [];
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
