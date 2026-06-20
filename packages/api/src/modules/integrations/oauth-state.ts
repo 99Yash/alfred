@@ -55,9 +55,9 @@ function key(provider: string, nonce: string): string {
 /**
  * HMAC-signed `state` carrying `(userId, nonce)`. The signature (keyed on
  * `BETTER_AUTH_SECRET`) proves the state wasn't fabricated client-side; the
- * nonce (above) is the real replay defense. Shared so every integration's
- * connect route signs identically — Google and GitHub keep their own inlined
- * copies for now; new providers (Notion, Vercel) use these.
+ * nonce (above) is the real replay defense. The single definition of this
+ * security-sensitive check — every integration's connect/callback route
+ * (Google, GitHub, Notion, Vercel) signs and verifies through these.
  */
 const signedOAuthStateSchema = z.object({
   userId: z.string(),

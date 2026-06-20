@@ -37,21 +37,29 @@ export const upsertStyleProfileArgsSchema = z.object({
 });
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
-export interface StyleProfileRow {
-  id: string;
-  userId: string;
+/**
+ * Like the DB row, but with the parsed enum/jsonb columns narrowed. Every other
+ * column tracks `StyleProfile` ($inferSelect) automatically; lifecycle dates and
+ * `supersededById` are intentionally excluded (not part of the read shape). Only
+ * the columns `rowToProfile` transforms are restated.
+ */
+export type StyleProfileRow = Omit<
+  StyleProfile,
+  | "channel"
+  | "audienceBucket"
+  | "examples"
+  | "sourceMsgIds"
+  | "status"
+  | "supersededById"
+  | "createdAt"
+  | "updatedAt"
+> & {
   channel: StyleChannel;
   audienceBucket: StyleAudienceBucket;
-  recipientId: string | null;
-  profileDoc: string;
   examples: unknown[];
   sourceMsgIds: string[];
-  generatedAt: Date | null;
-  generatedFromCount: number;
-  confidence: number;
-  status: "draft" | "active" | "superseded";
-  rowVersion: number;
-}
+  status: z.infer<typeof styleProfileStatusSchema>;
+};
 
 function rowToProfile(r: StyleProfile): StyleProfileRow {
   return {
