@@ -211,7 +211,7 @@ async function persistMessage(
       title: extracted.subject,
       content,
       contentHash,
-      raw: message as unknown as object,
+      raw: message,
       authoredAt: extracted.date ?? internalDateToDate(message.internalDate),
       metadata: {
         from: extracted.from,

@@ -9,7 +9,7 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
-  onboardedAt: timestamp("onboarded_at"),
+  onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   ...lifecycle_dates,
 });
 
@@ -17,7 +17,7 @@ export const session = pgTable("session", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId("ses")),
-  expiresAt: timestamp("expires_at").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   token: text("token").notNull().unique(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
@@ -39,8 +39,8 @@ export const account = pgTable("account", {
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
   idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
   scope: text("scope"),
   password: text("password"),
   ...lifecycle_dates,
@@ -52,7 +52,7 @@ export const verification = pgTable("verification", {
     .$defaultFn(() => createId("ver")),
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   ...lifecycle_dates,
 });
 
