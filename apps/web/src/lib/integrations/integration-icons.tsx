@@ -88,12 +88,14 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
 
 /**
  * Per-brand accent color for ambient surfaces — the radial glow behind a
- * provider's detail-page hero (see `HeroPreview`). Colored brands light their
- * hero in their own hue; monochrome marks (github, notion, vercel) are absent
- * on purpose and fall back to Alfred's house purple (`--app-purple-2`), since a
- * gray/black glow reads as no glow on the dark canvas. Values are the brand's
- * primary hue, applied at low alpha via `color-mix`, so saturation here is
- * intentional — the surface dilutes it.
+ * provider's detail-page hero (see `HeroPreview`). A brand is keyed here by its
+ * primary brand *hue*, not by how its mark renders: Railway's glyph is
+ * monochrome on chrome (see `BRAND_ICONS`) yet keeps its magenta glow. Brands
+ * absent here (github, notion, vercel) are the ones whose brand color is
+ * black/near-gray — a gray glow reads as no glow on the dark canvas — so they
+ * fall back to Alfred's house purple (`--app-purple-2`). Values are applied at
+ * low alpha via `color-mix`, so the saturation here is intentional — the
+ * surface dilutes it.
  */
 export const BRAND_ACCENT: Partial<Record<IntegrationBrand, string>> = {
   gmail: "#ea4335",
