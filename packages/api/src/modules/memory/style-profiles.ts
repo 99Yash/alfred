@@ -37,37 +37,31 @@ export const upsertStyleProfileArgsSchema = z.object({
 });
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
-export interface StyleProfileRow {
-  id: string;
-  userId: string;
+/**
+ * Like the DB row, with the enum/jsonb columns narrowed to their parsed shapes.
+ * Every other column tracks `StyleProfile` ($inferSelect) automatically — only
+ * the listed keys, which `rowToProfile` zod-parses, are restated, so a
+ * new/renamed column surfaces at compile time.
+ */
+export type StyleProfileRow = Omit<
+  StyleProfile,
+  "channel" | "audienceBucket" | "status" | "examples" | "sourceMsgIds"
+> & {
   channel: StyleChannel;
   audienceBucket: StyleAudienceBucket;
-  recipientId: string | null;
-  profileDoc: string;
+  status: "draft" | "active" | "superseded";
   examples: unknown[];
   sourceMsgIds: string[];
-  generatedAt: Date | null;
-  generatedFromCount: number;
-  confidence: number;
-  status: "draft" | "active" | "superseded";
-  rowVersion: number;
-}
+};
 
 function rowToProfile(r: StyleProfile): StyleProfileRow {
   return {
-    id: r.id,
-    userId: r.userId,
+    ...r,
     channel: styleChannelSchema.parse(r.channel),
     audienceBucket: styleAudienceBucketSchema.parse(r.audienceBucket),
-    recipientId: r.recipientId,
-    profileDoc: r.profileDoc,
+    status: styleProfileStatusSchema.parse(r.status),
     examples: unknownArraySchema.parse(r.examples ?? []),
     sourceMsgIds: stringArraySchema.parse(r.sourceMsgIds ?? []),
-    generatedAt: r.generatedAt,
-    generatedFromCount: r.generatedFromCount,
-    confidence: r.confidence,
-    status: styleProfileStatusSchema.parse(r.status),
-    rowVersion: r.rowVersion,
   };
 }
 

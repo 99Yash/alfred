@@ -13,23 +13,19 @@ export const setPreferenceArgsSchema = z.object({
 });
 export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>;
 
-export interface PreferenceRow {
-  id: string;
-  userId: string;
-  key: string;
-  value: unknown;
+/**
+ * Like the DB row, with the `source` jsonb column narrowed to its parsed shape.
+ * Every other column tracks `UserPreference` ($inferSelect) automatically — only
+ * `source`, which `rowToPref` zod-parses, is restated.
+ */
+export type PreferenceRow = Omit<UserPreference, "source"> & {
   source: MemorySource;
-  rowVersion: number;
-}
+};
 
 function rowToPref(r: UserPreference): PreferenceRow {
   return {
-    id: r.id,
-    userId: r.userId,
-    key: r.key,
-    value: r.value,
+    ...r,
     source: parseMemorySourceOrDefault(r.source, { kind: "user" }, `user_preferences:${r.id}`),
-    rowVersion: r.rowVersion,
   };
 }
 
