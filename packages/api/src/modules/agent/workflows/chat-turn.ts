@@ -12,6 +12,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  chatModelTierSchema,
   isIntegrationSlug,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -96,7 +97,7 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
-  tier: z.enum(["standard", "deep"]),
+  tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
