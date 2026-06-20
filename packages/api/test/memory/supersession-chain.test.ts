@@ -42,7 +42,15 @@ async function seedFact(
 ): Promise<void> {
   await db()
     .insert(userFacts)
-    .values({ id, userId, key: "manager", value: id, confidence: 1, supersedesId });
+    .values({
+      id,
+      userId,
+      key: "manager",
+      value: id,
+      confidence: 1,
+      source: { kind: "user" },
+      supersedesId,
+    });
 }
 
 describe("getSupersessionChain (DB-backed)", { skip: SKIP }, () => {
