@@ -92,7 +92,7 @@ function RedirectConnect({
 
   return (
     <>
-      {isGoogle ? (
+      {isGoogle && wired ? (
         <GoogleConsentDialog
           open={consentOpen}
           onOpenChange={setConsentOpen}
