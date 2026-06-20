@@ -86,6 +86,27 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
 };
 
+/**
+ * Per-brand accent color for ambient surfaces — the radial glow behind a
+ * provider's detail-page hero (see `HeroPreview`). Colored brands light their
+ * hero in their own hue; monochrome marks (github, notion, vercel) are absent
+ * on purpose and fall back to Alfred's house purple (`--app-purple-2`), since a
+ * gray/black glow reads as no glow on the dark canvas. Values are the brand's
+ * primary hue, applied at low alpha via `color-mix`, so saturation here is
+ * intentional — the surface dilutes it.
+ */
+export const BRAND_ACCENT: Partial<Record<IntegrationBrand, string>> = {
+  gmail: "#ea4335",
+  google_calendar: "#4285f4",
+  google_drive: "#ffb400",
+  google_docs: "#4285f4",
+  google_sheets: "#1fa463",
+  google_slides: "#f9ab00",
+  slack: "#a25da3",
+  linear: "#5e6ad2",
+  railway: "#8c1eaf",
+};
+
 const TILE_SIZE_CLASS = {
   sm: "size-7 rounded-full",
   md: "size-10 rounded-full",
