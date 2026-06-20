@@ -1,6 +1,5 @@
+import { briefingSlotSchema } from "@alfred/contracts";
 import { z } from "zod";
-
-const briefingSlotSchema = z.enum(["morning", "evening"]);
 
 /**
  * Public input schema + slugs for the briefing workflows. Mirrored from

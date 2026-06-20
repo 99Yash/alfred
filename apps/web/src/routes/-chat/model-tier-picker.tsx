@@ -6,17 +6,19 @@
  * `tier`, which the server maps through `getChatModel` (standard → the fast
  * everyday model, deep → the deeper-reasoning escalation).
  *
- * `ChatTier` is declared locally on purpose: the canonical `ChatModelTier`
- * lives in `@alfred/ai`, a server-only package that must never enter the web
- * runtime bundle (see `pnpm check:web-boundaries`).
+ * `ChatTier` aliases the canonical `ChatModelTier` from `@alfred/contracts`.
+ * (Server-side the literal lives in `@alfred/ai`, which must never enter the
+ * web runtime bundle — see `pnpm check:web-boundaries` — so the shared source
+ * of truth is `@alfred/contracts`, importable from both sides.)
  */
+import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown, Sparkles, Telescope } from "lucide-react";
 import { use, useId, type ComponentType } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 
-export type ChatTier = "standard" | "deep";
+export type ChatTier = ChatModelTier;
 
 interface TierOption {
   value: ChatTier;
