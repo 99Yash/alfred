@@ -1,5 +1,6 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import type { ChatModelTier } from "@alfred/contracts";
 import type { LanguageModel, ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
@@ -93,7 +94,7 @@ export function googleSearchGroundingTools(): ToolSet {
  * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
  * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
  */
-export type ChatModelTier = "standard" | "deep";
+export type { ChatModelTier };
 
 /**
  * Restored to the intended Anthropic mapping 2026-06-07 (mirrors
