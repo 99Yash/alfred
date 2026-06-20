@@ -1,12 +1,6 @@
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
-export interface ModelCapabilities {
-  minContextWindow?: number;
-  supportsToolCalls?: boolean;
-  costTier: "cheap" | "mid" | "expensive";
-}
-
 /**
  * Canonical model-id list — the single source of truth. The `ModelId` type and
  * the runtime `modelIdSchema` both derive from this one tuple (the same
@@ -38,48 +32,30 @@ export type ProviderId = z.infer<typeof providerIdSchema>;
 
 export interface ModelDescriptor {
   provider: ProviderId;
-  name: string;
-  capabilities: ModelCapabilities;
 }
 
 /**
- * Per-model metadata, keyed by id. `as const satisfies Record<ModelId, …>`
- * does double duty: `satisfies` forces an entry for *every* `ModelId` (a
- * missing or unknown key is a compile error), while `as const` preserves the
- * literal `provider` on each entry so {@link ModelIdFor} can filter by it.
+ * Model id → provider, keyed by id. This is the *only* per-model metadata that
+ * must live in code: it's the compile-time constraint behind {@link ModelIdFor}
+ * (and the typed `anthropic(...)`/`google(...)` factories in `provider.ts`) plus
+ * `reconcileServed` cost attribution. Everything else models.dev already carries
+ * — context window, tool-call support, pricing, display name — and `db:sync-prices`
+ * stores it in `model_prices`; read it from there (see `resolveModelContextWindow`
+ * in `metering/prices.ts`) rather than re-hand-coding it here.
+ *
+ * `as const satisfies Record<ModelId, …>` does double duty: `satisfies` forces an
+ * entry for *every* `ModelId` (a missing or unknown key is a compile error),
+ * while `as const` preserves the literal `provider` so {@link ModelIdFor} can
+ * filter by it.
  */
 export const MODEL_REGISTRY = {
-  "claude-opus-4-8": {
-    provider: "anthropic",
-    name: "Claude Opus 4.8",
-    capabilities: { costTier: "expensive", supportsToolCalls: true, minContextWindow: 200000 },
-  },
-  "claude-sonnet-4-6": {
-    provider: "anthropic",
-    name: "Claude Sonnet 4.6",
-    capabilities: { costTier: "mid", supportsToolCalls: true, minContextWindow: 200000 },
-  },
-  "claude-haiku-4-5-20251001": {
-    provider: "anthropic",
-    name: "Claude Haiku 4.5",
-    capabilities: { costTier: "cheap", supportsToolCalls: true, minContextWindow: 200000 },
-  },
-  "gemini-2.5-pro": {
-    provider: "google",
-    name: "Gemini 2.5 Pro",
-    capabilities: { costTier: "expensive", supportsToolCalls: true, minContextWindow: 1000000 },
-  },
-  "gemini-2.5-flash": {
-    provider: "google",
-    name: "Gemini 2.5 Flash",
-    capabilities: { costTier: "cheap", supportsToolCalls: true, minContextWindow: 1000000 },
-  },
-  "gemini-2.5-flash-lite": {
-    provider: "google",
-    name: "Gemini 2.5 Flash-Lite",
-    capabilities: { costTier: "cheap", supportsToolCalls: true, minContextWindow: 1000000 },
-  },
-} as const satisfies Record<ModelId, ModelDescriptor>;
+  "claude-opus-4-8": "anthropic",
+  "claude-sonnet-4-6": "anthropic",
+  "claude-haiku-4-5-20251001": "anthropic",
+  "gemini-2.5-pro": "google",
+  "gemini-2.5-flash": "google",
+  "gemini-2.5-flash-lite": "google",
+} as const satisfies Record<ModelId, ProviderId>;
 
 /**
  * Registry ids for a given provider. Constrains the provider factories in
@@ -88,7 +64,7 @@ export const MODEL_REGISTRY = {
  * cost-attribution miss.
  */
 export type ModelIdFor<P extends ProviderId> = {
-  [K in ModelId]: (typeof MODEL_REGISTRY)[K]["provider"] extends P ? K : never;
+  [K in ModelId]: (typeof MODEL_REGISTRY)[K] extends P ? K : never;
 }[ModelId];
 
 /** `true` when `id` is a known registry model id (narrows to `ModelId`). */
@@ -102,7 +78,7 @@ export function isModelId(id: string): id is ModelId {
  * transcription models).
  */
 export function findModelDescriptor(id: string): ModelDescriptor | undefined {
-  return isModelId(id) ? MODEL_REGISTRY[id] : undefined;
+  return isModelId(id) ? { provider: MODEL_REGISTRY[id] } : undefined;
 }
 
 /**
