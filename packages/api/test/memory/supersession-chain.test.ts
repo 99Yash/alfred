@@ -10,8 +10,9 @@ import { getSupersessionChain } from "../../src/modules/memory/facts";
 
 /**
  * DB-backed test for `getSupersessionChain`'s recursive-CTE traversal (#189):
- *   1. a multi-hop chain comes back root-first (the starting row, then each
- *      predecessor it supersedes), in one query regardless of length;
+ *   1. a multi-hop chain comes back tip-first (the starting row, then each
+ *      predecessor it supersedes back to the origin root), in one query
+ *      regardless of length;
  *   2. a cyclic `supersedes_id` pointer terminates via the depth bound instead
  *      of looping forever.
  *
@@ -67,7 +68,7 @@ describe("getSupersessionChain (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("walks a multi-hop chain root-first in id order", async () => {
+  test("walks a multi-hop chain tip-first in id order", async () => {
     const userId = await seedUser();
     // C supersedes B supersedes A.
     const a = `fact_${randomUUID().slice(0, 8)}`;

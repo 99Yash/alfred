@@ -436,7 +436,8 @@ export async function listFactsByStatus(
 const MAX_SUPERSESSION_DEPTH = 256;
 
 /**
- * Walk the supersession chain from a row back to its origin, root-first.
+ * Walk the supersession chain from a row back to its origin, tip-first (the
+ * queried row at index 0, the origin root last).
  *
  * One `WITH RECURSIVE` round trip instead of a query per hop: the base term
  * seeds the starting row, the recursive term follows `supersedes_id` (a row's
