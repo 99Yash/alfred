@@ -73,6 +73,21 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   // call site.
   let generation: ReturnType<Langfuse["generation"]> | null = null;
   try {
+    // Upsert the parent trace first. `generation()` with a custom traceId
+    // does NOT create the trace — Langfuse Cloud no longer auto-promotes
+    // orphan observations, so without this the Traces view is empty and
+    // runId grouping never materializes. Idempotent on `id`: every call in
+    // one run collapses into a single trace tree.
+    client.trace({
+      id: traceId,
+      name: meta.name ?? `${meta.provider}/${meta.model}`,
+      userId: meta.userId,
+      metadata: {
+        kind: meta.kind,
+        role: meta.role,
+        runId: meta.runId,
+      },
+    });
     generation = client.generation({
       traceId,
       name: meta.name ?? `${meta.provider}/${meta.model}`,

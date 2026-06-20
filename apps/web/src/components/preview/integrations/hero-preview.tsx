@@ -1,8 +1,15 @@
+import { BRAND_ACCENT } from "~/lib/integrations/integration-icons";
 import type { IntegrationProvider } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 import { HeroTile } from "./hero-tile";
 
 export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
+  // Colored brands light their hero in their own hue; monochrome marks fall
+  // back to the house purple. Low-alpha mix keeps it ambient in both themes.
+  const accent = BRAND_ACCENT[provider.brand];
+  const glow = accent
+    ? `color-mix(in srgb, ${accent} 24%, transparent)`
+    : "var(--app-purple-2)";
   return (
     <div
       aria-hidden
@@ -27,8 +34,7 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
         aria-hidden
         className="absolute inset-0"
         style={{
-          background:
-            "radial-gradient(120% 90% at 50% 110%, var(--app-purple-2) 0%, transparent 55%)",
+          background: `radial-gradient(120% 90% at 50% 110%, ${glow} 0%, transparent 55%)`,
         }}
       />
       <div className="relative flex h-full items-center justify-center gap-6">
