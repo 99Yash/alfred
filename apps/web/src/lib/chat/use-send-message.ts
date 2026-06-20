@@ -1,3 +1,4 @@
+import type { ChatModelTier } from "@alfred/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
@@ -9,8 +10,12 @@ import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-/** Mirrors the server's `ChatModelTier`; declared locally to keep `@alfred/ai` out of the web bundle. */
-export type ChatTier = "standard" | "deep";
+/**
+ * The canonical `ChatModelTier` from `@alfred/contracts` (server-side it lives
+ * in `@alfred/ai`, which can't enter the web bundle). Aliased to `ChatTier` for
+ * the existing call sites.
+ */
+export type ChatTier = ChatModelTier;
 
 export type SendMessage = (
   threadId: string | undefined,
