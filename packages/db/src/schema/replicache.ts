@@ -19,7 +19,7 @@ export const replicacheClient = pgTable(
       .notNull()
       .references(() => replicacheClientGroup.id, { onDelete: "cascade" }),
     lastMutationId: integer("last_mutation_id").notNull().default(0),
-    lastModified: timestamp("last_modified").defaultNow().notNull(),
+    lastModified: timestamp("last_modified", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index("replicache_client_group_idx").on(t.clientGroupId)],
 );

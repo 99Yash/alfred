@@ -1,6 +1,6 @@
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
-import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "../../events/publish";
 import { emitReplicachePokes } from "../../events/replicache-events";
@@ -428,20 +428,44 @@ export async function listFactsByStatus(
   return rows.map(rowToFact);
 }
 
-/** Walk the supersession chain from a row back to its origin. */
+/**
+ * Hard cap on supersession-chain length. A real chain is a handful of edits;
+ * this only fires on a corrupt/cyclic `supersedes_id` pointer, bounding the
+ * recursion so a bad row can't run the query away.
+ */
+const MAX_SUPERSESSION_DEPTH = 256;
+
+/**
+ * Walk the supersession chain from a row back to its origin, tip-first (the
+ * queried row at index 0, the origin root last).
+ *
+ * One `WITH RECURSIVE` round trip instead of a query per hop: the base term
+ * seeds the starting row, the recursive term follows `supersedes_id` (a row's
+ * predecessor is the fact whose `id` equals the current row's `supersedes_id`),
+ * scoped to `userId` at every level and bounded by {@link MAX_SUPERSESSION_DEPTH}.
+ *
+ * The column projection is generated from the table metadata so the raw rows
+ * come back in `$inferSelect` (camelCase) shape — no hand-rolled column list to
+ * drift from the schema — and feed `rowToFact` unchanged.
+ */
 export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
-  const chain: FactRow[] = [];
-  let cursor: string | null = factId;
-  while (cursor) {
-    const [row] = await db()
-      .select()
-      .from(userFacts)
-      .where(and(eq(userFacts.id, cursor), eq(userFacts.userId, userId)))
-      .limit(1);
-    if (!row) break;
-    const fact = rowToFact(row);
-    chain.push(fact);
-    cursor = fact.supersedesId;
-  }
-  return chain;
+  const columns = getTableColumns(userFacts);
+  const projection = sql.join(
+    Object.entries(columns).map(([jsName, column]) => sql`${column} as ${sql.identifier(jsName)}`),
+    sql`, `,
+  );
+  const result = await db().execute(sql`
+    with recursive chain as (
+      select ${projection}, 0 as depth
+        from ${userFacts}
+       where ${userFacts.id} = ${factId} and ${userFacts.userId} = ${userId}
+      union all
+      select ${projection}, c.depth + 1
+        from ${userFacts}
+        join chain c on ${userFacts.id} = c.${sql.identifier("supersedesId")}
+       where ${userFacts.userId} = ${userId} and c.depth < ${MAX_SUPERSESSION_DEPTH}
+    )
+    select * from chain order by depth
+  `);
+  return rowsFromExecute<UserFact>(result).map(rowToFact);
 }
