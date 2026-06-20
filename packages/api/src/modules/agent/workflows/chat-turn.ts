@@ -12,6 +12,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  chatModelTierSchema,
   isIntegrationSlug,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -96,12 +97,15 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
-  tier: z.enum(["standard", "deep"]),
+  tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
+  // User timezone, snapshotted on the first turn — it can't change mid-run, so
+  // re-reading it from the DB every turn (like `connectedSummary`) is wasted.
+  timezone: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
   // Text of the current (latest) narration segment. Accumulates within a step;
   // when a step ends with tool calls it's pushed onto `narration` and reset,
@@ -221,9 +225,19 @@ function preview(value: unknown): string {
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
+// The SDK calls `tools()` once per turn, so the ToolSet was rebuilt from the
+// registry every model-turn even when `activeIntegrations` was unchanged. The
+// registry is static after boot and the ToolSet depends only on the slug set,
+// so memoize by the normalized slug list — shared safely across runs/users.
+const sdkToolsCache = new Map<string, ToolSet>();
+
 function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
+  const slugs = [...new Set(["system", ...activeIntegrations])].sort();
+  const cacheKey = slugs.join(",");
+  const cached = sdkToolsCache.get(cacheKey);
+  if (cached) return cached;
+
   const out: Partial<Record<ToolName, Tool>> = {};
-  const slugs = [...new Set(["system", ...activeIntegrations])];
   for (const slug of slugs) {
     if (!isIntegrationSlug(slug)) continue;
     for (const registered of listToolsForIntegration(slug)) {
@@ -233,7 +247,9 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
       });
     }
   }
-  return out as ToolSet;
+  const resolved = out as ToolSet;
+  sdkToolsCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 function toolResultMessage(
@@ -327,13 +343,15 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const timezone = await resolveUserTimezone(ctx.userId);
+      if (state.timezone === undefined) {
+        state.timezone = await resolveUserTimezone(ctx.userId);
+      }
       if (state.connectedSummary === undefined) {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
       const agent = new AlfredAgent({
         id: "chat",
-        system: buildChatSystemPrompt(formatDateGrounding(timezone), state.connectedSummary),
+        system: buildChatSystemPrompt(formatDateGrounding(state.timezone), state.connectedSummary),
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
