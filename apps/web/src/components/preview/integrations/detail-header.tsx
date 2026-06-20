@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { GoogleConsentDialog } from "~/components/onboarding/google-consent-dialog";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import { PROVIDER_BACKEND, type IntegrationProvider } from "~/lib/integrations/integrations";
 import { toast } from "~/lib/toast";
 
 const API_URL =
@@ -73,18 +74,38 @@ function RedirectConnect({
   provider: IntegrationProvider;
   connected: boolean;
 }) {
+  // Google providers gate the redirect behind consent coaching: one grant
+  // covers the whole Workspace, and an unverified app trips two consent-screen
+  // gotchas (uncheckable per-scope boxes + the "unverified app" interstitial)
+  // that the dialog pre-explains. Other OAuth providers carry no such gotcha,
+  // so they redirect straight through. Mirrors the onboarding flow.
+  const [consentOpen, setConsentOpen] = useState(false);
   const path = CONNECT_PATHS[provider.id];
   const wired = Boolean(path);
+  const isGoogle = PROVIDER_BACKEND[provider.id] === "google";
   const label = connected ? "Add Account" : wired ? "Connect" : "Coming Soon";
-  const onConnect = wired
-    ? () => {
-        window.location.href = `${API_URL}${path}`;
-      }
-    : undefined;
+
+  const redirect = () => {
+    window.location.href = `${API_URL}${path}`;
+  };
+  const onConnect = wired ? (isGoogle ? () => setConsentOpen(true) : redirect) : undefined;
+
   return (
-    <AppButton variant="white" size="lg" disabled={!wired} onClick={onConnect}>
-      {label}
-    </AppButton>
+    <>
+      {isGoogle && wired ? (
+        <GoogleConsentDialog
+          open={consentOpen}
+          onOpenChange={setConsentOpen}
+          onConfirm={() => {
+            setConsentOpen(false);
+            redirect();
+          }}
+        />
+      ) : null}
+      <AppButton variant="white" size="lg" disabled={!wired} onClick={onConnect}>
+        {label}
+      </AppButton>
+    </>
   );
 }
 
