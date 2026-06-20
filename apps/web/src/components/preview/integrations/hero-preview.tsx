@@ -13,6 +13,7 @@ import { cn } from "~/lib/utils";
  * compete with the sharp center mark.
  */
 const SATELLITES: ReadonlyArray<{
+  id: string;
   size: number;
   rotate: number;
   opacity: number;
@@ -20,13 +21,13 @@ const SATELLITES: ReadonlyArray<{
   style: CSSProperties;
 }> = [
   // Large faint tile bleeding off the top-right corner — the deepest layer.
-  { size: 132, rotate: 8, opacity: 0.12, blur: true, style: { top: -44, right: -36 } },
+  { id: "far-tr", size: 132, rotate: 8, opacity: 0.12, blur: true, style: { top: -44, right: -36 } },
   // Mid tile cropped at the bottom-left.
-  { size: 92, rotate: -6, opacity: 0.2, blur: true, style: { bottom: -28, left: -22 } },
+  { id: "far-bl", size: 92, rotate: -6, opacity: 0.2, blur: true, style: { bottom: -28, left: -22 } },
   // Crisp small satellites floating near the center band.
-  { size: 52, rotate: -9, opacity: 0.6, style: { top: 18, left: "16%" } },
-  { size: 40, rotate: 7, opacity: 0.7, style: { bottom: 26, right: "20%" } },
-  { size: 34, rotate: -4, opacity: 0.55, style: { top: "30%", right: "13%" } },
+  { id: "near-tl", size: 52, rotate: -9, opacity: 0.6, style: { top: 18, left: "16%" } },
+  { id: "near-br", size: 40, rotate: 7, opacity: 0.7, style: { bottom: 26, right: "20%" } },
+  { id: "near-tr", size: 34, rotate: -4, opacity: 0.55, style: { top: "30%", right: "13%" } },
 ];
 
 export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
@@ -65,10 +66,11 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
       />
       {/* Scattered satellite marks — the parallax constellation behind the hero.
        * The wrapper carries the px size (so arbitrary sizes survive JIT), and
-       * `size-full` on the icon overrides its default size class via twMerge. */}
-      {SATELLITES.map((sat, i) => (
+       * `size-full` on the icon overrides its default size class via twMerge.
+       * The coin bakes in its own elevated shadow, so we don't re-add one. */}
+      {SATELLITES.map((sat) => (
         <div
-          key={i}
+          key={sat.id}
           className={cn("absolute", sat.blur && "blur-[1px]")}
           style={{
             ...sat.style,
@@ -78,18 +80,12 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
             transform: `rotate(${sat.rotate}deg)`,
           }}
         >
-          <IntegrationIcon
-            brand={provider.brand}
-            className="size-full rounded-full shadow-[var(--app-shadow-elevated)]"
-          />
+          <IntegrationIcon brand={provider.brand} className="size-full rounded-full" />
         </div>
       ))}
       {/* Sharp center mark, lifted above the constellation. */}
       <div className="relative flex h-full items-center justify-center">
-        <IntegrationIcon
-          brand={provider.brand}
-          className="size-[116px] rounded-full shadow-[var(--app-shadow-elevated)]"
-        />
+        <IntegrationIcon brand={provider.brand} className="size-[116px] rounded-full" />
       </div>
     </div>
   );
