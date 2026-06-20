@@ -7,12 +7,17 @@ import {
   exchangeUserCode,
   upsertGithubCredential,
 } from "@alfred/integrations/github";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError } from "../../middleware/errors";
-import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
+import {
+  consumeOAuthNonce,
+  rememberOAuthNonce,
+  signOAuthState,
+  verifyOAuthState,
+} from "./oauth-state";
 
 /**
  * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as
@@ -28,33 +33,6 @@ import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
  *   GET  /api/integrations/github/credentials   → list this user's connections
  */
 
-interface SignedState {
-  userId: string;
-  nonce: string;
-}
-
-function signState(state: SignedState): string {
-  const env = serverEnv();
-  const payload = Buffer.from(JSON.stringify(state)).toString("base64url");
-  const sig = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
-  return `${payload}.${sig}`;
-}
-
-function verifyState(raw: string): SignedState | null {
-  const env = serverEnv();
-  const [payload, sig] = raw.split(".");
-  if (!payload || !sig) return null;
-  const expected = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SignedState;
-  } catch {
-    return null;
-  }
-}
-
 export const githubIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/github",
   normalize: "typebox",
@@ -65,7 +43,7 @@ export const githubIntegrationRoutes = new Elysia({
       .get("/connect", async ({ user, set }) => {
         const nonce = randomBytes(16).toString("hex");
         await rememberOAuthNonce({ provider: "github", nonce, userId: user.id });
-        const state = signState({ userId: user.id, nonce });
+        const state = signOAuthState({ userId: user.id, nonce });
         set.status = 302;
         set.headers["Location"] = buildInstallUrl(state);
         return null;
@@ -110,7 +88,7 @@ export const githubIntegrationRoutes = new Elysia({
         return null;
       }
 
-      const decoded = verifyState(query.state);
+      const decoded = verifyOAuthState(query.state);
       if (!decoded) throw new BadRequestError("Invalid state");
 
       const storedUserId = await consumeOAuthNonce("github", decoded.nonce);
