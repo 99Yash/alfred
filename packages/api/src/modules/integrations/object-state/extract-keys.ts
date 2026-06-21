@@ -1,3 +1,5 @@
+import { parseEmailAddress } from "@alfred/contracts";
+
 /**
  * Deterministic key extraction (ADR-0062 v1; ADR-0063 is the rich replacement).
  *
@@ -20,9 +22,10 @@ const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
 const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 
 export function isGithubNotificationSender(from: string | null | undefined): boolean {
-  if (!from) return false;
-  const lower = from.toLowerCase();
-  return GITHUB_NOTIFICATION_DOMAINS.some((domain) => lower.includes(`@`) && lower.includes(domain));
+  const address = parseEmailAddress(from);
+  if (!address) return false;
+  const domain = address.split("@")[1];
+  return domain !== undefined && GITHUB_NOTIFICATION_DOMAINS.includes(domain);
 }
 
 /**

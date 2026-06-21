@@ -29,6 +29,20 @@ export function isTerminalCategory(category: StateCategory): category is Termina
 }
 
 /**
+ * Categories that close an already-open briefing loop. A `failed` object state
+ * is terminal for the work object, but it is usually the alert/opener for a CI
+ * loop, not evidence that the loop is fixed.
+ */
+export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;
+export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[number];
+
+export function isLoopClosingCategory(
+  category: StateCategory,
+): category is LoopClosingStateCategory {
+  return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);
+}
+
+/**
  * Per-provider definition. `kinds` / `keyKinds` enumerate the legal `text`
  * values the DB columns hold; `keyResolvesTo` declares which kind a key kind
  * points at (`head_sha → pull_request`, never `→ issue`); `normalize` maps a
@@ -63,8 +77,8 @@ export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
     kinds: ["pull_request"],
-    keyKinds: ["head_sha", "branch"],
-    keyResolvesTo: { head_sha: "pull_request", branch: "pull_request" },
+    keyKinds: ["head_sha"],
+    keyResolvesTo: { head_sha: "pull_request" },
     normalize(_kind, nativeState) {
       switch (nativeState) {
         case "merged":

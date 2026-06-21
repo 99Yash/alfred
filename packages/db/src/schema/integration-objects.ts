@@ -18,7 +18,7 @@ import { entities } from "./memory";
  * (the propose/dispose invariant that keeps ADR-0048's closure contract intact).
  *
  *   integration_objects           identity + normalized state, bitemporal
- *   integration_object_keys       sidecar key index (head_sha → PR, branch → PR)
+ *   integration_object_keys       sidecar key index (head_sha → PR)
  *   integration_object_relations  object↔entity edges (authored_by, in_project, closes)
  *
  * Why a materialized projection and not a gather-time recompute: a briefing
@@ -61,7 +61,7 @@ export const integrationObjects = pgTable(
     provider: text("provider").notNull(),
     /** Object kind within the provider — `pull_request` (v1). */
     kind: text("kind").notNull(),
-    /** Provider-native stable id — the PR number as a string for github. */
+    /** Provider-native stable id — github PR `id` as a string for v1. */
     externalId: text("external_id").notNull(),
     /** Provider-agnostic bucket — `active | resolved | failed | abandoned`. */
     stateCategory: text("state_category").notNull(),
@@ -89,12 +89,7 @@ export const integrationObjects = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("integration_objects_identity_idx").on(
-      t.userId,
-      t.provider,
-      t.kind,
-      t.externalId,
-    ),
+    uniqueIndex("integration_objects_identity_idx").on(t.userId, t.provider, t.kind, t.externalId),
     index("integration_objects_kind_idx").on(t.userId, t.provider, t.kind),
     index("integration_objects_state_idx").on(t.userId, t.stateCategory),
   ],
@@ -106,7 +101,7 @@ export const integrationObjects = pgTable(
 
 /**
  * Sidecar key index: `(user_id, provider, key_kind, key_value) → object_id`.
- * `head_sha → PR`, `branch → PR`, `run_id → PR`, `task_id → task` all resolve
+ * `head_sha → PR`, `run_id → PR`, `task_id → task` all resolve
  * uniformly. The `head_sha → PR` lookup is the exact thing prod recon proved
  * necessary — a GitHub CI email carries a head-sha and *no* PR number, so the
  * loop can only close by resolving the sha back to its PR.
@@ -124,7 +119,7 @@ export const integrationObjectKeys = pgTable(
       .notNull()
       .references(() => integrationObjects.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
-    /** Key kind within the provider — `head_sha`, `branch` (v1 github). */
+    /** Key kind within the provider — `head_sha` (v1 github). */
     keyKind: text("key_kind").notNull(),
     keyValue: text("key_value").notNull(),
     ...lifecycle_dates,
