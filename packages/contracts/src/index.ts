@@ -8,6 +8,7 @@ export * from "./tool-fields.js";
 export * from "./mentions.js";
 export * from "./transcript.js";
 export * from "./triage.js";
+export * from "./attention.js";
 export * from "./briefing.js";
 export * from "./chat.js";
 export * from "./briefing-references.js";

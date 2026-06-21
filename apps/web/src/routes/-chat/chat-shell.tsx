@@ -1,4 +1,4 @@
-import type { TriageCategory } from "@alfred/contracts";
+import { type AttentionBand, type TriageCategory, scoreAttentionForItems } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link } from "@tanstack/react-router";
@@ -1512,20 +1512,65 @@ function useRailData(): RailData {
   );
 }
 
+/** Demanding leads, muted sinks; preserves server order within a band (stable). */
+const ATTENTION_BAND_ORDER: Record<AttentionBand, number> = { demanding: 0, normal: 1, muted: 2 };
+
+/**
+ * Overlay each thread's synced triage tag onto its inbox row and compute the
+ * presentation-layer attention band (ADR-0064 / #210), then order by it.
+ *
+ * The band is derived — never stored on the row, never a re-tag: honest
+ * category × sender significance (from the tag) × cross-row recurrence decay,
+ * through the same `@alfred/contracts` scorer the briefing read path uses.
+ * Recurrence is a property of the *visible set*, so it's computed over the
+ * whole page at once. Rows are then stable-sorted so demanding items lead and
+ * recurring machine noise / low-significance cold senders sink — the honest
+ * category chip on each row is unchanged.
+ */
 function overlayTriageTags(
   items: ReadonlyArray<InboxItem>,
   tagsByThreadId: ReadonlyMap<string, SyncedTriageTag>,
 ): ReadonlyArray<InboxItem> {
-  if (tagsByThreadId.size === 0) return items;
-  let changed = false;
-  const next = items.map((item) => {
+  if (items.length === 0) return items;
+
+  // 1. Merge the synced tag's category/source onto each row.
+  const merged = items.map((item) => {
     const tag = item.threadId ? tagsByThreadId.get(item.threadId) : undefined;
-    if (!tag) return item;
-    if (item.category === tag.category && item.categorySource === tag.source) return item;
-    changed = true;
-    return { ...item, category: tag.category, categorySource: tag.source };
+    if (!tag) return { item, significanceBand: null };
+    const withTag =
+      item.category === tag.category && item.categorySource === tag.source
+        ? item
+        : { ...item, category: tag.category, categorySource: tag.source };
+    return { item: withTag, significanceBand: tag.senderSignificanceBand };
   });
-  return changed ? next : items;
+
+  // 2. Score the whole visible page together so recurrence (cross-row) is real.
+  //    Untriaged rows get no band (null) — never demoted on a guess.
+  const scored = scoreAttentionForItems(
+    merged.map(({ item, significanceBand }) => ({
+      // The bare address (not the display name) is what reveals a bulk mailbox
+      // and keys the recurrence grouping.
+      sender: item.senderAddress ?? item.sender,
+      subject: item.subject,
+      category: item.category ?? "fyi",
+      significanceBand,
+    })),
+  );
+  const withBand = merged.map(({ item }, i) => {
+    const band: AttentionBand | null = item.category ? (scored[i]?.band ?? null) : null;
+    return item.attentionBand === band ? item : { ...item, attentionBand: band };
+  });
+
+  // 3. Stable-sort by band (demanding → normal/untriaged → muted).
+  return withBand
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const rank =
+        ATTENTION_BAND_ORDER[a.item.attentionBand ?? "normal"] -
+        ATTENTION_BAND_ORDER[b.item.attentionBand ?? "normal"];
+      return rank !== 0 ? rank : a.index - b.index;
+    })
+    .map(({ item }) => item);
 }
 
 /** Map a synced todo to the rail's display shape (ADR-0050). */

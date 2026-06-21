@@ -19,20 +19,11 @@
  * construction). Returns `null` for non-human senders — the line is then
  * omitted (bots/services are reasoned via `sender_priors`, never the graph).
  */
+import { bucketSignificance } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { entities, userFacts } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { parsePersonEntityMetadata } from "../memory/entity-metadata";
-
-/** Significance scalar → word. The two cutoffs are the only numeric knobs (ADR-0059 amendment, tunable from data). */
-const STRONG_AT = 0.66;
-const MODERATE_AT = 0.33;
-
-function bucketSignificance(score: number): "strong" | "moderate" | "weak" {
-  if (score >= STRONG_AT) return "strong";
-  if (score >= MODERATE_AT) return "moderate";
-  return "weak";
-}
+import { userFacts } from "@alfred/db/schemas";
+import { and, eq, inArray } from "drizzle-orm";
+import { findPersonMetadataByAddress } from "../memory/significance";
 
 function reciprocityPhrase(stats: { inbound: number; outbound: number }): string {
   if (stats.inbound > 0 && stats.outbound > 0) return "two-way thread";
@@ -86,32 +77,18 @@ export async function resolveSenderRelationship(args: {
   isHumanSender: boolean;
 }): Promise<string | null> {
   if (!args.isHumanSender || !args.senderAddress) return null;
-  const target = args.senderAddress.trim().toLowerCase();
-  if (!target) return null;
 
-  let metadataRaw: unknown;
+  // Shared alias→metadata lookup (one read path for both the resolver prose and
+  // the ADR-0064 getSenderSignificance read). Null (no row) or any DB blip
+  // degrades to the safe "no prior contact" default rather than failing classify.
+  let meta: Awaited<ReturnType<typeof findPersonMetadataByAddress>>;
   try {
-    const rows = await db()
-      .select({ metadata: entities.metadata })
-      .from(entities)
-      .where(
-        and(
-          eq(entities.userId, args.userId),
-          eq(entities.kind, "person"),
-          sql`EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-            WHERE lower(alias) = ${target}
-          )`,
-        ),
-      )
-      .limit(1);
-    if (rows.length === 0) return "no prior contact on record";
-    metadataRaw = rows[0]?.metadata;
+    meta = await findPersonMetadataByAddress(args.userId, args.senderAddress);
   } catch {
     return "no prior contact on record";
   }
+  if (!meta) return "no prior contact on record";
 
-  const meta = parsePersonEntityMetadata(metadataRaw);
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
   const significance = meta.significance;
 

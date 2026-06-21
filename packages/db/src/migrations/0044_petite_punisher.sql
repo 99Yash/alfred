@@ -1,0 +1,1 @@
+ALTER TABLE "email_triage" ADD COLUMN "sender_significance_band" text;

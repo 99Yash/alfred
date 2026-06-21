@@ -591,6 +591,7 @@ function serializeTriageTag(t: EmailTriage): SyncedTriageTag {
     category: t.category,
     documentId: t.documentId,
     appliedLabelId: t.appliedLabelId,
+    senderSignificanceBand: t.senderSignificanceBand,
     rowVersion: t.rowVersion,
     updatedAt: toIso(t.updatedAt),
   };
