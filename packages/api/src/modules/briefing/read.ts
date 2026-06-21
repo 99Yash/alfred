@@ -1,8 +1,20 @@
-import { toRecord } from "@alfred/contracts";
-import type { BriefingGather, BriefingSlot } from "@alfred/contracts";
+import {
+  isTriageCategory,
+  parseEmailAddress,
+  scoreAttentionForItems,
+  toRecord,
+} from "@alfred/contracts";
+import type {
+  AttentionBand,
+  BriefingGather,
+  BriefingSlot,
+  SignificanceBand,
+  TriageCategory,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
+import { getSenderSignificanceBatch } from "../memory/significance";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -49,6 +61,16 @@ export interface EmailListItem {
    * not from LLM prose-matching.
    */
   previouslySurfaced: boolean;
+  /**
+   * Presentation-layer demand band (ADR-0064 / #210) — `demanding | normal |
+   * muted`, computed cross-row over the window via the shared scorer (category
+   * base × recurrence decay; significance is folded in at Phase B). A `muted`
+   * item is recurring machine noise / low-signal: the agent should not surface
+   * it as demanding. Like {@link EmailListItem.previouslySurfaced}, this is a
+   * deterministic ranking hint layered on top of the honest, immutable
+   * `triageCategory` — it never re-tags.
+   */
+  attentionBand: AttentionBand;
   /** Character length of the full body. Lets the agent decide when read_email is worth a tool call. */
   contentLength: number;
 }
@@ -124,12 +146,42 @@ export async function listEmailsSinceWatermark(
     listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
   ]);
 
-  return rows.map((r) => {
-    const meta = toRecord(r.metadata);
+  const metas = rows.map((r) => toRecord(r.metadata));
+  const senders = metas.map((meta) => (typeof meta.from === "string" ? meta.from : null));
+
+  // Phase B (ADR-0064): fetch each distinct sender's precomputed significance so
+  // the scorer demotes low-significance cold senders *within* their honest
+  // category (the cold LinkedIn `awaiting_reply` drops to the ambient tail; a
+  // known-important sender keeps it demanding). One read per distinct address,
+  // deduped; an unscored / non-human / unknown sender degrades to neutral —
+  // exactly the Phase-A intrinsic-only behavior.
+  const significanceByAddress = await loadSignificanceBands(args.userId, senders);
+  const bandFor = (from: string | null): SignificanceBand | null => {
+    const address = parseEmailAddress(from);
+    return address ? (significanceByAddress.get(address) ?? null) : null;
+  };
+
+  // Score the window together so recurrence (a cross-row property) is computed
+  // off the same rows the agent sees. Untriaged rows (the defensive left-join
+  // miss) carry no demand signal → `normal`, never demoted on a guess.
+  const attention = scoreAttentionForItems(
+    rows.map((r, i) => ({
+      sender: senders[i],
+      subject: r.subject,
+      category: toTriageCategory(r.triageCategory) ?? "fyi",
+      significanceBand: bandFor(senders[i] ?? null),
+      // Chronological key for recurrence (rows arrive newest-first); fall back
+      // to ingest time when the message carries no authored timestamp.
+      occurredAtMs: (r.authoredAt ?? r.ingestedAt)?.getTime() ?? null,
+    })),
+  );
+
+  return rows.map((r, i) => {
+    const meta = metas[i] ?? {};
     return {
       documentId: r.documentId,
       subject: r.subject,
-      from: typeof meta.from === "string" ? meta.from : null,
+      from: senders[i] ?? null,
       snippet: typeof meta.snippet === "string" ? meta.snippet : null,
       triageCategory: r.triageCategory,
       triageRationale: r.triageRationale,
@@ -137,9 +189,44 @@ export async function listEmailsSinceWatermark(
       ingestedAt: r.ingestedAt,
       threadId: r.sourceThreadId,
       previouslySurfaced: r.sourceThreadId ? surfacedThreadIds.has(r.sourceThreadId) : false,
+      attentionBand: toTriageCategory(r.triageCategory) ? (attention[i]?.band ?? "normal") : "normal",
       contentLength: Number(r.contentLength ?? 0),
     } satisfies EmailListItem;
   });
+}
+
+/** A triage category string narrowed to the contract enum, or null if unknown/absent. */
+function toTriageCategory(category: string | null): TriageCategory | null {
+  return isTriageCategory(category) ? category : null;
+}
+
+/**
+ * Resolve `address → SignificanceBand` for the distinct senders in a window.
+ * Reads the precomputed significance scalar (ADR-0057/0059) for all distinct
+ * addresses in one batched alias query via {@link getSenderSignificanceBatch} —
+ * never recomputes, and avoids an N+1 over the (up to `limit`-many) senders one
+ * `list_emails_since` tool call can surface. Senders with no graph row (or a row
+ * not yet scored) are simply absent from the map, which the caller treats as
+ * neutral (no demotion).
+ */
+async function loadSignificanceBands(
+  userId: string,
+  rawSenders: ReadonlyArray<string | null>,
+): Promise<Map<string, SignificanceBand>> {
+  const addresses = new Set<string>();
+  for (const raw of rawSenders) {
+    const address = parseEmailAddress(raw);
+    if (address) addresses.add(address);
+  }
+  if (addresses.size === 0) return new Map();
+
+  const significanceByAddress = await getSenderSignificanceBatch(userId, [...addresses]);
+
+  const out = new Map<string, SignificanceBand>();
+  for (const [address, significance] of significanceByAddress) {
+    out.set(address, significance.band);
+  }
+  return out;
 }
 
 /**

@@ -1,5 +1,6 @@
 import {
   gatherCalendarContribution,
+  gatherDayShape,
   listEmailsSinceWatermark,
   listPriorBriefings,
   readEmailDocument,
@@ -8,7 +9,7 @@ import {
   type PriorBriefingSummary,
 } from "@alfred/api";
 import { tool, type ToolSet } from "@alfred/ai";
-import type { CalendarContribution, IanaTimezone } from "@alfred/contracts";
+import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -67,6 +68,9 @@ interface BuildArgs {
   timezone: IanaTimezone;
 }
 
+/** Fallback day-shape window when this slot has no prior watermark (first run). */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const dumpInputSchema = z.object({
   subject: z.string().min(1).max(200),
   bodyText: z.string().min(1),
@@ -81,7 +85,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   const tools = {
     list_emails_since: tool({
       description:
-        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, and a previouslySurfaced flag (true = this thread already went out in a recent briefing — treat it as a continuation, not a fresh item) — never full bodies. Call read_email if you need the body for a specific message.",
+        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this thread already went out in a recent briefing — treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. attentionBand is a precomputed demand ranking: a 'muted' item is recurring machine noise or low-signal that should NOT be surfaced as demanding (e.g. the same alarm fired ten times). Trust it instead of re-judging urgency yourself. Call read_email if you need the body for a specific message.",
       inputSchema: z.object({
         limit: z
           .number()
@@ -149,6 +153,19 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           slot: args.slot,
         });
         return contribution?.events ?? [];
+      },
+    }),
+
+    get_day_shape: tool({
+      description:
+        "Deterministic read of how active the day actually was: { activityVolume: 'busy'|'normal'|'quiet', shipped: [{title, url}] }, computed from connected-tool activity (GitHub) over the briefing window. Use it to ground the day's tone — NEVER call the day 'quiet' or 'slow' when activityVolume is 'busy' or 'normal'. In the evening slot, `shipped` is the recently-completed work you can recap in one collapsed clause ('a batch of the X work shipped'); never enumerate it.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<DayShape> => {
+        return gatherDayShape({
+          userId: args.userId,
+          windowStart: args.sinceIngestedAt ?? new Date(args.untilIngestedAt.getTime() - DAY_MS),
+          windowEnd: args.untilIngestedAt,
+        });
       },
     }),
 
