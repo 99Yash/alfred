@@ -1,12 +1,13 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
-import { isRecord, toRecord, weatherFallbackFor } from "@alfred/contracts";
+import { isLoopClosingCategory, isRecord, toRecord, weatherFallbackFor } from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
   CalendarContribution,
   IanaTimezone,
   IntegrationActivityItem,
+  StateCategory,
   WeatherContribution,
 } from "@alfred/contracts";
 import {
@@ -19,6 +20,12 @@ import {
 } from "@alfred/integrations/google";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
+import {
+  extractGithubKeys,
+  isGithubNotificationSender,
+  type ObjectState,
+  objectStateStore,
+} from "../integrations/object-state";
 import { getPreference } from "../memory/preferences";
 import {
   findSenderSuppression,
@@ -89,6 +96,12 @@ export interface BriefingDigest {
   suppressedCounts: Record<SuppressedCategory, number>;
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
+  /**
+   * Priority items dropped because object-state (ADR-0062) shows the underlying
+   * work object has reached a terminal state — e.g. a CI-failure email whose PR
+   * has since merged. These feed the evening "closed today" recap (ADR-0048 #5).
+   */
+  closedLoops: BriefingClosedLoop[];
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -99,6 +112,19 @@ export interface BriefingInstructionSuppression {
   sender: string | null;
   factId: string;
   effect: "exclude_briefing_priority";
+}
+
+export interface BriefingClosedLoop {
+  documentId: string;
+  category: PriorityCategory;
+  subject: string | null;
+  /** The work object that closed the loop. */
+  objectTitle: string | null;
+  objectUrl: string | null;
+  /** Agnostic terminal bucket — `resolved | abandoned | failed`. */
+  stateCategory: StateCategory;
+  /** Native provider state for display — `merged`/`closed`/… */
+  nativeState: string | null;
 }
 
 export interface GatherBriefingDigestArgs {
@@ -124,6 +150,8 @@ export interface GatherBriefingArgs {
 export interface GatherBriefingWithSuppressionAuditResult {
   gather: BriefingGather;
   suppressedByInstruction: BriefingInstructionSuppression[];
+  /** Loops dropped because their work object reached a terminal state (ADR-0062). */
+  closedLoops: BriefingClosedLoop[];
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -159,6 +187,9 @@ export async function gatherBriefingDigest(
         confidence: emailTriage.confidence,
         rationale: emailTriage.rationale,
         title: documents.title,
+        // Body is needed only to regex a GitHub CI `head_sha` for loop
+        // reconciliation; it never leaves this function.
+        content: documents.content,
         authoredAt: documents.authoredAt,
         sourceThreadId: documents.sourceThreadId,
         metadata: documents.metadata,
@@ -195,6 +226,11 @@ export async function gatherBriefingDigest(
     marketing: 0,
   };
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
+  // documentId → candidate GitHub `head_sha`s, for the post-partition
+  // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
+  // rows land here. Priority buckets stay uncapped until after reconciliation
+  // so closed loops do not consume one of the visible slots.
+  const githubShasByDoc = new Map<string, string[]>();
 
   for (const r of rows) {
     const cat = r.category;
@@ -223,20 +259,34 @@ export async function gatherBriefingDigest(
       continue;
     }
 
-    const bucket = buckets[cat];
-    if (bucket.length >= maxPerBucket) continue;
-
-    bucket.push({
+    buckets[cat].push({
       documentId: r.documentId,
       category: cat,
       confidence: r.confidence,
       rationale: r.rationale,
       subject: r.title,
-      from: typeof meta.from === "string" ? meta.from : null,
+      from: from,
       snippet: typeof meta.snippet === "string" ? meta.snippet : null,
       authoredAt: r.authoredAt,
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
+
+    // A GitHub CI/notification email carries a head_sha but no PR number; pull
+    // the sha so the reconciliation pass can resolve it back to its PR's state.
+    if (isGithubNotificationSender(from)) {
+      const shas = extractGithubKeys({ subject: r.title, content: r.content }).map(
+        (k) => k.keyValue,
+      );
+      if (shas.length > 0) githubShasByDoc.set(r.documentId, shas);
+    }
+  }
+
+  // Loop reconciliation (ADR-0062): drop any priority item whose underlying
+  // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
+  // live (absence never closes — ADR-0048-D).
+  const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubShasByDoc);
+  for (const category of PRIORITY_CATEGORIES) {
+    buckets[category] = buckets[category].slice(0, maxPerBucket);
   }
 
   const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
@@ -250,9 +300,66 @@ export async function gatherBriefingDigest(
     buckets,
     suppressedCounts,
     suppressedByInstruction,
+    closedLoops,
     totalPriority,
     totalSuppressed,
   };
+}
+
+/**
+ * Resolve each candidate GitHub CI loop to its PR's projected state and drop
+ * the closed ones from the priority buckets (mutates `buckets`), returning the
+ * dropped set for the evening "closed today" recap.
+ *
+ * Shas are resolved in parallel — at single-user scale a briefing window holds
+ * only a handful of GitHub-notification emails, and `resolveByKey` is a single
+ * indexed lookup. A sha that resolves to nothing, or to a non-terminal state,
+ * leaves its loop live (the determinism contract: absence never closes).
+ */
+async function reconcileGithubLoops(
+  userId: string,
+  buckets: Record<PriorityCategory, BriefingItem[]>,
+  shasByDoc: Map<string, string[]>,
+): Promise<BriefingClosedLoop[]> {
+  if (shasByDoc.size === 0) return [];
+
+  const distinctShas = [...new Set([...shasByDoc.values()].flat())];
+  const stateBySha = new Map<string, ObjectState>();
+  await Promise.all(
+    distinctShas.map(async (sha) => {
+      const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", sha);
+      if (!ref) return; // unknown PR → loop stays live
+      const state = await objectStateStore.getState(userId, ref);
+      if (state) stateBySha.set(sha, state);
+    }),
+  );
+
+  const closedLoops: BriefingClosedLoop[] = [];
+  for (const category of PRIORITY_CATEGORIES) {
+    const kept: BriefingItem[] = [];
+    for (const item of buckets[category]) {
+      const terminal = (shasByDoc.get(item.documentId) ?? [])
+        .map((sha) => stateBySha.get(sha))
+        .find(
+          (state): state is ObjectState => !!state && isLoopClosingCategory(state.stateCategory),
+        );
+      if (terminal) {
+        closedLoops.push({
+          documentId: item.documentId,
+          category,
+          subject: item.subject,
+          objectTitle: terminal.title,
+          objectUrl: terminal.url,
+          stateCategory: terminal.stateCategory,
+          nativeState: terminal.nativeState,
+        });
+      } else {
+        kept.push(item);
+      }
+    }
+    buckets[category] = kept;
+  }
+  return closedLoops;
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
@@ -312,6 +419,7 @@ export async function gatherBriefingWithSuppressionAudit(
       day_of_week: dayContribution(args.briefingDate, args.timezone),
     },
     suppressedByInstruction: digest.suppressedByInstruction,
+    closedLoops: digest.closedLoops,
   };
 }
 

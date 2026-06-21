@@ -2,6 +2,7 @@ export * from "./guards.js";
 export * from "./json.js";
 export * from "./runtime.js";
 export * from "./tools.js";
+export * from "./integration-objects.js";
 export * from "./tool-schemas.js";
 export * from "./tool-fields.js";
 export * from "./mentions.js";
