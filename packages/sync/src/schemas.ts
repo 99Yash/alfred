@@ -9,6 +9,7 @@ import {
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
+  significanceBandSchema,
   todoCreatedBySchema,
   todoExecutorSchema,
   todoKindSchema,
@@ -323,6 +324,13 @@ const triageTagSharedSchema = {
   documentId: z.string().nullable(),
   /** Gmail label id currently on the thread's canonical message, or null pre-reconcile. */
   appliedLabelId: z.string().nullable(),
+  /**
+   * Sender-significance band at classify time (ADR-0064 / #210) — the rail uses
+   * it to dim a low-significance sender's row within its honest category, never
+   * to re-tag. `.default(null)` keeps it additive: tag values synced before this
+   * field existed parse without it (and old senders re-populate on next classify).
+   */
+  senderSignificanceBand: significanceBandSchema.nullable().default(null),
   rowVersion: z.number(),
   updatedAt: isoDateTimeStringSchema.nullable(),
 };

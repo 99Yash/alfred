@@ -366,12 +366,18 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
   // → static container. A focusable element with no handler would lie
   // to keyboard users about the row being actionable.
   const interactive = !!onOpen || !!href;
+  // Presentation-layer de-emphasis (ADR-0064 / #210): a `muted` row is recurring
+  // machine noise or a low-significance cold sender — dim it so demanding items
+  // read first. Hover/focus restores full opacity so it stays discoverable, and
+  // the honest category chip is untouched (this never re-tags).
+  const muted = item.attentionBand === "muted";
   const sharedClass = cn(
     "group relative w-full text-left rounded-xl px-2 py-2 -mx-0.5",
     "flex items-start gap-2.5",
+    muted && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
     interactive
       ? cn(
-          "hover:bg-white/[0.07] transition-colors app-press",
+          "hover:bg-white/[0.07] transition-[background-color,opacity] app-press",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )
       : "cursor-default",

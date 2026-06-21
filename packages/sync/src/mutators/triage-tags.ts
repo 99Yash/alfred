@@ -51,6 +51,9 @@ export async function triageTagOverrideClient(
     category: args.category,
     documentId: tag.documentId,
     appliedLabelId: null,
+    // Sender significance is a property of the sender, not the classification —
+    // a user pinning the category doesn't change who's asking, so carry it over.
+    senderSignificanceBand: tag.senderSignificanceBand,
     rowVersion: tag.rowVersion + 1,
     updatedAt: now,
     overriddenAt: now,

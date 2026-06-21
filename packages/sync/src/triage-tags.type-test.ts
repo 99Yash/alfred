@@ -13,6 +13,7 @@ const base = {
   category: "fyi" as const,
   documentId: null,
   appliedLabelId: null,
+  senderSignificanceBand: null,
   rowVersion: 0,
   updatedAt: null,
 };

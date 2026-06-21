@@ -1,4 +1,4 @@
-import { isTriageCategory, type TriageCategory } from "@alfred/contracts";
+import { isTriageCategory, parseEmailAddress, type TriageCategory } from "@alfred/contracts";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
@@ -250,6 +250,9 @@ function toInboxItem(row: InboxResponseItem): InboxItem {
     id: row.documentId,
     threadId: row.threadId,
     sender: display || "Unknown sender",
+    // Bare address for the attention scorer's bulk-sender + recurrence grouping
+    // (the display name alone can't reveal a no-reply/notifications mailbox).
+    senderAddress: parseEmailAddress(row.sender),
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
     time: formatRelativeShort(row.authoredAt),

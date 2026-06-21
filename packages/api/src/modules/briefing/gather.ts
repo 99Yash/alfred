@@ -5,6 +5,7 @@ import type {
   BriefingGather,
   BriefingSlot,
   CalendarContribution,
+  DayShape,
   IanaTimezone,
   IntegrationActivityItem,
   StateCategory,
@@ -408,6 +409,15 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
+  // Day-shape (ADR-0064 / #230): reuse the already-fetched activity count so we
+  // don't re-query webhook_events; the resolved-object recap is one cheap list.
+  const dayShape = await gatherDayShape({
+    userId: args.userId,
+    windowStart: activityStart,
+    windowEnd,
+    activityCount: integrationActivity.length,
+  });
+
   return {
     gather: {
       email: {
@@ -417,10 +427,62 @@ export async function gatherBriefingWithSuppressionAudit(
       integration_activity: { items: integrationActivity },
       weather,
       day_of_week: dayContribution(args.briefingDate, args.timezone),
+      day_shape: dayShape,
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
   };
+}
+
+/**
+ * Activity-item count → volume thresholds. Seeded by judgment (tunable from the
+ * prod distribution, same surface as the ADR-0064 weights). Zero is the only
+ * "quiet" — the whole point of #230 is that any real activity disqualifies it.
+ */
+const DAY_SHAPE_BUSY_AT = 8;
+const MAX_SHIPPED = 6;
+
+/**
+ * Deterministic day-shape (ADR-0064 / #230). `activityVolume` is derived from
+ * the integration-activity window count; `shipped` is the most-recently-resolved
+ * GitHub work objects (ADR-0062 projection), which feeds the evening "what you
+ * shipped" recap. No LLM judgment — this exists so the composer can't call a day
+ * with real activity "quiet."
+ *
+ * v1 scopes `shipped` to recency, not a strict window filter: `list` orders by
+ * `updatedAt` desc and we take the top few resolved objects. A persisted
+ * resolved-at timestamp (to window precisely) is a fast-follow.
+ */
+export async function gatherDayShape(args: {
+  userId: string;
+  windowStart: Date;
+  windowEnd: Date;
+  /** Precomputed integration-activity count; falls back to a fresh query. */
+  activityCount?: number;
+}): Promise<DayShape> {
+  const activityCount =
+    args.activityCount ??
+    (
+      await gatherIntegrationActivity({
+        userId: args.userId,
+        windowStart: args.windowStart,
+        windowEnd: args.windowEnd,
+      })
+    ).length;
+
+  const resolved = await objectStateStore.list(args.userId, "github", {
+    stateCategory: "resolved",
+    limit: MAX_SHIPPED,
+  });
+  const shipped = resolved
+    .filter((o): o is ObjectState & { title: string } => typeof o.title === "string" && !!o.title)
+    .slice(0, MAX_SHIPPED)
+    .map((o) => ({ title: o.title, ...(o.url ? { url: o.url } : {}) }));
+
+  const activityVolume: DayShape["activityVolume"] =
+    activityCount === 0 ? "quiet" : activityCount >= DAY_SHAPE_BUSY_AT ? "busy" : "normal";
+
+  return { activityVolume, shipped };
 }
 
 const MAX_ACTIVITY_ITEMS = 25;

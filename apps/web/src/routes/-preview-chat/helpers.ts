@@ -1,4 +1,4 @@
-import type { TriageCategory, TriageTagSource } from "@alfred/contracts";
+import type { AttentionBand, TriageCategory, TriageTagSource } from "@alfred/contracts";
 import { useEffect, useState } from "react";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
@@ -124,6 +124,12 @@ export const TODOS: TodoItem[] = [
 export interface InboxItem {
   id: string;
   sender: string;
+  /**
+   * Bare sender email (`local@domain`), for the attention scorer's bulk-sender
+   * detection + recurrence grouping. {@link InboxItem.sender} is a display name
+   * and can't reveal a `no-reply@`/`notifications@` mailbox. Null when unparseable.
+   */
+  senderAddress?: string | null;
   subject: string;
   preview: string;
   time: string;
@@ -136,6 +142,13 @@ export interface InboxItem {
   category?: TriageCategory | null;
   /** Whether the visible triage tag came from the classifier or a user override. */
   categorySource?: TriageTagSource | null;
+  /**
+   * Presentation-layer demand band (ADR-0064 / #210), computed across the
+   * visible list from category + sender significance + cross-row recurrence.
+   * Drives row ordering and de-emphasis — `muted` rows dim, `demanding` lead.
+   * Never re-tags: the honest {@link InboxItem.category} chip is unchanged.
+   */
+  attentionBand?: AttentionBand | null;
   /** Brand glyph for noreply senders (github, linkedin, linear, …). */
   senderBrand?: IntegrationBrand | null;
   /**

@@ -219,6 +219,31 @@ export const dayOfWeekContributionSchema = z.object({
   holiday: z.object({ name: z.string(), locale: z.string() }).optional(),
 }) satisfies z.ZodType<DayOfWeekContribution>;
 
+// ─── Day-shape (ADR-0064 / #230) ──────────────────────────────────────────
+// A deterministic read of how busy the day actually was, so the composer never
+// characterizes a day with real shipping/activity as "quiet" (the inverse of
+// #210's over-tagging — presentation not reflecting reality). Sourced from the
+// object-state projection (ADR-0062) + the integration-activity window count;
+// no LLM judgment.
+
+export const DAY_SHAPE_VOLUMES = ["busy", "normal", "quiet"] as const;
+export type DayShapeVolume = (typeof DAY_SHAPE_VOLUMES)[number];
+export const dayShapeVolumeSchema = z.enum(DAY_SHAPE_VOLUMES);
+
+export interface DayShape {
+  /** Activity intensity over the window — derived from deterministic counts. */
+  activityVolume: DayShapeVolume;
+  /** Work objects that reached a shipped/resolved state — the evening recap. */
+  shipped: Array<{ title: string; url?: string }>;
+}
+
+export const dayShapeSchema = z.object({
+  activityVolume: dayShapeVolumeSchema,
+  shipped: z.array(
+    z.object({ title: z.string().min(1).max(300), url: z.string().url().optional() }),
+  ),
+}) satisfies z.ZodType<DayShape>;
+
 /**
  * Output of the gather step. Sources split into guaranteed vs optional:
  *   - `email` is always present — triage is a built-in pipeline; an empty
@@ -237,6 +262,12 @@ export interface BriefingGather {
   integration_activity: IntegrationActivityContribution;
   weather: WeatherContribution | null;
   day_of_week: DayOfWeekContribution;
+  /**
+   * Deterministic day-shape signal (ADR-0064 / #230). Optional + additive so
+   * gather payloads persisted before this field parse unchanged; the composer
+   * treats its absence as "no day-shape signal," never an error.
+   */
+  day_shape?: DayShape;
 }
 
 // ─── Full briefing (composer + persisted output structure) ────────────────
@@ -323,6 +354,7 @@ export const briefingGatherSchema = z.object({
   integration_activity: integrationActivityContributionSchema,
   weather: weatherContributionSchema.nullable(),
   day_of_week: dayOfWeekContributionSchema,
+  day_shape: dayShapeSchema.optional(),
 }) satisfies z.ZodType<BriefingGather>;
 
 export const fullBriefingSectionSchema = z.object({

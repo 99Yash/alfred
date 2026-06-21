@@ -1,4 +1,9 @@
-import type { TriageTagSource, TriageTodoDecision, TriageTodoSuggestion } from "@alfred/contracts";
+import type {
+  SignificanceBand,
+  TriageTagSource,
+  TriageTodoDecision,
+  TriageTodoSuggestion,
+} from "@alfred/contracts";
 import {
   index,
   integer,
@@ -74,6 +79,16 @@ export const emailTriage = pgTable(
     appliedLabelId: text("applied_label_id"),
     /** Soft pointer to the latest classified `documents.id`. No FK. */
     documentId: text("document_id"),
+    /**
+     * Sender-significance band at classify time (ADR-0064 / #210), bucketed from
+     * the precomputed scalar (ADR-0057/0059). Synced to the rail so it can demote
+     * a low-significance sender's thread *within* its honest, immutable category —
+     * never re-tagging. Null when the sender is non-human / unscored / had no
+     * graph row when the thread was last classified; the attention scorer reads
+     * that null as neutral. Stale-tolerant: refreshed on the thread's next
+     * classify, not on every significance pass.
+     */
+    senderSignificanceBand: text("sender_significance_band").$type<SignificanceBand>(),
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
     /** Pointer to the originating `agent_runs.id`. */
     runId: text("run_id"),
