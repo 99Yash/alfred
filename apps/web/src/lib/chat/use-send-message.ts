@@ -10,7 +10,11 @@ import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-/** Alias of the canonical `ChatModelTier` (shared via `@alfred/contracts` to keep `@alfred/ai` out of the web bundle). */
+/**
+ * The canonical `ChatModelTier` from `@alfred/contracts` (server-side it lives
+ * in `@alfred/ai`, which can't enter the web bundle). Aliased to `ChatTier` for
+ * the existing call sites.
+ */
 export type ChatTier = ChatModelTier;
 
 export type SendMessage = (

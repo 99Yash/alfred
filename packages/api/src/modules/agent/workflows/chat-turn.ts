@@ -103,8 +103,9 @@ const chatRunStateSchema = z.object({
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
-  // User timezone, snapshotted on the first turn — it can't change mid-run, so
-  // re-reading it from the DB every turn (like `connectedSummary`) is wasted.
+  // User's IANA timezone, snapshotted once on the first turn — it can't change
+  // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
+  // is wasted latency.
   timezone: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
   // Text of the current (latest) narration segment. Accumulates within a step;
@@ -225,16 +226,18 @@ function preview(value: unknown): string {
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
-// The SDK calls `tools()` once per turn, so the ToolSet was rebuilt from the
-// registry every model-turn even when `activeIntegrations` was unchanged. The
-// registry is static after boot and the ToolSet depends only on the slug set,
-// so memoize by the normalized slug list — shared safely across runs/users.
+// The SDK calls `tools: () => resolveSdkTools(...)` once per turn, but the
+// registry is static, so the object graph only changes when the active slug set
+// does. Memoize per normalized slug key (the loadable integration set is small
+// and bounded, so the unevicted cache stays tiny). The returned `ToolSet` is
+// treated as read-only by the SDK, so sharing one instance across turns/users
+// is safe.
 const sdkToolsCache = new Map<string, ToolSet>();
 
 function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
   const slugs = [...new Set(["system", ...activeIntegrations])].sort();
-  const cacheKey = slugs.join(",");
-  const cached = sdkToolsCache.get(cacheKey);
+  const key = slugs.join(",");
+  const cached = sdkToolsCache.get(key);
   if (cached) return cached;
 
   const out: Partial<Record<ToolName, Tool>> = {};
@@ -247,9 +250,9 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
       });
     }
   }
-  const resolved = out as ToolSet;
-  sdkToolsCache.set(cacheKey, resolved);
-  return resolved;
+  const tools = out as ToolSet;
+  sdkToolsCache.set(key, tools);
+  return tools;
 }
 
 function toolResultMessage(
@@ -797,10 +800,16 @@ async function finalizeAssistantMessage(
   });
   emitReplicachePokes([userId]);
 
-  // Name the thread from its opening exchange. Runs after the message is
-  // poked so the durable reply syncs first; the title lands a beat later as
-  // its own poke. Best-effort — a failure leaves the placeholder title.
-  await maybeGenerateThreadTitle({
+  // Name the thread from its opening exchange. Fire-and-forget: this does two
+  // SELECTs plus a cheap-model call (up to TITLE_TIMEOUT_MS), and awaiting it
+  // would keep the run `running` — holding the worker/lease past the
+  // user-visible completion and serializing the next chat turn behind it. The
+  // title is purely cosmetic, already best-effort, and idempotent (only the
+  // first reply names the thread), so it lands a beat later as its own
+  // Replicache poke without blocking the turn. `maybeGenerateThreadTitle` never
+  // rejects (it swallows all errors), so the floating promise can't surface an
+  // unhandled rejection.
+  void maybeGenerateThreadTitle({
     userId,
     runId,
     threadId: state.threadId,
