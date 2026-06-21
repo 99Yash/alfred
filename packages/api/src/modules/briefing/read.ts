@@ -1,5 +1,5 @@
 import { toRecord } from "@alfred/contracts";
-import type { BriefingSlot } from "@alfred/contracts";
+import type { BriefingGather, BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
@@ -95,29 +95,34 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const rows = await db()
-    .select({
-      documentId: documents.id,
-      subject: documents.title,
-      authoredAt: documents.authoredAt,
-      ingestedAt: documents.ingestedAt,
-      sourceThreadId: documents.sourceThreadId,
-      metadata: documents.metadata,
-      contentLength: sql<number>`length(${documents.content})`,
-      triageCategory: emailTriage.category,
-      triageRationale: emailTriage.rationale,
-    })
-    .from(documents)
-    .leftJoin(
-      emailTriage,
-      and(
-        eq(emailTriage.userId, documents.userId),
-        eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-      ),
-    )
-    .where(and(...conditions))
-    .orderBy(desc(documents.ingestedAt))
-    .limit(limit);
+  const [rows, surfacedThreadIds] = await Promise.all([
+    db()
+      .select({
+        documentId: documents.id,
+        subject: documents.title,
+        authoredAt: documents.authoredAt,
+        ingestedAt: documents.ingestedAt,
+        sourceThreadId: documents.sourceThreadId,
+        metadata: documents.metadata,
+        contentLength: sql<number>`length(${documents.content})`,
+        triageCategory: emailTriage.category,
+        triageRationale: emailTriage.rationale,
+      })
+      .from(documents)
+      .leftJoin(
+        emailTriage,
+        and(
+          eq(emailTriage.userId, documents.userId),
+          eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+        ),
+      )
+      .where(and(...conditions))
+      .orderBy(desc(documents.ingestedAt))
+      .limit(limit),
+    // Anchor the lookback on the run's frozen "until" instant so the signal is
+    // deterministic with the rest of the window, not wall-clock at map time.
+    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
+  ]);
 
   return rows.map((r) => {
     const meta = toRecord(r.metadata);
@@ -131,9 +136,63 @@ export async function listEmailsSinceWatermark(
       authoredAt: r.authoredAt,
       ingestedAt: r.ingestedAt,
       threadId: r.sourceThreadId,
+      previouslySurfaced: r.sourceThreadId ? surfacedThreadIds.has(r.sourceThreadId) : false,
       contentLength: Number(r.contentLength ?? 0),
     } satisfies EmailListItem;
   });
+}
+
+/**
+ * Thread ids surfaced in a recent terminal briefing — the set the next slot
+ * should treat as continuations, not fresh items. Sourced from the persisted
+ * `gather.email.categories[*][].threadId` of `sent`/`suppressed` briefings
+ * created within the lookback window. This is the deterministic backbone of the
+ * `previouslySurfaced` flag on {@link EmailListItem}; it replaces relying on the
+ * agent to fuzzy-match prose across `list_prior_briefings`.
+ */
+export async function listRecentlySurfacedThreadIds(args: {
+  userId: string;
+  /** Upper bound the lookback window subtracts from — pass the run's frozen "until". */
+  before: Date;
+  lookbackMs?: number;
+}): Promise<Set<string>> {
+  const lookbackMs = args.lookbackMs ?? SURFACED_LOOKBACK_MS;
+  const since = new Date(args.before.getTime() - lookbackMs);
+
+  const rows = await db()
+    .select({ gather: briefings.gather })
+    .from(briefings)
+    .where(
+      and(
+        eq(briefings.userId, args.userId),
+        inArray(briefings.status, ["sent", "suppressed"]),
+        gt(briefings.createdAt, since),
+      ),
+    )
+    .orderBy(desc(briefings.createdAt))
+    .limit(SURFACED_LOOKBACK_LIMIT);
+
+  return collectSurfacedThreadIds(rows.map((row) => row.gather));
+}
+
+/**
+ * Pure extraction of every thread id referenced across a set of gather
+ * payloads. Split out from {@link listRecentlySurfacedThreadIds} so the dedup
+ * core is unit-testable without a database. Null gathers (suppressed rows that
+ * never gathered) and per-category absences are tolerated.
+ */
+export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>): Set<string> {
+  const ids = new Set<string>();
+  for (const gather of gathers) {
+    const categories = gather?.email.categories;
+    if (!categories) continue;
+    for (const items of Object.values(categories)) {
+      for (const item of items ?? []) {
+        if (item.threadId) ids.add(item.threadId);
+      }
+    }
+  }
+  return ids;
 }
 
 export async function readEmailDocument(args: {
