@@ -21,6 +21,14 @@ import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
+/**
+ * Lookback for the "already surfaced" continuation signal. 16h spans both
+ * directions that produce same-thread repetition across consecutive briefings:
+ * this morning → this evening (~10h) and last night → this morning (~12h).
+ */
+const SURFACED_LOOKBACK_MS = 16 * 60 * 60 * 1000;
+/** Only the last few terminal briefings can fall inside the lookback window. */
+const SURFACED_LOOKBACK_LIMIT = 4;
 
 export interface EmailListItem {
   documentId: string;
@@ -32,6 +40,15 @@ export interface EmailListItem {
   authoredAt: Date | null;
   ingestedAt: Date;
   threadId: string | null;
+  /**
+   * True when this thread already went out in a recent terminal briefing
+   * (within {@link SURFACED_LOOKBACK_MS}). The continuation signal: the agent
+   * should close the loop on it ("still no reply") or drop it, never
+   * re-introduce it as fresh — that morning/evening duplication is what erodes
+   * trust. Computed deterministically from prior briefings' persisted `gather`,
+   * not from LLM prose-matching.
+   */
+  previouslySurfaced: boolean;
   /** Character length of the full body. Lets the agent decide when read_email is worth a tool call. */
   contentLength: number;
 }

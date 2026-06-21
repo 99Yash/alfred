@@ -488,6 +488,26 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
 }
 
+/**
+ * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
+ * (stage for approval) instead of executing autonomously. Mirrors the policy
+ * branch in {@link dispatchToolCall}: `system.*` is always autonomy, everything
+ * else follows the user's (cached) policy mode.
+ *
+ * This is a scheduling hint, not a correctness gate — `dispatchToolCall` stays
+ * the source of truth and still honors the row's stored `requires_approval` on
+ * resume. Batch callers use it to avoid staging more than one gated write at
+ * once: gated writes only *stage* during dispatch (the real work runs after
+ * approval), so parallelizing them buys no latency while breaking the HIL
+ * contract (the run parks on a single `approvalId`; sibling approval cards 409
+ * on `wake_mismatch` and each fires its own email).
+ */
+export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
+  if (!isToolName(toolName)) return false;
+  if (integrationFromToolName(toolName) === "system") return false;
+  return (await resolvePolicyMode(userId, toolName)) === "gated";
+}
+
 export function undeclaredToolMessage(
   toolName: string,
   allowedIntegrations: readonly string[] = [],

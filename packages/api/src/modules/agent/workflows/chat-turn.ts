@@ -23,7 +23,7 @@ import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { isChatStopRequested } from "../../chat/stop-signal";
-import { dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -601,27 +601,55 @@ const dispatchToolsStep: Step<ChatRunState> = {
           };
         }
 
-        // Dispatch the whole batch concurrently. The model already chose this
-        // batch's tools in one step, so there's no ordering dependency between
-        // the dispatches themselves; latency drops from Σ(tool) to max(tool).
+        // Dispatch the batch with HIL-safe parallelism. Autonomy calls (reads,
+        // `system.*`) execute concurrently — that's the latency win, Σ(tool) →
+        // max(tool). Gated writes only *stage* during dispatch (a fast local
+        // insert; the real work runs after approval), so they gain nothing from
+        // parallelism, and staging several at once is wrong: the run parks on a
+        // single `approvalId`, so any approval card past the first would 409 on
+        // `wake_mismatch`, and each gated row fires its own approval email. So
+        // we dispatch gated calls *serially* in transcript order and stop at the
+        // first that stages — surfacing exactly one approval per resume.
+        // `toolCallWouldGate` is the scheduling hint; `dispatchToolCall` stays
+        // the source of truth (it honors the row's stored `requires_approval`).
         // `dispatchToolCall` is idempotent on `(runId, toolCallId)` — see the
-        // `executed` short-circuit in `dispatch/index.ts` — which is what makes
-        // the staged/resume path below safe.
-        const results = await Promise.all(
-          calls.map((call) =>
-            dispatchToolCall({
-              runId: ctx.runId,
-              stepId: "dispatch-tools",
-              toolCallId: call.toolCallId,
-              toolName: call.toolName,
-              input: call.input,
-              userId: ctx.userId,
-              caller: "boss",
-              scratchpadRunId: ctx.runId,
-              allowedIntegrations: state.allowedIntegrations,
-            }),
-          ),
+        // `executed` short-circuit in `dispatch/index.ts` — so on resume the
+        // whole batch re-dispatches harmlessly and only the now-approved write
+        // actually runs.
+        const gateFlags = await Promise.all(
+          calls.map((call) => toolCallWouldGate(ctx.userId, call.toolName)),
         );
+        const dispatch = (call: PendingToolCall) =>
+          dispatchToolCall({
+            runId: ctx.runId,
+            stepId: "dispatch-tools",
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            input: call.input,
+            userId: ctx.userId,
+            caller: "boss",
+            scratchpadRunId: ctx.runId,
+            allowedIntegrations: state.allowedIntegrations,
+          });
+
+        const results: (DispatchResult | undefined)[] = Array.from({ length: calls.length });
+        // Autonomy bucket — concurrent.
+        await Promise.all(
+          calls.map(async (call, i) => {
+            if (gateFlags[i]) return;
+            results[i] = await dispatch(call);
+          }),
+        );
+        // Gated bucket — serial in transcript order, stop at the first that
+        // stages. Earlier gated calls that resolved on a prior approval execute
+        // here (idempotent); later ones stay undispatched and stage on the next
+        // resume, so only one approval surfaces at a time.
+        for (let i = 0; i < calls.length; i++) {
+          if (!gateFlags[i]) continue;
+          const result = await dispatch(calls[i]!);
+          results[i] = result;
+          if (result.kind === "staged") break;
+        }
 
         // A gated write parks the run. Return the interrupt for the
         // first-staged call (in transcript order) WITHOUT committing any
@@ -629,17 +657,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // so that on resume the entire batch re-dispatches — the already-
         // executed siblings short-circuit on `(runId, toolCallId)` idempotency
         // and the now-approved write runs. The transcript is then assembled in
-        // a single ordered pass once nothing stages. (Multiple gated writes in
-        // one batch surface one approval at a time across successive resumes.)
+        // a single ordered pass once nothing stages.
         const stagedResult = results.find(
-          (r): r is Extract<DispatchResult, { kind: "staged" }> => r.kind === "staged",
+          (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
         );
         if (stagedResult) {
           return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
         // No gate in the batch — commit every result in original call order
-        // (transcript order is load-bearing).
+        // (transcript order is load-bearing). With nothing staged, every call
+        // was dispatched, so each slot is populated.
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
           const result = results[i]!;
