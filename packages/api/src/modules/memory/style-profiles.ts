@@ -63,19 +63,12 @@ export type StyleProfileRow = Omit<
 
 function rowToProfile(r: StyleProfile): StyleProfileRow {
   return {
-    id: r.id,
-    userId: r.userId,
+    ...r,
     channel: styleChannelSchema.parse(r.channel),
     audienceBucket: styleAudienceBucketSchema.parse(r.audienceBucket),
-    recipientId: r.recipientId,
-    profileDoc: r.profileDoc,
+    status: styleProfileStatusSchema.parse(r.status),
     examples: unknownArraySchema.parse(r.examples ?? []),
     sourceMsgIds: stringArraySchema.parse(r.sourceMsgIds ?? []),
-    generatedAt: r.generatedAt,
-    generatedFromCount: r.generatedFromCount,
-    confidence: r.confidence,
-    status: styleProfileStatusSchema.parse(r.status),
-    rowVersion: r.rowVersion,
   };
 }
 

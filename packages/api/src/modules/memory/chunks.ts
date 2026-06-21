@@ -40,18 +40,14 @@ export type MemoryChunkRow = Omit<
   hasEmbedding: boolean;
 };
 
-function rowToChunk(
-  r: Omit<MemoryChunk, "embedding"> & { embedding: number[] | null },
-): MemoryChunkRow {
+function rowToChunk(r: MemoryChunk): MemoryChunkRow {
+  const { embedding, kind, source, metadata, ...rest } = r;
   return {
-    id: r.id,
-    userId: r.userId,
-    kind: memoryChunkKindSchema.parse(r.kind),
-    content: r.content,
-    contentHash: r.contentHash,
-    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.id}`),
-    metadata: jsonRecordSchema.parse(r.metadata),
-    hasEmbedding: r.embedding != null,
+    ...rest,
+    kind: memoryChunkKindSchema.parse(kind),
+    source: parseMemorySourceOrDefault(source, { kind: "agent" }, `memory_chunks:${r.id}`),
+    metadata: jsonRecordSchema.parse(metadata),
+    hasEmbedding: embedding != null,
   };
 }
 
