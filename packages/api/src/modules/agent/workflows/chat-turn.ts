@@ -359,7 +359,8 @@ const chatTurnStep: Step<ChatRunState> = {
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
         // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
-        providerOptions: getChatProviderOptions(),
+        // Tier-aware: `deep` escalates Anthropic adaptive-thinking effort.
+        providerOptions: getChatProviderOptions(state.tier),
         attribution: { kind: "llm", userId: ctx.userId, runId: ctx.runId },
       });
 
