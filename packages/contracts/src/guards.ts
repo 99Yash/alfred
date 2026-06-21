@@ -69,3 +69,20 @@ export function getPath(value: unknown, ...keys: string[]): unknown {
   }
   return current;
 }
+
+/**
+ * Pull the bare lowercase `local@domain` out of a `From:`-style header,
+ * unwrapping a `"Display Name <addr>"` form when present and dropping anything
+ * with no `@`. Returns `null` for empty/garbage input.
+ *
+ * The single source of truth for self-mail matching (issue #211): the Gmail
+ * ingestion guard (`isSelfAuthored`) and the self-mail retirement backfill both
+ * route through this so they match exactly the same set — display-name-aware,
+ * exact-address, never a substring of display text. Keep behaviour pinned: a
+ * change here silently widens or narrows what gets dropped/retired.
+ */
+export function parseEmailAddress(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+  return raw.includes("@") ? raw : null;
+}

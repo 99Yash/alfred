@@ -154,7 +154,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       });
       console.log(
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
-          `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors}`,
+          `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors}`,
       );
       if (result.insertedDocumentIds.length) {
         // Triage event emission (optional) and the rail-update publish are
@@ -186,7 +186,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       console.log(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
-          `errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
+          `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (result.insertedDocumentIds.length) {
         // Triage event emission, embed fan-out, and the rail-update publish
@@ -215,7 +215,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       console.log(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
-          `skipped=${result.skipped} errors=${result.errors} fullResync=${result.fullResync} ` +
+          `skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors} fullResync=${result.fullResync} ` +
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job
