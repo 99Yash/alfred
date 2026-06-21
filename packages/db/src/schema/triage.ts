@@ -1,8 +1,4 @@
-import type {
-  TriageTagSource,
-  TriageTodoDecision,
-  TriageTodoSuggestion,
-} from "@alfred/contracts";
+import type { TriageTagSource, TriageTodoDecision, TriageTodoSuggestion } from "@alfred/contracts";
 import {
   index,
   integer,

@@ -34,7 +34,7 @@ import type {
   TodoReopenArgs,
   MutatorName,
   TriageTagOverrideArgs,
-  WorkflowUpdateArgs
+  WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";

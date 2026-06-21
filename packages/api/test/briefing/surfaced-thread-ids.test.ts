@@ -10,9 +10,7 @@ import { collectSurfacedThreadIds } from "../../src/modules/briefing/read";
  * `email.categories` is the source of the dedup signal; everything else is
  * filled with empty/quiet defaults so the fixture is a valid `BriefingGather`.
  */
-function gatherWith(
-  categories: BriefingGather["email"]["categories"],
-): BriefingGather {
+function gatherWith(categories: BriefingGather["email"]["categories"]): BriefingGather {
   return {
     email: { categories },
     calendar: null,
@@ -71,4 +69,4 @@ describe("collectSurfacedThreadIds", () => {
     assert.equal(collectSurfacedThreadIds([]).size, 0);
     assert.equal(collectSurfacedThreadIds([gatherWith({})]).size, 0);
   });
-})
+});
