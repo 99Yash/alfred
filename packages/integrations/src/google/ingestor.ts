@@ -1,4 +1,4 @@
-import { mapConcurrent } from "@alfred/contracts";
+import { mapConcurrent, parseEmailAddress } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -39,6 +39,8 @@ export interface IngestRecentResult {
   fetched: number;
   inserted: number;
   skipped: number;
+  /** Self-authored mail dropped before becoming a document (issue #211) — distinct from `skipped` (dedupe no-op) so #211 stays observable in logs. */
+  ignored: number;
   errors: number;
   /** New chunk rows written across freshly inserted documents. */
   chunksWritten: number;
@@ -84,6 +86,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
 
   let inserted = 0;
   let skipped = 0;
+  let ignored = 0;
   let errors = 0;
   let chunksWritten = 0;
   let embedFailures = 0;
@@ -112,6 +115,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
             err instanceof Error ? err.message : String(err),
           );
         }
+      } else if (result.outcome === "ignored") {
+        ignored++;
       } else {
         skipped++;
       }
@@ -140,6 +145,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     fetched: refs.length,
     inserted,
     skipped,
+    ignored,
     errors,
     chunksWritten,
     embedFailures,
@@ -205,13 +211,6 @@ function selfSenderEmail(): string | null {
     _selfSenderEmail = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
   }
   return _selfSenderEmail;
-}
-
-/** Pull the bare lowercase `local@domain` out of a `From:`-style header. */
-function parseEmailAddress(value: string | null): string | null {
-  if (!value) return null;
-  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
-  return raw.includes("@") ? raw : null;
 }
 
 /**
@@ -417,6 +416,8 @@ export interface PollHistoryResult {
   inserted: number;
   /** Messages already on file (no-op insert). */
   skipped: number;
+  /** Self-authored mail dropped before becoming a document (issue #211). */
+  ignored: number;
   errors: number;
   chunksWritten: number;
   embedFailures: number;
@@ -467,6 +468,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       pagesFetched: 0,
       inserted: recent.inserted,
       skipped: recent.skipped,
+      ignored: recent.ignored,
       errors: recent.errors,
       chunksWritten: recent.chunksWritten,
       embedFailures: recent.embedFailures,
@@ -523,6 +525,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         pagesFetched,
         inserted: recent.inserted,
         skipped: recent.skipped,
+        ignored: recent.ignored,
         errors: recent.errors,
         chunksWritten: recent.chunksWritten,
         embedFailures: recent.embedFailures,
@@ -539,6 +542,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 
   let inserted = 0;
   let skipped = 0;
+  let ignored = 0;
   let errors = 0;
   let chunksWritten = 0;
   let embedFailures = 0;
@@ -563,6 +567,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
             err instanceof Error ? err.message : String(err),
           );
         }
+      } else if (result.outcome === "ignored") {
+        ignored++;
       } else {
         skipped++;
       }
@@ -586,6 +592,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     pagesFetched,
     inserted,
     skipped,
+    ignored,
     errors,
     chunksWritten,
     embedFailures,
@@ -623,6 +630,8 @@ export interface PollRecentResult {
   inserted: number;
   /** Messages we already had (dedupe hit on `(userId, source, sourceId)`). */
   skipped: number;
+  /** Self-authored mail dropped before becoming a document (issue #211). */
+  ignored: number;
   errors: number;
   cursorBefore: string | null;
   cursorAfter: string | null;
@@ -693,6 +702,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const unknownRefs = refs.length ? await filterKnownGmailIds(cred.userId, refs) : [];
   let skipped = refs.length - unknownRefs.length;
   let inserted = 0;
+  let ignored = 0;
   let errors = 0;
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
@@ -706,6 +716,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         inserted++;
         insertedDocumentIds.push(result.documentId);
         if (!result.isSent) triageDocumentIds.push(result.documentId);
+      } else if (result.outcome === "ignored") {
+        // Self-authored mail (issue #211) — dropped, never a document.
+        ignored++;
       } else {
         // A race against pollGmailHistory or a duplicate webhook fired
         // between the pre-filter SELECT and the insert. Rare but fine.
@@ -746,6 +759,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     listed: refs.length,
     inserted,
     skipped,
+    ignored,
     errors,
     cursorBefore,
     cursorAfter: highWaterHistoryId,

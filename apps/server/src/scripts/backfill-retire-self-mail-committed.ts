@@ -41,6 +41,7 @@
  *   node dist/scripts/backfill-retire-self-mail-committed.js --emails=a@x.com,b@y.com --commit
  */
 import { closeConnections, closeRedis, warmPool } from "@alfred/api";
+import { parseEmailAddress } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { documents, emailTriage, user as userTable } from "@alfred/db/schemas";
@@ -63,16 +64,10 @@ const TARGET_EMAILS = parseTargetEmails();
 
 const COMMIT = process.argv.includes("--commit");
 
-/** Pull the bare lowercase `local@domain` from a `From:`-style header — the same
- *  semantics as the ingestion guard, so the candidate→exact match here retires
- *  exactly what the runtime filter now drops. */
-function parseEmailAddress(value: string | null): string | null {
-  if (!value) return null;
-  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
-  return raw.includes("@") ? raw : null;
-}
-
-/** Bare `local@domain` from `RESEND_FROM_EMAIL` — the SSOT for Alfred's identity. */
+/** Bare `local@domain` from `RESEND_FROM_EMAIL` — the SSOT for Alfred's identity.
+ *  Address parsing is shared with the ingestion guard via
+ *  `parseEmailAddress` (@alfred/contracts), so the candidate→exact match here
+ *  retires exactly the set the runtime filter now drops. */
 function selfSenderEmail(): string {
   const addr = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
   if (!addr) {
