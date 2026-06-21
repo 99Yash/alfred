@@ -24,15 +24,15 @@ export const writeMemoryChunkArgsSchema = z.object({
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
 /**
- * Like the DB row, but: the `embedding` vector is dropped in favor of a
- * `hasEmbedding` flag (callers never need the raw 1024-d array), and the
- * jsonb/enum columns are narrowed to their parsed shapes. Every other column
- * tracks `MemoryChunk` ($inferSelect) automatically — only the listed keys are
- * restated, so a new/renamed column surfaces at compile time.
+ * Like the DB row, but with the parsed enum/jsonb columns narrowed and
+ * `embedding` collapsed to a `hasEmbedding` boolean. Every other column tracks
+ * `MemoryChunk` ($inferSelect) automatically; lifecycle dates are intentionally
+ * excluded (this row isn't synced). Only the columns `rowToChunk` transforms
+ * are restated.
  */
 export type MemoryChunkRow = Omit<
   MemoryChunk,
-  "embedding" | "kind" | "source" | "metadata"
+  "kind" | "source" | "metadata" | "embedding" | "createdAt" | "updatedAt"
 > & {
   kind: MemoryChunkKind;
   source: MemorySource;

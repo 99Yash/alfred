@@ -12,6 +12,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  chatModelTierSchema,
   isIntegrationSlug,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -23,7 +24,7 @@ import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { isChatStopRequested } from "../../chat/stop-signal";
-import { dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -96,12 +97,15 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
-  tier: z.enum(["standard", "deep"]),
+  tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
+  // User timezone, snapshotted on the first turn — it can't change mid-run, so
+  // re-reading it from the DB every turn (like `connectedSummary`) is wasted.
+  timezone: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
   // Text of the current (latest) narration segment. Accumulates within a step;
   // when a step ends with tool calls it's pushed onto `narration` and reset,
@@ -221,9 +225,19 @@ function preview(value: unknown): string {
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
+// The SDK calls `tools()` once per turn, so the ToolSet was rebuilt from the
+// registry every model-turn even when `activeIntegrations` was unchanged. The
+// registry is static after boot and the ToolSet depends only on the slug set,
+// so memoize by the normalized slug list — shared safely across runs/users.
+const sdkToolsCache = new Map<string, ToolSet>();
+
 function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
+  const slugs = [...new Set(["system", ...activeIntegrations])].sort();
+  const cacheKey = slugs.join(",");
+  const cached = sdkToolsCache.get(cacheKey);
+  if (cached) return cached;
+
   const out: Partial<Record<ToolName, Tool>> = {};
-  const slugs = [...new Set(["system", ...activeIntegrations])];
   for (const slug of slugs) {
     if (!isIntegrationSlug(slug)) continue;
     for (const registered of listToolsForIntegration(slug)) {
@@ -233,7 +247,9 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
       });
     }
   }
-  return out as ToolSet;
+  const resolved = out as ToolSet;
+  sdkToolsCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 function toolResultMessage(
@@ -327,13 +343,15 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const timezone = await resolveUserTimezone(ctx.userId);
+      if (state.timezone === undefined) {
+        state.timezone = await resolveUserTimezone(ctx.userId);
+      }
       if (state.connectedSummary === undefined) {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
       const agent = new AlfredAgent({
         id: "chat",
-        system: buildChatSystemPrompt(formatDateGrounding(timezone), state.connectedSummary),
+        system: buildChatSystemPrompt(formatDateGrounding(state.timezone), state.connectedSummary),
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
@@ -585,9 +603,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
     let transcript = [...ctx.transcript];
 
     try {
-      while (state.pendingToolCalls.length > 0) {
-        // User hit stop while tools were dispatching: drop the remaining
-        // calls and finalize with whatever streamed + completed so far.
+      const calls = state.pendingToolCalls;
+      if (calls.length > 0) {
+        // User hit stop before the batch went out: drop the pending calls and
+        // finalize with whatever streamed so far. Checked once up front — the
+        // batch dispatches concurrently below, so there's no mid-loop point to
+        // bail at (and a per-call check would race the in-flight dispatches).
         if (await isChatStopRequested(ctx.runId)) {
           await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
           return {
@@ -597,58 +618,115 @@ const dispatchToolsStep: Step<ChatRunState> = {
             output: { messageId: state.messageId, stopped: true },
           };
         }
-        const call = state.pendingToolCalls[0]!;
-        const result = await dispatchToolCall({
-          runId: ctx.runId,
-          stepId: "dispatch-tools",
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          input: call.input,
-          userId: ctx.userId,
-          caller: "boss",
-          scratchpadRunId: ctx.runId,
-          allowedIntegrations: state.allowedIntegrations,
-        });
 
-        if (result.kind === "staged") {
-          // Write action awaiting approval — park the run. The HIL approval
-          // card surfaces via `approval.requested`; resume re-enters this step.
-          return { kind: "interrupt", state, transcript, wake: result.wake };
+        // Dispatch the batch with HIL-safe parallelism. Autonomy calls (reads,
+        // `system.*`) execute concurrently — that's the latency win, Σ(tool) →
+        // max(tool). Gated writes only *stage* during dispatch (a fast local
+        // insert; the real work runs after approval), so they gain nothing from
+        // parallelism, and staging several at once is wrong: the run parks on a
+        // single `approvalId`, so any approval card past the first would 409 on
+        // `wake_mismatch`, and each gated row fires its own approval email. So
+        // we dispatch gated calls *serially* in transcript order and stop at the
+        // first that stages — surfacing exactly one approval per resume.
+        // `toolCallWouldGate` is the scheduling hint; `dispatchToolCall` stays
+        // the source of truth (it honors the row's stored `requires_approval`).
+        // `dispatchToolCall` is idempotent on `(runId, toolCallId)` — see the
+        // `executed` short-circuit in `dispatch/index.ts` — so on resume the
+        // whole batch re-dispatches harmlessly and only the now-approved write
+        // actually runs.
+        const gateFlags = await Promise.all(
+          calls.map((call) => toolCallWouldGate(ctx.userId, call.toolName)),
+        );
+        const dispatch = (call: PendingToolCall) =>
+          dispatchToolCall({
+            runId: ctx.runId,
+            stepId: "dispatch-tools",
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            input: call.input,
+            userId: ctx.userId,
+            caller: "boss",
+            scratchpadRunId: ctx.runId,
+            allowedIntegrations: state.allowedIntegrations,
+          });
+
+        const results: (DispatchResult | undefined)[] = Array.from({ length: calls.length });
+        // Autonomy bucket — concurrent.
+        await Promise.all(
+          calls.map(async (call, i) => {
+            if (gateFlags[i]) return;
+            results[i] = await dispatch(call);
+          }),
+        );
+        // Gated bucket — serial in transcript order, stop at the first that
+        // stages. Earlier gated calls that resolved on a prior approval execute
+        // here (idempotent); later ones stay undispatched and stage on the next
+        // resume, so only one approval surfaces at a time.
+        for (let i = 0; i < calls.length; i++) {
+          if (!gateFlags[i]) continue;
+          const result = await dispatch(calls[i]!);
+          results[i] = result;
+          if (result.kind === "staged") break;
         }
 
-        applyLoadIntegrationEffect(state, call.toolName, result);
+        // A gated write parks the run. Return the interrupt for the
+        // first-staged call (in transcript order) WITHOUT committing any
+        // sibling result: leave `pendingToolCalls` and `transcript` untouched
+        // so that on resume the entire batch re-dispatches — the already-
+        // executed siblings short-circuit on `(runId, toolCallId)` idempotency
+        // and the now-approved write runs. The transcript is then assembled in
+        // a single ordered pass once nothing stages.
+        const stagedResult = results.find(
+          (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
+        );
+        if (stagedResult) {
+          return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
+        }
 
-        const status = result.kind === "executed" ? "succeeded" : "failed";
-        const resultPreview =
-          result.kind === "executed"
-            ? preview(result.toolResult)
-            : result.kind === "failed"
-              ? preview(result.error)
-              : preview(result.result);
-        state.toolCallsLog.push({
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          status,
-          resultPreview,
-          segmentIndex: call.segmentIndex,
-        });
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.tool",
-          payload: {
-            runId: ctx.runId,
-            threadId: state.threadId,
-            messageId: state.messageId,
+        // No gate in the batch — commit every result in original call order
+        // (transcript order is load-bearing). With nothing staged, every call
+        // was dispatched, so each slot is populated.
+        for (let i = 0; i < calls.length; i++) {
+          const call = calls[i]!;
+          const result = results[i]!;
+          // Already handled above; the guard also narrows `result` away from
+          // `staged` for the helpers below.
+          if (result.kind === "staged") continue;
+
+          applyLoadIntegrationEffect(state, call.toolName, result);
+
+          const status = result.kind === "executed" ? "succeeded" : "failed";
+          const resultPreview =
+            result.kind === "executed"
+              ? preview(result.toolResult)
+              : result.kind === "failed"
+                ? preview(result.error)
+                : preview(result.result);
+          state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
             resultPreview,
             segmentIndex: call.segmentIndex,
-          },
-        });
+          });
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.tool",
+            payload: {
+              runId: ctx.runId,
+              threadId: state.threadId,
+              messageId: state.messageId,
+              toolCallId: call.toolCallId,
+              toolName: call.toolName,
+              status,
+              resultPreview,
+              segmentIndex: call.segmentIndex,
+            },
+          });
 
-        transcript = [...transcript, toolResultMessage(call, result)];
-        state.pendingToolCalls = state.pendingToolCalls.slice(1);
+          transcript = [...transcript, toolResultMessage(call, result)];
+        }
+        state.pendingToolCalls = [];
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };

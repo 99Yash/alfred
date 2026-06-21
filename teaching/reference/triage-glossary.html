@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred Triage — Glossary</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --muted:#6b6b6b; --rule:#e3e0d8; --bg:#fdfcf9;
+    --accent:#7a2e2e; --code:#3a3a3a; --codebg:#f2efe8;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    line-height:1.5; margin:0; padding:4rem 1.5rem 6rem;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:46rem; margin:0 auto}
+  .kicker{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 .4rem}
+  h1{font-size:2rem; font-weight:600; margin:0 0 .3rem; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-style:italic; margin:0 0 2.5rem}
+  dl{margin:0}
+  dt{font-weight:600; font-size:1.05rem; margin:1.8rem 0 .25rem; scroll-margin-top:2rem}
+  dt .where{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.72rem; font-weight:400; color:var(--muted); display:block; margin-top:.15rem}
+  dd{margin:0; color:#2a2a2a}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; background:var(--codebg); color:var(--code); padding:.05em .3em; border-radius:3px}
+  .tag{display:inline-block; font-family:ui-monospace,monospace; font-size:.74rem; background:#efe9df; border:1px solid var(--rule); border-radius:4px; padding:.05em .4em; margin:.1em .15em .1em 0; color:#4a4a4a}
+  hr{border:0; border-top:1px solid var(--rule); margin:2.5rem 0}
+  .toc{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.82rem; columns:2; column-gap:2rem; color:var(--muted); border-left:2px solid var(--rule); padding-left:1rem; margin-bottom:2rem}
+  .toc a{color:var(--accent); text-decoration:none; display:block; margin:.2rem 0}
+  .toc a:hover{text-decoration:underline}
+  .note{background:#f6f2ea; border:1px solid var(--rule); border-left:3px solid var(--accent); padding:.8rem 1rem; border-radius:4px; font-size:.92rem; margin:1.2rem 0}
+  footer{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--rule); font-family:ui-sans-serif,system-ui,sans-serif; font-size:.78rem; color:var(--muted)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Reference · Durable</p>
+  <h1>Alfred Triage — Glossary</h1>
+  <p class="sub">The nouns of the email-tagging subsystem. Adhere to these terms in every lesson and ADR.</p>
+
+  <nav class="toc">
+    <a href="#triage-unit">Triage unit</a>
+    <a href="#category">Category (taxonomy)</a>
+    <a href="#classifier">Classifier</a>
+    <a href="#sender-context">Sender context</a>
+    <a href="#observations">Observations</a>
+    <a href="#sender-prior">Sender prior</a>
+    <a href="#sender-relationship">Sender relationship</a>
+    <a href="#thread-state">Thread state</a>
+    <a href="#conflict">Conflict detection</a>
+    <a href="#override-floor">Override floor</a>
+    <a href="#todo-rubric">Todo rubric</a>
+    <a href="#reconcile">Label reconciliation</a>
+    <a href="#force">Force / backfill</a>
+  </nav>
+
+  <dl>
+    <dt id="triage-unit">Triage unit <span class="where">packages/db/src/schema/triage.ts:25–74</span></dt>
+    <dd>The <code>email_triage</code> row. <strong>Thread-keyed</strong>: primary key is <code>(user_id, source_thread_id)</code> — one tag per Gmail thread, not per message. Carries <code>category</code>, <code>confidence</code>, <code>rationale</code>, <code>model</code>, <code>appliedLabelId</code>, and <code>source</code> (<span class="tag">auto</span> vs <span class="tag">user</span> override). A reply re-evaluates the thread, but only when the new message is strictly newer (recency guard).</dd>
+
+    <dt id="category">Category (the taxonomy) <span class="where">packages/contracts/src/triage.ts:12–44</span></dt>
+    <dd>The closed set of ten tags <code>TRIAGE_CATEGORIES</code>:
+      <span class="tag">urgent</span><span class="tag">action_needed</span><span class="tag">follow_up</span><span class="tag">awaiting_reply</span><span class="tag">meeting</span><span class="tag">fyi</span><span class="tag">done</span><span class="tag">payment</span><span class="tag">newsletter</span><span class="tag">marketing</span>.
+      <code>newsletter</code> + <code>marketing</code> are <em>rail-suppressed</em> (never get a chip or a todo).</dd>
+
+    <dt id="classifier">Classifier <span class="where">packages/api/src/modules/triage/classify.ts:737–801</span></dt>
+    <dd><code>classifyEmail()</code> — the function that turns one email + its context into a <code>{category, confidence, rationale, todoSuggestion}</code>. Runs a <strong>cheap model always</strong> (Gemini Flash Lite, ADR-0051), temperature 0, ~400 max tokens, wrapped in deterministic guards (conflict re-pass + override floor). It is an LLM call sandwiched between hand-written nets — not a pure prompt.</dd>
+
+    <dt id="sender-context">Sender context <span class="where">packages/api/src/modules/triage/sender-context.ts:47–95 (ADR-0042)</span></dt>
+    <dd><code>extractSenderContext()</code> — <strong>pure, ~free</strong> parsing of the <code>From:</code> header + body. Yields <code>fromKind</code> (<span class="tag">person</span>/<span class="tag">service</span>/<span class="tag">unknown</span>), <code>effectiveAuthor</code>, and a <code>botSlug</code> for ~10 known bots (CodeRabbit, Dependabot…). Answers "who/what sent this" before any model runs.</dd>
+
+    <dt id="observations">Observations <span class="where">packages/api/src/modules/triage/observations.ts:137–157</span></dt>
+    <dd>The deterministic context bundle handed to the model in the prompt. Fields: <code>senderPrior</code>, <code>persona</code>, <code>thread</code>, <code>knownContact</code>, <code>senderRelationship</code>, <code>gmail</code> signals, and cheap regex <code>content</code> flags. <strong>This is the slot where new context plugs in</strong> — assembled by <code>gatherObservations()</code> in the workflow.</dd>
+
+    <dt id="sender-prior">Sender prior <span class="where">packages/api/src/modules/triage/sender-priors.ts</span></dt>
+    <dd>A per-sender <strong>histogram of past categories</strong> for bulk/service senders, learned write-back over time (<code>incrementSenderPrior()</code>). "This address has been <code>marketing</code> 12 of the last 13 times." Drives the over-classification net.</dd>
+
+    <dt id="sender-relationship">Sender relationship <span class="where">observations.ts:149 (ADR-0059)</span></dt>
+    <dd><code>resolveSenderRelationship()</code> — for <em>human</em> senders, a rendered prose descriptor: significance + reciprocity + org + role, or "no prior contact." <strong>Graph-derived</strong> (built from interaction history), not from the cold-start user-standing brief. This is the closest thing today to "who is this person to me" — and the focal point of the mission's gap.</dd>
+
+    <dt id="thread-state">Thread state <span class="where">packages/api/src/modules/triage/thread-state.ts</span></dt>
+    <dd><code>getThreadState()</code> — sent-mail-aware view of the thread: last reply date, newest message <em>direction</em> (inbound/outbound), message count, recent excerpts. Lets the model tell "they're waiting on me" from "I'm waiting on them."</dd>
+
+    <dt id="conflict">Conflict detection <span class="where">classify.ts:463–498</span></dt>
+    <dd><code>detectConflict()</code> — two tightly-gated nets that trigger a <em>second</em> cheap pass: <strong>under-classification</strong> (security keyword present but model went passive) and <strong>over-classification</strong> (model spiked to urgent but sender is 80%+ bulk and no Gmail IMPORTANT). Cheap-model-twice instead of one expensive model.</dd>
+
+    <dt id="override-floor">Override floor <span class="where">classify.ts:505–528</span></dt>
+    <dd><code>applyOverrideFloor()</code> — a deterministic backstop that <strong>forces</strong> <code>urgent</code> on one narrow regex: an exposed/leaked secret/key/token. The only place hand-written code overrides the model's category outright.</dd>
+
+    <dt id="todo-rubric">Todo rubric <span class="where">classify.ts:35–46 (ADR-0050)</span></dt>
+    <dd>Five ordered tests the model must pass to emit a <code>todoSuggestion</code>: obligation → significance → memorability → actionability → not-already-handled. The chosen outcome is logged as <code>todoDecision</code>. Gates the rail-todo proposal downstream.</dd>
+
+    <dt id="reconcile">Label reconciliation <span class="where">packages/api/src/modules/triage/tags.ts:52–97</span></dt>
+    <dd><code>reconcileThreadLabel()</code> — writes the result back to Gmail: adds the one chosen Alfred label to the canonical message and <strong>strips every Alfred label from sibling messages</strong> so the thread collapses to a single tag. Runs under a per-thread advisory lock.</dd>
+
+    <dt id="force">Force / backfill <span class="where">workflow-input.ts:22; email-triage.ts:202–244</span></dt>
+    <dd><code>input.force</code> — bypasses the "already-tagged" skip guard so an inbox can be re-triaged after a rubric change. Without it, a thread with an applied label and no newer message is skipped.</dd>
+  </dl>
+
+  <div class="note">
+    <strong>The one asymmetry to remember:</strong> every field above is either <em>sender-side</em> (who they are, what they sent) or <em>thread-side</em> (the conversation's shape). None encode the <em>user's absolute standing</em> from cold-start. That blind spot is the mission.
+  </div>
+
+  <footer>
+    Alfred teaching workspace · glossary · see <a href="../lessons/0001-triage-flow-and-the-standing-gap.html">Lesson 1</a> ·
+    Ask your teacher (the agent) to expand any term.
+  </footer>
+</div>
+</body>
+</html>

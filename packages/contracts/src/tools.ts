@@ -21,74 +21,45 @@ export type LoadableIntegrationSlug = (typeof LOADABLE_INTEGRATION_SLUGS)[number
 export const INTEGRATION_SLUGS = ["system", ...LOADABLE_INTEGRATION_SLUGS] as const;
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
-export const SYSTEM_ACTIONS = [
-  "load_integration",
-  "spawn_sub_agent",
-  "read_user_context",
-  "read_scratch",
-  "write_scratch",
-  "promote",
-  "remember",
-  "resolve_todo",
-  "suggest_todo",
-  "web_search",
-] as const;
-
-export const GMAIL_ACTIONS = ["search", "read_message", "send_draft"] as const;
-
-export const CALENDAR_ACTIONS = ["list_events", "create_event"] as const;
-
-export const DRIVE_ACTIONS = ["search_files", "get_file", "export_file", "download_file"] as const;
-export const DOCS_ACTIONS = ["get_document"] as const;
-
-export const SHEETS_ACTIONS = [
-  "create_spreadsheet",
-  "get_values",
-  "update_values",
-  "append_values",
-  "batch_update",
-  "add_sheet",
-] as const;
-
-export const SLIDES_ACTIONS = [
-  "create_presentation",
-  "get_presentation",
-  "batch_update",
-  "add_slide",
-] as const;
-
-export const SLACK_ACTIONS = [] as const;
-export const LINEAR_ACTIONS = [] as const;
-export const GITHUB_ACTIONS = ["search_pull_requests"] as const;
-
-export const NOTION_ACTIONS = ["search", "get_page", "create_page", "append_blocks"] as const;
-
-export const RAILWAY_ACTIONS = [
-  "list_projects",
-  "list_deployments",
-  "get_logs",
-  "redeploy",
-] as const;
-
-export const VERCEL_ACTIONS = ["list_projects", "list_deployments", "redeploy"] as const;
-
-export const IMESSAGE_ACTIONS = [] as const;
-
+/**
+ * The single registry of every tool action, keyed by integration slug. The
+ * `satisfies` clause forces an entry for each {@link IntegrationSlug}, so adding
+ * a slug without its actions is a type error. Per-integration arrays live inline
+ * here rather than as separate exports — nothing consumes them on their own.
+ */
 export const INTEGRATION_ACTIONS = {
-  system: SYSTEM_ACTIONS,
-  gmail: GMAIL_ACTIONS,
-  calendar: CALENDAR_ACTIONS,
-  drive: DRIVE_ACTIONS,
-  docs: DOCS_ACTIONS,
-  sheets: SHEETS_ACTIONS,
-  slides: SLIDES_ACTIONS,
-  slack: SLACK_ACTIONS,
-  linear: LINEAR_ACTIONS,
-  github: GITHUB_ACTIONS,
-  notion: NOTION_ACTIONS,
-  railway: RAILWAY_ACTIONS,
-  vercel: VERCEL_ACTIONS,
-  imessage: IMESSAGE_ACTIONS,
+  system: [
+    "load_integration",
+    "spawn_sub_agent",
+    "read_user_context",
+    "read_scratch",
+    "write_scratch",
+    "promote",
+    "remember",
+    "resolve_todo",
+    "suggest_todo",
+    "web_search",
+  ],
+  gmail: ["search", "read_message", "send_draft"],
+  calendar: ["list_events", "create_event"],
+  drive: ["search_files", "get_file", "export_file", "download_file"],
+  docs: ["get_document"],
+  sheets: [
+    "create_spreadsheet",
+    "get_values",
+    "update_values",
+    "append_values",
+    "batch_update",
+    "add_sheet",
+  ],
+  slides: ["create_presentation", "get_presentation", "batch_update", "add_slide"],
+  slack: [],
+  linear: [],
+  github: ["search_pull_requests"],
+  notion: ["search", "get_page", "create_page", "append_blocks"],
+  railway: ["list_projects", "list_deployments", "get_logs", "redeploy"],
+  vercel: ["list_projects", "list_deployments", "redeploy"],
+  imessage: [],
 } as const satisfies Record<IntegrationSlug, readonly string[]>;
 
 export type ActionSlug<I extends IntegrationSlug> = (typeof INTEGRATION_ACTIONS)[I][number];
