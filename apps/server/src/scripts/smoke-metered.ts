@@ -21,7 +21,9 @@ async function main() {
   console.log(`[smoke-metered] starting log row count: ${before}`);
 
   const idempotencyKey = `smoke-${Date.now()}`;
-  console.log(`[smoke-metered] calling Gemini Flash (idempotency=${idempotencyKey})…`);
+  console.log(
+    `[smoke-metered] calling Gemini Flash (idempotency=${idempotencyKey})…`,
+  );
 
   const result = await meteredGenerateText(
     {
@@ -39,7 +41,11 @@ async function main() {
   // Wait briefly for the fire-and-forget DB write.
   await new Promise((r) => setTimeout(r, 500));
 
-  const after = await db().select().from(apiCallLog).orderBy(desc(apiCallLog.id)).limit(1);
+  const after = await db()
+    .select()
+    .from(apiCallLog)
+    .orderBy(desc(apiCallLog.id))
+    .limit(1);
   const row = after[0];
   if (!row) throw new Error("no api_call_log row appeared after metered call");
 
@@ -53,7 +59,9 @@ async function main() {
   console.log(`   response_meta=${JSON.stringify(row.responseMeta)}`);
 
   if ((row.inputTokens ?? 0) <= 0 && (row.outputTokens ?? 0) <= 0) {
-    throw new Error("usage extraction failed — both input and output tokens are 0");
+    throw new Error(
+      "usage extraction failed — both input and output tokens are 0",
+    );
   }
   if (Number(row.costUsd) <= 0) {
     throw new Error(
@@ -62,7 +70,9 @@ async function main() {
   }
   const meta = row.requestMeta as { idempotencyKey?: string } | null;
   if (meta?.idempotencyKey !== idempotencyKey) {
-    throw new Error(`idempotency key not persisted: got ${meta?.idempotencyKey}`);
+    throw new Error(
+      `idempotency key not persisted: got ${meta?.idempotencyKey}`,
+    );
   }
 
   console.log("\n[smoke-metered] PASS");
@@ -70,7 +80,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-metered] FAIL", err instanceof Error ? err.message : err);
+    console.error(
+      "[smoke-metered] FAIL",
+      err instanceof Error ? err.message : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

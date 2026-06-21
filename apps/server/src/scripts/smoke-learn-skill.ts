@@ -47,18 +47,19 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  pollRun,
+} from "./_smoke-helpers";
 
-const POLL_INTERVAL_MS = 1_000;
-const POLL_TIMEOUT_MS = 90_000; // cheap-tier distill is ~5–15s; 90s is comfortable headroom.
+// cheap-tier distill is ~5–15s; 90s is comfortable headroom.
 
 const SAMPLE_PROMPT =
   "i am looking for remote engineering jobs with $40k+ minimum salary. " +
   "i prefer early-stage startups working with react, typescript, and ai. " +
   "draft cold emails with lowercase subject lines that open with a compliment about the company.";
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
 
 async function pickUser() {
   const rows = await db()
@@ -66,24 +67,6 @@ async function pickUser() {
     .from(userTable)
     .limit(1);
   return rows[0] ?? null;
-}
-
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  let lastStep: string | null = null;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.currentStep !== lastStep) {
-      console.log(`[smoke-learn-skill]   step → ${row.currentStep} (status=${row.status})`);
-      lastStep = row.currentStep;
-    }
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
 async function main() {
@@ -167,7 +150,10 @@ async function main() {
   console.log(`[smoke-learn-skill] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "learn-skill run");
-  assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
+  assert(
+    run.status === "completed",
+    `run status=${run.status} error=${JSON.stringify(run.error)}`,
+  );
 
   const out = run.output as {
     skillId: string;
@@ -185,18 +171,27 @@ async function main() {
   assert(out.skillId === skillId, "output.skillId mismatch");
 
   // Skill row state assertions.
-  const [postSkill] = await db().select().from(skills).where(eq(skills.id, skillId));
+  const [postSkill] = await db()
+    .select()
+    .from(skills)
+    .where(eq(skills.id, skillId));
   assert(postSkill, "skill row missing after run");
   console.log(
     `[smoke-learn-skill] skill: name="${postSkill.name}" status=${postSkill.status} ` +
       `currentRevisionId=${postSkill.currentRevisionId}`,
   );
-  assert(postSkill.status === "active", `expected status=active, got ${postSkill.status}`);
+  assert(
+    postSkill.status === "active",
+    `expected status=active, got ${postSkill.status}`,
+  );
   assert(
     postSkill.currentRevisionId === out.revisionId,
     `current_revision_id mismatch: ${postSkill.currentRevisionId} vs ${out.revisionId}`,
   );
-  assert(postSkill.name !== "Untitled skill", "expected name to be auto-updated by distill");
+  assert(
+    postSkill.name !== "Untitled skill",
+    "expected name to be auto-updated by distill",
+  );
 
   // Revision row.
   const [rev] = await db()
@@ -204,12 +199,20 @@ async function main() {
     .from(skillRevisions)
     .where(eq(skillRevisions.id, out.revisionId));
   assert(rev, "skill_revisions row missing");
-  assert(rev.kind === "distilled", `expected revision kind=distilled, got ${rev.kind}`);
+  assert(
+    rev.kind === "distilled",
+    `expected revision kind=distilled, got ${rev.kind}`,
+  );
   assert(rev.body.length > 0, "expected non-empty body");
-  console.log(`[smoke-learn-skill] revision body preview:\n${rev.body.slice(0, 400)}\n...`);
+  console.log(
+    `[smoke-learn-skill] revision body preview:\n${rev.body.slice(0, 400)}\n...`,
+  );
 
   // Skill-run row.
-  const [sr] = await db().select().from(skillRuns).where(eq(skillRuns.agentRunId, runId));
+  const [sr] = await db()
+    .select()
+    .from(skillRuns)
+    .where(eq(skillRuns.agentRunId, runId));
   assert(sr, "skill_runs row missing");
   assert(sr.status === "completed", `skill_runs.status = ${sr.status}`);
   assert(

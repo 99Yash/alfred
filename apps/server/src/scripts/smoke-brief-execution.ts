@@ -58,6 +58,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { POLL_INTERVAL_MS, POLL_TIMEOUT_MS, assert } from "./_smoke-helpers";
 
 const WORKFLOW_SLUG = "smoke-brief-execution";
 const SMOKE_BRIEF =
@@ -65,18 +66,20 @@ const SMOKE_BRIEF =
 
 // The boss may iterate a few times: gmail.search → load_integration →
 // calendar.list_events → final summary. Five minutes is comfortable.
-const POLL_INTERVAL_MS = 500;
+
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`[smoke-brief-execution] assertion failed: ${msg}`);
-}
-
-async function pickGoogleConnectedUser(): Promise<{ id: string; email: string } | null> {
+async function pickGoogleConnectedUser(): Promise<{
+  id: string;
+  email: string;
+} | null> {
   const rows = await db()
     .select({ id: userTable.id, email: userTable.email })
     .from(userTable)
-    .innerJoin(integrationCredentials, eq(integrationCredentials.userId, userTable.id))
+    .innerJoin(
+      integrationCredentials,
+      eq(integrationCredentials.userId, userTable.id),
+    )
     .where(
       and(
         eq(integrationCredentials.provider, "google"),
@@ -97,10 +100,17 @@ async function ensureActionPolicyRow(userId: string): Promise<void> {
 async function resetSmokeRows(userId: string): Promise<void> {
   await db()
     .delete(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, WORKFLOW_SLUG)));
+    .where(
+      and(
+        eq(agentRuns.userId, userId),
+        eq(agentRuns.workflowSlug, WORKFLOW_SLUG),
+      ),
+    );
   await db()
     .delete(workflows)
-    .where(and(eq(workflows.userId, userId), eq(workflows.slug, WORKFLOW_SLUG)));
+    .where(
+      and(eq(workflows.userId, userId), eq(workflows.slug, WORKFLOW_SLUG)),
+    );
 }
 
 async function createSmokeWorkflow(userId: string): Promise<void> {
@@ -167,10 +177,16 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
 
   await signalRun({
     runId: staging.runId,
-    match: { kind: "hil", approvalId: staging.id, approvalKind: "action_staging" },
+    match: {
+      kind: "hil",
+      approvalId: staging.id,
+      approvalKind: "action_staging",
+    },
   });
   await enqueueRun(staging.runId);
-  console.log(`[smoke-brief-execution]   auto-approved ${staging.toolName} (${staging.id})`);
+  console.log(
+    `[smoke-brief-execution]   auto-approved ${staging.toolName} (${staging.id})`,
+  );
 }
 
 async function pollAndAutoApprove(runId: string): Promise<{
@@ -181,18 +197,27 @@ async function pollAndAutoApprove(runId: string): Promise<{
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
   while (Date.now() < deadline) {
-    const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+    const rows = await db()
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId));
     const row = rows[0];
     if (!row) throw new Error(`run ${runId} not found`);
     if (row.currentStep !== lastStep) {
-      console.log(`[smoke-brief-execution]   step → ${row.currentStep} (status=${row.status})`);
+      console.log(
+        `[smoke-brief-execution]   step → ${row.currentStep} (status=${row.status})`,
+      );
       lastStep = row.currentStep;
     }
     if (row.status === "waiting") {
       const pending = await findPendingApprovals(runId);
       for (const p of pending) await autoApprove(p);
     }
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
+    if (
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "cancelled"
+    ) {
       return {
         status: row.status,
         output: row.output,
@@ -262,7 +287,9 @@ async function main(): Promise<void> {
     );
     return;
   }
-  console.log(`[smoke-brief-execution] target: ${target.email} (id=${target.id})`);
+  console.log(
+    `[smoke-brief-execution] target: ${target.email} (id=${target.id})`,
+  );
 
   await ensureActionPolicyRow(target.id);
   await resetSmokeRows(target.id);
@@ -287,16 +314,23 @@ async function main(): Promise<void> {
   console.log(
     `[smoke-brief-execution] step rows: boss-turn=${bossTurnCount} dispatch-tools=${dispatchToolsCount}`,
   );
-  assert(bossTurnCount >= 2, `expected ≥ 2 boss-turn step rows, got ${bossTurnCount}`);
+  assert(
+    bossTurnCount >= 2,
+    `expected ≥ 2 boss-turn step rows, got ${bossTurnCount}`,
+  );
   assert(
     dispatchToolsCount >= 2,
     `expected ≥ 2 dispatch-tools step rows, got ${dispatchToolsCount}`,
   );
 
   const stagings = await loadStagingsForRun(runId);
-  console.log(`[smoke-brief-execution] action_stagings rows: ${stagings.length}`);
+  console.log(
+    `[smoke-brief-execution] action_stagings rows: ${stagings.length}`,
+  );
   for (const s of stagings) {
-    console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
+    console.log(
+      `   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`,
+    );
   }
   const executedToolNames = new Set(
     stagings.filter((s) => s.status === "executed").map((s) => s.toolName),
@@ -325,14 +359,18 @@ async function main(): Promise<void> {
   );
 
   const apiCallCount = await countApiCalls(runId);
-  console.log(`[smoke-brief-execution] api_call_log rows for run: ${apiCallCount}`);
+  console.log(
+    `[smoke-brief-execution] api_call_log rows for run: ${apiCallCount}`,
+  );
   assert(
     apiCallCount === bossTurnCount,
     `expected api_call_log count (${apiCallCount}) to equal boss-turn count (${bossTurnCount})`,
   );
 
   const outputText =
-    typeof final.output === "object" && final.output !== null && "text" in final.output
+    typeof final.output === "object" &&
+    final.output !== null &&
+    "text" in final.output
       ? (final.output as { text: unknown }).text
       : null;
   assert(

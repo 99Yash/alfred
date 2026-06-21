@@ -49,25 +49,11 @@ import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const email = "smoke-memory@alfred.local";
-  const existing = await db().select().from(userTable).where(eq(userTable.email, email));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "Smoke Memory", email, emailVerified: true })
-    .returning({ id: userTable.id });
-  return inserted[0]!.id;
-}
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
+import { assert, findOrCreateSmokeUser } from "./_smoke-helpers";
 
 async function main() {
   await warmPool();
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser("smoke-memory@alfred.local");
   console.log(`[smoke] userId=${userId}`);
 
   // Use a test key that's specific to this run so reruns don't collide
@@ -89,8 +75,13 @@ async function main() {
     source: { kind: "document", id: "doc_test_001" },
   });
   assert(proposed, "proposeFact returned null on a fresh key");
-  assert(proposed.status === "proposed", `expected proposed, got ${proposed.status}`);
-  console.log(`[smoke] 1. proposed low-confidence fact ${proposed.id} status=${proposed.status}`);
+  assert(
+    proposed.status === "proposed",
+    `expected proposed, got ${proposed.status}`,
+  );
+  console.log(
+    `[smoke] 1. proposed low-confidence fact ${proposed.id} status=${proposed.status}`,
+  );
 
   // ---------------------------------------------------------------------
   // 2. high-confidence proposal auto-confirms
@@ -107,15 +98,23 @@ async function main() {
     autoConfirmed.status === "confirmed",
     `expected auto-confirm, got ${autoConfirmed.status}`,
   );
-  console.log(`[smoke] 2. auto-confirmed high-confidence fact ${autoConfirmed.id}`);
+  console.log(
+    `[smoke] 2. auto-confirmed high-confidence fact ${autoConfirmed.id}`,
+  );
 
   // ---------------------------------------------------------------------
   // 3. confirmFact transitions proposed → confirmed
   // ---------------------------------------------------------------------
   const confirmed = await confirmFact(proposed.id, userId);
   assert(confirmed, "confirmFact returned null for a proposed row");
-  assert(confirmed.status === "confirmed", `expected confirmed, got ${confirmed.status}`);
-  assert(confirmed.rowVersion > proposed.rowVersion, "confirmFact should bump rowVersion");
+  assert(
+    confirmed.status === "confirmed",
+    `expected confirmed, got ${confirmed.status}`,
+  );
+  assert(
+    confirmed.rowVersion > proposed.rowVersion,
+    "confirmFact should bump rowVersion",
+  );
   console.log(`[smoke] 3. confirmed ${proposed.id}`);
 
   // ---------------------------------------------------------------------
@@ -130,7 +129,10 @@ async function main() {
   });
   assert(superseded, "supersedeFact returned null");
   assert(superseded.status === "confirmed", `new row should auto-confirm`);
-  assert(superseded.supersedesId === confirmed.id, `supersedesId should link to old row`);
+  assert(
+    superseded.supersedesId === confirmed.id,
+    `supersedesId should link to old row`,
+  );
   console.log(`[smoke] 4. superseded ${confirmed.id} → ${superseded.id}`);
 
   // ---------------------------------------------------------------------
@@ -147,17 +149,28 @@ async function main() {
   console.log(`[smoke] 5. edited ${superseded.id} → ${edited.id}`);
 
   const chain = await getSupersessionChain(userId, edited.id);
-  assert(chain.length === 3, `supersession chain should be 3 deep, got ${chain.length}`);
-  console.log(`[smoke]    chain: ${chain.map((c) => `${c.id}(${c.status})`).join(" → ")}`);
+  assert(
+    chain.length === 3,
+    `supersession chain should be 3 deep, got ${chain.length}`,
+  );
+  console.log(
+    `[smoke]    chain: ${chain.map((c) => `${c.id}(${c.status})`).join(" → ")}`,
+  );
 
   // ---------------------------------------------------------------------
   // 6. recall returns the latest active row
   // ---------------------------------------------------------------------
   const latest = await recallLatestByKey(userId, managerKey);
   assert(latest, "recallLatestByKey returned null");
-  assert(latest.id === edited.id, `expected latest=${edited.id}, got ${latest.id}`);
+  assert(
+    latest.id === edited.id,
+    `expected latest=${edited.id}, got ${latest.id}`,
+  );
   const all = await recallActiveByKey(userId, managerKey);
-  assert(all.length === 1, `only one row should be active for ${managerKey}, got ${all.length}`);
+  assert(
+    all.length === 1,
+    `only one row should be active for ${managerKey}, got ${all.length}`,
+  );
   console.log(`[smoke] 6. recall returned latest ${latest.id}`);
 
   // ---------------------------------------------------------------------
@@ -177,7 +190,10 @@ async function main() {
     reason: { code: "wrong-entity", note: "smoke-test rejection" },
   });
   assert(rejected, "rejectFact returned null");
-  assert(rejected.status === "rejected", `expected rejected, got ${rejected.status}`);
+  assert(
+    rejected.status === "rejected",
+    `expected rejected, got ${rejected.status}`,
+  );
   const isBlocked = await isRejected(userId, rejectedKey, "Wrong Company");
   assert(isBlocked, "rejected_inferences should block a re-propose");
   console.log(`[smoke] 7. rejected ${toReject.id} and recorded signature`);
@@ -192,7 +208,10 @@ async function main() {
     confidence: 0.95,
     source: { kind: "document", id: "doc_test_005" },
   });
-  assert(reprop === null, `extraction guard should return null, got ${JSON.stringify(reprop)}`);
+  assert(
+    reprop === null,
+    `extraction guard should return null, got ${JSON.stringify(reprop)}`,
+  );
   console.log(`[smoke] 8. re-extraction guard blocked the duplicate proposal`);
 
   // ---------------------------------------------------------------------
@@ -201,10 +220,20 @@ async function main() {
   const prefKey = `smoke:tone:${runTag}`;
   const set1 = await setPreference({ userId, key: prefKey, value: "concise" });
   assert(set1.value === "concise", `setPreference value mismatch`);
-  const set2 = await setPreference({ userId, key: prefKey, value: "warm but concise" });
-  assert(set2.rowVersion > set1.rowVersion, `rowVersion should bump on overwrite`);
+  const set2 = await setPreference({
+    userId,
+    key: prefKey,
+    value: "warm but concise",
+  });
+  assert(
+    set2.rowVersion > set1.rowVersion,
+    `rowVersion should bump on overwrite`,
+  );
   const fetched = await getPreference(userId, prefKey);
-  assert(fetched && fetched.value === "warm but concise", `getPreference mismatch`);
+  assert(
+    fetched && fetched.value === "warm but concise",
+    `getPreference mismatch`,
+  );
   const all_prefs = await getPreferences(userId);
   assert(
     all_prefs.find((p) => p.key === prefKey),
@@ -224,7 +253,10 @@ async function main() {
     source: { kind: "user" },
     metadata: { tag: runTag },
   });
-  assert(chunk.contentHash.length === 64, `expected sha256 hash, got ${chunk.contentHash}`);
+  assert(
+    chunk.contentHash.length === 64,
+    `expected sha256 hash, got ${chunk.contentHash}`,
+  );
   assert(chunk.hasEmbedding === false, `chunk should be unembedded at write`);
 
   // Idempotency: re-writing the same content returns same hash.
@@ -295,7 +327,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+    console.error(
+      "[smoke] FAIL",
+      err instanceof Error ? (err.stack ?? err.message) : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

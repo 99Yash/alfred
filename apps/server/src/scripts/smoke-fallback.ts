@@ -15,7 +15,12 @@
 
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
-import { getBossModel, getChatModel, meteredGenerateText, withFallback } from "@alfred/ai";
+import {
+  getBossModel,
+  getChatModel,
+  meteredGenerateText,
+  withFallback,
+} from "@alfred/ai";
 import { toRecord } from "@alfred/contracts";
 import { db, closeConnections } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
@@ -29,7 +34,9 @@ async function lastLogRow(idempotencyKey: string) {
     .where(eq(apiCallLog.kind, "llm"))
     .orderBy(desc(apiCallLog.createdAt))
     .limit(5);
-  return rows.find((r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey);
+  return rows.find(
+    (r) => toRecord(r.requestMeta).idempotencyKey === idempotencyKey,
+  );
 }
 
 async function main() {
@@ -37,17 +44,26 @@ async function main() {
 
   // --- 3. dispatcher identity proxying -------------------------------------
   const boss = getBossModel() as { provider?: string; modelId?: string };
-  const chatDeep = getChatModel("deep") as { provider?: string; modelId?: string };
+  const chatDeep = getChatModel("deep") as {
+    provider?: string;
+    modelId?: string;
+  };
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
   console.log(`chat deep model  → ${chatDeep.provider}/${chatDeep.modelId}`);
-  if (boss.modelId !== "claude-sonnet-4-6" || chatDeep.modelId !== "claude-opus-4-8") {
+  if (
+    boss.modelId !== "claude-sonnet-4-6" ||
+    chatDeep.modelId !== "claude-opus-4-8"
+  ) {
     console.error("FAIL: dispatcher modelId proxy mismatch");
     failures++;
   }
 
   // --- 1. normal path -------------------------------------------------------
   const okKey = `smoke-fallback-ok-${process.pid}`;
-  const okModel = withFallback(anthropic("claude-sonnet-4-6"), google("gemini-2.5-flash-lite"));
+  const okModel = withFallback(
+    anthropic("claude-sonnet-4-6"),
+    google("gemini-2.5-flash-lite"),
+  );
   const ok = await meteredGenerateText(
     { model: okModel, prompt: "Reply with exactly: ok", maxOutputTokens: 8 },
     { idempotencyKey: okKey, requestMeta: { smoke: "fallback-normal" } },
@@ -80,11 +96,15 @@ async function main() {
   );
 
   if (okRow?.provider !== "anthropic" || okRow?.model !== "claude-sonnet-4-6") {
-    console.error("FAIL: normal-path attribution should be anthropic/claude-sonnet-4-6");
+    console.error(
+      "FAIL: normal-path attribution should be anthropic/claude-sonnet-4-6",
+    );
     failures++;
   }
   if (fbRow?.provider !== "google") {
-    console.error("FAIL: fallback-path attribution should re-resolve to google");
+    console.error(
+      "FAIL: fallback-path attribution should re-resolve to google",
+    );
     failures++;
   }
 

@@ -20,38 +20,13 @@ import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
-
-const POLL_INTERVAL_MS = 250;
-const POLL_TIMEOUT_MS = 30_000;
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const email = "smoke-agent@alfred.local";
-  const existing = await db().select().from(userTable).where(eq(userTable.email, email));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "Smoke Tester", email, emailVerified: true })
-    .returning({ id: userTable.id });
-  return inserted[0]!.id;
-}
-
-async function pollUntil(
-  runId: string,
-  predicate: (status: string) => boolean,
-  label: string,
-): Promise<{ status: string; output: unknown; wakeCondition: unknown }> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    const row = rows[0];
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (predicate(row.status)) {
-      return { status: row.status, output: row.output, wakeCondition: row.wakeCondition };
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
-}
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  findOrCreateSmokeUser,
+  isTerminal,
+  pollUntil,
+} from "./_smoke-helpers";
 
 async function main() {
   await warmPool();
@@ -59,7 +34,7 @@ async function main() {
   // The server process has its own registration; both sides see the same DB.
   registerBuiltinWorkflows();
 
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser("smoke-agent@alfred.local");
   console.log(`[smoke] userId=${userId}`);
 
   const { runId } = await createRun({
@@ -74,7 +49,11 @@ async function main() {
   await enqueueRun(runId);
   console.log("[smoke] enqueued; waiting for HIL interrupt…");
 
-  const parked = await pollUntil(runId, (s) => s === "waiting" || isTerminal(s), "waiting");
+  const parked = await pollUntil(
+    runId,
+    (s) => s === "waiting" || isTerminal(s),
+    "waiting",
+  );
   if (parked.status !== "waiting") {
     throw new Error(`expected waiting, got ${parked.status}`);
   }
@@ -113,10 +92,6 @@ async function main() {
   }
 
   console.log("\n[smoke] PASS");
-}
-
-function isTerminal(s: string): boolean {
-  return s === "completed" || s === "failed" || s === "cancelled";
 }
 
 main()

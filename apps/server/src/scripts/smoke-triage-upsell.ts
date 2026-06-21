@@ -14,7 +14,11 @@ import { extractSenderContext } from "@alfred/api/modules/triage/sender-context"
 import type { Observations } from "@alfred/api/modules/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "service:github.com", categoryCounts: {}, lastCategory: null },
+  senderPrior: {
+    key: "service:github.com",
+    categoryCounts: {},
+    lastCategory: null,
+  },
   persona: "personal",
   thread: {
     lastUserReplyAt: null,
@@ -24,7 +28,12 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   },
   knownContact: false,
   senderRelationship: null,
-  gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
+  gmail: {
+    categories: ["updates"],
+    important: false,
+    starred: false,
+    inInbox: true,
+  },
   content: {
     hasUnsubscribe: false,
     hasCurrencyAmount: false,
@@ -57,7 +66,8 @@ const CASES: Case[] = [
     from: "greptile-apps[bot] <notifications@github.com>",
     to: "yashgouravkar@gmail.com",
     persona: "personal",
-    subject: "[99Yash/alfred] greptile-apps[bot] commented on pull request #113",
+    subject:
+      "[99Yash/alfred] greptile-apps[bot] commented on pull request #113",
     body: "99Yash has reached the 50-review limit for trial accounts. To continue receiving code reviews, upgrade your plan: https://app.greptile.com/review/github",
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
     expectCategory: ["marketing", "fyi"],
@@ -140,7 +150,11 @@ async function main() {
       senderContext,
       observations: baseObs({
         persona: c.persona,
-        senderPrior: { key: c.priorKey, categoryCounts: c.prior ?? {}, lastCategory: null },
+        senderPrior: {
+          key: c.priorKey,
+          categoryCounts: c.prior ?? {},
+          lastCategory: null,
+        },
         content: {
           hasUnsubscribe: false,
           hasCurrencyAmount: c.hasCurrencyAmount ?? false,

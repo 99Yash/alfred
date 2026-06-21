@@ -22,7 +22,10 @@ async function main() {
   if (!runId) throw new Error("usage: smoke-agent-resume.ts <runId>");
   await warmPool();
 
-  const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+  const rows = await db()
+    .select()
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId));
   const row = rows[0];
   if (!row) throw new Error(`run ${runId} not found`);
   console.log(`[resume] runId=${runId} status=${row.status}`);
@@ -46,7 +49,10 @@ async function main() {
 
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const after = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+    const after = await db()
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId));
     const r = after[0]!;
     if (r.status === "completed") {
       console.log(`[resume] completed; output=${JSON.stringify(r.output)}`);

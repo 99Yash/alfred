@@ -23,7 +23,10 @@ import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/ingestion";
-import { findCredentialsNeedingPoll, pollGmailHistory } from "@alfred/integrations/google";
+import {
+  findCredentialsNeedingPoll,
+  pollGmailHistory,
+} from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 
 async function main() {
@@ -43,11 +46,15 @@ async function main() {
 
   if (!cred) {
     console.log("[smoke-google-poll] no Google credential found.");
-    console.log("Run smoke-google.ts first to connect an account + bulk ingest.");
+    console.log(
+      "Run smoke-google.ts first to connect an account + bulk ingest.",
+    );
     return;
   }
 
-  console.log(`[smoke-google-poll] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
+  console.log(
+    `[smoke-google-poll] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`,
+  );
 
   // ---- Phase 1: pre-state ---------------------------------------------------
   const cursorBefore = await loadCursor(cred.id);
@@ -78,15 +85,22 @@ async function main() {
   const cutoff = new Date(Date.now() - 5 * 60 * 1000);
   const stale = await findCredentialsNeedingPoll(cutoff);
   if (stale.find((s) => s.credentialId === cred.id)) {
-    throw new Error(`findCredentialsNeedingPoll returned just-polled credential ${cred.id}`);
+    throw new Error(
+      `findCredentialsNeedingPoll returned just-polled credential ${cred.id}`,
+    );
   }
   console.log(
     `[smoke-google-poll] sweep query excludes fresh credential ✓ (${stale.length} other stale)`,
   );
 
   // ---- Phase 5: embed-sweep candidate query ------------------------------
-  const unembedded = await findUnembeddedDocumentIds({ source: "gmail", limit: 10 });
-  console.log(`[smoke-google-poll] unembedded gmail docs: ${unembedded.length}`);
+  const unembedded = await findUnembeddedDocumentIds({
+    source: "gmail",
+    limit: 10,
+  });
+  console.log(
+    `[smoke-google-poll] unembedded gmail docs: ${unembedded.length}`,
+  );
 
   console.log("\n[smoke-google-poll] PASS");
   printPubSubSetupChecklist();
@@ -97,7 +111,10 @@ async function loadCursor(credentialId: string): Promise<string | null> {
     .select({ state: ingestionState.state })
     .from(ingestionState)
     .where(
-      and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
+      and(
+        eq(ingestionState.credentialId, credentialId),
+        eq(ingestionState.stream, "messages"),
+      ),
     );
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   return state?.historyId ?? null;
@@ -137,7 +154,10 @@ Pub/Sub setup (manual, one-time):
 
 main()
   .catch((err) => {
-    console.error("[smoke-google-poll] FAIL", err instanceof Error ? err.message : err);
+    console.error(
+      "[smoke-google-poll] FAIL",
+      err instanceof Error ? err.message : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

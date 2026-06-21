@@ -48,49 +48,32 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import {
+  assert,
+  createSmokeRun,
+  findOrCreateSmokeUser,
+} from "./_smoke-helpers";
 
 const SMOKE_USER_EMAIL = "smoke-expiry@alfred.local";
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(`[smoke-expiry] ${message}`);
-}
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "Expiry Smoke", email: SMOKE_USER_EMAIL, emailVerified: true })
-    .returning({ id: userTable.id });
-  if (!inserted[0]) throw new Error("failed to insert smoke user");
-  return inserted[0].id;
-}
-
-async function createSmokeRun(userId: string, label: string): Promise<string> {
-  const inserted = await db()
-    .insert(agentRuns)
-    .values({
-      userId,
-      workflowSlug: "smoke-expiry",
-      currentStep: label,
-      status: "running",
-      trigger: { kind: "manual" },
-    })
-    .returning({ id: agentRuns.id });
-  if (!inserted[0]) throw new Error("failed to insert smoke run");
-  return inserted[0].id;
-}
 
 async function setGated(userId: string): Promise<void> {
   await db()
     .update(userActionPolicies)
-    .set({ integrationRules: { system: { mode: "autonomy" }, gmail: { mode: "gated" } } })
+    .set({
+      integrationRules: {
+        system: { mode: "autonomy" },
+        gmail: { mode: "gated" },
+      },
+    })
     .where(eq(userActionPolicies.userId, userId));
   bustPolicyCache(userId);
 }
 
 /** Park the run on the HIL wake exactly as the executor would on interrupt. */
-async function parkRunOnApproval(runId: string, stagingId: string): Promise<void> {
+async function parkRunOnApproval(
+  runId: string,
+  stagingId: string,
+): Promise<void> {
   await db()
     .update(agentRuns)
     .set({
@@ -113,9 +96,17 @@ const sendDraftInput = z
   })
   .strict();
 
-const DRAFT_INPUT = { to: ["yash@example.com"], subject: "expiry smoke", bodyText: "hi" };
+const DRAFT_INPUT = {
+  to: ["yash@example.com"],
+  subject: "expiry smoke",
+  bodyText: "hi",
+};
 
-async function stageGatedDraft(userId: string, runId: string, toolCallId: string): Promise<string> {
+async function stageGatedDraft(
+  userId: string,
+  runId: string,
+  toolCallId: string,
+): Promise<string> {
   const staged = await dispatchToolCall({
     runId,
     stepId: "turn-1",
@@ -147,7 +138,7 @@ async function main(): Promise<void> {
     }),
   ]);
 
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser("smoke-expiry@alfred.local");
   await ensureDefaultActionPolicyForUser(userId);
   await setGated(userId);
 
@@ -158,13 +149,19 @@ async function main(): Promise<void> {
   const stagedId = await stageGatedDraft(userId, runId1, "tc_expire_1");
 
   const stagedRow = (
-    await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
+    await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagedId))
   )[0];
   assert(
     stagedRow?.status === "pending",
     `staged row expected 'pending', got '${stagedRow?.status}'`,
   );
-  assert(stagedRow.expiresAt instanceof Date, "staged gated row must carry expires_at");
+  assert(
+    stagedRow.expiresAt instanceof Date,
+    "staged gated row must carry expires_at",
+  );
   const expiresInMs = stagedRow.expiresAt.getTime() - Date.now();
   // Generous window: within ±5 min of the configured constant.
   assert(
@@ -172,19 +169,31 @@ async function main(): Promise<void> {
     `expires_at should be ≈ now + APPROVAL_EXPIRY_MS, off by ${expiresInMs - APPROVAL_EXPIRY_MS}ms`,
   );
   const queuedJob = await queue.getJob(approvalExpiryJobId(stagedId));
-  assert(queuedJob, "dispatcher must enqueue a staging-expire job for a gated row");
+  assert(
+    queuedJob,
+    "dispatcher must enqueue a staging-expire job for a gated row",
+  );
   console.log("[smoke-expiry] 1. staging: expires_at set, expiry job queued ✓");
 
   // ─── 2. expireStaging on a parked, pending row ────────────────────────
   await parkRunOnApproval(runId1, stagedId);
   const expired = await expireStaging({ stagingId: stagedId, userId });
-  assert(expired.status === "expired", `expireStaging expected 'expired', got '${expired.status}'`);
+  assert(
+    expired.status === "expired",
+    `expireStaging expected 'expired', got '${expired.status}'`,
+  );
   assert(draftExec === 0, "expiry must not execute the tool");
 
   const expiredRow = (
-    await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
+    await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagedId))
   )[0];
-  assert(expiredRow?.status === "expired", `row expected 'expired', got '${expiredRow?.status}'`);
+  assert(
+    expiredRow?.status === "expired",
+    `row expected 'expired', got '${expiredRow?.status}'`,
+  );
   assert(
     expiredRow.rejectReason === "auto-expired",
     "expired row must record reason 'auto-expired'",
@@ -195,13 +204,20 @@ async function main(): Promise<void> {
     `expired row must bump row_version (${stagedRow.rowVersion} → ${expiredRow.rowVersion})`,
   );
 
-  const wokenRun = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId1)))[0];
+  const wokenRun = (
+    await db().select().from(agentRuns).where(eq(agentRuns.id, runId1))
+  )[0];
   assert(
     wokenRun?.status === "runnable",
     `run expected 'runnable' after wake, got '${wokenRun?.status}'`,
   );
-  assert(wokenRun.wakeCondition === null, "woken run must clear its wake_condition");
-  console.log("[smoke-expiry] 2. expired: row=expired/auto-expired, run woken ✓");
+  assert(
+    wokenRun.wakeCondition === null,
+    "woken run must clear its wake_condition",
+  );
+  console.log(
+    "[smoke-expiry] 2. expired: row=expired/auto-expired, run woken ✓",
+  );
 
   // Re-dispatch the same tool_call_id — the dispatcher reads the 'expired'
   // row and synthesizes the structured auto-expired rejection without
@@ -219,11 +235,17 @@ async function main(): Promise<void> {
     `re-dispatch of expired row expected 'rejected', got '${reDispatched.kind}'`,
   );
   assert(
-    (reDispatched as { result: { reason: string } }).result.reason === "auto-expired",
+    (reDispatched as { result: { reason: string } }).result.reason ===
+      "auto-expired",
     "re-dispatch must synthesize reason='auto-expired'",
   );
-  assert(draftExec === 0, "re-dispatch of expired row must not execute the tool");
-  console.log("[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓");
+  assert(
+    draftExec === 0,
+    "re-dispatch of expired row must not execute the tool",
+  );
+  console.log(
+    "[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓",
+  );
 
   // Idempotency: expiring an already-expired row is a no-op.
   const expiredAgain = await expireStaging({ stagingId: stagedId, userId });
@@ -247,10 +269,18 @@ async function main(): Promise<void> {
     `expireStaging on approved row expected skipped/approved, got '${skipped.status}'/'${skipped.reason}'`,
   );
   const stillApproved = (
-    await db().select().from(actionStagings).where(eq(actionStagings.id, decidedId))
+    await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, decidedId))
   )[0];
-  assert(stillApproved?.status === "approved", "human-approved row must remain 'approved'");
-  console.log("[smoke-expiry] 3. decided row: expiry no-ops, approval preserved ✓");
+  assert(
+    stillApproved?.status === "approved",
+    "human-approved row must remain 'approved'",
+  );
+  console.log(
+    "[smoke-expiry] 3. decided row: expiry no-ops, approval preserved ✓",
+  );
 
   // ─── 4. removeApprovalExpiryJob dequeues the fallback timer ────────────
   const runId3 = await createSmokeRun(userId, "cancel-job-turn");
@@ -261,7 +291,10 @@ async function main(): Promise<void> {
   );
   await removeApprovalExpiryJob(cancelId);
   const goneJob = await queue.getJob(approvalExpiryJobId(cancelId));
-  assert(!goneJob, "removeApprovalExpiryJob must dequeue the staging-expire job");
+  assert(
+    !goneJob,
+    "removeApprovalExpiryJob must dequeue the staging-expire job",
+  );
   console.log("[smoke-expiry] 4. removeApprovalExpiryJob: job dequeued ✓");
 
   // ─── cleanup ──────────────────────────────────────────────────────────

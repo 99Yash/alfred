@@ -17,7 +17,11 @@
 import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
-import { buildInstallUrl, getInstallationToken, mintAppJwt } from "@alfred/integrations/github";
+import {
+  buildInstallUrl,
+  getInstallationToken,
+  mintAppJwt,
+} from "@alfred/integrations/github";
 import { serverEnv } from "@alfred/env/server";
 import { eq } from "drizzle-orm";
 
@@ -28,7 +32,10 @@ const GH = {
 } as const;
 const GITHUB_FETCH_TIMEOUT_MS = 30_000;
 
-function githubSmokeFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+function githubSmokeFetch(
+  input: string | URL,
+  init: RequestInit = {},
+): Promise<Response> {
   return fetch(input, {
     ...init,
     signal: init.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
@@ -58,7 +65,11 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const app = (await appRes.json()) as { id: number; slug: string; name: string };
+  const app = (await appRes.json()) as {
+    id: number;
+    slug: string;
+    name: string;
+  };
   console.log(
     `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
   );
@@ -69,9 +80,12 @@ async function main() {
   }
 
   // ---- Phase 2: installations ----------------------------------------------
-  const instRes = await githubSmokeFetch("https://api.github.com/app/installations", {
-    headers: { ...GH, Authorization: `Bearer ${jwt}` },
-  });
+  const instRes = await githubSmokeFetch(
+    "https://api.github.com/app/installations",
+    {
+      headers: { ...GH, Authorization: `Bearer ${jwt}` },
+    },
+  );
   if (!instRes.ok) {
     console.error(
       `[smoke-github-app] GET /app/installations failed: ${instRes.status} ${await responseSnippet(instRes)}`,
@@ -89,12 +103,19 @@ async function main() {
     console.log(`   ${buildInstallUrl("smoke-state")}\n`);
   } else {
     const first = installations[0]!;
-    console.log(`   → installation #${first.id} on @${first.account?.login ?? "?"}`);
+    console.log(
+      `   → installation #${first.id} on @${first.account?.login ?? "?"}`,
+    );
     const { token, expiresAt } = await getInstallationToken(String(first.id));
-    console.log(`   → minted installation token (expires ${expiresAt.toISOString()})`);
-    const repoRes = await githubSmokeFetch("https://api.github.com/installation/repositories", {
-      headers: { ...GH, Authorization: `Bearer ${token}` },
-    });
+    console.log(
+      `   → minted installation token (expires ${expiresAt.toISOString()})`,
+    );
+    const repoRes = await githubSmokeFetch(
+      "https://api.github.com/installation/repositories",
+      {
+        headers: { ...GH, Authorization: `Bearer ${token}` },
+      },
+    );
     if (!repoRes.ok) {
       console.error(
         `[smoke-github-app] GET /installation/repositories failed: ${repoRes.status} ${await responseSnippet(repoRes)}`,
@@ -103,7 +124,9 @@ async function main() {
       return;
     }
     const repos = (await repoRes.json()) as { total_count?: number };
-    console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
+    console.log(
+      `   → installation can see ${repos.total_count ?? "?"} repositories`,
+    );
   }
 
   // ---- Phase 3: stored credential ------------------------------------------
@@ -116,7 +139,9 @@ async function main() {
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "github"));
   if (creds.length === 0) {
-    console.log("\n[smoke-github-app] No github credential row yet — complete the connect flow.");
+    console.log(
+      "\n[smoke-github-app] No github credential row yet — complete the connect flow.",
+    );
   } else {
     for (const c of creds) {
       console.log(
@@ -128,7 +153,9 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(`[smoke-github-app] error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `[smoke-github-app] error: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exitCode = 1;
   })
   .finally(() => closeConnections());

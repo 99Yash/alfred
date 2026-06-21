@@ -28,7 +28,10 @@ async function main() {
     );
   } catch (err) {
     threw = true;
-    if (!(err instanceof Error) || err.message !== "synthetic failure for smoke test") {
+    if (
+      !(err instanceof Error) ||
+      err.message !== "synthetic failure for smoke test"
+    ) {
       throw new Error(`unexpected rethrow shape: ${String(err)}`);
     }
   }
@@ -45,12 +48,16 @@ async function main() {
   const row = rows[0];
   if (!row) throw new Error("no failure row in api_call_log");
 
-  console.log(`[fail-smoke] failure row: cost=${row.costUsd} error=${JSON.stringify(row.error)}`);
+  console.log(
+    `[fail-smoke] failure row: cost=${row.costUsd} error=${JSON.stringify(row.error)}`,
+  );
   if (Number(row.costUsd) !== 0)
     throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
   const err = row.error as { message?: string } | null;
   if (err?.message !== "synthetic failure for smoke test") {
-    throw new Error(`error column not populated correctly: ${JSON.stringify(row.error)}`);
+    throw new Error(
+      `error column not populated correctly: ${JSON.stringify(row.error)}`,
+    );
   }
 
   console.log("\n[fail-smoke] PASS");
@@ -58,7 +65,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[fail-smoke] FAIL", err instanceof Error ? err.message : err);
+    console.error(
+      "[fail-smoke] FAIL",
+      err instanceof Error ? err.message : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

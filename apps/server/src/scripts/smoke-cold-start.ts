@@ -42,19 +42,26 @@ import {
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
-import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  memoryChunks,
+  user as userTable,
+  userFacts,
+} from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  pollRun,
+} from "./_smoke-helpers";
 
 // Seed + parallel aspect loops + synthesis can run a couple of minutes
 // of LLM + web_search calls; budget 5min before giving up.
-const POLL_INTERVAL_MS = 1_000;
-const POLL_TIMEOUT_MS = 5 * 60_000;
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
+const POLL_TIMEOUT_MS = 5 * 60_000;
 
 async function pickUser() {
   const rows = await db()
@@ -62,24 +69,6 @@ async function pickUser() {
     .from(userTable)
     .limit(1);
   return rows[0] ?? null;
-}
-
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  let lastStep: string | null = null;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.currentStep !== lastStep) {
-      console.log(`[smoke-cold-start]   step → ${row.currentStep} (status=${row.status})`);
-      lastStep = row.currentStep;
-    }
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
 async function fetchMemoryChunkById(id: string, userId: string) {
@@ -162,7 +151,10 @@ async function main() {
   console.log(`[smoke-cold-start] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "cold-start run");
-  assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
+  assert(
+    run.status === "completed",
+    `run status=${run.status} error=${JSON.stringify(run.error)}`,
+  );
 
   const out = run.output as {
     factsProposed: number;
@@ -181,7 +173,10 @@ async function main() {
 
   const chunk = await fetchMemoryChunkById(out.memoryChunkId, u.id);
   assert(chunk, `memory_chunks row ${out.memoryChunkId} not found`);
-  assert(chunk.kind === "cold_start_research", `unexpected chunk.kind=${chunk.kind}`);
+  assert(
+    chunk.kind === "cold_start_research",
+    `unexpected chunk.kind=${chunk.kind}`,
+  );
   console.log(
     `[smoke-cold-start] memory chunk: ${chunk.content.length} chars, ` +
       `embedding=${chunk.embedding ? "set" : "pending sweep"}`,

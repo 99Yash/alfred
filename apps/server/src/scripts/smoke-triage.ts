@@ -35,7 +35,12 @@ import {
   warmPool,
 } from "@alfred/api";
 import { db } from "@alfred/db";
-import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  documents,
+  emailTriage,
+  integrationCredentials,
+} from "@alfred/db/schemas";
 import {
   applyTriageLabel,
   ensureAlfredLabels,
@@ -46,13 +51,12 @@ import {
 } from "@alfred/integrations/google";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
-
-const POLL_INTERVAL_MS = 250;
-const POLL_TIMEOUT_MS = 90_000;
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  pollRun,
+} from "./_smoke-helpers";
 
 async function findGoogleCredential(): Promise<{
   id: string;
@@ -87,22 +91,16 @@ async function pickIngestedDocument(userId: string) {
   return rows[0] ?? null;
 }
 
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
-}
-
-async function fetchMessageLabelIds(credentialId: string, messageId: string): Promise<string[]> {
+async function fetchMessageLabelIds(
+  credentialId: string,
+  messageId: string,
+): Promise<string[]> {
   const accessToken = await getFreshAccessToken(credentialId);
-  const message = await getMessage({ accessToken, id: messageId, format: "metadata" });
+  const message = await getMessage({
+    accessToken,
+    id: messageId,
+    format: "metadata",
+  });
   return message.labelIds ?? [];
 }
 
@@ -113,10 +111,14 @@ async function main() {
   const cred = await findGoogleCredential();
   if (!cred) {
     console.log("[smoke-triage] no Google credential found.");
-    console.log("Run smoke-google.ts first to connect an account + bulk ingest.");
+    console.log(
+      "Run smoke-google.ts first to connect an account + bulk ingest.",
+    );
     return;
   }
-  console.log(`[smoke-triage] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`);
+  console.log(
+    `[smoke-triage] target: ${cred.accountLabel ?? cred.id} (user=${cred.userId})`,
+  );
 
   // ---- Phase 1: ensure Alfred labels exist ---------------------------------
   const labels = await ensureAlfredLabels(cred.id);
@@ -141,7 +143,9 @@ async function main() {
   );
 
   const labelsBefore = await fetchMessageLabelIds(cred.id, doc.sourceId);
-  console.log(`[smoke-triage] gmail labels before: ${labelsBefore.join(", ") || "(none)"}`);
+  console.log(
+    `[smoke-triage] gmail labels before: ${labelsBefore.join(", ") || "(none)"}`,
+  );
 
   // ---- Phase 3: enqueue triage run ----------------------------------------
   const { runId: runId1 } = await createRun({
@@ -201,7 +205,9 @@ async function main() {
     labelsAfter.includes(out1.appliedLabelId),
     `gmail message missing applied label ${out1.appliedLabelId}; has=${labelsAfter.join(", ")}`,
   );
-  const alfredLabelsOnMessage = labelsAfter.filter((id) => labels.allIds.includes(id));
+  const alfredLabelsOnMessage = labelsAfter.filter((id) =>
+    labels.allIds.includes(id),
+  );
   assert(
     alfredLabelsOnMessage.length === 1,
     `expected exactly 1 alfred label on message, got ${alfredLabelsOnMessage.length}: ${alfredLabelsOnMessage.join(", ")}`,
@@ -220,13 +226,18 @@ async function main() {
 
   const run2 = await pollRun(runId2, "run 2");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
-  const out2 = run2.output as { category: TriageCategory; appliedLabelId: string };
+  const out2 = run2.output as {
+    category: TriageCategory;
+    appliedLabelId: string;
+  };
   console.log(
     `[smoke-triage] run 2 output: category=${out2.category} appliedLabelId=${out2.appliedLabelId}`,
   );
 
   const labelsFinal = await fetchMessageLabelIds(cred.id, doc.sourceId);
-  const alfredLabelsFinal = labelsFinal.filter((id) => labels.allIds.includes(id));
+  const alfredLabelsFinal = labelsFinal.filter((id) =>
+    labels.allIds.includes(id),
+  );
   assert(
     alfredLabelsFinal.length === 1,
     `after re-run expected exactly 1 alfred label, got ${alfredLabelsFinal.length}: ${alfredLabelsFinal.join(", ")}`,
@@ -238,20 +249,28 @@ async function main() {
 
   const finalRow = await getTriage(cred.userId, doc.sourceThreadId);
   assert(finalRow, "triage row missing after run 2");
-  assert(finalRow.runId === runId2, `triage row runId=${finalRow.runId} != run2=${runId2}`);
+  assert(
+    finalRow.runId === runId2,
+    `triage row runId=${finalRow.runId} != run2=${runId2}`,
+  );
 
   // One row per thread invariant — the user's mental model.
   const rowsForThread = await db()
     .select()
     .from(emailTriage)
     .where(
-      and(eq(emailTriage.userId, cred.userId), eq(emailTriage.sourceThreadId, doc.sourceThreadId)),
+      and(
+        eq(emailTriage.userId, cred.userId),
+        eq(emailTriage.sourceThreadId, doc.sourceThreadId),
+      ),
     );
   assert(
     rowsForThread.length === 1,
     `expected 1 triage row for thread, got ${rowsForThread.length}`,
   );
-  console.log(`[smoke-triage] one-row-per-thread invariant holds for ${doc.sourceThreadId}`);
+  console.log(
+    `[smoke-triage] one-row-per-thread invariant holds for ${doc.sourceThreadId}`,
+  );
 
   // ---- Phase 6: thread-sibling stripping (conditional) --------------------
   //
@@ -277,7 +296,9 @@ async function main() {
   const candidateThread = candidateThreads[0];
 
   if (!candidateThread?.threadId) {
-    console.log("[smoke-triage] no multi-message thread in mailbox — skipping sibling-strip phase");
+    console.log(
+      "[smoke-triage] no multi-message thread in mailbox — skipping sibling-strip phase",
+    );
   } else {
     const threadDocs = await db()
       .select({
@@ -296,7 +317,9 @@ async function main() {
       .orderBy(desc(documents.authoredAt));
     const [latest, ...older] = threadDocs;
     if (!latest || older.length === 0) {
-      console.log("[smoke-triage] candidate thread degenerate — skipping sibling-strip phase");
+      console.log(
+        "[smoke-triage] candidate thread degenerate — skipping sibling-strip phase",
+      );
     } else {
       console.log(
         `[smoke-triage] thread=${candidateThread.threadId} latest=${latest.id} ` +
@@ -325,7 +348,10 @@ async function main() {
       });
       await enqueueRun(latestRunId);
       const latestRun = await pollRun(latestRunId, "strip-siblings");
-      assert(latestRun.status === "completed", `strip-siblings status=${latestRun.status}`);
+      assert(
+        latestRun.status === "completed",
+        `strip-siblings status=${latestRun.status}`,
+      );
       const latestOut = latestRun.output as { strippedSiblings: number };
       console.log(
         `[smoke-triage] strip-siblings stripped=${latestOut.strippedSiblings} (expected=${older.length})`,
@@ -337,9 +363,9 @@ async function main() {
 
       // Every older message should have zero alfred labels in Gmail.
       for (const d of older) {
-        const onMessage = (await fetchMessageLabelIds(cred.id, d.sourceId)).filter((id) =>
-          labels.allIds.includes(id),
-        );
+        const onMessage = (
+          await fetchMessageLabelIds(cred.id, d.sourceId)
+        ).filter((id) => labels.allIds.includes(id));
         assert(
           onMessage.length === 0,
           `older message ${d.sourceId} still has alfred labels: ${onMessage.join(", ")}`,
@@ -347,9 +373,9 @@ async function main() {
       }
 
       // Latest message should still carry exactly one alfred label.
-      const onLatest = (await fetchMessageLabelIds(cred.id, latest.sourceId)).filter((id) =>
-        labels.allIds.includes(id),
-      );
+      const onLatest = (
+        await fetchMessageLabelIds(cred.id, latest.sourceId)
+      ).filter((id) => labels.allIds.includes(id));
       assert(
         onLatest.length === 1,
         `latest message expected 1 alfred label, got ${onLatest.length}: ${onLatest.join(", ")}`,
@@ -362,7 +388,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-triage] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+    console.error(
+      "[smoke-triage] FAIL",
+      err instanceof Error ? (err.stack ?? err.message) : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

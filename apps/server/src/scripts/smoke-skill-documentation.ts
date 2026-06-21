@@ -48,8 +48,8 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { POLL_INTERVAL_MS, assert, pollRun } from "./_smoke-helpers";
 
-const POLL_INTERVAL_MS = 1_000;
 const LEARN_TIMEOUT_MS = 90_000;
 const DOC_TIMEOUT_MS = 5 * 60_000;
 
@@ -58,34 +58,12 @@ const SAMPLE_PROMPT =
   "i prefer early-stage startups working with react, typescript, and ai. " +
   "draft cold emails with lowercase subject lines that open with a compliment about the company.";
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
-
 async function pickUser() {
   const rows = await db()
     .select({ id: userTable.id, email: userTable.email, name: userTable.name })
     .from(userTable)
     .limit(1);
   return rows[0] ?? null;
-}
-
-async function pollRun(runId: string, label: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  let lastStep: string | null = null;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.currentStep !== lastStep) {
-      console.log(`[smoke-skill-doc]   ${label} → ${row.currentStep} (status=${row.status})`);
-      lastStep = row.currentStep;
-    }
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
 
 async function main() {
@@ -117,7 +95,12 @@ async function main() {
   } else {
     const [row] = await db()
       .insert(skills)
-      .values({ userId: u.id, slug: testSlug, name: "Untitled skill", status: "draft" })
+      .values({
+        userId: u.id,
+        slug: testSlug,
+        name: "Untitled skill",
+        status: "draft",
+      })
       .returning({ id: skills.id });
     if (!row) throw new Error("failed to insert smoke skill");
     skillId = row.id;
@@ -144,7 +127,9 @@ async function main() {
       )
       .returning({ id: agentRuns.id });
     if (stomped.length) {
-      console.log(`[smoke-skill-doc] cancelled ${stomped.length} prior ${slug} run(s)`);
+      console.log(
+        `[smoke-skill-doc] cancelled ${stomped.length} prior ${slug} run(s)`,
+      );
     }
   }
 
@@ -174,7 +159,8 @@ async function main() {
       `docStatus=${learnOut.documentationEnqueueStatus} docRun=${learnOut.documentationRunId ?? "null"}`,
   );
   assert(
-    learnOut.documentationEnqueueStatus === "enqueued" && learnOut.documentationRunId,
+    learnOut.documentationEnqueueStatus === "enqueued" &&
+      learnOut.documentationRunId,
     "expected learn-skill to enqueue a doc run",
   );
   const v1RevisionId = learnOut.revisionId;
@@ -201,10 +187,16 @@ async function main() {
   );
   assert(docOut.skillId === skillId, "doc output skillId mismatch");
   assert(docOut.revisionId !== v1RevisionId, "v2 must be a fresh revision id");
-  assert(docOut.emailStatus !== "failed", `email send failed: ${docOut.emailStatus}`);
+  assert(
+    docOut.emailStatus !== "failed",
+    `email send failed: ${docOut.emailStatus}`,
+  );
 
   // Skill row points at v2.
-  const [postSkill] = await db().select().from(skills).where(eq(skills.id, skillId));
+  const [postSkill] = await db()
+    .select()
+    .from(skills)
+    .where(eq(skills.id, skillId));
   assert(postSkill, "skill row missing after doc");
   assert(
     postSkill.currentRevisionId === docOut.revisionId,
@@ -217,10 +209,18 @@ async function main() {
     .from(skillRevisions)
     .where(eq(skillRevisions.id, docOut.revisionId));
   assert(v2, "v2 skill_revisions row missing");
-  assert(v2.kind === "documented", `expected v2 kind=documented, got ${v2.kind}`);
+  assert(
+    v2.kind === "documented",
+    `expected v2 kind=documented, got ${v2.kind}`,
+  );
   const v2Meta = toRecord(v2.metadata);
-  assert(v2Meta.previousRevisionId === v1RevisionId, "v2 metadata previousRevisionId mismatch");
-  console.log(`[smoke-skill-doc] v2 body preview:\n${v2.body.slice(0, 600)}\n...`);
+  assert(
+    v2Meta.previousRevisionId === v1RevisionId,
+    "v2 metadata previousRevisionId mismatch",
+  );
+  console.log(
+    `[smoke-skill-doc] v2 body preview:\n${v2.body.slice(0, 600)}\n...`,
+  );
 
   // skill_runs row for the doc workflow.
   const [docSkillRun] = await db()

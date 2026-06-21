@@ -31,6 +31,7 @@ import { db } from "@alfred/db";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { assert, findOrCreateSmokeUser } from "./_smoke-helpers";
 
 // Re-use the registered `echo-with-approval` slug so the dispatcher's
 // `createRun` → `requireWorkflow` lookup resolves. We never let the
@@ -38,32 +39,15 @@ import { registerBuiltinWorkflows } from "../builtins";
 // dispatcher side (insert + advance + jobId dedup + CAS race).
 const TEST_SLUG = "echo-with-approval";
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) {
-    console.error(`[smoke-workflows-tick] assertion failed: ${msg}`);
-    process.exitCode = 1;
-    throw new Error(msg);
-  }
-}
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const email = "smoke-workflows-tick@alfred.local";
-  const existing = await db().select().from(userTable).where(eq(userTable.email, email));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "WF Tick Smoke", email, emailVerified: true })
-    .returning({ id: userTable.id });
-  return inserted[0]!.id;
-}
-
 async function cleanupPriorTest(userId: string): Promise<void> {
   // Drop any prior fake-workflow row + its runs from a previous smoke
   // attempt. Foreign keys: agent_runs.user_id → user.id (no FK to
   // workflows), so we delete by user_id + workflow_slug.
   await db()
     .delete(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
+    .where(
+      and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)),
+    );
   await db()
     .delete(workflows)
     .where(and(eq(workflows.userId, userId), eq(workflows.slug, TEST_SLUG)));
@@ -73,7 +57,9 @@ async function main() {
   await warmPool();
   registerBuiltinWorkflows();
 
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser(
+    "smoke-workflows-tick@alfred.local",
+  );
   console.log(`[smoke-workflows-tick] userId=${userId}`);
 
   await cleanupPriorTest(userId);
@@ -105,27 +91,43 @@ async function main() {
   // --- Tick #1 -----------------------------------------------------------
   const result1 = await dispatchDueCronWorkflows();
   console.log(`[smoke-workflows-tick] tick 1 result:`, result1);
-  assert(result1.enqueued >= 1, `tick 1 should enqueue at least 1; got ${result1.enqueued}`);
+  assert(
+    result1.enqueued >= 1,
+    `tick 1 should enqueue at least 1; got ${result1.enqueued}`,
+  );
   assert(result1.failed === 0, `tick 1 failed=${result1.failed} expected 0`);
 
   // Run row present with trigger.kind='cron' and matching scheduledFor.
   const runs = await db()
     .select()
     .from(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
-  assert(runs.length === 1, `expected exactly 1 run row after tick 1; got ${runs.length}`);
+    .where(
+      and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)),
+    );
+  assert(
+    runs.length === 1,
+    `expected exactly 1 run row after tick 1; got ${runs.length}`,
+  );
   const run = runs[0]!;
   const trigger = run.trigger as { kind: string; scheduledFor: string } | null;
-  assert(trigger?.kind === "cron", `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`);
+  assert(
+    trigger?.kind === "cron",
+    `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`,
+  );
   assert(
     trigger.scheduledFor === scheduledForIso,
     `trigger.scheduledFor=${trigger.scheduledFor} != ${scheduledForIso}`,
   );
-  console.log(`[smoke-workflows-tick] run id=${run.id} trigger=${JSON.stringify(trigger)}`);
+  console.log(
+    `[smoke-workflows-tick] run id=${run.id} trigger=${JSON.stringify(trigger)}`,
+  );
 
   // Workflow row advanced.
   const after1 = await db()
-    .select({ nextRunAt: workflows.nextRunAt, lastScheduledAt: workflows.lastScheduledAt })
+    .select({
+      nextRunAt: workflows.nextRunAt,
+      lastScheduledAt: workflows.lastScheduledAt,
+    })
     .from(workflows)
     .where(eq(workflows.id, wfRow.id));
   const advanced = after1[0]!;
@@ -159,8 +161,13 @@ async function main() {
   const runs2 = await db()
     .select()
     .from(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
-  assert(runs2.length === 1, `tick 2 created an extra run; total=${runs2.length}`);
+    .where(
+      and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)),
+    );
+  assert(
+    runs2.length === 1,
+    `tick 2 created an extra run; total=${runs2.length}`,
+  );
 
   // --- Race simulation: rewind + concurrent dispatch ---------------------
   // Reset next_run_at to the past, then call dispatch twice
@@ -175,7 +182,9 @@ async function main() {
     dispatchDueCronWorkflows(),
     dispatchDueCronWorkflows(),
   ]);
-  console.log(`[smoke-workflows-tick] race A=${JSON.stringify(raceA)} B=${JSON.stringify(raceB)}`);
+  console.log(
+    `[smoke-workflows-tick] race A=${JSON.stringify(raceA)} B=${JSON.stringify(raceB)}`,
+  );
   const totalEnqueued = raceA.enqueued + raceB.enqueued;
   const totalRaced = raceA.raced + raceB.raced;
   assert(

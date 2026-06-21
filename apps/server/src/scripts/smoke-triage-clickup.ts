@@ -12,7 +12,11 @@ import { extractSenderContext } from "@alfred/api/modules/triage/sender-context"
 import type { Observations } from "@alfred/api/modules/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "service:tasks.clickup.com", categoryCounts: {}, lastCategory: null },
+  senderPrior: {
+    key: "service:tasks.clickup.com",
+    categoryCounts: {},
+    lastCategory: null,
+  },
   persona: "work",
   thread: {
     lastUserReplyAt: null,
@@ -22,7 +26,12 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   },
   knownContact: false,
   senderRelationship: null,
-  gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
+  gmail: {
+    categories: ["updates"],
+    important: false,
+    starred: false,
+    inInbox: true,
+  },
   content: {
     hasUnsubscribe: false,
     hasCurrencyAmount: false,
@@ -92,7 +101,10 @@ const CASES: Case[] = [
     expectTodo: true,
     prior: { action_needed: 20, done: 6, fyi: 2 },
     recentMessages: [
-      { direction: "received", snippet: "dvd: @Brain create a task from above in backlog" },
+      {
+        direction: "received",
+        snippet: "dvd: @Brain create a task from above in backlog",
+      },
       {
         direction: "received",
         snippet:
@@ -146,7 +158,10 @@ async function main() {
           lastUserReplyAt: null,
           newestDirection: "received",
           messageCount: c.recentMessages?.length ?? 0,
-          recentMessages: (c.recentMessages ?? []).map((m) => ({ ...m, authoredAt: null })),
+          recentMessages: (c.recentMessages ?? []).map((m) => ({
+            ...m,
+            authoredAt: null,
+          })),
         },
       }),
     });

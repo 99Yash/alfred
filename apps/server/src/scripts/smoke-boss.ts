@@ -56,20 +56,16 @@ import {
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { POLL_INTERVAL_MS, POLL_TIMEOUT_MS, assert } from "./_smoke-helpers";
 
 const WORKFLOW_SLUG = "smoke-boss";
 
-const POLL_INTERVAL_MS = 2_000;
 // Boss + a full sub-agent child run is many LLM turns; the dev boss model
 // (gemini-2.5-pro) runs ~5 min/turn here, and the 30-turn cap is the
 // ceiling, so a quiet-window run needs hours. The policy override stays
 // installed for this entire span (restore is in `finally`, after polling
 // returns), so a timeout never gates the run mid-flight.
 const POLL_TIMEOUT_MS = 3 * 60 * 60_000;
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`[smoke-boss] assertion failed: ${msg}`);
-}
 
 async function pickGoogleConnectedUser(): Promise<{
   id: string;
@@ -78,7 +74,10 @@ async function pickGoogleConnectedUser(): Promise<{
   const rows = await db()
     .select({ id: userTable.id, email: userTable.email })
     .from(userTable)
-    .innerJoin(integrationCredentials, eq(integrationCredentials.userId, userTable.id))
+    .innerJoin(
+      integrationCredentials,
+      eq(integrationCredentials.userId, userTable.id),
+    )
     .where(
       and(
         eq(integrationCredentials.provider, "google"),
@@ -125,9 +124,14 @@ async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
   return snapshot;
 }
 
-async function restorePolicy(userId: string, snapshot: PolicyRow | null): Promise<void> {
+async function restorePolicy(
+  userId: string,
+  snapshot: PolicyRow | null,
+): Promise<void> {
   if (!snapshot) {
-    await db().delete(userActionPolicies).where(eq(userActionPolicies.userId, userId));
+    await db()
+      .delete(userActionPolicies)
+      .where(eq(userActionPolicies.userId, userId));
     return;
   }
   await db()
@@ -144,13 +148,23 @@ async function restorePolicy(userId: string, snapshot: PolicyRow | null): Promis
 async function resetSmokeRows(userId: string): Promise<void> {
   await db()
     .delete(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, WORKFLOW_SLUG)));
+    .where(
+      and(
+        eq(agentRuns.userId, userId),
+        eq(agentRuns.workflowSlug, WORKFLOW_SLUG),
+      ),
+    );
   await db()
     .delete(workflows)
-    .where(and(eq(workflows.userId, userId), eq(workflows.slug, WORKFLOW_SLUG)));
+    .where(
+      and(eq(workflows.userId, userId), eq(workflows.slug, WORKFLOW_SLUG)),
+    );
 }
 
-async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<void> {
+async function createSmokeWorkflow(
+  userId: string,
+  selfEmail: string,
+): Promise<void> {
   // `gmail.read_message` reads from the ingested `documents` table (it does
   // NOT hit the Gmail API), so the sub-agent can only summarize a message
   // that's already ingested. Bake a real, recent ingested gmail document id
@@ -251,24 +265,37 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
     },
   });
   await enqueueRun(staging.runId);
-  console.log(`[smoke-boss]   auto-approved ${staging.toolName} (${staging.id})`);
+  console.log(
+    `[smoke-boss]   auto-approved ${staging.toolName} (${staging.id})`,
+  );
 }
 
-async function pollAndAutoApprove(runId: string): Promise<{ status: string; output: unknown }> {
+async function pollAndAutoApprove(
+  runId: string,
+): Promise<{ status: string; output: unknown }> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStep: string | null = null;
   while (Date.now() < deadline) {
-    const rows = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
+    const rows = await db()
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId));
     const row = rows[0];
     if (!row) throw new Error(`run ${runId} not found`);
     if (row.currentStep !== lastStep) {
-      console.log(`[smoke-boss]   step → ${row.currentStep} (status=${row.status})`);
+      console.log(
+        `[smoke-boss]   step → ${row.currentStep} (status=${row.status})`,
+      );
       lastStep = row.currentStep;
     }
     if (row.status === "waiting") {
       for (const p of await findPendingApprovals(runId)) await autoApprove(p);
     }
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
+    if (
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "cancelled"
+    ) {
       return { status: row.status, output: row.output };
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -331,7 +358,9 @@ async function main(): Promise<void> {
     const stagings = await loadStagingsForRun(runId);
     console.log(`[smoke-boss] action_stagings rows: ${stagings.length}`);
     for (const s of stagings) {
-      console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
+      console.log(
+        `   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`,
+      );
     }
 
     // 1. gmail.search executed via autonomy (no approval needed).
@@ -357,14 +386,19 @@ async function main(): Promise<void> {
           sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${runId}`,
         ),
       );
-    assert((childRows[0]?.count ?? 0) >= 1, "expected ≥1 sub-agent child run for the boss run");
+    assert(
+      (childRows[0]?.count ?? 0) >= 1,
+      "expected ≥1 sub-agent child run for the boss run",
+    );
 
     // 3. Terminal scratchpad snapshot mirrors both zones into agent_run_context.
     const ctxRows = await db()
       .select({ key: agentRunContext.key, zone: agentRunContext.zone })
       .from(agentRunContext)
       .where(eq(agentRunContext.runId, runId));
-    console.log(`[smoke-boss] agent_run_context keys: ${ctxRows.map((r) => r.key).join(", ")}`);
+    console.log(
+      `[smoke-boss] agent_run_context keys: ${ctxRows.map((r) => r.key).join(", ")}`,
+    );
     assert(
       ctxRows.some((r) => r.zone === "scratch"),
       "expected ≥1 scratch.* key in agent_run_context (sub-agent finding)",
@@ -402,7 +436,9 @@ async function main(): Promise<void> {
     );
 
     const outputText =
-      typeof final.output === "object" && final.output !== null && "text" in final.output
+      typeof final.output === "object" &&
+      final.output !== null &&
+      "text" in final.output
         ? (final.output as { text: unknown }).text
         : null;
     console.log(`[smoke-boss] output.text:\n${outputText}`);
@@ -417,7 +453,10 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (err) {
-  console.error("[smoke-boss] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+  console.error(
+    "[smoke-boss] FAIL",
+    err instanceof Error ? (err.stack ?? err.message) : err,
+  );
   process.exitCode = 1;
 } finally {
   await closeAgentQueue().catch(() => {});

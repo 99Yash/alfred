@@ -50,9 +50,12 @@ import { db } from "@alfred/db";
 import { agentRuns, briefings, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
-
-const POLL_INTERVAL_MS = 500;
-const POLL_TIMEOUT_MS = 120_000;
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  pollRun,
+} from "./_smoke-helpers";
 
 interface CliArgs {
   slot: "morning" | "evening";
@@ -79,14 +82,14 @@ function parseArgs(): CliArgs {
   return out;
 }
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
-
 async function pickUser(email: string | null) {
   if (email) {
     const rows = await db()
-      .select({ id: userTable.id, email: userTable.email, name: userTable.name })
+      .select({
+        id: userTable.id,
+        email: userTable.email,
+        name: userTable.name,
+      })
       .from(userTable)
       .where(eq(userTable.email, email))
       .limit(1);
@@ -99,21 +102,12 @@ async function pickUser(email: string | null) {
   return rows[0] ?? null;
 }
 
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
-}
-
 async function fetchBriefing(id: string) {
-  const rows = await db().select().from(briefings).where(eq(briefings.id, id)).limit(1);
+  const rows = await db()
+    .select()
+    .from(briefings)
+    .where(eq(briefings.id, id))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -158,7 +152,9 @@ async function main() {
 
   const run = await pollRun(runId, "compose");
   if (run.status !== "completed") {
-    console.error(`[smoke-daily-briefing] run failed: ${JSON.stringify(run.error)}`);
+    console.error(
+      `[smoke-daily-briefing] run failed: ${JSON.stringify(run.error)}`,
+    );
     throw new Error(`run status=${run.status}`);
   }
 
@@ -183,7 +179,10 @@ async function main() {
     row.status === expectedRowStatus,
     `expected status=${expectedRowStatus}, got ${row.status}`,
   );
-  assert(row.fullBriefing?.headline, "briefings.full_briefing.headline is empty");
+  assert(
+    row.fullBriefing?.headline,
+    "briefings.full_briefing.headline is empty",
+  );
   assert(row.breakingSummary, "briefings.breaking_summary is empty");
   // Only terminal (sent/suppressed) rows consume the watermark; a --no-send
   // 'composed' row intentionally leaves it null so the next real run replays

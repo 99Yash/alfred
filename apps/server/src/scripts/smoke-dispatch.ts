@@ -43,38 +43,13 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import {
+  assert,
+  createSmokeRun,
+  findOrCreateSmokeUser,
+} from "./_smoke-helpers";
 
 const SMOKE_USER_EMAIL = "smoke-dispatch@alfred.local";
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(`[smoke-dispatch] ${message}`);
-}
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const existing = await db().select().from(userTable).where(eq(userTable.email, SMOKE_USER_EMAIL));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "Dispatch Smoke", email: SMOKE_USER_EMAIL, emailVerified: true })
-    .returning({ id: userTable.id });
-  if (!inserted[0]) throw new Error("failed to insert smoke user");
-  return inserted[0].id;
-}
-
-async function createSmokeRun(userId: string, label: string): Promise<string> {
-  const inserted = await db()
-    .insert(agentRuns)
-    .values({
-      userId,
-      workflowSlug: "smoke-dispatch",
-      currentStep: label,
-      status: "running",
-      trigger: { kind: "manual" },
-    })
-    .returning({ id: agentRuns.id });
-  if (!inserted[0]) throw new Error("failed to insert smoke run");
-  return inserted[0].id;
-}
 
 async function setIntegrationMode(
   userId: string,
@@ -126,7 +101,10 @@ function buildStubs(): Stubs {
           inputSchema: gmailSearchInput,
           execute: async (input) => {
             searchExec += 1;
-            return { messages: [{ id: "smoke-m1", query: input.q }], nextPageToken: null };
+            return {
+              messages: [{ id: "smoke-m1", query: input.q }],
+              nextPageToken: null,
+            };
           },
         }),
         liveTool({
@@ -151,7 +129,7 @@ async function main(): Promise<void> {
   const stubs = buildStubs();
   stubs.registerStubs();
 
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser("smoke-dispatch@alfred.local");
   await ensureDefaultActionPolicyForUser(userId);
 
   // ─── 1. Autonomy path ────────────────────────────────────────────────
@@ -165,7 +143,10 @@ async function main(): Promise<void> {
     input: { q: "in:inbox newer_than:1d" },
     userId,
   });
-  assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
+  assert(
+    auto.kind === "executed",
+    `autonomy expected 'executed', got '${auto.kind}'`,
+  );
   assert(
     stubs.searchExecCount() === 1,
     `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`,
@@ -181,8 +162,14 @@ async function main(): Promise<void> {
     autoRow.status === "executed",
     `autonomy row expected 'executed', got '${autoRow.status}'`,
   );
-  assert(autoRow.requiresApproval === false, "autonomy row should have requires_approval=false");
-  assert(autoRow.executeResult !== null, "autonomy row should carry execute_result");
+  assert(
+    autoRow.requiresApproval === false,
+    "autonomy row should have requires_approval=false",
+  );
+  assert(
+    autoRow.executeResult !== null,
+    "autonomy row should carry execute_result",
+  );
   console.log("[smoke-dispatch] 1. autonomy: row=executed, tool fired once ✓");
 
   // Idempotent re-dispatch with same tool_call_id returns the cached
@@ -195,12 +182,17 @@ async function main(): Promise<void> {
     input: { q: "in:inbox newer_than:1d" },
     userId,
   });
-  assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
+  assert(
+    auto2.kind === "executed",
+    "idempotent re-dispatch expected 'executed'",
+  );
   assert(
     stubs.searchExecCount() === 1,
     `idempotent re-dispatch should not re-execute, got ${stubs.searchExecCount()}`,
   );
-  console.log("[smoke-dispatch] 1. autonomy: idempotent re-dispatch returns cached result ✓");
+  console.log(
+    "[smoke-dispatch] 1. autonomy: idempotent re-dispatch returns cached result ✓",
+  );
 
   const unknownTool = await dispatchToolCall({
     runId: runId1,
@@ -217,8 +209,16 @@ async function main(): Promise<void> {
   const unknownRows = await db()
     .select()
     .from(actionStagings)
-    .where(and(eq(actionStagings.runId, runId1), eq(actionStagings.toolCallId, "tc_unknown_tool")));
-  assert(unknownRows.length === 0, "unknown tool should not write a staging row");
+    .where(
+      and(
+        eq(actionStagings.runId, runId1),
+        eq(actionStagings.toolCallId, "tc_unknown_tool"),
+      ),
+    );
+  assert(
+    unknownRows.length === 0,
+    "unknown tool should not write a staging row",
+  );
   console.log("[smoke-dispatch] 1. unknown tool: recoverable result, no row ✓");
 
   // ─── 2. Gated path ───────────────────────────────────────────────────
@@ -229,26 +229,50 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
-    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    input: {
+      to: ["yash@example.com"],
+      subject: "phase 3 smoke",
+      bodyText: "hi",
+    },
     userId,
   });
-  assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
+  assert(
+    staged.kind === "staged",
+    `gated expected 'staged', got '${staged.kind}'`,
+  );
   const stagedId = (staged as { stagingId: string }).stagingId;
   assert(
-    (staged as { wake: { approvalId: string; approvalKind: string } }).wake.approvalId === stagedId,
+    (staged as { wake: { approvalId: string; approvalKind: string } }).wake
+      .approvalId === stagedId,
     "wake.approvalId must equal stagingId",
   );
   assert(
-    (staged as { wake: { approvalKind: string } }).wake.approvalKind === "action_staging",
+    (staged as { wake: { approvalKind: string } }).wake.approvalKind ===
+      "action_staging",
     "wake.approvalKind must be 'action_staging'",
   );
-  assert(stubs.draftExecCount() === 0, "gated path must not execute tool before approval");
+  assert(
+    stubs.draftExecCount() === 0,
+    "gated path must not execute tool before approval",
+  );
   const gatedRow = (
-    await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
+    await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagedId))
   )[0];
-  assert(gatedRow?.status === "pending", `gated row expected 'pending', got '${gatedRow?.status}'`);
-  assert(gatedRow.requiresApproval === true, "gated row should have requires_approval=true");
-  assert(gatedRow.riskTier === "high", "gated row should snapshot risk_tier='high'");
+  assert(
+    gatedRow?.status === "pending",
+    `gated row expected 'pending', got '${gatedRow?.status}'`,
+  );
+  assert(
+    gatedRow.requiresApproval === true,
+    "gated row should have requires_approval=true",
+  );
+  assert(
+    gatedRow.riskTier === "high",
+    "gated row should snapshot risk_tier='high'",
+  );
   console.log("[smoke-dispatch] 2. gated: row=pending, wake=action_staging ✓");
 
   // Policy toggle should NOT unstick a pending row. Flip the user to
@@ -262,15 +286,24 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
-    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    input: {
+      to: ["yash@example.com"],
+      subject: "phase 3 smoke",
+      bodyText: "hi",
+    },
     userId,
   });
   assert(
     stillStaged.kind === "staged",
     `pending row must remain staged after policy flip, got '${stillStaged.kind}'`,
   );
-  assert(stubs.draftExecCount() === 0, "policy flip must not trigger execute on pending row");
-  console.log("[smoke-dispatch] 2. gated: policy gated→autonomy keeps pending row staged ✓");
+  assert(
+    stubs.draftExecCount() === 0,
+    "policy flip must not trigger execute on pending row",
+  );
+  console.log(
+    "[smoke-dispatch] 2. gated: policy gated→autonomy keeps pending row staged ✓",
+  );
 
   // Restore gated for the approval path below — the locked-in
   // requires_approval=true on the row is what matters now, not the
@@ -308,9 +341,16 @@ async function main(): Promise<void> {
 
   const woken = await signalRun({
     runId: runId2,
-    match: { kind: "hil", approvalId: stagedId, approvalKind: "action_staging" },
+    match: {
+      kind: "hil",
+      approvalId: stagedId,
+      approvalKind: "action_staging",
+    },
   });
-  assert(woken === true, "signalRun on a freshly-parked HIL wake must return true");
+  assert(
+    woken === true,
+    "signalRun on a freshly-parked HIL wake must return true",
+  );
 
   // Re-dispatch with the same tool_call_id — the dispatcher reads the
   // 'approved' row, executes the tool, and updates the row. Critically,
@@ -330,20 +370,32 @@ async function main(): Promise<void> {
     },
     userId,
   });
-  assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
-    (resumed as { toolResult: { sentTo: string } }).toolResult.sentTo === "yash@example.com",
+    resumed.kind === "executed",
+    `resume expected 'executed', got '${resumed.kind}'`,
+  );
+  assert(
+    (resumed as { toolResult: { sentTo: string } }).toolResult.sentTo ===
+      "yash@example.com",
     "approved resume must execute the STAGED proposed_input, not the caller's new input",
   );
-  assert(stubs.draftExecCount() === 1, "approved tool should execute exactly once on resume");
+  assert(
+    stubs.draftExecCount() === 1,
+    "approved tool should execute exactly once on resume",
+  );
   const resumedRow = (
-    await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
+    await db()
+      .select()
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagedId))
   )[0];
   assert(
     resumedRow?.status === "executed",
     `resumed row expected 'executed', got '${resumedRow?.status}'`,
   );
-  console.log("[smoke-dispatch] 2. gated: approved + signal → executed, tool fired once ✓");
+  console.log(
+    "[smoke-dispatch] 2. gated: approved + signal → executed, tool fired once ✓",
+  );
 
   // ─── 3. Retry-suppression ────────────────────────────────────────────
   const runId3 = await createSmokeRun(userId, "retry-suppression-turn");
@@ -352,10 +404,17 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_rs_1",
     toolName: "gmail.send_draft",
-    input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
+    input: {
+      to: ["someone@example.com"],
+      subject: "do not send",
+      bodyText: "no",
+    },
     userId,
   });
-  assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
+  assert(
+    firstAttempt.kind === "staged",
+    "retry-suppression setup expects staged on first try",
+  );
   const firstAttemptId = (firstAttempt as { stagingId: string }).stagingId;
 
   // User rejects with a reason — Phase 5's decision API would do this.
@@ -376,7 +435,11 @@ async function main(): Promise<void> {
     stepId: "turn-2",
     toolCallId: "tc_draft_rs_2",
     toolName: "gmail.send_draft",
-    input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
+    input: {
+      to: ["someone@example.com"],
+      subject: "do not send",
+      bodyText: "no",
+    },
     userId,
   });
   assert(
@@ -392,7 +455,10 @@ async function main(): Promise<void> {
       "do_not_retry_identical",
     "retry-suppression result must carry retryPolicy='do_not_retry_identical'",
   );
-  assert(stubs.draftExecCount() === draftExecBefore, "retry-suppression must not execute the tool");
+  assert(
+    stubs.draftExecCount() === draftExecBefore,
+    "retry-suppression must not execute the tool",
+  );
   const allRsRows = await db()
     .select()
     .from(actionStagings)
@@ -401,7 +467,9 @@ async function main(): Promise<void> {
     allRsRows.length === 1,
     `retry-suppression must keep only the original row, got ${allRsRows.length}`,
   );
-  console.log("[smoke-dispatch] 3. retry-suppression: no new row, synthesized rejection ✓");
+  console.log(
+    "[smoke-dispatch] 3. retry-suppression: no new row, synthesized rejection ✓",
+  );
 
   // ─── 4. cancelRun idempotency ────────────────────────────────────────
   const runId4 = await createSmokeRun(userId, "cancel-turn");
@@ -416,7 +484,11 @@ async function main(): Promise<void> {
         toolName: "gmail.send_draft",
         integration: "gmail",
         riskTier: "high",
-        proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
+        proposedInput: {
+          to: ["one@example.com"],
+          subject: "cancel",
+          bodyText: "one",
+        },
         proposedInputHash: "smoke-cancel-1",
         requiresApproval: true,
         status: "pending",
@@ -429,15 +501,24 @@ async function main(): Promise<void> {
         toolName: "gmail.send_draft",
         integration: "gmail",
         riskTier: "high",
-        proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
+        proposedInput: {
+          to: ["two@example.com"],
+          subject: "cancel",
+          bodyText: "two",
+        },
         proposedInputHash: "smoke-cancel-2",
         requiresApproval: true,
         status: "pending",
       },
     ]);
   const first = await cancelRun({ runId: runId4, reason: "smoke" });
-  assert(first === "cancelled", `cancelRun first call expected 'cancelled', got '${first}'`);
-  const cancelledRow = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId4)))[0];
+  assert(
+    first === "cancelled",
+    `cancelRun first call expected 'cancelled', got '${first}'`,
+  );
+  const cancelledRow = (
+    await db().select().from(agentRuns).where(eq(agentRuns.id, runId4))
+  )[0];
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
   assert(
@@ -449,7 +530,9 @@ async function main(): Promise<void> {
     .from(actionStagings)
     .where(eq(actionStagings.runId, runId4));
   assert(
-    cancelledStagings.every((row) => row.status === "rejected" && row.rejectReason === "smoke"),
+    cancelledStagings.every(
+      (row) => row.status === "rejected" && row.rejectReason === "smoke",
+    ),
     "cancelRun should reject pending approval staging rows for the run",
   );
   const second = await cancelRun({ runId: runId4, reason: "smoke" });
@@ -457,7 +540,10 @@ async function main(): Promise<void> {
     second === "already_terminal",
     `cancelRun second call expected 'already_terminal', got '${second}'`,
   );
-  const missing = await cancelRun({ runId: "run_does_not_exist", reason: "smoke" });
+  const missing = await cancelRun({
+    runId: "run_does_not_exist",
+    reason: "smoke",
+  });
   assert(
     missing === "not_found",
     `cancelRun on missing row expected 'not_found', got '${missing}'`,

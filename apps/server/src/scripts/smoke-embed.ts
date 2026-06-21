@@ -13,7 +13,12 @@
  */
 import { closeConnections, warmPool } from "@alfred/api";
 import { db } from "@alfred/db";
-import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
+import {
+  apiCallLog,
+  chunks,
+  documents,
+  user as userTable,
+} from "@alfred/db/schemas";
 import { embedDocument, semanticSearch } from "@alfred/ingestion";
 import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -32,7 +37,10 @@ results. The CFO will share updated pipeline data next week.`,
 
 async function findOrCreateUser(): Promise<string> {
   const email = "smoke-embed@alfred.local";
-  const existing = await db().select().from(userTable).where(eq(userTable.email, email));
+  const existing = await db()
+    .select()
+    .from(userTable)
+    .where(eq(userTable.email, email));
   if (existing[0]) return existing[0].id;
   const inserted = await db()
     .insert(userTable)
@@ -55,7 +63,9 @@ async function upsertDoc(userId: string): Promise<string> {
       authoredAt: new Date(),
       metadata: {},
     })
-    .onConflictDoNothing({ target: [documents.userId, documents.source, documents.sourceId] })
+    .onConflictDoNothing({
+      target: [documents.userId, documents.source, documents.sourceId],
+    })
     .returning({ id: documents.id });
   if (result[0]) return result[0].id;
   const existing = await db()
@@ -107,12 +117,16 @@ async function main() {
       `chunk embedding shape wrong: type=${typeof embedding} len=${Array.isArray(embedding) ? embedding.length : "n/a"}`,
     );
   }
-  console.log(`[smoke-embed] chunk embedding: 1024-dim ✓ (sample[0]=${embedding[0]?.toFixed(4)})`);
+  console.log(
+    `[smoke-embed] chunk embedding: 1024-dim ✓ (sample[0]=${embedding[0]?.toFixed(4)})`,
+  );
 
   // Re-embed must be a no-op (content_hash unchanged → no Voyage call).
   const reembed = await embedDocument({ documentId: docId });
   if (reembed.chunksWritten !== 0) {
-    throw new Error(`re-embed wrote ${reembed.chunksWritten} chunks (expected 0)`);
+    throw new Error(
+      `re-embed wrote ${reembed.chunksWritten} chunks (expected 0)`,
+    );
   }
   console.log("[smoke-embed] re-embed is a no-op ✓");
 
@@ -125,7 +139,9 @@ async function main() {
   });
   if (hits.length === 0) throw new Error("search returned 0 hits");
   const top = hits[0]!;
-  console.log(`[smoke-embed] top hit: "${top.title}" sim=${top.similarity.toFixed(3)}`);
+  console.log(
+    `[smoke-embed] top hit: "${top.title}" sim=${top.similarity.toFixed(3)}`,
+  );
   if (!top.title?.includes("Quarterly")) {
     throw new Error(`top hit title mismatch: ${top.title}`);
   }
@@ -147,7 +163,9 @@ async function main() {
       `tokens=${recent[0].inputTokens} cost_usd=${cost.toFixed(8)}`,
   );
   if (cost <= 0) {
-    throw new Error(`embed cost not computed (got ${recent[0].costUsd}); voyage prices missing?`);
+    throw new Error(
+      `embed cost not computed (got ${recent[0].costUsd}); voyage prices missing?`,
+    );
   }
 
   console.log("\n[smoke-embed] PASS");
@@ -155,7 +173,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-embed] FAIL", err instanceof Error ? err.message : err);
+    console.error(
+      "[smoke-embed] FAIL",
+      err instanceof Error ? err.message : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -51,7 +51,10 @@ type FixtureAssertion =
   | { section: HandoffSection; contains?: never; absent: string };
 
 const FIXTURES_DIR = fileURLToPath(
-  new URL("../../../../packages/api/src/modules/agent/compaction/__fixtures__/", import.meta.url),
+  new URL(
+    "../../../../packages/api/src/modules/agent/compaction/__fixtures__/",
+    import.meta.url,
+  ),
 );
 const RUNS_PER_FIXTURE = 5;
 
@@ -83,9 +86,13 @@ async function runFixture(
   const misses = collectMisses(text, fixture.assertions);
   const ok = misses.length === 0;
   if (ok) {
-    console.log(`  ✓ ${fixture.name} — all ${fixture.assertions.length} assertion(s) satisfied`);
+    console.log(
+      `  ✓ ${fixture.name} — all ${fixture.assertions.length} assertion(s) satisfied`,
+    );
   } else {
-    console.log(`  ✗ ${fixture.name} — failed: ${misses.map((m) => JSON.stringify(m)).join(", ")}`);
+    console.log(
+      `  ✗ ${fixture.name} — failed: ${misses.map((m) => JSON.stringify(m)).join(", ")}`,
+    );
     console.log("  --- compactor output ---");
     console.log(text);
     console.log("  --- end output ---");
@@ -107,8 +114,13 @@ function collectMisses(text: string, assertions: FixtureAssertion[]): string[] {
       misses.push(`${assertion.section}: section missing`);
       continue;
     }
-    if (assertion.contains !== undefined && !section.includes(assertion.contains)) {
-      misses.push(`${assertion.section}: missing ${JSON.stringify(assertion.contains)}`);
+    if (
+      assertion.contains !== undefined &&
+      !section.includes(assertion.contains)
+    ) {
+      misses.push(
+        `${assertion.section}: missing ${JSON.stringify(assertion.contains)}`,
+      );
     }
     if (assertion.absent !== undefined && section.includes(assertion.absent)) {
       misses.push(
@@ -130,10 +142,13 @@ async function main(): Promise<void> {
     `[smoke-compaction] loaded ${fixtures.length} fixtures from ${FIXTURES_DIR}; runs=${RUNS_PER_FIXTURE}`,
   );
 
-  const results: Array<{ fixture: Fixture; ok: boolean; misses: string[] }> = [];
+  const results: Array<{ fixture: Fixture; ok: boolean; misses: string[] }> =
+    [];
   for (const fixture of fixtures) {
     for (let run = 1; run <= RUNS_PER_FIXTURE; run++) {
-      console.log(`[smoke-compaction] fixture ${fixture.name}, run ${run}/${RUNS_PER_FIXTURE}`);
+      console.log(
+        `[smoke-compaction] fixture ${fixture.name}, run ${run}/${RUNS_PER_FIXTURE}`,
+      );
       const { ok, misses } = await runFixture(fixture);
       results.push({ fixture, ok, misses });
     }

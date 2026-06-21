@@ -39,13 +39,12 @@ import { db } from "@alfred/db";
 import { agentRuns, emailSends, user as userTable } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
-
-const POLL_INTERVAL_MS = 250;
-const POLL_TIMEOUT_MS = 60_000;
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  pollRun,
+} from "./_smoke-helpers";
 
 async function pickUser() {
   const rows = await db()
@@ -55,24 +54,16 @@ async function pickUser() {
   return rows[0] ?? null;
 }
 
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
-}
-
 async function fetchEmailSend(userId: string, idempotencyKey: string) {
   const rows = await db()
     .select()
     .from(emailSends)
-    .where(and(eq(emailSends.userId, userId), eq(emailSends.idempotencyKey, idempotencyKey)));
+    .where(
+      and(
+        eq(emailSends.userId, userId),
+        eq(emailSends.idempotencyKey, idempotencyKey),
+      ),
+    );
   return rows[0] ?? null;
 }
 
@@ -133,7 +124,10 @@ async function main() {
   // If `duplicate`, a prior smoke run on this date already sent — that's
   // also a valid pass for the idempotency check on its own.
   if (out1.status === "sent") {
-    assert(send.status === "sent", `expected email_sends.status=sent, got ${send.status}`);
+    assert(
+      send.status === "sent",
+      `expected email_sends.status=sent, got ${send.status}`,
+    );
     assert(
       send.providerMessageId,
       `expected providerMessageId after sent (Resend round-trip succeeded?)`,
@@ -168,7 +162,10 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[smoke-briefing] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+    console.error(
+      "[smoke-briefing] FAIL",
+      err instanceof Error ? (err.stack ?? err.message) : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

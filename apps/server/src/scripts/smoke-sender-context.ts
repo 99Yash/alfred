@@ -162,7 +162,9 @@ for (const fx of FIXTURES) {
   const errs: string[] = [];
 
   if (result.context.fromKind !== fx.expect.fromKind) {
-    errs.push(`fromKind: want ${fx.expect.fromKind}, got ${result.context.fromKind}`);
+    errs.push(
+      `fromKind: want ${fx.expect.fromKind}, got ${result.context.fromKind}`,
+    );
   }
   if (result.context.effectiveAuthor !== fx.expect.effectiveAuthor) {
     errs.push(
@@ -171,7 +173,9 @@ for (const fx of FIXTURES) {
   }
   if (fx.expect.botSlug !== undefined) {
     if (result.context.botSlug !== fx.expect.botSlug) {
-      errs.push(`botSlug: want ${fx.expect.botSlug}, got ${String(result.context.botSlug)}`);
+      errs.push(
+        `botSlug: want ${fx.expect.botSlug}, got ${String(result.context.botSlug)}`,
+      );
     }
   } else if (result.context.botSlug !== undefined) {
     errs.push(`botSlug: want undefined, got ${result.context.botSlug}`);
@@ -190,8 +194,13 @@ for (const fx of FIXTURES) {
       );
     }
   }
-  if (fx.expect.parserHit !== undefined && result.parserHit !== fx.expect.parserHit) {
-    errs.push(`parserHit: want ${String(fx.expect.parserHit)}, got ${String(result.parserHit)}`);
+  if (
+    fx.expect.parserHit !== undefined &&
+    result.parserHit !== fx.expect.parserHit
+  ) {
+    errs.push(
+      `parserHit: want ${String(fx.expect.parserHit)}, got ${String(result.parserHit)}`,
+    );
   }
 
   if (errs.length === 0) {

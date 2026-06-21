@@ -16,7 +16,12 @@
  *   5. Trigger again — second run is a no-op (proposeFact dedups, doc
  *      sits inside the extracted-window) and produces the same output.
  */
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api";
+import {
+  closeAgentQueue,
+  closeConnections,
+  closeRedis,
+  warmPool,
+} from "@alfred/api";
 import { enqueueExtractionForUser } from "@alfred/api";
 import { recallActiveByKey } from "@alfred/api";
 import { registerBuiltinWorkflows } from "../builtins";
@@ -30,24 +35,13 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
-
-const POLL_INTERVAL_MS = 250;
-const POLL_TIMEOUT_MS = 60_000;
-
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(`assertion failed: ${msg}`);
-}
-
-async function findOrCreateSmokeUser(): Promise<string> {
-  const email = "smoke-extract@alfred.local";
-  const existing = await db().select().from(userTable).where(eq(userTable.email, email));
-  if (existing[0]) return existing[0].id;
-  const inserted = await db()
-    .insert(userTable)
-    .values({ name: "Smoke Extract", email, emailVerified: true })
-    .returning({ id: userTable.id });
-  return inserted[0]!.id;
-}
+import {
+  POLL_INTERVAL_MS,
+  POLL_TIMEOUT_MS,
+  assert,
+  findOrCreateSmokeUser,
+  pollRun,
+} from "./_smoke-helpers";
 
 async function plantDocument(userId: string, runTag: string) {
   // Idempotent on (user, source, source_id): re-running the smoke
@@ -85,28 +79,17 @@ async function plantDocument(userId: string, runTag: string) {
   return row.id;
 }
 
-async function pollRun(runId: string, label: string) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const [row] = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    if (!row) throw new Error(`run ${runId} not found while waiting for ${label}`);
-    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-      return row;
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-  throw new Error(`timed out waiting for ${label} on run ${runId}`);
-}
-
 async function main() {
   await warmPool();
   // Local registration so createRun's `requireWorkflow` can build the
   // initial state — the server process has its own registration.
   registerBuiltinWorkflows();
-  const userId = await findOrCreateSmokeUser();
+  const userId = await findOrCreateSmokeUser("smoke-extract@alfred.local");
   const runTag = Math.random().toString(36).slice(2, 8);
   const docId = await plantDocument(userId, runTag);
-  console.log(`[smoke-extract] userId=${userId} docId=${docId} runTag=${runTag}`);
+  console.log(
+    `[smoke-extract] userId=${userId} docId=${docId} runTag=${runTag}`,
+  );
 
   // Use uniquely-keyed facts so reruns don't collide with prior runs'
   // active rows in user_facts (proposeFact's dup guard would block the
@@ -139,20 +122,37 @@ async function main() {
 
   const run1 = await pollRun(runId1, "run 1 completion");
   assert(run1.status === "completed", `run 1 status=${run1.status}`);
-  const out1 = run1.output as { processed: number; proposed: number; blocked: number };
+  const out1 = run1.output as {
+    processed: number;
+    proposed: number;
+    blocked: number;
+  };
   console.log(
     `[smoke-extract] run 1 output: processed=${out1.processed} proposed=${out1.proposed} blocked=${out1.blocked}`,
   );
   assert(out1.processed === 1, `expected processed=1, got ${out1.processed}`);
   assert(out1.proposed === 2, `expected proposed=2, got ${out1.proposed}`);
-  assert(out1.blocked === 0, `expected blocked=0 on first run, got ${out1.blocked}`);
+  assert(
+    out1.blocked === 0,
+    `expected blocked=0 on first run, got ${out1.blocked}`,
+  );
 
   // Facts landed
-  const managerFacts = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
-    includeProposed: true,
-  });
-  assert(managerFacts.length === 1, `expected 1 manager fact, got ${managerFacts.length}`);
-  assert(managerFacts[0]!.confidence > 0.9, "manager confidence should match proposal");
+  const managerFacts = await recallActiveByKey(
+    userId,
+    `smoke:manager:${runTag}`,
+    {
+      includeProposed: true,
+    },
+  );
+  assert(
+    managerFacts.length === 1,
+    `expected 1 manager fact, got ${managerFacts.length}`,
+  );
+  assert(
+    managerFacts[0]!.confidence > 0.9,
+    "manager confidence should match proposal",
+  );
 
   // Status row landed
   const [statusRow] = await db()
@@ -161,13 +161,21 @@ async function main() {
     .where(eq(memoryExtractionStatus.documentId, docId));
   assert(statusRow, "memory_extraction_status row missing");
   assert(statusRow.lastRunId === runId1, `lastRunId mismatch`);
-  assert(statusRow.proposedCount === 2, `proposedCount mismatch ${statusRow.proposedCount}`);
+  assert(
+    statusRow.proposedCount === 2,
+    `proposedCount mismatch ${statusRow.proposedCount}`,
+  );
 
   // Summary memory_chunk landed
   const summaryChunks = await db()
     .select()
     .from(memoryChunks)
-    .where(and(eq(memoryChunks.userId, userId), eq(memoryChunks.kind, "extraction_run")))
+    .where(
+      and(
+        eq(memoryChunks.userId, userId),
+        eq(memoryChunks.kind, "extraction_run"),
+      ),
+    )
     .orderBy(desc(memoryChunks.createdAt))
     .limit(1);
   assert(summaryChunks[0], "extraction_run memory_chunk missing");
@@ -193,26 +201,42 @@ async function main() {
 
   const run2 = await pollRun(runId2, "run 2 completion");
   assert(run2.status === "completed", `run 2 status=${run2.status}`);
-  const out2 = run2.output as { processed: number; proposed: number; blocked: number };
+  const out2 = run2.output as {
+    processed: number;
+    proposed: number;
+    blocked: number;
+  };
   console.log(
     `[smoke-extract] run 2 output: processed=${out2.processed} proposed=${out2.proposed} blocked=${out2.blocked}`,
   );
   assert(out2.processed === 1, `expected processed=1, got ${out2.processed}`);
-  assert(out2.proposed === 0, `expected proposed=0 on dup run, got ${out2.proposed}`);
-  assert(out2.blocked === 2, `expected blocked=2 on dup run, got ${out2.blocked}`);
+  assert(
+    out2.proposed === 0,
+    `expected proposed=0 on dup run, got ${out2.proposed}`,
+  );
+  assert(
+    out2.blocked === 2,
+    `expected blocked=2 on dup run, got ${out2.blocked}`,
+  );
 
   // Confirm no duplicate facts piled up
   const stillOne = await recallActiveByKey(userId, `smoke:manager:${runTag}`, {
     includeProposed: true,
   });
-  assert(stillOne.length === 1, `dup guard failed — got ${stillOne.length} active rows`);
+  assert(
+    stillOne.length === 1,
+    `dup guard failed — got ${stillOne.length} active rows`,
+  );
 
   console.log("\n[smoke-extract] PASS");
 }
 
 main()
   .catch((err) => {
-    console.error("[smoke-extract] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+    console.error(
+      "[smoke-extract] FAIL",
+      err instanceof Error ? (err.stack ?? err.message) : err,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {
