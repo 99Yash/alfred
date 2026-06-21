@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — The de-escalation twin</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --muted:#6b6b6b; --rule:#e3e0d8; --bg:#fdfcf9;
+    --accent:#7a2e2e; --code:#3a3a3a; --codebg:#f2efe8; --good:#2f6b46; --bad:#9a3434;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    line-height:1.58; margin:0; padding:4rem 1.5rem 6rem; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:44rem; margin:0 auto}
+  .kicker{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 .4rem}
+  h1{font-size:2.1rem; font-weight:600; margin:0 0 .4rem; letter-spacing:-.01em; line-height:1.1}
+  .sub{color:var(--muted); font-style:italic; margin:0 0 2.2rem; font-size:1.05rem}
+  h2{font-size:1.3rem; font-weight:600; margin:2.6rem 0 .6rem; letter-spacing:-.01em}
+  p{margin:.7rem 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; background:var(--codebg); color:var(--code); padding:.05em .3em; border-radius:3px}
+  a{color:var(--accent)}
+  .lead{font-size:1.12rem}
+  .tag{display:inline-block; font-family:ui-monospace,monospace; font-size:.72rem; background:#efe9df; border:1px solid var(--rule); border-radius:4px; padding:.05em .4em; margin:0 .1em; color:#4a4a4a}
+
+  .twin{display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:1.4rem 0}
+  @media(max-width:640px){.twin{grid-template-columns:1fr}}
+  .card{border:1px solid var(--rule); border-radius:8px; padding:1rem 1.1rem; background:#fff}
+  .card h3{margin:0 0 .4rem; font-size:1rem; font-family:ui-sans-serif,system-ui,sans-serif}
+  .card.exists h3{color:var(--good)} .card.missing h3{color:var(--bad)}
+  .card .arrow{font-size:1.4rem; line-height:1}
+  .card p{margin:.3rem 0; font-size:.92rem}
+  .card .src{font-family:ui-monospace,monospace; font-size:.68rem; color:var(--muted)}
+
+  pre{background:#2b2622; color:#f3ede3; border-radius:8px; padding:1rem 1.2rem; overflow-x:auto; font-size:.82rem; line-height:1.5; margin:1.2rem 0}
+  pre .c{color:#9a8c7a} pre .k{color:#e0a479} pre .n{color:#cdd6a0} pre .add{color:#9bd29b}
+
+  .seam{border-left:3px solid var(--accent); background:#f9f4ec; padding:1rem 1.2rem; border-radius:0 6px 6px 0; margin:1.4rem 0}
+  .seam strong{color:var(--accent)}
+
+  table{border-collapse:collapse; width:100%; margin:1.2rem 0; font-size:.9rem}
+  th,td{text-align:left; padding:.45rem .6rem; border-bottom:1px solid var(--rule)}
+  th{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted)}
+  td code{font-size:.8em}
+
+  .quiz{background:#fff; border:1px solid var(--rule); border-radius:8px; padding:1.4rem 1.5rem; margin:1.6rem 0; box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .quiz h3{margin:0 0 1rem; font-size:1.1rem}
+  .q{margin:0 0 1.4rem} .q:last-child{margin-bottom:0}
+  .q p{font-weight:600; margin:0 0 .5rem}
+  .opt{display:block; width:100%; text-align:left; font-family:inherit; font-size:.98rem; background:var(--bg); border:1px solid var(--rule); border-radius:5px; padding:.55rem .8rem; margin:.3rem 0; cursor:pointer; transition:background .12s,border-color .12s}
+  .opt:hover{background:#f2efe8}
+  .opt.correct{background:#eaf3ec; border-color:var(--good); color:var(--good)}
+  .opt.wrong{background:#f6ebeb; border-color:var(--bad); color:var(--bad)}
+  .fb{font-size:.88rem; margin-top:.5rem; min-height:1.2rem; font-style:italic; color:var(--muted)}
+  .fb.show{color:var(--ink)}
+
+  .primary{display:flex; gap:.8rem; align-items:flex-start; background:#f2efe8; border-radius:6px; padding:1rem 1.2rem; margin:1.6rem 0; font-size:.95rem}
+  .primary .ic{font-size:1.3rem; line-height:1}
+  footer{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.82rem; color:var(--muted); border-top:1px solid var(--rule); padding-top:1.1rem; margin-top:2.4rem}
+  .ask{background:#7a2e2e; color:#fff; border-radius:6px; padding:.9rem 1.1rem; font-family:ui-sans-serif,system-ui,sans-serif; font-size:.9rem; margin:1.6rem 0}
+  .ask b{font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Lesson 2 · Alfred email triage · grounds <a href="#" style="color:inherit">issue #210</a></p>
+  <h1>The de-escalation twin</h1>
+  <p class="sub">There's already a deterministic net that forces a category <em>up</em>. Your fix is its mirror image — and it slots into the exact same place.</p>
+
+  <p class="lead">Lesson 1 found the gap. Your issue #210 locked the direction (<b>ship B: let significance demote the category, demote-never-bury</b>). This lesson answers the only thing the issue leaves open: <b>where, in code, does that hook go?</b> The answer is already half-written.</p>
+
+  <h2>The override floor is a one-way ratchet</h2>
+  <p>Recall the guards from beat 6. <code>applyOverrideFloor()</code> (<code>classify.ts:505</code>) is a post-model net that <b>forces <span class="tag">urgent</span></b> when a regex finds an exposed secret. Study its <em>shape</em>, not its trigger: deterministic code, running <em>after</em> the model, that overrides the category in <b>one direction only — upward</b>. There is no downward equivalent. That missing half is your B.</p>
+
+  <div class="twin">
+    <div class="card exists">
+      <div class="arrow">↑</div>
+      <h3>Exists: escalation floor</h3>
+      <p>Secret leaked → force <span class="tag">urgent</span>, even if the model went calm.</p>
+      <p class="src">applyOverrideFloor() · classify.ts:505</p>
+    </div>
+    <div class="card missing">
+      <div class="arrow">↓</div>
+      <h3>Missing: de-escalation ceiling</h3>
+      <p>Low significance + low stake → demote <span class="tag">awaiting_reply</span> → <span class="tag">fyi</span>. Never below visible.</p>
+      <p class="src">your new applySignificanceCeiling()</p>
+    </div>
+  </div>
+
+  <h2>Why a post-model net, not a prompt edit</h2>
+  <p>You could tell the model to weigh standing. But the override floor exists precisely because <b>some judgments are too important to leave to a cheap model's discretion</b> — you encode them deterministically. Demote-never-bury is exactly that kind of invariant: it must <em>never</em> bury, and a prompt can't guarantee "never." So B belongs in the same layer as the floor — a hand-written net with a hard floor, not a rubric line the model may ignore. (This also matches your own principle: rubric for judgment, code for invariants.)</p>
+
+  <h2>The one line you have to change</h2>
+  <p>Today the decoupling is explicit and intentional:</p>
+  <pre><span class="c">// packages/api/src/modules/triage/classify.ts:240</span>
+<span class="c">// significance feeds the Sender-relationship observation, which gates</span>
+<span class="c">// rubric 16b (the todo). It does NOT change the category — a cold ask</span>
+<span class="c">// is still an honest awaiting_reply; it only gates the todo.</span></pre>
+  <p>That comment is the seam. B re-couples it — but only in the <em>safe</em> direction (down, with a floor), preserving the honesty the comment is protecting (the ask is still real, just not <em>demanding</em>).</p>
+
+  <h2>What's already in hand vs. what B must add</h2>
+  <table>
+    <thead><tr><th>Ingredient</th><th>Status</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Significance score (absolute)</td><td>✅ built</td><td><code>significance.ts:76</code></td></tr>
+      <tr><td>Reaches the prompt (todo only)</td><td>✅ built</td><td><code>sender-relationship.ts:116</code></td></tr>
+      <tr><td>User job_title / company</td><td>✅ captured, rendered</td><td><code>user_facts</code> → sender-rel</td></tr>
+      <tr><td>User team / location</td><td>⚠️ captured, never used</td><td><code>cold-start/extract.ts:30</code></td></tr>
+      <tr><td>Cold-start brief prose</td><td>⚠️ write-only, read by nothing</td><td><code>memory_chunks</code></td></tr>
+      <tr><td>Standing-<em>direction</em> (up/lateral/down)</td><td>❌ B must add</td><td>signature/domain/recruiter cues</td></tr>
+      <tr><td>Recurrence decay</td><td>❌ B must add</td><td>per-sender, no-reply history</td></tr>
+      <tr><td>Category-demotion hook</td><td>❌ B must add</td><td>mirror <code>applyOverrideFloor()</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="seam">
+    <p style="margin:0"><strong>The insight to keep.</strong> B is smaller than it feels. Three of eight ingredients exist, two more are captured-but-unwired, and the hook has a working twin to copy. You are not building a "user model" — you're adding the <em>downward</em> half of a net that already runs, and feeding it a signal that's already computed. The brief you imagined as the source is a red herring; the live source is <code>entities.metadata.significance</code> plus a thin new standing-direction cue.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p>Recall, don't re-read.</p>
+  <div class="quiz" id="quiz">
+    <h3>Four questions</h3>
+    <div class="q" data-correct="0">
+      <p>1. The override floor is a one-way ratchet — it only…</p>
+      <button class="opt">escalates a category up</button>
+      <button class="opt">demotes a category down</button>
+      <button class="opt">rewrites model rationale text</button>
+      <button class="opt">blocks the todo gate</button>
+      <div class="fb"></div>
+    </div>
+    <div class="q" data-correct="0">
+      <p>2. Significance today gets a vote on…</p>
+      <button class="opt">the todo gate only</button>
+      <button class="opt">the email category only</button>
+      <button class="opt">both gate and category</button>
+      <button class="opt">neither gate nor category</button>
+      <div class="fb"></div>
+    </div>
+    <div class="q" data-correct="0">
+      <p>3. Standing data captured but unused for category:</p>
+      <button class="opt">your team and location</button>
+      <button class="opt">the Gmail thread label</button>
+      <button class="opt">the message reply count</button>
+      <button class="opt">the override floor regex</button>
+      <div class="fb"></div>
+    </div>
+    <div class="q" data-correct="0">
+      <p>4. B belongs in the same layer as…</p>
+      <button class="opt">the override floor net</button>
+      <button class="opt">the system prompt rubric</button>
+      <button class="opt">the Gmail ingest worker</button>
+      <button class="opt">the Replicache sync pull</button>
+      <div class="fb"></div>
+    </div>
+  </div>
+
+  <div class="primary">
+    <span class="ic">📖</span>
+    <div><b>Primary source.</b> Read <code>applyOverrideFloor()</code> in full — <code>classify.ts:505–528</code> — then read the <code>:240</code> comment. Your ADR for B is: "add the symmetric downward net after this one, governed by demote-never-bury." Everything else is choosing the standing-direction signal.</div>
+  </div>
+
+  <div class="ask">
+    <b>I'm your teacher.</b> Next natural step is Lesson 3: <b>designing the standing-direction signal</b> (signature parsing vs. domain heuristics vs. the LinkedIn/recruiter pattern) and the recurrence-decay mechanism — the two ❌ rows. Or ask me to draft the ADR-for-B skeleton from issue #210. Your call.
+  </div>
+
+  <footer>
+    Lesson 1 → <a href="0001-triage-flow-and-the-standing-gap.html">The flow & the standing gap</a> ·
+    Glossary: <a href="../reference/triage-glossary.html">triage-glossary.html</a> ·
+    Audit: <code>gh issue view 210</code>
+  </footer>
+</div>
+<script>
+  document.querySelectorAll('.q').forEach(function(q){
+    var correct=+q.dataset.correct, opts=q.querySelectorAll('.opt'), fb=q.querySelector('.fb');
+    opts.forEach(function(opt,i){opt.addEventListener('click',function(){
+      opts.forEach(function(o){o.disabled=true});
+      if(i===correct){opt.classList.add('correct');fb.textContent='Correct.';}
+      else{opt.classList.add('wrong');opts[correct].classList.add('correct');fb.textContent='Not quite. The highlighted one is right.';}
+      fb.classList.add('show');
+    });});
+  });
+</script>
+</body>
+</html>

@@ -95,6 +95,17 @@ export async function markBriefingComposed(args: {
   fullBriefing: FullBriefing;
   model: string;
   composeFallback: boolean;
+  /**
+   * The frozen gather-window end this prose covers. Stashed on the (non-terminal)
+   * composed row so a crash-then-resume can advance the watermark to exactly this
+   * instant instead of `now` — otherwise the reused prose ships while the cursor
+   * jumps past docs that arrived after compose, skipping them for the slot (#158).
+   * Safe to set pre-terminal: `fetchLatestWatermark` and the watermark index both
+   * read only `sent`/`suppressed` rows, so it isn't consumed until send promotes
+   * the row. Omit it to leave the column untouched (the watermark-less briefing
+   * path, e.g. morning-briefing, sets it at send time instead).
+   */
+  watermarkAt?: Date | null;
 }): Promise<BriefingRow> {
   return updateBriefing(args.briefingId, {
     status: "composed",
@@ -102,6 +113,7 @@ export async function markBriefingComposed(args: {
     fullBriefing: args.fullBriefing,
     model: args.model,
     composeFallback: args.composeFallback,
+    ...(args.watermarkAt !== undefined ? { watermarkAt: args.watermarkAt } : {}),
   });
 }
 
