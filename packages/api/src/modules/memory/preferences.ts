@@ -25,12 +25,8 @@ export type PreferenceRow = Omit<UserPreference, "source" | "createdAt" | "updat
 
 function rowToPref(r: UserPreference): PreferenceRow {
   return {
-    id: r.id,
-    userId: r.userId,
-    key: r.key,
-    value: r.value,
+    ...r,
     source: parseMemorySourceOrDefault(r.source, { kind: "user" }, `user_preferences:${r.id}`),
-    rowVersion: r.rowVersion,
   };
 }
 
