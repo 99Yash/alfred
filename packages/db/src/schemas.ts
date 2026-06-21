@@ -6,6 +6,7 @@ export * from "./schema/agent.js";
 export * from "./schema/action-policies.js";
 export * from "./schema/metering.js";
 export * from "./schema/integrations.js";
+export * from "./schema/integration-objects.js";
 export * from "./schema/documents.js";
 export * from "./schema/memory.js";
 export * from "./schema/triage.js";
