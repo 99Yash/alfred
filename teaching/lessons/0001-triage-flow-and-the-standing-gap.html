@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — Triage flow & the standing gap</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --muted:#6b6b6b; --rule:#e3e0d8; --bg:#fdfcf9;
+    --accent:#7a2e2e; --code:#3a3a3a; --codebg:#f2efe8; --good:#2f6b46; --bad:#9a3434;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    line-height:1.58; margin:0; padding:4rem 1.5rem 6rem; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:44rem; margin:0 auto}
+  .kicker{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 .4rem}
+  h1{font-size:2.1rem; font-weight:600; margin:0 0 .4rem; letter-spacing:-.01em; line-height:1.1}
+  .sub{color:var(--muted); font-style:italic; margin:0 0 2.2rem; font-size:1.05rem}
+  h2{font-size:1.3rem; font-weight:600; margin:2.6rem 0 .6rem; letter-spacing:-.01em}
+  p{margin:.7rem 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; background:var(--codebg); color:var(--code); padding:.05em .3em; border-radius:3px}
+  a{color:var(--accent)}
+  .lead{font-size:1.12rem}
+  .tag{display:inline-block; font-family:ui-monospace,monospace; font-size:.72rem; background:#efe9df; border:1px solid var(--rule); border-radius:4px; padding:.05em .4em; margin:0 .1em; color:#4a4a4a}
+
+  /* flow beats */
+  ol.beats{list-style:none; counter-reset:b; padding:0; margin:1.2rem 0}
+  ol.beats li{counter-increment:b; position:relative; padding:.55rem 0 .55rem 3rem; border-bottom:1px dashed var(--rule)}
+  ol.beats li:last-child{border-bottom:0}
+  ol.beats li::before{content:counter(b); position:absolute; left:0; top:.5rem; width:1.8rem; height:1.8rem; background:var(--accent); color:#fff; border-radius:50%; font-family:ui-sans-serif,system-ui,sans-serif; font-size:.85rem; display:flex; align-items:center; justify-content:center}
+  ol.beats b{font-weight:600}
+  ol.beats .src{font-family:ui-monospace,monospace; font-size:.7rem; color:var(--muted); display:block; margin-top:.1rem}
+
+  .trace{background:#f6f2ea; border:1px solid var(--rule); border-radius:6px; padding:1.2rem 1.4rem; margin:1.4rem 0}
+  .trace h3{margin:0 0 .5rem; font-size:1.05rem}
+  .trace .step{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.9rem; padding:.25rem 0; color:#333}
+  .trace .step b{color:var(--accent)}
+
+  .seam{border-left:3px solid var(--accent); background:#f9f4ec; padding:1rem 1.2rem; border-radius:0 6px 6px 0; margin:1.4rem 0}
+  .seam strong{color:var(--accent)}
+
+  /* quiz */
+  .quiz{background:#fff; border:1px solid var(--rule); border-radius:8px; padding:1.4rem 1.5rem; margin:1.6rem 0; box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .quiz h3{margin:0 0 1rem; font-size:1.1rem}
+  .q{margin:0 0 1.4rem}
+  .q:last-child{margin-bottom:0}
+  .q p{font-weight:600; margin:0 0 .5rem}
+  .opt{display:block; width:100%; text-align:left; font-family:inherit; font-size:.98rem; background:var(--bg); border:1px solid var(--rule); border-radius:5px; padding:.55rem .8rem; margin:.3rem 0; cursor:pointer; transition:background .12s,border-color .12s}
+  .opt:hover{background:#f2efe8}
+  .opt.correct{background:#eaf3ec; border-color:var(--good); color:var(--good)}
+  .opt.wrong{background:#f6ebeb; border-color:var(--bad); color:var(--bad)}
+  .fb{font-size:.88rem; margin-top:.5rem; min-height:1.2rem; font-style:italic; color:var(--muted)}
+  .fb.show{color:var(--ink)}
+
+  .primary{display:flex; gap:.8rem; align-items:flex-start; background:#f2efe8; border-radius:6px; padding:1rem 1.2rem; margin:1.6rem 0; font-size:.95rem}
+  .primary .ic{font-size:1.3rem; line-height:1}
+  hr{border:0; border-top:1px solid var(--rule); margin:2.6rem 0}
+  footer{font-family:ui-sans-serif,system-ui,sans-serif; font-size:.82rem; color:var(--muted); border-top:1px solid var(--rule); padding-top:1.1rem; margin-top:2.4rem}
+  .ask{background:#7a2e2e; color:#fff; border-radius:6px; padding:.9rem 1.1rem; font-family:ui-sans-serif,system-ui,sans-serif; font-size:.9rem; margin:1.6rem 0}
+  .ask b{font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Lesson 1 · Alfred email triage</p>
+  <h1>The triage flow, and where your standing should enter</h1>
+  <p class="sub">One email becomes one thread tag. Trace it once, and the gap you're chasing locates itself.</p>
+
+  <p class="lead">Triage is an <b>LLM call wrapped in deterministic nets</b>. The model is cheap and replaceable; the intelligence lives in <em>what context you assemble before it runs</em> and <em>what guards you wrap around it after</em>. Your mission lives in the first half — the context.</p>
+
+  <h2>The flow in seven beats</h2>
+  <ol class="beats">
+    <li><b>Ingest → event.</b> Gmail messages land in <code>documents</code>; <code>emitGmailMessageEvents()</code> fires a <code>gmail.message_received</code> event.
+      <span class="src">packages/api/src/modules/integrations/queue.ts:367</span></li>
+    <li><b>Workflow wakes.</b> The <code>email-triage</code> workflow is event-sourced and starts at the <code>classify</code> step.
+      <span class="src">apps/server/src/builtins/workflows/email-triage.ts:119</span></li>
+    <li><b>Sender context (free).</b> <code>extractSenderContext()</code> parses the header/body — person vs service, bot slug. No model, no cost.
+      <span class="src">sender-context.ts:47 · ADR-0042</span></li>
+    <li><b>Observations (deterministic reads).</b> <code>gatherObservations()</code> fans out: sender prior, thread state, known-contact, and the <span class="tag">senderRelationship</span> descriptor.
+      <span class="src">email-triage.ts:258 · observations.ts:137</span></li>
+    <li><b>Classify (the cheap model).</b> <code>classifyEmail()</code> sends <code>SYSTEM_PROMPT</code> + observations to Flash Lite → <code>{category, confidence, rationale, todoSuggestion}</code>.
+      <span class="src">classify.ts:737</span></li>
+    <li><b>Guards.</b> <code>detectConflict()</code> may trigger a second cheap pass; <code>applyOverrideFloor()</code> can force <span class="tag">urgent</span> on an exposed secret.
+      <span class="src">classify.ts:463, 505</span></li>
+    <li><b>Persist & reconcile.</b> <code>upsertTriage()</code> writes the thread-keyed row; <code>reconcileThreadLabel()</code> collapses the thread to one Gmail label; a todo may be proposed.
+      <span class="src">store.ts:127 · tags.ts:52</span></li>
+  </ol>
+  <p>Every noun above is defined in the <a href="../reference/triage-glossary.html">glossary</a>. Beat&nbsp;4 is the one that matters for you.</p>
+
+  <h2>Your example, traced</h2>
+  <div class="trace">
+    <h3>LinkedIn message from a junior job-seeker → <span class="tag">awaiting_reply</span></h3>
+    <div class="step"><b>Beat 3:</b> <code>fromKind = person</code>, no bot slug. A human.</div>
+    <div class="step"><b>Beat 4:</b> <code>senderRelationship</code> resolves to roughly <em>"no prior contact"</em> — graph says nothing, because there <em>is</em> no history.</div>
+    <div class="step"><b>Beat 4:</b> <code>thread state</code> → newest message is inbound, you haven't replied → looks like <em>they're waiting on you</em>.</div>
+    <div class="step"><b>Beat 5:</b> Model sees: a human, inbound, unanswered, no contradicting prior. Reasonable call → <span class="tag">awaiting_reply</span>.</div>
+    <div class="step"><b>Result:</b> surfaced as if it deserves your attention. The model was <em>not wrong given its inputs</em> — the inputs were incomplete.</div>
+  </div>
+
+  <div class="seam">
+    <p><strong>The seam.</strong> Notice what the classifier never saw: <em>who you are</em>. Every input is <b>sender-side</b> (who they are) or <b>thread-side</b> (the conversation's shape). Nothing encodes your <b>absolute standing</b> — that a founder/senior IC does not owe a reply to a cold junior ask. That signal is supposed to come from <b>cold-start research</b>, and today it is <b>not plumbed into observations at all</b>.</p>
+    <p style="margin-bottom:0">So the fix is not "make the model smarter." It is: <b>add a user-standing field to the <span class="tag">Observations</span> bundle</b> (beat 4) and teach the rubric to discount inbound asks that fall below your threshold. The model is already the right size; it's starving on context.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p>Recall, don't re-read. (Retrieval is what makes this stick.)</p>
+
+  <div class="quiz" id="quiz">
+    <h3>Four questions</h3>
+
+    <div class="q" data-correct="0">
+      <p>1. The triage unit (<code>email_triage</code> row) is keyed on…</p>
+      <button class="opt">the Gmail thread id</button>
+      <button class="opt">the single message id</button>
+      <button class="opt">the unique sender address</button>
+      <button class="opt">the chosen category label</button>
+      <div class="fb"></div>
+    </div>
+
+    <div class="q" data-correct="0">
+      <p>2. The classifier runs on…</p>
+      <button class="opt">a cheap Flash model</button>
+      <button class="opt">a large Pro model</button>
+      <button class="opt">a fine-tuned local model</button>
+      <button class="opt">a random ensemble model</button>
+      <div class="fb"></div>
+    </div>
+
+    <div class="q" data-correct="0">
+      <p>3. Today, "who is this sender to me" enters through…</p>
+      <button class="opt">the senderRelationship field</button>
+      <button class="opt">the cold-start onboarding brief</button>
+      <button class="opt">the override floor regexes</button>
+      <button class="opt">the Gmail importance signal</button>
+      <div class="fb"></div>
+    </div>
+
+    <div class="q" data-correct="0">
+      <p>4. The gap, in one line:</p>
+      <button class="opt">user standing never enters</button>
+      <button class="opt">sender priors never persist</button>
+      <button class="opt">thread state is discarded</button>
+      <button class="opt">categories are far narrow</button>
+      <div class="fb"></div>
+    </div>
+  </div>
+
+  <div class="primary">
+    <span class="ic">📖</span>
+    <div><b>Primary source.</b> Read <code>classifyEmail()</code> top to bottom — it is the whole pipeline in one screen:
+      <code>packages/api/src/modules/triage/classify.ts:737–801</code>. Then skim <code>SYSTEM_PROMPT</code> (221–324) to see exactly which context the model is told to weigh — and confirm user-standing is absent.</div>
+  </div>
+
+  <div class="ask">
+    <b>I'm your teacher.</b> Ask me anything: "show me the senderRelationship resolver," "what's actually in the cold-start brief?", or "should standing be a prompt field or a deterministic pre-filter?" — that last one is Lesson 2.
+  </div>
+
+  <footer>
+    Next lesson → <b>What's in the cold-start brief, and how to wire it into observations.</b><br>
+    Glossary: <a href="../reference/triage-glossary.html">triage-glossary.html</a> · Mission: <a href="../MISSION.md">MISSION.md</a>
+  </footer>
+</div>
+
+<script>
+  document.querySelectorAll('.q').forEach(function(q){
+    var correct = +q.dataset.correct;
+    var opts = q.querySelectorAll('.opt');
+    var fb = q.querySelector('.fb');
+    opts.forEach(function(opt, i){
+      opt.addEventListener('click', function(){
+        opts.forEach(function(o){o.disabled=true});
+        if(i===correct){
+          opt.classList.add('correct');
+          fb.textContent='Correct.';
+        } else {
+          opt.classList.add('wrong');
+          opts[correct].classList.add('correct');
+          fb.textContent='Not quite. The highlighted one is right — re-trace the flow above.';
+        }
+        fb.classList.add('show');
+      });
+    });
+  });
+</script>
+</body>
+</html>

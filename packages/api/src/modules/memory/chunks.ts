@@ -23,29 +23,31 @@ export const writeMemoryChunkArgsSchema = z.object({
 });
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
-export interface MemoryChunkRow {
-  id: string;
-  userId: string;
+/**
+ * Like the DB row, but with the parsed enum/jsonb columns narrowed and
+ * `embedding` collapsed to a `hasEmbedding` boolean. Every other column tracks
+ * `MemoryChunk` ($inferSelect) automatically; lifecycle dates are intentionally
+ * excluded (this row isn't synced). Only the columns `rowToChunk` transforms
+ * are restated.
+ */
+export type MemoryChunkRow = Omit<
+  MemoryChunk,
+  "kind" | "source" | "metadata" | "embedding" | "createdAt" | "updatedAt"
+> & {
   kind: MemoryChunkKind;
-  content: string;
-  contentHash: string;
   source: MemorySource;
   metadata: Record<string, unknown>;
   hasEmbedding: boolean;
-}
+};
 
-function rowToChunk(
-  r: Omit<MemoryChunk, "embedding"> & { embedding: number[] | null },
-): MemoryChunkRow {
+function rowToChunk(r: MemoryChunk): MemoryChunkRow {
+  const { embedding, kind, source, metadata, ...rest } = r;
   return {
-    id: r.id,
-    userId: r.userId,
-    kind: memoryChunkKindSchema.parse(r.kind),
-    content: r.content,
-    contentHash: r.contentHash,
-    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.id}`),
-    metadata: jsonRecordSchema.parse(r.metadata),
-    hasEmbedding: r.embedding != null,
+    ...rest,
+    kind: memoryChunkKindSchema.parse(kind),
+    source: parseMemorySourceOrDefault(source, { kind: "agent" }, `memory_chunks:${r.id}`),
+    metadata: jsonRecordSchema.parse(metadata),
+    hasEmbedding: embedding != null,
   };
 }
 

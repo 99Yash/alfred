@@ -68,11 +68,32 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   // key (stable across retries) and finally a UUID. Date.now() would
   // collide for concurrent calls in the same ms and merge unrelated traces.
   const traceId = meta.runId ?? `adhoc:${meta.idempotencyKey ?? randomUUID()}`;
+  // The trace names the whole run; the generation below names the call. A run
+  // mixes models and roles (boss + sub-agents + compactor), so naming the trace
+  // after any single call's `provider/model` would churn — every call upserts
+  // the trace, and the last writer would win. `run:<id>` is stable by
+  // construction. Ad-hoc traces hold exactly one generation (unique traceId per
+  // call), so there's no churn and the descriptive name is more useful there.
+  const traceName = meta.runId
+    ? `run:${meta.runId}`
+    : (meta.name ?? `${meta.provider}/${meta.model}`);
   // generation() in Langfuse v3 returns an object with .end()/.update().
   // We catch construction errors so a misconfigured SDK can't crash the
   // call site.
   let generation: ReturnType<Langfuse["generation"]> | null = null;
   try {
+    // Upsert the parent trace first. `generation()` with a custom traceId
+    // does NOT create the trace — Langfuse Cloud no longer auto-promotes
+    // orphan observations, so without this the Traces view is empty and
+    // runId grouping never materializes. Idempotent on `id`: every call in
+    // one run collapses into a single trace tree. Only run-stable fields go
+    // here; per-call identity (model, role, kind) lives on the generation, so
+    // the repeated upserts don't rewrite the trace with the last call's values.
+    client.trace({
+      id: traceId,
+      name: traceName,
+      userId: meta.userId,
+    });
     generation = client.generation({
       traceId,
       name: meta.name ?? `${meta.provider}/${meta.model}`,

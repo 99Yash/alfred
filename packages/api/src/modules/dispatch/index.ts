@@ -290,10 +290,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // time and auto-rejects if still pending.
   const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
 
-  // INSERT first, fall back to SELECT on conflict. Drizzle returns the
-  // inserted row(s) or an empty array on a no-op conflict. Either way
-  // the next branch reads the current state.
-  const inserted = await db()
+  // Single upsert. On a `(run_id, tool_call_id)` conflict we do a *no-op*
+  // UPDATE purely so the existing row is RETURNED — `onConflictDoNothing`
+  // returns nothing on conflict, which previously forced a second SELECT-back
+  // round-trip. The no-op set MUST NOT touch any decision/result column: a
+  // re-dispatch of an already-staged/approved/executed call has to read the
+  // stored row verbatim (the resume path below depends on it). `xmax = 0`
+  // distinguishes a freshly-inserted row from an updated (conflict) one — the
+  // standard Postgres upsert idiom — so the Replicache poke stays gated to
+  // genuinely-new rows.
+  const upserted = await db()
     .insert(actionStagings)
     .values({
       userId: args.userId,
@@ -310,39 +316,32 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       notifyAfterAt,
       expiresAt,
     })
-    .onConflictDoNothing({
+    .onConflictDoUpdate({
       target: [actionStagings.runId, actionStagings.toolCallId],
+      set: { rowVersion: sql`${actionStagings.rowVersion}` },
     })
-    .returning(STAGING_COLUMNS);
+    .returning({ ...STAGING_COLUMNS, wasInserted: sql<boolean>`xmax = 0` });
 
-  const insertedNew = inserted[0] !== undefined;
-  let row: StagingRow | undefined = inserted[0] ? parseStagingRow(inserted[0]) : undefined;
-  if (!row) {
-    const existing = await db()
-      .select(STAGING_COLUMNS)
-      .from(actionStagings)
-      .where(
-        and(eq(actionStagings.runId, args.runId), eq(actionStagings.toolCallId, args.toolCallId)),
-      )
-      .limit(1);
-    row = existing[0] ? parseStagingRow(existing[0]) : undefined;
-    if (!row) {
-      throw new Error(
-        `[dispatch] action_stagings row vanished between insert and read (run=${args.runId}, toolCallId=${args.toolCallId})`,
-      );
-    }
-    // Defensive: the (run_id, tool_call_id) unique index says one tool
-    // call id maps to one row. If a caller re-dispatches the same id
-    // with a different `toolName`, the model emitted two tools under
-    // the same call id — that's a programming/model bug, not a
-    // dispatcher policy decision. Fail loud rather than silently
-    // executing the new tool while updating the original row's audit
-    // trail.
-    if (row.toolName !== toolName) {
-      throw new Error(
-        `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
-      );
-    }
+  const upsertedRow = upserted[0];
+  if (!upsertedRow) {
+    throw new Error(
+      `[dispatch] action_stagings upsert returned no row (run=${args.runId}, toolCallId=${args.toolCallId})`,
+    );
+  }
+  const { wasInserted, ...rowColumns } = upsertedRow;
+  const insertedNew = wasInserted;
+  const row: StagingRow = parseStagingRow(rowColumns);
+  // Defensive: the (run_id, tool_call_id) unique index says one tool call id
+  // maps to one row. If a caller re-dispatches the same id with a different
+  // `toolName`, the model emitted two tools under the same call id — a
+  // programming/model bug, not a dispatcher policy decision. Fail loud rather
+  // than silently executing the new tool while updating the original row's
+  // audit trail. (No-op on a fresh insert: the stored toolName equals the
+  // dispatched one.)
+  if (row.toolName !== toolName) {
+    throw new Error(
+      `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
+    );
   }
   switch (row.status) {
     case "pending":
@@ -487,6 +486,26 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         error: { message: `dispatcher saw unexpected staging status '${row.status}'` },
       };
   }
+}
+
+/**
+ * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
+ * (stage for approval) instead of executing autonomously. Mirrors the policy
+ * branch in {@link dispatchToolCall}: `system.*` is always autonomy, everything
+ * else follows the user's (cached) policy mode.
+ *
+ * This is a scheduling hint, not a correctness gate — `dispatchToolCall` stays
+ * the source of truth and still honors the row's stored `requires_approval` on
+ * resume. Batch callers use it to avoid staging more than one gated write at
+ * once: gated writes only *stage* during dispatch (the real work runs after
+ * approval), so parallelizing them buys no latency while breaking the HIL
+ * contract (the run parks on a single `approvalId`; sibling approval cards 409
+ * on `wake_mismatch` and each fires its own email).
+ */
+export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
+  if (!isToolName(toolName)) return false;
+  if (integrationFromToolName(toolName) === "system") return false;
+  return (await resolvePolicyMode(userId, toolName)) === "gated";
 }
 
 export function undeclaredToolMessage(
