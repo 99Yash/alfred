@@ -46,8 +46,25 @@ export interface LangfuseSpanInput {
  * Langfuse SDK is swallowed so tracing failures never break the call.
  */
 export interface LangfuseSpanCloser {
-  success(args: { usage?: CallUsage; costUsd: number; output?: unknown }): void;
+  success(args: {
+    usage?: CallUsage;
+    costUsd: number;
+    /** Full completion — only attached to the span when I/O capture is on. */
+    output?: unknown;
+    /** Small response metadata (finish_reason, tool-call count) — always attached. */
+    responseMeta?: Record<string, unknown>;
+  }): void;
   error(message: string): void;
+}
+
+/**
+ * Whether to attach full prompt/completion text to spans. Gated by
+ * `LANGFUSE_CAPTURE_IO` (#215) so the default stays I/O-free and prompt
+ * content (potential PII) never leaves the box unless explicitly enabled
+ * on a self-hosted instance.
+ */
+function shouldCaptureIo(): boolean {
+  return serverEnv().LANGFUSE_CAPTURE_IO === true;
 }
 
 export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser {
@@ -80,6 +97,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   // generation() in Langfuse v3 returns an object with .end()/.update().
   // We catch construction errors so a misconfigured SDK can't crash the
   // call site.
+  const captureIo = shouldCaptureIo();
   let generation: ReturnType<Langfuse["generation"]> | null = null;
   try {
     // Upsert the parent trace first. `generation()` with a custom traceId
@@ -100,6 +118,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
       model: meta.model,
       modelParameters: stripParams(meta.requestMeta),
       startTime: startedAt,
+      input: captureIo ? meta.input : undefined,
       metadata: {
         kind: meta.kind,
         role: meta.role,
@@ -115,7 +134,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   return {
-    success({ usage, costUsd, output }) {
+    success({ usage, costUsd, output, responseMeta }) {
       try {
         generation?.end({
           usage: usage
@@ -135,7 +154,10 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
             : undefined,
           // Cost in USD; Langfuse's `costDetails` accepts arbitrary keys.
           costDetails: { total: costUsd },
-          output,
+          // Full completion only when capture is on; the small response
+          // metadata (finish_reason, tool-call count) is always useful.
+          output: captureIo ? output : undefined,
+          metadata: responseMeta,
         });
       } catch (err) {
         console.warn(
