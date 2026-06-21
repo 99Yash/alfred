@@ -79,6 +79,13 @@ export interface MeteredMeta extends CallAttribution {
   requestMeta?: Record<string, unknown>;
   /** Human-readable name surfaced in Langfuse — defaults to `${provider}/${model}`. */
   name?: string;
+  /**
+   * Full request input (prompt / messages / system) for the Langfuse span.
+   * Only sent when `LANGFUSE_CAPTURE_IO=true`; never persisted to
+   * `api_call_log` (writeLogRow ignores it). Keeps the heavy prompt text on
+   * the detachable observability sidecar, out of the cost ledger.
+   */
+  input?: unknown;
 }
 
 /** What the runtime extracts from a successful SDK result for billing + log shape. */
@@ -86,6 +93,11 @@ export interface MeteredResult {
   usage?: CallUsage;
   /** Surfaced to `response_meta` (finish_reason, model id echoed back, tool_calls count, etc.). */
   responseMeta?: Record<string, unknown>;
+  /**
+   * Full completion text/object for the Langfuse span. Only sent when
+   * `LANGFUSE_CAPTURE_IO=true`; never persisted to `api_call_log`.
+   */
+  output?: unknown;
   /**
    * Model id the provider reported actually serving the call
    * (`result.response.modelId`). `MeteredMeta.provider/model` are resolved

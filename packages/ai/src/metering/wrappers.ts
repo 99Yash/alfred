@@ -78,8 +78,27 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
     },
+    // Full completion text — only sent to Langfuse when capture is on
+    // (gated in metering/langfuse.ts). Covers both the text path and the
+    // structured-object path (which serializes its JSON into `.text`).
+    output: result.text,
     ...servedFromResponse(result.response),
   };
+}
+
+/**
+ * Build the Langfuse span input from SDK call args. Prefers the chat
+ * `messages` array (Langfuse renders it as a conversation); falls back to
+ * the `prompt` string, folding in `system` when present. Attached to every
+ * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
+ */
+function captureInput(args: { system?: string; prompt?: unknown; messages?: unknown }): unknown {
+  const { system, prompt, messages } = args;
+  if (Array.isArray(messages)) {
+    return system ? [{ role: "system", content: system }, ...messages] : messages;
+  }
+  if (prompt !== undefined) return system ? { system, prompt } : prompt;
+  return system;
 }
 
 /**
@@ -150,7 +169,12 @@ export async function meteredGenerateText(
   attribution: AttributedCall = {},
 ): Promise<GenerateTextResult<ToolSet, never>> {
   const ids = resolveIds(args.model, attribution);
-  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
+  const meta: MeteredMeta = {
+    ...attribution,
+    kind: attribution.kind ?? "llm",
+    ...ids,
+    input: captureInput(args as Parameters<typeof captureInput>[0]),
+  };
   const callArgs = withDefaultTimeout(args);
   // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
   // but the `Output` interface is not exported as a nameable type, only via a
@@ -176,7 +200,12 @@ export async function meteredGenerateObject<O>(
 ): Promise<MeteredGenerateObjectResult<O>> {
   const { schema, schemaName, schemaDescription, ...rest } = args;
   const ids = resolveIds(rest.model, attribution);
-  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
+  const meta: MeteredMeta = {
+    ...attribution,
+    kind: attribution.kind ?? "llm",
+    ...ids,
+    input: captureInput(rest as Parameters<typeof captureInput>[0]),
+  };
   type Result = GenerateTextResult<ToolSet, ReturnType<typeof Output.object<O>>>;
   // The discriminated `Prompt` union (prompt | messages) doesn't survive an
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
@@ -224,7 +253,12 @@ export function meteredStreamText(
   attribution: AttributedCall = {},
 ): StreamTextResult<ToolSet, never> {
   const ids = resolveIds(args.model, attribution);
-  const meta: MeteredMeta = { ...attribution, kind: attribution.kind ?? "llm", ...ids };
+  const meta: MeteredMeta = {
+    ...attribution,
+    kind: attribution.kind ?? "llm",
+    ...ids,
+    input: captureInput(args as Parameters<typeof captureInput>[0]),
+  };
   const callerOnFinish = args.onFinish;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
@@ -241,6 +275,7 @@ export function meteredStreamText(
             toolCallCount: event.toolCalls?.length,
             stepCount: event.steps?.length,
           },
+          output: event.text,
           ...servedFromResponse(event.response),
         });
         callerOnFinish?.(event);

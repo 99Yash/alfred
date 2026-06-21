@@ -49,6 +49,17 @@ const serverEnvSchema = z.object({
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().url().optional(),
+  /**
+   * Opt-in capture of prompt/completion text on Langfuse spans (#215).
+   * Off by default: the metering layer records usage/cost/latency but NOT
+   * the full I/O, so prod stays lean and prompt content (which may carry
+   * user PII) never leaves the box. Set `LANGFUSE_CAPTURE_IO=true` on a
+   * self-hosted instance to populate the Input/Output columns for debugging.
+   */
+  LANGFUSE_CAPTURE_IO: z
+    .string()
+    .optional()
+    .transform((s) => s === "true"),
   POSTHOG_API_KEY: z.string().optional(),
   // Required: Better Auth Google sign-in uses these. The integration OAuth
   // flow (Gmail/Calendar scope grants) reuses the same client; that callback
