@@ -1,5 +1,11 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
-import { type SenderContext } from "@alfred/contracts";
+import {
+  TODO_DECISION_OUTCOMES,
+  triageTodoDecisionSchema,
+  triageTodoSuggestionSchema,
+  type SenderContext,
+  type TodoDecisionOutcome,
+} from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import type { Observations } from "./observations";
@@ -34,16 +40,11 @@ import type { Observations } from "./observations";
  * only when all pass, otherwise the FIRST test that failed. Logged to
  * `triage.sender_extraction` so the rubric is tuned from real misses (which
  * dimension fails on which class of mail), not by appending example #N.
+ *
+ * Defined in `@alfred/contracts` (so the `email_triage` row can persist it
+ * without a db→api dependency) and re-exported here for the existing importers.
  */
-export const TODO_DECISION_OUTCOMES = [
-  "proposed",
-  "no_obligation",
-  "not_significant",
-  "would_not_forget",
-  "too_vague",
-  "already_handled",
-] as const;
-export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
+export { TODO_DECISION_OUTCOMES, type TodoDecisionOutcome };
 
 export const triageClassificationSchema = z.object({
   category: z.enum(TRIAGE_CATEGORIES),
@@ -66,40 +67,12 @@ export const triageClassificationSchema = z.object({
    * The model must always emit the key (null when no todo) — this is one field
    * on the existing cheap call, not a second call.
    */
-  todoSuggestion: z
-    .object({
-      /** Crisp imperative title for the rail checkbox row. */
-      name: z.string().min(1).max(120),
-      /**
-       * Optional one-liner on how to approach it, or an honest "can't act yet".
-       * `.nullish()` (not `.optional()`): the prompt tells the model `assist` is
-       * null BY DEFAULT, so flash-lite routinely emits explicit `null` — which a
-       * bare `.optional()` rejects, throwing AI_NoObjectGeneratedError.
-       */
-      assist: z.string().max(280).nullish(),
-    })
-    .nullable()
-    // Optional on the TYPE so non-cheap-classifier producers need not set it;
-    // the cheap call is prompted to always emit it (null when no todo).
-    .optional(),
-  /**
-   * Always-present rubric trace (ADR-0050 amendment 2026-06-06). Reports which
-   * rubric test decided the call, so a wrong suggestion AND a wrong *omission*
-   * are both debuggable by dimension. Invariant: `outcome === 'proposed'` iff
-   * `todoSuggestion` is non-null. Optional on the TYPE for non-cheap-classifier
-   * producers; the cheap call is prompted to always emit it.
-   */
-  todoDecision: z
-    .object({
-      outcome: z.enum(TODO_DECISION_OUTCOMES),
-      /**
-       * Optional ≤1-clause detail for the log (e.g. "trivial survey"). `.nullish()`
-       * (not `.optional()`) so an explicit `"note": null` from the model is accepted
-       * rather than throwing on schema mismatch.
-       */
-      note: z.string().max(200).nullish(),
-    })
-    .optional(),
+  // Schemas owned by `@alfred/contracts` (so the persisted `email_triage` row
+  // can share them). `.optional()` on the TYPE so non-cheap-classifier producers
+  // need not set them; the cheap call is prompted to always emit them (the
+  // suggestion null when no todo, the decision always present).
+  todoSuggestion: triageTodoSuggestionSchema.optional(),
+  todoDecision: triageTodoDecisionSchema.optional(),
 });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 

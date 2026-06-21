@@ -160,10 +160,17 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         // circuited: 'pending'/'gathering'/'composing' have no completed prose
         // to reuse, so they fall through to a (correct) fresh compose.
         if (begun.action === "resume" && begun.row.status === "composed") {
-          const { breakingSummary, fullBriefing } = begun.row;
-          if (breakingSummary && fullBriefing) {
+          const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
+          // The composed row must carry both its prose AND the frozen window end
+          // (`watermarkAt`, stashed by `compose`). With the window end we can send
+          // the reused prose AND advance the watermark to exactly the instant the
+          // prose covers — never past docs that arrived after compose (#158). A row
+          // missing either (corrupt prose, or a legacy compose written before this
+          // column existed) falls through to a fresh, correctly-windowed compose.
+          if (breakingSummary && fullBriefing && watermarkAt) {
             await ctx.log(
-              `gather: resume composed briefing id=${begun.row.id} — skipping to send (reuse prose)`,
+              `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
+                `(reuse prose, watermark=${watermarkAt.toISOString()})`,
             );
             return {
               kind: "next",
@@ -176,9 +183,10 @@ export const dailyBriefingWorkflow: Workflow<State> = {
                 // content-mapping note above). `bodyText`/`citedDocumentIds`
                 // aren't persisted on the row, so fall back to the markdown
                 // body as plaintext — it's conversational prose, readable
-                // as-is — and an empty citation list. The watermark advances
-                // at send time via `untilIngestedAt`.
-                untilIngestedAt: new Date().toISOString(),
+                // as-is — and an empty citation list. Reuse the FROZEN window
+                // end (not `now`) so send advances the watermark only as far as
+                // the reused prose actually covers.
+                untilIngestedAt: watermarkAt.toISOString(),
                 composed: {
                   subject: fullBriefing.headline,
                   bodyText: breakingSummary,
@@ -190,8 +198,6 @@ export const dailyBriefingWorkflow: Workflow<State> = {
               nextStep: "send",
             };
           }
-          // A 'composed' row missing its prose is corrupt — fall through to a
-          // fresh compose rather than sending an empty briefing.
         }
 
         const userRows = await db()
@@ -315,6 +321,10 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             fullBriefing: { headline: result.briefing.subject, sections: [] },
             model: result.modelId,
             composeFallback: false,
+            // Freeze the window end this prose covers, so a crash-then-resume
+            // advances the watermark to exactly here (not `now`) and never skips
+            // docs that land after compose (#158).
+            watermarkAt: until,
           });
         } catch (err) {
           await markBriefingFailed(briefingId);
