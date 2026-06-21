@@ -246,13 +246,34 @@ export const emailTriageWorkflow: Workflow<State> = {
         let classification: TriageClassification;
         let model: string;
         let audit: ClassifyAudit | null = null;
-        if (existing && existing.runId === ctx.runId) {
+        let observations: Awaited<ReturnType<typeof gatherObservations>> | null = null;
+        // Whether the canonical triage row is owned by this run. True on the
+        // reuse path, and on the new path once the recency-guarded upsert lands.
+        // Gates the post-classification side effects (hoisted below the if/else
+        // so they run on BOTH paths — see #157).
+        let written = false;
+        const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
+        if (reusedExistingRow && existing) {
           classification = {
             category: existing.category,
             confidence: existing.confidence,
             rationale: existing.rationale ?? "",
+            // Reconstruct the todo proposal + rubric trace from the persisted
+            // columns so `resolveTodoSuggestion` below behaves identically to
+            // the first attempt — without these the reuse path silently dropped
+            // the classifier-minted todo (#157). `?? undefined` because the
+            // classification fields are optional (a null stored value means the
+            // model proposed no todo).
+            todoSuggestion: existing.todoSuggestion ?? undefined,
+            todoDecision: existing.todoDecision ?? undefined,
           };
           model = existing.model;
+          // The row is already owned by this run, so its tag is canonical —
+          // mark it written so the side effects below still fire. A prior
+          // attempt of THIS run can commit the row then die before suggestTodo
+          // (stale-lease reclaim re-enters classify with the same runId), which
+          // would otherwise permanently drop the classifier-minted todo (#157).
+          written = true;
           await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
         } else {
           // Gather deterministic observations (ADR-0051 §4a) before the model
@@ -261,7 +282,7 @@ export const emailTriageWorkflow: Workflow<State> = {
           // path too. Sender priors are read for bulk/service senders only
           // (`senderKeyFor` returns null for humans); known-contact is the
           // human-sender mirror (skip for bots/services — priors cover them).
-          const observations = await gatherObservations({
+          observations = await gatherObservations({
             userId: ctx.userId,
             documentId: ctx.state.documentId,
             sourceThreadId,
@@ -313,7 +334,7 @@ export const emailTriageWorkflow: Workflow<State> = {
           // this run lost the race, so it skips the side effects below (they'd
           // emit signals for a tag that isn't canonical). The apply-label step
           // converges on the row's canonical message regardless.
-          const { written } = await upsertTriage({
+          const upserted = await upsertTriage({
             userId: ctx.userId,
             sourceThreadId,
             documentId: ctx.state.documentId,
@@ -322,40 +343,53 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: classification.rationale,
             model,
             runId: ctx.runId,
+            // Persist the todo proposal + rubric trace so a same-run retry on
+            // the reuse path can re-mint a todo this attempt is about to (#157).
+            todoSuggestion: classification.todoSuggestion ?? null,
+            todoDecision: classification.todoDecision ?? null,
             authoredAt: ctxData.document.authoredAt,
           });
+          written = upserted.written;
+        }
 
-          // Tell the rail to re-fetch: the row's category chip just
-          // changed. Best-effort and intentionally outside `upsertTriage`'s
-          // implicit `db()` connection — the store doesn't take a `tx`
-          // arg, so the publish can't share one. The 5-min rail poll
-          // recovers a dropped frame, and a server crash between the
-          // two writes still leaves a triaged row to be picked up on
-          // the next poll. If publish itself throws, we log and continue
-          // so a transient outbox issue doesn't fail the workflow step.
-          if (written) {
-            try {
-              await publishEvent({
-                userId: ctx.userId,
-                kind: "inbox.updated",
-                payload: { reason: "triaged", count: 1 },
-              });
-            } catch (err) {
-              await ctx.log(
-                `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
+        // Post-classification side effects, hoisted out of the new-classification
+        // branch so they also run when classify is re-entered on the reuse path
+        // (a stale-lease reclaim that committed the row but died before getting
+        // here, #157). All are `written`-gated and either idempotent or
+        // self-healing, so re-running them on a reuse re-attempt is safe.
+
+        // Tell the rail to re-fetch: the row's category chip just changed.
+        // Best-effort and intentionally outside `upsertTriage`'s implicit
+        // `db()` connection — the store doesn't take a `tx` arg, so the publish
+        // can't share one. The 5-min rail poll recovers a dropped frame, and a
+        // server crash between the two writes still leaves a triaged row to be
+        // picked up on the next poll. If publish itself throws, we log and
+        // continue so a transient outbox issue doesn't fail the workflow step.
+        if (written) {
+          try {
+            await publishEvent({
+              userId: ctx.userId,
+              kind: "inbox.updated",
+              payload: { reason: "triaged", count: 1 },
+            });
+          } catch (err) {
+            await ctx.log(
+              `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
+        }
 
-          // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
-          // ONLY from Alfred's own classifications and only for bulk senders:
-          // skip human senders (`senderKeyFor` returns null) and the user's own
-          // sent mail (defensive — sent docs are excluded from the triage
-          // fan-out upstream, so this branch shouldn't see them). Skip fallback
-          // labels too: an outage/default category is not a learning signal.
-          // Best-effort: a prior write must never fail the label, which is the
-          // contract. Phase 2 proves the plumbing; Phase 3 feeds the histogram
-          // back into the classifier prompt.
+        // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
+        // ONLY from Alfred's own classifications and only for bulk senders:
+        // skip human senders (`senderKeyFor` returns null) and the user's own
+        // sent mail (defensive — sent docs are excluded from the triage
+        // fan-out upstream, so this branch shouldn't see them). Skip fallback
+        // labels too: an outage/default category is not a learning signal.
+        // Best-effort: a prior write must never fail the label, which is the
+        // contract. NEW-PATH ONLY: `incrementSenderPrior` is a non-idempotent
+        // histogram bump, so a reuse re-attempt must not double-count — only
+        // the originating classification teaches it.
+        if (!reusedExistingRow && written) {
           const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
           const senderKey = senderPriorWriteKeyFor({
             senderContext,
@@ -363,9 +397,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             isSent: docIsSent,
             model,
           });
-          // `written` gate: a superseded older message isn't the canonical tag,
-          // so it must not teach the sender-prior histogram.
-          if (written && senderKey) {
+          if (senderKey) {
             try {
               await incrementSenderPrior({
                 userId: ctx.userId,
@@ -379,94 +411,96 @@ export const emailTriageWorkflow: Workflow<State> = {
               );
             }
           }
+        }
 
-          // Real-time todo suggestion (ADR-0050 amendment 2026-06-05). The cheap
-          // classifier emits `todoSuggestion` when this mail is an actionable,
-          // context-complete commitment (rule 16); the tail step mints a
-          // `suggested` todo for the rail. New-classification path only — the
-          // reuse branch above already proposed on its originating run.
-          // `todoSuggestion` rides the final classification (the second cheap
-          // pass re-emits it; the override floor preserves it). The category
-          // gate is the floor against a stray suggestion. `suggest_todo` is
-          // idempotent on source overlap, so a re-triaged thread merges rather
-          // than duplicates, and a failed suggestion is non-fatal — the label +
-          // row are the contract.
-          // Pass the email's send time so relative deadlines ("due tomorrow")
-          // resolve to an absolute date instead of going stale on the rail.
-          const todoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
-          let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
-          let standingSuppressionReadFailed = false;
-          if (todoSuggestion) {
-            try {
-              standingSuppression = await findActiveSenderSuppression(ctx.userId, {
-                senderEmail:
-                  senderContextResult.senderAddress ??
-                  metadataString(ctxData.document.metadata, "from"),
-                accountId: ctxData.document.accountId,
-                effect: "block_todo_suggestion",
-              });
-            } catch (err) {
-              standingSuppressionReadFailed = true;
-              await ctx.log(
-                `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              );
-            }
-          }
-          // Structural disqualifier (the cheap model won't reliably self-apply it):
-          // a GitHub PR-review thread with nothing live at stake, or Alfred's own
-          // HIL approval mail, mints no rail todo even when the model proposed one.
-          const suppression = todoSuggestion
-            ? todoSuppressionReason({
-                sender: metadataString(ctxData.document.metadata, "from"),
-                subject: ctxData.document.title,
-                signalText: [
-                  ctxData.document.title,
-                  ctxData.document.content,
-                  metadataString(ctxData.document.metadata, "snippet"),
-                ]
-                  .filter(Boolean)
-                  .join("\n"),
-              })
-            : null;
-          // `written` gate: only the run that owns the canonical row proposes a
-          // todo, so a superseded older message can't mint a stray suggestion.
-          // `flags.actionItems` gate: the user can switch off action-item
-          // suggestions while keeping email tagging on (they share this classify).
-          if (written && todoSuggestion && standingSuppression) {
+        // Real-time todo suggestion (ADR-0050 amendment 2026-06-05). The cheap
+        // classifier emits `todoSuggestion` when this mail is an actionable,
+        // context-complete commitment (rule 16); the tail step mints a
+        // `suggested` todo for the rail. `todoSuggestion` rides the final
+        // classification (the second cheap pass re-emits it; the override floor
+        // preserves it). The category gate is the floor against a stray
+        // suggestion. `suggest_todo` is idempotent on source overlap, so a
+        // re-triaged thread (or a reuse re-attempt) merges rather than
+        // duplicates, and a failed suggestion is non-fatal — the label + row
+        // are the contract. On the reuse path `classification` is reconstructed
+        // from the stored row, which carries the same `todoSuggestion`.
+        // Pass the email's send time so relative deadlines ("due tomorrow")
+        // resolve to an absolute date instead of going stale on the rail.
+        const todoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
+        let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
+        let standingSuppressionReadFailed = false;
+        if (todoSuggestion) {
+          try {
+            standingSuppression = await findActiveSenderSuppression(ctx.userId, {
+              senderEmail:
+                senderContextResult.senderAddress ??
+                metadataString(ctxData.document.metadata, "from"),
+              accountId: ctxData.document.accountId,
+              effect: "block_todo_suggestion",
+            });
+          } catch (err) {
+            standingSuppressionReadFailed = true;
             await ctx.log(
-              `suggest_todo: suppressed reason=standing_instruction ` +
-                `effect=${standingSuppression.effect} fact=${standingSuppression.factId} ` +
-                `sender=${standingSuppression.matchedEmail}`,
+              `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
             );
-          } else if (written && todoSuggestion && standingSuppressionReadFailed) {
-            await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
-          } else if (written && todoSuggestion && suppression) {
-            await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
-          } else if (written && todoSuggestion && flags.actionItems) {
-            try {
-              const suggested = await suggestTodo({
-                userId: ctx.userId,
-                agentRunId: ctx.runId,
-                name: todoSuggestion.name,
-                assist: todoSuggestion.assist,
-                sources: [{ provider: "gmail", kind: "thread", id: sourceThreadId }],
-              });
-              await ctx.log(
-                `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
-              );
-            } catch (err) {
-              await ctx.log(
-                `suggest_todo failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
           }
+        }
+        // Structural disqualifier (the cheap model won't reliably self-apply it):
+        // a GitHub PR-review thread with nothing live at stake, or Alfred's own
+        // HIL approval mail, mints no rail todo even when the model proposed one.
+        const suppression = todoSuggestion
+          ? todoSuppressionReason({
+              sender: metadataString(ctxData.document.metadata, "from"),
+              subject: ctxData.document.title,
+              signalText: [
+                ctxData.document.title,
+                ctxData.document.content,
+                metadataString(ctxData.document.metadata, "snippet"),
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            })
+          : null;
+        // `written` gate: only the run that owns the canonical row proposes a
+        // todo, so a superseded older message can't mint a stray suggestion.
+        // `flags.actionItems` gate: the user can switch off action-item
+        // suggestions while keeping email tagging on (they share this classify).
+        if (written && todoSuggestion && standingSuppression) {
+          await ctx.log(
+            `suggest_todo: suppressed reason=standing_instruction ` +
+              `effect=${standingSuppression.effect} fact=${standingSuppression.factId} ` +
+              `sender=${standingSuppression.matchedEmail}`,
+          );
+        } else if (written && todoSuggestion && standingSuppressionReadFailed) {
+          await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
+        } else if (written && todoSuggestion && suppression) {
+          await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
+        } else if (written && todoSuggestion && flags.actionItems) {
+          try {
+            const suggested = await suggestTodo({
+              userId: ctx.userId,
+              agentRunId: ctx.runId,
+              name: todoSuggestion.name,
+              assist: todoSuggestion.assist,
+              sources: [{ provider: "gmail", kind: "thread", id: sourceThreadId }],
+            });
+            await ctx.log(
+              `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
+            );
+          } catch (err) {
+            await ctx.log(
+              `suggest_todo failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
 
-          // Emit only on the new-classification path (the reuse branch has no
-          // observations/audit to report). Logs the observation summary + the
-          // classify audit (first pass, conflict, second pass, floor) so a bad
-          // tag is debuggable without reading the raw email body.
+        // Emit only on the new-classification path (the reuse branch has no
+        // observations/audit to report). Logs the observation summary + the
+        // classify audit (first pass, conflict, second pass, floor) so a bad
+        // tag is debuggable without reading the raw email body.
+        if (!reusedExistingRow && observations) {
           await ctx.log(
             `triage.sender_extraction ${JSON.stringify(
               senderExtractionEvent({
