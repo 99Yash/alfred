@@ -71,7 +71,12 @@ export async function metered<T>(
       responseMeta: served.responseMeta,
       error: null,
     });
-    span.success({ usage: extracted.usage, costUsd, output: served.responseMeta });
+    span.success({
+      usage: extracted.usage,
+      costUsd,
+      output: extracted.output,
+      responseMeta: served.responseMeta,
+    });
     return result;
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
@@ -133,7 +138,12 @@ export function meteredStream<T>(
         responseMeta,
         error: null,
       });
-      span.success({ usage: extracted.usage, costUsd, output: responseMeta });
+      span.success({
+        usage: extracted.usage,
+        costUsd,
+        output: extracted.output,
+        responseMeta,
+      });
     })();
   };
   const finish = (extracted: MeteredResult): void => {

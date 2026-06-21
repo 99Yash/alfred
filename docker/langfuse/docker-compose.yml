@@ -1,0 +1,177 @@
+# Self-hosted Langfuse v3 for LOCAL development only.
+#
+# Fully isolated from Alfred's own stack (root ./docker-compose.yml):
+#   - its own postgres / redis / clickhouse / minio, on the `langfuse`
+#     compose project so volumes are namespaced and tear down independently.
+#   - langfuse's postgres + redis are NOT published to the host (they only
+#     need to be reachable inside this compose network), so they do not
+#     collide with Alfred's dev postgres (5432) / redis (6379).
+#
+# Ports exposed to the host:
+#   - 3100  -> langfuse-web UI  (Alfred web owns 3000)
+#   - 3030  -> langfuse-worker  (localhost only)
+#   - 8123 / 9000 -> clickhouse (localhost only, for debugging)
+#   - 9090 / 9091 -> minio api / console
+#
+# Secrets below are LOCAL-ONLY throwaways (everything binds to localhost).
+# Do NOT reuse these values for the eventual Railway deploy.
+#
+# Usage:
+#   docker compose -f docker/langfuse/docker-compose.yml up -d
+#   open http://localhost:3100   (login: alfred@alfred.local / alfred-local-dev)
+#   docker compose -f docker/langfuse/docker-compose.yml down        # stop
+#   docker compose -f docker/langfuse/docker-compose.yml down -v     # stop + wipe data
+
+name: langfuse
+
+services:
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    restart: always
+    depends_on: &langfuse-depends-on
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:3030:3030
+    environment: &langfuse-worker-env
+      NEXTAUTH_URL: http://localhost:3100
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      SALT: "68913e65ada9278225ea879ff7cb1469"
+      ENCRYPTION_KEY: "813cce5b1540dcbd9bf8f968ca0a23bea34190b8c6563ecf02e56c6c9b7ce0b3"
+      TELEMETRY_ENABLED: "true"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: myredissecret
+      REDIS_TLS_ENABLED: "false"
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3100:3000
+    environment:
+      <<: *langfuse-worker-env
+      NEXTAUTH_SECRET: "a9f9a38866c643dff885f8f0b87564fcdf059af6a98cbde2853e17dc6875b355"
+      # Headless bootstrap: creates the org/project/user and seeds the API
+      # keys on first boot so Alfred can be wired immediately (no UI step).
+      LANGFUSE_INIT_ORG_ID: alfred-local
+      LANGFUSE_INIT_ORG_NAME: Alfred Local
+      LANGFUSE_INIT_PROJECT_ID: alfred
+      LANGFUSE_INIT_PROJECT_NAME: alfred
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-0fc539ee-ece8-4462-bc7a-4a3f7ddcc4ce
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-baded212-83c2-4b3c-a0f4-46dc80bf823f
+      LANGFUSE_INIT_USER_EMAIL: alfred@alfred.local
+      LANGFUSE_INIT_USER_NAME: Alfred
+      LANGFUSE_INIT_USER_PASSWORD: alfred-local-dev
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    ports:
+      - 127.0.0.1:8123:8123
+      - 127.0.0.1:9000:9000
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    ports:
+      - 9090:9000
+      - 127.0.0.1:9091:9001
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  redis:
+    image: docker.io/redis:7
+    restart: always
+    command: >
+      --requirepass myredissecret
+      --maxmemory-policy noeviction
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  postgres:
+    image: docker.io/postgres:17
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  langfuse_postgres_data:
+    driver: local
+  langfuse_clickhouse_data:
+    driver: local
+  langfuse_clickhouse_logs:
+    driver: local
+  langfuse_minio_data:
+    driver: local
+  langfuse_redis_data:
+    driver: local
