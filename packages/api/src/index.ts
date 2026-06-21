@@ -52,6 +52,7 @@ export {
   scheduleRepeatableIngestionJobs,
 } from "./modules/integrations/index.js";
 export type { IngestionJobData } from "./modules/integrations/index.js";
+export * from "./modules/integrations/object-state/index.js";
 export * from "./modules/memory/index.js";
 export * from "./modules/triage/index.js";
 export { suggestTodo } from "./modules/todos/suggest.js";

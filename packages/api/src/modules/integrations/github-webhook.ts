@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { webhookEvents } from "@alfred/db/schemas";
 import { findUserByInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import { Elysia, t } from "elysia";
+import { objectStateStore } from "./object-state";
 
 /**
  * GitHub App activity receiver (ADR-0052).
@@ -62,6 +63,7 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
     const installationId =
       payload.installation?.id != null ? String(payload.installation.id) : null;
     const userId = installationId ? await findUserByInstallationId(installationId) : null;
+    const deliveredAt = new Date();
 
     await db()
       .insert(webhookEvents)
@@ -74,10 +76,31 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
         installationId,
         userId,
         payload: payload as Record<string, unknown>,
+        deliveredAt,
       })
       .onConflictDoNothing({
         target: [webhookEvents.provider, webhookEvents.providerEventId],
       });
+
+    // Fold the delivery into object-state (ADR-0062) for loop-closure. The
+    // reducer is idempotent + monotonic, so re-running it on a redelivered
+    // (and thus conflict-skipped) event is safe — no need to gate on the
+    // insert returning. A reducer failure must never 500 the webhook (GitHub
+    // would spin retries), so it's isolated; the event log is already durable.
+    if (userId) {
+      try {
+        await objectStateStore.applyEvent({
+          userId,
+          provider: "github",
+          eventType,
+          action: payload.action ?? null,
+          payload,
+          deliveredAt,
+        });
+      } catch (err) {
+        console.error("[github-webhook] object-state applyEvent failed", err);
+      }
+    }
 
     return { ok: true };
   },
