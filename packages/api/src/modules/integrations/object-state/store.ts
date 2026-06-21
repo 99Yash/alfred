@@ -10,7 +10,7 @@ import {
   integrationObjectKeys,
   integrationObjects,
 } from "@alfred/db/schemas";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { reduceGithubEvent } from "./github-reducer";
 
 /**
@@ -72,6 +72,14 @@ export interface ObjectListFilter {
   kind?: string;
   stateCategory?: StateCategory;
   limit?: number;
+  /**
+   * Restrict to objects whose current state was delivered within `[start, end]`
+   * (inclusive), keyed on `stateDeliveredAt`. For `stateCategory: "resolved"`
+   * this windows "what resolved in this period" — e.g. the evening briefing's
+   * "what shipped today" recap, so a stale or future-resolved object can't leak
+   * into the window on a retry.
+   */
+  deliveredWithin?: { start: Date; end: Date };
 }
 
 export interface ObjectStateStore {
@@ -260,13 +268,27 @@ export const objectStateStore: ObjectStateStore = {
     if (filter?.stateCategory) {
       conditions.push(eq(integrationObjects.stateCategory, filter.stateCategory));
     }
+    if (filter?.deliveredWithin) {
+      conditions.push(
+        gte(integrationObjects.stateDeliveredAt, filter.deliveredWithin.start),
+        lte(integrationObjects.stateDeliveredAt, filter.deliveredWithin.end),
+      );
+    }
     const requestedLimit = filter?.limit ?? DEFAULT_OBJECT_LIST_LIMIT;
     const limit = Math.min(Math.max(1, requestedLimit), MAX_OBJECT_LIST_LIMIT);
+    // When windowing on delivery time, the selected set must be the most recently
+    // *resolved* objects (the event that delivered the state), not the most
+    // recently rewritten projections — `updatedAt` only tie-breaks. Otherwise the
+    // limit can drop a freshly-resolved object in favour of an older one that was
+    // merely re-projected later (#210 day-shape "what you shipped").
+    const order = filter?.deliveredWithin
+      ? [desc(integrationObjects.stateDeliveredAt), desc(integrationObjects.updatedAt)]
+      : [desc(integrationObjects.updatedAt)];
     const rows = await db()
       .select()
       .from(integrationObjects)
       .where(and(...conditions))
-      .orderBy(desc(integrationObjects.updatedAt))
+      .orderBy(...order)
       .limit(limit);
     return rows.map(rowToObjectState);
   },

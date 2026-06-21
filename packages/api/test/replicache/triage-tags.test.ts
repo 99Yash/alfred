@@ -67,6 +67,7 @@ const baseTag = {
   category: "fyi",
   documentId: "doc_1",
   appliedLabelId: "label_fyi",
+  senderSignificanceBand: "moderate",
   rowVersion: 4,
   updatedAt: "2026-06-05T00:00:00.000Z",
 } satisfies Omit<
@@ -94,6 +95,9 @@ describe("triageTagOverrideClient", () => {
     assert.equal(value.rowVersion, autoTag.rowVersion + 1);
     assert.equal(value.documentId, autoTag.documentId);
     assert.equal(value.appliedLabelId, null);
+    // Sender significance is a property of the sender, not the classification —
+    // a category override must carry it over unchanged (ADR-0064).
+    assert.equal(value.senderSignificanceBand, autoTag.senderSignificanceBand);
     assert.equal("confidence" in value, false);
     assert.equal("rationale" in value, false);
     assert.equal("classifiedAt" in value, false);

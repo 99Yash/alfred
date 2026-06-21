@@ -9,6 +9,7 @@ import {
 import { toRecord } from "@alfred/contracts";
 import type {
   AccountPersona,
+  SignificanceBand,
   TriageCategory,
   TriageTodoDecision,
   TriageTodoSuggestion,
@@ -102,6 +103,12 @@ export interface UpsertTriageArgs {
   todoSuggestion?: TriageTodoSuggestion | null;
   todoDecision?: TriageTodoDecision | null;
   /**
+   * Sender-significance band at classify time (ADR-0064). Persisted so the rail
+   * can demote a low-significance sender's thread within its honest category.
+   * Null/omitted when the sender is non-human / unscored / had no graph row.
+   */
+  senderSignificanceBand?: SignificanceBand | null;
+  /**
    * Authored timestamp of the message this classification is for. Drives the
    * recency guard: a run for an OLDER message in the thread must not clobber a
    * classification already written for a NEWER one. Concurrent first-touch runs
@@ -186,6 +193,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       appliedLabelId: args.appliedLabelId ?? null,
       todoSuggestion: args.todoSuggestion ?? null,
       todoDecision: args.todoDecision ?? null,
+      senderSignificanceBand: args.senderSignificanceBand ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
     };
@@ -205,6 +213,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         appliedLabelId: args.appliedLabelId ?? null,
         todoSuggestion: args.todoSuggestion ?? null,
         todoDecision: args.todoDecision ?? null,
+        senderSignificanceBand: args.senderSignificanceBand ?? null,
         source: "auto",
         overriddenAt: null,
         rowVersion: 0,
@@ -383,6 +392,7 @@ function rowToTriage(row: EmailTriage): TriageRow {
     runId: row.runId,
     todoSuggestion: row.todoSuggestion ?? null,
     todoDecision: row.todoDecision ?? null,
+    senderSignificanceBand: row.senderSignificanceBand,
     source: row.source,
     overriddenAt: row.overriddenAt,
     rowVersion: row.rowVersion,

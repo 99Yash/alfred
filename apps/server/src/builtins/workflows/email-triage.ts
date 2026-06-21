@@ -6,6 +6,7 @@ import {
   findActiveSenderSuppression,
   getDocumentAuthoredAt,
   getSenderPrior,
+  getSenderSignificance,
   getThreadState,
   getTriage,
   incrementSenderPrior,
@@ -329,6 +330,15 @@ export const emailTriageWorkflow: Workflow<State> = {
             model = "fallback";
           }
 
+          // Sender significance for the rail's presentation-layer demotion
+          // (ADR-0064). Read the precomputed scalar once and stash its band on
+          // the row — best-effort, null on any miss (non-human/unscored/no row),
+          // which the rail scorer treats as neutral. Never blocks classify.
+          const senderSignificance = await getSenderSignificance(
+            ctx.userId,
+            senderContextResult.senderAddress,
+          ).catch(() => null);
+
           // Recency-guarded, advisory-locked upsert. `written` is false when a
           // concurrent run for a strictly-newer message already owns the row —
           // this run lost the race, so it skips the side effects below (they'd
@@ -347,6 +357,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             // the reuse path can re-mint a todo this attempt is about to (#157).
             todoSuggestion: classification.todoSuggestion ?? null,
             todoDecision: classification.todoDecision ?? null,
+            senderSignificanceBand: senderSignificance?.band ?? null,
             authoredAt: ctxData.document.authoredAt,
           });
           written = upserted.written;
