@@ -7,9 +7,11 @@
  * everyday model, deep → the deeper-reasoning escalation).
  *
  * `ChatTier` aliases the canonical `ChatModelTier` from `@alfred/contracts`.
- * (Server-side the literal lives in `@alfred/ai`, which must never enter the
- * web runtime bundle — see `pnpm check:web-boundaries` — so the shared source
- * of truth is `@alfred/contracts`, importable from both sides.)
+ * (Server-side the runtime mapping lives in `@alfred/ai` (`getChatModel`), a
+ * server-only package that must never enter the web runtime bundle — see
+ * `pnpm check:web-boundaries` — so the shared source of truth is the tier
+ * literal in `@alfred/contracts`, importable from both sides, which keeps the
+ * two from drifting.)
  */
 import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";

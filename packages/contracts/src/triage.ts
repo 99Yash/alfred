@@ -58,6 +58,50 @@ export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
 export const TRIAGE_TAG_SOURCES = ["auto", "user"] as const;
 export type TriageTagSource = (typeof TRIAGE_TAG_SOURCES)[number];
 
+// ─── Classifier todo proposal (ADR-0050 amendment 2026-06-06) ─────────────
+// Lives here (not in `@alfred/api`) so the `email_triage` row can `.$type<>()`
+// against it without a db→api dependency. The cheap classifier
+// (`@alfred/api` triage/classify) re-uses these schemas as the source of
+// truth for its `todoSuggestion` / `todoDecision` fields, and the row persists
+// them so a same-run `classify` retry on the reuse path can re-mint the todo.
+
+export const TODO_DECISION_OUTCOMES = [
+  "proposed",
+  "no_obligation",
+  "not_significant",
+  "would_not_forget",
+  "too_vague",
+  "already_handled",
+] as const;
+export type TodoDecisionOutcome = (typeof TODO_DECISION_OUTCOMES)[number];
+
+/**
+ * Real-time todo proposal for the rail. Non-null ONLY when the email cleared
+ * every rubric test (rule 16). `assist` is `.nullish()` (not `.optional()`)
+ * because flash-lite routinely emits explicit `null`, which a bare `.optional()`
+ * would reject.
+ */
+export const triageTodoSuggestionSchema = z
+  .object({
+    /** Crisp imperative title for the rail checkbox row. */
+    name: z.string().min(1).max(120),
+    /** Optional one-liner on how to approach it (or an honest "can't act yet"). */
+    assist: z.string().max(280).nullish(),
+  })
+  .nullable();
+export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
+
+/**
+ * Always-present rubric trace: which test decided the todo call, so a wrong
+ * suggestion AND a wrong omission are both debuggable. Invariant:
+ * `outcome === 'proposed'` iff the suggestion is non-null.
+ */
+export const triageTodoDecisionSchema = z.object({
+  outcome: z.enum(TODO_DECISION_OUTCOMES),
+  note: z.string().max(200).nullish(),
+});
+export type TriageTodoDecision = z.infer<typeof triageTodoDecisionSchema>;
+
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
 export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
 export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);

@@ -14,7 +14,7 @@ import {
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
@@ -23,7 +23,12 @@ import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
-import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
+import {
+  consumeOAuthNonce,
+  rememberOAuthNonce,
+  signOAuthState,
+  verifyOAuthState,
+} from "./oauth-state";
 
 /**
  * Google integration routes.
@@ -39,30 +44,17 @@ import { consumeOAuthNonce, rememberOAuthNonce } from "./oauth-state";
  * reused.
  */
 
-interface SignedState {
-  userId: string;
-  nonce: string;
-}
-
-function signState(state: SignedState): string {
-  const env = serverEnv();
-  const payload = Buffer.from(JSON.stringify(state)).toString("base64url");
-  const sig = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
-  return `${payload}.${sig}`;
-}
-
-function verifyState(raw: string): SignedState | null {
-  const env = serverEnv();
-  const [payload, sig] = raw.split(".");
-  if (!payload || !sig) return null;
-  const expected = createHmac("sha256", env.BETTER_AUTH_SECRET).update(payload).digest("base64url");
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+/**
+ * Best-effort post-callback side effects (initial-sync, watch install). A
+ * failure here must not bounce the user to an OAuth error page, so each is
+ * swallowed with a warn. The cold-start trigger below keeps its own block —
+ * it has distinct unique-violation handling.
+ */
+async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<void> {
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SignedState;
-  } catch {
-    return null;
+    await fn();
+  } catch (err) {
+    console.warn(`[google.callback] ${label}:`, err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -105,7 +97,7 @@ export const googleIntegrationRoutes = new Elysia({
 
           const nonce = randomBytes(16).toString("hex");
           await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
-          const state = signState({ userId: user.id, nonce });
+          const state = signOAuthState({ userId: user.id, nonce });
           const url = buildAuthorizeUrl({
             state,
             scopes: scopesForFeatures(features),
@@ -275,7 +267,7 @@ export const googleIntegrationRoutes = new Elysia({
       if (!query.code || !query.state) {
         throw new BadRequestError("Missing code or state");
       }
-      const decoded = verifyState(query.state);
+      const decoded = verifyOAuthState(query.state);
       if (!decoded) throw new BadRequestError("Invalid state");
 
       // Atomically consume the nonce. If it's missing/expired/already used,
@@ -312,19 +304,14 @@ export const googleIntegrationRoutes = new Elysia({
       // job is idempotent — a re-connect with no new messages fans no
       // triage runs. Capped tight (8 msgs) so first-run LLM cost stays in
       // pennies; bulk historical re-ingest still skips triage.
-      try {
-        await getIngestionQueue().add("gmail.ingest_recent", {
+      await bestEffort(`failed to enqueue initial-sync for ${credential.id}`, () =>
+        getIngestionQueue().add("gmail.ingest_recent", {
           kind: "gmail.ingest_recent",
           credentialId: credential.id,
           maxMessages: 8,
           triageInsertedDocs: true,
-        });
-      } catch (err) {
-        console.warn(
-          `[google.callback] failed to enqueue initial-sync for ${credential.id}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+        }),
+      );
 
       // Install the Gmail watch so realtime ingestion (ADR-0037: pub/sub →
       // poll_recent → triage) starts immediately. Without this a new account
@@ -332,17 +319,12 @@ export const googleIntegrationRoutes = new Elysia({
       // fallback — the source of the multi-minute tag latency. Enqueued (not
       // inline) to keep the OAuth redirect snappy; best-effort, and the
       // watch-renew cron keeps it alive thereafter.
-      try {
-        await getIngestionQueue().add("gmail.watch_install", {
+      await bestEffort(`failed to enqueue watch install for ${credential.id}`, () =>
+        getIngestionQueue().add("gmail.watch_install", {
           kind: "gmail.watch_install",
           credentialId: credential.id,
-        });
-      } catch (err) {
-        console.warn(
-          `[google.callback] failed to enqueue watch install for ${credential.id}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+        }),
+      );
 
       // Cold-start research seed (ADR-0011 + ADR-0022): once at most per
       // user. Google is currently the only integration that contributes

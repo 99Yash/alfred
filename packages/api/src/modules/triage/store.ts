@@ -7,7 +7,12 @@ import {
   type EmailTriage,
 } from "@alfred/db/schemas";
 import { toRecord } from "@alfred/contracts";
-import type { AccountPersona, TriageCategory } from "@alfred/contracts";
+import type {
+  AccountPersona,
+  TriageCategory,
+  TriageTodoDecision,
+  TriageTodoSuggestion,
+} from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
@@ -88,6 +93,14 @@ export interface UpsertTriageArgs {
   model: string;
   runId: string | null;
   appliedLabelId?: string | null;
+  /**
+   * Classifier todo proposal + rubric trace (rule 16). Persisted on the row so a
+   * same-run `classify` retry on the reuse path can reconstruct the classification
+   * and re-mint the todo a crashed first attempt never wrote (#157). Omit/null
+   * when the model proposed no todo.
+   */
+  todoSuggestion?: TriageTodoSuggestion | null;
+  todoDecision?: TriageTodoDecision | null;
   /**
    * Authored timestamp of the message this classification is for. Drives the
    * recency guard: a run for an OLDER message in the thread must not clobber a
@@ -171,6 +184,8 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       source: "auto",
       overriddenAt: null,
       appliedLabelId: args.appliedLabelId ?? null,
+      todoSuggestion: args.todoSuggestion ?? null,
+      todoDecision: args.todoDecision ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
     };
@@ -188,6 +203,8 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         classifiedAt: now,
         runId: args.runId,
         appliedLabelId: args.appliedLabelId ?? null,
+        todoSuggestion: args.todoSuggestion ?? null,
+        todoDecision: args.todoDecision ?? null,
         source: "auto",
         overriddenAt: null,
         rowVersion: 0,
@@ -364,6 +381,8 @@ function rowToTriage(row: EmailTriage): TriageRow {
     appliedLabelId: row.appliedLabelId,
     classifiedAt: row.classifiedAt,
     runId: row.runId,
+    todoSuggestion: row.todoSuggestion ?? null,
+    todoDecision: row.todoDecision ?? null,
     source: row.source,
     overriddenAt: row.overriddenAt,
     rowVersion: row.rowVersion,

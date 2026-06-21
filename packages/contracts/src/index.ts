@@ -8,6 +8,7 @@ export * from "./mentions.js";
 export * from "./transcript.js";
 export * from "./triage.js";
 export * from "./briefing.js";
+export * from "./chat.js";
 export * from "./briefing-references.js";
 export * from "./chat.js";
 export * from "./weather.js";

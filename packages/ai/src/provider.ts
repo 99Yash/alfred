@@ -1,5 +1,6 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import type { ChatModelTier } from "@alfred/contracts";
 import type { LanguageModel, ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
@@ -7,7 +8,6 @@ import type { LanguageModel, ToolSet } from "ai";
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV3 } from "ai-retry";
 import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
-import type { ChatModelTier } from "@alfred/contracts";
 import type { ModelIdFor } from "./models";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
@@ -93,6 +93,10 @@ export function googleSearchGroundingTools(): ToolSet {
  *   - `standard` → Claude Sonnet 4.6 — the default conversational driver.
  *   - `deep`     → Claude Opus 4.8 — escalation for hard, multi-step turns
  *     (and the model the boss-worker harness runs on when chat fans out).
+ *
+ * Each tier degrades to the corresponding Google tier on Anthropic failure
+ * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
+ * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
  *
  * Restored to the intended Anthropic mapping 2026-06-07 (mirrors
  * `getBossModel`) after the 2026-05-21 spend-cap swap to Google, with the
