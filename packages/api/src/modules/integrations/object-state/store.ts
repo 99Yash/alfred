@@ -276,11 +276,19 @@ export const objectStateStore: ObjectStateStore = {
     }
     const requestedLimit = filter?.limit ?? DEFAULT_OBJECT_LIST_LIMIT;
     const limit = Math.min(Math.max(1, requestedLimit), MAX_OBJECT_LIST_LIMIT);
+    // When windowing on delivery time, the selected set must be the most recently
+    // *resolved* objects (the event that delivered the state), not the most
+    // recently rewritten projections — `updatedAt` only tie-breaks. Otherwise the
+    // limit can drop a freshly-resolved object in favour of an older one that was
+    // merely re-projected later (#210 day-shape "what you shipped").
+    const order = filter?.deliveredWithin
+      ? [desc(integrationObjects.stateDeliveredAt), desc(integrationObjects.updatedAt)]
+      : [desc(integrationObjects.updatedAt)];
     const rows = await db()
       .select()
       .from(integrationObjects)
       .where(and(...conditions))
-      .orderBy(desc(integrationObjects.updatedAt))
+      .orderBy(...order)
       .limit(limit);
     return rows.map(rowToObjectState);
   },

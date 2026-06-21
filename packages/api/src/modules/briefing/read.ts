@@ -1,5 +1,5 @@
 import {
-  CATEGORY_BASE_DEMAND,
+  isTriageCategory,
   parseEmailAddress,
   scoreAttentionForItems,
   toRecord,
@@ -14,7 +14,7 @@ import type {
 import { db } from "@alfred/db";
 import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import { getSenderSignificance } from "../memory/significance";
+import { getSenderSignificanceBatch } from "../memory/significance";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -197,17 +197,17 @@ export async function listEmailsSinceWatermark(
 
 /** A triage category string narrowed to the contract enum, or null if unknown/absent. */
 function toTriageCategory(category: string | null): TriageCategory | null {
-  return category && category in CATEGORY_BASE_DEMAND ? (category as TriageCategory) : null;
+  return isTriageCategory(category) ? category : null;
 }
 
 /**
  * Resolve `address → SignificanceBand` for the distinct senders in a window.
- * Reads the precomputed significance scalar (ADR-0057/0059) once per distinct
- * address via {@link getSenderSignificance} — never recomputes. Senders with no
- * graph row (or a row not yet scored) are simply absent from the map, which the
- * caller treats as neutral (no demotion). At single-user briefing scale the
- * distinct-sender count is small; if it ever grows, fold these into one batched
- * alias query.
+ * Reads the precomputed significance scalar (ADR-0057/0059) for all distinct
+ * addresses in one batched alias query via {@link getSenderSignificanceBatch} —
+ * never recomputes, and avoids an N+1 over the (up to `limit`-many) senders one
+ * `list_emails_since` tool call can surface. Senders with no graph row (or a row
+ * not yet scored) are simply absent from the map, which the caller treats as
+ * neutral (no demotion).
  */
 async function loadSignificanceBands(
   userId: string,
@@ -218,14 +218,14 @@ async function loadSignificanceBands(
     const address = parseEmailAddress(raw);
     if (address) addresses.add(address);
   }
+  if (addresses.size === 0) return new Map();
+
+  const significanceByAddress = await getSenderSignificanceBatch(userId, [...addresses]);
 
   const out = new Map<string, SignificanceBand>();
-  await Promise.all(
-    [...addresses].map(async (address) => {
-      const significance = await getSenderSignificance(userId, address);
-      if (significance) out.set(address, significance.band);
-    }),
-  );
+  for (const [address, significance] of significanceByAddress) {
+    out.set(address, significance.band);
+  }
   return out;
 }
 
