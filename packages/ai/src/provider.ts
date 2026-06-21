@@ -1,5 +1,5 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
+import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
+import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import type { ChatModelTier } from "@alfred/contracts";
 import type { LanguageModel, ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
@@ -21,6 +21,13 @@ export type { ChatModelTier };
 // listed) a compile error rather than a silent cost-attribution miss.
 const anthropicModel = (id: ModelIdFor<"anthropic">) => anthropic(id);
 const googleModel = (id: ModelIdFor<"google">) => google(id);
+
+type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
+type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
+type ChatProviderOptions = Record<string, Record<string, unknown>> & {
+  anthropic: AnthropicChatProviderOptions;
+  google: GoogleChatProviderOptions;
+};
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -119,13 +126,23 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  *   - Gemini 2.5: `thinkingConfig.includeThoughts` surfaces the thought summary
  *     (not the raw chain); `thinkingBudget: -1` lets the model size its own
  *     thinking. Flash thinks by default, so this only toggles *visibility*.
- *   - Anthropic (when the cap clears): extended thinking with a modest budget —
- *     interactive chat wants a fast first token, not a deep deliberation.
+ *   - Anthropic 4.6/4.8: **adaptive** thinking — the model sizes its own
+ *     reasoning, capped by `effort`. The legacy `{ type: "enabled",
+ *     budgetTokens }` API 400s on Opus 4.8 ("not supported for this model; use
+ *     thinking.type.adaptive + output_config.effort"), and because
+ *     `withFallback` treats a 400 as any-error → switch, every `deep` turn
+ *     silently fell through to Gemini 2.5 Pro (#224). `display: "summarized"`
+ *     keeps the thought summary streaming to the accordion. Effort tracks the
+ *     tier: `deep` escalates to deliberate reasoning, `standard` stays light
+ *     for a fast interactive first token.
  */
-export function getChatProviderOptions(): Record<string, Record<string, unknown>> {
+export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
   return {
     google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
-    anthropic: { thinking: { type: "enabled", budgetTokens: 2_048 } },
+    anthropic: {
+      thinking: { type: "adaptive", display: "summarized" },
+      effort: tier === "deep" ? "high" : "low",
+    },
   };
 }
 
