@@ -1,6 +1,7 @@
 import { mapConcurrent } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
+import { serverEnv } from "@alfred/env/server";
 import { embedDocument } from "@alfred/ingestion";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -174,16 +175,57 @@ async function loadCredentialOrThrow(credentialId: string): Promise<CredentialCo
   return { credentialId: row.id, userId: row.userId, accountId: row.accountId };
 }
 
-interface PersistMessageResult {
-  outcome: "inserted" | "skipped";
-  documentId: string;
-  /**
-   * Mail the user SENT (carries Gmail's `SENT` label). Ingested + embedded
-   * like any other doc — chat recall over sent mail needs vectors (ADR-0051
-   * #7) — but the caller must keep it OUT of the triage fan-out and the
-   * sender-prior write-back (you are not a sender to triage or to cache).
-   */
-  isSent: boolean;
+type PersistMessageResult =
+  | {
+      outcome: "inserted" | "skipped";
+      documentId: string;
+      /**
+       * Mail the user SENT (carries Gmail's `SENT` label). Ingested + embedded
+       * like any other doc — chat recall over sent mail needs vectors (ADR-0051
+       * #7) — but the caller must keep it OUT of the triage fan-out and the
+       * sender-prior write-back (you are not a sender to triage or to cache).
+       */
+      isSent: boolean;
+    }
+  // Self-authored mail (From = Alfred's own send identity) — dropped before it
+  // becomes a `documents` row, so there is nothing to embed, triage, or address
+  // downstream (issue #211). Distinct from `skipped` (a dedupe no-op) in intent,
+  // but callers handle it identically: the non-`inserted` branch counts it and
+  // does nothing else.
+  | { outcome: "ignored" };
+
+/**
+ * Alfred's own send identity, parsed from `RESEND_FROM_EMAIL` (e.g.
+ * `"Alfred <hey@alfred.beauty>"`) — the single source of truth shared with
+ * `@alfred/mailer`. Lazily resolved + cached for the process.
+ */
+let _selfSenderEmail: string | null | undefined;
+function selfSenderEmail(): string | null {
+  if (_selfSenderEmail === undefined) {
+    _selfSenderEmail = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
+  }
+  return _selfSenderEmail;
+}
+
+/** Pull the bare lowercase `local@domain` out of a `From:`-style header. */
+function parseEmailAddress(value: string | null): string | null {
+  if (!value) return null;
+  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+  return raw.includes("@") ? raw : null;
+}
+
+/**
+ * True when a message was sent by Alfred itself (briefing / approval mail,
+ * `From` = `RESEND_FROM_EMAIL`). Alfred's outbound re-enters the connected
+ * inbox as ordinary *inbound* mail — it carries no Gmail `SENT` label, so the
+ * `isSent` guard never catches it. Left un-filtered it gets ingested, triaged
+ * into the demanding lanes, and re-fed into the next briefing: a self-
+ * amplifying loop (issue #211). Self-mail carries no signal Alfred didn't
+ * itself author, so we drop it before it becomes a `documents` row.
+ */
+function isSelfAuthored(from: string | null): boolean {
+  const self = selfSenderEmail();
+  return self !== null && parseEmailAddress(from) === self;
 }
 
 async function persistMessage(
@@ -192,6 +234,11 @@ async function persistMessage(
   message: GmailMessage,
 ): Promise<PersistMessageResult> {
   const extracted = extractMessageContent(message);
+  // Drop Alfred's own outbound mail before it becomes a document — see
+  // `isSelfAuthored` (issue #211). Nothing downstream should ever see it.
+  if (isSelfAuthored(extracted.from)) {
+    return { outcome: "ignored" };
+  }
   const content = buildContent(extracted);
   const contentHash = sha256(content);
   const labelIds = message.labelIds ?? [];

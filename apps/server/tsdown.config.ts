@@ -13,6 +13,7 @@ export default defineConfig({
     "./src/instrument.ts",
     "./src/scripts/trigger-cold-start-committed.ts",
     "./src/scripts/backfill-team-graph-committed.ts",
+    "./src/scripts/backfill-retire-self-mail-committed.ts",
   ],
   format: "esm",
   outDir: "./dist",
