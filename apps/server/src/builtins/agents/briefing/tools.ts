@@ -81,7 +81,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   const tools = {
     list_emails_since: tool({
       description:
-        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, and triage labels — never full bodies. Call read_email if you need the body for a specific message.",
+        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, and a previouslySurfaced flag (true = this thread already went out in a recent briefing — treat it as a continuation, not a fresh item) — never full bodies. Call read_email if you need the body for a specific message.",
       inputSchema: z.object({
         limit: z
           .number()
