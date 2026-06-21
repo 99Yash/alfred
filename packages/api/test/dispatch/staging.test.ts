@@ -72,9 +72,7 @@ async function stagingRowsFor(runId: string, toolCallId: string) {
       rowVersion: actionStagings.rowVersion,
     })
     .from(actionStagings)
-    .where(
-      and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)),
-    );
+    .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
 }
 
 describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
@@ -110,7 +108,9 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         },
       }),
     );
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {

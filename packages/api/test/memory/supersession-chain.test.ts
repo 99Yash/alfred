@@ -36,11 +36,7 @@ async function seedUser(): Promise<string> {
 }
 
 /** Insert a fact with a fixed id and optional predecessor link. */
-async function seedFact(
-  userId: string,
-  id: string,
-  supersedesId: string | null,
-): Promise<void> {
+async function seedFact(userId: string, id: string, supersedesId: string | null): Promise<void> {
   await db()
     .insert(userFacts)
     .values({
@@ -97,7 +93,11 @@ describe("getSupersessionChain (DB-backed)", { skip: SKIP }, () => {
     await seedFact(intruder, tip, root);
 
     const chain = await getSupersessionChain(intruder, tip);
-    assert.deepEqual(chain.map((f) => f.id), [tip], "chain must stay within the querying user");
+    assert.deepEqual(
+      chain.map((f) => f.id),
+      [tip],
+      "chain must stay within the querying user",
+    );
   });
 
   test("terminates on a cyclic supersedes_id pointer", async () => {
@@ -107,7 +107,10 @@ describe("getSupersessionChain (DB-backed)", { skip: SKIP }, () => {
     // Insert with no link, then close the cycle: X -> Y -> X.
     await seedFact(userId, x, null);
     await seedFact(userId, y, x);
-    await db().update(userFacts).set({ supersedesId: y }).where(inArray(userFacts.id, [x]));
+    await db()
+      .update(userFacts)
+      .set({ supersedesId: y })
+      .where(inArray(userFacts.id, [x]));
 
     // Should return bounded output without hanging.
     const chain = await getSupersessionChain(userId, x);

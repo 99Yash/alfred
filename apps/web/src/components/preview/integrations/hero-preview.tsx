@@ -21,9 +21,23 @@ const SATELLITES: ReadonlyArray<{
   style: CSSProperties;
 }> = [
   // Large faint tile bleeding off the top-right corner — the deepest layer.
-  { id: "far-tr", size: 132, rotate: 8, opacity: 0.12, blur: true, style: { top: -44, right: -36 } },
+  {
+    id: "far-tr",
+    size: 132,
+    rotate: 8,
+    opacity: 0.12,
+    blur: true,
+    style: { top: -44, right: -36 },
+  },
   // Mid tile cropped at the bottom-left.
-  { id: "far-bl", size: 92, rotate: -6, opacity: 0.2, blur: true, style: { bottom: -28, left: -22 } },
+  {
+    id: "far-bl",
+    size: 92,
+    rotate: -6,
+    opacity: 0.2,
+    blur: true,
+    style: { bottom: -28, left: -22 },
+  },
   // Crisp small satellites floating near the center band.
   { id: "near-tl", size: 52, rotate: -9, opacity: 0.6, style: { top: 18, left: "16%" } },
   { id: "near-br", size: 40, rotate: 7, opacity: 0.7, style: { bottom: 26, right: "20%" } },
@@ -34,9 +48,7 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
   // Colored brands light their hero in their own hue; monochrome marks fall
   // back to the house purple. Low-alpha mix keeps it ambient in both themes.
   const accent = BRAND_ACCENT[provider.brand];
-  const glow = accent
-    ? `color-mix(in srgb, ${accent} 24%, transparent)`
-    : "var(--app-purple-2)";
+  const glow = accent ? `color-mix(in srgb, ${accent} 24%, transparent)` : "var(--app-purple-2)";
   return (
     <div
       aria-hidden
