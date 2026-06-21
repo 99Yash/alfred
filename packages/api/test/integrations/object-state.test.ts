@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getObjectDef, isTerminalCategory } from "@alfred/contracts";
+import { getObjectDef, isLoopClosingCategory, isTerminalCategory } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 
 import {
   extractGithubKeys,
+  isGithubNotificationSender,
   objectStateStore,
   reduceGithubEvent,
 } from "../../src/modules/integrations/object-state";
@@ -26,16 +27,24 @@ import {
 const SHA_A = "a1b2c3d4".repeat(5); // 40 hex
 const SHA_B = "f0e1d2c3".repeat(5);
 
-function prPayload(number: number, sha: string, opts: { merged?: boolean } = {}) {
+function prPayload(
+  number: number,
+  sha: string,
+  opts: { id?: number; merged?: boolean; repo?: string } = {},
+) {
   return {
     pull_request: {
+      id: opts.id ?? number,
       number,
       title: `PR ${number}`,
-      html_url: `https://github.com/o/r/pull/${number}`,
+      html_url: `https://github.com/${opts.repo ?? "o/r"}/pull/${number}`,
       merged: opts.merged ?? false,
       head: { sha, ref: "feature" },
     },
-    repository: { full_name: "o/r", html_url: "https://github.com/o/r" },
+    repository: {
+      full_name: opts.repo ?? "o/r",
+      html_url: `https://github.com/${opts.repo ?? "o/r"}`,
+    },
   };
 }
 
@@ -56,7 +65,8 @@ describe("github reducer (pure)", () => {
 
   test("closed collapses the merged boolean into merged vs closed", () => {
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))?.nativeState,
+      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))
+        ?.nativeState,
       "merged",
     );
     assert.equal(
@@ -64,6 +74,23 @@ describe("github reducer (pure)", () => {
         ?.nativeState,
       "closed",
     );
+  });
+
+  test("externalId uses GitHub's global PR id, not the repo-scoped PR number", () => {
+    const first = reduceGithubEvent(
+      "pull_request",
+      "opened",
+      prPayload(1, SHA_A, { id: 111, repo: "o/one" }),
+    );
+    const second = reduceGithubEvent(
+      "pull_request",
+      "opened",
+      prPayload(1, SHA_B, { id: 222, repo: "o/two" }),
+    );
+
+    assert.equal(first?.externalId, "111");
+    assert.equal(second?.externalId, "222");
+    assert.notEqual(first?.externalId, second?.externalId);
   });
 
   test("non-lifecycle actions and non-PR events are no-ops", () => {
@@ -88,6 +115,13 @@ describe("github registry normalize", () => {
     assert.equal(isTerminalCategory("failed"), true);
     assert.equal(isTerminalCategory("active"), false);
   });
+
+  test("briefing loop closure excludes failed because failed is usually the opener", () => {
+    assert.equal(isLoopClosingCategory("resolved"), true);
+    assert.equal(isLoopClosingCategory("abandoned"), true);
+    assert.equal(isLoopClosingCategory("failed"), false);
+    assert.equal(isLoopClosingCategory("active"), false);
+  });
 });
 
 describe("extractGithubKeys", () => {
@@ -104,6 +138,14 @@ describe("extractGithubKeys", () => {
 
   test("ignores short / non-hex tokens", () => {
     assert.deepEqual(extractGithubKeys({ subject: "deadbeef", content: "no sha here" }), []);
+  });
+});
+
+describe("isGithubNotificationSender", () => {
+  test("requires an exact github.com sender domain", () => {
+    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com>"), true);
+    assert.equal(isGithubNotificationSender("spoof@notgithub.com"), false);
+    assert.equal(isGithubNotificationSender("GitHub <notifications@github.com.evil.test>"), false);
   });
 });
 
@@ -158,9 +200,10 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     assert.equal(ref, null);
   });
 
-  test("monotonic: replaying an older opened delivery cannot regress a merged PR", async () => {
-    // Re-deliver the original opened event (older T1) after the merge.
-    await apply("opened", prPayload(101, SHA_A), T1);
+  test("monotonic: replaying a stale opened delivery cannot regress a merged PR", async () => {
+    // A delayed duplicate can have a later receipt time than the merge; resolved
+    // PRs are absorbing so stale open/synchronize deliveries cannot reopen them.
+    await apply("opened", prPayload(101, SHA_A), new Date("2026-06-04T00:00:00Z"));
 
     const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", SHA_A);
     const state = await objectStateStore.getState(userId, ref!);

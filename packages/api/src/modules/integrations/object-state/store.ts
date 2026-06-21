@@ -1,4 +1,9 @@
-import { getObjectDef, type ObjectStateProvider, type StateCategory, toRecord } from "@alfred/contracts";
+import {
+  getObjectDef,
+  type ObjectStateProvider,
+  type StateCategory,
+  toRecord,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   type IntegrationObject,
@@ -66,6 +71,7 @@ export interface ApplyEventArgs {
 export interface ObjectListFilter {
   kind?: string;
   stateCategory?: StateCategory;
+  limit?: number;
 }
 
 export interface ObjectStateStore {
@@ -99,6 +105,9 @@ type ReduceFn = (
 const REDUCERS: Record<ObjectStateProvider, ReduceFn> = {
   github: reduceGithubEvent,
 };
+
+const DEFAULT_OBJECT_LIST_LIMIT = 100;
+const MAX_OBJECT_LIST_LIMIT = 250;
 
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
@@ -163,11 +172,13 @@ export const objectStateStore: ObjectStateStore = {
       } else {
         objectId = existing.id;
         // Monotonicity: only advance state when this delivery is at least as
-        // recent as the one that last set it. A redelivered or out-of-order
-        // webhook can't regress a merged PR back to active.
+        // recent as the one that last set it. Resolved PRs are absorbing, so a
+        // delayed open/synchronize delivery can't regress a merge back to active.
         const isNewer =
           existing.stateDeliveredAt === null || args.deliveredAt >= existing.stateDeliveredAt;
-        if (isNewer) {
+        const wouldReopenResolved =
+          existing.stateCategory === "resolved" && stateCategory !== "resolved";
+        if (isNewer && !wouldReopenResolved) {
           await tx
             .update(integrationObjects)
             .set({
@@ -249,11 +260,14 @@ export const objectStateStore: ObjectStateStore = {
     if (filter?.stateCategory) {
       conditions.push(eq(integrationObjects.stateCategory, filter.stateCategory));
     }
+    const requestedLimit = filter?.limit ?? DEFAULT_OBJECT_LIST_LIMIT;
+    const limit = Math.min(Math.max(1, requestedLimit), MAX_OBJECT_LIST_LIMIT);
     const rows = await db()
       .select()
       .from(integrationObjects)
       .where(and(...conditions))
-      .orderBy(desc(integrationObjects.updatedAt));
+      .orderBy(desc(integrationObjects.updatedAt))
+      .limit(limit);
     return rows.map(rowToObjectState);
   },
 };

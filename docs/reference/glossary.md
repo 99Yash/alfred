@@ -9,7 +9,7 @@ Domain terms used across Alfred's design. New terms land here as ADRs/grills min
 - **Integration object** — One external work object tracked in object-state memory, identified by `(user_id, provider, kind, external_id)`. (ADR-0062)
 - **`state_category`** — The normalized lifecycle bucket every provider's native state maps into: `active | resolved | failed | abandoned`. Provider-agnostic consumers read this; native state is retained for display. (ADR-0062)
 - **Native state** — A provider's own state string (`open`/`merged`/`closed`, `in_progress`/`done`, …), retained on the object row for fidelity + audit alongside the normalized `state_category`. (ADR-0062)
-- **Key sidecar / key-resolution** — `integration_object_keys`: a `(provider, key_kind, key_value) → object_id` table so heterogeneous identities (`head_sha`, `branch`, `run_id`, `task_id`) all resolve to an object uniformly. (ADR-0062)
+- **Key sidecar / key-resolution** — `integration_object_keys`: a `(provider, key_kind, key_value) → object_id` table so heterogeneous identities (`head_sha`, `run_id`, `task_id`) all resolve to an object uniformly. Raw branch names are repo-scoped, so they are not a v1 key. (ADR-0062)
 - **Reducer** — A per-provider, pure, idempotent, replayable function `applyEvent(provider, event)` that folds webhook/event deliveries into object-state. The irreducibly per-provider part — there is no generic reducer. (ADR-0062)
 - **Awareness layer** — Informal name for object-state memory: the maintained, durable view of "what's happening across my integrations" that the prod recon proved a gather-time recompute can't provide. (ADR-0062)
 

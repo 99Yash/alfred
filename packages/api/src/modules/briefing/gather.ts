@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
-import { isRecord, isTerminalCategory, toRecord, weatherFallbackFor } from "@alfred/contracts";
+import { isLoopClosingCategory, isRecord, toRecord, weatherFallbackFor } from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
@@ -228,7 +228,8 @@ export async function gatherBriefingDigest(
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
   // documentId → candidate GitHub `head_sha`s, for the post-partition
   // loop-reconciliation pass (ADR-0062). Only GitHub-notification priority
-  // rows land here.
+  // rows land here. Priority buckets stay uncapped until after reconciliation
+  // so closed loops do not consume one of the visible slots.
   const githubShasByDoc = new Map<string, string[]>();
 
   for (const r of rows) {
@@ -258,10 +259,7 @@ export async function gatherBriefingDigest(
       continue;
     }
 
-    const bucket = buckets[cat];
-    if (bucket.length >= maxPerBucket) continue;
-
-    bucket.push({
+    buckets[cat].push({
       documentId: r.documentId,
       category: cat,
       confidence: r.confidence,
@@ -284,9 +282,12 @@ export async function gatherBriefingDigest(
   }
 
   // Loop reconciliation (ADR-0062): drop any priority item whose underlying
-  // GitHub PR has reached a terminal state. State unknown ⇒ the loop stays
+  // GitHub PR has reached a loop-closing state. State unknown ⇒ the loop stays
   // live (absence never closes — ADR-0048-D).
   const closedLoops = await reconcileGithubLoops(args.userId, buckets, githubShasByDoc);
+  for (const category of PRIORITY_CATEGORIES) {
+    buckets[category] = buckets[category].slice(0, maxPerBucket);
+  }
 
   const totalPriority = PRIORITY_CATEGORIES.reduce((sum, category) => {
     return sum + buckets[category].length;
@@ -339,7 +340,9 @@ async function reconcileGithubLoops(
     for (const item of buckets[category]) {
       const terminal = (shasByDoc.get(item.documentId) ?? [])
         .map((sha) => stateBySha.get(sha))
-        .find((state): state is ObjectState => !!state && isTerminalCategory(state.stateCategory));
+        .find(
+          (state): state is ObjectState => !!state && isLoopClosingCategory(state.stateCategory),
+        );
       if (terminal) {
         closedLoops.push({
           documentId: item.documentId,

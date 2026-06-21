@@ -65,7 +65,7 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
     const userId = installationId ? await findUserByInstallationId(installationId) : null;
     const deliveredAt = new Date();
 
-    await db()
+    const inserted = await db()
       .insert(webhookEvents)
       .values({
         provider: "github",
@@ -80,14 +80,15 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
       })
       .onConflictDoNothing({
         target: [webhookEvents.provider, webhookEvents.providerEventId],
-      });
+      })
+      .returning({ deliveredAt: webhookEvents.deliveredAt });
 
     // Fold the delivery into object-state (ADR-0062) for loop-closure. The
-    // reducer is idempotent + monotonic, so re-running it on a redelivered
-    // (and thus conflict-skipped) event is safe — no need to gate on the
-    // insert returning. A reducer failure must never 500 the webhook (GitHub
-    // would spin retries), so it's isolated; the event log is already durable.
-    if (userId) {
+    // reducer runs only for a newly persisted delivery: a duplicate redelivery
+    // is conflict-skipped, so it cannot get a fresh timestamp and regress state.
+    // A reducer failure must never 500 the webhook (GitHub would spin retries),
+    // so it's isolated; the event log is already durable for a backfill/replay.
+    if (userId && inserted[0]) {
       try {
         await objectStateStore.applyEvent({
           userId,
@@ -95,10 +96,14 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
           eventType,
           action: payload.action ?? null,
           payload,
-          deliveredAt,
+          deliveredAt: inserted[0].deliveredAt,
         });
       } catch (err) {
-        console.error("[github-webhook] object-state applyEvent failed", err);
+        console.error("[github-webhook] object-state applyEvent failed", {
+          deliveryId,
+          eventType,
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
