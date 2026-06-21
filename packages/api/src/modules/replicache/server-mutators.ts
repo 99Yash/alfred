@@ -32,8 +32,9 @@ import type {
   TodoEditArgs,
   TodoPromoteArgs,
   TodoReopenArgs,
+  MutatorName,
   TriageTagOverrideArgs,
-  WorkflowUpdateArgs,
+  WorkflowUpdateArgs
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
@@ -57,6 +58,15 @@ export interface ServerMutatorCtx {
 // Typed loosely so it accepts either the pool or a Drizzle tx handle.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbTx = any;
+
+/**
+ * Shape every server mutator must conform to. `args: never` lets each concrete
+ * mutator keep its own precise arg type while still satisfying the map
+ * constraint below. Paired with `satisfies Record<MutatorName, ServerMutator>`
+ * on `serverMutators`, this makes a client mutator with no server impl a
+ * compile error instead of a silent runtime drop in `push.ts`.
+ */
+type ServerMutator = (tx: DbTx, args: never, ctx: ServerMutatorCtx) => Promise<unknown>;
 
 /**
  * Server-side mutators run inside the push handler's outer transaction
@@ -570,7 +580,7 @@ export const serverMutators = {
       .returning({ sourceThreadId: emailTriage.sourceThreadId });
     return { applied: rows.length > 0 };
   },
-} as const;
+} satisfies Record<MutatorName, ServerMutator>;
 
 export type ServerMutators = typeof serverMutators;
 export type ServerMutatorName = keyof ServerMutators;

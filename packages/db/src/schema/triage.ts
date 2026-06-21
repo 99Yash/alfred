@@ -1,5 +1,18 @@
-import type { TriageTagSource } from "@alfred/contracts";
-import { index, integer, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import type {
+  TriageTagSource,
+  TriageTodoDecision,
+  TriageTodoSuggestion,
+} from "@alfred/contracts";
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  real,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -40,6 +53,21 @@ export const emailTriage = pgTable(
     confidence: real("confidence").notNull(),
     /** Short rationale from the classifier (audit + debugging). */
     rationale: text("rationale"),
+    /**
+     * Classifier todo proposal (rule 16), persisted so a same-run `classify`
+     * retry that takes the reuse path can reconstruct the full classification
+     * and re-mint the rail todo a crashed first attempt never wrote (#157).
+     * Null when the model proposed no todo, on user-overridden rows, and on
+     * legacy rows written before this column existed.
+     */
+    todoSuggestion: jsonb("todo_suggestion").$type<TriageTodoSuggestion>(),
+    /**
+     * Always-present rubric trace from the classifier ({@link TriageTodoDecision}).
+     * Persisted alongside `todoSuggestion` so the reuse path's reconstructed
+     * classification gates `resolveTodoSuggestion` identically to the first
+     * attempt (mint iff `outcome === 'proposed'`). Null on legacy/override rows.
+     */
+    todoDecision: jsonb("todo_decision").$type<TriageTodoDecision>(),
     /** Model identifier (`gemini-2.5-flash`, `claude-haiku-4-5`, …). */
     model: text("model").notNull(),
     /**
