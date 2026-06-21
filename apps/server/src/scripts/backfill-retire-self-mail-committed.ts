@@ -9,11 +9,22 @@
  * self-mail; this retires the rows already on file so the existing snowball
  * clears.
  *
- * What it removes, scoped to the target user(s):
- *   1. `email_triage` rows for every thread whose documents are all
- *      self-authored (Alfred sends each briefing as its own thread, so these
- *      threads never contain a real inbound message).
- *   2. The self-authored `documents` rows themselves (chunks cascade via FK).
+ * What it removes, scoped to the target user(s) — only for threads that are
+ * PURELY self-authored (Alfred sends each briefing as its own thread, so this
+ * is the norm):
+ *   1. The `email_triage` row for the thread.
+ *   2. The self-authored `documents` rows in it (chunks cascade via FK).
+ * A thread that ALSO carries a real inbound message is left fully intact —
+ * both its self-docs and its triage row. We must not delete a self-doc while
+ * keeping the thread's triage row: `email_triage.document_id` is nullable and
+ * `briefing/gather` *inner*-joins triage→documents on it, so a dangling
+ * pointer silently drops the whole thread (real email included) from every
+ * future briefing.
+ *
+ * Matching mirrors the ingestion guard (`isSelfAuthored`): a coarse `LIKE`
+ * candidate filter, then an EXACT parsed-address match — so this destructive
+ * pass retires exactly the set the runtime filter now drops, never mail that
+ * merely mentions the address in display text.
  *
  * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
  * `node dist/scripts/backfill-retire-self-mail-committed.js` — the prod image
@@ -27,7 +38,7 @@
  *   # commit:
  *   node dist/scripts/backfill-retire-self-mail-committed.js --commit
  *   # override target(s):
- *   SELF_MAIL_EMAILS="a@x.com" node dist/scripts/backfill-retire-self-mail-committed.js --commit
+ *   node dist/scripts/backfill-retire-self-mail-committed.js --emails=a@x.com,b@y.com --commit
  */
 import { closeConnections, closeRedis, warmPool } from "@alfred/api";
 import { serverEnv } from "@alfred/env/server";
@@ -35,20 +46,37 @@ import { db } from "@alfred/db";
 import { documents, emailTriage, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-/** Mailboxes to clean. Override with `SELF_MAIL_EMAILS` (comma-sep). */
-const TARGET_EMAILS = (process.env.SELF_MAIL_EMAILS ?? "yashgouravkar@gmail.com")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+/**
+ * Mailboxes to clean. Override with `--emails=a@x.com,b@y.com` (a CLI arg, not
+ * an env var — the repo forbids direct `process.env` and the typed env schema
+ * has no slot for a one-off script knob).
+ */
+function parseTargetEmails(): string[] {
+  const flag = process.argv.find((a) => a.startsWith("--emails="));
+  const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+const TARGET_EMAILS = parseTargetEmails();
 
 const COMMIT = process.argv.includes("--commit");
 
+/** Pull the bare lowercase `local@domain` from a `From:`-style header — the same
+ *  semantics as the ingestion guard, so the candidate→exact match here retires
+ *  exactly what the runtime filter now drops. */
+function parseEmailAddress(value: string | null): string | null {
+  if (!value) return null;
+  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+  return raw.includes("@") ? raw : null;
+}
+
 /** Bare `local@domain` from `RESEND_FROM_EMAIL` — the SSOT for Alfred's identity. */
 function selfSenderEmail(): string {
-  const raw = serverEnv().RESEND_FROM_EMAIL;
-  const addr = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase();
-  if (!addr.includes("@")) {
-    throw new Error(`RESEND_FROM_EMAIL has no parseable address: ${raw}`);
+  const addr = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
+  if (!addr) {
+    throw new Error(`RESEND_FROM_EMAIL has no parseable address: ${serverEnv().RESEND_FROM_EMAIL}`);
   }
   return addr;
 }
@@ -56,8 +84,10 @@ function selfSenderEmail(): string {
 async function processUser(u: { userId: string; email: string }, selfAddr: string): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
-  // Self-authored gmail docs: `metadata.from` contains Alfred's send address.
-  const selfDocs = await db()
+  // Candidate self-docs: coarse substring filter on `metadata.from`, then an
+  // EXACT parsed-address match (the LIKE alone over-matches mail that merely
+  // mentions the address in display text, and this delete is destructive).
+  const candidates = await db()
     .select({
       id: documents.id,
       threadId: documents.sourceThreadId,
@@ -72,48 +102,64 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
         sql`lower(${documents.metadata}->>'from') like ${"%" + selfAddr + "%"}`,
       ),
     );
+  const selfDocs = candidates.filter((d) => parseEmailAddress(d.from) === selfAddr);
 
   if (selfDocs.length === 0) {
     console.log("  no self-authored documents on file — nothing to retire");
     return;
   }
 
-  const docIds = selfDocs.map((d) => d.id);
   const threadIds = [...new Set(selfDocs.map((d) => d.threadId).filter((t): t is string => !!t))];
 
-  // Guard: only retire triage for threads that are PURELY self-authored.
-  // (Alfred sends each briefing as its own thread, so this is the norm — but
-  // we never want to drop a real email's tag if a thread somehow mixes both.)
-  const mixedThreads = threadIds.length
+  // Classify each candidate thread as PURE (every message self-authored) or
+  // MIXED (also carries a real inbound message), using the same exact-address
+  // semantics. A thread is mixed iff it holds a doc whose `from` is NOT self.
+  const threadDocs = threadIds.length
     ? await db()
-        .select({ threadId: documents.sourceThreadId })
+        .select({
+          threadId: documents.sourceThreadId,
+          from: sql<string | null>`${documents.metadata}->>'from'`,
+        })
         .from(documents)
         .where(
           and(
             eq(documents.userId, u.userId),
             eq(documents.source, "gmail"),
             inArray(documents.sourceThreadId, threadIds),
-            sql`lower(${documents.metadata}->>'from') not like ${"%" + selfAddr + "%"}`,
           ),
         )
     : [];
-  const mixedSet = new Set(mixedThreads.map((r) => r.threadId));
+  const mixedSet = new Set<string>();
+  for (const d of threadDocs) {
+    if (d.threadId && parseEmailAddress(d.from) !== selfAddr) mixedSet.add(d.threadId);
+  }
   const pureThreadIds = threadIds.filter((t) => !mixedSet.has(t));
+  const pureThreadSet = new Set(pureThreadIds);
+
+  // Only delete self-docs that are safe to remove: those in a purely-self
+  // thread (whose triage row we also delete below), or standalone (no thread →
+  // no triage row to orphan). Self-docs sitting in a MIXED thread are skipped
+  // entirely — deleting one while its thread's triage row survives would dangle
+  // `email_triage.document_id` and drop the real email from briefings (see
+  // header). Rare (Alfred self-threads each briefing), but the guard is exact.
+  const deletableDocs = selfDocs.filter((d) => !d.threadId || pureThreadSet.has(d.threadId));
+  const skippedMixedDocs = selfDocs.length - deletableDocs.length;
+  const docIds = deletableDocs.map((d) => d.id);
 
   console.log(`  ${selfDocs.length} self-authored docs across ${threadIds.length} threads`);
   if (mixedSet.size) {
     console.log(
-      `  ! ${mixedSet.size} thread(s) also contain non-self mail — their triage is LEFT intact`,
+      `  ! ${mixedSet.size} mixed thread(s) also contain non-self mail — docs AND triage LEFT intact (${skippedMixedDocs} self-doc(s) skipped)`,
     );
   }
-  for (const d of selfDocs.slice(0, 15)) {
+  for (const d of deletableDocs.slice(0, 15)) {
     console.log(`    doc=${d.id} thread=${d.threadId} | ${d.from} | ${d.title ?? "(no subject)"}`);
   }
-  if (selfDocs.length > 15) console.log(`    … and ${selfDocs.length - 15} more`);
+  if (deletableDocs.length > 15) console.log(`    … and ${deletableDocs.length - 15} more`);
 
   if (!COMMIT) {
     console.log(
-      `  DRY — would delete ${selfDocs.length} docs and triage for ${pureThreadIds.length} pure threads`,
+      `  DRY — would delete ${docIds.length} docs and triage for ${pureThreadIds.length} pure threads`,
     );
     return;
   }
@@ -122,18 +168,17 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
     ? await db()
         .delete(emailTriage)
         .where(
-          and(
-            eq(emailTriage.userId, u.userId),
-            inArray(emailTriage.sourceThreadId, pureThreadIds),
-          ),
+          and(eq(emailTriage.userId, u.userId), inArray(emailTriage.sourceThreadId, pureThreadIds)),
         )
         .returning({ threadId: emailTriage.sourceThreadId })
     : [];
 
-  const docsDeleted = await db()
-    .delete(documents)
-    .where(and(eq(documents.userId, u.userId), inArray(documents.id, docIds)))
-    .returning({ id: documents.id });
+  const docsDeleted = docIds.length
+    ? await db()
+        .delete(documents)
+        .where(and(eq(documents.userId, u.userId), inArray(documents.id, docIds)))
+        .returning({ id: documents.id })
+    : [];
 
   console.log(
     `  PERSISTED — deleted ${docsDeleted.length} documents + ${triageDeleted.length} triage rows`,
