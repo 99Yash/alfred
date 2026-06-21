@@ -444,14 +444,14 @@ const MAX_SHIPPED = 6;
 
 /**
  * Deterministic day-shape (ADR-0064 / #230). `activityVolume` is derived from
- * the integration-activity window count; `shipped` is the most-recently-resolved
- * GitHub work objects (ADR-0062 projection), which feeds the evening "what you
- * shipped" recap. No LLM judgment — this exists so the composer can't call a day
- * with real activity "quiet."
+ * the integration-activity window count; `shipped` is the GitHub work objects
+ * that *resolved within the briefing window* (ADR-0062 projection), which feeds
+ * the evening "what you shipped" recap. No LLM judgment — this exists so the
+ * composer can't call a day with real activity "quiet."
  *
- * v1 scopes `shipped` to recency, not a strict window filter: `list` orders by
- * `updatedAt` desc and we take the top few resolved objects. A persisted
- * resolved-at timestamp (to window precisely) is a fast-follow.
+ * `shipped` is windowed on the persisted `stateDeliveredAt` (the delivery time
+ * of the event that resolved the object), so a previously-resolved or
+ * future-resolved object can't leak into the recap — even on a retry.
  */
 export async function gatherDayShape(args: {
   userId: string;
@@ -472,6 +472,7 @@ export async function gatherDayShape(args: {
 
   const resolved = await objectStateStore.list(args.userId, "github", {
     stateCategory: "resolved",
+    deliveredWithin: { start: args.windowStart, end: args.windowEnd },
     limit: MAX_SHIPPED,
   });
   const shipped = resolved

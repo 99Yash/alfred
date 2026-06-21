@@ -256,6 +256,7 @@ function toInboxItem(row: InboxResponseItem): InboxItem {
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
     time: formatRelativeShort(row.authoredAt),
+    authoredAtMs: row.authoredAt ? new Date(row.authoredAt).getTime() : null,
     unread: row.unread,
     initial: initialFor(display),
     tone: toneFor(display),
