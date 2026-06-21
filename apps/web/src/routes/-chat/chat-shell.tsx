@@ -1554,6 +1554,9 @@ function overlayTriageTags(
       subject: item.subject,
       category: item.category ?? "fyi",
       significanceBand,
+      // Order recurrence chronologically — the rail is newest-first, so without
+      // this the latest copy of a repeated alarm would (wrongly) stay demanding.
+      occurredAtMs: item.authoredAtMs,
     })),
   );
   const withBand = merged.map(({ item }, i) => {

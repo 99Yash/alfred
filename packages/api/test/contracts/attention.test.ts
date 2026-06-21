@@ -153,6 +153,27 @@ describe("scoreAttentionForItems", () => {
     assert.equal(b.band, "demanding");
   });
 
+  test("assigns recurrence chronologically even when items arrive newest-first", () => {
+    // Both live consumers (briefing + inbox rail) feed rows newest-first. The
+    // FIRST chronological sighting must stay demanding; the latest (10th) copy
+    // must decay — regardless of the order it's passed in.
+    const newestFirst = Array.from({ length: 10 }, (_, i) => ({
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: CPU high",
+      category: "urgent" as const,
+      // i=0 is newest; oldest has the smallest timestamp.
+      occurredAtMs: 10_000 - i * 1000,
+    }));
+    const results = scoreAttentionForItems(newestFirst);
+    const newest = results[0];
+    const oldest = results[results.length - 1];
+    assert.ok(newest && oldest);
+    // The newest copy is the 10th sighting → decayed; the oldest is the 1st.
+    assert.equal(oldest.band, "demanding", "the first (oldest) sighting stays demanding");
+    assert.equal(newest.band, "muted", "the latest (10th) copy decays out");
+    assert.ok(newest.score < oldest.score);
+  });
+
   test("aligns 1:1 with the input order", () => {
     const results = scoreAttentionForItems([
       { sender: "Fabian <fabian@acme.com>", subject: "Hi", category: "fyi" },

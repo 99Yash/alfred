@@ -170,6 +170,9 @@ export async function listEmailsSinceWatermark(
       subject: r.subject,
       category: toTriageCategory(r.triageCategory) ?? "fyi",
       significanceBand: bandFor(senders[i] ?? null),
+      // Chronological key for recurrence (rows arrive newest-first); fall back
+      // to ingest time when the message carries no authored timestamp.
+      occurredAtMs: (r.authoredAt ?? r.ingestedAt)?.getTime() ?? null,
     })),
   );
 

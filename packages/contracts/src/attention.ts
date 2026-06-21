@@ -228,6 +228,15 @@ export function isLikelyBulkSender(from: string | null | undefined): boolean {
 
 // ─── Windowed item scoring (the cross-row recurrence pass) ───────────────────
 
+/**
+ * Recurrence grouping-key separator. A control char (unit separator) that
+ * cannot appear in a lowercased email address or a normalized subject (both
+ * reduced to `[a-z0-9 ]`), so it can never collide a distinct sender/subject
+ * pair into one group. Written as an escape — never a literal control byte in
+ * source — so search/diff/editor tooling stays sane.
+ */
+const RECURRENCE_KEY_SEP = "\u001f";
+
 export interface AttentionItemInput {
   /** Raw `From` header (display-name + address ok); used for bulk + grouping. */
   sender: string | null | undefined;
@@ -239,16 +248,28 @@ export interface AttentionItemInput {
   significanceBand?: SignificanceBand | null;
   /** Exposed-secret / security pin — forces `demanding` (ADR-0051). */
   pinnedDemanding?: boolean;
+  /**
+   * Chronological occurrence time (epoch ms, e.g. the email's `authoredAt`).
+   * Recurrence — "how many copies has the human *already* seen?" — is inherently
+   * chronological, so the recurrence index is assigned oldest-first off this key,
+   * independent of the order `items` is passed in (both live consumers render
+   * newest-first). Omit/null on every item to fall back to input order.
+   */
+  occurredAtMs?: number | null;
 }
 
 /**
  * Score a window of items together so recurrence — an inherently cross-row
  * property — can be computed. Groups bulk-sender items by
- * `(address, normalizedSubject)`; the k-th occurrence in input order gets
- * `recurrenceIndex = k`, so a machine notification fired ten times decays out
- * of the demanding lane while its first sighting stays put. Non-bulk senders
- * never accrue an index (a human repeating is not demoted). Returns results
- * aligned 1:1 with `items`.
+ * `(address, normalizedSubject)`; the k-th occurrence in *chronological* order
+ * gets `recurrenceIndex = k`, so a machine notification fired ten times decays
+ * out of the demanding lane while its first sighting stays put. Recurrence is
+ * assigned oldest-first off {@link AttentionItemInput.occurredAtMs} and the
+ * results mapped back to the caller's order — both live consumers render
+ * newest-first, where assigning by input order would (wrongly) keep the latest
+ * copy demanding and mute the older ones. Non-bulk senders never accrue an
+ * index (a human repeating is not demoted). Returns results aligned 1:1 with
+ * `items`.
  *
  * This is the single windowed-scoring entry point shared by the briefing read
  * path (the agent's email list) and the inbox rail — each computes attention
@@ -257,21 +278,36 @@ export interface AttentionItemInput {
 export function scoreAttentionForItems(
   items: readonly AttentionItemInput[],
 ): AttentionResult[] {
+  const entries = items.map((item, index) => ({
+    item,
+    index,
+    bulk: isLikelyBulkSender(item.sender),
+    recurrenceIndex: 0,
+  }));
+
+  // Walk oldest-first so `recurrenceIndex` counts *prior* sightings; ties and
+  // the no-timestamp case fall back to input order (stable). The sorted view
+  // holds the same entry objects, so writing `recurrenceIndex` here lands on the
+  // original-order entries returned below.
   const seen = new Map<string, number>();
-  return items.map((item) => {
-    const bulk = isLikelyBulkSender(item.sender);
-    let recurrenceIndex = 0;
-    if (bulk) {
-      const key = `${senderAddress(item.sender) ?? ""} ${normalizeSubjectForRecurrence(item.subject ?? "")}`;
-      recurrenceIndex = seen.get(key) ?? 0;
-      seen.set(key, recurrenceIndex + 1);
-    }
-    return attentionScore({
+  const chronological = [...entries].sort(
+    (a, b) => (a.item.occurredAtMs ?? 0) - (b.item.occurredAtMs ?? 0) || a.index - b.index,
+  );
+  for (const entry of chronological) {
+    if (!entry.bulk) continue;
+    const key = `${senderAddress(entry.item.sender) ?? ""}${RECURRENCE_KEY_SEP}${normalizeSubjectForRecurrence(entry.item.subject ?? "")}`;
+    const idx = seen.get(key) ?? 0;
+    entry.recurrenceIndex = idx;
+    seen.set(key, idx + 1);
+  }
+
+  return entries.map(({ item, bulk, recurrenceIndex }) =>
+    attentionScore({
       category: item.category,
       significanceBand: item.significanceBand,
       isBulkSender: bulk,
       recurrenceIndex,
       pinnedDemanding: item.pinnedDemanding,
-    });
-  });
+    }),
+  );
 }

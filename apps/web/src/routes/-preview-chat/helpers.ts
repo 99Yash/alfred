@@ -133,6 +133,13 @@ export interface InboxItem {
   subject: string;
   preview: string;
   time: string;
+  /**
+   * Authored time as epoch ms — the chronological key the attention scorer uses
+   * to order recurrence (the rail renders newest-first, but the Nth repeat must
+   * decay oldest-first). Null when the row carries no authored timestamp.
+   * Distinct from {@link InboxItem.time}, which is a localized display string.
+   */
+  authoredAtMs?: number | null;
   unread?: boolean;
   initial: string;
   tone: ToolTone;
