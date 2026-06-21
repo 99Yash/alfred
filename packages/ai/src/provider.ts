@@ -1,5 +1,5 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
+import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
+import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import type { ChatModelTier } from "@alfred/contracts";
 import type { LanguageModel, ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
@@ -21,6 +21,13 @@ export type { ChatModelTier };
 // listed) a compile error rather than a silent cost-attribution miss.
 const anthropicModel = (id: ModelIdFor<"anthropic">) => anthropic(id);
 const googleModel = (id: ModelIdFor<"google">) => google(id);
+
+type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
+type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
+type ChatProviderOptions = Record<string, Record<string, unknown>> & {
+  anthropic: AnthropicChatProviderOptions;
+  google: GoogleChatProviderOptions;
+};
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -129,9 +136,7 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  *     tier: `deep` escalates to deliberate reasoning, `standard` stays light
  *     for a fast interactive first token.
  */
-export function getChatProviderOptions(
-  tier: ChatModelTier = "standard",
-): Record<string, Record<string, unknown>> {
+export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
   return {
     google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
     anthropic: {
