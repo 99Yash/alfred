@@ -311,3 +311,67 @@ export async function getSenderSignificance(
     sameOrg: significance.components.sameOrg >= 1,
   };
 }
+
+/**
+ * Batched form of {@link getSenderSignificance} — resolves many sender addresses
+ * to their precomputed significance in a *single* alias query, returning a map
+ * keyed by normalized (trimmed/lowercased) address. Addresses with no scored
+ * `person` row are simply absent (the caller treats absence as neutral), exactly
+ * like the one-shot read. Use this on fan-out read paths (e.g. a briefing email
+ * list) where calling the one-shot per address would be an N+1. Best-effort: a
+ * DB blip yields an empty map rather than failing the caller.
+ */
+export async function getSenderSignificanceBatch(
+  userId: string,
+  addresses: ReadonlyArray<string | null | undefined>,
+): Promise<Map<string, SenderSignificance>> {
+  const out = new Map<string, SenderSignificance>();
+
+  const targets = new Set<string>();
+  for (const raw of addresses) {
+    const normalized = raw?.trim().toLowerCase();
+    if (normalized) targets.add(normalized);
+  }
+  if (targets.size === 0) return out;
+  const targetList = [...targets];
+
+  let rows: { metadata: unknown; aliases: unknown }[];
+  try {
+    rows = await db()
+      .select({ metadata: entities.metadata, aliases: entities.aliases })
+      .from(entities)
+      .where(
+        and(
+          eq(entities.userId, userId),
+          eq(entities.kind, "person"),
+          sql`EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+            WHERE lower(alias) = ANY(${targetList})
+          )`,
+        ),
+      );
+  } catch {
+    return out;
+  }
+
+  for (const row of rows) {
+    const meta = parsePersonEntityMetadata(row.metadata);
+    const significance = meta?.significance;
+    if (!significance) continue;
+    const resolved: SenderSignificance = {
+      score: significance.score,
+      band: bucketSignificance(significance.score),
+      sameOrg: significance.components.sameOrg >= 1,
+    };
+    // Map every requested address this entity carries as an alias back to its
+    // significance — one entity can answer several of the distinct senders.
+    const aliases = Array.isArray(row.aliases) ? row.aliases : [];
+    for (const alias of aliases) {
+      if (typeof alias !== "string") continue;
+      const normalized = alias.trim().toLowerCase();
+      if (targets.has(normalized)) out.set(normalized, resolved);
+    }
+  }
+
+  return out;
+}
