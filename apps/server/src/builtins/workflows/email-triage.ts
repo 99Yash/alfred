@@ -258,6 +258,14 @@ export const emailTriageWorkflow: Workflow<State> = {
             category: existing.category,
             confidence: existing.confidence,
             rationale: existing.rationale ?? "",
+            // Reconstruct the todo proposal + rubric trace from the persisted
+            // columns so `resolveTodoSuggestion` below behaves identically to
+            // the first attempt — without these the reuse path silently dropped
+            // the classifier-minted todo (#157). `?? undefined` because the
+            // classification fields are optional (a null stored value means the
+            // model proposed no todo).
+            todoSuggestion: existing.todoSuggestion ?? undefined,
+            todoDecision: existing.todoDecision ?? undefined,
           };
           model = existing.model;
           // The row is already owned by this run, so its tag is canonical —
@@ -335,6 +343,10 @@ export const emailTriageWorkflow: Workflow<State> = {
             rationale: classification.rationale,
             model,
             runId: ctx.runId,
+            // Persist the todo proposal + rubric trace so a same-run retry on
+            // the reuse path can re-mint a todo this attempt is about to (#157).
+            todoSuggestion: classification.todoSuggestion ?? null,
+            todoDecision: classification.todoDecision ?? null,
             authoredAt: ctxData.document.authoredAt,
           });
           written = upserted.written;
