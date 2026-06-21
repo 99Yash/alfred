@@ -92,11 +92,7 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
  * the `prompt` string, folding in `system` when present. Attached to every
  * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
  */
-function captureInput(args: {
-  system?: string;
-  prompt?: unknown;
-  messages?: unknown;
-}): unknown {
+function captureInput(args: { system?: string; prompt?: unknown; messages?: unknown }): unknown {
   const { system, prompt, messages } = args;
   if (Array.isArray(messages)) {
     return system ? [{ role: "system", content: system }, ...messages] : messages;

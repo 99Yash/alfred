@@ -76,7 +76,7 @@ services:
     restart: always
     depends_on: *langfuse-depends-on
     ports:
-      - 3100:3000
+      - 127.0.0.1:3100:3000
     environment:
       <<: *langfuse-worker-env
       NEXTAUTH_SECRET: "a9f9a38866c643dff885f8f0b87564fcdf059af6a98cbde2853e17dc6875b355"
@@ -122,7 +122,7 @@ services:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: miniosecret
     ports:
-      - 9090:9000
+      - 127.0.0.1:9090:9000
       - 127.0.0.1:9091:9001
     volumes:
       - langfuse_minio_data:/data
