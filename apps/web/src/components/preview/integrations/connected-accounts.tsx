@@ -105,11 +105,17 @@ function DisconnectControl({
   }
 
   return (
-    <div className="flex min-w-0 items-center justify-end gap-1.5">
+    <div role="alert" className="flex min-w-0 items-center justify-end gap-1.5">
       {isGoogle ? (
         <span className="truncate text-[11px] text-app-fg-2">Removes all Google access</span>
       ) : null}
-      <AppButton variant="ghost" size="sm" onClick={() => setArmed(false)} disabled={isPending}>
+      <AppButton
+        variant="ghost"
+        size="sm"
+        onClick={() => setArmed(false)}
+        disabled={isPending}
+        autoFocus
+      >
         Cancel
       </AppButton>
       <AppButton

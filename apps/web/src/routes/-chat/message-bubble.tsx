@@ -105,33 +105,48 @@ const API_URL =
 function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
-      {attachments.map((a) =>
-        a.status === "ready" ? (
-          <a
-            key={a.id}
-            href={`${API_URL}/api/chat/attachments/${a.id}/content`}
-            target="_blank"
-            rel="noreferrer"
-            className="block h-40 w-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
-          >
-            <img
-              src={`${API_URL}/api/chat/attachments/${a.id}/content`}
-              alt={a.name}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover"
-            />
-          </a>
-        ) : (
-          <div
-            key={a.id}
-            className="grid h-40 w-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3"
-          >
-            {a.status === "failed" ? "Couldn't process" : "Processing…"}
-          </div>
-        ),
-      )}
+      {attachments.map((a) => (
+        <MessageAttachment key={a.id} attachment={a} />
+      ))}
     </div>
+  );
+}
+
+function AttachmentPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="grid h-40 w-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3">
+      {label}
+    </div>
+  );
+}
+
+function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment }) {
+  const [loadFailed, setLoadFailed] = useState(false);
+  if (attachment.status !== "ready") {
+    return (
+      <AttachmentPlaceholder
+        label={attachment.status === "failed" ? "Couldn't process" : "Processing…"}
+      />
+    );
+  }
+  if (loadFailed) return <AttachmentPlaceholder label="Couldn't load" />;
+  const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="block h-40 w-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
+    >
+      <img
+        src={url}
+        alt={attachment.name}
+        loading="lazy"
+        decoding="async"
+        className="h-full w-full object-cover"
+        onError={() => setLoadFailed(true)}
+      />
+    </a>
   );
 }
 
@@ -176,6 +191,10 @@ export function MessageBubble({
       ? FAILURE_PRESENTATION[message.errorKind]
       : LEGACY_FAILURE
     : null;
+  const failureMessage =
+    failure?.retry === "without_attachments" && !onRetryWithoutAttachments
+      ? "I couldn't read the attached file. Start a new chat with a different file, or send a text message instead."
+      : failure?.message;
   return (
     <div className="group/message flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
@@ -202,7 +221,7 @@ export function MessageBubble({
             "rounded-xl bg-app-red-1 px-3 py-2",
           )}
         >
-          <p className="text-[13px] leading-snug text-app-red-4">{failure.message}</p>
+          <p className="text-[13px] leading-snug text-app-red-4">{failureMessage}</p>
           {failure.retry === "same" && onRetry ? (
             <button type="button" onClick={onRetry} className={FAILURE_ACTION_CLASS}>
               <RotateCcw size={13} />
