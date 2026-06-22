@@ -48,9 +48,9 @@ const turnKickResponseSchema = z.object({
 const TURN_KICK_TIMEOUT_MS = 30_000;
 
 /**
- * Send a chat turn. Persists the user message via Replicache (optimistic +
- * multi-device), kicks the agent over `POST /api/chat/threads/:id/turn`, and
- * — for a brand-new chat — mints the thread id and navigates to its deep link.
+ * Send a chat turn. Uploads any files, kicks the agent over
+ * `POST /api/chat/threads/:id/turn` (which durably upserts the user message),
+ * then mirrors the accepted turn into Replicache for immediate local display.
  * The agent's reply streams back over SSE (see `useChatStream`).
  */
 export function useSendMessage(): SendMessage {
@@ -104,93 +104,94 @@ export function useSendMessage(): SendMessage {
         if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return false;
       }
 
-      if (isNew) {
-        await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
-      }
-      await rep.mutate.chatMessageCreate({
-        id: userMessageId,
-        threadId: tid,
-        userId,
-        content,
-        createdAt: now,
-      });
-      // Optimistically record each uploaded attachment so the image renders in
-      // its bubble immediately; the server mutator persists the canonical row.
-      for (const a of uploaded) {
-        await rep.mutate.chatAttachmentCreate({
-          id: a.id,
-          messageId: userMessageId,
-          threadId: tid,
-          name: a.name,
-          mime: a.mime,
-          size: a.size,
-          position: a.position,
-          createdAt: now,
+      try {
+        markChatTimingByUser(userMessageId, "turn_request_started");
+        const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            userMessageId,
+            content,
+            tier: tier ?? "standard",
+            attachments: uploaded.length > 0 ? uploaded : undefined,
+            // Faithful retry: the server copies these source objects under the
+            // new message's keys and writes the rows (which sync back via pull).
+            retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
+          }),
+          signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
-      }
-
-      if (isNew) {
-        void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
-      }
-
-      void (async () => {
-        try {
-          markChatTimingByUser(userMessageId, "turn_request_started");
-          const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              userMessageId,
-              content,
-              tier: tier ?? "standard",
-              attachments: uploaded.length > 0 ? uploaded : undefined,
-              // Faithful retry: the server copies these source objects under the
-              // new message's keys and writes the rows (which sync back via pull).
-              retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
-            }),
-            signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
-          });
-          if (!res.ok) {
-            const body = await res.text().catch(() => "");
-            markChatTimingByUser(
-              userMessageId,
-              "turn_request_failed",
-              { status: res.status, body },
-              { summarize: true },
-            );
-            console.error("[chat] turn kick failed:", res.status, body);
-            toast.error("Couldn't send your message. Please try again.");
-            return;
-          }
-
-          const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
-          if (payload.success) {
-            attachChatAssistantTiming({
-              userMessageId,
-              assistantMessageId: payload.data.assistantMessageId,
-              runId: payload.data.runId,
-              detail: { status: res.status },
-            });
-          } else {
-            markChatTimingByUser(
-              userMessageId,
-              "turn_request_ack_without_message_id",
-              { status: res.status },
-              { summarize: true },
-            );
-          }
-        } catch (err) {
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
           markChatTimingByUser(
             userMessageId,
-            "turn_request_error",
-            { error: toMessage(err) },
+            "turn_request_failed",
+            { status: res.status, body },
             { summarize: true },
           );
-          console.error("[chat] turn kick error:", toMessage(err));
+          console.error("[chat] turn kick failed:", res.status, body);
           toast.error("Couldn't send your message. Please try again.");
+          return false;
         }
-      })();
+
+        const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
+        if (payload.success) {
+          attachChatAssistantTiming({
+            userMessageId,
+            assistantMessageId: payload.data.assistantMessageId,
+            runId: payload.data.runId,
+            detail: { status: res.status },
+          });
+        } else {
+          markChatTimingByUser(
+            userMessageId,
+            "turn_request_ack_without_message_id",
+            { status: res.status },
+            { summarize: true },
+          );
+        }
+        try {
+          if (isNew) {
+            await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
+          }
+          await rep.mutate.chatMessageCreate({
+            id: userMessageId,
+            threadId: tid,
+            userId,
+            content,
+            createdAt: now,
+          });
+          // Local display patch only: the HTTP route has already verified the
+          // bucket object and inserted the canonical attachment rows.
+          for (const a of uploaded) {
+            await rep.mutate.chatAttachmentCreate({
+              id: a.id,
+              messageId: userMessageId,
+              threadId: tid,
+              name: a.name,
+              mime: a.mime,
+              size: a.size,
+              position: a.position,
+              createdAt: now,
+            });
+          }
+        } catch (err) {
+          console.warn("[chat] local turn mirror failed:", toMessage(err));
+        }
+        if (isNew) {
+          void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
+        }
+      } catch (err) {
+        markChatTimingByUser(
+          userMessageId,
+          "turn_request_error",
+          { error: toMessage(err) },
+          { summarize: true },
+        );
+        console.error("[chat] turn kick error:", toMessage(err));
+        toast.error("Couldn't send your message. Please try again.");
+        return false;
+      }
       return true;
     },
     [rep, userId, navigate],

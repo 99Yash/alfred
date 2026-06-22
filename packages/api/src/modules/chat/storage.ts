@@ -151,6 +151,11 @@ export async function writeObject(
   await files().upload(key, bytes, { contentType });
 }
 
+/** True when an object already exists at `key`; transport/auth failures still throw. */
+export async function objectExists(key: string): Promise<boolean> {
+  return files().exists(key);
+}
+
 /** Metadata for a stored object, without downloading its body. */
 export async function headObject(key: string): Promise<{ size: number; contentType: string }> {
   const file = await files().head(key);
