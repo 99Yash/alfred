@@ -1,8 +1,9 @@
-import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
 import { railwayValidateToken } from "@alfred/integrations/railway";
-import { listBearerCredentials, upsertBearerCredential } from "@alfred/integrations/shared";
-import { and, eq } from "drizzle-orm";
+import {
+  deleteIntegrationCredential,
+  listBearerCredentials,
+  upsertBearerCredential,
+} from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError, NotFoundError } from "../../middleware/errors";
@@ -60,18 +61,13 @@ export const railwayIntegrationRoutes = new Elysia({
       .delete(
         "/:id",
         async ({ params, user }) => {
-          const deleted = await db()
-            .delete(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-                eq(integrationCredentials.provider, "railway"),
-              ),
-            )
-            .returning({ id: integrationCredentials.id });
-          if (!deleted[0]) throw new NotFoundError("Credential not found");
-          return { id: deleted[0].id, ok: true };
+          const deleted = await deleteIntegrationCredential({
+            userId: user.id,
+            provider: "railway",
+            id: params.id,
+          });
+          if (!deleted) throw new NotFoundError("Credential not found");
+          return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
       ),
