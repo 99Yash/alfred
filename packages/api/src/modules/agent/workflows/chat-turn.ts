@@ -378,15 +378,18 @@ async function hydrateContentForModel(content: unknown): Promise<unknown> {
       parts.push(part);
       continue;
     }
-    // Inline the raw bytes (ADR-0065 "bytes path") instead of a presigned URL:
-    // the providers can't fetch our private, short-lived Railway storage URLs,
-    // so a URL-valued image part fails the turn (boss + fallback alike).
-    const image = await readObject(part.storageKey);
-    parts.push(
-      part.mediaType
-        ? { type: "image", image, mediaType: part.mediaType }
-        : { type: "image", image },
-    );
+    // Inline the bytes (ADR-0065 "bytes path") instead of a presigned URL: the
+    // providers can't fetch our private, short-lived Railway storage URLs, so a
+    // URL-valued image part fails the turn (boss + fallback alike). Encode as a
+    // base64 string rather than a raw Uint8Array: the `withFallback` cascade
+    // (Opus → Gemini) replays the same message objects, and the first provider's
+    // encoder detaches the typed array's ArrayBuffer, so the fallback would see
+    // empty bytes ("Unable to process input image"). A string is immutable and
+    // survives the replay (and any JSON round-trip) intact.
+    const bytes = await readObject(part.storageKey);
+    const image = Buffer.from(bytes).toString("base64");
+    const mediaType = part.mediaType ?? "image/png";
+    parts.push({ type: "image", image, mediaType });
   }
   return parts;
 }
