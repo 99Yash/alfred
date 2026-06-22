@@ -102,9 +102,9 @@ export type IngestionJobData =
   | {
       /**
        * Reap uploaded attachment objects that never got a durable
-       * `chat_attachments` row. Scheduled when `/attachments/sign` or
-       * `/attachments/upload` accepts a key; successful `/turn` writes make this
-       * a no-op because the exact storage key is now present in Postgres.
+       * `chat_attachments` row. Scheduled when `/attachments/upload` accepts a
+       * key; successful `/turn` writes make this a no-op because the exact
+       * storage key is now present in Postgres.
        */
       kind: "media.cleanup_pending_upload";
       userId: string;

@@ -1,5 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
-import { Files, type SignedUpload } from "files-sdk";
+import { Files } from "files-sdk";
 import { s3 } from "files-sdk/s3";
 
 /**
@@ -39,7 +39,11 @@ export function isStorageConfigured(): boolean {
     env.CHAT_S3_BUCKET &&
     env.CHAT_S3_REGION &&
     env.CHAT_S3_ACCESS_KEY_ID &&
-    env.CHAT_S3_SECRET_ACCESS_KEY,
+    env.CHAT_S3_SECRET_ACCESS_KEY &&
+    // The provider is Railway storage, which requires an endpoint. Include it so
+    // a half-configured deploy (creds set, endpoint missing) 503-gates cleanly
+    // instead of silently falling back to the AWS-native S3 host.
+    env.CHAT_S3_ENDPOINT,
   );
 }
 
@@ -119,27 +123,6 @@ export function buildAttachmentKey(opts: {
 }
 
 /**
- * Mint a direct-to-bucket upload URL for the browser (the server never proxies
- * the file). `maxSize` (the matched ingest policy's per-file cap) is bound into
- * the signature so the bucket write itself is size-limited: files-sdk returns a
- * presigned POST form with a `content-length-range` policy rather than an
- * unbounded PUT URL, closing the "anyone with the URL can upload an arbitrarily
- * large object" hole. `minSize: 1` rejects empty uploads.
- */
-export async function signedUploadUrl(
-  key: string,
-  contentType: string,
-  maxSize: number,
-): Promise<SignedUpload> {
-  return files().signedUploadUrl(key, {
-    expiresIn: SIGNED_URL_TTL_SECONDS,
-    contentType,
-    maxSize,
-    minSize: 1,
-  });
-}
-
-/**
  * A short-lived read URL for an object — used for the composer's image preview
  * (the model gets inlined bytes via `readObject`, not a URL). Presigned GET
  * unless a public base URL is set.
@@ -186,14 +169,6 @@ export async function objectExists(key: string): Promise<boolean> {
 export async function headObject(key: string): Promise<{ size: number; contentType: string }> {
   const file = await files().head(key);
   return { size: file.size, contentType: file.type };
-}
-
-/** Read a small byte prefix from an object for server-side type sniffing. */
-export async function readObjectPrefix(key: string, byteCount: number): Promise<Uint8Array> {
-  const file = await files().download(key, {
-    range: { start: 0, end: Math.max(0, byteCount - 1) },
-  });
-  return new Uint8Array(await file.arrayBuffer());
 }
 
 /**

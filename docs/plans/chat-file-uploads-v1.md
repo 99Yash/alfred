@@ -76,7 +76,7 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 ## Build order
 
 0. **ADR-0065 written** (decisions.md) — degrade-at-ingest invariant, storage/lifecycle, orchestration, rejected routing design. ✅
-1. **Bytes path (images only, no degrade).** ✅ **Built 2026-06-22.** `chat_attachments` table (migrations 0045–0047, `rowVersion` + `position` for sync/model order) + `chat/storage.ts` (files-sdk → Railway buckets) + server-proxied `POST /attachments/upload` (Railway bucket CORS blocked direct browser POST; `/attachments/sign` remains for a future CORS-capable provider) + composer wiring (paperclip → file input, validation, drag/drop/paste, chips) + image-bytes transcript assembly + thread-delete prefix cleanup (`media.cleanup` job). **Render via Replicache sync** (`chat_attachments` is a synced entity) + auth-gated content proxy `GET /attachments/:id/content`. Upload-at-send. All 13 packages typecheck. **Runtime-tested in-browser against a Railway bucket with `CHAT_S3_*` env vars.**
+1. **Bytes path (images only, no degrade).** ✅ **Built 2026-06-22.** `chat_attachments` table (migrations 0045–0047, `rowVersion` + `position` for sync/model order) + `chat/storage.ts` (files-sdk → Railway buckets) + server-proxied `POST /attachments/upload` as the **sole** ingest path (Railway bucket CORS blocked direct browser POST, so the signed-upload `/attachments/sign` route was dead and is **removed** — send-time validation collapses to a cheap `headObject` since `/upload` already sniffs+decodes bytes) + composer wiring (paperclip → file input, validation, drag/drop/paste, chips) + image-bytes transcript assembly + thread-delete prefix cleanup (`media.cleanup` job). **Render via Replicache sync** (`chat_attachments` is a synced entity) + auth-gated content proxy `GET /attachments/:id/content`. Upload-at-send (**revert to upload-on-attach before Phase 2** — bounded-await timing assumes it). All 13 packages typecheck. **Runtime-tested in-browser against a Railway bucket with `CHAT_S3_*` env vars.**
 2. **Degrade worker — no-ffmpeg modalities.** `media.degrade` job: audio (`transcribeAudio`), pdf/docx/xlsx/code → text. Status transitions + live poll UI + bounded-await + graceful partial-answer + status-into-context seam.
 3. **Video.** ffmpeg in the server image → audio-split transcript + keyframe image parts.
 4. **Hardening.** Cap/timeout/keyframe tuning from real usage; eval/error cases; confirm poll-vs-SSE.
@@ -89,6 +89,12 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 - PDF text-extraction lib; scanned-PDF OCR posture.
 - docx/xlsx→text client-side (`mammoth`) vs in the worker.
 - Status transport: confirm 1s-poll acceptable vs a small SSE addition.
+
+### Known v1 gaps (Phase 1 review, 2026-06-22)
+
+- **Image transcript replay** is bounded per-turn (`MAX_MODEL_ATTACHMENT_BYTES_PER_TURN`) but not compacted: recent images re-download + re-base64 every turn, no cross-turn cache. v2: replace older image parts with `[earlier image: name]` text past a threshold. (See ADR-0065 implementation notes.)
+- **PDF/non-universal fidelity** — degrade-to-text is lossy; scanned/infographic PDFs answer worse than a natively-multimodal model. PDF page-image rendering is the known v2 gap.
+- **Ingest-abuse limiter** (rate limit + per-message pending-bytes budget/ledger + orphan reaper) is multi-user forward-compat, kept deliberately though a single user can't trigger it.
 
 ## Key references
 

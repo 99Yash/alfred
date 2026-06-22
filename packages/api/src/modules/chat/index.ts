@@ -40,7 +40,6 @@ import {
   copyObject,
   isStorageConfigured,
   objectExists,
-  signedUploadUrl,
   writeObject,
 } from "./storage";
 import { requestChatStop } from "./stop-signal";
@@ -360,87 +359,16 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
       )
       .post(
         /**
-         * Mint a direct-to-bucket upload URL for a chat attachment (ADR-0065).
-         * The browser PUTs the bytes straight to the bucket — the server never
-         * proxies the file. No DB row is written here: the durable
-         * `chat_attachments` row is created at send time (the turn endpoint),
-         * once the user message it references exists. The storage key is built
-         * server-side from the caller's id + the client-supplied ids, so the
-         * client can't point the upload outside its own `chat/{userId}/…` prefix.
-         */
-        "/attachments/sign",
-        async ({ body, user }) => {
-          if (!isStorageConfigured()) {
-            throw new ServiceUnavailableError(
-              "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
-            );
-          }
-          const policy = assertUploadAllowed(body.mime, body.size);
-          const storageKey = buildAttachmentKey({
-            userId: user.id,
-            threadId: body.threadId,
-            messageId: body.messageId,
-            attachmentId: body.attachmentId,
-            fileName: body.name,
-          });
-          let reservedPendingBytes = 0;
-          try {
-            await assertAttachmentUploadRateAllowed(user.id);
-            const existingRows = await db()
-              .select({ id: chatAttachments.id })
-              .from(chatAttachments)
-              .where(eq(chatAttachments.id, body.attachmentId))
-              .limit(1);
-            if (existingRows[0]) {
-              throw new ConflictError("Attachment already exists");
-            }
-            if (await objectExists(storageKey)) {
-              throw new ConflictError("Attachment upload already exists");
-            }
-            await assertAttachmentUploadBudgetAllowed({
-              userId: user.id,
-              threadId: body.threadId,
-              messageId: body.messageId,
-              size: body.size,
-            });
-            reservedPendingBytes = body.size;
-            const upload = await signedUploadUrl(storageKey, body.mime, policy.maxBytes);
-            await schedulePendingUploadCleanup(user.id, storageKey);
-            return { storageKey, upload };
-          } catch (err) {
-            await releasePendingUploadBudget(user.id, reservedPendingBytes);
-            if (
-              err instanceof BadRequestError ||
-              err instanceof ConflictError ||
-              err instanceof TooManyRequestsError ||
-              err instanceof ServiceUnavailableError
-            )
-              throw err;
-            console.error("[chat] sign upload failed:", toMessage(err));
-            throw new BadGatewayError("Couldn't prepare the upload. Try again.");
-          }
-        },
-        {
-          body: t.Object({
-            threadId: t.String({ minLength: 1, maxLength: 120 }),
-            messageId: t.String({ minLength: 1, maxLength: 100 }),
-            attachmentId: t.String({ minLength: 1, maxLength: 100 }),
-            name: t.String({ minLength: 1, maxLength: 255 }),
-            mime: t.String({ minLength: 1, maxLength: 255 }),
-            size: t.Integer({ minimum: 1 }),
-          }),
-        },
-      )
-      .post(
-        /**
-         * Server-proxied attachment upload (ADR-0065). The direct-to-bucket
-         * presigned-POST path (the `/sign` route) is correct, but Railway's
-         * storage provider serves no CORS `Access-Control-Allow-Origin` header,
-         * so a browser PUT/POST to the bucket is blocked. Instead the client
-         * posts the bytes here (same-origin, already CORS-cleared like the rest
-         * of the API) and we relay them to the bucket. Same policy gate and
-         * server-built key as `/sign`, so the turn endpoint rebuilds an
-         * identical key. No DB row is written here — that happens at send time.
+         * Server-proxied attachment upload (ADR-0065). The sole ingest path: a
+         * browser can't PUT/POST direct-to-bucket because Railway's storage
+         * provider serves no CORS `Access-Control-Allow-Origin` header. Instead
+         * the client posts the bytes here (same-origin, already CORS-cleared like
+         * the rest of the API) and we sniff + decode them before relaying to the
+         * bucket — so anything that lands at a `chat/{userId}/…` key is already a
+         * validated pass-through image, and send-time validation can trust it
+         * with a cheap HEAD. The storage key is built server-side from the
+         * caller's id, so the client can't point the upload outside its own
+         * prefix. No DB row is written here — that happens at send time.
          */
         "/attachments/upload",
         async ({ body, user }) => {
@@ -668,7 +596,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             }
             const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
             if (orderedSources.length > room) {
-              throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+              throw new BadRequestError(
+                `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`,
+              );
             }
             let selectedBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
             for (const source of orderedSources) {
@@ -935,8 +865,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             content: t.String({ minLength: 0, maxLength: 100_000 }),
             // Model tier from the composer's picker; `getChatModel` maps it.
             tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
-            // Files uploaded via /attachments/sign during composition. The id
-            // must match the one used to sign (the storage key is rebuilt from it).
+            // Files uploaded via /attachments/upload during composition. The id
+            // must match the upload's (the storage key is rebuilt from it).
             attachments: t.Optional(
               t.Array(
                 t.Object({

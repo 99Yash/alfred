@@ -1350,9 +1350,11 @@ function classifyChatFailure(err: unknown): ChatErrorKind {
     return "too_long";
   }
 
-  // Upstream throttling.
+  // Upstream throttling. Prefer the typed status; the substring match is a
+  // fallback for stringified errors — `\b` so a request id / token count that
+  // merely contains "429" doesn't get mis-tagged.
   if (err instanceof HttpError && err.status === 429) return "rate_limited";
-  if (msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("429")) {
+  if (msg.includes("rate limit") || msg.includes("too many requests") || /\b429\b/.test(msg)) {
     return "rate_limited";
   }
 
@@ -1366,8 +1368,7 @@ function classifyChatFailure(err: unknown): ChatErrorKind {
     msg.includes("timed out") ||
     msg.includes("econnreset") ||
     msg.includes("fetch failed") ||
-    msg.includes("503") ||
-    msg.includes("502")
+    /\b50[23]\b/.test(msg)
   ) {
     return "overloaded";
   }
@@ -1436,9 +1437,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const out: AgentTranscriptMessage[] = [];
     for (const r of rows) {
       const atts = attachmentsByMessage.get(r.id) ?? [];
-      // Drop only truly-empty turns (no text and nothing readable attached).
-      if (r.content.length === 0 && atts.length === 0) continue;
       const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
+      // Drop turns that produced nothing renderable. Guarding on the *produced*
+      // content (not `atts.length`) also covers the Phase-2 case where an
+      // attachment degrades to no parts — `content.length === 0` works for both
+      // the string and the content-parts array.
+      if (content.length === 0) continue;
       out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
     }
     return out;

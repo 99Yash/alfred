@@ -859,60 +859,55 @@ function useComposerAttachments(): ComposerAttachments {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
+  // Cap the staged count/bytes *before* upload — the turn endpoint and server
+  // mutator also enforce the caps, but bounding here means a user picking 11
+  // images never uploads the 11th only to have the turn rejected. All revocation
+  // + toasts happen here in the event handler (against the live `itemsRef`), so
+  // the `setItems` updater stays pure — React can double-invoke updaters under
+  // StrictMode, and revoking inside one would kill a preview that's still in use.
   const addFiles = useCallback((files: FileList | File[]) => {
-    const next: PendingAttachment[] = [];
+    const candidates: PendingAttachment[] = [];
     for (const file of Array.from(files)) {
       const err = validateFile(file);
       if (err) {
         toast.error(err);
         continue;
       }
-      next.push({ key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) });
+      candidates.push({ key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) });
     }
-    if (next.length === 0) return;
-    // Cap the staged count *before* upload — the turn endpoint and server
-    // mutator also enforce `MAX_ATTACHMENTS_PER_MESSAGE`, but bounding here
-    // means a user picking 11 images never uploads the 11th only to have the
-    // turn rejected. The functional update reads the live count so the cap
-    // holds across multiple picks/drops. Previews for the overflow are revoked
-    // so the rejected files don't leak object URLs.
-    setItems((prev) => {
-      const room = MAX_ATTACHMENTS_PER_MESSAGE - prev.length;
-      if (room <= 0) {
-        for (const a of next) URL.revokeObjectURL(a.previewUrl);
-        toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
-        return prev;
-      }
-      const accepted = next.slice(0, room);
-      if (accepted.length < next.length) {
-        for (const a of next.slice(room)) URL.revokeObjectURL(a.previewUrl);
-        toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
-      }
-      const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
-      const totalBytes = prev.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
-      if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
-        for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
-        const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-        toast.error(`Attachments can be up to ${mb} MB combined.`);
-        return prev;
-      }
-      return [...prev, ...accepted];
-    });
+    if (candidates.length === 0) return;
+    const current = itemsRef.current;
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - current.length;
+    if (room <= 0) {
+      for (const a of candidates) URL.revokeObjectURL(a.previewUrl);
+      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+      return;
+    }
+    const accepted = candidates.slice(0, room);
+    if (accepted.length < candidates.length) {
+      for (const a of candidates.slice(room)) URL.revokeObjectURL(a.previewUrl);
+      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+    }
+    const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
+    const totalBytes = current.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
+    if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+      for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
+      const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+      toast.error(`Attachments can be up to ${mb} MB combined.`);
+      return;
+    }
+    setItems((prev) => [...prev, ...accepted]);
   }, []);
 
   const remove = useCallback((key: string) => {
-    setItems((prev) => {
-      const target = prev.find((a) => a.key === key);
-      if (target) URL.revokeObjectURL(target.previewUrl);
-      return prev.filter((a) => a.key !== key);
-    });
+    const target = itemsRef.current.find((a) => a.key === key);
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    setItems((prev) => prev.filter((a) => a.key !== key));
   }, []);
 
   const clear = useCallback(() => {
-    setItems((prev) => {
-      for (const a of prev) URL.revokeObjectURL(a.previewUrl);
-      return [];
-    });
+    for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);
+    setItems([]);
   }, []);
 
   const files = useCallback(() => itemsRef.current.map((a) => a.file), []);

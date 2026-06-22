@@ -74,7 +74,19 @@ import {
   type SyncedTriageTag,
   type SyncedWorkflow,
 } from "@alfred/sync";
-import { and, asc, desc, eq, gte, inArray, isNotNull, ne, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  ne,
+  notInArray,
+  or,
+} from "drizzle-orm";
 import { ZodError } from "zod";
 import { isInternalWorkflowSlug } from "../agent/registry";
 
@@ -433,24 +445,24 @@ const ENTITY_FETCHERS = {
     );
   },
 
-  // Attachments on user messages (ADR-0065). Pull the attachments for the same
-  // recent message window so a synced message never loses its image metadata.
-  // Display metadata only — the bytes load through the auth-gated content proxy.
+  // Attachments on user messages (ADR-0065). Bound to the same recent-message
+  // window as CHAT_MESSAGE, expressed as a join so the pull is one query instead
+  // of a message-id select followed by a 500-element `inArray`. A synced message
+  // never loses its image metadata. Display metadata only — the bytes load
+  // through the auth-gated content proxy.
   CHAT_ATTACHMENT: async (tx, userId) => {
-    const messages: Pick<ChatMessage, "id">[] = await tx
+    const recentMessages = tx
       .select({ id: chatMessages.id })
       .from(chatMessages)
       .where(eq(chatMessages.userId, userId))
       .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
-      .limit(CHAT_MESSAGE_PULL_LIMIT);
-    const messageIds = messages.map((m) => m.id);
-    if (messageIds.length === 0) return [];
+      .limit(CHAT_MESSAGE_PULL_LIMIT)
+      .as("recent_messages");
     const rows = await tx
-      .select()
+      .select(getTableColumns(chatAttachments))
       .from(chatAttachments)
-      .where(
-        and(eq(chatAttachments.userId, userId), inArray(chatAttachments.messageId, messageIds)),
-      )
+      .innerJoin(recentMessages, eq(chatAttachments.messageId, recentMessages.id))
+      .where(eq(chatAttachments.userId, userId))
       .orderBy(desc(chatAttachments.createdAt), desc(chatAttachments.id))
       .limit(CHAT_MESSAGE_PULL_LIMIT * MAX_ATTACHMENTS_PER_MESSAGE);
     return rows.flatMap((a: ChatAttachment) =>

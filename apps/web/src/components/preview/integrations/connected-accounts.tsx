@@ -92,7 +92,7 @@ function DisconnectControl({
       toast.success(`Disconnected ${account.accountLabel}`);
       setArmed(false);
     } catch {
-      toast.error("Couldn't disconnect — try again");
+      toast.error("Couldn't disconnect. Try again.");
     }
   }
 
@@ -105,9 +105,11 @@ function DisconnectControl({
   }
 
   return (
-    <div role="alert" className="flex min-w-0 items-center justify-end gap-1.5">
+    <div className="flex min-w-0 items-center justify-end gap-1.5">
       {isGoogle ? (
-        <span className="truncate text-[11px] text-app-fg-2">Removes all Google access</span>
+        <span role="alert" className="truncate text-[11px] text-app-fg-2">
+          Removes all Google access
+        </span>
       ) : null}
       <AppButton
         variant="ghost"

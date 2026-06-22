@@ -112,15 +112,23 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
   );
 }
 
-function AttachmentPlaceholder({ label }: { label: string }) {
-  return (
-    <div className="grid h-40 w-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3">
-      {label}
-    </div>
-  );
+function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: () => void }) {
+  const className =
+    "grid size-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3";
+  if (onRetry) {
+    return (
+      <button type="button" onClick={onRetry} className={`${className} hover:bg-app-bg-3`}>
+        {label}
+      </button>
+    );
+  }
+  return <div className={className}>{label}</div>;
 }
 
 function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment }) {
+  // Bump to remount the <img> on retry — forces a fresh fetch after a transient
+  // load failure instead of leaving the placeholder stuck forever.
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
   if (attachment.status !== "ready") {
     return (
@@ -129,21 +137,32 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
       />
     );
   }
-  if (loadFailed) return <AttachmentPlaceholder label="Couldn't load" />;
+  if (loadFailed) {
+    return (
+      <AttachmentPlaceholder
+        label="Couldn't load. Tap to retry."
+        onRetry={() => {
+          setLoadFailed(false);
+          setLoadAttempt((n) => n + 1);
+        }}
+      />
+    );
+  }
   const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
   return (
     <a
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="block h-40 w-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
+      className="block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
     >
       <img
+        key={loadAttempt}
         src={url}
         alt={attachment.name}
         loading="lazy"
         decoding="async"
-        className="h-full w-full object-cover"
+        className="size-full object-cover"
         onError={() => setLoadFailed(true)}
       />
     </a>
