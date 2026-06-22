@@ -1,10 +1,16 @@
 import { transcribeAudio } from "@alfred/ai";
-import { getPath, isNonEmptyString, toMessage } from "@alfred/contracts";
+import {
+  getPath,
+  isNonEmptyString,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  toMessage,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
-import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { agentRuns, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import {
@@ -16,6 +22,15 @@ import {
 } from "../../middleware/errors";
 import { createRun, enqueueRun, getRun, isUniqueViolation } from "../agent/index";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
+import { assertUploadAllowed, toAttachmentRow } from "./attachments";
+import {
+  attachmentUrl,
+  buildAttachmentKey,
+  copyObject,
+  isStorageConfigured,
+  signedUploadUrl,
+  writeObject,
+} from "./storage";
 import { requestChatStop } from "./stop-signal";
 
 const TITLE_MAX_CHARS = 80;
@@ -74,6 +89,126 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
       )
       .post(
         /**
+         * Mint a direct-to-bucket upload URL for a chat attachment (ADR-0065).
+         * The browser PUTs the bytes straight to the bucket — the server never
+         * proxies the file. No DB row is written here: the durable
+         * `chat_attachments` row is created at send time (the turn endpoint),
+         * once the user message it references exists. The storage key is built
+         * server-side from the caller's id + the client-supplied ids, so the
+         * client can't point the upload outside its own `chat/{userId}/…` prefix.
+         */
+        "/attachments/sign",
+        async ({ body, user }) => {
+          if (!isStorageConfigured()) {
+            throw new ServiceUnavailableError(
+              "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
+            );
+          }
+          const policy = assertUploadAllowed(body.mime, body.size);
+          const storageKey = buildAttachmentKey({
+            userId: user.id,
+            threadId: body.threadId,
+            messageId: body.messageId,
+            attachmentId: body.attachmentId,
+            fileName: body.name,
+          });
+          try {
+            const upload = await signedUploadUrl(storageKey, body.mime, policy.maxBytes);
+            return { storageKey, upload };
+          } catch (err) {
+            console.error("[chat] sign upload failed:", toMessage(err));
+            throw new BadGatewayError("Couldn't prepare the upload. Try again.");
+          }
+        },
+        {
+          body: t.Object({
+            threadId: t.String({ minLength: 1, maxLength: 120 }),
+            messageId: t.String({ minLength: 1, maxLength: 100 }),
+            attachmentId: t.String({ minLength: 1, maxLength: 100 }),
+            name: t.String({ minLength: 1, maxLength: 255 }),
+            mime: t.String({ minLength: 1, maxLength: 255 }),
+            size: t.Integer({ minimum: 1 }),
+          }),
+        },
+      )
+      .post(
+        /**
+         * Server-proxied attachment upload (ADR-0065). The direct-to-bucket
+         * presigned-POST path (the `/sign` route) is correct, but Railway's
+         * storage provider serves no CORS `Access-Control-Allow-Origin` header,
+         * so a browser PUT/POST to the bucket is blocked. Instead the client
+         * posts the bytes here (same-origin, already CORS-cleared like the rest
+         * of the API) and we relay them to the bucket. Same policy gate and
+         * server-built key as `/sign`, so the turn endpoint rebuilds an
+         * identical key. No DB row is written here — that happens at send time.
+         */
+        "/attachments/upload",
+        async ({ body, user }) => {
+          if (!isStorageConfigured()) {
+            throw new ServiceUnavailableError(
+              "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
+            );
+          }
+          const file = body.file;
+          // Validate the declared mime + actual byte size against the ingest
+          // policy (per-type cap); the storage key is rebuilt server-side.
+          assertUploadAllowed(body.mime, file.size);
+          const storageKey = buildAttachmentKey({
+            userId: user.id,
+            threadId: body.threadId,
+            messageId: body.messageId,
+            attachmentId: body.attachmentId,
+            fileName: body.name,
+          });
+          try {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            await writeObject(storageKey, bytes, body.mime);
+            return { storageKey };
+          } catch (err) {
+            console.error("[chat] proxied upload failed:", toMessage(err));
+            throw new BadGatewayError("Couldn't store the upload. Try again.");
+          }
+        },
+        {
+          body: t.Object({
+            threadId: t.String({ minLength: 1, maxLength: 120 }),
+            messageId: t.String({ minLength: 1, maxLength: 100 }),
+            attachmentId: t.String({ minLength: 1, maxLength: 100 }),
+            name: t.String({ minLength: 1, maxLength: 255 }),
+            mime: t.String({ minLength: 1, maxLength: 255 }),
+            file: t.File({ maxSize: MAX_ATTACHMENT_BYTES }),
+          }),
+        },
+      )
+      .get(
+        /**
+         * Auth-gated content proxy for an attachment's raw bytes (ADR-0065). The
+         * synced `chat_attachments` row carries only display metadata — the
+         * bucket is private, so the `<img>` points here and we 302 to a freshly
+         * minted presigned GET. A stable, cookie-authed URL: no expiry to manage
+         * client-side, and the raw bytes never become publicly addressable.
+         */
+        "/attachments/:id/content",
+        async ({ params, user, set }) => {
+          const rows = await db()
+            .select({ storageKey: chatAttachments.storageKey })
+            .from(chatAttachments)
+            .where(and(eq(chatAttachments.id, params.id), eq(chatAttachments.userId, user.id)))
+            .limit(1);
+          const row = rows[0];
+          if (!row) throw new NotFoundError("Attachment not found");
+          if (!isStorageConfigured()) {
+            throw new ServiceUnavailableError("File storage isn't configured");
+          }
+          set.status = 302;
+          set.headers["Location"] = await attachmentUrl(row.storageKey);
+          set.headers["Cache-Control"] = "private, max-age=300";
+          return null;
+        },
+        { params: t.Object({ id: t.String({ minLength: 1, maxLength: 100 }) }) },
+      )
+      .post(
+        /**
          * Stop an in-flight chat turn. Sets the Redis stop flag the chat-turn
          * workflow polls while draining the model stream; the worker then
          * finalizes whatever streamed so far through the normal completion
@@ -106,7 +241,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         async ({ params, body, user }) => {
           const threadId = params.threadId;
           const content = body.content.trim();
-          if (content.length === 0) throw new BadRequestError("content must not be empty");
+          const attachments = body.attachments ?? [];
+          const retryAttachmentIds = body.retryAttachmentIds ?? [];
+          // A turn must carry text or at least one attachment — a fresh upload
+          // or a re-attached one from a retry (image-only sends are valid: the
+          // prompt is the image).
+          if (content.length === 0 && attachments.length === 0 && retryAttachmentIds.length === 0) {
+            throw new BadRequestError("A message must have text or an attachment");
+          }
 
           // Thread must be the caller's (or new). Reject cross-user posts.
           const existing = await db()
@@ -140,11 +282,97 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             })
             .onConflictDoNothing();
 
+          // Persist the attachment rows now that the message they reference
+          // exists. The bytes are already in the bucket (uploaded via the signed
+          // URL while the user composed). Keys are rebuilt server-side from the
+          // ids — the client never gets to choose where its files live. Phase 1
+          // is images only (pass-through), so rows land already `ready`; the
+          // degrade worker (Phase 2) will insert `pending` + enqueue instead.
+          if (attachments.length > 0) {
+            await db()
+              .insert(chatAttachments)
+              .values(
+                attachments.map((a) =>
+                  toAttachmentRow({
+                    userId: user.id,
+                    threadId,
+                    messageId: body.userMessageId,
+                    attachment: a,
+                  }),
+                ),
+              )
+              .onConflictDoNothing();
+          }
+
+          // Faithful retry (ADR-0065): re-attach a prior message's images by
+          // copying their bytes under this new message's key prefix, then
+          // writing fresh rows (which sync back via pull). The bytes already
+          // exist, so nothing is re-uploaded — the client sent only source ids.
+          // Ownership-scoped to this user; a per-object copy failure drops just
+          // that attachment. Honors the combined per-message cap.
+          let firstRetryName = "";
+          if (retryAttachmentIds.length > 0 && isStorageConfigured()) {
+            const sources = await db()
+              .select({
+                storageKey: chatAttachments.storageKey,
+                name: chatAttachments.name,
+                mime: chatAttachments.mime,
+                size: chatAttachments.size,
+              })
+              .from(chatAttachments)
+              .where(
+                and(
+                  inArray(chatAttachments.id, retryAttachmentIds),
+                  eq(chatAttachments.userId, user.id),
+                ),
+              );
+            const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
+            for (const src of sources.slice(0, room)) {
+              const newAttachmentId = createId("att");
+              const destKey = buildAttachmentKey({
+                userId: user.id,
+                threadId,
+                messageId: body.userMessageId,
+                attachmentId: newAttachmentId,
+                fileName: src.name,
+              });
+              try {
+                await copyObject(src.storageKey, destKey);
+              } catch (err) {
+                console.warn("[chat] retry attachment copy failed:", toMessage(err));
+                continue;
+              }
+              if (!firstRetryName) firstRetryName = src.name;
+              await db()
+                .insert(chatAttachments)
+                .values(
+                  toAttachmentRow({
+                    userId: user.id,
+                    threadId,
+                    messageId: body.userMessageId,
+                    attachment: {
+                      id: newAttachmentId,
+                      name: src.name,
+                      mime: src.mime,
+                      size: src.size,
+                    },
+                  }),
+                )
+                .onConflictDoNothing();
+            }
+          }
+
           // Derive a title from the first message; bump the thread to the top.
+          // Fall back to the first attachment's name for an image-only opener
+          // (a fresh upload, or a re-attached image on a retry).
+          const titleSeed =
+            content.length > 0
+              ? content.slice(0, TITLE_MAX_CHARS)
+              : (attachments[0]?.name || firstRetryName).slice(0, TITLE_MAX_CHARS);
           await db()
             .update(chatThreads)
             .set({
-              title: sql`coalesce(${chatThreads.title}, ${content.slice(0, TITLE_MAX_CHARS)})`,
+              title: sql`coalesce(${chatThreads.title}, ${titleSeed})`,
               lastMessageAt: now,
               rowVersion: sql`${chatThreads.rowVersion} + 1`,
             })
@@ -194,9 +422,31 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           params: t.Object({ threadId: t.String({ minLength: 1, maxLength: 120 }) }),
           body: t.Object({
             userMessageId: t.String({ minLength: 1, maxLength: 100 }),
-            content: t.String({ minLength: 1, maxLength: 100_000 }),
+            // May be empty when the turn carries an attachment (image-only send).
+            content: t.String({ minLength: 0, maxLength: 100_000 }),
             // Model tier from the composer's picker; `getChatModel` maps it.
             tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
+            // Files uploaded via /attachments/sign during composition. The id
+            // must match the one used to sign (the storage key is rebuilt from it).
+            attachments: t.Optional(
+              t.Array(
+                t.Object({
+                  id: t.String({ minLength: 1, maxLength: 100 }),
+                  name: t.String({ minLength: 1, maxLength: 255 }),
+                  mime: t.String({ minLength: 1, maxLength: 255 }),
+                  size: t.Integer({ minimum: 1 }),
+                }),
+                { maxItems: MAX_ATTACHMENTS_PER_MESSAGE },
+              ),
+            ),
+            // Faithful retry (ADR-0065): source attachment ids from a prior
+            // message whose bytes get copied under this new message's keys.
+            // Server-side ownership-checked; the client never sends bytes here.
+            retryAttachmentIds: t.Optional(
+              t.Array(t.String({ minLength: 1, maxLength: 100 }), {
+                maxItems: MAX_ATTACHMENTS_PER_MESSAGE,
+              }),
+            ),
           }),
         },
       ),

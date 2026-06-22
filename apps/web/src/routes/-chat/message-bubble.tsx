@@ -1,4 +1,4 @@
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
@@ -52,12 +52,55 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
   );
 }
 
+const API_URL =
+  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+
+/**
+ * Image attachments on a user message (ADR-0065). The bytes load from the
+ * auth-gated content proxy (the bucket is private); `ready` images render, while
+ * `pending` / `failed` rows show a lightweight placeholder rather than a broken
+ * image. Phase 1 is images only.
+ */
+function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap justify-end gap-2">
+      {attachments.map((a) =>
+        a.status === "ready" ? (
+          <a
+            key={a.id}
+            href={`${API_URL}/api/chat/attachments/${a.id}/content`}
+            target="_blank"
+            rel="noreferrer"
+            className="block h-40 w-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
+          >
+            <img
+              src={`${API_URL}/api/chat/attachments/${a.id}/content`}
+              alt={a.name}
+              className="h-full w-full object-cover"
+            />
+          </a>
+        ) : (
+          <div
+            key={a.id}
+            className="grid h-40 w-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3"
+          >
+            {a.status === "failed" ? "Couldn't process" : "Processing…"}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
 /** A persisted message (user or assistant) from the synced store. */
 export function MessageBubble({
   message,
+  attachments,
   onRetry,
 }: {
   message: SyncedChatMessage;
+  /** Image attachments on this (user) message, from the synced store. */
+  attachments?: SyncedChatAttachment[];
   /** Present on a failed assistant reply — re-sends the user turn behind it. */
   onRetry?: () => void;
 }) {
@@ -67,10 +110,15 @@ export function MessageBubble({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-app-fg-4">
-          {message.content}
-        </div>
+      <div className="flex flex-col items-end gap-1">
+        {attachments && attachments.length > 0 ? (
+          <MessageAttachments attachments={attachments} />
+        ) : null}
+        {message.content.length > 0 ? (
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-app-fg-4">
+            {message.content}
+          </div>
+        ) : null}
       </div>
     );
   }

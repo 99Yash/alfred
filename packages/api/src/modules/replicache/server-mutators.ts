@@ -1,5 +1,6 @@
-import type { IntegrationRules } from "@alfred/contracts";
+import { MAX_ATTACHMENTS_PER_MESSAGE, type IntegrationRules } from "@alfred/contracts";
 import {
+  chatAttachments,
   chatMessages,
   chatThreads,
   emailTriage,
@@ -12,6 +13,7 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import type {
+  ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
   ChatThreadCreateArgs,
   ChatThreadDeleteArgs,
@@ -38,6 +40,7 @@ import type {
 } from "@alfred/sync";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../action-policies";
+import { toAttachmentRow } from "../chat/attachments";
 import { valueSignature } from "../memory/signature";
 import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "../workflows";
 import { MutatorForbiddenError } from "./authz";
@@ -508,6 +511,58 @@ export const serverMutators = {
         rowVersion: sql`${chatThreads.rowVersion} + 1`,
       })
       .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, ctx.userId)));
+  },
+
+  /**
+   * Persist an attachment on a user message (ADR-0065). The bytes are already in
+   * the bucket (uploaded during composition); this writes the durable row. The
+   * storage key is rebuilt server-side from the ids — the client can't point it
+   * elsewhere — and the policy is re-validated. Idempotent on id (the turn
+   * endpoint races the same insert; first one wins). Phase 1 images land `ready`.
+   *
+   * The FK only proves the message *exists*; it says nothing about ownership. So
+   * before trusting client-supplied `messageId` / `threadId` to build a storage
+   * prefix, load the message and require it to be this user's and on the named
+   * thread — otherwise a forged pair could write a row with a mismatched key.
+   * No-op on a message the caller doesn't own (same posture as the other chat
+   * mutators) and once the per-message cap is reached.
+   */
+  async chatAttachmentCreate(
+    tx: DbTx,
+    args: ChatAttachmentCreateArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    const owned = await tx
+      .select({ userId: chatMessages.userId, threadId: chatMessages.threadId })
+      .from(chatMessages)
+      .where(eq(chatMessages.id, args.messageId))
+      .limit(1);
+    const message = owned[0];
+    if (!message || message.userId !== ctx.userId || message.threadId !== args.threadId) {
+      return;
+    }
+
+    // Cap attachments per message. An already-present row with this same id is
+    // counted, but its idempotent re-insert is a conflict no-op anyway, so the
+    // guard never blocks a legitimate retry — only the (cap+1)th distinct file.
+    const counted = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(chatAttachments)
+      .where(eq(chatAttachments.messageId, args.messageId));
+    if (Number(counted[0]?.count ?? 0) >= MAX_ATTACHMENTS_PER_MESSAGE) return;
+
+    await tx
+      .insert(chatAttachments)
+      .values({
+        ...toAttachmentRow({
+          userId: ctx.userId,
+          threadId: args.threadId,
+          messageId: args.messageId,
+          attachment: { id: args.id, name: args.name, mime: args.mime, size: args.size },
+        }),
+        createdAt: new Date(args.createdAt),
+      })
+      .onConflictDoNothing();
   },
 
   /** Rename a thread. No-op on a thread this user doesn't own. */

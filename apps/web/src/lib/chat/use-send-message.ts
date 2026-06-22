@@ -7,6 +7,7 @@ import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
 import { toMessage } from "@alfred/contracts";
+import { uploadAttachment, type UploadedAttachment } from "./upload-attachments";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -22,6 +23,15 @@ export type SendMessage = (
   threadId: string | undefined,
   text: string,
   tier?: ChatTier,
+  files?: File[],
+  /**
+   * Faithful retry (ADR-0065): source attachment ids from the prior user
+   * message to re-attach. The bytes are already in the bucket, so the client
+   * uploads nothing — the turn endpoint copies them under the new message's
+   * keys. Mutually exclusive with `files` in practice (retry carries no fresh
+   * picks).
+   */
+  retryAttachmentIds?: string[],
 ) => Promise<void>;
 
 const turnKickResponseSchema = z.object({
@@ -51,15 +61,47 @@ export function useSendMessage(): SendMessage {
   const navigate = useNavigate();
 
   return useCallback(
-    async (threadId, text, tier) => {
+    async (threadId, text, tier, files, retryAttachmentIds) => {
       const content = text.trim();
-      if (!rep || !userId || content.length === 0) return;
+      const pickedFiles = files ?? [];
+      const retryIds = retryAttachmentIds ?? [];
+      if (!rep || !userId) return;
+      // A turn needs text, at least one fresh file, or at least one re-attached
+      // file (image-only sends — and image-only retries — are valid).
+      if (content.length === 0 && pickedFiles.length === 0 && retryIds.length === 0) return;
 
       const isNew = !threadId;
       const tid = threadId ?? crypto.randomUUID();
       const userMessageId = crypto.randomUUID();
       const now = new Date().toISOString();
       markChatSubmit({ threadId: tid, userMessageId, contentChars: content.length });
+
+      // Upload the bytes to the bucket before staging the message — the turn's
+      // worker reads each attachment's presigned URL, so the object must exist
+      // by the time the run starts. A per-file failure drops just that file
+      // (toast); the rest of the turn still goes through. (ADR-0065)
+      const uploaded: UploadedAttachment[] = [];
+      if (pickedFiles.length > 0) {
+        await Promise.all(
+          pickedFiles.map(async (file) => {
+            try {
+              uploaded.push(
+                await uploadAttachment({
+                  threadId: tid,
+                  messageId: userMessageId,
+                  id: crypto.randomUUID(),
+                  file,
+                }),
+              );
+            } catch (err) {
+              console.error("[chat] attachment upload failed:", err);
+              toast.error(`Couldn't upload ${file.name}.`);
+            }
+          }),
+        );
+        // Every file failed and there's no text or re-attached file — nothing to send.
+        if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return;
+      }
 
       if (isNew) {
         await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
@@ -71,6 +113,19 @@ export function useSendMessage(): SendMessage {
         content,
         createdAt: now,
       });
+      // Optimistically record each uploaded attachment so the image renders in
+      // its bubble immediately; the server mutator persists the canonical row.
+      for (const a of uploaded) {
+        await rep.mutate.chatAttachmentCreate({
+          id: a.id,
+          messageId: userMessageId,
+          threadId: tid,
+          name: a.name,
+          mime: a.mime,
+          size: a.size,
+          createdAt: now,
+        });
+      }
 
       if (isNew) {
         void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
@@ -82,7 +137,15 @@ export function useSendMessage(): SendMessage {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ userMessageId, content, tier: tier ?? "standard" }),
+          body: JSON.stringify({
+            userMessageId,
+            content,
+            tier: tier ?? "standard",
+            attachments: uploaded.length > 0 ? uploaded : undefined,
+            // Faithful retry: the server copies these source objects under the
+            // new message's keys and writes the rows (which sync back via pull).
+            retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
+          }),
           signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
         if (!res.ok) {

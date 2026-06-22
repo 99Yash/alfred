@@ -2,6 +2,7 @@ import {
   actionStagings,
   agentRuns,
   briefings,
+  chatAttachments,
   chatMessages,
   chatThreads,
   emailTriage,
@@ -17,6 +18,7 @@ import {
   type AgentRunTrigger,
   type ActionStaging,
   type Briefing,
+  type ChatAttachment,
   type ChatMessage,
   type ChatThread,
   type EmailTriage,
@@ -38,6 +40,7 @@ import {
   syncedActionPolicySchema,
   syncedActionStagingSchema,
   syncedBriefingSchema,
+  syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
   syncedFactSchema,
@@ -53,6 +56,7 @@ import {
   type SyncedActionPolicy,
   type SyncedActionStaging,
   type SyncedBriefing,
+  type SyncedChatAttachment,
   type SyncedChatMessage,
   type SyncedChatThread,
   type SyncedEntity,
@@ -425,6 +429,26 @@ const ENTITY_FETCHERS = {
     );
   },
 
+  // Attachments on user messages (ADR-0065). Bounded to the same recent window
+  // as messages so a long history doesn't pull every object's metadata. Display
+  // metadata only — the bytes load through the auth-gated content proxy.
+  CHAT_ATTACHMENT: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(chatAttachments)
+      .where(eq(chatAttachments.userId, userId))
+      .orderBy(desc(chatAttachments.createdAt), desc(chatAttachments.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT);
+    return rows.flatMap((a: ChatAttachment) =>
+      toEntityRow({
+        slug: "CHAT_ATTACHMENT",
+        id: a.id,
+        rowVersion: a.rowVersion,
+        serialize: () => serializeChatAttachment(a),
+      }),
+    );
+  },
+
   // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
   // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
   // `source_thread_id` so the client store holds one tag per thread.
@@ -566,6 +590,20 @@ function serializeChatThread(t: ChatThread): SyncedChatThread {
     rowVersion: t.rowVersion,
     createdAt: toRequiredIso(t.createdAt, "chatThreads.createdAt"),
     updatedAt: toIso(t.updatedAt),
+  });
+}
+
+function serializeChatAttachment(a: ChatAttachment): SyncedChatAttachment {
+  return syncedChatAttachmentSchema.parse({
+    id: a.id,
+    messageId: a.messageId,
+    name: a.name,
+    mime: a.mime,
+    size: a.size,
+    status: a.status,
+    rowVersion: a.rowVersion,
+    createdAt: toRequiredIso(a.createdAt, "chatAttachments.createdAt"),
+    updatedAt: toIso(a.updatedAt),
   });
 }
 

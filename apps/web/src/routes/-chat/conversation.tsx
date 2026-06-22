@@ -1,7 +1,8 @@
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { ArrowDown, ShieldQuestion } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
+import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
@@ -28,8 +29,12 @@ export function Conversation({
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
   onFollowUp?: (text: string) => void;
-  /** Re-send the user turn behind a failed reply (the "Retry" affordance). */
-  onRetry?: (text: string) => void;
+  /**
+   * Re-send the user turn behind a failed reply (the "Retry" affordance). The
+   * second arg carries that turn's attachment ids so an image-only turn can be
+   * faithfully retried — the server copies the bytes onto the new message.
+   */
+  onRetry?: (text: string, retryAttachmentIds?: string[]) => void;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
   followUps?: ReadonlyArray<FollowUpSuggestion>;
 }) {
@@ -43,6 +48,10 @@ export function Conversation({
   const [showJump, setShowJump] = useState(false);
 
   const showStream = shouldShowStream(messages, stream);
+
+  // Attachments for this thread, grouped by message id (ADR-0065). One
+  // subscription for the whole feed; each bubble looks up its own.
+  const attachmentsByMessage = useChatAttachmentsByMessage(messages[0]?.threadId);
 
   // ---- Follow the live edge -------------------------------------------
   // While a turn is in flight the viewport rides the bottom so the newest
@@ -124,9 +133,10 @@ export function Conversation({
             <MessageBubble
               key={m.id}
               message={m}
+              attachments={attachmentsByMessage[m.id]}
               onRetry={
                 onRetry && m.role === "assistant" && m.status === "failed"
-                  ? prevUserText(messages, i, onRetry)
+                  ? prevUserTurn(messages, i, attachmentsByMessage, onRetry)
                   : undefined
               }
             />
@@ -190,18 +200,28 @@ export function Conversation({
   );
 }
 
-/** Resolves the user message preceding a failed reply into a bound retry handler. */
-function prevUserText(
+/**
+ * Resolves the user message preceding a failed reply into a bound retry handler.
+ * A turn is retryable when it has text *or* at least one ready attachment — the
+ * latter is what makes an image-only turn (empty content) retryable. The ready
+ * attachments' ids ride along so the server can copy their bytes onto the new
+ * message (ADR-0065).
+ */
+function prevUserTurn(
   messages: readonly SyncedChatMessage[],
   failedIndex: number,
-  onRetry: (text: string) => void,
+  attachmentsByMessage: Record<string, SyncedChatAttachment[]>,
+  onRetry: (text: string, retryAttachmentIds?: string[]) => void,
 ): (() => void) | undefined {
   for (let i = failedIndex - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m && m.role === "user" && m.content.trim().length > 0) {
-      const text = m.content;
-      return () => onRetry(text);
-    }
+    if (!m || m.role !== "user") continue;
+    const readyIds = (attachmentsByMessage[m.id] ?? [])
+      .filter((a) => a.status === "ready")
+      .map((a) => a.id);
+    if (m.content.trim().length === 0 && readyIds.length === 0) continue;
+    const text = m.content;
+    return () => onRetry(text, readyIds.length > 0 ? readyIds : undefined);
   }
   return undefined;
 }

@@ -14,6 +14,7 @@ import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
 import { reconcileThreadLabel } from "../triage/tags";
+import { deletePrefix, isStorageConfigured } from "../chat/storage";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -80,6 +81,19 @@ export type IngestionJobData =
       kind: "triage.relabel";
       userId: string;
       sourceThreadId: string;
+    }
+  | {
+      /**
+       * Reap chat attachment objects from the bucket under a key prefix
+       * (ADR-0065). Object storage has no FK cascade, so when a thread (or, in
+       * future, an account) is deleted, the rows cascade but the bytes don't —
+       * this job drops `chat/{userId}/{threadId}/` (or `chat/{userId}/`) by
+       * prefix. Enqueued post-commit by the Replicache push handler. Best-effort
+       * and idempotent: a missing prefix is a no-op.
+       */
+      kind: "media.cleanup";
+      userId: string;
+      prefix: string;
     };
 
 let _queue: Queue<IngestionJobData> | undefined;
@@ -134,6 +148,19 @@ export async function stopIngestionWorker(): Promise<void> {
     await _worker.close();
     _worker = undefined;
   }
+}
+
+/**
+ * Enqueue a chat-attachment bucket cleanup for a key prefix (ADR-0065). Called
+ * post-commit when a thread (or account) is deleted — the rows cascade, the
+ * bytes are reaped here. Deduplicated per prefix so a double-delete coalesces.
+ */
+export async function enqueueChatStorageCleanup(userId: string, prefix: string): Promise<void> {
+  await getIngestionQueue().add(
+    "media.cleanup",
+    { kind: "media.cleanup", userId, prefix },
+    { deduplication: { id: `media.cleanup.${prefix}` } },
+  );
 }
 
 export async function closeIngestionQueue(): Promise<void> {
@@ -337,6 +364,17 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=${result.applied}`,
       );
       return result;
+    }
+    case "media.cleanup": {
+      if (!isStorageConfigured()) {
+        // Storage never provisioned → nothing was ever stored. No-op.
+        return { removed: 0, skipped: "storage-unconfigured" };
+      }
+      const removed = await deletePrefix(data.prefix);
+      console.log(
+        `[ingestion:worker] media.cleanup prefix=${data.prefix} removed=${removed} user=${data.userId}`,
+      );
+      return { removed };
     }
     default: {
       const _exhaustive: never = data;

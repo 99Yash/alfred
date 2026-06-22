@@ -59,6 +59,8 @@ export const IDB_KEY = {
   CHAT_THREAD: ({ id = "" }: { id?: string }) => constructIDBKey(["chatthread", id]),
   /** `chatmsg/` (prefix scan) or `chatmsg/{id}` (single row). Flat — filter by threadId client-side. */
   CHAT_MESSAGE: ({ id = "" }: { id?: string }) => constructIDBKey(["chatmsg", id]),
+  /** `chatatt/` (prefix scan) or `chatatt/{id}` (single row). Flat — filter by messageId client-side. */
+  CHAT_ATTACHMENT: ({ id = "" }: { id?: string }) => constructIDBKey(["chatatt", id]),
   /**
    * `triagetag/` (prefix scan) or `triagetag/{threadId}` (single row).
    *
