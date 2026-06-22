@@ -1,9 +1,6 @@
-import { createFileRoute, useParams } from "@tanstack/react-router";
-import { formatPageTitle, pageMeta } from "~/lib/page-meta";
-import { useEffect } from "react";
-import { useChatContext } from "~/components/chat-context";
-import { useChatThread } from "~/lib/replicache/use-chat";
-import { ChatShell } from "./-chat/chat-shell";
+import { createFileRoute } from "@tanstack/react-router";
+import { pageMeta } from "~/lib/page-meta";
+import { ChatThreadRoute } from "./-chat/chat-thread-route";
 
 /**
  * Canonical deep-link chat surface — `/chat/$threadId`.
@@ -16,28 +13,3 @@ export const Route = createFileRoute("/chat/$threadId")({
   head: () => pageMeta({ title: "Chat", path: "/chat" }),
   component: ChatThreadRoute,
 });
-
-function ChatThreadRoute() {
-  const { threadId } = useParams({ from: "/chat/$threadId" });
-  const { activeThread, setActiveThread } = useChatContext();
-  const thread = useChatThread(threadId);
-
-  useEffect(() => {
-    if (threadId !== activeThread) setActiveThread(threadId);
-  }, [threadId, activeThread, setActiveThread]);
-
-  // Title comes from the synced thread (the worker derives it from the opening
-  // exchange; the turn endpoint seeds a placeholder before that lands). Falls
-  // back to "New chat" before the thread row has synced.
-  const title = thread?.title?.trim() || "New chat";
-
-  // Mirror the live thread title into the browser tab. The static route `head`
-  // can't see Replicache subscriptions, so it seeds "Chat · Alfred"; this keeps
-  // document.title in sync as the worker derives the real title post-turn.
-  // No cleanup needed — navigating away re-runs the destination route's head.
-  useEffect(() => {
-    document.title = formatPageTitle(title);
-  }, [title]);
-
-  return <ChatShell threadId={threadId} title={title} />;
-}

@@ -40,6 +40,8 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     }
     let cancelled = false;
     let close: (() => void) | undefined;
+    let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+    let resolveRetry: (() => void) | undefined;
 
     // Set once on the first 401 — Replicache retries the pull/push forever, so
     // onAuthError fires repeatedly; collapse that to a single state update.
@@ -49,6 +51,16 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     };
 
     const MAX_ATTEMPTS = 3;
+    const waitForRetry = (ms: number) =>
+      new Promise<void>((resolve) => {
+        resolveRetry = resolve;
+        retryTimeout = setTimeout(() => {
+          retryTimeout = undefined;
+          resolveRetry = undefined;
+          resolve();
+        }, ms);
+      });
+
     const load = async () => {
       setLoadError(null);
       for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
@@ -69,7 +81,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
             );
             return;
           }
-          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+          await waitForRetry(500 * attempt);
         }
       }
     };
@@ -77,6 +89,11 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
     return () => {
       cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      retryTimeout = undefined;
+      const resolve = resolveRetry;
+      resolveRetry = undefined;
+      resolve?.();
       setRep(null);
       close?.();
     };

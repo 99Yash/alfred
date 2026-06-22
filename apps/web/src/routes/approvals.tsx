@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { ApprovalsPage } from "~/components/approvals/approvals-page";
-import { authClient } from "~/lib/auth/auth-client";
+import { ApprovalsRoute } from "./-approvals/approvals-route";
 
 /**
  * Live `/approvals` surface. Subscribes to pending `action_stagings` via
@@ -38,17 +37,3 @@ export const Route = createFileRoute("/approvals")({
     risk: toStringArray(search.risk),
   }),
 });
-
-function ApprovalsRoute() {
-  const { isPending } = authClient.useSession();
-
-  if (isPending) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </div>
-    );
-  }
-
-  return <ApprovalsPage />;
-}
