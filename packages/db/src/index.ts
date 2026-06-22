@@ -1,6 +1,7 @@
 import { databaseEnv } from "@alfred/env/database";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { toMessage } from "@alfred/contracts";
 
 const POOL_MIN = 4;
 const POOL_MAX = 10;
@@ -18,7 +19,7 @@ function startPoolHeartbeat() {
   const heartbeat = setInterval(() => {
     if (!_pool) return;
     void _pool.query("SELECT 1").catch((err) => {
-      console.warn("[db] Pool heartbeat failed:", err instanceof Error ? err.message : String(err));
+      console.warn("[db] Pool heartbeat failed:", toMessage(err));
     });
   }, POOL_HEARTBEAT_INTERVAL_MS);
 
@@ -74,7 +75,7 @@ export async function warmPool() {
     } catch (err) {
       console.warn(
         "[db] Pool warm-up failed, connections will be established lazily:",
-        err instanceof Error ? err.message : String(err),
+        toMessage(err),
       );
     }
   }

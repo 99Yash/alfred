@@ -3,6 +3,7 @@ import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Push-channel lifecycle for Gmail. The actual delta sync is in
@@ -96,10 +97,7 @@ export async function uninstallGmailWatch(credentialId: string): Promise<void> {
   } catch (err) {
     // `users.stop` returns 204 even when no active channel exists, so
     // a non-2xx here is unusual — surface but don't block state cleanup.
-    console.warn(
-      `[gmail.watch] stopWatch failed for ${credentialId}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn(`[gmail.watch] stopWatch failed for ${credentialId}:`, toMessage(err));
   }
   await db()
     .update(integrationCredentials)

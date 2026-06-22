@@ -189,7 +189,9 @@ export async function listEmailsSinceWatermark(
       ingestedAt: r.ingestedAt,
       threadId: r.sourceThreadId,
       previouslySurfaced: r.sourceThreadId ? surfacedThreadIds.has(r.sourceThreadId) : false,
-      attentionBand: toTriageCategory(r.triageCategory) ? (attention[i]?.band ?? "normal") : "normal",
+      attentionBand: toTriageCategory(r.triageCategory)
+        ? (attention[i]?.band ?? "normal")
+        : "normal",
       contentLength: Number(r.contentLength ?? 0),
     } satisfies EmailListItem;
   });

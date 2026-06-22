@@ -1,5 +1,5 @@
 import { Queue, Worker, type Job } from "bullmq";
-import { mapConcurrent, runTaskGroup } from "@alfred/contracts";
+import { mapConcurrent, runTaskGroup, toMessage } from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
   findExpiringGmailWatches,
@@ -278,10 +278,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           renewed++;
         } catch (err) {
           failed++;
-          console.warn(
-            `[ingestion:worker] watch renew failed for ${c.id}:`,
-            err instanceof Error ? err.message : String(err),
-          );
+          console.warn(`[ingestion:worker] watch renew failed for ${c.id}:`, toMessage(err));
         }
       }
       console.log(
@@ -321,10 +318,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           if (!r.empty) succeeded++;
         } catch (err) {
           failed++;
-          console.warn(
-            `[ingestion:worker] gmail.embed_sweep failed for ${id}:`,
-            err instanceof Error ? err.message : String(err),
-          );
+          console.warn(`[ingestion:worker] gmail.embed_sweep failed for ${id}:`, toMessage(err));
         }
       }
       console.log(
@@ -381,7 +375,7 @@ async function emitGmailMessageEvents(
     } catch (err) {
       console.warn(
         `[ingestion:worker] failed to emit gmail.message_received for doc=${documentId}:`,
-        err instanceof Error ? err.message : String(err),
+        toMessage(err),
       );
     }
   });
@@ -413,7 +407,7 @@ async function publishInboxUpdate(
   } catch (err) {
     console.warn(
       `[ingestion:worker] publishInboxUpdate failed user=${userId} reason=${reason}:`,
-      err instanceof Error ? err.message : String(err),
+      toMessage(err),
     );
   }
 }
@@ -431,7 +425,7 @@ async function embedRealtimeInserts(documentIds: string[]): Promise<void> {
     } catch (err) {
       console.warn(
         `[ingestion:worker] gmail.poll_recent embed failed for doc=${documentId}:`,
-        err instanceof Error ? err.message : String(err),
+        toMessage(err),
       );
     }
   });

@@ -2,6 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
 import type { CallUsage, MeteredMeta } from "./types";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Lazy-init Langfuse client. We construct it once per process when the
@@ -130,7 +131,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
       },
     });
   } catch (err) {
-    console.warn("[langfuse] span start failed:", err instanceof Error ? err.message : String(err));
+    console.warn("[langfuse] span start failed:", toMessage(err));
   }
 
   return {
@@ -160,20 +161,14 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
           metadata: responseMeta,
         });
       } catch (err) {
-        console.warn(
-          "[langfuse] span end failed:",
-          err instanceof Error ? err.message : String(err),
-        );
+        console.warn("[langfuse] span end failed:", toMessage(err));
       }
     },
     error(message) {
       try {
         generation?.end({ level: "ERROR", statusMessage: message });
       } catch (err) {
-        console.warn(
-          "[langfuse] span error end failed:",
-          err instanceof Error ? err.message : String(err),
-        );
+        console.warn("[langfuse] span error end failed:", toMessage(err));
       }
     },
   };
@@ -190,7 +185,7 @@ export async function flushLangfuse(): Promise<void> {
   try {
     await client.flushAsync();
   } catch (err) {
-    console.warn("[langfuse] flush failed:", err instanceof Error ? err.message : String(err));
+    console.warn("[langfuse] flush failed:", toMessage(err));
   }
 }
 

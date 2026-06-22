@@ -3,6 +3,7 @@ import {
   toRecord,
   toStringArray,
   type BriefingSlot,
+  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -86,10 +87,7 @@ async function claimBriefingRunRetry(args: {
     );
     return claimed === "OK";
   } catch (err) {
-    console.warn(
-      "[me:briefings] run throttle unavailable:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[me:briefings] run throttle unavailable:", toMessage(err));
     return true;
   }
 }

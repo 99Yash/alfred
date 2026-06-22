@@ -1,6 +1,12 @@
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
-import { isLoopClosingCategory, isRecord, toRecord, weatherFallbackFor } from "@alfred/contracts";
+import {
+  isLoopClosingCategory,
+  isRecord,
+  toRecord,
+  weatherFallbackFor,
+  toMessage,
+} from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
@@ -646,10 +652,7 @@ export async function gatherCalendarContribution(
         events.push(calendarEventToContributionEvent(cred.id, event));
       }
     } catch (err) {
-      console.warn(
-        `[briefing.gather] calendar unavailable credential=${cred.id}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn(`[briefing.gather] calendar unavailable credential=${cred.id}:`, toMessage(err));
     }
   }
 
@@ -736,7 +739,7 @@ async function gatherWeatherContribution(args: {
   } catch (err) {
     console.warn(
       `[briefing.gather] weather unavailable location=${location.label}:`,
-      err instanceof Error ? err.message : String(err),
+      toMessage(err),
     );
     return null;
   }

@@ -2,6 +2,7 @@ import type { AccountPersona } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
+import { toMessage } from "@alfred/contracts";
 
 export type { AccountPersona } from "@alfred/contracts";
 
@@ -350,9 +351,7 @@ async function verifyIdToken(
     });
     claims = payload;
   } catch (err) {
-    throw new Error(
-      `[google.oauth] id_token verification failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw new Error(`[google.oauth] id_token verification failed: ${toMessage(err)}`);
   }
   if (!claims.sub || !claims.email) {
     throw new Error("[google.oauth] id_token missing sub or email claims");

@@ -30,6 +30,7 @@ import {
   type ApprovalExpiryJobData,
 } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
+import { toMessage } from "@alfred/contracts";
 
 let _worker: Worker<ApprovalExpiryJobData> | undefined;
 
@@ -150,7 +151,7 @@ export async function expireStaging(args: {
       console.warn(
         "[approvals] failed to enqueue run after expiry; resume sweep will retry",
         outcome.runId,
-        err instanceof Error ? err.message : String(err),
+        toMessage(err),
       );
     }
   }

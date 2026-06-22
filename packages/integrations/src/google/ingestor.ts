@@ -1,4 +1,4 @@
-import { mapConcurrent, parseEmailAddress } from "@alfred/contracts";
+import { mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -112,7 +112,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
           embedFailures++;
           console.warn(
             `[gmail.ingestor] embed failed for doc=${result.documentId}:`,
-            err instanceof Error ? err.message : String(err),
+            toMessage(err),
           );
         }
       } else if (result.outcome === "ignored") {
@@ -127,10 +127,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       }
     } catch (err) {
       errors++;
-      console.warn(
-        `[gmail.ingestor] failed message=${ref.id}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn(`[gmail.ingestor] failed message=${ref.id}:`, toMessage(err));
     }
   }
 
@@ -564,7 +561,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           embedFailures++;
           console.warn(
             `[gmail.ingestor] poll embed failed for doc=${result.documentId}:`,
-            err instanceof Error ? err.message : String(err),
+            toMessage(err),
           );
         }
       } else if (result.outcome === "ignored") {
@@ -574,10 +571,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       }
     } catch (err) {
       errors++;
-      console.warn(
-        `[gmail.ingestor] poll fetch failed for message=${id}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn(`[gmail.ingestor] poll fetch failed for message=${id}:`, toMessage(err));
     }
   }
 
@@ -734,7 +728,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       errors++;
       console.warn(
         `[gmail.ingestor] poll-recent fetch failed for message=${ref.id}:`,
-        err instanceof Error ? err.message : String(err),
+        toMessage(err),
       );
     }
   });

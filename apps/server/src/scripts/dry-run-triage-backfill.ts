@@ -26,7 +26,7 @@ import {
   senderKeyFor,
   todoSuppressionReason,
 } from "@alfred/api";
-import { toStringArray } from "@alfred/contracts";
+import { toStringArray, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
@@ -166,9 +166,7 @@ async function main() {
         identity: ctxData.identity,
       }));
     } catch (err) {
-      console.log(
-        `! ${header}\n    classify error (skipped): ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      console.log(`! ${header}\n    classify error (skipped): ${toMessage(err)}\n`);
       unresolved++;
       continue;
     }
@@ -210,6 +208,6 @@ main()
   .catch((e) => {
     // Log only the message — serializing the full Error can leak DATABASE_URL,
     // query state, and connection credentials into CI / shared-machine logs.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exit(1);
   });

@@ -26,7 +26,7 @@ import type {
   PolicyMode,
   ToolName,
 } from "@alfred/contracts";
-import { integrationFromToolName } from "@alfred/contracts";
+import { integrationFromToolName, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -173,7 +173,7 @@ export async function publishPolicyBust(userId: string): Promise<void> {
   } catch (err) {
     console.error("[action-policies] publishPolicyBust failed", {
       userId,
-      error: err instanceof Error ? err.message : String(err),
+      error: toMessage(err),
     });
   }
 }
@@ -200,7 +200,7 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   });
   conn.on("error", (err) => {
     console.error("[action-policies] policy-bust subscriber error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: toMessage(err),
     });
   });
 

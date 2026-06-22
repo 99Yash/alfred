@@ -17,6 +17,7 @@ import {
   toJsonValue,
   type AgentTranscriptMessage,
   type ToolName,
+  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
@@ -977,7 +978,7 @@ async function finalizeFailedMessage(
 }
 
 function errorText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = toMessage(err);
   return msg.length > 500 ? `${msg.slice(0, 499)}…` : msg;
 }
 

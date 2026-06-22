@@ -1,5 +1,5 @@
 import type { EventSource, EventType } from "@alfred/contracts";
-import { isEventTypeForSource } from "@alfred/contracts";
+import { isEventTypeForSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -109,7 +109,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
         result.failed++;
         console.warn(
           `[workflows:event] failed for workflow=${row.slug} event=${args.source}.${args.type}:${args.eventId}:`,
-          err instanceof Error ? err.message : String(err),
+          toMessage(err),
         );
       }
     }),

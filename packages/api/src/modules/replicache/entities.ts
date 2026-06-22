@@ -111,9 +111,7 @@ function toEntityRow(args: {
     ];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    console.warn(
-      `[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`,
-    );
+    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`);
     return [];
   }
 }

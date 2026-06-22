@@ -1,4 +1,4 @@
-import { humanizeSlug, humanizeToolName, isRecord } from "@alfred/contracts";
+import { humanizeSlug, humanizeToolName, isRecord, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -61,7 +61,7 @@ export async function scheduleApprovalNotificationJob(args: {
     console.warn(
       "[approvals] failed to schedule approval notification",
       args.stagingId,
-      err instanceof Error ? err.message : String(err),
+      toMessage(err),
     );
     return "failed";
   }
@@ -76,7 +76,7 @@ export async function removeApprovalNotificationJob(stagingId: string): Promise<
     console.warn(
       "[approvals] failed to remove queued approval notification",
       stagingId,
-      err instanceof Error ? err.message : String(err),
+      toMessage(err),
     );
   }
 }

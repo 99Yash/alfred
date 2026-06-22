@@ -18,6 +18,7 @@ import {
   type Workflow,
 } from "@alfred/api";
 import { z } from "zod";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * `learn-skill` — sync phase 1 of dimension's two-phase Learn (ADR-0017).
@@ -273,9 +274,7 @@ export const learnSkillWorkflow: Workflow<State> = {
             );
           } else {
             docEnqueueStatus = "failed";
-            await ctx.log(
-              `persist: failed to enqueue skill-documentation: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            await ctx.log(`persist: failed to enqueue skill-documentation: ${toMessage(err)}`);
           }
         }
 

@@ -4,6 +4,7 @@ import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { UnauthorizedError } from "../../middleware/errors";
 import { getIngestionQueue } from "./queue";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Gmail push receiver.
@@ -97,10 +98,7 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "
     try {
       await verifyPubSubOidc(headers["authorization"] ?? null);
     } catch (err) {
-      console.warn(
-        "[gmail-webhook] OIDC verification failed:",
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn("[gmail-webhook] OIDC verification failed:", toMessage(err));
       // 401 → Pub/Sub will retry, but a misconfigured audience would
       // retry forever. Logging at warn level keeps this visible without
       // paging on every notification.

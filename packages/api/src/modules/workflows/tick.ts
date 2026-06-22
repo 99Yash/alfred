@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";
 import { computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * One tick of the generic workflow dispatcher (ADR-0027).
@@ -67,10 +68,7 @@ export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<
       else if (result === "invalid") invalid++;
     } catch (err) {
       failed++;
-      console.warn(
-        `[workflows:tick] failed for workflow=${row.slug} (${row.id}):`,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn(`[workflows:tick] failed for workflow=${row.slug} (${row.id}):`, toMessage(err));
     }
   }
 

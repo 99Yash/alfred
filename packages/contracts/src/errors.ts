@@ -92,9 +92,7 @@ export class HttpError extends Error {
   constructor(args: HttpErrorArgs) {
     const method = args.method ?? "GET";
     // URL can carry an `?access_token=`/`?key=` query param; redact it too.
-    super(
-      `[${args.provider}] ${method} ${args.status} ${redactSecrets(args.url)} :: ${args.body}`,
-    );
+    super(`[${args.provider}] ${method} ${args.status} ${redactSecrets(args.url)} :: ${args.body}`);
     this.name = "HttpError";
     this.provider = args.provider;
     this.status = args.status;

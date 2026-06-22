@@ -1,4 +1,4 @@
-import { calendarCreateEventInput, calendarListEventsInput } from "@alfred/contracts";
+import { calendarCreateEventInput, calendarListEventsInput, toMessage } from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
@@ -188,7 +188,7 @@ async function executeListEvents(input: CalendarListEventsInput, userId: string)
     } catch (err) {
       failures.push({
         credentialId: credential.id,
-        message: err instanceof Error ? err.message : String(err),
+        message: toMessage(err),
       });
     }
   }
