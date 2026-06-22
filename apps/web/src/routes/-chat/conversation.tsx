@@ -31,10 +31,14 @@ export function Conversation({
   onFollowUp?: (text: string) => void;
   /**
    * Re-send the user turn behind a failed reply (the "Retry" affordance). The
-   * second arg carries that turn's attachment ids so an image-only turn can be
-   * faithfully retried — the server copies the bytes onto the new message.
+   * second arg carries that turn's attachment ids, and the third binds those ids
+   * to their source user message so the server can scope the copy.
    */
-  onRetry?: (text: string, retryAttachmentIds?: string[]) => void;
+  onRetry?: (
+    text: string,
+    retryAttachmentIds?: string[],
+    retryAttachmentMessageId?: string,
+  ) => void;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
   followUps?: ReadonlyArray<FollowUpSuggestion>;
 }) {
@@ -215,7 +219,7 @@ function prevUserTurn(
   messages: readonly SyncedChatMessage[],
   failedIndex: number,
   attachmentsByMessage: Record<string, SyncedChatAttachment[]>,
-  onRetry: (text: string, retryAttachmentIds?: string[]) => void,
+  onRetry: (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => void,
 ): { same: () => void; withoutAttachments?: () => void } | undefined {
   for (let i = failedIndex - 1; i >= 0; i--) {
     const m = messages[i];
@@ -226,7 +230,7 @@ function prevUserTurn(
     if (m.content.trim().length === 0 && readyIds.length === 0) continue;
     const text = m.content;
     return {
-      same: () => onRetry(text, readyIds.length > 0 ? readyIds : undefined),
+      same: () => onRetry(text, readyIds.length > 0 ? readyIds : undefined, m.id),
       withoutAttachments: text.trim().length > 0 ? () => onRetry(text, undefined) : undefined,
     };
   }

@@ -163,8 +163,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // bucket); the server copies them onto the new message. This is what lets an
   // image-only failed turn be retried (ADR-0065).
   const onRetry = useCallback(
-    (text: string, retryAttachmentIds?: string[]) =>
-      void send(threadId, text, tier, undefined, retryAttachmentIds),
+    (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) =>
+      void send(threadId, text, tier, undefined, retryAttachmentIds, retryAttachmentMessageId),
     [send, threadId, tier],
   );
   const showStream = shouldShowStream(messages, stream);

@@ -31,6 +31,7 @@ export type SendMessage = (
    * picks).
    */
   retryAttachmentIds?: string[],
+  retryAttachmentMessageId?: string,
 ) => Promise<boolean>;
 
 const turnKickResponseSchema = z.object({
@@ -60,7 +61,7 @@ export function useSendMessage(): SendMessage {
   const navigate = useNavigate();
 
   return useCallback(
-    async (threadId, text, tier, files, retryAttachmentIds) => {
+    async (threadId, text, tier, files, retryAttachmentIds, retryAttachmentMessageId) => {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
@@ -118,6 +119,10 @@ export function useSendMessage(): SendMessage {
             // Faithful retry: the server copies these source objects under the
             // new message's keys and writes the rows (which sync back via pull).
             retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
+            retryAttachmentMessageId:
+              retryIds.length > 0 && retryAttachmentMessageId
+                ? retryAttachmentMessageId
+                : undefined,
           }),
           signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
