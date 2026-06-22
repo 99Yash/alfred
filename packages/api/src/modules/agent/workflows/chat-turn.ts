@@ -283,6 +283,7 @@ type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachme
 interface AttachmentHydrationBudget {
   usedBytes: number;
   skippedImages: number;
+  unreadableImages: number;
 }
 
 function storedAttachmentImagePart(
@@ -397,7 +398,18 @@ async function hydrateContentForModel(
     // encoder detaches the typed array's ArrayBuffer, so the fallback would see
     // empty bytes ("Unable to process input image"). A string is immutable and
     // survives the replay (and any JSON round-trip) intact.
-    const bytes = await readObject(part.storageKey);
+    let bytes: Uint8Array;
+    try {
+      bytes = await readObject(part.storageKey);
+    } catch (err) {
+      budget.unreadableImages += 1;
+      console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because it could not be read.]",
+      });
+      continue;
+    }
     if (budget.usedBytes + bytes.byteLength > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
       budget.skippedImages += 1;
       parts.push({
@@ -417,7 +429,7 @@ async function hydrateContentForModel(
 async function hydrateTranscriptForModel(
   transcript: readonly AgentTranscriptMessage[],
 ): Promise<AgentTranscriptMessage[]> {
-  const budget: AttachmentHydrationBudget = { usedBytes: 0, skippedImages: 0 };
+  const budget: AttachmentHydrationBudget = { usedBytes: 0, skippedImages: 0, unreadableImages: 0 };
   const reversed: AgentTranscriptMessage[] = [];
   for (let i = transcript.length - 1; i >= 0; i -= 1) {
     const message = transcript[i];
@@ -432,6 +444,12 @@ async function hydrateTranscriptForModel(
         usedBytes: budget.usedBytes,
         maxBytes: MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
       }),
+    );
+  }
+  if (budget.unreadableImages > 0) {
+    console.warn(
+      "[chat] skipped unreadable attachment images:",
+      JSON.stringify({ unreadableImages: budget.unreadableImages }),
     );
   }
   return reversed.reverse();

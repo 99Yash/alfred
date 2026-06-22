@@ -6,8 +6,9 @@ import {
   type IngestPolicyEntry,
 } from "@alfred/contracts";
 import type { chatAttachments } from "@alfred/db/schemas";
+import sharp from "sharp";
 import { BadRequestError } from "../../middleware/errors";
-import { buildAttachmentKey, headObject, readObjectPrefix } from "./storage";
+import { buildAttachmentKey, headObject, readObject } from "./storage";
 
 /**
  * Shared validation + row construction for chat attachments (ADR-0065). Used by
@@ -25,7 +26,9 @@ export interface AttachmentInput {
   position: number;
 }
 
-const IMAGE_SNIFF_BYTES = 16;
+const MIN_MODEL_IMAGE_EDGE_PX = 64;
+const MAX_MODEL_IMAGE_EDGE_PX = 8_192;
+const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
 
 function normalizedMime(mime: string): string {
   return mime.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -80,13 +83,64 @@ export function sniffPassThroughImageMime(bytes: Uint8Array): string | null {
   return null;
 }
 
-export function assertPassThroughImageBytes(bytes: Uint8Array, declaredMime: string): void {
+function sharpFormatToMime(format: string | undefined): string | null {
+  switch (format) {
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
+export async function assertPassThroughImageBytes(
+  bytes: Uint8Array,
+  declaredMime: string,
+): Promise<void> {
   const actualMime = sniffPassThroughImageMime(bytes);
   if (!actualMime) {
     throw new BadRequestError("File contents are not a supported image");
   }
   if (actualMime !== normalizedMime(declaredMime)) {
     throw new BadRequestError("File contents don't match the declared image type");
+  }
+  try {
+    const input = Buffer.from(bytes);
+    const metadata = await sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_MODEL_IMAGE_PIXELS,
+    }).metadata();
+    const decodedMime = sharpFormatToMime(metadata.format);
+    if (!decodedMime) {
+      throw new BadRequestError("File contents are not a supported image");
+    }
+    if (decodedMime !== normalizedMime(declaredMime)) {
+      throw new BadRequestError("File contents don't match the declared image type");
+    }
+    const width = metadata.width ?? 0;
+    const height = metadata.height ?? 0;
+    if (width < MIN_MODEL_IMAGE_EDGE_PX || height < MIN_MODEL_IMAGE_EDGE_PX) {
+      throw new BadRequestError("Image is too small to attach");
+    }
+    if (width > MAX_MODEL_IMAGE_EDGE_PX || height > MAX_MODEL_IMAGE_EDGE_PX) {
+      throw new BadRequestError("Image dimensions are too large");
+    }
+
+    // Force libvips to decode pixels, not just parse container metadata.
+    await sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_MODEL_IMAGE_PIXELS,
+    })
+      .resize({ width: 1, height: 1, fit: "inside" })
+      .toBuffer();
+  } catch (err) {
+    if (err instanceof BadRequestError) throw err;
+    throw new BadRequestError("Image could not be decoded");
   }
 }
 
@@ -172,10 +226,10 @@ export async function assertStoredAttachmentReady(opts: {
   size: number;
 }): Promise<void> {
   let meta: { size: number; contentType: string };
-  let prefix: Uint8Array;
+  let bytes: Uint8Array;
   try {
     meta = await headObject(opts.storageKey);
-    prefix = await readObjectPrefix(opts.storageKey, IMAGE_SNIFF_BYTES);
+    bytes = await readObject(opts.storageKey);
   } catch {
     throw new BadRequestError("Attachment upload is missing or incomplete");
   }
@@ -187,5 +241,5 @@ export async function assertStoredAttachmentReady(opts: {
   if (storedMime && storedMime !== declaredMime) {
     throw new BadRequestError("Stored attachment type doesn't match the sent message");
   }
-  assertPassThroughImageBytes(prefix, opts.mime);
+  await assertPassThroughImageBytes(bytes, opts.mime);
 }

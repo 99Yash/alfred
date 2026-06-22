@@ -2,6 +2,7 @@ import { transcribeAudio } from "@alfred/ai";
 import {
   getPath,
   isNonEmptyString,
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   toMessage,
@@ -20,9 +21,12 @@ import {
   ConflictError,
   NotFoundError,
   ServiceUnavailableError,
+  TooManyRequestsError,
 } from "../../middleware/errors";
+import { createCacheRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun, getRun, isUniqueViolation } from "../agent/index";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
+import { enqueuePendingUploadCleanup } from "../integrations/queue";
 import {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
@@ -42,6 +46,39 @@ import {
 import { requestChatStop } from "./stop-signal";
 
 const TITLE_MAX_CHARS = 80;
+const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;
+const ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT = 30;
+let attachmentUploadRateRedis: ReturnType<typeof createCacheRedisConnection> | undefined;
+
+function getAttachmentUploadRateRedis(): ReturnType<typeof createCacheRedisConnection> {
+  attachmentUploadRateRedis ??= createCacheRedisConnection();
+  return attachmentUploadRateRedis;
+}
+
+async function assertAttachmentUploadRateAllowed(userId: string): Promise<void> {
+  try {
+    const bucket = Math.floor(Date.now() / (ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS * 1000));
+    const key = `rate:chat:attachments:upload:${userId}:${bucket}`;
+    const count = await getAttachmentUploadRateRedis().incr(key);
+    if (count === 1) {
+      await getAttachmentUploadRateRedis().expire(key, ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS);
+    }
+    if (count > ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT) {
+      throw new TooManyRequestsError("Too many attachment uploads. Try again in a minute.");
+    }
+  } catch (err) {
+    if (err instanceof TooManyRequestsError) throw err;
+    console.warn("[chat] attachment upload throttle unavailable:", toMessage(err));
+  }
+}
+
+async function schedulePendingUploadCleanup(userId: string, storageKey: string): Promise<void> {
+  try {
+    await enqueuePendingUploadCleanup(userId, storageKey);
+  } catch (err) {
+    console.warn("[chat] pending upload cleanup enqueue failed:", toMessage(err));
+  }
+}
 
 /**
  * Chat turn surface (streaming-chat plan). The composer first persists the
@@ -112,6 +149,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
             );
           }
+          await assertAttachmentUploadRateAllowed(user.id);
           const policy = assertUploadAllowed(body.mime, body.size);
           const storageKey = buildAttachmentKey({
             userId: user.id,
@@ -133,6 +171,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               throw new ConflictError("Attachment upload already exists");
             }
             const upload = await signedUploadUrl(storageKey, body.mime, policy.maxBytes);
+            await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey, upload };
           } catch (err) {
             if (err instanceof ConflictError) throw err;
@@ -169,6 +208,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
             );
           }
+          await assertAttachmentUploadRateAllowed(user.id);
           const file = body.file;
           // Validate the declared mime + actual byte size against the ingest
           // policy (per-type cap); the storage key is rebuilt server-side.
@@ -181,7 +221,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             fileName: body.name,
           });
           const bytes = new Uint8Array(await file.arrayBuffer());
-          assertPassThroughImageBytes(bytes, body.mime);
+          await assertPassThroughImageBytes(bytes, body.mime);
           try {
             const existingRows = await db()
               .select({ id: chatAttachments.id })
@@ -197,9 +237,11 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 mime: body.mime,
                 size: file.size,
               });
+              await schedulePendingUploadCleanup(user.id, storageKey);
               return { storageKey };
             }
             await writeObject(storageKey, bytes, body.mime);
+            await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey };
           } catch (err) {
             if (err instanceof BadRequestError || err instanceof ConflictError) throw err;
@@ -371,7 +413,15 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 asc(chatAttachments.id),
               );
             const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
-            for (const src of sources.slice(0, room)) {
+            const retrySources: typeof sources = [];
+            let selectedBytes = freshAttachmentRows.reduce((sum, row) => sum + row.size, 0);
+            for (const src of sources) {
+              if (retrySources.length >= room) break;
+              if (selectedBytes + src.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) continue;
+              retrySources.push(src);
+              selectedBytes += src.size;
+            }
+            for (const src of retrySources) {
               const newAttachmentId = createId("att");
               const position = freshAttachmentRows.length + retryAttachmentRows.length;
               const destKey = buildAttachmentKey({
@@ -383,6 +433,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               });
               try {
                 await copyObject(src.storageKey, destKey);
+                await schedulePendingUploadCleanup(user.id, destKey);
               } catch (err) {
                 console.warn("[chat] retry attachment copy failed:", toMessage(err));
                 continue;

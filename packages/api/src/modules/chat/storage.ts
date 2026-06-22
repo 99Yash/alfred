@@ -180,6 +180,13 @@ export async function copyObject(from: string, to: string): Promise<void> {
   await files().copy(from, to);
 }
 
+/** Delete exact keys. Missing keys are treated as already gone by the provider. */
+export async function deleteObjects(keys: readonly string[]): Promise<number> {
+  if (keys.length === 0) return 0;
+  const result = await files().delete([...keys]);
+  return result.deleted.length;
+}
+
 /**
  * Delete every object under a key prefix — the thread/account cleanup primitive.
  * Object stores have no FK cascade, so we list-and-delete in pages. Idempotent:
