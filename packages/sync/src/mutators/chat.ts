@@ -1,5 +1,6 @@
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import {
   isoDateTimeStringSchema,
@@ -65,6 +66,11 @@ export const chatAttachmentCreateArgsSchema = z.object({
   name: z.string().min(1).max(255),
   mime: z.string().min(1).max(255),
   size: z.number().int().positive(),
+  position: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_ATTACHMENTS_PER_MESSAGE - 1),
   createdAt: isoDateTimeStringSchema,
 });
 export type ChatAttachmentCreateArgs = z.infer<typeof chatAttachmentCreateArgsSchema>;
@@ -166,8 +172,8 @@ export async function chatThreadDeleteClient(
  * (ADR-0065). The bytes are already in the bucket (uploaded during
  * composition); this writes the display row so the image renders in its bubble
  * without waiting for the pull. Phase 1 is images — the row lands `ready`. The
- * server mutator rebuilds the storage key and persists the canonical row.
- * Idempotent on id.
+ * HTTP turn endpoint verifies the stored object and persists the canonical row;
+ * this mutator is only the client-side optimistic display patch. Idempotent on id.
  */
 export async function chatAttachmentCreateClient(
   tx: WriteTransaction,
@@ -180,6 +186,7 @@ export async function chatAttachmentCreateClient(
     name: args.name,
     mime: args.mime,
     size: args.size,
+    position: args.position,
     status: "ready",
     rowVersion: 0,
     createdAt: args.createdAt,

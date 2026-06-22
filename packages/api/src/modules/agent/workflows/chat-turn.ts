@@ -26,7 +26,7 @@ import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { attachmentUrl } from "../../chat/storage";
+import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
@@ -301,7 +301,10 @@ function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachm
  * degrading) and `failed` rows are skipped, so a slow degrade can't block the
  * turn (ADR-0065's bounded-await / graceful-partial posture).
  */
-async function loadReadyAttachments(messageIds: string[]): Promise<Map<string, ReadyAttachment[]>> {
+async function loadReadyAttachments(
+  userId: string,
+  messageIds: string[],
+): Promise<Map<string, ReadyAttachment[]>> {
   const byMessage = new Map<string, ReadyAttachment[]>();
   if (messageIds.length === 0) return byMessage;
   const rows = await db()
@@ -314,7 +317,16 @@ async function loadReadyAttachments(messageIds: string[]): Promise<Map<string, R
     })
     .from(chatAttachments)
     .where(
-      and(inArray(chatAttachments.messageId, messageIds), eq(chatAttachments.status, "ready")),
+      and(
+        eq(chatAttachments.userId, userId),
+        inArray(chatAttachments.messageId, messageIds),
+        eq(chatAttachments.status, "ready"),
+      ),
+    )
+    .orderBy(
+      asc(chatAttachments.position),
+      asc(chatAttachments.createdAt),
+      asc(chatAttachments.id),
     );
   for (const r of rows) {
     const list = byMessage.get(r.messageId) ?? [];
@@ -332,8 +344,8 @@ async function loadReadyAttachments(messageIds: string[]): Promise<Map<string, R
 /**
  * Build an AI-SDK content-parts array for a user message that has attachments:
  * the typed text first, then each attachment's contribution. The durable
- * transcript stores object keys, not presigned URLs; `hydrateTranscriptForModel`
- * turns those markers into fresh image URLs immediately before each model call.
+ * transcript stores object keys, not bytes; `hydrateTranscriptForModel` reads
+ * each object's bytes back and inlines them immediately before each model call.
  * A degraded modality (Phase 2/3) contributes its extracted `degradedText` plus
  * any keyframe images.
  */
@@ -366,7 +378,10 @@ async function hydrateContentForModel(content: unknown): Promise<unknown> {
       parts.push(part);
       continue;
     }
-    const image = new URL(await attachmentUrl(part.storageKey));
+    // Inline the raw bytes (ADR-0065 "bytes path") instead of a presigned URL:
+    // the providers can't fetch our private, short-lived Railway storage URLs,
+    // so a URL-valued image part fails the turn (boss + fallback alike).
+    const image = await readObject(part.storageKey);
     parts.push(
       part.mediaType
         ? { type: "image", image, mediaType: part.mediaType }
@@ -1161,10 +1176,13 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
 
     // Fold in any uploaded attachments (ADR-0065). Only `ready` rows enter the
     // model context, and only as text + images — the raw bytes are never sent.
-    // Phase 1 carries images straight through (presigned read URL → image part);
+    // Phase 1 carries images straight through (object bytes → image part);
     // degraded modalities (Phase 2/3) contribute their `degradedText` +
     // keyframe images instead.
-    const attachmentsByMessage = await loadReadyAttachments(rows.map((r) => r.id));
+    const attachmentsByMessage = await loadReadyAttachments(
+      input.userId,
+      rows.map((r) => r.id),
+    );
 
     const out: AgentTranscriptMessage[] = [];
     for (const r of rows) {

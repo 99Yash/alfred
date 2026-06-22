@@ -317,6 +317,7 @@ export const syncedChatAttachmentSchema = z.object({
   name: z.string(),
   mime: z.string(),
   size: z.number(),
+  position: z.number().int().nonnegative().default(0),
   status: z.enum(["pending", "ready", "failed"]),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,

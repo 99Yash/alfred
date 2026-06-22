@@ -614,6 +614,7 @@ function serializeChatAttachment(a: ChatAttachment): SyncedChatAttachment {
     name: a.name,
     mime: a.mime,
     size: a.size,
+    position: a.position,
     status: a.status,
     rowVersion: a.rowVersion,
     createdAt: toRequiredIso(a.createdAt, "chatAttachments.createdAt"),
