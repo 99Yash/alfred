@@ -7,7 +7,6 @@ import {
   ChevronDown,
   Ellipsis,
   Library,
-  LogOut,
   Newspaper,
   NotebookPen,
   PanelLeft,
@@ -34,7 +33,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
-import { AppButton, AppInput, AppThemeToggle, useAppTheme } from "~/components/ui/v2";
+import { AppButton, AppInput, useAppTheme } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth/auth-client";
 import type { SessionUser } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
@@ -440,7 +439,9 @@ function FullContent({
         <div className="flex-1 min-h-0" />
       )}
 
-      <FooterRow path={path} />
+      <div className="mt-2.5">
+        <FooterRow path={path} />
+      </div>
     </>
   );
 }
@@ -1119,54 +1120,6 @@ function FooterRow({ path }: { path: string }) {
         to="/settings"
         active={path.startsWith("/settings")}
       />
-      <div className="mt-1">
-        <UserRow />
-      </div>
-    </div>
-  );
-}
-
-function UserRow() {
-  const { name, email, initial, signingOut, signOut } = useUserRow();
-  return (
-    <div className="px-1 py-1.5 border-t border-app-bg-3/60 flex items-center gap-1.5">
-      <Link
-        to="/settings"
-        className={cn(
-          "flex-1 min-w-0 inline-flex items-center gap-2.5 rounded-xl h-11 px-1.5 pr-2",
-          "hover:bg-app-bg-a2 transition-colors app-press",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        )}
-      >
-        <span
-          aria-hidden
-          className="size-8 shrink-0 rounded-full bg-app-pink-4 text-white inline-flex items-center justify-center text-sm font-semibold"
-        >
-          {initial}
-        </span>
-        <span className="flex-1 min-w-0 text-left">
-          <span className="block text-sm font-medium text-app-fg-4 truncate">
-            {name || "Alfred"}
-          </span>
-          <span className="block text-[11px] text-app-fg-2 truncate">{email}</span>
-        </span>
-      </Link>
-      <button
-        type="button"
-        onClick={signOut}
-        disabled={signingOut}
-        aria-label="Sign out"
-        title="Sign out"
-        className={cn(
-          "size-8 inline-flex items-center justify-center rounded-lg",
-          "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        )}
-      >
-        <LogOut size={14} aria-hidden />
-      </button>
-      <AppThemeToggle />
     </div>
   );
 }
