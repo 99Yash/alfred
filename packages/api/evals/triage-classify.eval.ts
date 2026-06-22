@@ -195,9 +195,9 @@ const CASES: Case[] = [
     senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: "fyi",
       todo: "suppress",
-      note: "A connection request is an optional nicety — the sender's want, not the user's obligation — whatever the title (16a-i no_obligation); no todo.",
+      note: "A social-network connection request is passive social activity → fyi (rule 8a), NOT awaiting_reply/action_needed — accepting or ignoring is the sender's want, not a question the user must answer (16a-i no_obligation); no todo.",
     },
   },
   {
@@ -300,9 +300,9 @@ const CASES: Case[] = [
     senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: "fyi",
       todo: "suppress",
-      note: "Category action_needed — accepting/ignoring a connection request IS a discrete user action. Todo SUPPRESSED, though: an optional nicety carries no obligation even from a 'Founder & CEO' (the 16a title carve-out is deleted, 16a-i no_obligation). Category and todo legitimately disagree.",
+      note: "A connection request is passive social activity → fyi (rule 8a), even from a 'Founder & CEO' — the seniority of the requester does not make it a question the user must answer. Todo also suppressed (16a-i optional nicety). Reverses the prior action_needed expectation: an optional nicety with no obligation is passive awareness, not an action.",
     },
   },
   {
