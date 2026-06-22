@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { ApiError, apiErrorResponse, type ApiErrorResponse } from "./errors.js";
+import { toMessage } from "@alfred/contracts";
 
 export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(
   { as: "global" },
@@ -26,7 +27,7 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
       return apiError("Invalid request body", "PARSE_ERROR");
     }
 
-    console.error("[api] Unhandled error:", error instanceof Error ? error.message : String(error));
+    console.error("[api] Unhandled error:", toMessage(error));
     set.status = 500;
     return apiError("Internal server error", "INTERNAL_SERVER_ERROR");
   },

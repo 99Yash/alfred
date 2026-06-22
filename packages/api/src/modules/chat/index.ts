@@ -1,5 +1,5 @@
 import { transcribeAudio } from "@alfred/ai";
-import { getPath, isNonEmptyString } from "@alfred/contracts";
+import { getPath, isNonEmptyString, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
@@ -62,10 +62,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             // Provider faults (bad audio container, clip too short, OpenAI
             // hiccup) are routine here — surface a retryable message instead
             // of a generic 500.
-            console.warn(
-              "[chat] transcription failed:",
-              err instanceof Error ? err.message : String(err),
-            );
+            console.warn("[chat] transcription failed:", toMessage(err));
             throw new BadGatewayError("Transcription failed. Try again.");
           }
         },

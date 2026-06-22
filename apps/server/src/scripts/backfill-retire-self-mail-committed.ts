@@ -41,7 +41,7 @@
  *   node dist/scripts/backfill-retire-self-mail-committed.js --emails=a@x.com,b@y.com --commit
  */
 import { closeConnections, closeRedis, warmPool } from "@alfred/api";
-import { parseEmailAddress } from "@alfred/contracts";
+import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { documents, emailTriage, user as userTable } from "@alfred/db/schemas";
@@ -205,7 +205,7 @@ async function main() {
 main()
   .catch((e) => {
     // Log only the message — a serialized Error can leak DATABASE_URL.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {

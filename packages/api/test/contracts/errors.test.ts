@@ -64,8 +64,7 @@ test("HttpError carries structured fields and a tag, not just a message", () => 
 });
 
 test("HttpError.retryable is true for 429 and 5xx, false otherwise", () => {
-  const mk = (status: number) =>
-    new HttpError({ provider: "p", status, url: "u", body: "" });
+  const mk = (status: number) => new HttpError({ provider: "p", status, url: "u", body: "" });
   assert.equal(mk(429).retryable, true);
   assert.equal(mk(503).retryable, true);
   assert.equal(mk(500).retryable, true);

@@ -1,4 +1,4 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
+import { httpErrorFromResponse, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -263,7 +263,7 @@ export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryRes
  * but cheap, and a wrong-classify here just triggers a full re-ingest.
  */
 export function isHistoryGoneError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = toMessage(err);
   return /\[gmail\] 404 /.test(msg) && /history/.test(msg);
 }
 

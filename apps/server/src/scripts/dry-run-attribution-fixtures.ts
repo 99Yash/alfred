@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 /**
  * Attribution-gate fixtures (ADR-0050/0051 amendment 2026-06-09) — READ-ONLY.
  * Validates rule 16a (ii): an action the email assigns to a named third party
@@ -114,6 +115,6 @@ main()
   .catch((e) => {
     // Log only the message — serializing the full Error can leak DATABASE_URL,
     // query state, and connection credentials into CI / shared-machine logs.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exit(1);
   });

@@ -5,6 +5,7 @@ import {
   triageTodoSuggestionSchema,
   type SenderContext,
   type TodoDecisionOutcome,
+  toMessage,
 } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
@@ -835,7 +836,7 @@ function conservativeUnderClassificationFallback(
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return toMessage(err);
 }
 
 function resolveModelId(model: unknown): string {

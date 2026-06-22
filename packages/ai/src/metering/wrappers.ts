@@ -15,6 +15,7 @@ import {
 import { identifyLanguageModel } from "../models";
 import { metered, meteredStream } from "./metered";
 import type { CallAttribution, MeteredMeta, MeteredResult } from "./types";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * AI-SDK call wrappers — thin sugar over `metered()`. They:
@@ -281,7 +282,7 @@ export function meteredStreamText(
         callerOnFinish?.(event);
       },
       onError: (event: StreamTextErrorEvent) => {
-        fail(event.error instanceof Error ? event.error.message : String(event.error));
+        fail(toMessage(event.error));
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {

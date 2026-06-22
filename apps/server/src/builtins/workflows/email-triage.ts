@@ -36,6 +36,7 @@ import {
   toStringArray,
   type AccountPersona,
   type SenderContext,
+  toMessage,
 } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
@@ -320,7 +321,7 @@ export const emailTriageWorkflow: Workflow<State> = {
             // tells us why classification fell through — ctx.log only goes
             // to a transient event stream. `model="fallback"` is non-learnable
             // (senderPriorWriteKeyFor skips it).
-            const errMsg = err instanceof Error ? err.message : String(err);
+            const errMsg = toMessage(err);
             await ctx.log(`classify failed; falling through to default: ${errMsg}`);
             classification = {
               category: DEFAULT_TRIAGE_CATEGORY,
@@ -384,9 +385,7 @@ export const emailTriageWorkflow: Workflow<State> = {
               payload: { reason: "triaged", count: 1 },
             });
           } catch (err) {
-            await ctx.log(
-              `inbox.updated publish failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            await ctx.log(`inbox.updated publish failed: ${toMessage(err)}`);
           }
         }
 
@@ -417,9 +416,7 @@ export const emailTriageWorkflow: Workflow<State> = {
                 displayName: metadataString(ctxData.document.metadata, "from"),
               });
             } catch (err) {
-              await ctx.log(
-                `sender_prior write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-              );
+              await ctx.log(`sender_prior write failed (non-fatal): ${toMessage(err)}`);
             }
           }
         }
@@ -452,9 +449,9 @@ export const emailTriageWorkflow: Workflow<State> = {
           } catch (err) {
             standingSuppressionReadFailed = true;
             await ctx.log(
-              `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${
-                err instanceof Error ? err.message : String(err)
-              }`,
+              `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(
+                err,
+              )}`,
             );
           }
         }
@@ -501,9 +498,7 @@ export const emailTriageWorkflow: Workflow<State> = {
               `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
             );
           } catch (err) {
-            await ctx.log(
-              `suggest_todo failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-            );
+            await ctx.log(`suggest_todo failed (non-fatal): ${toMessage(err)}`);
           }
         }
 

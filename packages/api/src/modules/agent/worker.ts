@@ -4,6 +4,7 @@ import { snapshotScratchToPostgres } from "../scratchpad";
 import { runOnce } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import { findResumableRunIds, heartbeatRun, STALE_RUN_LEASE_MS } from "./service";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Heartbeat cadence. Worker bumps `last_checkpoint_at` on the active run
@@ -84,11 +85,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       try {
         await snapshotScratchToPostgres(runId);
       } catch (err) {
-        console.warn(
-          "[agent:worker] scratchpad snapshot failed for",
-          runId,
-          err instanceof Error ? err.message : String(err),
-        );
+        console.warn("[agent:worker] scratchpad snapshot failed for", runId, toMessage(err));
       }
     }
   } finally {
@@ -103,10 +100,7 @@ async function resumeSweep(): Promise<void> {
       await enqueueRun(id);
     }
   } catch (err) {
-    console.warn(
-      "[agent:worker] resume sweep failed:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[agent:worker] resume sweep failed:", toMessage(err));
   }
 }
 

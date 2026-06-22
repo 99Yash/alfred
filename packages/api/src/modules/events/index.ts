@@ -5,6 +5,7 @@ import { publishEvent } from "../../events/publish";
 import { subscribeUserEvents } from "../../events/user-events-bus";
 import type { EventFrame } from "../../events/types";
 import { getEventsSince, getReplayHighWatermark } from "./replay";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Generic SSE endpoint for durable user-scoped events.
@@ -96,11 +97,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                   for (const frame of replay) writeFrame(frame);
                 }
               } catch (err) {
-                console.warn(
-                  "[events:sse] replay failed for user",
-                  userId,
-                  err instanceof Error ? err.message : String(err),
-                );
+                console.warn("[events:sse] replay failed for user", userId, toMessage(err));
               }
             }
 

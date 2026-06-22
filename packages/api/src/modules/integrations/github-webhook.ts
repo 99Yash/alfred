@@ -3,6 +3,7 @@ import { webhookEvents } from "@alfred/db/schemas";
 import { findUserByInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import { Elysia, t } from "elysia";
 import { objectStateStore } from "./object-state";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * GitHub App activity receiver (ADR-0052).
@@ -102,7 +103,7 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
         console.error("[github-webhook] object-state applyEvent failed", {
           deliveryId,
           eventType,
-          message: err instanceof Error ? err.message : String(err),
+          message: toMessage(err),
         });
       }
     }
