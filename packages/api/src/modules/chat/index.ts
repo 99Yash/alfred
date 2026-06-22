@@ -104,15 +104,10 @@ async function releasePendingUploadBudget(userId: string, amount: number): Promi
   }
 }
 
-async function assertAttachmentUploadBudgetAllowed(args: {
-  userId: string;
-  threadId: string;
-  messageId: string;
-  size: number;
-}): Promise<void> {
+async function assertAttachmentUploadRateAllowed(userId: string): Promise<void> {
   try {
     const bucket = Math.floor(Date.now() / (ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS * 1000));
-    const rateKey = `rate:chat:attachments:upload:${args.userId}:${bucket}`;
+    const rateKey = `rate:chat:attachments:upload:${userId}:${bucket}`;
     const rateCount = await incrementUploadCounter(
       rateKey,
       1,
@@ -121,7 +116,20 @@ async function assertAttachmentUploadBudgetAllowed(args: {
     if (rateCount > ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT) {
       throw new TooManyRequestsError("Too many attachment uploads. Try again in a minute.");
     }
+  } catch (err) {
+    if (err instanceof TooManyRequestsError) throw err;
+    console.warn("[chat] attachment upload rate limit unavailable:", toMessage(err));
+    throw new ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
+  }
+}
 
+async function assertAttachmentUploadBudgetAllowed(args: {
+  userId: string;
+  threadId: string;
+  messageId: string;
+  size: number;
+}): Promise<void> {
+  try {
     const messageKey = `quota:chat:attachments:message:${args.userId}:${args.threadId}:${args.messageId}`;
     const messageCount = await incrementUploadCounter(
       `${messageKey}:count`,
@@ -377,6 +385,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           });
           let reservedPendingBytes = 0;
           try {
+            await assertAttachmentUploadRateAllowed(user.id);
             const existingRows = await db()
               .select({ id: chatAttachments.id })
               .from(chatAttachments)
@@ -453,6 +462,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           });
           let reservedPendingBytes = 0;
           try {
+            await assertAttachmentUploadRateAllowed(user.id);
             const existingRows = await db()
               .select({ id: chatAttachments.id })
               .from(chatAttachments)
@@ -470,6 +480,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               await schedulePendingUploadCleanup(user.id, storageKey);
               return { storageKey };
             }
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            await assertPassThroughImageBytes(bytes, body.mime);
             await assertAttachmentUploadBudgetAllowed({
               userId: user.id,
               threadId: body.threadId,
@@ -477,8 +489,6 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               size: file.size,
             });
             reservedPendingBytes = file.size;
-            const bytes = new Uint8Array(await file.arrayBuffer());
-            await assertPassThroughImageBytes(bytes, body.mime);
             await writeObject(storageKey, bytes, body.mime);
             await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey };

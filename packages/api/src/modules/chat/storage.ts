@@ -210,6 +210,10 @@ export async function copyObject(from: string, to: string): Promise<void> {
 export async function deleteObjects(keys: readonly string[]): Promise<number> {
   if (keys.length === 0) return 0;
   const result = await files().delete([...keys]);
+  const errors = result.errors ?? [];
+  if (errors.length > 0) {
+    throw new Error(`Failed to delete ${errors.length} object(s) from storage`);
+  }
   return result.deleted.length;
 }
 
@@ -226,8 +230,12 @@ export async function deletePrefix(prefix: string): Promise<number> {
     const page = await client.list({ prefix, cursor });
     const keys = page.items.map((f) => f.key);
     if (keys.length > 0) {
-      await client.delete(keys);
-      removed += keys.length;
+      const result = await client.delete(keys);
+      removed += result.deleted.length;
+      const errors = result.errors ?? [];
+      if (errors.length > 0) {
+        throw new Error(`Failed to delete ${errors.length} object(s) under storage prefix`);
+      }
     }
     cursor = page.cursor;
   } while (cursor);

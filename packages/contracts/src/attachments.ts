@@ -157,28 +157,3 @@ export function classifyUpload(mime: string): IngestPolicyEntry | null {
 export function isPassThrough(mime: string): boolean {
   return classifyUpload(mime)?.kind === "pass-through";
 }
-
-/**
- * One attachment as the composer and status poller see it. Mirrors the durable
- * `chat_attachments` row, minus server-only fields (the raw storage key and the
- * degraded artifact never cross to the client).
- */
-export interface ChatAttachmentView {
-  id: string;
-  messageId: string;
-  name: string;
-  mime: string;
-  size: number;
-  position: number;
-  status: ChatAttachmentStatus;
-}
-
-export const chatAttachmentViewSchema = z.object({
-  id: z.string(),
-  messageId: z.string(),
-  name: z.string(),
-  mime: z.string(),
-  size: z.number(),
-  position: z.number().int().nonnegative(),
-  status: chatAttachmentStatusSchema,
-});

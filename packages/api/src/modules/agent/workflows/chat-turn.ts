@@ -29,7 +29,7 @@ import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { assertPassThroughImageBytes, sniffPassThroughImageMime } from "../../chat/attachments";
+import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
@@ -292,6 +292,12 @@ interface AttachmentHydrationBudget {
   invalidImages: number;
 }
 
+interface HydratedAttachmentImage {
+  image: string;
+  mediaType: string;
+  encodedBytes: number;
+}
+
 function storedAttachmentImagePart(
   storageKey: string,
   mediaType?: string,
@@ -405,32 +411,10 @@ function encodedImageBytes(rawBytes: number): number {
   return Math.ceil(rawBytes / 3) * 4;
 }
 
-async function markAttachmentHydrationFailed(
-  part: StoredChatAttachmentImagePart,
-  failureReason: string,
-): Promise<void> {
-  if (!part.attachmentId) return;
-  try {
-    const rows = await db()
-      .update(chatAttachments)
-      .set({
-        status: "failed",
-        failureReason,
-        rowVersion: sql`${chatAttachments.rowVersion} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(chatAttachments.id, part.attachmentId))
-      .returning({ userId: chatAttachments.userId });
-    const userIds = Array.from(new Set(rows.map((r) => r.userId)));
-    if (userIds.length > 0) emitReplicachePokes(userIds);
-  } catch (err) {
-    console.warn("[chat] failed to mark bad attachment image:", toMessage(err));
-  }
-}
-
 async function hydrateContentForModel(
   content: unknown,
   budget: AttachmentHydrationBudget,
+  cache: Map<string, HydratedAttachmentImage>,
 ): Promise<unknown> {
   if (!Array.isArray(content)) return content;
   const parts: unknown[] = [];
@@ -457,11 +441,19 @@ async function hydrateContentForModel(
       });
       continue;
     }
-    let bytes: Uint8Array;
-    let mediaType: string;
+    let hydrated: HydratedAttachmentImage;
     try {
-      bytes = await readObject(part.storageKey);
+      hydrated = await hydrateAttachmentImage(part, cache);
     } catch (err) {
+      if (err instanceof UnsupportedStoredImageError) {
+        budget.invalidImages += 1;
+        console.warn("[chat] skipped invalid attachment image:", toMessage(err));
+        parts.push({
+          type: "text",
+          text: "[Image attachment omitted because it could not be processed.]",
+        });
+        continue;
+      }
       budget.unreadableImages += 1;
       console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
       parts.push({
@@ -470,25 +462,7 @@ async function hydrateContentForModel(
       });
       continue;
     }
-    try {
-      const detectedMime = sniffPassThroughImageMime(bytes);
-      if (!detectedMime) {
-        throw new Error("stored image bytes are not a supported image");
-      }
-      mediaType = part.mediaType ?? detectedMime;
-      await assertPassThroughImageBytes(bytes, mediaType);
-    } catch (err) {
-      budget.invalidImages += 1;
-      console.warn("[chat] skipped invalid attachment image:", toMessage(err));
-      await markAttachmentHydrationFailed(part, "Image could not be processed");
-      parts.push({
-        type: "text",
-        text: "[Image attachment omitted because it could not be processed.]",
-      });
-      continue;
-    }
-    const encodedBytes = encodedImageBytes(bytes.byteLength);
-    if (budget.usedEncodedBytes + encodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
+    if (budget.usedEncodedBytes + hydrated.encodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
       budget.skippedImages += 1;
       parts.push({
         type: "text",
@@ -496,11 +470,34 @@ async function hydrateContentForModel(
       });
       continue;
     }
-    budget.usedEncodedBytes += encodedBytes;
-    const image = Buffer.from(bytes).toString("base64");
-    parts.push({ type: "image", image, mediaType });
+    budget.usedEncodedBytes += hydrated.encodedBytes;
+    parts.push({ type: "image", image: hydrated.image, mediaType: hydrated.mediaType });
   }
   return parts;
+}
+
+class UnsupportedStoredImageError extends Error {
+  constructor() {
+    super("stored image bytes are not a supported image");
+  }
+}
+
+async function hydrateAttachmentImage(
+  part: StoredChatAttachmentImagePart,
+  cache: Map<string, HydratedAttachmentImage>,
+): Promise<HydratedAttachmentImage> {
+  const cached = cache.get(part.storageKey);
+  if (cached) return cached;
+  const bytes = await readObject(part.storageKey);
+  const mediaType = part.mediaType ?? sniffPassThroughImageMime(bytes);
+  if (!mediaType) throw new UnsupportedStoredImageError();
+  const hydrated = {
+    image: Buffer.from(bytes).toString("base64"),
+    mediaType,
+    encodedBytes: encodedImageBytes(bytes.byteLength),
+  };
+  cache.set(part.storageKey, hydrated);
+  return hydrated;
 }
 
 async function hydrateTranscriptForModel(
@@ -512,11 +509,15 @@ async function hydrateTranscriptForModel(
     unreadableImages: 0,
     invalidImages: 0,
   };
+  const cache = new Map<string, HydratedAttachmentImage>();
   const reversed: AgentTranscriptMessage[] = [];
   for (let i = transcript.length - 1; i >= 0; i -= 1) {
     const message = transcript[i];
     if (!message) continue;
-    reversed.push({ ...message, content: await hydrateContentForModel(message.content, budget) });
+    reversed.push({
+      ...message,
+      content: await hydrateContentForModel(message.content, budget, cache),
+    });
   }
   if (budget.skippedImages > 0) {
     console.warn(

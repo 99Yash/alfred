@@ -695,8 +695,9 @@ function Composer({
 
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
-      if (composerDisabled || !e.dataTransfer.files.length) return;
+      if (!e.dataTransfer.files.length) return;
       e.preventDefault();
+      if (composerDisabled) return;
       attachments.addFiles(e.dataTransfer.files);
     },
     [composerDisabled, attachments],
@@ -705,10 +706,11 @@ function Composer({
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLDivElement>) => {
       const files = Array.from(e.clipboardData.files);
-      if (composerDisabled || files.length === 0) return;
+      if (files.length === 0) return;
       // Only intercept when the clipboard carries files (pasted image); let
       // normal text paste fall through to the editor.
       e.preventDefault();
+      if (composerDisabled) return;
       attachments.addFiles(files);
     },
     [composerDisabled, attachments],
@@ -745,7 +747,7 @@ function Composer({
           sending && "opacity-80",
         )}
         onDragOver={(e) => {
-          if (!composerDisabled && e.dataTransfer.types.includes("Files")) e.preventDefault();
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={onDrop}
         onPaste={onPaste}
