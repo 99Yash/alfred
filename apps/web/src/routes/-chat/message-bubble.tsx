@@ -39,8 +39,7 @@ const FAILURE_PRESENTATION: Record<
   { message: string; retry: "same" | "without_attachments" | "none" }
 > = {
   attachment: {
-    message:
-      "I couldn't read one of the attached files. It may be corrupted or an unsupported type. Try a different one.",
+    message: "I couldn't read one of the attached files. I can try again with just your message.",
     retry: "without_attachments",
   },
   overloaded: { message: "I hit a brief glitch on my end.", retry: "same" },
@@ -57,6 +56,15 @@ const FAILURE_PRESENTATION: Record<
 
 /** Fallback for legacy failed rows persisted before `errorKind` existed. */
 const LEGACY_FAILURE = { message: "This reply didn't finish.", retry: "same" } as const;
+
+/** Shared styling for the retry action inside a failed-turn notice. */
+const FAILURE_ACTION_CLASS = cn(
+  "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
+  "text-app-fg-3 hover:bg-app-red-2 hover:text-app-fg-4",
+  "transition-[background-color,color] duration-150",
+  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+);
 
 /** Fenced code → highlighted card; inline code keeps the markdown chip styling. */
 const BASE_COMPONENTS: Components = { pre: CodeBlock, code: InlineCode };
@@ -187,20 +195,16 @@ export function MessageBubble({
       ) : null}
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
       {failure ? (
-        <div className="flex items-center gap-2.5" role="alert">
-          <p className="text-[13px] text-app-red-4">{failure.message}</p>
+        <div
+          role="alert"
+          className={cn(
+            "inline-flex w-fit max-w-[80%] flex-wrap items-center gap-x-3 gap-y-1.5",
+            "rounded-xl bg-app-red-1 px-3 py-2",
+          )}
+        >
+          <p className="text-[13px] leading-snug text-app-red-4">{failure.message}</p>
           {failure.retry === "same" && onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
-                "text-app-fg-3 hover:bg-app-bg-2 hover:text-app-fg-4",
-                "transition-[background-color,color] duration-150",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-              )}
-            >
+            <button type="button" onClick={onRetry} className={FAILURE_ACTION_CLASS}>
               <RotateCcw size={13} />
               Retry
             </button>
@@ -208,16 +212,10 @@ export function MessageBubble({
             <button
               type="button"
               onClick={onRetryWithoutAttachments}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
-                "text-app-fg-3 hover:bg-app-bg-2 hover:text-app-fg-4",
-                "transition-[background-color,color] duration-150",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-              )}
+              className={FAILURE_ACTION_CLASS}
             >
               <RotateCcw size={13} />
-              Retry text only
+              Send without it
             </button>
           ) : null}
         </div>

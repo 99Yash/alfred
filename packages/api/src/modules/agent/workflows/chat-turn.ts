@@ -592,8 +592,11 @@ const chatTurnStep: Step<ChatRunState> = {
         throw new Error("chat_turn_limit_exceeded");
       }
       const transcript = [...ctx.transcript];
-      const modelTranscript = await hydrateTranscriptForModel(transcript);
 
+      // Signal "started" before any pre-stream work (transcript hydration fetches
+      // every image's bytes from storage, which is slow on image-heavy threads).
+      // Firing the poke first lets the client paint the "Thinking…" indicator
+      // immediately instead of staring at a dead composer while we hydrate.
       if (!state.started) {
         state.started = true;
         await publishEvent({
@@ -607,6 +610,8 @@ const chatTurnStep: Step<ChatRunState> = {
           },
         });
       }
+
+      const modelTranscript = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
