@@ -1,4 +1,10 @@
-import { classifyUpload, isPassThrough, type IngestPolicyEntry } from "@alfred/contracts";
+import {
+  classifyUpload,
+  isPassThrough,
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  type IngestPolicyEntry,
+} from "@alfred/contracts";
 import type { chatAttachments } from "@alfred/db/schemas";
 import { BadRequestError } from "../../middleware/errors";
 import { buildAttachmentKey, headObject, readObjectPrefix } from "./storage";
@@ -107,6 +113,19 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
     throw new BadRequestError(`File is too large — the limit is ${mb} MB`);
   }
   return policy;
+}
+
+export function assertAttachmentBatchAllowed(
+  attachments: readonly Pick<AttachmentInput, "size">[],
+): void {
+  if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+  }
+  const totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+  if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+    const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+    throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
+  }
 }
 
 /**

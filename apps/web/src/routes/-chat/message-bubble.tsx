@@ -106,6 +106,8 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
             <img
               src={`${API_URL}/api/chat/attachments/${a.id}/content`}
               alt={a.name}
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover"
             />
           </a>

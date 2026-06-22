@@ -1,6 +1,7 @@
 import {
   type AttentionBand,
   type TriageCategory,
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   scoreAttentionForItems,
 } from "@alfred/contracts";
@@ -876,6 +877,14 @@ function useComposerAttachments(): ComposerAttachments {
       if (accepted.length < next.length) {
         for (const a of next.slice(room)) URL.revokeObjectURL(a.previewUrl);
         toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+      }
+      const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
+      const totalBytes = prev.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
+      if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+        for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
+        const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+        toast.error(`Attachments can be up to ${mb} MB combined.`);
+        return prev;
       }
       return [...prev, ...accepted];
     });

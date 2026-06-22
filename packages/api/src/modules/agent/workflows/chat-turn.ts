@@ -17,6 +17,7 @@ import {
   isIntegrationSlug,
   isPassThrough,
   isRecord,
+  MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   toJsonValue,
   type AgentTranscriptMessage,
   type ChatErrorKind,
@@ -279,6 +280,11 @@ interface StoredChatAttachmentImagePart {
 
 type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
 
+interface AttachmentHydrationBudget {
+  usedBytes: number;
+  skippedImages: number;
+}
+
 function storedAttachmentImagePart(
   storageKey: string,
   mediaType?: string,
@@ -372,7 +378,10 @@ function buildStoredContentParts(
   return parts;
 }
 
-async function hydrateContentForModel(content: unknown): Promise<unknown> {
+async function hydrateContentForModel(
+  content: unknown,
+  budget: AttachmentHydrationBudget,
+): Promise<unknown> {
   if (!Array.isArray(content)) return content;
   const parts: unknown[] = [];
   for (const part of content) {
@@ -389,6 +398,15 @@ async function hydrateContentForModel(content: unknown): Promise<unknown> {
     // empty bytes ("Unable to process input image"). A string is immutable and
     // survives the replay (and any JSON round-trip) intact.
     const bytes = await readObject(part.storageKey);
+    if (budget.usedBytes + bytes.byteLength > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
+      budget.skippedImages += 1;
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because the image context budget is full.]",
+      });
+      continue;
+    }
+    budget.usedBytes += bytes.byteLength;
     const image = Buffer.from(bytes).toString("base64");
     const mediaType = part.mediaType ?? "image/png";
     parts.push({ type: "image", image, mediaType });
@@ -399,11 +417,24 @@ async function hydrateContentForModel(content: unknown): Promise<unknown> {
 async function hydrateTranscriptForModel(
   transcript: readonly AgentTranscriptMessage[],
 ): Promise<AgentTranscriptMessage[]> {
-  const out: AgentTranscriptMessage[] = [];
-  for (const message of transcript) {
-    out.push({ ...message, content: await hydrateContentForModel(message.content) });
+  const budget: AttachmentHydrationBudget = { usedBytes: 0, skippedImages: 0 };
+  const reversed: AgentTranscriptMessage[] = [];
+  for (let i = transcript.length - 1; i >= 0; i -= 1) {
+    const message = transcript[i];
+    if (!message) continue;
+    reversed.push({ ...message, content: await hydrateContentForModel(message.content, budget) });
   }
-  return out;
+  if (budget.skippedImages > 0) {
+    console.warn(
+      "[chat] skipped attachment images over model budget:",
+      JSON.stringify({
+        skippedImages: budget.skippedImages,
+        usedBytes: budget.usedBytes,
+        maxBytes: MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
+      }),
+    );
+  }
+  return reversed.reverse();
 }
 
 function toolResultMessage(

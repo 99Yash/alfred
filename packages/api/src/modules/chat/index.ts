@@ -12,6 +12,7 @@ import { agentRuns, chatAttachments, chatMessages, chatThreads } from "@alfred/d
 import { serverEnv } from "@alfred/env/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
+import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import {
   BadGatewayError,
@@ -23,6 +24,7 @@ import {
 import { createRun, enqueueRun, getRun, isUniqueViolation } from "../agent/index";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
 import {
+  assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
   assertStoredAttachmentReady,
   assertUploadAllowed,
@@ -33,6 +35,7 @@ import {
   buildAttachmentKey,
   copyObject,
   isStorageConfigured,
+  objectExists,
   signedUploadUrl,
   writeObject,
 } from "./storage";
@@ -118,9 +121,21 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             fileName: body.name,
           });
           try {
+            const existingRows = await db()
+              .select({ id: chatAttachments.id })
+              .from(chatAttachments)
+              .where(eq(chatAttachments.id, body.attachmentId))
+              .limit(1);
+            if (existingRows[0]) {
+              throw new ConflictError("Attachment already exists");
+            }
+            if (await objectExists(storageKey)) {
+              throw new ConflictError("Attachment upload already exists");
+            }
             const upload = await signedUploadUrl(storageKey, body.mime, policy.maxBytes);
             return { storageKey, upload };
           } catch (err) {
+            if (err instanceof ConflictError) throw err;
             console.error("[chat] sign upload failed:", toMessage(err));
             throw new BadGatewayError("Couldn't prepare the upload. Try again.");
           }
@@ -168,9 +183,26 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           const bytes = new Uint8Array(await file.arrayBuffer());
           assertPassThroughImageBytes(bytes, body.mime);
           try {
+            const existingRows = await db()
+              .select({ id: chatAttachments.id })
+              .from(chatAttachments)
+              .where(eq(chatAttachments.id, body.attachmentId))
+              .limit(1);
+            if (existingRows[0]) {
+              throw new ConflictError("Attachment already exists");
+            }
+            if (await objectExists(storageKey)) {
+              await assertStoredAttachmentReady({
+                storageKey,
+                mime: body.mime,
+                size: file.size,
+              });
+              return { storageKey };
+            }
             await writeObject(storageKey, bytes, body.mime);
             return { storageKey };
           } catch (err) {
+            if (err instanceof BadRequestError || err instanceof ConflictError) throw err;
             console.error("[chat] proxied upload failed:", toMessage(err));
             throw new BadGatewayError("Couldn't store the upload. Try again.");
           }
@@ -249,6 +281,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           const content = body.content.trim();
           const attachments = body.attachments ?? [];
           const retryAttachmentIds = body.retryAttachmentIds ?? [];
+          assertAttachmentBatchAllowed(attachments);
           // A turn must carry text or at least one attachment — a fresh upload
           // or a re-attached one from a retry (image-only sends are valid: the
           // prompt is the image).
@@ -414,6 +447,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           }
 
           const attachmentRows = [...freshAttachmentRows, ...retryAttachmentRows];
+          assertAttachmentBatchAllowed(attachmentRows);
           // Persist attachment rows now that the owned message they reference
           // exists. Keys were rebuilt and verified server-side above.
           if (attachmentRows.length > 0) {
@@ -435,6 +469,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               rowVersion: sql`${chatThreads.rowVersion} + 1`,
             })
             .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, user.id)));
+
+          if (attachmentRows.length > 0) {
+            try {
+              emitReplicachePokes([user.id]);
+            } catch (err) {
+              console.warn("[chat] attachment poke failed:", toMessage(err));
+            }
+          }
 
           const assistantMessageId = createId("msg");
           try {

@@ -121,14 +121,26 @@ export function useChatAttachmentsByMessage(
 
   useEffect(() => {
     if (!rep || !threadId) return;
-    const prefix = IDB_KEY.CHAT_ATTACHMENT({});
+    const messagePrefix = IDB_KEY.CHAT_MESSAGE({});
+    const attachmentPrefix = IDB_KEY.CHAT_ATTACHMENT({});
     return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (values) => {
+      async (tx: ReadTransaction) => ({
+        messages: await tx.scan({ prefix: messagePrefix }).values().toArray(),
+        attachments: await tx.scan({ prefix: attachmentPrefix }).values().toArray(),
+      }),
+      ({ messages, attachments }) => {
+        const messageIds = new Set<string>();
+        for (const value of messages) {
+          const result = syncedChatMessageSchema.safeParse(value);
+          if (result.success && result.data.threadId === threadId) {
+            messageIds.add(result.data.id);
+          }
+        }
         const byMessage: Record<string, SyncedChatAttachment[]> = {};
-        for (const value of values) {
+        for (const value of attachments) {
           const result = syncedChatAttachmentSchema.safeParse(value);
           if (!result.success) continue;
+          if (!messageIds.has(result.data.messageId)) continue;
           (byMessage[result.data.messageId] ??= []).push(result.data);
         }
         for (const list of Object.values(byMessage)) {
