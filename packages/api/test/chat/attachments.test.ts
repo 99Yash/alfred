@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { MAX_ATTACHMENT_BYTES_PER_MESSAGE, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
+import {
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
+} from "@alfred/contracts";
 import sharp from "sharp";
 
 import {
@@ -10,6 +14,11 @@ import {
 } from "../../src/modules/chat/attachments";
 
 describe("assertAttachmentBatchAllowed", () => {
+  test("raw batch cap fits inside the base64 model payload budget", () => {
+    const encodedBytes = Math.ceil(MAX_ATTACHMENT_BYTES_PER_MESSAGE / 3) * 4;
+    assert.ok(encodedBytes <= MAX_MODEL_ATTACHMENT_BYTES_PER_TURN);
+  });
+
   test("accepts a batch within count and aggregate byte limits", () => {
     assert.doesNotThrow(() =>
       assertAttachmentBatchAllowed([
