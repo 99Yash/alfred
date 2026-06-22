@@ -1,3 +1,4 @@
+import type { ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +25,35 @@ const MARKDOWN_CLASSES = cn(
 );
 
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+/**
+ * Failed-turn copy, keyed off the server's {@link ChatErrorKind}. The server
+ * never sends raw provider errors (they leak vendor URLs); it sends a tag and
+ * the bubble owns the wording + whether a plain retry can help. First-person,
+ * short declaratives (Alfred is the one speaking). `retryable:false` hides the
+ * Retry button where re-sending the identical turn would just fail again (a
+ * file the model can't read, a conversation past the length cap).
+ */
+const FAILURE_PRESENTATION: Record<ChatErrorKind, { message: string; retryable: boolean }> = {
+  attachment: {
+    message:
+      "I couldn't read one of the attached files. It may be corrupted or an unsupported type. Try a different one.",
+    retryable: false,
+  },
+  overloaded: { message: "I hit a brief glitch on my end.", retryable: true },
+  rate_limited: {
+    message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
+    retryable: true,
+  },
+  too_long: {
+    message: "This conversation got too long for me to continue. Start a new chat to keep going.",
+    retryable: false,
+  },
+  generic: { message: "Something interrupted this reply.", retryable: true },
+};
+
+/** Fallback for legacy failed rows persisted before `errorKind` existed. */
+const LEGACY_FAILURE = { message: "This reply didn't finish.", retryable: true } as const;
 
 /** Fenced code → highlighted card; inline code keeps the markdown chip styling. */
 const BASE_COMPONENTS: Components = { pre: CodeBlock, code: InlineCode };
@@ -125,6 +155,11 @@ export function MessageBubble({
   const tools = message.toolCalls ?? [];
   const sources = collectSources(tools);
   const failed = message.status === "failed";
+  const failure = failed
+    ? message.errorKind
+      ? FAILURE_PRESENTATION[message.errorKind]
+      : LEGACY_FAILURE
+    : null;
   return (
     <div className="group/message flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
@@ -143,10 +178,10 @@ export function MessageBubble({
         </div>
       ) : null}
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
-      {failed ? (
+      {failure ? (
         <div className="flex items-center gap-2.5" role="alert">
-          <p className="text-[13px] text-app-red-4">This reply didn&apos;t finish.</p>
-          {onRetry ? (
+          <p className="text-[13px] text-app-red-4">{failure.message}</p>
+          {onRetry && failure.retryable ? (
             <button
               type="button"
               onClick={onRetry}

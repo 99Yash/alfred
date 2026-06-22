@@ -13,11 +13,13 @@ import {
 } from "@alfred/ai";
 import {
   chatModelTierSchema,
+  HttpError,
   isIntegrationSlug,
   isPassThrough,
   isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
+  type ChatErrorKind,
   type ToolName,
   toMessage,
 } from "@alfred/contracts";
@@ -739,7 +741,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // assistant row + emit `chat.message completed` so the streaming bubble
       // reconciles instead of blinking forever. Rethrow so the executor records
       // the run failure for audit.
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, errorText(err));
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
   },
@@ -887,7 +889,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
     } catch (err) {
       // Mirror chatTurnStep: an unexpected fault during dispatch still closes
       // the loop for the client instead of stranding the streaming bubble.
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, errorText(err));
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
   },
@@ -1090,13 +1092,21 @@ async function finalizeFailedMessage(
   userId: string,
   runId: string,
   state: ChatRunState,
-  error: string,
+  err: unknown,
 ): Promise<void> {
   const now = new Date();
-  const content =
-    state.assistantText.length > 0
-      ? state.assistantText
-      : `Something went wrong on my end. (${error})`;
+  // Never surface the raw provider error to the user: it leaks vendor URLs
+  // (e.g. developers.generativeai.google) and "Failed after N attempts" noise.
+  // Instead classify it into a user-meaningful `errorKind` the client maps to a
+  // tailored message + recovery action; log the raw detail server-side for
+  // diagnosis. Content stays empty (or whatever streamed before the fault) —
+  // the failed-state copy is owned client-side, keyed off `errorKind`.
+  const errorKind = classifyChatFailure(err);
+  console.warn(
+    `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
+    errorText(err),
+  );
+  const content = state.assistantText.length > 0 ? state.assistantText : "";
   await db()
     .insert(chatMessages)
     .values({
@@ -1108,6 +1118,7 @@ async function finalizeFailedMessage(
       reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
+      errorKind,
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
       narration: state.narration.length > 0 ? state.narration : null,
       runId,
@@ -1129,6 +1140,67 @@ async function finalizeFailedMessage(
 function errorText(err: unknown): string {
   const msg = toMessage(err);
   return msg.length > 500 ? `${msg.slice(0, 499)}…` : msg;
+}
+
+/**
+ * Map a terminal chat-turn fault to a user-meaningful {@link ChatErrorKind}.
+ * Branches on structured signals first ({@link HttpError.status}, our own
+ * sentinel throws), then falls back to sniffing the message — providers don't
+ * give us typed errors, so the string is the last resort. Order matters:
+ * attachment rejections often *also* carry a 4xx, so check them before status.
+ * Anything unrecognized is `generic` (the client shows a neutral retry). The
+ * raw text never reaches the user — only this tag does.
+ */
+function classifyChatFailure(err: unknown): ChatErrorKind {
+  const msg = toMessage(err).toLowerCase();
+
+  // The model couldn't read an attached file. Recoverable by dropping it.
+  // ("Unable to process input image" is the Gemini/Anthropic vision reject.)
+  if (
+    msg.includes("unable to process input image") ||
+    msg.includes("could not process") ||
+    msg.includes("invalid image") ||
+    msg.includes("unsupported") ||
+    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")))
+  ) {
+    return "attachment";
+  }
+
+  // Our own turn-cap sentinel (line ~480) — the turn can't continue.
+  if (msg.includes("chat_turn_limit_exceeded")) return "too_long";
+  // Context / token ceilings reported by the provider.
+  if (
+    msg.includes("context length") ||
+    msg.includes("maximum context") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long")
+  ) {
+    return "too_long";
+  }
+
+  // Upstream throttling.
+  if (err instanceof HttpError && err.status === 429) return "rate_limited";
+  if (msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("429")) {
+    return "rate_limited";
+  }
+
+  // Transient provider faults — 5xx, "internal error", overloaded, network.
+  if (err instanceof HttpError && err.status >= 500) return "overloaded";
+  if (
+    msg.includes("internal error") ||
+    msg.includes("overloaded") ||
+    msg.includes("unavailable") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("econnreset") ||
+    msg.includes("fetch failed") ||
+    msg.includes("503") ||
+    msg.includes("502")
+  ) {
+    return "overloaded";
+  }
+
+  return "generic";
 }
 
 export const chatTurnWorkflow: Workflow<ChatRunState> = {

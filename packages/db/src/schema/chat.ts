@@ -1,4 +1,4 @@
-import type { ChatAttachmentStatus } from "@alfred/contracts";
+import type { ChatAttachmentStatus, ChatErrorKind } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
@@ -93,6 +93,13 @@ export const chatMessages = pgTable(
     reasoningMs: integer("reasoning_ms"),
     /** 'complete' once the turn finished, 'failed' on a terminal turn error. */
     status: text("status").notNull().default("complete").$type<ChatMessageStatus>(),
+    /**
+     * On a `status:"failed"` turn, the user-meaningful failure kind the client
+     * pattern-matches to a tailored message + recovery affordance. Null on
+     * `complete` rows (and on legacy failed rows written before this column).
+     * The raw provider error is logged server-side only, never persisted here.
+     */
+    errorKind: text("error_kind").$type<ChatErrorKind>(),
     /** Tool cards to re-render on reload (assistant turns only). */
     toolCalls: jsonb("tool_calls").$type<ChatMessageToolCall[]>(),
     /**

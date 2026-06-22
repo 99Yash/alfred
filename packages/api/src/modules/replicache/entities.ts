@@ -632,6 +632,7 @@ function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
     reasoning: m.reasoning ?? null,
     reasoningMs: m.reasoningMs ?? null,
     status: m.status,
+    errorKind: m.errorKind ?? null,
     toolCalls: m.toolCalls ?? null,
     narration: m.narration ?? null,
     runId: m.runId,

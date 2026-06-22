@@ -337,6 +337,13 @@
       "when": 1782115888541,
       "tag": "0047_outgoing_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1782119190618,
+      "tag": "0048_unique_scrambler",
+      "breakpoints": true
     }
   ]
 }
