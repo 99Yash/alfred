@@ -131,6 +131,14 @@ export function useChatAttachmentsByMessage(
           if (!result.success) continue;
           (byMessage[result.data.messageId] ??= []).push(result.data);
         }
+        for (const list of Object.values(byMessage)) {
+          list.sort(
+            (a, b) =>
+              a.position - b.position ||
+              a.createdAt.localeCompare(b.createdAt) ||
+              a.id.localeCompare(b.id),
+          );
+        }
         setSnapshot({ rep, threadId, byMessage });
       },
     );

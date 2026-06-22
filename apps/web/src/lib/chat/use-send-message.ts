@@ -99,6 +99,7 @@ export function useSendMessage(): SendMessage {
           }),
         );
         uploaded = uploadResults.filter((a): a is UploadedAttachment => a !== null);
+        uploaded = uploaded.map((a, position) => ({ ...a, position }));
         // Every file failed and there's no text or re-attached file — nothing to send.
         if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return false;
       }
@@ -123,6 +124,7 @@ export function useSendMessage(): SendMessage {
           name: a.name,
           mime: a.mime,
           size: a.size,
+          position: a.position,
           createdAt: now,
         });
       }

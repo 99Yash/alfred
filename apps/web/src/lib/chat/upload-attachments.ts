@@ -6,10 +6,10 @@ const API_URL =
 /**
  * Chat attachment upload (ADR-0065). Phase 1 is images only: the composer
  * validates a picked file against the shared ingest policy, then — at send time
- * — mints a signed URL (`POST /api/chat/attachments/sign`) and PUTs the bytes
- * straight to the bucket. The server never proxies the upload; it only mints the
- * URL and, at turn time, records the row. Validation here mirrors the server's
- * `assertUploadAllowed` so the user gets an instant, friendly rejection.
+ * — posts the bytes to the same-origin API, which relays them to the private
+ * bucket. At turn time the server verifies the stored object before recording a
+ * ready row. Validation here mirrors the server's `assertUploadAllowed` so the
+ * user gets an instant, friendly rejection.
  */
 
 /** MIME types the composer accepts today — the model-readable images. */
@@ -26,6 +26,7 @@ export interface UploadedAttachment {
   name: string;
   mime: string;
   size: number;
+  position: number;
 }
 
 /**
@@ -88,5 +89,5 @@ export async function uploadAttachment(opts: {
     throw new Error(`upload failed (${res.status}): ${body}`);
   }
 
-  return { id, name: file.name, mime: file.type, size: file.size };
+  return { id, name: file.name, mime: file.type, size: file.size, position: 0 };
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "chat_attachments" ADD COLUMN "position" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX "chat_attachments_message_position_idx" ON "chat_attachments" USING btree ("message_id","position");

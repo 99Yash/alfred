@@ -11,8 +11,10 @@ import { s3 } from "files-sdk/s3";
  * the service. Provider-agnostic on purpose: to move off Railway, point the
  * `CHAT_S3_*` vars elsewhere or swap the adapter here — never the call sites.
  *
- * The bytes are *raw media* and are never sent to the model; the model only ever
- * sees the degraded artifact (text + images, ADR-0065). Lifecycle is keyed to a
+ * What the model sees is the degraded artifact (text + images, ADR-0065):
+ * phase-1 pass-through images are read back via `readObject` and inlined as
+ * bytes, while richer media (audio/video/docs) only ever reaches the model as
+ * extracted text plus keyframes. Lifecycle is keyed to a
  * `chat/{userId}/{threadId}/{messageId}/{file}` key convention so a thread or
  * account delete reaps the objects with a single prefix delete (FK cascade can't
  * reach object storage).
@@ -112,11 +114,26 @@ export async function signedUploadUrl(
 }
 
 /**
- * A short-lived read URL for an object — handed to the model as an image part
- * and to the composer for preview. Presigned GET unless a public base URL is set.
+ * A short-lived read URL for an object — used for the composer's image preview
+ * (the model gets inlined bytes via `readObject`, not a URL). Presigned GET
+ * unless a public base URL is set.
  */
 export async function attachmentUrl(key: string): Promise<string> {
   return files().url(key, { expiresIn: SIGNED_URL_TTL_SECONDS });
+}
+
+/**
+ * Read an object's raw bytes back from the bucket (ADR-0065). Backs the image
+ * **bytes path**: pass-through images are inlined into the model message as
+ * bytes rather than handed off as a presigned URL. The providers can't fetch
+ * our private, short-lived Railway storage URLs (no CDN, no public host), so a
+ * URL-valued image part fails the turn on the boss and its fallback alike;
+ * inlining the bytes removes that dependency entirely. Bounded by the same
+ * `STORAGE_TIMEOUT_MS` as every other object-store call.
+ */
+export async function readObject(key: string): Promise<Uint8Array> {
+  const file = await files().download(key);
+  return new Uint8Array(await file.arrayBuffer());
 }
 
 /**
@@ -132,6 +149,20 @@ export async function writeObject(
   contentType: string,
 ): Promise<void> {
   await files().upload(key, bytes, { contentType });
+}
+
+/** Metadata for a stored object, without downloading its body. */
+export async function headObject(key: string): Promise<{ size: number; contentType: string }> {
+  const file = await files().head(key);
+  return { size: file.size, contentType: file.type };
+}
+
+/** Read a small byte prefix from an object for server-side type sniffing. */
+export async function readObjectPrefix(key: string, byteCount: number): Promise<Uint8Array> {
+  const file = await files().download(key, {
+    range: { start: 0, end: Math.max(0, byteCount - 1) },
+  });
+  return new Uint8Array(await file.arrayBuffer());
 }
 
 /**

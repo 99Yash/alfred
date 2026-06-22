@@ -138,6 +138,7 @@ export interface ChatAttachmentView {
   name: string;
   mime: string;
   size: number;
+  position: number;
   status: ChatAttachmentStatus;
 }
 
@@ -147,5 +148,6 @@ export const chatAttachmentViewSchema = z.object({
   name: z.string(),
   mime: z.string(),
   size: z.number(),
+  position: z.number().int().nonnegative(),
   status: chatAttachmentStatusSchema,
 });

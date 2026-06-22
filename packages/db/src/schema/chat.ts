@@ -145,6 +145,8 @@ export const chatAttachments = pgTable(
     mime: text("mime").notNull(),
     /** Byte size as reported by the client (capped per the ingest policy). */
     size: integer("size").notNull(),
+    /** Stable order within the message; model + UI preserve this order. */
+    position: integer("position").notNull().default(0),
     /** 'pending' (uploading/degrading) | 'ready' (artifact written) | 'failed'. */
     status: text("status").notNull().default("pending").$type<ChatAttachmentStatus>(),
     /** Degraded text artifact (transcript / extracted text); null for images. */
@@ -166,6 +168,7 @@ export const chatAttachments = pgTable(
   },
   (t) => [
     index("chat_attachments_message_idx").on(t.messageId),
+    index("chat_attachments_message_position_idx").on(t.messageId, t.position),
     index("chat_attachments_user_idx").on(t.userId),
   ],
 );
