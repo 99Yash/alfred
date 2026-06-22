@@ -12,7 +12,6 @@ export * from "./attention.js";
 export * from "./briefing.js";
 export * from "./chat.js";
 export * from "./briefing-references.js";
-export * from "./chat.js";
 export * from "./attachments.js";
 export * from "./weather.js";
 export * from "./metering.js";

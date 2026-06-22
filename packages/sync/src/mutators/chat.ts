@@ -210,6 +210,7 @@ export async function chatMessageCreateClient(
       reasoning: null,
       reasoningMs: null,
       status: "complete",
+      errorKind: null,
       toolCalls: null,
       narration: null,
       runId: null,

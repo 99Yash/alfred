@@ -6,6 +6,7 @@ import {
   briefingSendDecisionSchema,
   briefingSlotSchema,
   briefingStatusSchema,
+  chatErrorKindSchema,
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
@@ -289,6 +290,12 @@ export const syncedChatMessageSchema = z.object({
   reasoning: z.string().nullable().default(null),
   reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
+  /**
+   * On a failed turn, the user-meaningful failure kind (the bubble maps it to a
+   * tailored message + recovery action). Null on complete rows and on legacy
+   * failed rows written before this field; defaulted so those still parse.
+   */
+  errorKind: chatErrorKindSchema.nullable().default(null),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
   /**
    * Closed narration segments interleaved with `toolCalls` (by `segmentIndex`)
