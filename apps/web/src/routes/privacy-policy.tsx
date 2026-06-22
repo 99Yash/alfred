@@ -20,7 +20,7 @@ export const Route = createFileRoute("/privacy-policy")({
 
 const CONTACT = "yashgouravkar@gmail.com";
 
-export function PrivacyPolicy() {
+function PrivacyPolicy() {
   return (
     <LegalPage title="Privacy Policy" effectiveDate="May 30, 2026">
       <p>

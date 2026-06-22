@@ -15,7 +15,7 @@ export const Route = createFileRoute("/terms-of-service")({
 
 const CONTACT = "yashgouravkar@gmail.com";
 
-export function TermsOfService() {
+function TermsOfService() {
   return (
     <LegalPage title="Terms of Service" effectiveDate="May 30, 2026">
       <p>
