@@ -80,12 +80,23 @@ async function schedulePendingUploadCleanup(userId: string, storageKey: string):
   }
 }
 
+async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): Promise<void> {
+  if (!runId) return;
+  try {
+    await enqueueRun(runId);
+  } catch (err) {
+    // `createRun` persisted a pending row; the agent worker's resume sweep
+    // re-enqueues pending/runnable rows, so do not tell the client the send
+    // failed after the chat turn itself is already durable.
+    console.warn("[chat] run enqueue failed; resume sweep will recover:", toMessage(err));
+  }
+}
+
 /**
- * Chat turn surface (streaming-chat plan). The composer first persists the
- * user's message + thread via Replicache mutators (optimistic, multi-device),
- * then calls this to kick the agent. To avoid a mutator-push vs run-start
- * race, this endpoint *also* upserts the user message (idempotent on the
- * client-minted id) so the chat-turn workflow's transcript always sees it.
+ * Chat turn surface (streaming-chat plan). The composer uploads any attachment
+ * bytes first, then this endpoint durably writes the user's accepted turn and
+ * kicks the agent. The client mirrors the accepted turn into Replicache only
+ * after this route acks, so the server is the canonical send boundary.
  *
  * The reply streams over the SSE event bus (`chat.delta` / `chat.tool` /
  * `chat.message`); the durable assistant message is written by the worker on
@@ -542,7 +553,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 tier: body.tier ?? "standard",
               },
             });
-            await enqueueRun(runId);
+            await enqueueChatTurnRunBestEffort(runId);
             return { runId, assistantMessageId };
           } catch (err) {
             // The chat-turn workflow is a singleton on userMessageId — a
@@ -566,6 +577,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             const existingMessageId = isNonEmptyString(existingAssistantId)
               ? existingAssistantId
               : assistantMessageId;
+            await enqueueChatTurnRunBestEffort(existing?.id);
             return { runId: existing?.id ?? null, assistantMessageId: existingMessageId };
           }
         },

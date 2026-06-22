@@ -102,13 +102,6 @@ export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
 /**
- * Aggregate raw-byte cap for one chat message's attachments. Individual files
- * keep their per-MIME caps below, but the model path later base64-inlines every
- * ready image, so the batch needs its own ceiling too.
- */
-export const MAX_ATTACHMENT_BYTES_PER_MESSAGE = 20 * MB;
-
-/**
  * Maximum encoded attachment payload bytes inlined into one model request. The
  * transcript builder prioritizes newer images and replaces older overflow images
  * with text placeholders, keeping historical threads from replaying unbounded
@@ -116,6 +109,15 @@ export const MAX_ATTACHMENT_BYTES_PER_MESSAGE = 20 * MB;
  * provider request actually carries.
  */
 export const MAX_MODEL_ATTACHMENT_BYTES_PER_TURN = 20 * MB;
+
+/**
+ * Aggregate raw-byte cap for one chat message's attachments. The model path
+ * base64-inlines every ready image, so this is capped at the largest raw payload
+ * that fits inside {@link MAX_MODEL_ATTACHMENT_BYTES_PER_TURN} after expansion.
+ */
+export const MAX_ATTACHMENT_BYTES_PER_MESSAGE = Math.floor(
+  (MAX_MODEL_ATTACHMENT_BYTES_PER_TURN * 3) / 4,
+);
 
 /**
  * Largest cap across all supported types — a coarse pre-check / server guard.
