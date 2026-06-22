@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
@@ -114,10 +115,10 @@ export async function getInstallationToken(installationId: string): Promise<Inst
     headers: { ...GH_HEADERS, Authorization: `Bearer ${jwt}` },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `[github.app] installation token mint failed: ${res.status} ${body.slice(0, 300)}`,
-    );
+    throw await httpErrorFromResponse("github.app", res, {
+      url: `${API_BASE}/app/installations/${installationId}/access_tokens`,
+      method: "POST",
+    });
   }
   const parsed = installationTokenSchema.parse(await res.json());
   const token: InstallationToken = { token: parsed.token, expiresAt: new Date(parsed.expires_at) };
@@ -197,8 +198,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     headers: { ...GH_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
   });
   if (!userRes.ok) {
-    const body = await userRes.text().catch(() => "");
-    throw new Error(`[github.app] /user lookup failed: ${userRes.status} ${body.slice(0, 300)}`);
+    throw await httpErrorFromResponse("github.app", userRes, { url: USER_BASE });
   }
   const user = githubUserSchema.parse(await userRes.json());
 
@@ -236,10 +236,7 @@ export async function canUserAccessInstallation(args: {
 
   if (res.status === 403 || res.status === 404) return false;
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `[github.app] installation verification failed: ${res.status} ${body.slice(0, 300)}`,
-    );
+    throw await httpErrorFromResponse("github.app", res, { url: url.toString() });
   }
 
   userInstallationRepositoriesSchema.parse(await res.json());

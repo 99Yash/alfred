@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -148,8 +149,7 @@ async function getJson(url: string, accessToken: string): Promise<unknown> {
     signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[calendar] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("calendar", res, { url });
   }
   return await res.json();
 }
@@ -166,8 +166,7 @@ async function postJson(url: string, accessToken: string, payload: unknown): Pro
     signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[calendar] POST ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("calendar", res, { url, method: "POST" });
   }
   return await res.json();
 }
