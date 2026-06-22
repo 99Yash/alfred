@@ -109,9 +109,11 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 export const MAX_ATTACHMENT_BYTES_PER_MESSAGE = 20 * MB;
 
 /**
- * Maximum raw attachment bytes inlined into one model request. The transcript
- * builder prioritizes newer images and replaces older overflow images with text
- * placeholders, keeping historical threads from replaying unbounded media.
+ * Maximum encoded attachment payload bytes inlined into one model request. The
+ * transcript builder prioritizes newer images and replaces older overflow images
+ * with text placeholders, keeping historical threads from replaying unbounded
+ * media. This is measured after base64 expansion because that is the payload the
+ * provider request actually carries.
  */
 export const MAX_MODEL_ATTACHMENT_BYTES_PER_TURN = 20 * MB;
 

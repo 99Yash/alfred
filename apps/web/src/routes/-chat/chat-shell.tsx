@@ -651,8 +651,9 @@ function Composer({
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
+  const composerDisabled = disabled || sending;
   const canSend =
-    !disabled &&
+    !composerDisabled &&
     !sending &&
     (!isEmpty || hasAttachments) &&
     !mic.recording &&
@@ -660,16 +661,16 @@ function Composer({
     !transcribing;
 
   const insertAtTrigger = useCallback(() => {
-    if (disabled) return;
+    if (composerDisabled) return;
     editorRef.current?.insertAtTrigger();
-  }, [disabled]);
+  }, [composerDisabled]);
 
-  useTypeAnywhere(editorRef, disabled);
+  useTypeAnywhere(editorRef, composerDisabled);
 
   const onAttachClick = useCallback(() => {
-    if (disabled || mic.recording) return;
+    if (composerDisabled || mic.recording) return;
     fileInputRef.current?.click();
-  }, [disabled, mic.recording]);
+  }, [composerDisabled, mic.recording]);
 
   const handleSubmit = useCallback(() => {
     if (!canSend || !onSend) return;
@@ -694,33 +695,33 @@ function Composer({
 
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
-      if (disabled || !e.dataTransfer.files.length) return;
+      if (composerDisabled || !e.dataTransfer.files.length) return;
       e.preventDefault();
       attachments.addFiles(e.dataTransfer.files);
     },
-    [disabled, attachments],
+    [composerDisabled, attachments],
   );
 
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLDivElement>) => {
       const files = Array.from(e.clipboardData.files);
-      if (disabled || files.length === 0) return;
+      if (composerDisabled || files.length === 0) return;
       // Only intercept when the clipboard carries files (pasted image); let
       // normal text paste fall through to the editor.
       e.preventDefault();
       attachments.addFiles(files);
     },
-    [disabled, attachments],
+    [composerDisabled, attachments],
   );
 
   return (
     <form
       onSubmit={onFormSubmit}
       aria-label="Send a message"
-      data-disabled={disabled || undefined}
+      data-disabled={composerDisabled || undefined}
       className="relative"
     >
-      {!disabled && suggestion && mentionCandidates.length > 0 ? (
+      {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
@@ -741,9 +742,10 @@ function Composer({
           "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-app-background transition-shadow",
           disabled && "opacity-70",
+          sending && "opacity-80",
         )}
         onDragOver={(e) => {
-          if (!disabled && e.dataTransfer.types.includes("Files")) e.preventDefault();
+          if (!composerDisabled && e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={onDrop}
         onPaste={onPaste}
@@ -757,6 +759,7 @@ function Composer({
             type="file"
             accept={ACCEPT_ATTR}
             multiple
+            disabled={composerDisabled}
             className="hidden"
             onChange={(e) => {
               if (e.target.files) attachments.addFiles(e.target.files);
@@ -765,7 +768,11 @@ function Composer({
             }}
           />
           {hasAttachments ? (
-            <AttachmentChips items={attachments.items} onRemove={attachments.remove} />
+            <AttachmentChips
+              items={attachments.items}
+              disabled={composerDisabled}
+              onRemove={attachments.remove}
+            />
           ) : null}
           {/* Keep the editor mounted (just hidden) while recording so its
            * content survives the voice round-trip — the transcript appends to
@@ -776,7 +783,7 @@ function Composer({
               ref={editorRef}
               initialJSON={initialJSON}
               placeholder="Type and press enter to start chatting…"
-              disabled={disabled}
+              disabled={composerDisabled}
               onChange={onEditorChange}
               onSubmit={handleSubmit}
               onSuggestionChange={mention.setSuggestion}
@@ -798,7 +805,8 @@ function Composer({
             mic={mic}
             canSend={canSend}
             isStreaming={isStreaming}
-            disabled={disabled}
+            disabled={composerDisabled}
+            sending={sending}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
             onAttachClick={onAttachClick}
@@ -921,9 +929,11 @@ function useComposerAttachments(): ComposerAttachments {
 /** Inline preview row for staged attachments above the editor. */
 function AttachmentChips({
   items,
+  disabled,
   onRemove,
 }: {
   items: PendingAttachment[];
+  disabled?: boolean;
   onRemove: (key: string) => void;
 }) {
   return (
@@ -937,8 +947,13 @@ function AttachmentChips({
           <button
             type="button"
             aria-label={`Remove ${a.file.name}`}
+            disabled={disabled}
             onClick={() => onRemove(a.key)}
-            className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            className={cn(
+              "absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+              disabled &&
+                "cursor-not-allowed opacity-0 group-hover:opacity-0 focus-visible:opacity-0",
+            )}
           >
             <X size={12} />
           </button>
@@ -1206,6 +1221,7 @@ function ComposerToolbar({
   canSend,
   isStreaming,
   disabled,
+  sending,
   mentionActive,
   onMentionClick,
   onAttachClick,
@@ -1224,6 +1240,7 @@ function ComposerToolbar({
   canSend: boolean;
   isStreaming: boolean;
   disabled: boolean;
+  sending: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
   onAttachClick: () => void;
@@ -1343,11 +1360,13 @@ function ComposerToolbar({
                   type="submit"
                   disabled={!canSend}
                   aria-label={
-                    disabled
-                      ? "Waiting for approval"
-                      : isStreaming
-                        ? "Waiting for response"
-                        : "Send"
+                    sending
+                      ? "Sending"
+                      : disabled
+                        ? "Waiting for approval"
+                        : isStreaming
+                          ? "Waiting for response"
+                          : "Send"
                   }
                   className={cn(
                     "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
