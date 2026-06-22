@@ -268,6 +268,7 @@ interface ReadyAttachment {
   id: string;
   storageKey: string;
   mime: string;
+  size: number;
   degradedText: string | null;
   degradedImageKeys: string[];
 }
@@ -279,6 +280,7 @@ interface StoredChatAttachmentImagePart {
   storageKey: string;
   attachmentId?: string;
   mediaType?: string;
+  byteSize?: number;
 }
 
 type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
@@ -294,12 +296,14 @@ function storedAttachmentImagePart(
   storageKey: string,
   mediaType?: string,
   attachmentId?: string,
+  byteSize?: number,
 ): StoredChatAttachmentImagePart {
   return {
     type: CHAT_ATTACHMENT_IMAGE_PART,
     storageKey,
     ...(attachmentId ? { attachmentId } : {}),
     ...(mediaType ? { mediaType } : {}),
+    ...(byteSize !== undefined ? { byteSize } : {}),
   };
 }
 
@@ -309,7 +313,11 @@ function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachm
     value.type === CHAT_ATTACHMENT_IMAGE_PART &&
     typeof value.storageKey === "string" &&
     (value.attachmentId === undefined || typeof value.attachmentId === "string") &&
-    (value.mediaType === undefined || typeof value.mediaType === "string")
+    (value.mediaType === undefined || typeof value.mediaType === "string") &&
+    (value.byteSize === undefined ||
+      (typeof value.byteSize === "number" &&
+        Number.isFinite(value.byteSize) &&
+        value.byteSize >= 0))
   );
 }
 
@@ -332,6 +340,7 @@ async function loadReadyAttachments(
       messageId: chatAttachments.messageId,
       storageKey: chatAttachments.storageKey,
       mime: chatAttachments.mime,
+      size: chatAttachments.size,
       degradedText: chatAttachments.degradedText,
       degradedImageKeys: chatAttachments.degradedImageKeys,
     })
@@ -354,6 +363,7 @@ async function loadReadyAttachments(
       id: r.id,
       storageKey: r.storageKey,
       mime: r.mime,
+      size: r.size,
       degradedText: r.degradedText,
       degradedImageKeys: r.degradedImageKeys,
     });
@@ -378,7 +388,7 @@ function buildStoredContentParts(
   if (text.length > 0) parts.push({ type: "text", text });
   for (const a of attachments) {
     if (isPassThrough(a.mime)) {
-      parts.push(storedAttachmentImagePart(a.storageKey, a.mime, a.id));
+      parts.push(storedAttachmentImagePart(a.storageKey, a.mime, a.id, a.size));
       continue;
     }
     if (a.degradedText && a.degradedText.length > 0) {
@@ -434,6 +444,19 @@ async function hydrateContentForModel(
     // URL-valued image part fails the turn (boss + fallback alike). Encode as a
     // base64 string rather than a raw Uint8Array so the fallback cascade can
     // replay the same message objects without sharing mutable byte buffers.
+    const projectedEncodedBytes =
+      part.byteSize !== undefined ? encodedImageBytes(part.byteSize) : null;
+    if (
+      projectedEncodedBytes !== null &&
+      budget.usedEncodedBytes + projectedEncodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN
+    ) {
+      budget.skippedImages += 1;
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because the image context budget is full.]",
+      });
+      continue;
+    }
     let bytes: Uint8Array;
     let mediaType: string;
     try {
@@ -441,7 +464,6 @@ async function hydrateContentForModel(
     } catch (err) {
       budget.unreadableImages += 1;
       console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
-      await markAttachmentHydrationFailed(part, toMessage(err));
       parts.push({
         type: "text",
         text: "[Image attachment omitted because it could not be read.]",
@@ -458,7 +480,7 @@ async function hydrateContentForModel(
     } catch (err) {
       budget.invalidImages += 1;
       console.warn("[chat] skipped invalid attachment image:", toMessage(err));
-      await markAttachmentHydrationFailed(part, toMessage(err));
+      await markAttachmentHydrationFailed(part, "Image could not be processed");
       parts.push({
         type: "text",
         text: "[Image attachment omitted because it could not be processed.]",
@@ -1201,7 +1223,7 @@ async function maybeGenerateThreadTitle(args: {
       .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
     emitReplicachePokes([userId]);
   } catch (err) {
-    console.warn(`[chat-turn] thread title generation failed for ${threadId}:`, err);
+    console.warn(`[chat-turn] thread title generation failed for ${threadId}:`, toMessage(err));
   }
 }
 

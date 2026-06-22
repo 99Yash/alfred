@@ -226,10 +226,8 @@ export async function assertStoredAttachmentReady(opts: {
   size: number;
 }): Promise<void> {
   let meta: { size: number; contentType: string };
-  let bytes: Uint8Array;
   try {
     meta = await headObject(opts.storageKey);
-    bytes = await readObject(opts.storageKey);
   } catch {
     throw new BadRequestError("Attachment upload is missing or incomplete");
   }
@@ -240,6 +238,12 @@ export async function assertStoredAttachmentReady(opts: {
   const declaredMime = normalizedMime(opts.mime);
   if (storedMime && storedMime !== declaredMime) {
     throw new BadRequestError("Stored attachment type doesn't match the sent message");
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await readObject(opts.storageKey);
+  } catch {
+    throw new BadRequestError("Attachment upload is missing or incomplete");
   }
   await assertPassThroughImageBytes(bytes, opts.mime);
 }

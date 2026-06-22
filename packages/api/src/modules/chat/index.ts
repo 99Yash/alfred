@@ -359,8 +359,6 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             attachmentId: body.attachmentId,
             fileName: body.name,
           });
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          await assertPassThroughImageBytes(bytes, body.mime);
           try {
             const existingRows = await db()
               .select({ id: chatAttachments.id })
@@ -385,6 +383,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               messageId: body.messageId,
               size: file.size,
             });
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            await assertPassThroughImageBytes(bytes, body.mime);
             await writeObject(storageKey, bytes, body.mime);
             await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey };
@@ -591,8 +591,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           // copying their bytes under this new message's key prefix, then
           // writing fresh rows (which sync back via pull). The bytes already
           // exist, so nothing is re-uploaded — the client sent only source ids.
-          // Ownership-scoped to this user; a per-object copy failure drops just
-          // that attachment. Honors the combined per-message cap.
+          // Ownership-scoped to this user. Honors the combined per-message cap,
+          // and rejects instead of silently dropping requested images.
           const retryAttachmentRows: AttachmentInsertRow[] = [];
           if (retryAttachmentIds.length > 0 && storageConfigured && !reuseExistingAttachmentRows) {
             const sources = await db()
@@ -632,11 +632,16 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               throw new BadRequestError("Retry attachments don't belong to that chat turn");
             }
             const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
+            if (orderedSources.length > room) {
+              throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+            }
             const retrySources: typeof sources = [];
             let selectedBytes = freshAttachmentRows.reduce((sum, row) => sum + row.size, 0);
             for (const src of orderedSources) {
-              if (retrySources.length >= room) break;
-              if (selectedBytes + src.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) continue;
+              if (selectedBytes + src.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+                const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+                throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
+              }
               retrySources.push(src);
               selectedBytes += src.size;
             }
@@ -655,7 +660,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 await schedulePendingUploadCleanup(user.id, destKey);
               } catch (err) {
                 console.warn("[chat] retry attachment copy failed:", toMessage(err));
-                continue;
+                throw new BadGatewayError("Couldn't copy the retry attachments. Try again.");
               }
               retryAttachmentRows.push(
                 toAttachmentRow({
