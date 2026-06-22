@@ -20,6 +20,9 @@ import { s3 } from "files-sdk/s3";
 
 /** How long a minted upload/download URL stays valid. */
 const SIGNED_URL_TTL_SECONDS = 15 * 60;
+/** Bound object-store calls so chat sends cannot hang behind a stuck provider. */
+const STORAGE_TIMEOUT_MS = 30_000;
+const STORAGE_RETRIES = { max: 1 };
 
 let _files: Files | undefined;
 
@@ -60,7 +63,7 @@ function files(): Files {
     publicBaseUrl: env.CHAT_S3_PUBLIC_BASE_URL,
     defaultUrlExpiresIn: SIGNED_URL_TTL_SECONDS,
   });
-  _files = new Files({ adapter });
+  _files = new Files({ adapter, timeout: STORAGE_TIMEOUT_MS, retries: STORAGE_RETRIES });
   return _files;
 }
 

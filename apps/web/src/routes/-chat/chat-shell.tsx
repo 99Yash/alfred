@@ -154,7 +154,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
   const onSend = useCallback(
-    (text: string, files?: File[]) => void send(threadId, text, tier, files),
+    (text: string, files?: File[]) => send(threadId, text, tier, files),
     [send, threadId, tier],
   );
   // Retry re-sends the prior user turn as a fresh turn. It carries that
@@ -344,7 +344,7 @@ function EmptyHero({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  onSend?: (text: string, files?: File[]) => void;
+  onSend?: (text: string, files?: File[]) => Promise<boolean>;
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
@@ -623,7 +623,7 @@ function Composer({
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
-  onSend?: (text: string, files?: File[]) => void;
+  onSend?: (text: string, files?: File[]) => Promise<boolean>;
   onStopGeneration?: () => void;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
@@ -649,8 +649,14 @@ function Composer({
   const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
+  const [sending, setSending] = useState(false);
   const canSend =
-    !disabled && (!isEmpty || hasAttachments) && !mic.recording && !isStreaming && !transcribing;
+    !disabled &&
+    !sending &&
+    (!isEmpty || hasAttachments) &&
+    !mic.recording &&
+    !isStreaming &&
+    !transcribing;
 
   const insertAtTrigger = useCallback(() => {
     if (disabled) return;
@@ -665,12 +671,19 @@ function Composer({
   }, [disabled, mic.recording]);
 
   const handleSubmit = useCallback(() => {
-    if (!canSend) return;
+    if (!canSend || !onSend) return;
     const value = text.trim();
-    onSend?.(value, attachments.files());
-    editorRef.current?.clear();
-    resetDraft();
-    attachments.clear();
+    const files = attachments.files();
+    setSending(true);
+    void onSend(value, files)
+      .then((staged) => {
+        if (!staged) return;
+        editorRef.current?.clear();
+        resetDraft();
+        attachments.clear();
+      })
+      .catch(() => toast.error("Couldn't send your message. Please try again."))
+      .finally(() => setSending(false));
   }, [canSend, text, onSend, resetDraft, attachments]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {

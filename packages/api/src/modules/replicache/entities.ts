@@ -32,7 +32,11 @@ import {
   type UserPreference,
   type Workflow,
 } from "@alfred/db/schemas";
-import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES, toMessage } from "@alfred/contracts";
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
+  toMessage,
+} from "@alfred/contracts";
 import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
@@ -429,16 +433,26 @@ const ENTITY_FETCHERS = {
     );
   },
 
-  // Attachments on user messages (ADR-0065). Bounded to the same recent window
-  // as messages so a long history doesn't pull every object's metadata. Display
-  // metadata only — the bytes load through the auth-gated content proxy.
+  // Attachments on user messages (ADR-0065). Pull the attachments for the same
+  // recent message window so a synced message never loses its image metadata.
+  // Display metadata only — the bytes load through the auth-gated content proxy.
   CHAT_ATTACHMENT: async (tx, userId) => {
+    const messages: Pick<ChatMessage, "id">[] = await tx
+      .select({ id: chatMessages.id })
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT);
+    const messageIds = messages.map((m) => m.id);
+    if (messageIds.length === 0) return [];
     const rows = await tx
       .select()
       .from(chatAttachments)
-      .where(eq(chatAttachments.userId, userId))
+      .where(
+        and(eq(chatAttachments.userId, userId), inArray(chatAttachments.messageId, messageIds)),
+      )
       .orderBy(desc(chatAttachments.createdAt), desc(chatAttachments.id))
-      .limit(CHAT_MESSAGE_PULL_LIMIT);
+      .limit(CHAT_MESSAGE_PULL_LIMIT * MAX_ATTACHMENTS_PER_MESSAGE);
     return rows.flatMap((a: ChatAttachment) =>
       toEntityRow({
         slug: "CHAT_ATTACHMENT",
