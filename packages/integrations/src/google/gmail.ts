@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -153,8 +154,7 @@ async function getJson(url: string, accessToken: string): Promise<unknown> {
     signal: AbortSignal.timeout(GMAIL_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[gmail] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("gmail", res, { url });
   }
   return await res.json();
 }
@@ -171,8 +171,7 @@ async function postJson(url: string, accessToken: string, payload: unknown): Pro
     signal: AbortSignal.timeout(GMAIL_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[gmail] POST ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("gmail", res, { url, method: "POST" });
   }
   // 204 No Content from /stop has an empty body.
   const text = await res.text();

@@ -9,6 +9,8 @@
  * tool layer only depends on the typed return shapes.
  */
 
+import { HttpError, summarizeBody } from "@alfred/contracts";
+
 const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
 
 interface GraphqlError {
@@ -32,17 +34,24 @@ async function railwayGraphql<T>(
   });
   const text = await res.text();
   if (!res.ok) {
-    // Keep the upstream body for server logs, but don't splice it into the
-    // thrown message (it reaches the tool dispatcher / telemetry). The connect
-    // route sanitizes separately; this covers the agent-tool call path.
-    console.error(`[railway] ${res.status} graphql :: ${text.slice(0, 300)}`);
-    throw new Error(`[railway] request failed (${res.status})`);
+    // Keep the (redacted, bounded) upstream body for server logs, but don't
+    // splice it into the thrown message (it reaches the tool dispatcher /
+    // telemetry). The connect route sanitizes separately; this covers the
+    // agent-tool call path. The structured HttpError carries the status.
+    console.error(`[railway] ${res.status} graphql :: ${summarizeBody(text)}`);
+    throw new HttpError({
+      provider: "railway",
+      status: res.status,
+      url: RAILWAY_API,
+      method: "POST",
+      body: "",
+    });
   }
   let json: { data?: T; errors?: GraphqlError[] };
   try {
     json = JSON.parse(text) as { data?: T; errors?: GraphqlError[] };
   } catch {
-    console.error(`[railway] non-JSON response :: ${text.slice(0, 300)}`);
+    console.error(`[railway] non-JSON response :: ${summarizeBody(text)}`);
     throw new Error("[railway] invalid response from upstream");
   }
   if (json.errors && json.errors.length > 0) {

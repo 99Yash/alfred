@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -144,8 +145,7 @@ async function sendJson(
   }
   const res = await fetch(url, init);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[slides] ${method} ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("slides", res, { url, method });
   }
   const text = await res.text();
   return text ? JSON.parse(text) : {};

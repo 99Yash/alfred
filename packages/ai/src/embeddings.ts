@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { metered } from "./metering/metered";
 import type { CallAttribution } from "./metering/types";
@@ -93,8 +94,7 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
         }),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`[embeddings] Voyage ${res.status}: ${body.slice(0, 500)}`);
+        throw await httpErrorFromResponse("embeddings", res, { url: "voyage/embeddings" });
       }
       return (await res.json()) as VoyageEmbeddingResponse;
     },
