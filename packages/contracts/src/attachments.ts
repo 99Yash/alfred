@@ -43,21 +43,34 @@ export interface IngestPolicyEntry {
 const MB = 1024 * 1024;
 
 /**
+ * Per-image encoded payload budget for Phase 1 pass-through images. Chat's
+ * primary provider is Claude, whose direct API caps base64 image blocks at
+ * 10 MB; keep our raw upload cap below that after base64 expansion so accepted
+ * uploads do not depend on fallback routing.
+ */
+export const MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE = 9 * MB;
+
+/** Largest raw image that fits under the per-image encoded payload budget. */
+export const MAX_ATTACHMENT_BYTES_PER_FILE = Math.floor(
+  (MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE * 3) / 4,
+);
+
+/**
  * MIME → ingest policy. The whitelist *is* the keys of this map — anything not
  * listed is `reject`ed at the boundary (see {@link classifyUpload}).
  *
- * Note on images: the boss models (Anthropic) read only jpeg/png/gif/webp, so
- * those are the only true `pass-through` types. HEIC is an image MIME but is not
- * model-readable, so it is `degrade-av` (transcode to jpeg) — handled by the
- * ffmpeg path, not Phase 1.
+ * Note on images: pass-through means readable by both the primary Claude chat
+ * models and the Gemini reliability fallback. GIF is Claude-readable but not a
+ * Gemini image input type, so it waits for the Phase 2/3 transcode path rather
+ * than being accepted as raw pass-through. HEIC/HEIF likewise need transcode.
  */
 export const INGEST_POLICY: Readonly<Record<string, IngestPolicyEntry>> = {
   // Images — pass-through (the universal modality).
-  "image/jpeg": { kind: "pass-through", maxBytes: 15 * MB },
-  "image/png": { kind: "pass-through", maxBytes: 15 * MB },
-  "image/webp": { kind: "pass-through", maxBytes: 15 * MB },
-  "image/gif": { kind: "pass-through", maxBytes: 15 * MB },
-  // Image format the model can't read — transcode to jpeg at ingest.
+  "image/jpeg": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
+  "image/png": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
+  "image/webp": { kind: "pass-through", maxBytes: MAX_ATTACHMENT_BYTES_PER_FILE },
+  // Image formats that need transcode at ingest.
+  "image/gif": { kind: "degrade-av", maxBytes: 15 * MB },
   "image/heic": { kind: "degrade-av", maxBytes: 15 * MB },
   "image/heif": { kind: "degrade-av", maxBytes: 15 * MB },
 
@@ -105,10 +118,10 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
  * Maximum encoded attachment payload bytes inlined into one model request. The
  * transcript builder prioritizes newer images and replaces older overflow images
  * with text placeholders, keeping historical threads from replaying unbounded
- * media. This is measured after base64 expansion because that is the payload the
- * provider request actually carries.
+ * media. This stays below Gemini's 20 MB inline request ceiling to leave space
+ * for system text, tools, and JSON framing.
  */
-export const MAX_MODEL_ATTACHMENT_BYTES_PER_TURN = 20 * MB;
+export const MAX_MODEL_ATTACHMENT_BYTES_PER_TURN = 16 * MB;
 
 /**
  * Aggregate raw-byte cap for one chat message's attachments. The model path
