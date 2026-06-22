@@ -1,7 +1,9 @@
 import {
   IDB_KEY,
+  syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
+  type SyncedChatAttachment,
   type SyncedChatMessage,
   type SyncedChatThread,
 } from "@alfred/sync";
@@ -99,4 +101,40 @@ export function useChatMessages(threadId: string | undefined): SyncedChatMessage
   }, [rep, threadId]);
 
   return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : [];
+}
+
+/**
+ * Reactive map of a thread's attachments grouped by message id (ADR-0065).
+ * Read once per thread (a flat `chatatt/` scan, filtered/grouped client-side)
+ * and looked up per bubble — cheaper than one subscription per message. The
+ * empty object is stable-enough; consumers index by `message.id`.
+ */
+export function useChatAttachmentsByMessage(
+  threadId: string | undefined,
+): Record<string, SyncedChatAttachment[]> {
+  const rep = useReplicache();
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    threadId: string;
+    byMessage: Record<string, SyncedChatAttachment[]>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!rep || !threadId) return;
+    const prefix = IDB_KEY.CHAT_ATTACHMENT({});
+    return rep.subscribe(
+      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (values) => {
+        const byMessage: Record<string, SyncedChatAttachment[]> = {};
+        for (const value of values) {
+          const result = syncedChatAttachmentSchema.safeParse(value);
+          if (!result.success) continue;
+          (byMessage[result.data.messageId] ??= []).push(result.data);
+        }
+        setSnapshot({ rep, threadId, byMessage });
+      },
+    );
+  }, [rep, threadId]);
+
+  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.byMessage : {};
 }

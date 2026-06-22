@@ -304,6 +304,27 @@ export const syncedChatMessageSchema = z.object({
 export type SyncedChatMessage = z.infer<typeof syncedChatMessageSchema>;
 
 /**
+ * One attachment on a user message (ADR-0065). Synced so an uploaded image
+ * renders in its bubble on every device and survives reload. Only display
+ * metadata + degrade status sync — the raw bytes live in the bucket and are
+ * fetched through the auth-gated content proxy
+ * (`/api/chat/attachments/:id/content`); the storage key and `degraded_text`
+ * are server-only and never cross to the client.
+ */
+export const syncedChatAttachmentSchema = z.object({
+  id: z.string(),
+  messageId: z.string(),
+  name: z.string(),
+  mime: z.string(),
+  size: z.number(),
+  status: z.enum(["pending", "ready", "failed"]),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedChatAttachment = z.infer<typeof syncedChatAttachmentSchema>;
+
+/**
  * A thread's triage tag, synced read-only to the client and overridable via
  * the `triageTagOverride` mutator (ADR-0025 #1, rfc-triage-tags.md).
  *
@@ -440,4 +461,5 @@ export type SyncedEntity =
   | SyncedTodo
   | SyncedChatThread
   | SyncedChatMessage
+  | SyncedChatAttachment
   | SyncedTriageTag;

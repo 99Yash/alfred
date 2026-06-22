@@ -1,3 +1,5 @@
+import type { ChatAttachmentStatus } from "@alfred/contracts";
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
@@ -111,5 +113,63 @@ export const chatMessages = pgTable(
   ],
 );
 
+/**
+ * A file the user attached to a chat message (ADR-0065). The raw bytes live in
+ * an object bucket under `chat/{userId}/{threadId}/{messageId}/{file}`; only the
+ * `storageKey` is recorded here. The model never sees the raw media — at turn
+ * time we fold in the *degraded artifact* (`degradedText` + `degradedImageKeys`)
+ * once `status` is `ready`. A separate table (not a jsonb column on the message)
+ * so the async degrade can flip status / write the artifact without rewriting
+ * the message row. Deleting the message — or the thread, or the user — cascades
+ * the rows; the bucket objects are reaped by a prefix-delete cleanup job (the FK
+ * cascade can't reach object storage).
+ * `status` is the canonical {@link ChatAttachmentStatus} from `@alfred/contracts`.
+ */
+export const chatAttachments = pgTable(
+  "chat_attachments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("att")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    /** Object-store key: `chat/{userId}/{threadId}/{messageId}/{file}`. */
+    storageKey: text("storage_key").notNull(),
+    /** Original filename, for the composer chip + download affordance. */
+    name: text("name").notNull(),
+    /** Declared MIME type; the ingest policy is keyed off it. */
+    mime: text("mime").notNull(),
+    /** Byte size as reported by the client (capped per the ingest policy). */
+    size: integer("size").notNull(),
+    /** 'pending' (uploading/degrading) | 'ready' (artifact written) | 'failed'. */
+    status: text("status").notNull().default("pending").$type<ChatAttachmentStatus>(),
+    /** Degraded text artifact (transcript / extracted text); null for images. */
+    degradedText: text("degraded_text"),
+    /**
+     * Object-store keys of degraded keyframe images (video) — folded into the
+     * transcript as image parts. Empty for non-video; the upload's own bytes (an
+     * image) are referenced by `storageKey`, not here.
+     */
+    degradedImageKeys: jsonb("degraded_image_keys")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /** Set when `status` is 'failed' — a short, user-facing reason. */
+    failureReason: text("failure_reason"),
+    /** Replicache row-version. Bumped on status flips (e.g. pending→ready). */
+    rowVersion: integer("row_version").notNull().default(0),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    index("chat_attachments_message_idx").on(t.messageId),
+    index("chat_attachments_user_idx").on(t.userId),
+  ],
+);
+
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
+export type ChatAttachment = typeof chatAttachments.$inferSelect;

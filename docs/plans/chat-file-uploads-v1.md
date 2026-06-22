@@ -76,7 +76,7 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 ## Build order
 
 0. **ADR-0065 written** (decisions.md) — degrade-at-ingest invariant, storage/lifecycle, orchestration, rejected routing design. ✅
-1. **Bytes path (images only, no degrade).** `chat_attachments` table + storage adapter + signed-URL upload endpoint + composer wiring + image-part in transcript assembly. Proves upload→store→model end to end with the universal modality. Plus thread/account-delete prefix cleanup.
+1. **Bytes path (images only, no degrade).** ✅ **Built 2026-06-22.** `chat_attachments` table (migrations 0045+0046, `rowVersion` for sync) + `chat/storage.ts` (files-sdk → Railway buckets) + `POST /attachments/sign` + composer wiring (paperclip → file input, validation, drag/drop/paste, chips) + image-part transcript assembly + thread-delete prefix cleanup (`media.cleanup` job). **Render via Replicache sync** (chat_attachments is a synced entity) + auth-gated content proxy `GET /attachments/:id/content`. Upload-at-send. All 13 packages typecheck. **Not yet runtime-tested — needs a Railway bucket + `CHAT_S3_*` env vars.**
 2. **Degrade worker — no-ffmpeg modalities.** `media.degrade` job: audio (`transcribeAudio`), pdf/docx/xlsx/code → text. Status transitions + live poll UI + bounded-await + graceful partial-answer + status-into-context seam.
 3. **Video.** ffmpeg in the server image → audio-split transcript + keyframe image parts.
 4. **Hardening.** Cap/timeout/keyframe tuning from real usage; eval/error cases; confirm poll-vs-SSE.

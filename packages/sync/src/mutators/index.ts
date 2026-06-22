@@ -32,6 +32,8 @@ import {
   todoReopenClient,
 } from "./todos";
 import {
+  chatAttachmentCreateArgsSchema,
+  chatAttachmentCreateClient,
   chatMessageCreateArgsSchema,
   chatMessageCreateClient,
   chatThreadCreateArgsSchema,
@@ -78,6 +80,7 @@ export const clientMutators = {
   todoEdit: todoEditClient,
   chatThreadCreate: chatThreadCreateClient,
   chatMessageCreate: chatMessageCreateClient,
+  chatAttachmentCreate: chatAttachmentCreateClient,
   chatThreadRename: chatThreadRenameClient,
   chatThreadSetPinned: chatThreadSetPinnedClient,
   chatThreadDelete: chatThreadDeleteClient,
@@ -110,6 +113,7 @@ export const mutatorArgsSchemas = {
   todoEdit: todoEditArgsSchema,
   chatThreadCreate: chatThreadCreateArgsSchema,
   chatMessageCreate: chatMessageCreateArgsSchema,
+  chatAttachmentCreate: chatAttachmentCreateArgsSchema,
   chatThreadRename: chatThreadRenameArgsSchema,
   chatThreadSetPinned: chatThreadSetPinnedArgsSchema,
   chatThreadDelete: chatThreadDeleteArgsSchema,

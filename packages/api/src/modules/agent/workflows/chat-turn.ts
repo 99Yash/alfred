@@ -14,16 +14,18 @@ import {
 import {
   chatModelTierSchema,
   isIntegrationSlug,
+  isPassThrough,
   toJsonValue,
   type AgentTranscriptMessage,
   type ToolName,
   toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { attachmentUrl } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
@@ -254,6 +256,80 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
   const tools = out as ToolSet;
   sdkToolsCache.set(key, tools);
   return tools;
+}
+
+/** A `ready` attachment as the transcript builder needs it. */
+interface ReadyAttachment {
+  storageKey: string;
+  mime: string;
+  degradedText: string | null;
+  degradedImageKeys: string[];
+}
+
+/**
+ * Load the `ready` attachments for a set of messages, grouped by message id.
+ * Only `ready` rows are folded into the model context — `pending` (still
+ * degrading) and `failed` rows are skipped, so a slow degrade can't block the
+ * turn (ADR-0065's bounded-await / graceful-partial posture).
+ */
+async function loadReadyAttachments(
+  messageIds: string[],
+): Promise<Map<string, ReadyAttachment[]>> {
+  const byMessage = new Map<string, ReadyAttachment[]>();
+  if (messageIds.length === 0) return byMessage;
+  const rows = await db()
+    .select({
+      messageId: chatAttachments.messageId,
+      storageKey: chatAttachments.storageKey,
+      mime: chatAttachments.mime,
+      degradedText: chatAttachments.degradedText,
+      degradedImageKeys: chatAttachments.degradedImageKeys,
+    })
+    .from(chatAttachments)
+    .where(
+      and(inArray(chatAttachments.messageId, messageIds), eq(chatAttachments.status, "ready")),
+    );
+  for (const r of rows) {
+    const list = byMessage.get(r.messageId) ?? [];
+    list.push({
+      storageKey: r.storageKey,
+      mime: r.mime,
+      degradedText: r.degradedText,
+      degradedImageKeys: r.degradedImageKeys,
+    });
+    byMessage.set(r.messageId, list);
+  }
+  return byMessage;
+}
+
+/**
+ * Build an AI-SDK content-parts array for a user message that has attachments:
+ * the typed text first, then each attachment's contribution. A pass-through
+ * image becomes an `image` part pointed at a short-lived presigned read URL (so
+ * the raw bytes never bloat the transcript or the DB). A degraded modality
+ * (Phase 2/3) contributes its extracted `degradedText` plus any keyframe images.
+ */
+async function buildContentParts(
+  text: string,
+  attachments: ReadyAttachment[],
+): Promise<unknown> {
+  const parts: Array<
+    { type: "text"; text: string } | { type: "image"; image: URL; mediaType?: string }
+  > = [];
+  if (text.length > 0) parts.push({ type: "text", text });
+  for (const a of attachments) {
+    if (isPassThrough(a.mime)) {
+      parts.push({ type: "image", image: new URL(await attachmentUrl(a.storageKey)), mediaType: a.mime });
+      continue;
+    }
+    if (a.degradedText && a.degradedText.length > 0) {
+      parts.push({ type: "text", text: a.degradedText });
+    }
+    for (const key of a.degradedImageKeys) {
+      parts.push({ type: "image", image: new URL(await attachmentUrl(key)) });
+    }
+  }
+  return parts;
 }
 
 function toolResultMessage(
@@ -1023,13 +1099,27 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
     const rows = await db()
-      .select({ role: chatMessages.role, content: chatMessages.content })
+      .select({ id: chatMessages.id, role: chatMessages.role, content: chatMessages.content })
       .from(chatMessages)
       .where(and(eq(chatMessages.userId, input.userId), eq(chatMessages.threadId, threadId)))
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
-    return rows
-      .filter((r) => r.content.length > 0)
-      .map((r) => ({ role: r.role, content: r.content }) satisfies AgentTranscriptMessage);
+
+    // Fold in any uploaded attachments (ADR-0065). Only `ready` rows enter the
+    // model context, and only as text + images — the raw bytes are never sent.
+    // Phase 1 carries images straight through (presigned read URL → image part);
+    // degraded modalities (Phase 2/3) contribute their `degradedText` +
+    // keyframe images instead.
+    const attachmentsByMessage = await loadReadyAttachments(rows.map((r) => r.id));
+
+    const out: AgentTranscriptMessage[] = [];
+    for (const r of rows) {
+      const atts = attachmentsByMessage.get(r.id) ?? [];
+      // Drop only truly-empty turns (no text and nothing readable attached).
+      if (r.content.length === 0 && atts.length === 0) continue;
+      const content = atts.length > 0 ? await buildContentParts(r.content, atts) : r.content;
+      out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
+    }
+    return out;
   },
   // Singleton on the client-minted user message id: a double-submit / retry /
   // strict-mode double-invoke of the same turn collides on the partial unique

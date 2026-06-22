@@ -3,10 +3,11 @@ import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
 import {
   isoDateTimeStringSchema,
+  syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
 } from "../schemas";
-import type { SyncedChatMessage, SyncedChatThread } from "../types";
+import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../types";
 import { parseSyncedValue, readSyncedValue } from "./read";
 
 /**
@@ -32,7 +33,8 @@ export const chatMessageCreateArgsSchema = z.object({
   id: chatId,
   threadId: chatId,
   userId: z.string().min(1).max(100),
-  content: z.string().min(1).max(100_000),
+  // May be empty when the message carries only an attachment (image-only send).
+  content: z.string().min(0).max(100_000),
   createdAt: isoDateTimeStringSchema,
 });
 export type ChatMessageCreateArgs = z.infer<typeof chatMessageCreateArgsSchema>;
@@ -53,6 +55,19 @@ export const chatThreadDeleteArgsSchema = z.object({
   id: chatId,
 });
 export type ChatThreadDeleteArgs = z.infer<typeof chatThreadDeleteArgsSchema>;
+
+export const chatAttachmentCreateArgsSchema = z.object({
+  id: chatId,
+  messageId: chatId,
+  // The thread the message belongs to — the server rebuilds the storage key
+  // from it; not stored on the synced row.
+  threadId: chatId,
+  name: z.string().min(1).max(255),
+  mime: z.string().min(1).max(255),
+  size: z.number().int().positive(),
+  createdAt: isoDateTimeStringSchema,
+});
+export type ChatAttachmentCreateArgs = z.infer<typeof chatAttachmentCreateArgsSchema>;
 
 async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatThread | null> {
   return readSyncedValue(tx, IDB_KEY.CHAT_THREAD({ id }), syncedChatThreadSchema);
@@ -120,6 +135,7 @@ export async function chatThreadDeleteClient(
   args: ChatThreadDeleteArgs,
 ): Promise<void> {
   await tx.del(IDB_KEY.CHAT_THREAD({ id: args.id }));
+  const deletedMessageIds = new Set<string>();
   const messages = await tx
     .scan({ prefix: IDB_KEY.CHAT_MESSAGE({}) })
     .entries()
@@ -127,9 +143,49 @@ export async function chatThreadDeleteClient(
   for (const [key, value] of messages) {
     const message = parseSyncedValue(value, syncedChatMessageSchema);
     if (message?.threadId === args.id) {
+      deletedMessageIds.add(message.id);
       await tx.del(key);
     }
   }
+  // Drop the deleted messages' attachments too (server cascades the rows +
+  // reaps the bucket objects; this keeps the optimistic store consistent).
+  const attachments = await tx
+    .scan({ prefix: IDB_KEY.CHAT_ATTACHMENT({}) })
+    .entries()
+    .toArray();
+  for (const [key, value] of attachments) {
+    const att = parseSyncedValue(value, syncedChatAttachmentSchema);
+    if (att && deletedMessageIds.has(att.messageId)) {
+      await tx.del(key);
+    }
+  }
+}
+
+/**
+ * Optimistically record an uploaded attachment on a just-sent message
+ * (ADR-0065). The bytes are already in the bucket (uploaded during
+ * composition); this writes the display row so the image renders in its bubble
+ * without waiting for the pull. Phase 1 is images — the row lands `ready`. The
+ * server mutator rebuilds the storage key and persists the canonical row.
+ * Idempotent on id.
+ */
+export async function chatAttachmentCreateClient(
+  tx: WriteTransaction,
+  args: ChatAttachmentCreateArgs,
+): Promise<void> {
+  if (await tx.has(IDB_KEY.CHAT_ATTACHMENT({ id: args.id }))) return;
+  const value: SyncedChatAttachment = {
+    id: args.id,
+    messageId: args.messageId,
+    name: args.name,
+    mime: args.mime,
+    size: args.size,
+    status: "ready",
+    rowVersion: 0,
+    createdAt: args.createdAt,
+    updatedAt: args.createdAt,
+  };
+  await tx.set(IDB_KEY.CHAT_ATTACHMENT({ id: args.id }), normalizeToReadonlyJSON(value));
 }
 
 /** Append the user's message and bump the thread's lastMessageAt. Idempotent on id. */

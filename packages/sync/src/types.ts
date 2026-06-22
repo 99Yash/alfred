@@ -5,6 +5,7 @@ export type {
   SyncedActionPolicy,
   SyncedActionStaging,
   SyncedBriefing,
+  SyncedChatAttachment,
   SyncedChatMessage,
   SyncedChatNarration,
   SyncedChatThread,
