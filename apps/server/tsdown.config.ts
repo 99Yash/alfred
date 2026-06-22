@@ -25,5 +25,14 @@ export default defineConfig({
   // server's ESM output makes Node 22 throw ERR_AMBIGUOUS_MODULE_SYNTAX
   // on boot. Keep both packages external so they resolve from
   // node_modules at runtime instead of being inlined.
-  external: ["isomorphic-dompurify", "jsdom"],
+  //
+  // sharp (used by @alfred/api for chat attachment image processing) is a
+  // native module: at runtime it loads a platform-specific binary
+  // (@img/sharp-linux-x64 on Railway) via its own resolver. Bundling it
+  // breaks that resolution — prod crash-loops with "Could not load the
+  // sharp module using the linux-x64 runtime". Keep it external so it
+  // resolves the real binary from node_modules. Each external here must
+  // also be a direct dependency of this package so pnpm links it into
+  // apps/server/node_modules where the bundle can resolve it at runtime.
+  external: ["isomorphic-dompurify", "jsdom", "sharp"],
 });
