@@ -38,7 +38,7 @@ import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import type { Step, Workflow } from "../types";
+import type { AgentDbExecutor, Step, Workflow } from "../types";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -322,10 +322,11 @@ function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachm
 async function loadReadyAttachments(
   userId: string,
   messageIds: string[],
+  ex: AgentDbExecutor = db(),
 ): Promise<Map<string, ReadyAttachment[]>> {
   const byMessage = new Map<string, ReadyAttachment[]>();
   if (messageIds.length === 0) return byMessage;
-  const rows = await db()
+  const rows = await ex
     .select({
       id: chatAttachments.id,
       messageId: chatAttachments.messageId,
@@ -400,7 +401,7 @@ async function markAttachmentHydrationFailed(
 ): Promise<void> {
   if (!part.attachmentId) return;
   try {
-    await db()
+    const rows = await db()
       .update(chatAttachments)
       .set({
         status: "failed",
@@ -408,7 +409,10 @@ async function markAttachmentHydrationFailed(
         rowVersion: sql`${chatAttachments.rowVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(chatAttachments.id, part.attachmentId));
+      .where(eq(chatAttachments.id, part.attachmentId))
+      .returning({ userId: chatAttachments.userId });
+    const userIds = Array.from(new Set(rows.map((r) => r.userId)));
+    if (userIds.length > 0) emitReplicachePokes(userIds);
   } catch (err) {
     console.warn("[chat] failed to mark bad attachment image:", toMessage(err));
   }
@@ -437,6 +441,7 @@ async function hydrateContentForModel(
     } catch (err) {
       budget.unreadableImages += 1;
       console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
+      await markAttachmentHydrationFailed(part, toMessage(err));
       parts.push({
         type: "text",
         text: "[Image attachment omitted because it could not be read.]",
@@ -1375,11 +1380,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       started: false,
     };
   },
-  async initialTranscript(input) {
+  async initialTranscript(input, context) {
     const metadata = input.metadata ?? {};
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
-    const rows = await db()
+    const ex = context?.db ?? db();
+    const rows = await ex
       .select({ id: chatMessages.id, role: chatMessages.role, content: chatMessages.content })
       .from(chatMessages)
       .where(and(eq(chatMessages.userId, input.userId), eq(chatMessages.threadId, threadId)))
@@ -1393,6 +1399,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const attachmentsByMessage = await loadReadyAttachments(
       input.userId,
       rows.map((r) => r.id),
+      ex,
     );
 
     const out: AgentTranscriptMessage[] = [];

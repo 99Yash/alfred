@@ -43,26 +43,52 @@ export function isStorageConfigured(): boolean {
   );
 }
 
-function files(): Files {
-  if (_files) return _files;
+function storageEnv(): {
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  endpoint: string | undefined;
+  forcePathStyle: boolean;
+  publicBaseUrl: string | undefined;
+} {
   const env = serverEnv();
-  if (!isStorageConfigured()) {
+  if (
+    !env.CHAT_S3_BUCKET ||
+    !env.CHAT_S3_REGION ||
+    !env.CHAT_S3_ACCESS_KEY_ID ||
+    !env.CHAT_S3_SECRET_ACCESS_KEY
+  ) {
     throw new Error("Chat file storage is not configured (CHAT_S3_* env vars missing)");
   }
-  const adapter = s3({
-    bucket: env.CHAT_S3_BUCKET as string,
-    region: env.CHAT_S3_REGION as string,
-    // Railway's S3 endpoint (https://storage.railway.app). Any S3-compatible
-    // endpoint works here; left unset only in tests / AWS-native setups.
+  return {
+    bucket: env.CHAT_S3_BUCKET,
+    region: env.CHAT_S3_REGION,
+    accessKeyId: env.CHAT_S3_ACCESS_KEY_ID,
+    secretAccessKey: env.CHAT_S3_SECRET_ACCESS_KEY,
     endpoint: env.CHAT_S3_ENDPOINT,
     forcePathStyle: env.CHAT_S3_FORCE_PATH_STYLE,
+    publicBaseUrl: env.CHAT_S3_PUBLIC_BASE_URL,
+  };
+}
+
+function files(): Files {
+  if (_files) return _files;
+  const env = storageEnv();
+  const adapter = s3({
+    bucket: env.bucket,
+    region: env.region,
+    // Railway's S3 endpoint (https://storage.railway.app). Any S3-compatible
+    // endpoint works here; left unset only in tests / AWS-native setups.
+    endpoint: env.endpoint,
+    forcePathStyle: env.forcePathStyle,
     credentials: {
-      accessKeyId: env.CHAT_S3_ACCESS_KEY_ID as string,
-      secretAccessKey: env.CHAT_S3_SECRET_ACCESS_KEY as string,
+      accessKeyId: env.accessKeyId,
+      secretAccessKey: env.secretAccessKey,
     },
     // When set, reads return `${base}/${key}` (CDN/public bucket). Otherwise
     // `attachmentUrl()` mints a presigned GET.
-    publicBaseUrl: env.CHAT_S3_PUBLIC_BASE_URL,
+    publicBaseUrl: env.publicBaseUrl,
     defaultUrlExpiresIn: SIGNED_URL_TTL_SECONDS,
   });
   _files = new Files({ adapter, timeout: STORAGE_TIMEOUT_MS, retries: STORAGE_RETRIES });
