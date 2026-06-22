@@ -336,32 +336,37 @@ function MeetingPrepMockupCard() {
  */
 function ChatBubbleMockup() {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [phase, setPhase] = useState<"idle" | "asked" | "typing" | "done">("idle");
+  const [phase, setPhase] = useState<"idle" | "asked" | "typing" | "done">(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "done"
+      : "idle",
+  );
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setPhase("done");
       return;
     }
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    let typingTimer: ReturnType<typeof setTimeout> | undefined;
+    let doneTimer: ReturnType<typeof setTimeout> | undefined;
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting) return;
         obs.disconnect();
         setPhase("asked");
-        timers.push(setTimeout(() => setPhase("typing"), 620));
-        timers.push(setTimeout(() => setPhase("done"), 1640));
+        typingTimer = setTimeout(() => setPhase("typing"), 620);
+        doneTimer = setTimeout(() => setPhase("done"), 1640);
       },
       { threshold: 0.45 },
     );
     obs.observe(el);
     return () => {
       obs.disconnect();
-      timers.forEach(clearTimeout);
+      if (typingTimer) clearTimeout(typingTimer);
+      if (doneTimer) clearTimeout(doneTimer);
     };
   }, []);
 
