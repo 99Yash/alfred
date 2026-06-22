@@ -1316,14 +1316,22 @@ function errorText(err: unknown): string {
  */
 function classifyChatFailure(err: unknown): ChatErrorKind {
   const msg = toMessage(err).toLowerCase();
+  const mentionsAttachment =
+    msg.includes("attachment") ||
+    msg.includes("file") ||
+    msg.includes("image") ||
+    msg.includes("media") ||
+    msg.includes("mime");
 
   // The model couldn't read an attached file. Recoverable by dropping it.
   // ("Unable to process input image" is the Gemini/Anthropic vision reject.)
   if (
     msg.includes("unable to process input image") ||
-    msg.includes("could not process") ||
     msg.includes("invalid image") ||
-    msg.includes("unsupported") ||
+    msg.includes("unsupported image") ||
+    msg.includes("unsupported file") ||
+    msg.includes("unsupported media") ||
+    (mentionsAttachment && msg.includes("could not process")) ||
     (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")))
   ) {
     return "attachment";

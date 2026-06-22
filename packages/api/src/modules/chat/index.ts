@@ -59,6 +59,10 @@ type ExistingAttachmentSummary = Pick<
   typeof chatAttachments.$inferSelect,
   "id" | "name" | "mime" | "size" | "position"
 >;
+type RetryAttachmentSource = Pick<
+  typeof chatAttachments.$inferSelect,
+  "id" | "storageKey" | "name" | "mime" | "size"
+>;
 interface FreshAttachmentDescriptor {
   id: string;
   name: string;
@@ -86,6 +90,18 @@ async function incrementUploadCounter(
   const value = amount === 1 ? await redis.incr(key) : await redis.incrby(key, amount);
   if (value === amount) await redis.expire(key, ttlSeconds);
   return value;
+}
+
+async function releasePendingUploadBudget(userId: string, amount: number): Promise<void> {
+  if (amount <= 0) return;
+  try {
+    const redis = getAttachmentUploadRateRedis();
+    const key = `quota:chat:attachments:pending-bytes:${userId}`;
+    const value = await redis.decrby(key, amount);
+    if (value <= 0) await redis.del(key);
+  } catch (err) {
+    console.warn("[chat] pending attachment quota release failed:", toMessage(err));
+  }
 }
 
 async function assertAttachmentUploadBudgetAllowed(args: {
@@ -131,6 +147,7 @@ async function assertAttachmentUploadBudgetAllowed(args: {
       ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS,
     );
     if (pendingBytes > MAX_PENDING_ATTACHMENT_UPLOAD_BYTES) {
+      await releasePendingUploadBudget(args.userId, args.size);
       throw new TooManyRequestsError("Too many pending attachment uploads. Try again later.");
     }
   } catch (err) {
@@ -168,11 +185,10 @@ async function findExistingChatTurnRun(
   };
 }
 
-function sameFreshAttachmentRows(
+function freshAttachmentRowsMatchSubset(
   inputs: readonly FreshAttachmentDescriptor[],
   rows: readonly ExistingAttachmentSummary[],
 ): boolean {
-  if (inputs.length !== rows.length) return false;
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   for (const [index, input] of inputs.entries()) {
     const row = rowsById.get(input.id);
@@ -188,6 +204,79 @@ function sameFreshAttachmentRows(
     }
   }
   return true;
+}
+
+function attachmentRequestMatchesExistingRows(args: {
+  fresh: readonly FreshAttachmentDescriptor[];
+  retrySources: readonly RetryAttachmentSource[];
+  rows: readonly ExistingAttachmentSummary[];
+}): boolean {
+  const expectedCount = args.fresh.length + args.retrySources.length;
+  if (args.rows.length !== expectedCount) return false;
+  if (args.fresh.length > 0 && !freshAttachmentRowsMatchSubset(args.fresh, args.rows)) {
+    return false;
+  }
+  const freshIds = new Set(args.fresh.map((input) => input.id));
+  const retryRows = args.rows.filter((row) => !freshIds.has(row.id));
+  if (retryRows.length !== args.retrySources.length) return false;
+  for (const [index, source] of args.retrySources.entries()) {
+    const row = retryRows[index];
+    const position = args.fresh.length + index;
+    if (!row) return false;
+    if (
+      row.name !== source.name ||
+      row.mime !== source.mime ||
+      row.size !== source.size ||
+      row.position !== position
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameInsertedAttachmentRows(
+  expected: readonly AttachmentInsertRow[],
+  rows: readonly ExistingAttachmentSummary[],
+): boolean {
+  if (expected.length !== rows.length) return false;
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  for (const expectedRow of expected) {
+    if (!expectedRow.id) return false;
+    const row = rowsById.get(expectedRow.id);
+    if (!row) return false;
+    if (
+      row.name !== expectedRow.name ||
+      row.mime !== expectedRow.mime ||
+      row.size !== expectedRow.size ||
+      row.position !== expectedRow.position
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function loadAttachmentSummaries(
+  ex: DbExecutor,
+  userId: string,
+  messageId: string,
+): Promise<ExistingAttachmentSummary[]> {
+  return await ex
+    .select({
+      id: chatAttachments.id,
+      name: chatAttachments.name,
+      mime: chatAttachments.mime,
+      size: chatAttachments.size,
+      position: chatAttachments.position,
+    })
+    .from(chatAttachments)
+    .where(and(eq(chatAttachments.userId, userId), eq(chatAttachments.messageId, messageId)))
+    .orderBy(
+      asc(chatAttachments.position),
+      asc(chatAttachments.createdAt),
+      asc(chatAttachments.id),
+    );
 }
 
 async function schedulePendingUploadCleanup(userId: string, storageKey: string): Promise<void> {
@@ -286,6 +375,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             attachmentId: body.attachmentId,
             fileName: body.name,
           });
+          let reservedPendingBytes = 0;
           try {
             const existingRows = await db()
               .select({ id: chatAttachments.id })
@@ -304,10 +394,12 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               messageId: body.messageId,
               size: body.size,
             });
+            reservedPendingBytes = body.size;
             const upload = await signedUploadUrl(storageKey, body.mime, policy.maxBytes);
             await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey, upload };
           } catch (err) {
+            await releasePendingUploadBudget(user.id, reservedPendingBytes);
             if (
               err instanceof BadRequestError ||
               err instanceof ConflictError ||
@@ -359,6 +451,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             attachmentId: body.attachmentId,
             fileName: body.name,
           });
+          let reservedPendingBytes = 0;
           try {
             const existingRows = await db()
               .select({ id: chatAttachments.id })
@@ -383,12 +476,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               messageId: body.messageId,
               size: file.size,
             });
+            reservedPendingBytes = file.size;
             const bytes = new Uint8Array(await file.arrayBuffer());
             await assertPassThroughImageBytes(bytes, body.mime);
             await writeObject(storageKey, bytes, body.mime);
             await schedulePendingUploadCleanup(user.id, storageKey);
             return { storageKey };
           } catch (err) {
+            await releasePendingUploadBudget(user.id, reservedPendingBytes);
             if (
               err instanceof BadRequestError ||
               err instanceof ConflictError ||
@@ -523,32 +618,76 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           if (existingMessage && existingMessage.content !== content) {
             throw new ConflictError("Message id already belongs to a different chat turn");
           }
-          let existingMessageAttachmentRows: ExistingAttachmentSummary[] = [];
-          if (existingMessage) {
-            const existingAttachments = await db()
+
+          const retrySources: RetryAttachmentSource[] = [];
+          if (retryAttachmentIds.length > 0) {
+            const sources = await db()
               .select({
                 id: chatAttachments.id,
+                storageKey: chatAttachments.storageKey,
                 name: chatAttachments.name,
                 mime: chatAttachments.mime,
                 size: chatAttachments.size,
-                position: chatAttachments.position,
               })
               .from(chatAttachments)
+              .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
               .where(
                 and(
+                  inArray(chatAttachments.id, retryAttachmentIds),
                   eq(chatAttachments.userId, user.id),
-                  eq(chatAttachments.messageId, body.userMessageId),
+                  eq(chatAttachments.messageId, retryAttachmentMessageId ?? ""),
+                  eq(chatAttachments.status, "ready"),
+                  eq(chatMessages.userId, user.id),
+                  eq(chatMessages.threadId, threadId),
+                  eq(chatMessages.role, "user"),
                 ),
+              )
+              .orderBy(
+                asc(chatAttachments.position),
+                asc(chatAttachments.createdAt),
+                asc(chatAttachments.id),
               );
+            const sourcesById = new Map(sources.map((source) => [source.id, source]));
+            const orderedSources: RetryAttachmentSource[] = [];
+            for (const id of retryAttachmentIds) {
+              const source = sourcesById.get(id);
+              if (source) orderedSources.push(source);
+            }
+            if (orderedSources.length !== new Set(retryAttachmentIds).size) {
+              throw new BadRequestError("Retry attachments don't belong to that chat turn");
+            }
+            const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
+            if (orderedSources.length > room) {
+              throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+            }
+            let selectedBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+            for (const source of orderedSources) {
+              if (selectedBytes + source.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+                const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+                throw new BadRequestError(
+                  `Attachments are too large — the combined limit is ${mb} MB`,
+                );
+              }
+              retrySources.push(source);
+              selectedBytes += source.size;
+            }
+          }
+
+          let existingMessageAttachmentRows: ExistingAttachmentSummary[] = [];
+          if (existingMessage) {
+            const existingAttachments = await loadAttachmentSummaries(
+              db(),
+              user.id,
+              body.userMessageId,
+            );
             existingMessageAttachmentRows = existingAttachments;
             if (
-              attachments.length > 0 &&
-              (existingAttachments.length === 0 ||
-                !sameFreshAttachmentRows(attachments, existingAttachments))
+              !attachmentRequestMatchesExistingRows({
+                fresh: attachments,
+                retrySources,
+                rows: existingAttachments,
+              })
             ) {
-              throw new ConflictError("Message id already belongs to a different chat turn");
-            }
-            if (retryAttachmentIds.length > 0 && existingAttachments.length === 0) {
               throw new ConflictError("Message id already belongs to a different chat turn");
             }
             const existingRun = await findExistingChatTurnRun(
@@ -594,57 +733,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           // Ownership-scoped to this user. Honors the combined per-message cap,
           // and rejects instead of silently dropping requested images.
           const retryAttachmentRows: AttachmentInsertRow[] = [];
-          if (retryAttachmentIds.length > 0 && storageConfigured && !reuseExistingAttachmentRows) {
-            const sources = await db()
-              .select({
-                id: chatAttachments.id,
-                storageKey: chatAttachments.storageKey,
-                name: chatAttachments.name,
-                mime: chatAttachments.mime,
-                size: chatAttachments.size,
-                position: chatAttachments.position,
-              })
-              .from(chatAttachments)
-              .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
-              .where(
-                and(
-                  inArray(chatAttachments.id, retryAttachmentIds),
-                  eq(chatAttachments.userId, user.id),
-                  eq(chatAttachments.messageId, retryAttachmentMessageId ?? ""),
-                  eq(chatAttachments.status, "ready"),
-                  eq(chatMessages.userId, user.id),
-                  eq(chatMessages.threadId, threadId),
-                  eq(chatMessages.role, "user"),
-                ),
-              )
-              .orderBy(
-                asc(chatAttachments.position),
-                asc(chatAttachments.createdAt),
-                asc(chatAttachments.id),
-              );
-            const sourcesById = new Map(sources.map((source) => [source.id, source]));
-            const orderedSources: typeof sources = [];
-            for (const id of retryAttachmentIds) {
-              const source = sourcesById.get(id);
-              if (source) orderedSources.push(source);
-            }
-            if (orderedSources.length !== new Set(retryAttachmentIds).size) {
-              throw new BadRequestError("Retry attachments don't belong to that chat turn");
-            }
-            const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
-            if (orderedSources.length > room) {
-              throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
-            }
-            const retrySources: typeof sources = [];
-            let selectedBytes = freshAttachmentRows.reduce((sum, row) => sum + row.size, 0);
-            for (const src of orderedSources) {
-              if (selectedBytes + src.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
-                const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-                throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
-              }
-              retrySources.push(src);
-              selectedBytes += src.size;
-            }
+          if (retrySources.length > 0 && !reuseExistingAttachmentRows) {
             for (const src of retrySources) {
               const newAttachmentId = createId("att");
               const position = freshAttachmentRows.length + retryAttachmentRows.length;
@@ -692,6 +781,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           assertAttachmentBatchAllowed(attachmentRows);
 
           const assistantMessageId = createId("msg");
+          let acceptedFreshAttachmentBytes = 0;
           const result = await db().transaction<ExistingChatTurnRun>(async (tx) => {
             if (!thread) {
               await tx
@@ -714,9 +804,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               .onConflictDoNothing();
 
             const writtenMessages = await tx
-              .select({ userId: chatMessages.userId, threadId: chatMessages.threadId })
+              .select({
+                userId: chatMessages.userId,
+                threadId: chatMessages.threadId,
+                content: chatMessages.content,
+              })
               .from(chatMessages)
               .where(eq(chatMessages.id, body.userMessageId))
+              .for("update")
               .limit(1);
             const writtenMessage = writtenMessages[0];
             if (
@@ -726,11 +821,42 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             ) {
               throw new ConflictError("Message id already belongs to another chat message");
             }
+            if (writtenMessage.content !== content) {
+              throw new ConflictError("Message id already belongs to a different chat turn");
+            }
+
+            const currentAttachments = await loadAttachmentSummaries(
+              tx,
+              user.id,
+              body.userMessageId,
+            );
+            if (
+              currentAttachments.length > 0 &&
+              !attachmentRequestMatchesExistingRows({
+                fresh: attachments,
+                retrySources,
+                rows: currentAttachments,
+              })
+            ) {
+              throw new ConflictError("Message id already belongs to a different chat turn");
+            }
 
             // Persist attachment rows now that the owned message they reference
             // exists. Keys were rebuilt and verified server-side above.
-            if (attachmentRows.length > 0) {
+            if (attachmentRows.length > 0 && currentAttachments.length === 0) {
               await tx.insert(chatAttachments).values(attachmentRows).onConflictDoNothing();
+              const writtenAttachments = await loadAttachmentSummaries(
+                tx,
+                user.id,
+                body.userMessageId,
+              );
+              if (!sameInsertedAttachmentRows(attachmentRows, writtenAttachments)) {
+                throw new ConflictError("Message id already belongs to a different chat turn");
+              }
+              acceptedFreshAttachmentBytes = freshAttachmentRows.reduce(
+                (sum, row) => sum + row.size,
+                0,
+              );
             }
 
             // Derive a title from the first message; bump the thread to the top.
@@ -787,6 +913,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               console.warn("[chat] attachment poke failed:", toMessage(err));
             }
           }
+          await releasePendingUploadBudget(user.id, acceptedFreshAttachmentBytes);
           await enqueueChatTurnRunBestEffort(result.runId);
           return result;
         },

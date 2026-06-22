@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  isPassThrough,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+  MAX_ATTACHMENT_BYTES_PER_FILE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
 } from "@alfred/contracts";
 import sharp from "sharp";
@@ -11,9 +14,15 @@ import sharp from "sharp";
 import {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
+  assertUploadAllowed,
 } from "../../src/modules/chat/attachments";
 
 describe("assertAttachmentBatchAllowed", () => {
+  test("per-file raw image cap fits under the primary provider's base64 image cap", () => {
+    const encodedBytes = Math.ceil(MAX_ATTACHMENT_BYTES_PER_FILE / 3) * 4;
+    assert.ok(encodedBytes <= MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE);
+  });
+
   test("raw batch cap fits inside the base64 model payload budget", () => {
     const encodedBytes = Math.ceil(MAX_ATTACHMENT_BYTES_PER_MESSAGE / 3) * 4;
     assert.ok(encodedBytes <= MAX_MODEL_ATTACHMENT_BYTES_PER_TURN);
@@ -43,6 +52,11 @@ describe("assertAttachmentBatchAllowed", () => {
       () => assertAttachmentBatchAllowed([{ size: MAX_ATTACHMENT_BYTES_PER_MESSAGE }, { size: 1 }]),
       /combined limit/,
     );
+  });
+
+  test("does not accept GIF as phase-1 pass-through", () => {
+    assert.equal(isPassThrough("image/gif"), false);
+    assert.throws(() => assertUploadAllowed("image/gif", 1), /Only image uploads/);
   });
 });
 
