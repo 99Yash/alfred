@@ -18,7 +18,7 @@ export const Route = createFileRoute("/support")({
 
 const CONTACT = "yashgouravkar@gmail.com";
 
-export function Support() {
+function Support() {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
       {/* `<main>` gives this chromeless public page its required primary

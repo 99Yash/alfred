@@ -26,7 +26,7 @@ export const Route = createFileRoute("/login")({
   }),
 });
 
-export function LoginPage() {
+function LoginPage() {
   const { redirect } = Route.useSearch();
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
