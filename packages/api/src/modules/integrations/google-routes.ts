@@ -14,6 +14,7 @@ import {
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
+import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
@@ -134,6 +135,34 @@ export const googleIntegrationRoutes = new Elysia({
           );
         return { credentials: rows };
       })
+      .delete(
+        "/:id",
+        async ({ params, user }) => {
+          // Ownership check first, mirroring the sibling `/:id/watch` routes —
+          // the watch teardown below operates on a raw credential id, so we
+          // must confirm the caller owns it before touching anything.
+          const owner = await db()
+            .select({ id: integrationCredentials.id })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.id, params.id),
+                eq(integrationCredentials.userId, user.id),
+                eq(integrationCredentials.provider, "google"),
+              ),
+            );
+          if (!owner[0]) throw new NotFoundError("Credential not found");
+          // Stop Google pushing to our Pub/Sub topic before the row (and its
+          // access token) disappear. Best-effort: a watch that was never
+          // installed or already expired must not block the disconnect. One
+          // Google credential backs every google_* tile, so this removes
+          // Alfred's whole Workspace grant for the account.
+          await bestEffort("uninstall watch on disconnect", () => uninstallGmailWatch(params.id));
+          await deleteIntegrationCredential({ userId: user.id, provider: "google", id: params.id });
+          return { id: params.id, ok: true };
+        },
+        { params: t.Object({ id: t.String() }) },
+      )
       .patch(
         "/:id/persona",
         async ({ params, body, user }) => {

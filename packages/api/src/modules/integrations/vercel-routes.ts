@@ -4,11 +4,15 @@ import {
   exchangeVercelCode,
   isVercelConfigured,
 } from "@alfred/integrations/vercel";
-import { listBearerCredentials, upsertBearerCredential } from "@alfred/integrations/shared";
+import {
+  deleteIntegrationCredential,
+  listBearerCredentials,
+  upsertBearerCredential,
+} from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, ServiceUnavailableError } from "../../middleware/errors";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -22,9 +26,10 @@ import {
  * `teamId`/`configurationId` for team installs) which we exchange for a
  * non-expiring access token, stored via the shared bearer-credential layer.
  *
- *   GET /api/integrations/vercel/connect     → 302 to the Vercel install URL
- *   GET /api/integrations/vercel/callback     ← Vercel redirects with code + state
- *   GET /api/integrations/vercel/credentials  → list this user's connections
+ *   GET    /api/integrations/vercel/connect     → 302 to the Vercel install URL
+ *   GET    /api/integrations/vercel/callback     ← Vercel redirects with code + state
+ *   GET    /api/integrations/vercel/credentials  → list this user's connections
+ *   DELETE /api/integrations/vercel/:id          → disconnect
  */
 export const vercelIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/vercel",
@@ -47,7 +52,20 @@ export const vercelIntegrationRoutes = new Elysia({
       .get("/credentials", async ({ user }) => {
         const credentials = await listBearerCredentials(user.id, "vercel");
         return { credentials };
-      }),
+      })
+      .delete(
+        "/:id",
+        async ({ params, user }) => {
+          const deleted = await deleteIntegrationCredential({
+            userId: user.id,
+            provider: "vercel",
+            id: params.id,
+          });
+          if (!deleted) throw new NotFoundError("Credential not found");
+          return { id: deleted.id, ok: true };
+        },
+        { params: t.Object({ id: t.String() }) },
+      ),
   )
   .get(
     "/callback",
