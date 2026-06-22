@@ -73,6 +73,31 @@ export async function upsertBearerCredential(
   return { id: row.id };
 }
 
+/**
+ * Delete one credential row, scoped to its owner and provider. Returns the
+ * deleted id, or `null` when nothing matched (wrong owner, already gone, or a
+ * provider mismatch) so callers can turn that into a 404. Generic across every
+ * provider — Google/GitHub rows live in the same table, so a disconnect is the
+ * same scoped row delete regardless of how the token was originally minted.
+ */
+export async function deleteIntegrationCredential(args: {
+  userId: string;
+  provider: string;
+  id: string;
+}): Promise<{ id: string } | null> {
+  const deleted = await db()
+    .delete(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.id, args.id),
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, args.provider),
+      ),
+    )
+    .returning({ id: integrationCredentials.id });
+  return deleted[0] ?? null;
+}
+
 export type BearerCredentialSummary = Pick<
   IntegrationCredential,
   | "id"

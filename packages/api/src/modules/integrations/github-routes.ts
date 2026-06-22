@@ -7,11 +7,12 @@ import {
   exchangeUserCode,
   upsertGithubCredential,
 } from "@alfred/integrations/github";
+import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError } from "../../middleware/errors";
+import { BadRequestError, NotFoundError } from "../../middleware/errors";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -28,9 +29,10 @@ import {
  * (giving us a user-to-server `code` for identity) — one click, zero post-auth
  * setup.
  *
- *   GET  /api/integrations/github/connect      → 302 to the App install URL
- *   GET  /api/integrations/github/callback      ← GitHub redirects with code + installation_id
- *   GET  /api/integrations/github/credentials   → list this user's connections
+ *   GET    /api/integrations/github/connect      → 302 to the App install URL
+ *   GET    /api/integrations/github/callback      ← GitHub redirects with code + installation_id
+ *   GET    /api/integrations/github/credentials   → list this user's connections
+ *   DELETE /api/integrations/github/:id           → disconnect (drops our token, App stays installed)
  */
 
 export const githubIntegrationRoutes = new Elysia({
@@ -71,7 +73,23 @@ export const githubIntegrationRoutes = new Elysia({
             ),
           );
         return { credentials: rows };
-      }),
+      })
+      .delete(
+        "/:id",
+        async ({ params, user }) => {
+          // Drops our stored token + installation reference. The GitHub App
+          // itself stays installed on the user's account until they remove it
+          // from GitHub's settings — we just stop holding credentials for it.
+          const deleted = await deleteIntegrationCredential({
+            userId: user.id,
+            provider: "github",
+            id: params.id,
+          });
+          if (!deleted) throw new NotFoundError("Credential not found");
+          return { id: deleted.id, ok: true };
+        },
+        { params: t.Object({ id: t.String() }) },
+      ),
   )
   // Callback is unauthenticated; the signed state proves who initiated.
   .get(

@@ -10,10 +10,14 @@ import {
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
+import { db } from "@alfred/db";
+import { chatAttachments } from "@alfred/db/schemas";
+import { inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
 import { reconcileThreadLabel } from "../triage/tags";
+import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -28,6 +32,7 @@ import { reconcileThreadLabel } from "../triage/tags";
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
+const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
 export type IngestionJobData =
   | {
@@ -80,6 +85,30 @@ export type IngestionJobData =
       kind: "triage.relabel";
       userId: string;
       sourceThreadId: string;
+    }
+  | {
+      /**
+       * Reap chat attachment objects from the bucket under a key prefix
+       * (ADR-0065). Object storage has no FK cascade, so when a thread (or, in
+       * future, an account) is deleted, the rows cascade but the bytes don't —
+       * this job drops `chat/{userId}/{threadId}/` (or `chat/{userId}/`) by
+       * prefix. Enqueued post-commit by the Replicache push handler. Best-effort
+       * and idempotent: a missing prefix is a no-op.
+       */
+      kind: "media.cleanup";
+      userId: string;
+      prefix: string;
+    }
+  | {
+      /**
+       * Reap uploaded attachment objects that never got a durable
+       * `chat_attachments` row. Scheduled when `/attachments/upload` accepts a
+       * key; successful `/turn` writes make this a no-op because the exact
+       * storage key is now present in Postgres.
+       */
+      kind: "media.cleanup_pending_upload";
+      userId: string;
+      keys: string[];
     };
 
 let _queue: Queue<IngestionJobData> | undefined;
@@ -134,6 +163,30 @@ export async function stopIngestionWorker(): Promise<void> {
     await _worker.close();
     _worker = undefined;
   }
+}
+
+/**
+ * Enqueue a chat-attachment bucket cleanup for a key prefix (ADR-0065). Called
+ * post-commit when a thread (or account) is deleted — the rows cascade, the
+ * bytes are reaped here. Deduplicated per prefix so a double-delete coalesces.
+ */
+export async function enqueueChatStorageCleanup(userId: string, prefix: string): Promise<void> {
+  await getIngestionQueue().add(
+    "media.cleanup",
+    { kind: "media.cleanup", userId, prefix },
+    { deduplication: { id: `media.cleanup.${prefix}` } },
+  );
+}
+
+export async function enqueuePendingUploadCleanup(userId: string, key: string): Promise<void> {
+  await getIngestionQueue().add(
+    "media.cleanup_pending_upload",
+    { kind: "media.cleanup_pending_upload", userId, keys: [key] },
+    {
+      delay: PENDING_UPLOAD_CLEANUP_DELAY_MS,
+      deduplication: { id: `media.cleanup_pending_upload.${key}` },
+    },
+  );
 }
 
 export async function closeIngestionQueue(): Promise<void> {
@@ -337,6 +390,36 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=${result.applied}`,
       );
       return result;
+    }
+    case "media.cleanup": {
+      if (!isStorageConfigured()) {
+        // Storage never provisioned → nothing was ever stored. No-op.
+        return { removed: 0, skipped: "storage-unconfigured" };
+      }
+      const removed = await deletePrefix(data.prefix);
+      console.log(
+        `[ingestion:worker] media.cleanup prefix=${data.prefix} removed=${removed} user=${data.userId}`,
+      );
+      return { removed };
+    }
+    case "media.cleanup_pending_upload": {
+      if (!isStorageConfigured()) {
+        return { removed: 0, skipped: "storage-unconfigured" };
+      }
+      const rows =
+        data.keys.length > 0
+          ? await db()
+              .select({ storageKey: chatAttachments.storageKey })
+              .from(chatAttachments)
+              .where(inArray(chatAttachments.storageKey, data.keys))
+          : [];
+      const retained = new Set(rows.map((r) => r.storageKey));
+      const orphaned = data.keys.filter((key) => !retained.has(key));
+      const removed = await deleteObjects(orphaned);
+      console.log(
+        `[ingestion:worker] media.cleanup_pending_upload checked=${data.keys.length} removed=${removed} user=${data.userId}`,
+      );
+      return { checked: data.keys.length, removed };
     }
     default: {
       const _exhaustive: never = data;

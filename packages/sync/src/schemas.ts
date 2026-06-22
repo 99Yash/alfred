@@ -6,6 +6,8 @@ import {
   briefingSendDecisionSchema,
   briefingSlotSchema,
   briefingStatusSchema,
+  chatAttachmentStatusSchema,
+  chatErrorKindSchema,
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
@@ -289,6 +291,12 @@ export const syncedChatMessageSchema = z.object({
   reasoning: z.string().nullable().default(null),
   reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
+  /**
+   * On a failed turn, the user-meaningful failure kind (the bubble maps it to a
+   * tailored message + recovery action). Null on complete rows and on legacy
+   * failed rows written before this field; defaulted so those still parse.
+   */
+  errorKind: chatErrorKindSchema.nullable().default(null),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
   /**
    * Closed narration segments interleaved with `toolCalls` (by `segmentIndex`)
@@ -302,6 +310,28 @@ export const syncedChatMessageSchema = z.object({
   updatedAt: isoDateTimeStringSchema.nullable(),
 });
 export type SyncedChatMessage = z.infer<typeof syncedChatMessageSchema>;
+
+/**
+ * One attachment on a user message (ADR-0065). Synced so an uploaded image
+ * renders in its bubble on every device and survives reload. Only display
+ * metadata + degrade status sync — the raw bytes live in the bucket and are
+ * fetched through the auth-gated content proxy
+ * (`/api/chat/attachments/:id/content`); the storage key and `degraded_text`
+ * are server-only and never cross to the client.
+ */
+export const syncedChatAttachmentSchema = z.object({
+  id: z.string(),
+  messageId: z.string(),
+  name: z.string(),
+  mime: z.string(),
+  size: z.number().int().nonnegative(),
+  position: z.number().int().nonnegative().default(0),
+  status: chatAttachmentStatusSchema,
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedChatAttachment = z.infer<typeof syncedChatAttachmentSchema>;
 
 /**
  * A thread's triage tag, synced read-only to the client and overridable via
@@ -440,4 +470,5 @@ export type SyncedEntity =
   | SyncedTodo
   | SyncedChatThread
   | SyncedChatMessage
+  | SyncedChatAttachment
   | SyncedTriageTag;

@@ -17,6 +17,7 @@ import { getWorkflow } from "./registry";
 import {
   isTerminalStatus,
   type ApprovalKind,
+  type AgentDbExecutor,
   type RunStatus,
   type WakeCondition,
   type Workflow,
@@ -75,11 +76,13 @@ interface ResolvedWorkflowForRun {
 export async function resolveWorkflowForRun(args: {
   userId: string;
   workflowSlug: string;
+  tx?: AgentDbExecutor;
 }): Promise<ResolvedWorkflowForRun> {
   const registered = getWorkflow(args.workflowSlug);
   if (registered) return { workflow: registered, workflowSlug: registered.slug };
 
-  const rows = await db()
+  const ex = args.tx ?? db();
+  const rows = await ex
     .select({
       brief: workflows.brief,
       allowedIntegrations: workflows.allowedIntegrations,
@@ -119,11 +122,16 @@ export async function resolveWorkflowForRun(args: {
  * trigger logs + continues) or surface it as a 4xx (the generic /runs
  * endpoint).
  */
-export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
+export async function createRun(
+  args: CreateRunArgs,
+  tx?: AgentDbExecutor,
+): Promise<CreateRunResult> {
   const trigger = agentRunTriggerSchema.parse(args.trigger);
+  const ex = tx ?? db();
   const resolved = await resolveWorkflowForRun({
     userId: args.userId,
     workflowSlug: args.workflowSlug,
+    tx: ex,
   });
   const workflow = resolved.workflow;
   const workflowSlug = resolved.workflowSlug;
@@ -148,11 +156,11 @@ export async function createRun(args: CreateRunArgs): Promise<CreateRunResult> {
   };
 
   const initialState = workflow.initialState(workflowInput);
-  const transcript = (await workflow.initialTranscript?.(workflowInput)) ?? [];
+  const transcript = (await workflow.initialTranscript?.(workflowInput, { db: ex })) ?? [];
 
   const dedupKey = workflow.dedupKey?.(workflowInput) ?? null;
 
-  const inserted = await db()
+  const inserted = await ex
     .insert(agentRuns)
     .values({
       userId: args.userId,

@@ -1,0 +1,1 @@
+ALTER TABLE "chat_attachments" ADD COLUMN "row_version" integer DEFAULT 0 NOT NULL;

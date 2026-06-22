@@ -1,7 +1,9 @@
 import {
   IDB_KEY,
+  syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
+  type SyncedChatAttachment,
   type SyncedChatMessage,
   type SyncedChatThread,
 } from "@alfred/sync";
@@ -99,4 +101,60 @@ export function useChatMessages(threadId: string | undefined): SyncedChatMessage
   }, [rep, threadId]);
 
   return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : [];
+}
+
+/**
+ * Reactive map of a thread's attachments grouped by message id (ADR-0065).
+ * Read once per thread (a flat `chatatt/` scan, filtered/grouped client-side)
+ * and looked up per bubble — cheaper than one subscription per message. The
+ * empty object is stable-enough; consumers index by `message.id`.
+ */
+export function useChatAttachmentsByMessage(
+  threadId: string | undefined,
+): Record<string, SyncedChatAttachment[]> {
+  const rep = useReplicache();
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    threadId: string;
+    byMessage: Record<string, SyncedChatAttachment[]>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!rep || !threadId) return;
+    const messagePrefix = IDB_KEY.CHAT_MESSAGE({});
+    const attachmentPrefix = IDB_KEY.CHAT_ATTACHMENT({});
+    return rep.subscribe(
+      async (tx: ReadTransaction) => ({
+        messages: await tx.scan({ prefix: messagePrefix }).values().toArray(),
+        attachments: await tx.scan({ prefix: attachmentPrefix }).values().toArray(),
+      }),
+      ({ messages, attachments }) => {
+        const messageIds = new Set<string>();
+        for (const value of messages) {
+          const result = syncedChatMessageSchema.safeParse(value);
+          if (result.success && result.data.threadId === threadId) {
+            messageIds.add(result.data.id);
+          }
+        }
+        const byMessage: Record<string, SyncedChatAttachment[]> = {};
+        for (const value of attachments) {
+          const result = syncedChatAttachmentSchema.safeParse(value);
+          if (!result.success) continue;
+          if (!messageIds.has(result.data.messageId)) continue;
+          (byMessage[result.data.messageId] ??= []).push(result.data);
+        }
+        for (const list of Object.values(byMessage)) {
+          list.sort(
+            (a, b) =>
+              a.position - b.position ||
+              a.createdAt.localeCompare(b.createdAt) ||
+              a.id.localeCompare(b.id),
+          );
+        }
+        setSnapshot({ rep, threadId, byMessage });
+      },
+    );
+  }, [rep, threadId]);
+
+  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.byMessage : {};
 }

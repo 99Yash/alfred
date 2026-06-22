@@ -12,6 +12,7 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import type {
+  ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
   ChatThreadCreateArgs,
   ChatThreadDeleteArgs,
@@ -508,6 +509,23 @@ export const serverMutators = {
         rowVersion: sql`${chatThreads.rowVersion} + 1`,
       })
       .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, ctx.userId)));
+  },
+
+  /**
+   * Optimistic-only attachment mutator (ADR-0065). The client uses this to render
+   * a just-uploaded image immediately, but the server intentionally does not
+   * persist from this Replicache mutation: accepting a client descriptor here
+   * would mark an object `ready` without proving the bucket object exists or that
+   * its bytes match the declared image type. The `/api/chat/threads/:id/turn`
+   * endpoint is the canonical write path because it can verify the object before
+   * inserting `chat_attachments`.
+   */
+  async chatAttachmentCreate(
+    _tx: DbTx,
+    _args: ChatAttachmentCreateArgs,
+    _ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    return;
   },
 
   /** Rename a thread. No-op on a thread this user doesn't own. */

@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "../action-policies";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { enqueueTriageRelabel } from "../triage/tags";
+import { enqueueChatStorageCleanup } from "../integrations/queue";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators } from "./server-mutators";
@@ -37,6 +38,14 @@ const POLICY_BUST_MUTATORS: ReadonlySet<MutatorName> = new Set([
  * affected thread once the transaction lands. Mirrors `POLICY_BUST_MUTATORS`.
  */
 const RELABEL_MUTATORS: ReadonlySet<MutatorName> = new Set(["triageTagOverride"]);
+
+/**
+ * Mutators whose successful application must reap object-storage bytes after
+ * commit (ADR-0065). Deleting a chat thread cascades its rows, but the attachment
+ * objects in the bucket aren't reachable by FK — we drop their key prefix with a
+ * `media.cleanup` job once the delete lands. Mirrors `RELABEL_MUTATORS`.
+ */
+const STORAGE_CLEANUP_MUTATORS: ReadonlySet<MutatorName> = new Set(["chatThreadDelete"]);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbTx = any;
@@ -91,6 +100,7 @@ export async function handlePush(
         needsPoke: boolean;
         needsPolicyBust: boolean;
         relabelThreads: string[];
+        cleanupThreads: string[];
       }
   >(async (tx) => {
     const [group] = await tx
@@ -120,6 +130,7 @@ export async function handlePush(
     let needsPoke = false;
     let needsPolicyBust = false;
     const relabelThreads: string[] = [];
+    const cleanupThreads: string[] = [];
 
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
@@ -180,10 +191,15 @@ export async function handlePush(
           const threadId = (parsed.data as { threadId?: unknown }).threadId;
           if (typeof threadId === "string") relabelThreads.push(threadId);
         }
+        if (STORAGE_CLEANUP_MUTATORS.has(mutatorName)) {
+          // `chatThreadDelete` args carry the deleted thread's `id`.
+          const id = (parsed.data as { id?: unknown }).id;
+          if (typeof id === "string") cleanupThreads.push(id);
+        }
       }
     }
 
-    return { forbidden: false, needsPoke, needsPolicyBust, relabelThreads };
+    return { forbidden: false, needsPoke, needsPolicyBust, relabelThreads, cleanupThreads };
   });
 
   if (outcome.forbidden) return { forbidden: true };
@@ -212,6 +228,18 @@ export async function handlePush(
       await enqueueTriageRelabel(userId, sourceThreadId);
     } catch (err) {
       console.warn("[replicache:push] triage relabel enqueue failed:", toMessage(err));
+    }
+  }
+
+  // Reap each deleted thread's attachment objects from the bucket (ADR-0065).
+  // The rows already cascaded in-transaction; this drops the bytes by prefix.
+  // Best-effort — a failed enqueue leaves orphaned objects (single-user,
+  // near-zero cost) that the account-delete prefix sweep eventually reaps.
+  for (const threadId of outcome.cleanupThreads) {
+    try {
+      await enqueueChatStorageCleanup(userId, `chat/${userId}/${threadId}/`);
+    } catch (err) {
+      console.warn("[replicache:push] chat storage cleanup enqueue failed:", toMessage(err));
     }
   }
 

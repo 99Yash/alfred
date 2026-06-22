@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client } from "~/lib/eden";
 import {
@@ -30,6 +30,8 @@ export interface CredentialRow {
 export type GoogleCredentialRow = CredentialRow;
 
 export interface ConnectedAccount {
+  /** `integration_credentials.id` — the disconnect target. */
+  id: string;
   accountLabel: string;
   connectedAt: string;
 }
@@ -69,6 +71,50 @@ async function fetchBackendCredentials(backend: IntegrationBackend) {
       throw new Error(`Unhandled integration backend: ${String(_exhaustive)}`);
     }
   }
+}
+
+/**
+ * Disconnect a single credential row for a backend. Each provider exposes the
+ * same `DELETE /:id` shape (see the integration route files); the only thing
+ * that varies is which provider namespace we hit. Mirrors the per-backend
+ * dispatch in `fetchBackendCredentials`.
+ */
+async function deleteBackendCredential(backend: IntegrationBackend, id: string) {
+  switch (backend) {
+    case "google":
+      return client.api.integrations.google({ id }).delete();
+    case "github":
+      return client.api.integrations.github({ id }).delete();
+    case "notion":
+      return client.api.integrations.notion({ id }).delete();
+    case "railway":
+      return client.api.integrations.railway({ id }).delete();
+    case "vercel":
+      return client.api.integrations.vercel({ id }).delete();
+    default: {
+      const _exhaustive: never = backend;
+      throw new Error(`Unhandled integration backend: ${String(_exhaustive)}`);
+    }
+  }
+}
+
+/**
+ * Disconnect mutation for a provider backend. On success it invalidates that
+ * backend's credential query so every tile bound to it re-resolves to the
+ * honest "not connected" state. Throws on a non-2xx response so callers can
+ * surface a toast.
+ */
+export function useDisconnectIntegration(backend: IntegrationBackend) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await deleteBackendCredential(backend, id);
+      if (res.error) throw new Error("Disconnect failed");
+      return res.data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["integrations", backend, "credentials"] }),
+  });
 }
 
 function useProviderCredentials(backend: IntegrationBackend) {
@@ -193,6 +239,7 @@ function resolveOne(
     status: "connected",
     actionLabel: "Manage",
     connectedAccounts: matching.map((c) => ({
+      id: c.id,
       accountLabel: c.accountLabel ?? c.accountId,
       connectedAt: c.createdAt,
     })),

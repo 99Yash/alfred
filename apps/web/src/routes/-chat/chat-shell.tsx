@@ -1,4 +1,10 @@
-import { type AttentionBand, type TriageCategory, scoreAttentionForItems } from "@alfred/contracts";
+import {
+  type AttentionBand,
+  type TriageCategory,
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  scoreAttentionForItems,
+} from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Link } from "@tanstack/react-router";
@@ -27,6 +33,8 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
@@ -45,6 +53,7 @@ import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
+import { ACCEPT_ATTR, validateFile } from "~/lib/chat/upload-attachments";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
@@ -146,7 +155,16 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
   const onSend = useCallback(
-    (text: string) => void send(threadId, text, tier),
+    (text: string, files?: File[]) => send(threadId, text, tier, files),
+    [send, threadId, tier],
+  );
+  // Retry re-sends the prior user turn as a fresh turn. It carries that
+  // message's attachment ids (not File objects — the bytes are already in the
+  // bucket); the server copies them onto the new message. This is what lets an
+  // image-only failed turn be retried (ADR-0065).
+  const onRetry = useCallback(
+    (text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) =>
+      void send(threadId, text, tier, undefined, retryAttachmentIds, retryAttachmentMessageId),
     [send, threadId, tier],
   );
   const showStream = shouldShowStream(messages, stream);
@@ -218,7 +236,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               messages={messages}
               stream={stream}
               onFollowUp={onSend}
-              onRetry={onSend}
+              onRetry={onRetry}
               followUps={chipFollowUps}
             />
             <div className="shrink-0 px-4 pb-4">
@@ -327,7 +345,7 @@ function EmptyHero({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  onSend?: (text: string) => void;
+  onSend?: (text: string, files?: File[]) => Promise<boolean>;
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
@@ -606,7 +624,7 @@ function Composer({
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
-  onSend?: (text: string) => void;
+  onSend?: (text: string, files?: File[]) => Promise<boolean>;
   onStopGeneration?: () => void;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
@@ -624,41 +642,88 @@ function Composer({
 }) {
   const { resolved: theme } = useAppTheme();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
   const voice = useComposerVoice(editorRef);
   const mention = useMentionController();
+  const attachments = useComposerAttachments();
   const { mic, transcribing, voiceError, onVoiceStart, onVoiceConfirm } = voice;
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
-  const canSend = !disabled && !isEmpty && !mic.recording && !isStreaming && !transcribing;
+  const hasAttachments = attachments.items.length > 0;
+  const [sending, setSending] = useState(false);
+  const composerDisabled = disabled || sending;
+  const canSend =
+    !composerDisabled &&
+    !sending &&
+    (!isEmpty || hasAttachments) &&
+    !mic.recording &&
+    !isStreaming &&
+    !transcribing;
 
   const insertAtTrigger = useCallback(() => {
-    if (disabled) return;
+    if (composerDisabled) return;
     editorRef.current?.insertAtTrigger();
-  }, [disabled]);
+  }, [composerDisabled]);
 
-  useTypeAnywhere(editorRef, disabled);
+  useTypeAnywhere(editorRef, composerDisabled);
+
+  const onAttachClick = useCallback(() => {
+    if (composerDisabled || mic.recording) return;
+    fileInputRef.current?.click();
+  }, [composerDisabled, mic.recording]);
 
   const handleSubmit = useCallback(() => {
-    if (!canSend) return;
+    if (!canSend || !onSend) return;
     const value = text.trim();
-    onSend?.(value);
-    editorRef.current?.clear();
-    resetDraft();
-  }, [canSend, text, onSend, resetDraft]);
+    const files = attachments.files();
+    setSending(true);
+    void onSend(value, files)
+      .then((staged) => {
+        if (!staged) return;
+        editorRef.current?.clear();
+        resetDraft();
+        attachments.clear();
+      })
+      .catch(() => toast.error("Couldn't send your message. Please try again."))
+      .finally(() => setSending(false));
+  }, [canSend, text, onSend, resetDraft, attachments]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     handleSubmit();
   };
 
+  const onDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.files.length) return;
+      e.preventDefault();
+      if (composerDisabled) return;
+      attachments.addFiles(e.dataTransfer.files);
+    },
+    [composerDisabled, attachments],
+  );
+
+  const onPaste = useCallback(
+    (e: ClipboardEvent<HTMLDivElement>) => {
+      const files = Array.from(e.clipboardData.files);
+      if (files.length === 0) return;
+      // Only intercept when the clipboard carries files (pasted image); let
+      // normal text paste fall through to the editor.
+      e.preventDefault();
+      if (composerDisabled) return;
+      attachments.addFiles(files);
+    },
+    [composerDisabled, attachments],
+  );
+
   return (
     <form
       onSubmit={onFormSubmit}
       aria-label="Send a message"
-      data-disabled={disabled || undefined}
+      data-disabled={composerDisabled || undefined}
       className="relative"
     >
-      {!disabled && suggestion && mentionCandidates.length > 0 ? (
+      {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
         <MentionPalette
           options={mentionCandidates}
           activeIdx={visibleMentionIdx}
@@ -679,12 +744,38 @@ function Composer({
           "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
           "focus-within:ring-offset-app-background transition-shadow",
           disabled && "opacity-70",
+          sending && "opacity-80",
         )}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDrop={onDrop}
+        onPaste={onPaste}
       >
         {/* Wrap editor + controls in a positioned container so they paint
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
         <div className="relative">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPT_ATTR}
+            multiple
+            disabled={composerDisabled}
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) attachments.addFiles(e.target.files);
+              // Reset so picking the same file again re-fires change.
+              e.target.value = "";
+            }}
+          />
+          {hasAttachments ? (
+            <AttachmentChips
+              items={attachments.items}
+              disabled={composerDisabled}
+              onRemove={attachments.remove}
+            />
+          ) : null}
           {/* Keep the editor mounted (just hidden) while recording so its
            * content survives the voice round-trip — the transcript appends to
            * whatever was already typed instead of a remount reverting to the
@@ -694,7 +785,7 @@ function Composer({
               ref={editorRef}
               initialJSON={initialJSON}
               placeholder="Type and press enter to start chatting…"
-              disabled={disabled}
+              disabled={composerDisabled}
               onChange={onEditorChange}
               onSubmit={handleSubmit}
               onSuggestionChange={mention.setSuggestion}
@@ -716,9 +807,11 @@ function Composer({
             mic={mic}
             canSend={canSend}
             isStreaming={isStreaming}
-            disabled={disabled}
+            disabled={composerDisabled}
+            sending={sending}
             mentionActive={suggestion !== null}
             onMentionClick={insertAtTrigger}
+            onAttachClick={onAttachClick}
             transcribing={transcribing}
             voiceError={voiceError}
             onVoiceStart={onVoiceStart}
@@ -733,6 +826,137 @@ function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+/** A file staged in the composer, with a local preview, before send. */
+interface PendingAttachment {
+  /** Local key for React + removal; the real attachment id is minted at upload. */
+  key: string;
+  file: File;
+  /** Object URL for the inline preview thumbnail; revoked on removal/clear. */
+  previewUrl: string;
+}
+
+interface ComposerAttachments {
+  items: PendingAttachment[];
+  addFiles: (files: FileList | File[]) => void;
+  remove: (key: string) => void;
+  clear: () => void;
+  /** The raw files, in staged order, for the send handler. */
+  files: () => File[];
+}
+
+/**
+ * Composer-local attachment staging (ADR-0065). Holds picked files with object-
+ * URL previews until send; validation rejects unsupported/oversized files with a
+ * toast. The bytes upload at send time (see `useSendMessage`), so this only
+ * tracks the pending selection — object URLs are revoked on removal, clear, and
+ * unmount to avoid leaks.
+ */
+function useComposerAttachments(): ComposerAttachments {
+  const [items, setItems] = useState<PendingAttachment[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  // Cap the staged count/bytes *before* upload — the turn endpoint and server
+  // mutator also enforce the caps, but bounding here means a user picking 11
+  // images never uploads the 11th only to have the turn rejected. All revocation
+  // + toasts happen here in the event handler (against the live `itemsRef`), so
+  // the `setItems` updater stays pure — React can double-invoke updaters under
+  // StrictMode, and revoking inside one would kill a preview that's still in use.
+  const addFiles = useCallback((files: FileList | File[]) => {
+    const candidates: PendingAttachment[] = [];
+    for (const file of Array.from(files)) {
+      const err = validateFile(file);
+      if (err) {
+        toast.error(err);
+        continue;
+      }
+      candidates.push({ key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) });
+    }
+    if (candidates.length === 0) return;
+    const current = itemsRef.current;
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - current.length;
+    if (room <= 0) {
+      for (const a of candidates) URL.revokeObjectURL(a.previewUrl);
+      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+      return;
+    }
+    const accepted = candidates.slice(0, room);
+    if (accepted.length < candidates.length) {
+      for (const a of candidates.slice(room)) URL.revokeObjectURL(a.previewUrl);
+      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+    }
+    const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
+    const totalBytes = current.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
+    if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+      for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
+      const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+      toast.error(`Attachments can be up to ${mb} MB combined.`);
+      return;
+    }
+    setItems((prev) => [...prev, ...accepted]);
+  }, []);
+
+  const remove = useCallback((key: string) => {
+    const target = itemsRef.current.find((a) => a.key === key);
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    setItems((prev) => prev.filter((a) => a.key !== key));
+  }, []);
+
+  const clear = useCallback(() => {
+    for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);
+    setItems([]);
+  }, []);
+
+  const files = useCallback(() => itemsRef.current.map((a) => a.file), []);
+
+  // Revoke any still-staged previews on unmount.
+  useEffect(
+    () => () => {
+      for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);
+    },
+    [],
+  );
+
+  return { items, addFiles, remove, clear, files };
+}
+
+/** Inline preview row for staged attachments above the editor. */
+function AttachmentChips({
+  items,
+  disabled,
+  onRemove,
+}: {
+  items: PendingAttachment[];
+  disabled?: boolean;
+  onRemove: (key: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 px-1 pb-2">
+      {items.map((a) => (
+        <div
+          key={a.key}
+          className="group relative h-16 w-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
+        >
+          <img src={a.previewUrl} alt={a.file.name} className="h-full w-full object-cover" />
+          <button
+            type="button"
+            aria-label={`Remove ${a.file.name}`}
+            disabled={disabled}
+            onClick={() => onRemove(a.key)}
+            className={cn(
+              "absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+              disabled &&
+                "cursor-not-allowed opacity-0 group-hover:opacity-0 focus-visible:opacity-0",
+            )}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -994,8 +1218,10 @@ function ComposerToolbar({
   canSend,
   isStreaming,
   disabled,
+  sending,
   mentionActive,
   onMentionClick,
+  onAttachClick,
   transcribing,
   voiceError,
   onVoiceStart,
@@ -1011,8 +1237,10 @@ function ComposerToolbar({
   canSend: boolean;
   isStreaming: boolean;
   disabled: boolean;
+  sending: boolean;
   mentionActive: boolean;
   onMentionClick: () => void;
+  onAttachClick: () => void;
   transcribing: boolean;
   voiceError: string | null;
   onVoiceStart: () => void;
@@ -1028,8 +1256,12 @@ function ComposerToolbar({
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
       <div className="flex items-center gap-1">
-        <Tip label="Attach file">
-          <ComposerIcon label="Attach file" disabled={disabled || mic.recording}>
+        <Tip label="Attach image">
+          <ComposerIcon
+            label="Attach image"
+            disabled={disabled || mic.recording}
+            onClick={onAttachClick}
+          >
             <Paperclip size={14} />
           </ComposerIcon>
         </Tip>
@@ -1125,11 +1357,13 @@ function ComposerToolbar({
                   type="submit"
                   disabled={!canSend}
                   aria-label={
-                    disabled
-                      ? "Waiting for approval"
-                      : isStreaming
-                        ? "Waiting for response"
-                        : "Send"
+                    sending
+                      ? "Sending"
+                      : disabled
+                        ? "Waiting for approval"
+                        : isStreaming
+                          ? "Waiting for response"
+                          : "Send"
                   }
                   className={cn(
                     "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
