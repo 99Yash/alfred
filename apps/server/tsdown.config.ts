@@ -15,6 +15,7 @@ export default defineConfig({
     "./src/scripts/backfill-team-graph-committed.ts",
     "./src/scripts/backfill-retire-self-mail-committed.ts",
     "./src/scripts/backfill-object-state-github-committed.ts",
+    "./src/scripts/dry-run-triage-recategorize-committed.ts",
   ],
   format: "esm",
   outDir: "./dist",
