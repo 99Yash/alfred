@@ -1,4 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { db } from "@alfred/db";
 import {
   RUN_STATUSES,
   isTerminalStatus,
@@ -89,6 +90,15 @@ export interface WorkflowInput {
   metadata?: Record<string, unknown>;
 }
 
+type AgentDbRoot = ReturnType<typeof db>;
+type AgentDbTransaction = Parameters<Parameters<AgentDbRoot["transaction"]>[0]>[0];
+
+export type AgentDbExecutor = AgentDbRoot | AgentDbTransaction;
+
+export interface WorkflowInitContext {
+  db: AgentDbExecutor;
+}
+
 export interface DedupKeyArgs extends WorkflowInput {
   userId: string;
 }
@@ -120,7 +130,10 @@ export interface Workflow<S = unknown> {
   /** Build the run's initial state from the caller's input. Throw to refuse the run. */
   initialState(input: WorkflowInput): S;
   /** Optional initial transcript persisted beside `state`. Omitted by non-agent builtins. */
-  initialTranscript?(input: WorkflowInput): MaybePromise<AgentTranscriptMessage[]>;
+  initialTranscript?(
+    input: WorkflowInput,
+    context?: WorkflowInitContext,
+  ): MaybePromise<AgentTranscriptMessage[]>;
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;

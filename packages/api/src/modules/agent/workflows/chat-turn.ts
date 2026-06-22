@@ -13,17 +13,24 @@ import {
 } from "@alfred/ai";
 import {
   chatModelTierSchema,
+  HttpError,
   isIntegrationSlug,
+  isPassThrough,
+  isRecord,
+  MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   toJsonValue,
   type AgentTranscriptMessage,
+  type ChatErrorKind,
   type ToolName,
   toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { sniffPassThroughImageMime } from "../../chat/attachments";
+import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
 import { emitReplicachePokes } from "../../../events/replicache-events";
@@ -31,7 +38,7 @@ import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import type { Step, Workflow } from "../types";
+import type { AgentDbExecutor, Step, Workflow } from "../types";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -256,6 +263,287 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
   return tools;
 }
 
+/** A `ready` attachment as the transcript builder needs it. */
+interface ReadyAttachment {
+  id: string;
+  storageKey: string;
+  mime: string;
+  size: number;
+  degradedText: string | null;
+  degradedImageKeys: string[];
+}
+
+const CHAT_ATTACHMENT_IMAGE_PART = "chat_attachment_image";
+
+interface StoredChatAttachmentImagePart {
+  type: typeof CHAT_ATTACHMENT_IMAGE_PART;
+  storageKey: string;
+  attachmentId?: string;
+  mediaType?: string;
+  byteSize?: number;
+}
+
+type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
+
+interface AttachmentHydrationBudget {
+  usedEncodedBytes: number;
+  skippedImages: number;
+  unreadableImages: number;
+  invalidImages: number;
+}
+
+interface HydratedAttachmentImage {
+  image: string;
+  mediaType: string;
+  encodedBytes: number;
+}
+
+function storedAttachmentImagePart(
+  storageKey: string,
+  mediaType?: string,
+  attachmentId?: string,
+  byteSize?: number,
+): StoredChatAttachmentImagePart {
+  return {
+    type: CHAT_ATTACHMENT_IMAGE_PART,
+    storageKey,
+    ...(attachmentId ? { attachmentId } : {}),
+    ...(mediaType ? { mediaType } : {}),
+    ...(byteSize !== undefined ? { byteSize } : {}),
+  };
+}
+
+function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachmentImagePart {
+  return (
+    isRecord(value) &&
+    value.type === CHAT_ATTACHMENT_IMAGE_PART &&
+    typeof value.storageKey === "string" &&
+    (value.attachmentId === undefined || typeof value.attachmentId === "string") &&
+    (value.mediaType === undefined || typeof value.mediaType === "string") &&
+    (value.byteSize === undefined ||
+      (typeof value.byteSize === "number" &&
+        Number.isFinite(value.byteSize) &&
+        value.byteSize >= 0))
+  );
+}
+
+/**
+ * Load the `ready` attachments for a set of messages, grouped by message id.
+ * Only `ready` rows are folded into the model context — `pending` (still
+ * degrading) and `failed` rows are skipped, so a slow degrade can't block the
+ * turn (ADR-0065's bounded-await / graceful-partial posture).
+ */
+async function loadReadyAttachments(
+  userId: string,
+  messageIds: string[],
+  ex: AgentDbExecutor = db(),
+): Promise<Map<string, ReadyAttachment[]>> {
+  const byMessage = new Map<string, ReadyAttachment[]>();
+  if (messageIds.length === 0) return byMessage;
+  const rows = await ex
+    .select({
+      id: chatAttachments.id,
+      messageId: chatAttachments.messageId,
+      storageKey: chatAttachments.storageKey,
+      mime: chatAttachments.mime,
+      size: chatAttachments.size,
+      degradedText: chatAttachments.degradedText,
+      degradedImageKeys: chatAttachments.degradedImageKeys,
+    })
+    .from(chatAttachments)
+    .where(
+      and(
+        eq(chatAttachments.userId, userId),
+        inArray(chatAttachments.messageId, messageIds),
+        eq(chatAttachments.status, "ready"),
+      ),
+    )
+    .orderBy(
+      asc(chatAttachments.position),
+      asc(chatAttachments.createdAt),
+      asc(chatAttachments.id),
+    );
+  for (const r of rows) {
+    const list = byMessage.get(r.messageId) ?? [];
+    list.push({
+      id: r.id,
+      storageKey: r.storageKey,
+      mime: r.mime,
+      size: r.size,
+      degradedText: r.degradedText,
+      degradedImageKeys: r.degradedImageKeys,
+    });
+    byMessage.set(r.messageId, list);
+  }
+  return byMessage;
+}
+
+/**
+ * Build an AI-SDK content-parts array for a user message that has attachments:
+ * the typed text first, then each attachment's contribution. The durable
+ * transcript stores object keys, not bytes; `hydrateTranscriptForModel` reads
+ * each object's bytes back and inlines them immediately before each model call.
+ * A degraded modality (Phase 2/3) contributes its extracted `degradedText` plus
+ * any keyframe images.
+ */
+function buildStoredContentParts(
+  text: string,
+  attachments: ReadyAttachment[],
+): StoredChatContentPart[] {
+  const parts: StoredChatContentPart[] = [];
+  if (text.length > 0) parts.push({ type: "text", text });
+  for (const a of attachments) {
+    if (isPassThrough(a.mime)) {
+      parts.push(storedAttachmentImagePart(a.storageKey, a.mime, a.id, a.size));
+      continue;
+    }
+    if (a.degradedText && a.degradedText.length > 0) {
+      parts.push({ type: "text", text: a.degradedText });
+    }
+    for (const key of a.degradedImageKeys) {
+      parts.push(storedAttachmentImagePart(key));
+    }
+  }
+  return parts;
+}
+
+function encodedImageBytes(rawBytes: number): number {
+  return Math.ceil(rawBytes / 3) * 4;
+}
+
+async function hydrateContentForModel(
+  content: unknown,
+  budget: AttachmentHydrationBudget,
+  cache: Map<string, HydratedAttachmentImage>,
+): Promise<unknown> {
+  if (!Array.isArray(content)) return content;
+  const parts: unknown[] = [];
+  for (const part of content) {
+    if (!isStoredAttachmentImagePart(part)) {
+      parts.push(part);
+      continue;
+    }
+    // Inline the bytes (ADR-0065 "bytes path") instead of a presigned URL: the
+    // providers can't fetch our private, short-lived Railway storage URLs, so a
+    // URL-valued image part fails the turn (boss + fallback alike). Encode as a
+    // base64 string rather than a raw Uint8Array so the fallback cascade can
+    // replay the same message objects without sharing mutable byte buffers.
+    const projectedEncodedBytes =
+      part.byteSize !== undefined ? encodedImageBytes(part.byteSize) : null;
+    if (
+      projectedEncodedBytes !== null &&
+      budget.usedEncodedBytes + projectedEncodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN
+    ) {
+      budget.skippedImages += 1;
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because the image context budget is full.]",
+      });
+      continue;
+    }
+    let hydrated: HydratedAttachmentImage;
+    try {
+      hydrated = await hydrateAttachmentImage(part, cache);
+    } catch (err) {
+      if (err instanceof UnsupportedStoredImageError) {
+        budget.invalidImages += 1;
+        console.warn("[chat] skipped invalid attachment image:", toMessage(err));
+        parts.push({
+          type: "text",
+          text: "[Image attachment omitted because it could not be processed.]",
+        });
+        continue;
+      }
+      budget.unreadableImages += 1;
+      console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because it could not be read.]",
+      });
+      continue;
+    }
+    if (budget.usedEncodedBytes + hydrated.encodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
+      budget.skippedImages += 1;
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because the image context budget is full.]",
+      });
+      continue;
+    }
+    budget.usedEncodedBytes += hydrated.encodedBytes;
+    parts.push({ type: "image", image: hydrated.image, mediaType: hydrated.mediaType });
+  }
+  return parts;
+}
+
+class UnsupportedStoredImageError extends Error {
+  constructor() {
+    super("stored image bytes are not a supported image");
+  }
+}
+
+async function hydrateAttachmentImage(
+  part: StoredChatAttachmentImagePart,
+  cache: Map<string, HydratedAttachmentImage>,
+): Promise<HydratedAttachmentImage> {
+  const cached = cache.get(part.storageKey);
+  if (cached) return cached;
+  const bytes = await readObject(part.storageKey);
+  const mediaType = part.mediaType ?? sniffPassThroughImageMime(bytes);
+  if (!mediaType) throw new UnsupportedStoredImageError();
+  const hydrated = {
+    image: Buffer.from(bytes).toString("base64"),
+    mediaType,
+    encodedBytes: encodedImageBytes(bytes.byteLength),
+  };
+  cache.set(part.storageKey, hydrated);
+  return hydrated;
+}
+
+async function hydrateTranscriptForModel(
+  transcript: readonly AgentTranscriptMessage[],
+): Promise<AgentTranscriptMessage[]> {
+  const budget: AttachmentHydrationBudget = {
+    usedEncodedBytes: 0,
+    skippedImages: 0,
+    unreadableImages: 0,
+    invalidImages: 0,
+  };
+  const cache = new Map<string, HydratedAttachmentImage>();
+  const reversed: AgentTranscriptMessage[] = [];
+  for (let i = transcript.length - 1; i >= 0; i -= 1) {
+    const message = transcript[i];
+    if (!message) continue;
+    reversed.push({
+      ...message,
+      content: await hydrateContentForModel(message.content, budget, cache),
+    });
+  }
+  if (budget.skippedImages > 0) {
+    console.warn(
+      "[chat] skipped attachment images over model budget:",
+      JSON.stringify({
+        skippedImages: budget.skippedImages,
+        usedEncodedBytes: budget.usedEncodedBytes,
+        maxBytes: MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
+      }),
+    );
+  }
+  if (budget.invalidImages > 0) {
+    console.warn(
+      "[chat] skipped invalid attachment images:",
+      JSON.stringify({ invalidImages: budget.invalidImages }),
+    );
+  }
+  if (budget.unreadableImages > 0) {
+    console.warn(
+      "[chat] skipped unreadable attachment images:",
+      JSON.stringify({ unreadableImages: budget.unreadableImages }),
+    );
+  }
+  return reversed.reverse();
+}
+
 function toolResultMessage(
   call: PendingToolCall,
   result: Exclude<DispatchResult, { kind: "staged" }>,
@@ -333,6 +621,10 @@ const chatTurnStep: Step<ChatRunState> = {
       }
       const transcript = [...ctx.transcript];
 
+      // Signal "started" before any pre-stream work (transcript hydration fetches
+      // every image's bytes from storage, which is slow on image-heavy threads).
+      // Firing the poke first lets the client paint the "Thinking…" indicator
+      // immediately instead of staring at a dead composer while we hydrate.
       if (!state.started) {
         state.started = true;
         await publishEvent({
@@ -346,6 +638,8 @@ const chatTurnStep: Step<ChatRunState> = {
           },
         });
       }
+
+      const modelTranscript = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
@@ -384,7 +678,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       const stream = await agent.streamTurn({
         ctx,
-        transcript: transcript as ModelMessage[],
+        transcript: modelTranscript as ModelMessage[],
         attribution: { stepId: ctx.idempotencyKey, attempt: ctx.attempt, role: "boss" },
         abortSignal: stopController.signal,
       });
@@ -590,7 +884,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // assistant row + emit `chat.message completed` so the streaming bubble
       // reconciles instead of blinking forever. Rethrow so the executor records
       // the run failure for audit.
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, errorText(err));
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
   },
@@ -738,7 +1032,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
     } catch (err) {
       // Mirror chatTurnStep: an unexpected fault during dispatch still closes
       // the loop for the client instead of stranding the streaming bubble.
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, errorText(err));
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
   },
@@ -867,7 +1161,7 @@ async function maybeGenerateThreadTitle(args: {
     if (priorReply.length > 0) return;
 
     const firstUser = await db()
-      .select({ content: chatMessages.content })
+      .select({ id: chatMessages.id, content: chatMessages.content })
       .from(chatMessages)
       .where(
         and(
@@ -879,18 +1173,39 @@ async function maybeGenerateThreadTitle(args: {
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
       .limit(1);
     const userText = firstUser[0]?.content?.trim() ?? "";
-    if (userText.length === 0) return;
+    const firstUserId = firstUser[0]?.id;
+    const attachmentNames =
+      userText.length === 0 && firstUserId
+        ? await db()
+            .select({ name: chatAttachments.name })
+            .from(chatAttachments)
+            .where(
+              and(eq(chatAttachments.userId, userId), eq(chatAttachments.messageId, firstUserId)),
+            )
+            .orderBy(
+              asc(chatAttachments.position),
+              asc(chatAttachments.createdAt),
+              asc(chatAttachments.id),
+            )
+            .limit(3)
+        : [];
+    const userLine =
+      userText.length > 0
+        ? `User: ${userText.slice(0, 1_000)}`
+        : attachmentNames.length > 0
+          ? `User: [Attached image${attachmentNames.length === 1 ? "" : "s"}: ${attachmentNames
+              .map((a) => a.name)
+              .join(", ")}]`
+          : null;
+    const assistantLine =
+      assistantText.trim().length > 0 ? `Alfred: ${assistantText.slice(0, 1_000)}` : null;
+    if (!userLine && !assistantLine) return;
 
     const result = await meteredGenerateText(
       {
         model: getCheapModel(),
         system: TITLE_SYSTEM_PROMPT,
-        prompt: [
-          `User: ${userText.slice(0, 1_000)}`,
-          assistantText.trim().length > 0 ? `Alfred: ${assistantText.slice(0, 1_000)}` : null,
-          "",
-          "Title:",
-        ]
+        prompt: [userLine, assistantLine, "", "Title:"]
           .filter((line): line is string => line !== null)
           .join("\n"),
         temperature: 0.3,
@@ -909,7 +1224,7 @@ async function maybeGenerateThreadTitle(args: {
       .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
     emitReplicachePokes([userId]);
   } catch (err) {
-    console.warn(`[chat-turn] thread title generation failed for ${threadId}:`, err);
+    console.warn(`[chat-turn] thread title generation failed for ${threadId}:`, toMessage(err));
   }
 }
 
@@ -941,13 +1256,21 @@ async function finalizeFailedMessage(
   userId: string,
   runId: string,
   state: ChatRunState,
-  error: string,
+  err: unknown,
 ): Promise<void> {
   const now = new Date();
-  const content =
-    state.assistantText.length > 0
-      ? state.assistantText
-      : `Something went wrong on my end. (${error})`;
+  // Never surface the raw provider error to the user: it leaks vendor URLs
+  // (e.g. developers.generativeai.google) and "Failed after N attempts" noise.
+  // Instead classify it into a user-meaningful `errorKind` the client maps to a
+  // tailored message + recovery action; log the raw detail server-side for
+  // diagnosis. Content stays empty (or whatever streamed before the fault) —
+  // the failed-state copy is owned client-side, keyed off `errorKind`.
+  const errorKind = classifyChatFailure(err);
+  console.warn(
+    `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
+    errorText(err),
+  );
+  const content = state.assistantText.length > 0 ? state.assistantText : "";
   await db()
     .insert(chatMessages)
     .values({
@@ -959,6 +1282,7 @@ async function finalizeFailedMessage(
       reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
+      errorKind,
       toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
       narration: state.narration.length > 0 ? state.narration : null,
       runId,
@@ -980,6 +1304,76 @@ async function finalizeFailedMessage(
 function errorText(err: unknown): string {
   const msg = toMessage(err);
   return msg.length > 500 ? `${msg.slice(0, 499)}…` : msg;
+}
+
+/**
+ * Map a terminal chat-turn fault to a user-meaningful {@link ChatErrorKind}.
+ * Branches on structured signals first ({@link HttpError.status}, our own
+ * sentinel throws), then falls back to sniffing the message — providers don't
+ * give us typed errors, so the string is the last resort. Order matters:
+ * attachment rejections often *also* carry a 4xx, so check them before status.
+ * Anything unrecognized is `generic` (the client shows a neutral retry). The
+ * raw text never reaches the user — only this tag does.
+ */
+function classifyChatFailure(err: unknown): ChatErrorKind {
+  const msg = toMessage(err).toLowerCase();
+  const mentionsAttachment =
+    msg.includes("attachment") ||
+    msg.includes("file") ||
+    msg.includes("image") ||
+    msg.includes("media") ||
+    msg.includes("mime");
+
+  // The model couldn't read an attached file. Recoverable by dropping it.
+  // ("Unable to process input image" is the Gemini/Anthropic vision reject.)
+  if (
+    msg.includes("unable to process input image") ||
+    msg.includes("invalid image") ||
+    msg.includes("unsupported image") ||
+    msg.includes("unsupported file") ||
+    msg.includes("unsupported media") ||
+    (mentionsAttachment && msg.includes("could not process")) ||
+    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")))
+  ) {
+    return "attachment";
+  }
+
+  // Our own turn-cap sentinel (line ~480) — the turn can't continue.
+  if (msg.includes("chat_turn_limit_exceeded")) return "too_long";
+  // Context / token ceilings reported by the provider.
+  if (
+    msg.includes("context length") ||
+    msg.includes("maximum context") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long")
+  ) {
+    return "too_long";
+  }
+
+  // Upstream throttling. Prefer the typed status; the substring match is a
+  // fallback for stringified errors — `\b` so a request id / token count that
+  // merely contains "429" doesn't get mis-tagged.
+  if (err instanceof HttpError && err.status === 429) return "rate_limited";
+  if (msg.includes("rate limit") || msg.includes("too many requests") || /\b429\b/.test(msg)) {
+    return "rate_limited";
+  }
+
+  // Transient provider faults — 5xx, "internal error", overloaded, network.
+  if (err instanceof HttpError && err.status >= 500) return "overloaded";
+  if (
+    msg.includes("internal error") ||
+    msg.includes("overloaded") ||
+    msg.includes("unavailable") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("econnreset") ||
+    msg.includes("fetch failed") ||
+    /\b50[23]\b/.test(msg)
+  ) {
+    return "overloaded";
+  }
+
+  return "generic";
 }
 
 export const chatTurnWorkflow: Workflow<ChatRunState> = {
@@ -1018,18 +1412,40 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       started: false,
     };
   },
-  async initialTranscript(input) {
+  async initialTranscript(input, context) {
     const metadata = input.metadata ?? {};
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
-    const rows = await db()
-      .select({ role: chatMessages.role, content: chatMessages.content })
+    const ex = context?.db ?? db();
+    const rows = await ex
+      .select({ id: chatMessages.id, role: chatMessages.role, content: chatMessages.content })
       .from(chatMessages)
       .where(and(eq(chatMessages.userId, input.userId), eq(chatMessages.threadId, threadId)))
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
-    return rows
-      .filter((r) => r.content.length > 0)
-      .map((r) => ({ role: r.role, content: r.content }) satisfies AgentTranscriptMessage);
+
+    // Fold in any uploaded attachments (ADR-0065). Only `ready` rows enter the
+    // model context, and only as text + images — the raw bytes are never sent.
+    // Phase 1 carries images straight through (object bytes → image part);
+    // degraded modalities (Phase 2/3) contribute their `degradedText` +
+    // keyframe images instead.
+    const attachmentsByMessage = await loadReadyAttachments(
+      input.userId,
+      rows.map((r) => r.id),
+      ex,
+    );
+
+    const out: AgentTranscriptMessage[] = [];
+    for (const r of rows) {
+      const atts = attachmentsByMessage.get(r.id) ?? [];
+      const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
+      // Drop turns that produced nothing renderable. Guarding on the *produced*
+      // content (not `atts.length`) also covers the Phase-2 case where an
+      // attachment degrades to no parts — `content.length === 0` works for both
+      // the string and the content-parts array.
+      if (content.length === 0) continue;
+      out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
+    }
+    return out;
   },
   // Singleton on the client-minted user message id: a double-submit / retry /
   // strict-mode double-invoke of the same turn collides on the partial unique

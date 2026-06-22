@@ -2,6 +2,7 @@ import {
   actionStagings,
   agentRuns,
   briefings,
+  chatAttachments,
   chatMessages,
   chatThreads,
   emailTriage,
@@ -17,6 +18,7 @@ import {
   type AgentRunTrigger,
   type ActionStaging,
   type Briefing,
+  type ChatAttachment,
   type ChatMessage,
   type ChatThread,
   type EmailTriage,
@@ -30,7 +32,11 @@ import {
   type UserPreference,
   type Workflow,
 } from "@alfred/db/schemas";
-import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES, toMessage } from "@alfred/contracts";
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
+  toMessage,
+} from "@alfred/contracts";
 import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
@@ -38,6 +44,7 @@ import {
   syncedActionPolicySchema,
   syncedActionStagingSchema,
   syncedBriefingSchema,
+  syncedChatAttachmentSchema,
   syncedChatMessageSchema,
   syncedChatThreadSchema,
   syncedFactSchema,
@@ -53,6 +60,7 @@ import {
   type SyncedActionPolicy,
   type SyncedActionStaging,
   type SyncedBriefing,
+  type SyncedChatAttachment,
   type SyncedChatMessage,
   type SyncedChatThread,
   type SyncedEntity,
@@ -66,7 +74,19 @@ import {
   type SyncedTriageTag,
   type SyncedWorkflow,
 } from "@alfred/sync";
-import { and, asc, desc, eq, gte, inArray, isNotNull, ne, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  ne,
+  notInArray,
+  or,
+} from "drizzle-orm";
 import { ZodError } from "zod";
 import { isInternalWorkflowSlug } from "../agent/registry";
 
@@ -425,6 +445,36 @@ const ENTITY_FETCHERS = {
     );
   },
 
+  // Attachments on user messages (ADR-0065). Bound to the same recent-message
+  // window as CHAT_MESSAGE, expressed as a join so the pull is one query instead
+  // of a message-id select followed by a 500-element `inArray`. A synced message
+  // never loses its image metadata. Display metadata only — the bytes load
+  // through the auth-gated content proxy.
+  CHAT_ATTACHMENT: async (tx, userId) => {
+    const recentMessages = tx
+      .select({ id: chatMessages.id })
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT)
+      .as("recent_messages");
+    const rows = await tx
+      .select(getTableColumns(chatAttachments))
+      .from(chatAttachments)
+      .innerJoin(recentMessages, eq(chatAttachments.messageId, recentMessages.id))
+      .where(eq(chatAttachments.userId, userId))
+      .orderBy(desc(chatAttachments.createdAt), desc(chatAttachments.id))
+      .limit(CHAT_MESSAGE_PULL_LIMIT * MAX_ATTACHMENTS_PER_MESSAGE);
+    return rows.flatMap((a: ChatAttachment) =>
+      toEntityRow({
+        slug: "CHAT_ATTACHMENT",
+        id: a.id,
+        rowVersion: a.rowVersion,
+        serialize: () => serializeChatAttachment(a),
+      }),
+    );
+  },
+
   // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
   // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
   // `source_thread_id` so the client store holds one tag per thread.
@@ -569,6 +619,21 @@ function serializeChatThread(t: ChatThread): SyncedChatThread {
   });
 }
 
+function serializeChatAttachment(a: ChatAttachment): SyncedChatAttachment {
+  return syncedChatAttachmentSchema.parse({
+    id: a.id,
+    messageId: a.messageId,
+    name: a.name,
+    mime: a.mime,
+    size: a.size,
+    position: a.position,
+    status: a.status,
+    rowVersion: a.rowVersion,
+    createdAt: toRequiredIso(a.createdAt, "chatAttachments.createdAt"),
+    updatedAt: toIso(a.updatedAt),
+  });
+}
+
 function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
   return syncedChatMessageSchema.parse({
     id: m.id,
@@ -579,6 +644,7 @@ function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
     reasoning: m.reasoning ?? null,
     reasoningMs: m.reasoningMs ?? null,
     status: m.status,
+    errorKind: m.errorKind ?? null,
     toolCalls: m.toolCalls ?? null,
     narration: m.narration ?? null,
     runId: m.runId,

@@ -4,11 +4,15 @@ import {
   exchangeNotionCode,
   isNotionConfigured,
 } from "@alfred/integrations/notion";
-import { listBearerCredentials, upsertBearerCredential } from "@alfred/integrations/shared";
+import {
+  deleteIntegrationCredential,
+  listBearerCredentials,
+  upsertBearerCredential,
+} from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, ServiceUnavailableError } from "../../middleware/errors";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -21,9 +25,10 @@ import {
  * defense as Google/GitHub. Notion access tokens are long-lived, so the stored
  * credential is a plain bearer token via the shared bearer-credential layer.
  *
- *   GET /api/integrations/notion/connect     → 302 to Notion's authorize URL
- *   GET /api/integrations/notion/callback     ← Notion redirects with code + state
- *   GET /api/integrations/notion/credentials  → list this user's connections
+ *   GET    /api/integrations/notion/connect     → 302 to Notion's authorize URL
+ *   GET    /api/integrations/notion/callback     ← Notion redirects with code + state
+ *   GET    /api/integrations/notion/credentials  → list this user's connections
+ *   DELETE /api/integrations/notion/:id          → disconnect
  */
 export const notionIntegrationRoutes = new Elysia({
   prefix: "/api/integrations/notion",
@@ -46,7 +51,20 @@ export const notionIntegrationRoutes = new Elysia({
       .get("/credentials", async ({ user }) => {
         const credentials = await listBearerCredentials(user.id, "notion");
         return { credentials };
-      }),
+      })
+      .delete(
+        "/:id",
+        async ({ params, user }) => {
+          const deleted = await deleteIntegrationCredential({
+            userId: user.id,
+            provider: "notion",
+            id: params.id,
+          });
+          if (!deleted) throw new NotFoundError("Credential not found");
+          return { id: deleted.id, ok: true };
+        },
+        { params: t.Object({ id: t.String() }) },
+      ),
   )
   // Callback is unauthenticated; the signed state proves who initiated.
   .get(

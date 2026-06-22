@@ -7,26 +7,26 @@ Adds file upload to chat. Today the composer's paperclip is a **dead button** �
 **The boss model only ever receives text and images.** Every non-universally-supported modality (video, audio, PDF, docx/xlsx/code) is **degraded to text (+ optional keyframe images) at ingest**. Images pass through untouched. A user upload produces **two artifacts**:
 
 1. **Raw media** — stored in a Railway bucket, retained for replay/preview in the UI. **Never sent to the model.**
-2. **Degraded artifact** — transcript text (+ keyframe image objects) — the *only* thing that enters the transcript and the model context.
+2. **Degraded artifact** — transcript text (+ keyframe image objects) — the _only_ thing that enters the transcript and the model context.
 
-This invariant is why there is **no model-capability gate and no force-routing**: nothing unreadable ever reaches the model, so the question "which model can read this attachment" never arises. Tier picker (Auto=Sonnet 4.6 / Deep=Opus 4.8) and attachments are orthogonal. Gemini 2.5 Pro stays a pure reliability fallback, *not* an ingest or routing target. See ADR-0065 for the full rationale and the rejected routing design.
+This invariant is why there is **no model-capability gate and no force-routing**: nothing unreadable ever reaches the model, so the question "which model can read this attachment" never arises. Tier picker (Auto=Sonnet 4.6 / Deep=Opus 4.8) and attachments are orthogonal. Gemini 2.5 Pro stays a pure reliability fallback, _not_ an ingest or routing target. See ADR-0065 for the full rationale and the rejected routing design.
 
 ## Why not route unsupported uploads to a capable model (the grilled fork)
 
-Routing is unsound because **file-parts persist in a thread's transcript**: once a video part is in the history, *every subsequent turn replays it*. So a single video would pin the entire thread to Gemini and silently downgrade the user off the tier they chose. Degrading at ingest means the historical transcript only ever holds text+images → no poisoning, no thread-pinning, no tier conflict, and the per-model PDF-capability question (models.dev lists Sonnet 4.6 as image-only) simply disappears. Full alternatives in ADR-0065.
+Routing is unsound because **file-parts persist in a thread's transcript**: once a video part is in the history, _every subsequent turn replays it_. So a single video would pin the entire thread to Gemini and silently downgrade the user off the tier they chose. Degrading at ingest means the historical transcript only ever holds text+images → no poisoning, no thread-pinning, no tier conflict, and the per-model PDF-capability question (models.dev lists Sonnet 4.6 as image-only) simply disappears. Full alternatives in ADR-0065.
 
 ## The degrade pipeline (deterministic — ffmpeg + OpenAI, no Gemini)
 
 Reuses what's already in the tree (`@alfred/ai` `transcribeAudio()` → OpenAI `gpt-4o-mini-transcribe`, `transcription.ts:25`) plus ffmpeg:
 
-| Upload kind | Degrade |
-|---|---|
-| image (jpeg/png/webp/heic) | **pass-through** → image part |
-| audio (mp3/wav/m4a/opus/…) | `transcribeAudio(bytes)` → transcript text |
-| video (mp4/webm/mov/…) | ffmpeg split audio track → `transcribeAudio` (transcript) **+** ffmpeg keyframes → image parts |
-| pdf | text extraction → text (page-image render **deferred**; scanned/OCR likely `reject` for v1) |
-| docx / xlsx / code | text extraction → text (dimension's `mammoth`/xlsx pattern) |
-| anything else | **reject** at the boundary with a clear message |
+| Upload kind                | Degrade                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| image (jpeg/png/webp/heic) | **pass-through** → image part                                                                  |
+| audio (mp3/wav/m4a/opus/…) | `transcribeAudio(bytes)` → transcript text                                                     |
+| video (mp4/webm/mov/…)     | ffmpeg split audio track → `transcribeAudio` (transcript) **+** ffmpeg keyframes → image parts |
+| pdf                        | text extraction → text (page-image render **deferred**; scanned/OCR likely `reject` for v1)    |
+| docx / xlsx / code         | text extraction → text (dimension's `mammoth`/xlsx pattern)                                    |
+| anything else              | **reject** at the boundary with a clear message                                                |
 
 ## Storage — files-sdk → Railway buckets, deletion by prefix
 
@@ -76,7 +76,7 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 ## Build order
 
 0. **ADR-0065 written** (decisions.md) — degrade-at-ingest invariant, storage/lifecycle, orchestration, rejected routing design. ✅
-1. **Bytes path (images only, no degrade).** `chat_attachments` table + storage adapter + signed-URL upload endpoint + composer wiring + image-part in transcript assembly. Proves upload→store→model end to end with the universal modality. Plus thread/account-delete prefix cleanup.
+1. **Bytes path (images only, no degrade).** ✅ **Built 2026-06-22.** `chat_attachments` table (migrations 0045–0047, `rowVersion` + `position` for sync/model order) + `chat/storage.ts` (files-sdk → Railway buckets) + server-proxied `POST /attachments/upload` as the **sole** ingest path (Railway bucket CORS blocked direct browser POST, so the signed-upload `/attachments/sign` route was dead and is **removed** — send-time validation collapses to a cheap `headObject` since `/upload` already sniffs+decodes bytes) + composer wiring (paperclip → file input, validation, drag/drop/paste, chips) + image-bytes transcript assembly + thread-delete prefix cleanup (`media.cleanup` job). **Render via Replicache sync** (`chat_attachments` is a synced entity) + auth-gated content proxy `GET /attachments/:id/content`. Upload-at-send (**revert to upload-on-attach before Phase 2** — bounded-await timing assumes it). All 13 packages typecheck. **Runtime-tested in-browser against a Railway bucket with `CHAT_S3_*` env vars.**
 2. **Degrade worker — no-ffmpeg modalities.** `media.degrade` job: audio (`transcribeAudio`), pdf/docx/xlsx/code → text. Status transitions + live poll UI + bounded-await + graceful partial-answer + status-into-context seam.
 3. **Video.** ffmpeg in the server image → audio-split transcript + keyframe image parts.
 4. **Hardening.** Cap/timeout/keyframe tuning from real usage; eval/error cases; confirm poll-vs-SSE.
@@ -89,6 +89,12 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 - PDF text-extraction lib; scanned-PDF OCR posture.
 - docx/xlsx→text client-side (`mammoth`) vs in the worker.
 - Status transport: confirm 1s-poll acceptable vs a small SSE addition.
+
+### Known v1 gaps (Phase 1 review, 2026-06-22)
+
+- **Image transcript replay** is bounded per-turn (`MAX_MODEL_ATTACHMENT_BYTES_PER_TURN`) but not compacted: recent images re-download + re-base64 every turn, no cross-turn cache. v2: replace older image parts with `[earlier image: name]` text past a threshold. (See ADR-0065 implementation notes.)
+- **PDF/non-universal fidelity** — degrade-to-text is lossy; scanned/infographic PDFs answer worse than a natively-multimodal model. PDF page-image rendering is the known v2 gap.
+- **Ingest-abuse limiter** (rate limit + per-message pending-bytes budget/ledger + orphan reaper) is multi-user forward-compat, kept deliberately though a single user can't trigger it.
 
 ## Key references
 

@@ -316,6 +316,41 @@
       "when": 1782054293911,
       "tag": "0044_petite_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1782105105706,
+      "tag": "0045_deep_peter_quill",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1782108190681,
+      "tag": "0046_left_the_twelve",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1782115888541,
+      "tag": "0047_outgoing_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1782119190618,
+      "tag": "0048_unique_scrambler",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1782140966981,
+      "tag": "0049_premium_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }

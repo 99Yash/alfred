@@ -1,6 +1,12 @@
+import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
-import type { ConnectedAccount } from "~/hooks/use-integration-status";
-import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import { useDisconnectIntegration, type ConnectedAccount } from "~/hooks/use-integration-status";
+import {
+  PROVIDER_BACKEND,
+  type IntegrationBackend,
+  type IntegrationProvider,
+} from "~/lib/integrations/integrations";
+import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 
@@ -16,6 +22,7 @@ export function ConnectedAccounts({
   connected: boolean;
 }) {
   const accounts = provider.connectedAccounts ?? [];
+  const backend = PROVIDER_BACKEND[provider.id];
 
   return (
     <section className="space-y-3 app-card-in" style={{ animationDelay: "120ms" }}>
@@ -30,7 +37,7 @@ export function ConnectedAccounts({
 
         {connected && accounts.length > 0 ? (
           accounts.map((acct) => (
-            <div key={acct.accountLabel} className="grid grid-cols-3 items-center gap-4 px-4 py-3">
+            <div key={acct.id} className="grid grid-cols-3 items-center gap-4 px-4 py-3">
               <p className="min-w-0 truncate text-sm text-app-fg-4 font-medium">
                 {acct.accountLabel}
               </p>
@@ -42,9 +49,13 @@ export function ConnectedAccounts({
                   <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
                   Active
                 </span>
-                <AppButton variant="ghost" size="sm">
-                  Disconnect
-                </AppButton>
+                {backend ? (
+                  <DisconnectControl
+                    backend={backend}
+                    account={acct}
+                    isGoogle={backend === "google"}
+                  />
+                ) : null}
               </div>
             </div>
           ))
@@ -53,6 +64,71 @@ export function ConnectedAccounts({
         )}
       </AppCard>
     </section>
+  );
+}
+
+/**
+ * Two-step inline disconnect: the first click arms a Cancel / Confirm pair in
+ * place (no modal — matches the low-friction connect flows), the second runs
+ * the delete. Google is special-cased because one credential backs every
+ * google_* tile, so disconnecting drops the whole Workspace grant — the armed
+ * state spells that out.
+ */
+function DisconnectControl({
+  backend,
+  account,
+  isGoogle,
+}: {
+  backend: IntegrationBackend;
+  account: ConnectedAccount;
+  isGoogle: boolean;
+}) {
+  const { mutateAsync, isPending } = useDisconnectIntegration(backend);
+  const [armed, setArmed] = useState(false);
+
+  async function disconnect() {
+    try {
+      await mutateAsync(account.id);
+      toast.success(`Disconnected ${account.accountLabel}`);
+      setArmed(false);
+    } catch {
+      toast.error("Couldn't disconnect. Try again.");
+    }
+  }
+
+  if (!armed) {
+    return (
+      <AppButton variant="ghost" size="sm" onClick={() => setArmed(true)}>
+        Disconnect
+      </AppButton>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 items-center justify-end gap-1.5">
+      {isGoogle ? (
+        <span role="alert" className="truncate text-[11px] text-app-fg-2">
+          Removes all Google access
+        </span>
+      ) : null}
+      <AppButton
+        variant="ghost"
+        size="sm"
+        onClick={() => setArmed(false)}
+        disabled={isPending}
+        autoFocus
+      >
+        Cancel
+      </AppButton>
+      <AppButton
+        variant="destructive"
+        size="sm"
+        loading={isPending}
+        onClick={() => void disconnect()}
+      >
+        {isPending ? "Disconnecting…" : "Confirm"}
+      </AppButton>
+    </div>
   );
 }
 

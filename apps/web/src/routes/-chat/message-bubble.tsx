@@ -1,4 +1,5 @@
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { ChatErrorKind } from "@alfred/contracts";
+import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
@@ -24,6 +25,46 @@ const MARKDOWN_CLASSES = cn(
 );
 
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+/**
+ * Failed-turn copy, keyed off the server's {@link ChatErrorKind}. The server
+ * never sends raw provider errors (they leak vendor URLs); it sends a tag and
+ * the bubble owns the wording + whether a plain retry can help. First-person,
+ * short declaratives (Alfred is the one speaking). `retry:"none"` hides the
+ * Retry button where there is no useful automatic recovery (for example, a
+ * conversation past the length cap).
+ */
+const FAILURE_PRESENTATION: Record<
+  ChatErrorKind,
+  { message: string; retry: "same" | "without_attachments" | "none" }
+> = {
+  attachment: {
+    message: "I couldn't read one of the attached files. I can try again with just your message.",
+    retry: "without_attachments",
+  },
+  overloaded: { message: "I hit a brief glitch on my end.", retry: "same" },
+  rate_limited: {
+    message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
+    retry: "same",
+  },
+  too_long: {
+    message: "This conversation got too long for me to continue. Start a new chat to keep going.",
+    retry: "none",
+  },
+  generic: { message: "Something interrupted this reply.", retry: "same" },
+};
+
+/** Fallback for legacy failed rows persisted before `errorKind` existed. */
+const LEGACY_FAILURE = { message: "This reply didn't finish.", retry: "same" } as const;
+
+/** Shared styling for the retry action inside a failed-turn notice. */
+const FAILURE_ACTION_CLASS = cn(
+  "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
+  "text-app-fg-3 hover:bg-app-red-2 hover:text-app-fg-4",
+  "transition-[background-color,color] duration-150",
+  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+);
 
 /** Fenced code → highlighted card; inline code keeps the markdown chip styling. */
 const BASE_COMPONENTS: Components = { pre: CodeBlock, code: InlineCode };
@@ -52,14 +93,96 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
   );
 }
 
+const API_URL =
+  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
+
+/**
+ * Image attachments on a user message (ADR-0065). The bytes load from the
+ * auth-gated content proxy (the bucket is private); `ready` images render, while
+ * `pending` / `failed` rows show a lightweight placeholder rather than a broken
+ * image. Phase 1 is images only.
+ */
+function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap justify-end gap-2">
+      {attachments.map((a) => (
+        <MessageAttachment key={a.id} attachment={a} />
+      ))}
+    </div>
+  );
+}
+
+function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: () => void }) {
+  const className =
+    "grid size-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3";
+  if (onRetry) {
+    return (
+      <button type="button" onClick={onRetry} className={`${className} hover:bg-app-bg-3`}>
+        {label}
+      </button>
+    );
+  }
+  return <div className={className}>{label}</div>;
+}
+
+function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment }) {
+  // Bump to remount the <img> on retry — forces a fresh fetch after a transient
+  // load failure instead of leaving the placeholder stuck forever.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
+  if (attachment.status !== "ready") {
+    return (
+      <AttachmentPlaceholder
+        label={attachment.status === "failed" ? "Couldn't process" : "Processing…"}
+      />
+    );
+  }
+  if (loadFailed) {
+    return (
+      <AttachmentPlaceholder
+        label="Couldn't load. Tap to retry."
+        onRetry={() => {
+          setLoadFailed(false);
+          setLoadAttempt((n) => n + 1);
+        }}
+      />
+    );
+  }
+  const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
+    >
+      <img
+        key={loadAttempt}
+        src={url}
+        alt={attachment.name}
+        loading="lazy"
+        decoding="async"
+        className="size-full object-cover"
+        onError={() => setLoadFailed(true)}
+      />
+    </a>
+  );
+}
+
 /** A persisted message (user or assistant) from the synced store. */
 export function MessageBubble({
   message,
+  attachments,
   onRetry,
+  onRetryWithoutAttachments,
 }: {
   message: SyncedChatMessage;
+  /** Image attachments on this (user) message, from the synced store. */
+  attachments?: SyncedChatAttachment[];
   /** Present on a failed assistant reply — re-sends the user turn behind it. */
   onRetry?: () => void;
+  /** Present when the failed turn can be recovered by dropping attachments. */
+  onRetryWithoutAttachments?: () => void;
 }) {
   // Rendered-markdown container; CopyMessageButton lifts its innerHTML for
   // the rich (text/html) clipboard flavor. Unconditional — hooks can't sit
@@ -67,16 +190,30 @@ export function MessageBubble({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-app-fg-4">
-          {message.content}
-        </div>
+      <div className="flex flex-col items-end gap-1">
+        {attachments && attachments.length > 0 ? (
+          <MessageAttachments attachments={attachments} />
+        ) : null}
+        {message.content.length > 0 ? (
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-app-fg-4">
+            {message.content}
+          </div>
+        ) : null}
       </div>
     );
   }
   const tools = message.toolCalls ?? [];
   const sources = collectSources(tools);
   const failed = message.status === "failed";
+  const failure = failed
+    ? message.errorKind
+      ? FAILURE_PRESENTATION[message.errorKind]
+      : LEGACY_FAILURE
+    : null;
+  const failureMessage =
+    failure?.retry === "without_attachments" && !onRetryWithoutAttachments
+      ? "I couldn't read the attached file. Start a new chat with a different file, or send a text message instead."
+      : failure?.message;
   return (
     <div className="group/message flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
@@ -95,23 +232,28 @@ export function MessageBubble({
         </div>
       ) : null}
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
-      {failed ? (
-        <div className="flex items-center gap-2.5" role="alert">
-          <p className="text-[13px] text-app-red-4">This reply didn&apos;t finish.</p>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
-                "text-app-fg-3 hover:bg-app-bg-2 hover:text-app-fg-4",
-                "transition-[background-color,color] duration-150",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-              )}
-            >
+      {failure ? (
+        <div
+          role="alert"
+          className={cn(
+            "inline-flex w-fit max-w-[80%] flex-wrap items-center gap-x-3 gap-y-1.5",
+            "rounded-xl bg-app-red-1 px-3 py-2",
+          )}
+        >
+          <p className="text-[13px] leading-snug text-app-red-4">{failureMessage}</p>
+          {failure.retry === "same" && onRetry ? (
+            <button type="button" onClick={onRetry} className={FAILURE_ACTION_CLASS}>
               <RotateCcw size={13} />
               Retry
+            </button>
+          ) : failure.retry === "without_attachments" && onRetryWithoutAttachments ? (
+            <button
+              type="button"
+              onClick={onRetryWithoutAttachments}
+              className={FAILURE_ACTION_CLASS}
+            >
+              <RotateCcw size={13} />
+              Send without it
             </button>
           ) : null}
         </div>
