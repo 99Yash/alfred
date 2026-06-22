@@ -29,6 +29,7 @@ import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { assertPassThroughImageBytes, sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
@@ -264,6 +265,7 @@ function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
 
 /** A `ready` attachment as the transcript builder needs it. */
 interface ReadyAttachment {
+  id: string;
   storageKey: string;
   mime: string;
   degradedText: string | null;
@@ -275,24 +277,30 @@ const CHAT_ATTACHMENT_IMAGE_PART = "chat_attachment_image";
 interface StoredChatAttachmentImagePart {
   type: typeof CHAT_ATTACHMENT_IMAGE_PART;
   storageKey: string;
+  attachmentId?: string;
   mediaType?: string;
 }
 
 type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
 
 interface AttachmentHydrationBudget {
-  usedBytes: number;
+  usedEncodedBytes: number;
   skippedImages: number;
   unreadableImages: number;
+  invalidImages: number;
 }
 
 function storedAttachmentImagePart(
   storageKey: string,
   mediaType?: string,
+  attachmentId?: string,
 ): StoredChatAttachmentImagePart {
-  return mediaType
-    ? { type: CHAT_ATTACHMENT_IMAGE_PART, storageKey, mediaType }
-    : { type: CHAT_ATTACHMENT_IMAGE_PART, storageKey };
+  return {
+    type: CHAT_ATTACHMENT_IMAGE_PART,
+    storageKey,
+    ...(attachmentId ? { attachmentId } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
 }
 
 function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachmentImagePart {
@@ -300,6 +308,7 @@ function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachm
     isRecord(value) &&
     value.type === CHAT_ATTACHMENT_IMAGE_PART &&
     typeof value.storageKey === "string" &&
+    (value.attachmentId === undefined || typeof value.attachmentId === "string") &&
     (value.mediaType === undefined || typeof value.mediaType === "string")
   );
 }
@@ -318,6 +327,7 @@ async function loadReadyAttachments(
   if (messageIds.length === 0) return byMessage;
   const rows = await db()
     .select({
+      id: chatAttachments.id,
       messageId: chatAttachments.messageId,
       storageKey: chatAttachments.storageKey,
       mime: chatAttachments.mime,
@@ -340,6 +350,7 @@ async function loadReadyAttachments(
   for (const r of rows) {
     const list = byMessage.get(r.messageId) ?? [];
     list.push({
+      id: r.id,
       storageKey: r.storageKey,
       mime: r.mime,
       degradedText: r.degradedText,
@@ -366,7 +377,7 @@ function buildStoredContentParts(
   if (text.length > 0) parts.push({ type: "text", text });
   for (const a of attachments) {
     if (isPassThrough(a.mime)) {
-      parts.push(storedAttachmentImagePart(a.storageKey, a.mime));
+      parts.push(storedAttachmentImagePart(a.storageKey, a.mime, a.id));
       continue;
     }
     if (a.degradedText && a.degradedText.length > 0) {
@@ -377,6 +388,30 @@ function buildStoredContentParts(
     }
   }
   return parts;
+}
+
+function encodedImageBytes(rawBytes: number): number {
+  return Math.ceil(rawBytes / 3) * 4;
+}
+
+async function markAttachmentHydrationFailed(
+  part: StoredChatAttachmentImagePart,
+  failureReason: string,
+): Promise<void> {
+  if (!part.attachmentId) return;
+  try {
+    await db()
+      .update(chatAttachments)
+      .set({
+        status: "failed",
+        failureReason,
+        rowVersion: sql`${chatAttachments.rowVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(chatAttachments.id, part.attachmentId));
+  } catch (err) {
+    console.warn("[chat] failed to mark bad attachment image:", toMessage(err));
+  }
 }
 
 async function hydrateContentForModel(
@@ -393,12 +428,10 @@ async function hydrateContentForModel(
     // Inline the bytes (ADR-0065 "bytes path") instead of a presigned URL: the
     // providers can't fetch our private, short-lived Railway storage URLs, so a
     // URL-valued image part fails the turn (boss + fallback alike). Encode as a
-    // base64 string rather than a raw Uint8Array: the `withFallback` cascade
-    // (Opus → Gemini) replays the same message objects, and the first provider's
-    // encoder detaches the typed array's ArrayBuffer, so the fallback would see
-    // empty bytes ("Unable to process input image"). A string is immutable and
-    // survives the replay (and any JSON round-trip) intact.
+    // base64 string rather than a raw Uint8Array so the fallback cascade can
+    // replay the same message objects without sharing mutable byte buffers.
     let bytes: Uint8Array;
+    let mediaType: string;
     try {
       bytes = await readObject(part.storageKey);
     } catch (err) {
@@ -410,7 +443,25 @@ async function hydrateContentForModel(
       });
       continue;
     }
-    if (budget.usedBytes + bytes.byteLength > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
+    try {
+      const detectedMime = sniffPassThroughImageMime(bytes);
+      if (!detectedMime) {
+        throw new Error("stored image bytes are not a supported image");
+      }
+      mediaType = part.mediaType ?? detectedMime;
+      await assertPassThroughImageBytes(bytes, mediaType);
+    } catch (err) {
+      budget.invalidImages += 1;
+      console.warn("[chat] skipped invalid attachment image:", toMessage(err));
+      await markAttachmentHydrationFailed(part, toMessage(err));
+      parts.push({
+        type: "text",
+        text: "[Image attachment omitted because it could not be processed.]",
+      });
+      continue;
+    }
+    const encodedBytes = encodedImageBytes(bytes.byteLength);
+    if (budget.usedEncodedBytes + encodedBytes > MAX_MODEL_ATTACHMENT_BYTES_PER_TURN) {
       budget.skippedImages += 1;
       parts.push({
         type: "text",
@@ -418,9 +469,8 @@ async function hydrateContentForModel(
       });
       continue;
     }
-    budget.usedBytes += bytes.byteLength;
+    budget.usedEncodedBytes += encodedBytes;
     const image = Buffer.from(bytes).toString("base64");
-    const mediaType = part.mediaType ?? "image/png";
     parts.push({ type: "image", image, mediaType });
   }
   return parts;
@@ -429,7 +479,12 @@ async function hydrateContentForModel(
 async function hydrateTranscriptForModel(
   transcript: readonly AgentTranscriptMessage[],
 ): Promise<AgentTranscriptMessage[]> {
-  const budget: AttachmentHydrationBudget = { usedBytes: 0, skippedImages: 0, unreadableImages: 0 };
+  const budget: AttachmentHydrationBudget = {
+    usedEncodedBytes: 0,
+    skippedImages: 0,
+    unreadableImages: 0,
+    invalidImages: 0,
+  };
   const reversed: AgentTranscriptMessage[] = [];
   for (let i = transcript.length - 1; i >= 0; i -= 1) {
     const message = transcript[i];
@@ -441,9 +496,15 @@ async function hydrateTranscriptForModel(
       "[chat] skipped attachment images over model budget:",
       JSON.stringify({
         skippedImages: budget.skippedImages,
-        usedBytes: budget.usedBytes,
+        usedEncodedBytes: budget.usedEncodedBytes,
         maxBytes: MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
       }),
+    );
+  }
+  if (budget.invalidImages > 0) {
+    console.warn(
+      "[chat] skipped invalid attachment images:",
+      JSON.stringify({ invalidImages: budget.invalidImages }),
     );
   }
   if (budget.unreadableImages > 0) {
@@ -1067,7 +1128,7 @@ async function maybeGenerateThreadTitle(args: {
     if (priorReply.length > 0) return;
 
     const firstUser = await db()
-      .select({ content: chatMessages.content })
+      .select({ id: chatMessages.id, content: chatMessages.content })
       .from(chatMessages)
       .where(
         and(
@@ -1079,18 +1140,39 @@ async function maybeGenerateThreadTitle(args: {
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
       .limit(1);
     const userText = firstUser[0]?.content?.trim() ?? "";
-    if (userText.length === 0) return;
+    const firstUserId = firstUser[0]?.id;
+    const attachmentNames =
+      userText.length === 0 && firstUserId
+        ? await db()
+            .select({ name: chatAttachments.name })
+            .from(chatAttachments)
+            .where(
+              and(eq(chatAttachments.userId, userId), eq(chatAttachments.messageId, firstUserId)),
+            )
+            .orderBy(
+              asc(chatAttachments.position),
+              asc(chatAttachments.createdAt),
+              asc(chatAttachments.id),
+            )
+            .limit(3)
+        : [];
+    const userLine =
+      userText.length > 0
+        ? `User: ${userText.slice(0, 1_000)}`
+        : attachmentNames.length > 0
+          ? `User: [Attached image${attachmentNames.length === 1 ? "" : "s"}: ${attachmentNames
+              .map((a) => a.name)
+              .join(", ")}]`
+          : null;
+    const assistantLine =
+      assistantText.trim().length > 0 ? `Alfred: ${assistantText.slice(0, 1_000)}` : null;
+    if (!userLine && !assistantLine) return;
 
     const result = await meteredGenerateText(
       {
         model: getCheapModel(),
         system: TITLE_SYSTEM_PROMPT,
-        prompt: [
-          `User: ${userText.slice(0, 1_000)}`,
-          assistantText.trim().length > 0 ? `Alfred: ${assistantText.slice(0, 1_000)}` : null,
-          "",
-          "Title:",
-        ]
+        prompt: [userLine, assistantLine, "", "Title:"]
           .filter((line): line is string => line !== null)
           .join("\n"),
         temperature: 0.3,

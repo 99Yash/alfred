@@ -129,18 +129,21 @@ export function Conversation({
         className="min-h-0 flex-1 overflow-y-auto scroll-stable"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-          {messages.map((m, i) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              attachments={attachmentsByMessage[m.id]}
-              onRetry={
-                onRetry && m.role === "assistant" && m.status === "failed"
-                  ? prevUserTurn(messages, i, attachmentsByMessage, onRetry)
-                  : undefined
-              }
-            />
-          ))}
+          {messages.map((m, i) => {
+            const retry =
+              onRetry && m.role === "assistant" && m.status === "failed"
+                ? prevUserTurn(messages, i, attachmentsByMessage, onRetry)
+                : undefined;
+            return (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                attachments={attachmentsByMessage[m.id]}
+                onRetry={retry?.same}
+                onRetryWithoutAttachments={retry?.withoutAttachments}
+              />
+            );
+          })}
 
           {onFollowUp && followUps.length > 0 ? (
             <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
@@ -205,14 +208,15 @@ export function Conversation({
  * A turn is retryable when it has text *or* at least one ready attachment — the
  * latter is what makes an image-only turn (empty content) retryable. The ready
  * attachments' ids ride along so the server can copy their bytes onto the new
- * message (ADR-0065).
+ * message (ADR-0065). Attachment-specific failures also get a text-only retry
+ * when there is text to salvage.
  */
 function prevUserTurn(
   messages: readonly SyncedChatMessage[],
   failedIndex: number,
   attachmentsByMessage: Record<string, SyncedChatAttachment[]>,
   onRetry: (text: string, retryAttachmentIds?: string[]) => void,
-): (() => void) | undefined {
+): { same: () => void; withoutAttachments?: () => void } | undefined {
   for (let i = failedIndex - 1; i >= 0; i--) {
     const m = messages[i];
     if (!m || m.role !== "user") continue;
@@ -221,7 +225,10 @@ function prevUserTurn(
       .map((a) => a.id);
     if (m.content.trim().length === 0 && readyIds.length === 0) continue;
     const text = m.content;
-    return () => onRetry(text, readyIds.length > 0 ? readyIds : undefined);
+    return {
+      same: () => onRetry(text, readyIds.length > 0 ? readyIds : undefined),
+      withoutAttachments: text.trim().length > 0 ? () => onRetry(text, undefined) : undefined,
+    };
   }
   return undefined;
 }
