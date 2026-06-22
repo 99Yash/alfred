@@ -42,6 +42,7 @@ import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { toMessage } from "@alfred/contracts";
 
 /** Mailboxes to backfill. */
 const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
@@ -214,9 +215,7 @@ async function processUser(u: TargetUser): Promise<void> {
       await enqueueRun(runId);
       enqueued++;
     } catch (err) {
-      console.log(
-        `  ! enqueue failed for doc=${documentId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.log(`  ! enqueue failed for doc=${documentId}: ${toMessage(err)}`);
     }
   }
   console.log(`  enqueued ${enqueued} triage runs (worker executes them)`);
@@ -248,7 +247,7 @@ async function main() {
 main()
   .catch((e) => {
     // Log only the message — a serialized Error can leak DATABASE_URL.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -25,6 +25,7 @@ import { backfillTeamGraph, closeConnections, closeRedis, warmPool } from "@alfr
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
+import { toMessage } from "@alfred/contracts";
 
 /** Mailboxes to backfill. Override with `TEAM_GRAPH_EMAILS` (comma-sep). */
 const TARGET_EMAILS = (process.env.TEAM_GRAPH_EMAILS ?? "yashgouravkar@gmail.com")
@@ -79,7 +80,7 @@ async function main() {
 main()
   .catch((e) => {
     // Log only the message — a serialized Error can leak DATABASE_URL.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {

@@ -5,6 +5,8 @@
  * the credential metadata at connect).
  */
 
+import { httpErrorFromResponse } from "@alfred/contracts";
+
 const VERCEL_API = "https://api.vercel.com";
 
 async function vercelFetch<T>(args: {
@@ -31,10 +33,10 @@ async function vercelFetch<T>(args: {
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `[vercel] ${res.status} ${args.method ?? "GET"} ${args.path} :: ${text.slice(0, 300)}`,
-    );
+    throw await httpErrorFromResponse("vercel", res, {
+      url: args.path,
+      method: args.method ?? "GET",
+    });
   }
   return (await res.json()) as T;
 }

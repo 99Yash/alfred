@@ -31,6 +31,7 @@ import { db } from "@alfred/db";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { toMessage } from "@alfred/contracts";
 
 // Re-use the registered `echo-with-approval` slug so the dispatcher's
 // `createRun` → `requireWorkflow` lookup resolves. We never let the
@@ -205,9 +206,6 @@ main()
       await closeRedis();
       await closeConnections();
     } catch (err) {
-      console.error(
-        "[smoke-workflows-tick] cleanup error:",
-        err instanceof Error ? err.message : String(err),
-      );
+      console.error("[smoke-workflows-tick] cleanup error:", toMessage(err));
     }
   });

@@ -20,6 +20,7 @@ import { integrationCredentials } from "@alfred/db/schemas";
 import { buildInstallUrl, getInstallationToken, mintAppJwt } from "@alfred/integrations/github";
 import { serverEnv } from "@alfred/env/server";
 import { eq } from "drizzle-orm";
+import { toMessage } from "@alfred/contracts";
 
 const GH = {
   Accept: "application/vnd.github+json",
@@ -128,7 +129,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error(`[smoke-github-app] error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[smoke-github-app] error: ${toMessage(err)}`);
     process.exitCode = 1;
   })
   .finally(() => closeConnections());

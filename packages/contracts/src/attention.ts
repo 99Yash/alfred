@@ -173,9 +173,7 @@ export function normalizeSubjectForRecurrence(subject: string): string {
   let s = subject.toLowerCase().trim();
   // Strip repeated reply/forward markers and bracketed prefixes from the front.
   for (;;) {
-    const next = s
-      .replace(/^\s*(?:re|fwd|fw|aw)\s*:\s*/i, "")
-      .replace(/^\s*\[[^\]]*\]\s*/, "");
+    const next = s.replace(/^\s*(?:re|fwd|fw|aw)\s*:\s*/i, "").replace(/^\s*\[[^\]]*\]\s*/, "");
     if (next === s) break;
     s = next;
   }
@@ -275,9 +273,7 @@ export interface AttentionItemInput {
  * path (the agent's email list) and the inbox rail — each computes attention
  * off the rows it can see, through one formula.
  */
-export function scoreAttentionForItems(
-  items: readonly AttentionItemInput[],
-): AttentionResult[] {
+export function scoreAttentionForItems(items: readonly AttentionItemInput[]): AttentionResult[] {
   const entries = items.map((item, index) => ({
     item,
     index,

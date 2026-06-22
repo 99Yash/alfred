@@ -5,6 +5,8 @@
  * `Notion-Version` header Notion requires.
  */
 
+import { HttpError, summarizeBody } from "@alfred/contracts";
+
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
@@ -26,13 +28,21 @@ async function notionFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    // Keep the upstream body for server logs, but don't splice it into the
-    // thrown message: these errors propagate to the tool dispatcher and on
-    // into logs/telemetry, and Notion's body can echo request fragments.
+    // Keep the (redacted, bounded) upstream body for server logs, but don't
+    // splice it into the thrown message: these errors propagate to the tool
+    // dispatcher and on into logs/telemetry, and Notion's body can echo request
+    // fragments. The structured HttpError still carries the status so callers
+    // can branch without parsing the message.
     console.error(
-      `[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${text.slice(0, 300)}`,
+      `[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${summarizeBody(text)}`,
     );
-    throw new Error(`[notion] request failed (${res.status} ${init?.method ?? "GET"} ${path})`);
+    throw new HttpError({
+      provider: "notion",
+      status: res.status,
+      url: `${NOTION_API}${path}`,
+      method: init?.method ?? "GET",
+      body: "",
+    });
   }
   return (await res.json()) as T;
 }

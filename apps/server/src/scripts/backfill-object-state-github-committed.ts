@@ -28,6 +28,7 @@ import { closeConnections, closeRedis, objectStateStore, warmPool } from "@alfre
 import { db } from "@alfred/db";
 import { integrationObjects, webhookEvents } from "@alfred/db/schemas";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { toMessage } from "@alfred/contracts";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -60,7 +61,8 @@ async function main() {
 
   if (!COMMIT) {
     const byAction = new Map<string, number>();
-    for (const r of rows) byAction.set(r.action ?? "(none)", (byAction.get(r.action ?? "(none)") ?? 0) + 1);
+    for (const r of rows)
+      byAction.set(r.action ?? "(none)", (byAction.get(r.action ?? "(none)") ?? 0) + 1);
     console.log("  DRY — action breakdown:");
     for (const [action, count] of byAction) console.log(`    ${action}: ${count}`);
     console.log("  (pass --commit to project these into integration_objects)");
@@ -95,7 +97,7 @@ async function main() {
 main()
   .catch((e) => {
     // Log only the message — a serialized Error can leak DATABASE_URL.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {

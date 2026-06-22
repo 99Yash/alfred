@@ -19,6 +19,7 @@ import pg from "pg";
 import { serverEnv } from "@alfred/env/server";
 import { isKnownEventKind, type EventFrame } from "./types";
 import { publishFrameToUser } from "./user-events-bus";
+import { toMessage } from "@alfred/contracts";
 
 const NOTIFY_CHANNEL = "events_outbox_new";
 const BATCH_SIZE = 256;
@@ -81,11 +82,7 @@ async function drainOnce(): Promise<number> {
         await publishFrameToUser(row.user_id, frame);
         published.push(row.id);
       } catch (err) {
-        console.warn(
-          "[outbox-relay] publish failed for id",
-          row.id,
-          err instanceof Error ? err.message : String(err),
-        );
+        console.warn("[outbox-relay] publish failed for id", row.id, toMessage(err));
         // Don't include in `published` — leave row for next pass.
       }
     }
@@ -121,10 +118,7 @@ async function drainLoop(): Promise<void> {
       let batches = 0;
       while (batches < 64) {
         const drained = await drainOnce().catch((err) => {
-          console.warn(
-            "[outbox-relay] drainOnce failed:",
-            err instanceof Error ? err.message : String(err),
-          );
+          console.warn("[outbox-relay] drainOnce failed:", toMessage(err));
           return 0;
         });
         batches += 1;
@@ -152,10 +146,7 @@ async function startListener(): Promise<void> {
     setTimeout(() => {
       if (stopped) return;
       void startListener().catch((err) => {
-        console.warn(
-          "[outbox-relay] reconnect failed:",
-          err instanceof Error ? err.message : String(err),
-        );
+        console.warn("[outbox-relay] reconnect failed:", toMessage(err));
       });
     }, RECONNECT_DELAY_MS);
   });

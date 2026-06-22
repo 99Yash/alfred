@@ -30,7 +30,7 @@ import {
   type UserPreference,
   type Workflow,
 } from "@alfred/db/schemas";
-import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES } from "@alfred/contracts";
+import { TRIAGE_RAIL_SUPPRESSED_CATEGORIES, toMessage } from "@alfred/contracts";
 import {
   IDB_KEY_NAMES,
   jsonRecordSchema,
@@ -111,16 +111,28 @@ function toEntityRow(args: {
     ];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${message}`);
+    console.warn(`[replicache] skipping invalid ${args.slug} row '${args.id}': ${toMessage(err)}`);
     return [];
   }
 }
 
+/**
+ * A row failed a sync-serialization invariant — a non-null field came back
+ * null, or a row in a non-syncable status reached its serializer. Tagged so
+ * {@link isRecoverableSerializationError} can skip the row by type rather than
+ * sniffing a `[replicache]` message prefix (the same "branch on the tag, not
+ * the string" rule the shared `HttpError` follows).
+ */
+class SerializationError extends Error {
+  readonly _tag = "SerializationError" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "SerializationError";
+  }
+}
+
 function isRecoverableSerializationError(err: unknown): boolean {
-  return (
-    err instanceof ZodError || (err instanceof Error && err.message.startsWith("[replicache]"))
-  );
+  return err instanceof ZodError || err instanceof SerializationError;
 }
 
 /**
@@ -456,7 +468,7 @@ const toIso = (d: Date | null | undefined): string | null =>
 
 function toRequiredIso(d: Date | null | undefined, field: string): string {
   const value = toIso(d);
-  if (value === null) throw new Error(`[replicache] ${field} must not be null`);
+  if (value === null) throw new SerializationError(`${field} must not be null`);
   return value;
 }
 
@@ -478,7 +490,7 @@ function serializeNote(n: {
 
 function serializeFact(f: UserFact): SyncedFact {
   if (f.status !== "proposed" && f.status !== "confirmed") {
-    throw new Error(`[replicache] cannot sync fact with status '${f.status}'`);
+    throw new SerializationError(`cannot sync fact with status '${f.status}'`);
   }
   return syncedFactSchema.parse({
     id: f.id,
@@ -521,7 +533,7 @@ function serializeBriefing(b: Briefing): SyncedBriefing {
 
 function serializeTodo(t: Todo): SyncedTodo {
   if (t.status === "dismissed") {
-    throw new Error("[replicache] cannot sync a dismissed todo");
+    throw new SerializationError("cannot sync a dismissed todo");
   }
   return syncedTodoSchema.parse({
     id: t.id,
@@ -778,7 +790,7 @@ function serializeActionStaging(
   },
 ): SyncedActionStaging {
   if (s.status !== "pending") {
-    throw new Error(`[replicache] cannot sync action staging with status '${s.status}'`);
+    throw new SerializationError(`cannot sync action staging with status '${s.status}'`);
   }
   const recentRejection = provenance.recentRejection;
   const brief = provenance.brief

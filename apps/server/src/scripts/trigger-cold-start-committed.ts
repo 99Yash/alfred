@@ -37,6 +37,7 @@ import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
+import { toMessage } from "@alfred/contracts";
 
 /** Mailboxes to (re-)research. Override with `COLD_START_EMAILS` (comma-sep). */
 const TARGET_EMAILS = (process.env.COLD_START_EMAILS ?? "yashgouravkar@gmail.com")
@@ -122,7 +123,7 @@ async function main() {
 main()
   .catch((e) => {
     // Log only the message — a serialized Error can leak DATABASE_URL.
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(toMessage(e));
     process.exitCode = 1;
   })
   .finally(async () => {

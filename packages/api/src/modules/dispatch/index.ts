@@ -41,6 +41,7 @@ import {
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
+  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
@@ -635,7 +636,7 @@ async function executeAndCommit(
   try {
     result = await tool.execute(input, ctx);
   } catch (err) {
-    error = { message: err instanceof Error ? err.message : String(err) };
+    error = { message: toMessage(err) };
   }
   const now = new Date();
   if (error) {
@@ -684,7 +685,7 @@ async function executeFastPath(
     return {
       kind: "failed",
       stagingId: null,
-      error: { message: err instanceof Error ? err.message : String(err) },
+      error: { message: toMessage(err) },
     };
   }
 }
@@ -777,7 +778,7 @@ function parseScratchAccessKey(key: string | null): ScratchToolKey | string {
   try {
     return parseScratchToolKey(key);
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return toMessage(err);
   }
 }
 

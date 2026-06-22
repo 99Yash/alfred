@@ -1,4 +1,4 @@
-import { ACCOUNT_PERSONAS } from "@alfred/contracts";
+import { ACCOUNT_PERSONAS, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -54,7 +54,7 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
   try {
     await fn();
   } catch (err) {
-    console.warn(`[google.callback] ${label}:`, err instanceof Error ? err.message : String(err));
+    console.warn(`[google.callback] ${label}:`, toMessage(err));
   }
 }
 
@@ -371,7 +371,7 @@ export const googleIntegrationRoutes = new Elysia({
         } else {
           console.warn(
             `[google.callback] failed to enqueue cold-start research for ${decoded.userId}:`,
-            err instanceof Error ? err.message : String(err),
+            toMessage(err),
           );
         }
       }

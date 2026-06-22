@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -155,8 +156,7 @@ async function getJson(url: string, accessToken: string): Promise<unknown> {
     signal: AbortSignal.timeout(DOCS_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[docs] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("docs", res, { url });
   }
   return res.json();
 }

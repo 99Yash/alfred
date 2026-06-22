@@ -18,6 +18,7 @@
 import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
+import { toMessage } from "@alfred/contracts";
 
 export const APPROVAL_EXPIRY_QUEUE_NAME = "staging-expire";
 
@@ -84,11 +85,7 @@ export async function scheduleApprovalExpiryJob(args: {
     );
     return "scheduled";
   } catch (err) {
-    console.warn(
-      "[approvals] failed to schedule approval expiry",
-      args.stagingId,
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[approvals] failed to schedule approval expiry", args.stagingId, toMessage(err));
     return "failed";
   }
 }
@@ -99,11 +96,7 @@ export async function removeApprovalExpiryJob(stagingId: string): Promise<void> 
     const job = await getApprovalExpiryQueue().getJob(approvalExpiryJobId(stagingId));
     await job?.remove();
   } catch (err) {
-    console.warn(
-      "[approvals] failed to remove queued approval expiry",
-      stagingId,
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[approvals] failed to remove queued approval expiry", stagingId, toMessage(err));
   }
 }
 
