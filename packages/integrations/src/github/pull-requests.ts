@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -88,8 +89,7 @@ export async function searchPullRequests(
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[github] ${res.status} search/issues :: ${body.slice(0, 300)}`);
+    throw await httpErrorFromResponse("github", res, { url: "search/issues" });
   }
   const json = searchIssuesResponseSchema.parse(await res.json());
   const items: PullRequestHit[] = (json.items ?? []).map((it) => ({

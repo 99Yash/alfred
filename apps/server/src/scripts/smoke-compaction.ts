@@ -37,6 +37,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { toMessage } from "@alfred/contracts";
 
 interface Fixture {
   name: string;
@@ -98,7 +99,7 @@ function collectMisses(text: string, assertions: FixtureAssertion[]): string[] {
   try {
     assertHandoffSections(text);
   } catch (err) {
-    misses.push(err instanceof Error ? err.message : String(err));
+    misses.push(toMessage(err));
   }
 
   for (const assertion of assertions) {

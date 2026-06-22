@@ -11,6 +11,7 @@ import {
   resolveBriefingPreferences,
 } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Briefing-cron queue (ADR-0025 #2). Distinct from the agent queue (the
@@ -159,10 +160,7 @@ async function handleTick(): Promise<TickResult> {
     } catch (err) {
       // Per-user failure shouldn't take down the whole tick.
       skipped++;
-      console.warn(
-        `[briefing:worker] tick failed for user=${u.id}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn(`[briefing:worker] tick failed for user=${u.id}:`, toMessage(err));
     }
   }
 

@@ -5,6 +5,7 @@ import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
 import { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Memory-cron queue. Holds repeatable jobs that fan out into per-user
@@ -106,10 +107,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           succeeded++;
         } catch (err) {
           failed++;
-          console.warn(
-            `[memory:worker] memory.embed_sweep failed for ${c.id}:`,
-            err instanceof Error ? err.message : String(err),
-          );
+          console.warn(`[memory:worker] memory.embed_sweep failed for ${c.id}:`, toMessage(err));
         }
       }
       console.log(

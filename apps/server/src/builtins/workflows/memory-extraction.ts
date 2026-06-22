@@ -11,7 +11,7 @@ import {
   type Workflow,
   writeMemoryChunk,
 } from "@alfred/api";
-import { isRecord } from "@alfred/contracts";
+import { isRecord, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
@@ -219,9 +219,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
                 idempotencyKey: `${ctx.idempotencyKey}:${docId}`,
               });
             } catch (err) {
-              await ctx.log(
-                `extract failed for doc=${docId}: ${err instanceof Error ? err.message : String(err)}`,
-              );
+              await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
               proposals = [];
             }
           }
@@ -305,7 +303,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
             );
           } catch (err) {
             await ctx.log(
-              `team-graph capture failed (un-stamped docs retry next run): ${err instanceof Error ? err.message : String(err)}`,
+              `team-graph capture failed (un-stamped docs retry next run): ${toMessage(err)}`,
             );
           }
         }
@@ -335,9 +333,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
               `significance pass: scored ${pass.scored}/${pass.total} person entit(ies)`,
             );
           } catch (err) {
-            await ctx.log(
-              `significance pass failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            await ctx.log(`significance pass failed: ${toMessage(err)}`);
           }
         }
 

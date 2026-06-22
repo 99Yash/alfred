@@ -5,6 +5,8 @@ import {
   type BriefingComposerOutput,
   type BriefingGather,
   type BriefingSlot,
+  summarizeBody,
+  toMessage,
   type FullBriefing,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -316,7 +318,7 @@ function modelIdFor(model: unknown): string {
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500);
+  return summarizeBody(toMessage(err));
 }
 
 export function composeInboxBriefing(args: ComposeInboxBriefingArgs): ComposedInboxBriefing {

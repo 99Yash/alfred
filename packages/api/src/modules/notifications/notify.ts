@@ -3,6 +3,7 @@ import { emailSends, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Logical kinds of notification. Each maps to a row in `email_sends`
@@ -135,7 +136,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       .where(eq(emailSends.id, emailSendId));
     return { status: "sent", emailSendId, providerMessageId };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toMessage(err);
     await db()
       .update(emailSends)
       .set({

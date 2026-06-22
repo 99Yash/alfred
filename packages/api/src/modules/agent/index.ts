@@ -16,6 +16,7 @@ import {
 } from "./service";
 import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
+import { toMessage } from "@alfred/contracts";
 
 export {
   registerWorkflow,
@@ -88,7 +89,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
                 `An active run for workflow "${body.workflowSlug}" already exists.`,
               );
             }
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = toMessage(err);
             throw new BadRequestError(msg);
           }
         },

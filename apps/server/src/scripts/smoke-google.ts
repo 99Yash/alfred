@@ -28,6 +28,7 @@ import {
 } from "@alfred/integrations/google";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq } from "drizzle-orm";
+import { toMessage } from "@alfred/contracts";
 
 async function main() {
   await warmPool();
@@ -64,9 +65,7 @@ async function main() {
       console.log("[smoke-google] /connect correctly returned 401 without auth ✓");
     }
   } catch (err) {
-    console.warn(
-      `[smoke-google] WARN could not reach server (is it running?): ${err instanceof Error ? err.message : String(err)}`,
-    );
+    console.warn(`[smoke-google] WARN could not reach server (is it running?): ${toMessage(err)}`);
   }
 
   // ---- Phase 3: ingestion against a real credential ------------------------

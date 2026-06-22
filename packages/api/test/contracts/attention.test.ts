@@ -73,8 +73,15 @@ describe("attentionScore", () => {
   });
 
   test("score stays clamped to [0,1]", () => {
-    for (const category of Object.keys(CATEGORY_BASE_DEMAND) as (keyof typeof CATEGORY_BASE_DEMAND)[]) {
-      const r = attentionScore({ category, significanceBand: "weak", isBulkSender: true, recurrenceIndex: 50 });
+    for (const category of Object.keys(
+      CATEGORY_BASE_DEMAND,
+    ) as (keyof typeof CATEGORY_BASE_DEMAND)[]) {
+      const r = attentionScore({
+        category,
+        significanceBand: "weak",
+        isBulkSender: true,
+        recurrenceIndex: 50,
+      });
       assert.ok(r.score >= 0 && r.score <= 1, `${category} → ${r.score} out of range`);
     }
   });
@@ -135,8 +142,16 @@ describe("scoreAttentionForItems", () => {
 
   test("a human sending the same subject twice is NOT demoted (recurrence gated on bulk)", () => {
     const [a, b] = scoreAttentionForItems([
-      { sender: "Fabian <fabian@acme.com>", subject: "Contract review", category: "awaiting_reply" },
-      { sender: "Fabian <fabian@acme.com>", subject: "Contract review", category: "awaiting_reply" },
+      {
+        sender: "Fabian <fabian@acme.com>",
+        subject: "Contract review",
+        category: "awaiting_reply",
+      },
+      {
+        sender: "Fabian <fabian@acme.com>",
+        subject: "Contract review",
+        category: "awaiting_reply",
+      },
     ]);
     assert.ok(a && b);
     assert.equal(a.band, b.band);

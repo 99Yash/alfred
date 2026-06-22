@@ -56,6 +56,7 @@ import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
 import { Elysia } from "elysia";
 import { registerBuiltinWorkflows } from "./builtins";
+import { toMessage } from "@alfred/contracts";
 
 // Global crash safety net, registered before any worker starts. An unhandled
 // rejection or uncaught exception in a background BullMQ processor or the event
@@ -164,7 +165,7 @@ async function shutdown(signal: string) {
     // server.stop() throws "Elysia isn't running" if a signal arrives before
     // listen() resolves or after the adapter has already stopped. That must
     // not abort the rest of teardown below.
-    console.error("Error stopping server:", err instanceof Error ? err.message : String(err));
+    console.error("Error stopping server:", toMessage(err));
   }
   try {
     // Stop the agent worker FIRST so in-flight steps finish and commit
@@ -186,7 +187,7 @@ async function shutdown(signal: string) {
     await closeWorkflowsQueue();
     console.log("Workers stopped");
   } catch (err) {
-    console.error("Error stopping workers:", err instanceof Error ? err.message : String(err));
+    console.error("Error stopping workers:", toMessage(err));
   }
   try {
     await stopPolicyBustSubscriber();
@@ -195,13 +196,13 @@ async function shutdown(signal: string) {
     await closeRedis();
     console.log("Redis closed");
   } catch (err) {
-    console.error("Error closing Redis:", err instanceof Error ? err.message : String(err));
+    console.error("Error closing Redis:", toMessage(err));
   }
   try {
     await closeConnections();
     console.log("DB pool closed");
   } catch (err) {
-    console.error("Error closing DB:", err instanceof Error ? err.message : String(err));
+    console.error("Error closing DB:", toMessage(err));
   }
   await Sentry.flush(2000).catch(() => {});
   process.exit(0);

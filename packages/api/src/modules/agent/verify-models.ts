@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import {
   COMPACTOR_FALLBACK_MODEL,
   COMPACTOR_MODEL,
@@ -35,7 +36,7 @@ export async function verifyMeteringModels(): Promise<void> {
     try {
       await resolveModelContextWindow(model);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toMessage(err);
       failures.push(`  - ${label}: ${msg}`);
     }
   }

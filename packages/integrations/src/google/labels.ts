@@ -1,4 +1,4 @@
-import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/contracts";
+import { TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
@@ -280,7 +280,7 @@ export async function applyTriageLabel(
       console.warn(
         `[triage:applyTriageLabel] failed to strip sibling label ` +
           `messageId=${sibling.messageId} labelId=${sibling.labelId}: ` +
-          (err instanceof Error ? err.message : String(err)),
+          toMessage(err),
       );
     }
   }

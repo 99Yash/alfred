@@ -8,6 +8,7 @@ import { enqueueTriageRelabel } from "../triage/tags";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators } from "./server-mutators";
+import { toMessage } from "@alfred/contracts";
 
 export type PushRequestBody = ReplicacheModel.Push;
 export type PushResponse =
@@ -164,11 +165,7 @@ export async function handlePush(
         if (err instanceof MutatorForbiddenError) {
           console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
         } else {
-          console.error(
-            "[replicache:push] mutator crashed",
-            mutatorName,
-            err instanceof Error ? err.message : String(err),
-          );
+          console.error("[replicache:push] mutator crashed", mutatorName, toMessage(err));
         }
       }
 
@@ -196,10 +193,7 @@ export async function handlePush(
     try {
       emitReplicachePokes([userId]);
     } catch (err) {
-      console.warn(
-        "[replicache:push] poke failed:",
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn("[replicache:push] poke failed:", toMessage(err));
     }
   }
 
@@ -217,10 +211,7 @@ export async function handlePush(
     try {
       await enqueueTriageRelabel(userId, sourceThreadId);
     } catch (err) {
-      console.warn(
-        "[replicache:push] triage relabel enqueue failed:",
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn("[replicache:push] triage relabel enqueue failed:", toMessage(err));
     }
   }
 

@@ -14,6 +14,7 @@ import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
 import type { EventFrame } from "./types";
 import { isKnownEventKind } from "./types";
+import { toMessage } from "@alfred/contracts";
 
 type FrameListener = (frame: EventFrame) => void;
 
@@ -66,10 +67,7 @@ export async function initUserEventsBus(): Promise<void> {
 
     console.info("[user-events] Redis pub/sub bus initialized");
   } catch (err) {
-    console.warn(
-      "[user-events] Redis pub/sub bus disabled:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[user-events] Redis pub/sub bus disabled:", toMessage(err));
     publisher = undefined;
     subscriber = undefined;
   }
@@ -107,11 +105,7 @@ export function subscribeUserEvents(userId: string, listener: FrameListener): ()
 
   if (prev === 0 && subscriber) {
     subscriber.subscribe(channelFor(userId)).catch((err) => {
-      console.warn(
-        "[user-events] subscribe failed for user",
-        userId,
-        err instanceof Error ? err.message : String(err),
-      );
+      console.warn("[user-events] subscribe failed for user", userId, toMessage(err));
     });
   }
 

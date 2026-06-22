@@ -4,6 +4,7 @@ import { findModelDescriptor } from "../models";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
+import { toMessage } from "@alfred/contracts";
 
 /**
  * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
@@ -80,7 +81,7 @@ export async function metered<T>(
     return result;
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toMessage(err);
     void writeLogRow({
       meta,
       latencyMs,
@@ -206,9 +207,6 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         error,
       });
   } catch (err) {
-    console.warn(
-      "[metered] failed to write api_call_log row:",
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn("[metered] failed to write api_call_log row:", toMessage(err));
   }
 }

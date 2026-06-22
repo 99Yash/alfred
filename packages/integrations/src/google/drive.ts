@@ -1,3 +1,4 @@
+import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -145,8 +146,7 @@ async function getJson(url: string, accessToken: string): Promise<unknown> {
     signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[drive] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("drive", res, { url });
   }
   return res.json();
 }
@@ -160,8 +160,7 @@ async function getText(
     signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`[drive] ${res.status} ${url} :: ${body.slice(0, 500)}`);
+    throw await httpErrorFromResponse("drive", res, { url });
   }
   const full = await res.text();
   const truncated = full.length > MAX_CONTENT_BYTES;

@@ -6,6 +6,7 @@ import { authClient } from "~/lib/auth/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
+import { toMessage } from "@alfred/contracts";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -117,7 +118,7 @@ export function useSendMessage(): SendMessage {
         markChatTimingByUser(
           userMessageId,
           "turn_request_error",
-          { error: err instanceof Error ? err.message : String(err) },
+          { error: toMessage(err) },
           { summarize: true },
         );
         console.error("[chat] turn kick error:", err);

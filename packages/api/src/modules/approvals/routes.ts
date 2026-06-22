@@ -14,6 +14,7 @@ import {
 } from "../agent";
 import { removeApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
+import { toMessage } from "@alfred/contracts";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
@@ -173,7 +174,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             console.warn(
               "[approvals] failed to enqueue woken run; resume sweep will retry",
               outcome.runId,
-              err instanceof Error ? err.message : String(err),
+              toMessage(err),
             );
           }
         }

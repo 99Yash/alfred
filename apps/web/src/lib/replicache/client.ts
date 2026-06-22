@@ -1,6 +1,16 @@
 import { Replicache } from "replicache";
+import { summarizeBody } from "@alfred/contracts";
 import type { ClientMutators } from "@alfred/sync";
 import { clientMutators } from "@alfred/sync";
+
+/**
+ * Abort a pull/push that hasn't resolved in this window. Without it a
+ * black-holed server (TCP accepted, never responds) leaves the fetch promise
+ * pending forever and Replicache never retries — the sync silently wedges. A
+ * thrown timeout is just another failed attempt Replicache backs off and
+ * retries, which is exactly what we want.
+ */
+const SYNC_FETCH_TIMEOUT_MS = 30_000;
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -23,7 +33,7 @@ export interface CreateReplicacheOptions {
 async function describeFailure(response: Response): Promise<string> {
   let body = "";
   try {
-    body = (await response.text()).slice(0, 500);
+    body = summarizeBody(await response.text());
   } catch {
     // Body already consumed or unreadable — fall back to the status line.
   }
@@ -55,6 +65,7 @@ export function createReplicache(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
         credentials: "include",
+        signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
       });
       if (response.ok) {
         return {
@@ -71,6 +82,7 @@ export function createReplicache(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
         credentials: "include",
+        signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
       });
       if (response.ok) {
         return { httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" } };
