@@ -39,7 +39,7 @@ export const Route = createFileRoute("/approvals")({
   }),
 });
 
-export function ApprovalsRoute() {
+function ApprovalsRoute() {
   const { isPending } = authClient.useSession();
 
   if (isPending) {

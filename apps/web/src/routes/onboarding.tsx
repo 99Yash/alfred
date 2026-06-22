@@ -34,7 +34,7 @@ export const Route = createFileRoute("/onboarding")({
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-export function OnboardingRoute() {
+function OnboardingRoute() {
   const { step, google_connected, github_connected } = useSearch({ from: "/onboarding" });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
