@@ -15,6 +15,7 @@ import {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
   assertUploadAllowed,
+  validateStoredMeta,
 } from "../../src/modules/chat/attachments";
 
 describe("assertAttachmentBatchAllowed", () => {
@@ -104,5 +105,60 @@ describe("assertPassThroughImageBytes", () => {
       .toBuffer();
 
     await assert.rejects(() => assertPassThroughImageBytes(bytes, "image/png"), /declared/);
+  });
+});
+
+describe("validateStoredMeta", () => {
+  // This is the send-time gate after collapsing assertStoredAttachmentReady to a
+  // cheap HEAD (ADR-0065): /upload already decoded the bytes, so send-time only
+  // needs to prove the stored object matches the declared payload. These are the
+  // security-load-bearing branches — a forged turn payload must not pass.
+  test("accepts a stored object that matches the declared size + type", () => {
+    assert.doesNotThrow(() =>
+      validateStoredMeta({
+        stored: { size: 1234, contentType: "image/png" },
+        declared: { mime: "image/png", size: 1234 },
+      }),
+    );
+  });
+
+  test("tolerates a stored content-type the provider omits on HEAD", () => {
+    assert.doesNotThrow(() =>
+      validateStoredMeta({
+        stored: { size: 1234, contentType: "" },
+        declared: { mime: "image/png", size: 1234 },
+      }),
+    );
+  });
+
+  test("normalizes a parametrized stored content-type before comparison", () => {
+    assert.doesNotThrow(() =>
+      validateStoredMeta({
+        stored: { size: 10, contentType: "image/jpeg; charset=binary" },
+        declared: { mime: "IMAGE/JPEG", size: 10 },
+      }),
+    );
+  });
+
+  test("rejects a size that doesn't match the sent message", () => {
+    assert.throws(
+      () =>
+        validateStoredMeta({
+          stored: { size: 999, contentType: "image/png" },
+          declared: { mime: "image/png", size: 1234 },
+        }),
+      /size doesn't match/,
+    );
+  });
+
+  test("rejects a stored type that doesn't match the declared MIME", () => {
+    assert.throws(
+      () =>
+        validateStoredMeta({
+          stored: { size: 1234, contentType: "image/webp" },
+          declared: { mime: "image/png", size: 1234 },
+        }),
+      /type doesn't match/,
+    );
   });
 });

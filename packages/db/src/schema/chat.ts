@@ -174,7 +174,8 @@ export const chatAttachments = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("chat_attachments_message_idx").on(t.messageId),
+    // `(message_id, position)` also serves message_id-prefix lookups, so a
+    // standalone message_id index would be redundant.
     index("chat_attachments_message_position_idx").on(t.messageId, t.position),
     index("chat_attachments_user_idx").on(t.userId),
   ],

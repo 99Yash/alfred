@@ -8,7 +8,7 @@ import {
 import type { chatAttachments } from "@alfred/db/schemas";
 import sharp from "sharp";
 import { BadRequestError } from "../../middleware/errors";
-import { buildAttachmentKey, headObject, readObject } from "./storage";
+import { buildAttachmentKey, headObject } from "./storage";
 
 /**
  * Shared validation + row construction for chat attachments (ADR-0065). Used by
@@ -27,7 +27,9 @@ export interface AttachmentInput {
 }
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
-const MAX_MODEL_IMAGE_EDGE_PX = 8_192;
+// Anthropic rejects images whose longest edge exceeds 8000px; stay at that
+// ceiling so an accepted upload never depends on the Gemini fallback to render.
+const MAX_MODEL_IMAGE_EDGE_PX = 8_000;
 const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
 
 function normalizedMime(mime: string): string {
@@ -203,9 +205,38 @@ export function toAttachmentRow(opts: {
 }
 
 /**
+ * Pure check that a stored object's metadata matches what the sender declared.
+ * Split out from {@link assertStoredAttachmentReady} so the mismatch branches —
+ * the security-load-bearing part — are unit-testable without an object store.
+ * A blank stored content-type is tolerated (some providers omit it on HEAD);
+ * the existence + size match still pin the object to the declared payload.
+ */
+export function validateStoredMeta(opts: {
+  stored: { size: number; contentType: string };
+  declared: { mime: string; size: number };
+}): void {
+  if (opts.stored.size !== opts.declared.size) {
+    throw new BadRequestError("Attachment upload size doesn't match the sent message");
+  }
+  const storedMime = normalizedMime(opts.stored.contentType);
+  const declaredMime = normalizedMime(opts.declared.mime);
+  if (storedMime && storedMime !== declaredMime) {
+    throw new BadRequestError("Stored attachment type doesn't match the sent message");
+  }
+}
+
+/**
  * Prove that the object referenced by a would-be ready row actually exists and
- * is the image type the client declared. This closes both forged turn payloads
- * and the legacy signed-upload route: no object-store receipt, no ready row.
+ * matches the declared size + type. This closes forged turn payloads: a row only
+ * becomes `ready` when the canonical key holds an object of the declared size.
+ *
+ * Deliberately a cheap `headObject` (no body download, no re-decode): the
+ * `/attachments/upload` route is the *sole* ingest path and already sniffs +
+ * libvips-decodes the bytes before writing them, and the storage key is built
+ * server-side from the caller's id — so the bytes at the key are already proven
+ * to be a valid pass-through image. Re-downloading and re-decoding here only
+ * added a full bucket read + decode to the user-blocking send path for no extra
+ * safety (ADR-0065).
  */
 export async function assertStoredAttachmentReady(opts: {
   storageKey: string;
@@ -218,19 +249,5 @@ export async function assertStoredAttachmentReady(opts: {
   } catch {
     throw new BadRequestError("Attachment upload is missing or incomplete");
   }
-  if (meta.size !== opts.size) {
-    throw new BadRequestError("Attachment upload size doesn't match the sent message");
-  }
-  const storedMime = normalizedMime(meta.contentType);
-  const declaredMime = normalizedMime(opts.mime);
-  if (storedMime && storedMime !== declaredMime) {
-    throw new BadRequestError("Stored attachment type doesn't match the sent message");
-  }
-  let bytes: Uint8Array;
-  try {
-    bytes = await readObject(opts.storageKey);
-  } catch {
-    throw new BadRequestError("Attachment upload is missing or incomplete");
-  }
-  await assertPassThroughImageBytes(bytes, opts.mime);
+  validateStoredMeta({ stored: meta, declared: { mime: opts.mime, size: opts.size } });
 }

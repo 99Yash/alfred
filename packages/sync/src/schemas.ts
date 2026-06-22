@@ -324,7 +324,7 @@ export const syncedChatAttachmentSchema = z.object({
   messageId: z.string(),
   name: z.string(),
   mime: z.string(),
-  size: z.number(),
+  size: z.number().int().nonnegative(),
   position: z.number().int().nonnegative().default(0),
   status: chatAttachmentStatusSchema,
   rowVersion: z.number(),
