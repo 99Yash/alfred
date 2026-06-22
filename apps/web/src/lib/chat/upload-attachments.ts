@@ -18,6 +18,8 @@ export const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isPassThrough);
 /** `accept` attribute for the file input. */
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
 
+const ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
+
 /** A descriptor for a file that uploaded successfully — handed to the turn. */
 export interface UploadedAttachment {
   id: string;
@@ -79,6 +81,7 @@ export async function uploadAttachment(opts: {
     method: "POST",
     credentials: "include",
     body: form,
+    signal: AbortSignal.timeout(ATTACHMENT_UPLOAD_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");

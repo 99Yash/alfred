@@ -15,6 +15,7 @@ import {
   chatModelTierSchema,
   isIntegrationSlug,
   isPassThrough,
+  isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
   type ToolName,
@@ -266,15 +267,41 @@ interface ReadyAttachment {
   degradedImageKeys: string[];
 }
 
+const CHAT_ATTACHMENT_IMAGE_PART = "chat_attachment_image";
+
+interface StoredChatAttachmentImagePart {
+  type: typeof CHAT_ATTACHMENT_IMAGE_PART;
+  storageKey: string;
+  mediaType?: string;
+}
+
+type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
+
+function storedAttachmentImagePart(
+  storageKey: string,
+  mediaType?: string,
+): StoredChatAttachmentImagePart {
+  return mediaType
+    ? { type: CHAT_ATTACHMENT_IMAGE_PART, storageKey, mediaType }
+    : { type: CHAT_ATTACHMENT_IMAGE_PART, storageKey };
+}
+
+function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachmentImagePart {
+  return (
+    isRecord(value) &&
+    value.type === CHAT_ATTACHMENT_IMAGE_PART &&
+    typeof value.storageKey === "string" &&
+    (value.mediaType === undefined || typeof value.mediaType === "string")
+  );
+}
+
 /**
  * Load the `ready` attachments for a set of messages, grouped by message id.
  * Only `ready` rows are folded into the model context — `pending` (still
  * degrading) and `failed` rows are skipped, so a slow degrade can't block the
  * turn (ADR-0065's bounded-await / graceful-partial posture).
  */
-async function loadReadyAttachments(
-  messageIds: string[],
-): Promise<Map<string, ReadyAttachment[]>> {
+async function loadReadyAttachments(messageIds: string[]): Promise<Map<string, ReadyAttachment[]>> {
   const byMessage = new Map<string, ReadyAttachment[]>();
   if (messageIds.length === 0) return byMessage;
   const rows = await db()
@@ -304,32 +331,59 @@ async function loadReadyAttachments(
 
 /**
  * Build an AI-SDK content-parts array for a user message that has attachments:
- * the typed text first, then each attachment's contribution. A pass-through
- * image becomes an `image` part pointed at a short-lived presigned read URL (so
- * the raw bytes never bloat the transcript or the DB). A degraded modality
- * (Phase 2/3) contributes its extracted `degradedText` plus any keyframe images.
+ * the typed text first, then each attachment's contribution. The durable
+ * transcript stores object keys, not presigned URLs; `hydrateTranscriptForModel`
+ * turns those markers into fresh image URLs immediately before each model call.
+ * A degraded modality (Phase 2/3) contributes its extracted `degradedText` plus
+ * any keyframe images.
  */
-async function buildContentParts(
+function buildStoredContentParts(
   text: string,
   attachments: ReadyAttachment[],
-): Promise<unknown> {
-  const parts: Array<
-    { type: "text"; text: string } | { type: "image"; image: URL; mediaType?: string }
-  > = [];
+): StoredChatContentPart[] {
+  const parts: StoredChatContentPart[] = [];
   if (text.length > 0) parts.push({ type: "text", text });
   for (const a of attachments) {
     if (isPassThrough(a.mime)) {
-      parts.push({ type: "image", image: new URL(await attachmentUrl(a.storageKey)), mediaType: a.mime });
+      parts.push(storedAttachmentImagePart(a.storageKey, a.mime));
       continue;
     }
     if (a.degradedText && a.degradedText.length > 0) {
       parts.push({ type: "text", text: a.degradedText });
     }
     for (const key of a.degradedImageKeys) {
-      parts.push({ type: "image", image: new URL(await attachmentUrl(key)) });
+      parts.push(storedAttachmentImagePart(key));
     }
   }
   return parts;
+}
+
+async function hydrateContentForModel(content: unknown): Promise<unknown> {
+  if (!Array.isArray(content)) return content;
+  const parts: unknown[] = [];
+  for (const part of content) {
+    if (!isStoredAttachmentImagePart(part)) {
+      parts.push(part);
+      continue;
+    }
+    const image = new URL(await attachmentUrl(part.storageKey));
+    parts.push(
+      part.mediaType
+        ? { type: "image", image, mediaType: part.mediaType }
+        : { type: "image", image },
+    );
+  }
+  return parts;
+}
+
+async function hydrateTranscriptForModel(
+  transcript: readonly AgentTranscriptMessage[],
+): Promise<AgentTranscriptMessage[]> {
+  const out: AgentTranscriptMessage[] = [];
+  for (const message of transcript) {
+    out.push({ ...message, content: await hydrateContentForModel(message.content) });
+  }
+  return out;
 }
 
 function toolResultMessage(
@@ -408,6 +462,7 @@ const chatTurnStep: Step<ChatRunState> = {
         throw new Error("chat_turn_limit_exceeded");
       }
       const transcript = [...ctx.transcript];
+      const modelTranscript = await hydrateTranscriptForModel(transcript);
 
       if (!state.started) {
         state.started = true;
@@ -460,7 +515,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       const stream = await agent.streamTurn({
         ctx,
-        transcript: transcript as ModelMessage[],
+        transcript: modelTranscript as ModelMessage[],
         attribution: { stepId: ctx.idempotencyKey, attempt: ctx.attempt, role: "boss" },
         abortSignal: stopController.signal,
       });
@@ -1116,7 +1171,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       const atts = attachmentsByMessage.get(r.id) ?? [];
       // Drop only truly-empty turns (no text and nothing readable attached).
       if (r.content.length === 0 && atts.length === 0) continue;
-      const content = atts.length > 0 ? await buildContentParts(r.content, atts) : r.content;
+      const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
       out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
     }
     return out;

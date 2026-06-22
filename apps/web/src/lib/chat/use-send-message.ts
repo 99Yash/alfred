@@ -1,4 +1,4 @@
-import type { ChatModelTier } from "@alfred/contracts";
+import { toMessage, type ChatModelTier } from "@alfred/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
@@ -6,7 +6,6 @@ import { authClient } from "~/lib/auth/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
-import { toMessage } from "@alfred/contracts";
 import { uploadAttachment, type UploadedAttachment } from "./upload-attachments";
 
 const API_URL =
@@ -32,7 +31,7 @@ export type SendMessage = (
    * picks).
    */
   retryAttachmentIds?: string[],
-) => Promise<void>;
+) => Promise<boolean>;
 
 const turnKickResponseSchema = z.object({
   runId: z.string().nullable(),
@@ -65,10 +64,10 @@ export function useSendMessage(): SendMessage {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
-      if (!rep || !userId) return;
+      if (!rep || !userId) return false;
       // A turn needs text, at least one fresh file, or at least one re-attached
       // file (image-only sends — and image-only retries — are valid).
-      if (content.length === 0 && pickedFiles.length === 0 && retryIds.length === 0) return;
+      if (content.length === 0 && pickedFiles.length === 0 && retryIds.length === 0) return false;
 
       const isNew = !threadId;
       const tid = threadId ?? crypto.randomUUID();
@@ -76,31 +75,32 @@ export function useSendMessage(): SendMessage {
       const now = new Date().toISOString();
       markChatSubmit({ threadId: tid, userMessageId, contentChars: content.length });
 
-      // Upload the bytes to the bucket before staging the message — the turn's
-      // worker reads each attachment's presigned URL, so the object must exist
-      // by the time the run starts. A per-file failure drops just that file
-      // (toast); the rest of the turn still goes through. (ADR-0065)
-      const uploaded: UploadedAttachment[] = [];
+      // Upload the bytes to the bucket before staging the message. The durable
+      // transcript stores object keys; the worker signs fresh read URLs from
+      // those keys when a model step starts, so the object must exist before the
+      // run is kicked. A per-file failure drops just that file (toast); the rest
+      // of the turn still goes through. (ADR-0065)
+      let uploaded: UploadedAttachment[] = [];
       if (pickedFiles.length > 0) {
-        await Promise.all(
-          pickedFiles.map(async (file) => {
+        const uploadResults = await Promise.all(
+          pickedFiles.map(async (file): Promise<UploadedAttachment | null> => {
             try {
-              uploaded.push(
-                await uploadAttachment({
-                  threadId: tid,
-                  messageId: userMessageId,
-                  id: crypto.randomUUID(),
-                  file,
-                }),
-              );
+              return await uploadAttachment({
+                threadId: tid,
+                messageId: userMessageId,
+                id: crypto.randomUUID(),
+                file,
+              });
             } catch (err) {
-              console.error("[chat] attachment upload failed:", err);
+              console.warn("[chat] attachment upload failed:", toMessage(err));
               toast.error(`Couldn't upload ${file.name}.`);
+              return null;
             }
           }),
         );
+        uploaded = uploadResults.filter((a): a is UploadedAttachment => a !== null);
         // Every file failed and there's no text or re-attached file — nothing to send.
-        if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return;
+        if (uploaded.length === 0 && content.length === 0 && retryIds.length === 0) return false;
       }
 
       if (isNew) {
@@ -131,62 +131,65 @@ export function useSendMessage(): SendMessage {
         void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
       }
 
-      try {
-        markChatTimingByUser(userMessageId, "turn_request_started");
-        const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            userMessageId,
-            content,
-            tier: tier ?? "standard",
-            attachments: uploaded.length > 0 ? uploaded : undefined,
-            // Faithful retry: the server copies these source objects under the
-            // new message's keys and writes the rows (which sync back via pull).
-            retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
-          }),
-          signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
-        });
-        if (!res.ok) {
-          const body = await res.text().catch(() => "");
-          markChatTimingByUser(
-            userMessageId,
-            "turn_request_failed",
-            { status: res.status, body },
-            { summarize: true },
-          );
-          console.error("[chat] turn kick failed:", res.status, body);
-          toast.error("Couldn't send your message. Please try again.");
-          return;
-        }
-
-        const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
-        if (payload.success) {
-          attachChatAssistantTiming({
-            userMessageId,
-            assistantMessageId: payload.data.assistantMessageId,
-            runId: payload.data.runId,
-            detail: { status: res.status },
+      void (async () => {
+        try {
+          markChatTimingByUser(userMessageId, "turn_request_started");
+          const res = await fetch(`${API_URL}/api/chat/threads/${tid}/turn`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              userMessageId,
+              content,
+              tier: tier ?? "standard",
+              attachments: uploaded.length > 0 ? uploaded : undefined,
+              // Faithful retry: the server copies these source objects under the
+              // new message's keys and writes the rows (which sync back via pull).
+              retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
+            }),
+            signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
           });
-        } else {
+          if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            markChatTimingByUser(
+              userMessageId,
+              "turn_request_failed",
+              { status: res.status, body },
+              { summarize: true },
+            );
+            console.error("[chat] turn kick failed:", res.status, body);
+            toast.error("Couldn't send your message. Please try again.");
+            return;
+          }
+
+          const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
+          if (payload.success) {
+            attachChatAssistantTiming({
+              userMessageId,
+              assistantMessageId: payload.data.assistantMessageId,
+              runId: payload.data.runId,
+              detail: { status: res.status },
+            });
+          } else {
+            markChatTimingByUser(
+              userMessageId,
+              "turn_request_ack_without_message_id",
+              { status: res.status },
+              { summarize: true },
+            );
+          }
+        } catch (err) {
           markChatTimingByUser(
             userMessageId,
-            "turn_request_ack_without_message_id",
-            { status: res.status },
+            "turn_request_error",
+            { error: toMessage(err) },
             { summarize: true },
           );
+          console.error("[chat] turn kick error:", toMessage(err));
+          toast.error("Couldn't send your message. Please try again.");
         }
-      } catch (err) {
-        markChatTimingByUser(
-          userMessageId,
-          "turn_request_error",
-          { error: toMessage(err) },
-          { summarize: true },
-        );
-        console.error("[chat] turn kick error:", err);
-        toast.error("Couldn't send your message. Please try again.");
-      }
+      })();
+      return true;
     },
     [rep, userId, navigate],
   );
