@@ -94,6 +94,65 @@ export const OBSERVATION_KINDS = [
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
 
+/**
+ * Closed `source → kind` map (D1/D15). `source` and `kind` are NOT independent
+ * vocabularies: a kind is legal only for the source whose reducer emits it, so
+ * `{ source: "gmail", kind: "github_push" }` is rejected. Sources whose reducers
+ * don't exist yet (`clickup`/`notion`/`railway`/`vercel`) map to `[]` — no
+ * observation kind is legal for them until their reducer registers one here.
+ * `user` and `alfred_chat` share the full user-authored set (D14): the same
+ * correction/confirmation can arrive from a `/settings` edit or from chat.
+ */
+export const OBSERVATION_KINDS_BY_SOURCE = {
+  gmail: ["email_message"],
+  google_calendar: ["calendar_meeting"],
+  github: ["github_pull_request", "github_review", "github_push"],
+  clickup: [],
+  notion: [],
+  railway: [],
+  vercel: [],
+  enrichment: ["enrichment_fact"],
+  alfred_chat: [
+    "user_standing_instruction",
+    "user_correction",
+    "user_confirmation",
+    "user_rejection",
+    "user_profile_edit",
+  ],
+  user: [
+    "user_standing_instruction",
+    "user_correction",
+    "user_confirmation",
+    "user_rejection",
+    "user_profile_edit",
+  ],
+} as const satisfies Record<ObservationSource, readonly ObservationKind[]>;
+
+/** True iff `kind` is one of the kinds the reducer for `source` may emit. */
+export function isObservationKindForSource(
+  source: ObservationSource,
+  kind: ObservationKind,
+): boolean {
+  return (OBSERVATION_KINDS_BY_SOURCE[source] as readonly ObservationKind[]).includes(kind);
+}
+
+/**
+ * The `(source, kind)` pair every reducer must satisfy before an observation is
+ * written — closes the half-open vocabulary that independent `source`/`kind`
+ * validation leaves (a `gmail` row carrying a `github_*` kind). P1's full
+ * observation-insert schema composes this.
+ */
+export const observationSourceKindSchema = z
+  .object({
+    source: observationSourceSchema,
+    kind: observationKindSchema,
+  })
+  .refine(({ source, kind }) => isObservationKindForSource(source, kind), {
+    error: "observation kind is not valid for its source",
+    path: ["kind"],
+  });
+export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
+
 // ───────────────────────────────────────────────────────────────────────────
 // Identities + the stable-entity-id anchor rank (D2, D3)
 // ───────────────────────────────────────────────────────────────────────────
@@ -415,8 +474,14 @@ export const projectionCursorValueSchema = z
   .strict();
 export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
 
-export const projectionSourceHighWatermarkSchema = z.record(
-  z.string(),
+/**
+ * Per-source replay high-watermark, keyed by `ObservationSource` (NOT free
+ * strings) so a typo key (`gihub`) can't silently strand a source's cursor.
+ * Partial by design — a run consumes only the sources it touched, so missing
+ * keys are legal; the default column value is `{}`.
+ */
+export const projectionSourceHighWatermarkSchema = z.partialRecord(
+  observationSourceSchema,
   projectionCursorValueSchema,
 );
 export type ProjectionSourceHighWatermark = z.infer<typeof projectionSourceHighWatermarkSchema>;
