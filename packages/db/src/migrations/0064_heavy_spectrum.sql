@@ -1,0 +1,4 @@
+ALTER TABLE "observations" DROP CONSTRAINT "observations_family_key_nonempty";--> statement-breakpoint
+ALTER TABLE "observations" DROP CONSTRAINT "observations_evidence_hash_nonempty";--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_family_key_nonempty" CHECK (length("observations"."family_key") > 0 AND "observations"."family_key" = btrim("observations"."family_key"));--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_evidence_hash_nonempty" CHECK (length("observations"."evidence_hash") > 0 AND "observations"."evidence_hash" = btrim("observations"."evidence_hash"));

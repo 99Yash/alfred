@@ -6,6 +6,8 @@ import {
   identityValueMatchesKind,
   IDENTITY_ANCHOR_TIER,
   identityAnchorRank,
+  isHardPersonBridge,
+  isImmutableAccountBridge,
   isObservationKindForSource,
   OBSERVATION_SOURCE_RANK,
   observationParticipantsSchema,
@@ -536,8 +538,17 @@ describe("user-model observation contracts", () => {
     const invalid: [Parameters<typeof identityValueMatchesKind>[0], string][] = [
       ["email", "not-an-email"],
       ["email", "a@b"], // no dotted TLD
+      ["email", "a@-bad.com"], // domain label with a leading hyphen
+      ["email", "a@bad..com"], // empty domain label
+      ["email", "a@bad.com-"], // domain label with a trailing hyphen
+      ["email", "a@bad.123"], // all-numeric TLD
+      // NUL (a C0 control char) in the local part. Written as the `\x00` ESCAPE,
+      // never a literal NUL byte (a literal one turns this file binary to rg/grep —
+      // the round-10 distinctRecipientCount lesson).
+      ["email", "a\x00b@example.com"],
       ["domain", "localhost"], // single label, no TLD
       ["domain", "-bad.example.com"], // leading hyphen
+      ["domain", "example.123"], // all-numeric TLD
       ["github_login", "-octocat"], // leading hyphen
       ["github_login", "octo--cat"], // consecutive hyphens
       ["github_user_id", "abc"], // not numeric
@@ -620,5 +631,30 @@ describe("user-model observation contracts", () => {
     assert.throws(() =>
       projectionSourceHighWatermarkSchema.parse({ gihub: { lastObservationId: "obs_1" } }),
     );
+  });
+
+  test("uses one hard person-bridge predicate for email + gated account ids", () => {
+    // The bare immutable-account list is only the unconditional account-id set.
+    // Directory identities are hard bridges too, but ONLY after the Workspace
+    // profile/email is verified; email is also a hard bridge, but not an opaque
+    // account id. P3 merge code must call the full predicate instead of reading
+    // IMMUTABLE_ACCOUNT_ID_KINDS directly.
+    assert.equal(isImmutableAccountBridge({ kind: "github_user_id" }), true);
+    assert.equal(isImmutableAccountBridge({ kind: "slack_id" }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "notion_user_id" }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "google_directory_id", verified: true }), true);
+    assert.equal(isImmutableAccountBridge({ kind: "google_directory_id" }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "google_directory_id", verified: false }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "domain" }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "github_repository_id" }), false);
+    assert.equal(isImmutableAccountBridge({ kind: "email" }), false);
+
+    assert.equal(isHardPersonBridge({ kind: "email" }), true);
+    assert.equal(isHardPersonBridge({ kind: "github_user_id" }), true);
+    assert.equal(isHardPersonBridge({ kind: "google_directory_id", verified: true }), true);
+    assert.equal(isHardPersonBridge({ kind: "google_directory_id" }), false);
+    assert.equal(isHardPersonBridge({ kind: "slack_id" }), false);
+    assert.equal(isHardPersonBridge({ kind: "notion_user_id" }), false);
+    assert.equal(isHardPersonBridge({ kind: "domain" }), false);
   });
 });
