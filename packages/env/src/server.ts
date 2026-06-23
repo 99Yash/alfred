@@ -13,6 +13,12 @@ const optionalSecret = () =>
     z.string().min(1).optional(),
   );
 
+const optionalLongSecret = () =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(32).optional(),
+  );
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
@@ -45,6 +51,13 @@ const serverEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
+  /**
+   * HMAC namespace for ADR-0067 stable entity IDs. Optional during P0 because no
+   * projection writer computes IDs yet; P1 must require it before writing
+   * `entity_nodes.id`, and it must be backed up like an auth secret because
+   * changing it remints every content-addressed entity id on replay.
+   */
+  ENTITY_ID_NAMESPACE: optionalLongSecret(),
   SENTRY_DSN: z.string().optional(),
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),

@@ -40,6 +40,7 @@ export const OBSERVATION_SOURCES = [
   "notion",
   "railway",
   "vercel",
+  "enrichment",
   "alfred_chat",
   "user",
 ] as const;
@@ -64,6 +65,7 @@ export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>
   notion: 2,
   railway: 2,
   vercel: 2,
+  enrichment: 3,
 } as const;
 
 /**
@@ -87,6 +89,7 @@ export const OBSERVATION_KINDS = [
   "user_confirmation",
   "user_rejection",
   "user_profile_edit",
+  "enrichment_fact",
 ] as const;
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
@@ -112,6 +115,76 @@ export const IDENTITY_KINDS = [
 ] as const;
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
 export type IdentityKind = (typeof IDENTITY_KINDS)[number];
+
+export const identityRefSchema = z
+  .object({
+    kind: identityKindSchema,
+    value: z.string().min(1),
+  })
+  .strict();
+export type IdentityRef = z.infer<typeof identityRefSchema>;
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | { readonly [key: string]: JsonValue } | readonly JsonValue[];
+
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+
+export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
+export type JsonObject = z.infer<typeof jsonObjectSchema>;
+
+export const OBSERVATION_PARTICIPANT_ROLES = [
+  "from",
+  "to",
+  "cc",
+  "bcc",
+  "organizer",
+  "attendee",
+  "author",
+  "reviewer",
+  "assignee",
+  "committer",
+] as const;
+export const observationParticipantRoleSchema = z.enum(OBSERVATION_PARTICIPANT_ROLES);
+export type ObservationParticipantRole = (typeof OBSERVATION_PARTICIPANT_ROLES)[number];
+
+export const observationParticipantSchema = z
+  .object({
+    identity: identityRefSchema,
+    role: observationParticipantRoleSchema,
+    displayName: z.string().optional(),
+    raw: z.string().optional(),
+  })
+  .strict();
+export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
+
+export const observationParticipantsSchema = z
+  .object({
+    items: z.array(observationParticipantSchema),
+    recipientCount: z.number().int().nonnegative(),
+    listId: z.string().nullable().optional(),
+  })
+  .strict();
+export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
+
+export const observationPayloadSchema = jsonObjectSchema;
+export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
+
+export const projectionProvenanceSchema = z
+  .object({
+    observationIds: z.array(z.string()).optional(),
+    familyKeys: z.array(z.string()).optional(),
+  })
+  .catchall(jsonValueSchema);
+export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /** Provider immutable account ids — stable handles that never change for an account. */
 export const IMMUTABLE_ACCOUNT_ID_KINDS = [
@@ -309,6 +382,19 @@ export function sourceWeight(key: SourceWeightKey): number {
   return SOURCE_WEIGHTS[key];
 }
 
+export const significanceComponentsSchema = z
+  .object({
+    volume: z.number().nonnegative().optional(),
+    reciprocity: z.number().min(0).max(1).optional(),
+    sameOrg: z.number().min(0).max(1).optional(),
+    interactionWeight: z.number().nonnegative().optional(),
+    coOccurrenceWeight: z.number().nonnegative().optional(),
+    topObservationIds: z.array(z.string()).optional(),
+    lastSeenAt: z.string().datetime().nullable().optional(),
+  })
+  .strict();
+export type SignificanceComponents = z.infer<typeof significanceComponentsSchema>;
+
 // ───────────────────────────────────────────────────────────────────────────
 // Projection run bookkeeping
 // ───────────────────────────────────────────────────────────────────────────
@@ -316,6 +402,21 @@ export function sourceWeight(key: SourceWeightKey): number {
 export const PROJECTION_RUN_STATUS = ["running", "completed", "failed"] as const;
 export const projectionRunStatusSchema = z.enum(PROJECTION_RUN_STATUS);
 export type ProjectionRunStatus = (typeof PROJECTION_RUN_STATUS)[number];
+
+export const projectionCursorValueSchema = z
+  .object({
+    lastObservationId: z.string().optional(),
+    occurredAt: z.string().datetime().optional(),
+    sourceCursor: jsonValueSchema.optional(),
+  })
+  .strict();
+export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
+
+export const projectionSourceHighWatermarkSchema = z.record(z.string(), projectionCursorValueSchema);
+export type ProjectionSourceHighWatermark = z.infer<typeof projectionSourceHighWatermarkSchema>;
+
+export const projectionRowCountsSchema = z.record(z.string(), z.number().int().nonnegative());
+export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Fact ontology (D8)
