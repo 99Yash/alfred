@@ -351,6 +351,125 @@
       "when": 1782140966981,
       "tag": "0049_premium_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1782192364712,
+      "tag": "0050_hard_ghost_rider",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1782196081388,
+      "tag": "0051_ambitious_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1782197190879,
+      "tag": "0052_absurd_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782198381922,
+      "tag": "0053_complete_spacker_dave",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1782200112849,
+      "tag": "0054_breezy_boomer",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1782203791402,
+      "tag": "0055_deep_bulldozer",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782206724119,
+      "tag": "0056_married_purifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1782216700355,
+      "tag": "0057_tidy_snowbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782217357285,
+      "tag": "0058_odd_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1782218115216,
+      "tag": "0059_youthful_lucky_pierre",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1782218782174,
+      "tag": "0060_curious_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782220877517,
+      "tag": "0061_aromatic_wonder_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782220919241,
+      "tag": "0062_brave_menace",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1782222761256,
+      "tag": "0063_vengeful_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1782224653242,
+      "tag": "0064_heavy_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1782225379816,
+      "tag": "0065_yummy_mindworm",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1782226229475,
+      "tag": "0066_watery_christian_walker",
+      "breakpoints": true
     }
   ]
 }

@@ -65,3 +65,5 @@ Key vars for local dev should be pre-filled in `apps/server/.env`. Some vars are
 Do not use `process.env` directly in app code — always go through `serverEnv()`.
 
 When adding a new env var: update `packages/env/src/server.ts`, `apps/server/.env`, `.env.example`, and this doc.
+
+`ENTITY_ID_NAMESPACE` (ADR-0067) deserves a callout: it is the HMAC namespace for content-addressed stable entity IDs. Optional during P0 (no projection writes IDs yet), but the P1 projection must fail closed if it is absent, and it must be backed up like an auth secret — changing it remints every stable entity ID on replay, dangling every external reference to those IDs.

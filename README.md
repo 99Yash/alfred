@@ -62,7 +62,9 @@ All required vars live in `apps/server/.env`. The blank template is committed to
 | `ANTHROPIC_API_KEY`            | Primary LLM                     |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Fallback LLM + embeddings       |
 
-Optional (safe to leave blank locally): `OPENAI_API_KEY`, `VOYAGE_API_KEY`, `PERPLEXITY_API_KEY`, and the observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`).
+Optional (safe to leave blank locally): `OPENAI_API_KEY`, `VOYAGE_API_KEY`, `PERPLEXITY_API_KEY`, `ENTITY_ID_NAMESPACE`, and the observability keys (`SENTRY_DSN`, `LANGFUSE_*`, `POSTHOG_API_KEY`).
+
+`ENTITY_ID_NAMESPACE` (ADR-0067, user-model substrate) is the HMAC namespace for content-addressed stable entity IDs. It is optional today (no projection writes IDs yet) but **once the P1 projection lands it must be set and backed up like an auth secret — changing it remints every entity ID on replay.**
 
 ## Commands
 
