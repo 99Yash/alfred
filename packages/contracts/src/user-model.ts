@@ -271,7 +271,8 @@ export const identityRefSchema = z
   // address for the same identity. The original un-normalized form lives in
   // `observationParticipant.raw`, so nothing is lost by requiring this.
   .refine((r) => r.value === canonicalizeIdentityValue(r.kind, r.value), {
-    error: "identity value must be canonical for its kind (e.g. lowercased email/domain/github handle)",
+    error:
+      "identity value must be canonical for its kind (e.g. lowercased email/domain/github handle)",
     path: ["value"],
   });
 export type IdentityRef = z.infer<typeof identityRefSchema>;

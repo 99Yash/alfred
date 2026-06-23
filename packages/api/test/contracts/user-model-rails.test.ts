@@ -131,7 +131,12 @@ async function seedNode(userId: string, value: string): Promise<string> {
   // construction, the content address of its `canonical_identity` — the way a P1
   // writer must mint it; a hand-assembled `{ id, canonicalIdentity }` could put
   // the two out of sync, which the id-shape CHECK would NOT catch.
-  const row = makeEntityNodeInsert(TEST_ENTITY_ID_SECRET, userId, { kind: "email", value }, SEED_FIRST_SEEN_AT);
+  const row = makeEntityNodeInsert(
+    TEST_ENTITY_ID_SECRET,
+    userId,
+    { kind: "email", value },
+    SEED_FIRST_SEEN_AT,
+  );
   await db().insert(entityNodes).values(row);
   return row.id;
 }
@@ -278,7 +283,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     // The first observation in a family is its root (supersedes IS NULL).
     await assert.doesNotReject(() =>
-      db().insert(observations).values(gmailObs(userId, "famRoot", "root-1")),
+      db()
+        .insert(observations)
+        .values(gmailObs(userId, "famRoot", "root-1")),
     );
 
     // A second root for the same (user, family_key) — different evidence_hash, so
@@ -289,7 +296,10 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // two writers hit when both see "no head yet" — the second must retry against
     // the now-existing head instead of planting a rival root.
     await rejectsConstraint(
-      () => db().insert(observations).values(gmailObs(userId, "famRoot", "root-2")),
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "famRoot", "root-2")),
       { code: "23505", constraint: "observations_single_root_idx" },
     );
 
@@ -310,18 +320,32 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
   test("rail 3c: non-empty CHECKs reject empty family_key / evidence_hash", async () => {
     const userId = await seedUser();
 
-    await rejectsConstraint(() => db().insert(observations).values(gmailObs(userId, "", "hash")), {
-      code: "23514",
-      constraint: "observations_family_key_nonempty",
-    });
-    await rejectsConstraint(() => db().insert(observations).values(gmailObs(userId, "fam", "")), {
-      code: "23514",
-      constraint: "observations_evidence_hash_nonempty",
-    });
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "", "hash")),
+      {
+        code: "23514",
+        constraint: "observations_family_key_nonempty",
+      },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "fam", "")),
+      {
+        code: "23514",
+        constraint: "observations_evidence_hash_nonempty",
+      },
+    );
 
     // Positive control: both non-empty inserts cleanly.
     await assert.doesNotReject(() =>
-      db().insert(observations).values(gmailObs(userId, "famNonEmpty", "hashNonEmpty")),
+      db()
+        .insert(observations)
+        .values(gmailObs(userId, "famNonEmpty", "hashNonEmpty")),
     );
   });
 
@@ -652,7 +676,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       () =>
         db()
           .insert(entityIdentities)
-          .values({ userId, entityId: node, kind: "email", value: " padded@example.com ", source: "gmail" }),
+          .values({
+            userId,
+            entityId: node,
+            kind: "email",
+            value: " padded@example.com ",
+            source: "gmail",
+          }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },
     );
 
@@ -660,7 +690,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     await assert.doesNotReject(() =>
       db()
         .insert(entityIdentities)
-        .values({ userId, entityId: node, kind: "email", value: "value-rail@example.com", source: "gmail" }),
+        .values({
+          userId,
+          entityId: node,
+          kind: "email",
+          value: "value-rail@example.com",
+          source: "gmail",
+        }),
     );
   });
 
@@ -672,24 +708,48 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
 
     await rejectsConstraint(
-      () => db().insert(projectionRuns).values({ userId, projectionName: "", projectionVersion: 1 }),
+      () =>
+        db().insert(projectionRuns).values({ userId, projectionName: "", projectionVersion: 1 }),
       { code: "23514", constraint: "projection_runs_name_nonempty" },
     );
     await rejectsConstraint(
-      () => db().insert(projectionRuns).values({ userId, projectionName: " user-model ", projectionVersion: 1 }),
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({ userId, projectionName: " user-model ", projectionVersion: 1 }),
       { code: "23514", constraint: "projection_runs_name_nonempty" },
     );
 
     for (const bad of [
-      { syncSlug: "", stableKey: "k", contentHash: "h", constraint: "projection_sync_state_sync_slug_nonempty" },
-      { syncSlug: "s", stableKey: "", contentHash: "h", constraint: "projection_sync_state_stable_key_nonempty" },
-      { syncSlug: "s", stableKey: "k", contentHash: "", constraint: "projection_sync_state_content_hash_nonempty" },
+      {
+        syncSlug: "",
+        stableKey: "k",
+        contentHash: "h",
+        constraint: "projection_sync_state_sync_slug_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "",
+        contentHash: "h",
+        constraint: "projection_sync_state_stable_key_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "k",
+        contentHash: "",
+        constraint: "projection_sync_state_content_hash_nonempty",
+      },
     ]) {
       await rejectsConstraint(
         () =>
           db()
             .insert(projectionSyncState)
-            .values({ userId, syncSlug: bad.syncSlug, stableKey: bad.stableKey, contentHash: bad.contentHash }),
+            .values({
+              userId,
+              syncSlug: bad.syncSlug,
+              stableKey: bad.stableKey,
+              contentHash: bad.contentHash,
+            }),
         { code: "23514", constraint: bad.constraint },
       );
     }
@@ -699,7 +759,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     await assert.doesNotReject(() =>
       db()
         .insert(projectionSyncState)
-        .values({ userId, syncSlug: "active_user_facts", stableKey: "fact:tz", contentHash: "abc123" }),
+        .values({
+          userId,
+          syncSlug: "active_user_facts",
+          stableKey: "fact:tz",
+          contentHash: "abc123",
+        }),
     );
   });
 
@@ -714,19 +779,26 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       () =>
         db()
           .insert(projectionRuns)
-          .values({ userId, projectionName: "user-model", projectionVersion: 1, status: "bogus" as never }),
+          .values({
+            userId,
+            projectionName: "user-model",
+            projectionVersion: 1,
+            status: "bogus" as never,
+          }),
       { code: "23514", constraint: "projection_runs_status_valid" },
     );
     // running + a completion time is contradictory.
     await rejectsConstraint(
       () =>
-        db().insert(projectionRuns).values({
-          userId,
-          projectionName: "user-model",
-          projectionVersion: 1,
-          status: "running",
-          completedAt: new Date("2026-06-23T00:00:00.000Z"),
-        }),
+        db()
+          .insert(projectionRuns)
+          .values({
+            userId,
+            projectionName: "user-model",
+            projectionVersion: 1,
+            status: "running",
+            completedAt: new Date("2026-06-23T00:00:00.000Z"),
+          }),
       { code: "23514", constraint: "projection_runs_completed_at_consistency" },
     );
     // completed with no completion time is contradictory.
@@ -744,6 +816,8 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // Positive controls: a default `running` run (no completedAt) and a finished
     // `completed` run (with completedAt) both insert.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 3 }));
-    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 4, completed: true }));
+    await assert.doesNotReject(() =>
+      seedRun(userId, { name: "user-model", version: 4, completed: true }),
+    );
   });
 });

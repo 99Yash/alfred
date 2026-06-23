@@ -139,11 +139,22 @@ describe("makeEntityNodeInsert", () => {
     // the runtime parse rejects it before a permanent id is minted.
     assert.throws(
       () =>
-        makeEntityNodeInsert(secret, "usr_test", { kind: "not_a_kind", value: "x" } as never, firstSeenAt),
+        makeEntityNodeInsert(
+          secret,
+          "usr_test",
+          { kind: "not_a_kind", value: "x" } as never,
+          firstSeenAt,
+        ),
       /invalid|enum|expected/i,
     );
     assert.throws(
-      () => makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: "Person@X.com" }, firstSeenAt),
+      () =>
+        makeEntityNodeInsert(
+          secret,
+          "usr_test",
+          { kind: "email", value: "Person@X.com" },
+          firstSeenAt,
+        ),
       /canonical/,
     );
   });
@@ -151,13 +162,19 @@ describe("makeEntityNodeInsert", () => {
   test("fails closed on a bad anchor (delegates to computeStableEntityId)", () => {
     assert.throws(
       () =>
-        makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: " padded@x.com " }, firstSeenAt),
+        makeEntityNodeInsert(
+          secret,
+          "usr_test",
+          { kind: "email", value: " padded@x.com " },
+          firstSeenAt,
+        ),
       // Surrounding whitespace is rejected at the contract parse (canonical refine)
       // before the digest is computed.
       /whitespace|canonical/,
     );
     assert.throws(
-      () => makeEntityNodeInsert("short", "usr_test", { kind: "email", value: "p@x.com" }, firstSeenAt),
+      () =>
+        makeEntityNodeInsert("short", "usr_test", { kind: "email", value: "p@x.com" }, firstSeenAt),
       /at least 32 chars/,
     );
   });
@@ -474,7 +491,10 @@ describe("user-model observation contracts", () => {
     });
     // A non-canonical value for a case-folded kind is REJECTED at the boundary —
     // a reducer must canonicalize first; the schema does not silently lowercase.
-    assert.throws(() => identityRefSchema.parse({ kind: "email", value: "Person@Example.com" }), /canonical/);
+    assert.throws(
+      () => identityRefSchema.parse({ kind: "email", value: "Person@Example.com" }),
+      /canonical/,
+    );
     assert.throws(
       () => identityRefSchema.parse({ kind: "github_repository_full_name", value: "Owner/Repo" }),
       /canonical/,
