@@ -1,8 +1,9 @@
 /**
  * Dry-run triage RE-CATEGORIZE (2026-06-22) — READ-ONLY, prod-runnable.
  *
- * Re-classifies the newest document behind each recent `email_triage` row with
- * the CURRENT prompt and diffs the NEW category against the stored one. Unlike
+ * Re-classifies the newest document behind each recent auto-authored
+ * `email_triage` row with the CURRENT prompt and diffs the NEW category against
+ * the stored one. Unlike
  * `dry-run-triage-backfill.ts` (which walks agent TODOs and is `tsx`-only), this
  * walks the triage rows themselves and reports a category transition matrix —
  * the before/after view for a rubric change (e.g. the rule-8a social-network
@@ -21,6 +22,7 @@ import {
   assembleObservations,
   classifyEmail,
   closeConnections,
+  closeRedis,
   extractSenderContext,
   getSenderPrior,
   getThreadState,
@@ -59,8 +61,14 @@ async function processUser(u: TargetUser): Promise<void> {
       threadId: emailTriage.sourceThreadId,
     })
     .from(emailTriage)
-    .where(and(eq(emailTriage.userId, u.userId), isNotNull(emailTriage.documentId)))
-    .orderBy(desc(emailTriage.createdAt))
+    .where(
+      and(
+        eq(emailTriage.userId, u.userId),
+        eq(emailTriage.source, "auto"),
+        isNotNull(emailTriage.documentId),
+      ),
+    )
+    .orderBy(desc(emailTriage.classifiedAt))
     .limit(RECAT_LIMIT);
 
   // old→new transition tally; `changed` keeps the human-readable diffs.
@@ -189,7 +197,9 @@ async function processUser(u: TargetUser): Promise<void> {
 
 async function main() {
   await warmPool();
-  console.log(`# Dry-run re-categorize — READ-ONLY | limit=${RECAT_LIMIT}/mailbox`);
+  console.log(
+    `# Dry-run re-categorize — READ-ONLY | auto rows only | limit=${RECAT_LIMIT}/mailbox`,
+  );
 
   const users = await db()
     .select({ userId: userTable.id, email: userTable.email })
@@ -212,5 +222,6 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    await closeRedis().catch(() => {});
     await closeConnections().catch(() => {});
   });
