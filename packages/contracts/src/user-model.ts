@@ -333,7 +333,12 @@ const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
 function distinctRecipientCount(items: readonly ObservationParticipant[]): number {
   const seen = new Set<string>();
   for (const p of items) {
-    if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind} ${p.identity.value}`);
+    // Join with an escaped NUL (\u0000 — never a LITERAL NUL byte in source,
+    // which turns this file binary to rg/grep and silently breaks plain-text
+    // search on a core contract). NUL can't occur in a typed identity kind or a
+    // normalized value, so it is an unambiguous separator that keeps
+    // (kind:"email", value:"a") distinct from (kind:"email_a", value:"").
+    if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind}\u0000${p.identity.value}`);
   }
   return seen.size;
 }

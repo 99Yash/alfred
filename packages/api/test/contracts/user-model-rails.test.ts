@@ -21,7 +21,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * DB-backed regression test for the ADR-0067 P0 integrity rails (migrations
- * 0053–0056). For this PR the schema constraints ARE the product — the prior
+ * 0053–0060). For this PR the schema constraints ARE the product — the prior
  * rounds verified them only in throwaway rollback-only `psql` probes, so a
  * future migration could silently drop one and nothing would notice. This pins
  * the load-bearing rails as committed tests:
@@ -30,6 +30,10 @@ import { and, eq, inArray } from "drizzle-orm";
  *   2. composite (user_id, family_key, supersedes_observation_id) self-FK → a
  *      supersession can't cross event families;
  *   3. partial-unique no-fork index → ≤1 successor per predecessor per family;
+ *  3b. partial-unique single-root index → ≤1 unsuperseded root per family (the
+ *      no-fork index's mirror: it serializes successors but is silent on the head);
+ *  3c. non-empty CHECKs on family_key / evidence_hash → the two idempotency rails
+ *      can't be empty strings that collapse families or dedup every member;
  *   4. version-bound run FK → a versioned row can't point at a run of another version;
  *   5. name-bound run FK → a versioned row can't bind to a run of another named
  *      projection (projection_runs is generic — the #2 finding);
@@ -121,11 +125,26 @@ async function seedNode(userId: string, value: string): Promise<string> {
 
 async function seedRun(
   userId: string,
-  { name = "user-model", version = 1 }: { name?: string; version?: number } = {},
+  {
+    name = "user-model",
+    version = 1,
+    completed = false,
+  }: { name?: string; version?: number; completed?: boolean } = {},
 ): Promise<string> {
   const [run] = await db()
     .insert(projectionRuns)
-    .values({ userId, projectionName: name, projectionVersion: version })
+    .values({
+      userId,
+      projectionName: name,
+      projectionVersion: version,
+      // A run defaults to `running`. Activation is a completed-only cutover (the
+      // guard lives in the P1 activation helper — a FK can't assert status), so
+      // any test that activates a run must seed it as a legitimately finished one
+      // rather than normalizing a domain-invalid "activate a still-running run."
+      ...(completed
+        ? { status: "completed" as const, completedAt: new Date("2026-06-23T00:00:00.000Z") }
+        : {}),
+    })
     .returning({ id: projectionRuns.id });
   assert.ok(run);
   return run.id;
@@ -238,6 +257,58 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           .insert(observations)
           .values({ ...gmailObs(userId, "famFork", "succ-2"), supersedesObservationId: root.id }),
       { code: "23505", constraint: "observations_no_fork_idx" },
+    );
+  });
+
+  test("rail 3b: single-root partial-unique rejects a second root in the same family", async () => {
+    const userId = await seedUser();
+
+    // The first observation in a family is its root (supersedes IS NULL).
+    await assert.doesNotReject(() =>
+      db().insert(observations).values(gmailObs(userId, "famRoot", "root-1")),
+    );
+
+    // A second root for the same (user, family_key) — different evidence_hash, so
+    // it dodges the dedup index, and supersedes IS NULL, so it dodges no-fork
+    // (which is partial on IS NOT NULL). That forks the family at the HEAD. The
+    // single-root partial-unique (user_id, family_key) WHERE supersedes IS NULL
+    // rejects it, so a family stays one linear chain end-to-end. This is the race
+    // two writers hit when both see "no head yet" — the second must retry against
+    // the now-existing head instead of planting a rival root.
+    await rejectsConstraint(
+      () => db().insert(observations).values(gmailObs(userId, "famRoot", "root-2")),
+      { code: "23505", constraint: "observations_single_root_idx" },
+    );
+
+    // Positive control: a proper successor (supersedes set) is still allowed — the
+    // index only constrains the unsuperseded root, not the chain below it.
+    const [root] = await db()
+      .insert(observations)
+      .values(gmailObs(userId, "famRootB", "root"))
+      .returning({ id: observations.id });
+    assert.ok(root);
+    await assert.doesNotReject(() =>
+      db()
+        .insert(observations)
+        .values({ ...gmailObs(userId, "famRootB", "succ"), supersedesObservationId: root.id }),
+    );
+  });
+
+  test("rail 3c: non-empty CHECKs reject empty family_key / evidence_hash", async () => {
+    const userId = await seedUser();
+
+    await rejectsConstraint(() => db().insert(observations).values(gmailObs(userId, "", "hash")), {
+      code: "23514",
+      constraint: "observations_family_key_nonempty",
+    });
+    await rejectsConstraint(() => db().insert(observations).values(gmailObs(userId, "fam", "")), {
+      code: "23514",
+      constraint: "observations_evidence_hash_nonempty",
+    });
+
+    // Positive control: both non-empty inserts cleanly.
+    await assert.doesNotReject(() =>
+      db().insert(observations).values(gmailObs(userId, "famNonEmpty", "hashNonEmpty")),
     );
   });
 
@@ -387,7 +458,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
   test("rail 8: active pointer + cursor run FKs reject a run of another name/version", async () => {
     const userId = await seedUser();
-    const runV1 = await seedRun(userId, { name: "user-model", version: 1 });
+    // Completed: the active-pointer positive control activates this run, and a
+    // real cutover only ever activates a finished run.
+    const runV1 = await seedRun(userId, { name: "user-model", version: 1, completed: true });
 
     // The active pointer's (user, name, version, run) must all belong to one run
     // row — claiming version 2 while naming the v1 run is rejected.
