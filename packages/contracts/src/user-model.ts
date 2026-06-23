@@ -192,10 +192,26 @@ export const IDENTITY_KINDS = [
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
 export type IdentityKind = (typeof IDENTITY_KINDS)[number];
 
+/**
+ * Identity value contract. `computeStableEntityId` (the mint chokepoint, in
+ * `@alfred/db`) rejects an empty or surrounding-whitespace value because a
+ * stable `ent_*` id is permanent and must not be whitespace-sensitive — and
+ * normalizing it silently is the caller's job, not the mint's. The contract
+ * boundary must agree, or a reducer can write a contract-valid observation
+ * (`value: " a@b.com "`) that then fails projection. So reject the same shapes
+ * HERE, fail-loud, rather than letting the asymmetry strand a write.
+ */
+export const identityValueSchema = z
+  .string()
+  .min(1)
+  .refine((v) => v === v.trim(), {
+    error: "identity value must not have leading or trailing whitespace",
+  });
+
 export const identityRefSchema = z
   .object({
     kind: identityKindSchema,
-    value: z.string().min(1),
+    value: identityValueSchema,
   })
   .strict();
 export type IdentityRef = z.infer<typeof identityRefSchema>;

@@ -152,6 +152,11 @@ export const observations = pgTable(
       "observations_no_self_supersede",
       sql`${t.supersedesObservationId} IS NULL OR ${t.supersedesObservationId} <> ${t.id}`,
     ),
+    // Versions are 1-based (the column defaults are 1). A 0/negative version is a
+    // reducer bug, never a legal value — pin it so the "numeric invariants have DB
+    // checks" contract (D13) holds for the version columns too, not just weights.
+    check("observations_schema_version_positive", sql`${t.schemaVersion} >= 1`),
+    check("observations_reducer_version_positive", sql`${t.reducerVersion} >= 1`),
   ],
 );
 
@@ -249,6 +254,14 @@ export const entityNodes = pgTable(
       "entity_nodes_no_self_supersede",
       sql`${t.supersedesEntityId} IS NULL OR ${t.supersedesEntityId} <> ${t.id}`,
     ),
+    // `id` is content-addressed — minted ONLY by `computeStableEntityId`, which
+    // emits `ent_<26 base32 chars>` (HMAC-SHA256 truncated to 128 bits, RFC-4648
+    // lowercase base32: `[a-z2-7]`). It has no DB default and no random fallback,
+    // so a malformed id can only come from an application bug — and since this id
+    // is the FK contract every other substrate table binds to, a bad one is a
+    // permanent, silently-spreading corruption. Pin the shape at the DB so a P1+
+    // writer can never persist an id the projection layer would refuse to re-mint.
+    check("entity_nodes_id_shape", sql`${t.id} ~ '^ent_[a-z2-7]{26}$'`),
   ],
 );
 
@@ -295,7 +308,20 @@ export const entityIdentities = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("entity_identities_unique_idx").on(t.userId, t.kind, t.value),
+    // Dedup is over the ACTIVE row only (`valid_until IS NULL`), not all history.
+    // The table is temporal (`valid_from`/`valid_until` + `supersedes_id`), and
+    // some kinds are MUTABLE+REUSABLE: a freed `github_login` is reclaimable by
+    // another account, and a `github_repository_full_name` (`owner/repo`) redirect
+    // can be overridden by a new repo taking the old name. When that happens the
+    // old row is closed (`valid_until` stamped) and a NEW row for the SAME
+    // `(kind, value)` must bind to a DIFFERENT entity — a globally-unique index
+    // would force a false cross-entity bridge (or block the legitimate re-anchor)
+    // for exactly the identifiers the temporal columns exist to track. Partial so
+    // at most one LIVE identity holds a `(kind, value)`, while closed history may
+    // repeat it. (Resolution joins read live rows; D2's "dedup index" is the live set.)
+    uniqueIndex("entity_identities_active_unique_idx")
+      .on(t.userId, t.kind, t.value)
+      .where(sql`${t.validUntil} IS NULL`),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
     index("entity_identities_supersedes_idx").on(t.supersedesId),
     // FK target for this table's own supersession self-FK: binds (user, id) so a
@@ -372,6 +398,7 @@ export const projectionRuns = pgTable(
       t.projectionVersion,
       t.id,
     ),
+    check("projection_runs_version_positive", sql`${t.projectionVersion} >= 1`),
   ],
 );
 
@@ -460,6 +487,7 @@ export const entityProfiles = pgTable(
       ],
       name: "entity_profiles_run_fk",
     }).onDelete("cascade"),
+    check("entity_profiles_version_positive", sql`${t.projectionVersion} >= 1`),
   ],
 );
 
@@ -526,6 +554,7 @@ export const entityEdges = pgTable(
       ],
       name: "entity_edges_run_fk",
     }).onDelete("cascade"),
+    check("entity_edges_version_positive", sql`${t.projectionVersion} >= 1`),
     check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
     // No self-relation: a traversable typed edge from a node to itself
@@ -593,6 +622,7 @@ export const entityCoOccurrence = pgTable(
       ],
       name: "entity_co_occurrence_run_fk",
     }).onDelete("cascade"),
+    check("entity_co_occurrence_version_positive", sql`${t.projectionVersion} >= 1`),
     check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
     check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
@@ -644,6 +674,7 @@ export const projectionCursors = pgTable(
       ],
       name: "projection_cursors_run_fk",
     }).onDelete("cascade"),
+    check("projection_cursors_version_positive", sql`${t.projectionVersion} >= 1`),
   ],
 );
 
@@ -681,6 +712,7 @@ export const activeProjectionVersions = pgTable(
       ],
       name: "active_projection_versions_run_fk",
     }),
+    check("active_projection_versions_version_positive", sql`${t.activeVersion} >= 1`),
   ],
 );
 

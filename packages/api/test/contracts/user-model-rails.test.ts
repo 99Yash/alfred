@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
+import { computeStableEntityId } from "@alfred/db/helpers";
 import {
   activeProjectionVersions,
   entityCoOccurrence,
@@ -15,7 +16,7 @@ import {
   projectionRuns,
   user,
 } from "@alfred/db/schemas";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * DB-backed regression test for the ADR-0067 P0 integrity rails (migrations
@@ -33,7 +34,11 @@ import { inArray } from "drizzle-orm";
  *      projection (projection_runs is generic — the #2 finding);
  *   6. entity_edges self-relation CHECK → no from == to traversable edge;
  *   7. entity_edges + entity_co_occurrence run FKs reject name/version mismatch;
- *   8. active-pointer + cursor run FKs reject a run of another name/version.
+ *   8. active-pointer + cursor run FKs reject a run of another name/version;
+ *   9. entity_nodes id-shape CHECK → only `ent_<26 base32>` content-addressed ids;
+ *  10. entity_identities active partial-unique → ≤1 LIVE `(kind, value)`, but a
+ *      CLOSED row may repeat it (mutable-handle reuse the temporal columns exist for);
+ *  11. version-positive CHECK → projection/schema/reducer versions are 1-based.
  *
  * Each rail asserts BOTH the rejection and a consistent positive control, so a
  * green test means "the constraint rejects the bad shape" not "the insert just
@@ -92,8 +97,21 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
+/**
+ * 32+ char, no surrounding whitespace — clears `computeStableEntityId`'s secret
+ * gate. The id-shape CHECK (`entity_nodes_id_shape`) rejects the old
+ * `ent_test_<uuid>` shape (uuids carry `0`/`1`/`8`/`9`, outside base32 `[a-z2-7]`),
+ * so seeds must mint a REAL content-addressed id — which also makes the seeded
+ * `canonical_identity` consistent with the id, the way a P1 writer would.
+ */
+const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
+
 async function seedNode(userId: string, value: string): Promise<string> {
-  const id = `ent_test_${randomUUID().replace(/-/g, "")}`;
+  const id = computeStableEntityId(TEST_ENTITY_ID_SECRET, {
+    userId,
+    identityKind: "email",
+    normalizedValue: value,
+  });
   await db()
     .insert(entityNodes)
     .values({ id, userId, canonicalIdentity: { kind: "email", value } });
@@ -409,5 +427,76 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         source: "gmail",
       }),
     );
+  });
+
+  test("rail 9: entity_nodes id-shape CHECK rejects a non-content-addressed id", async () => {
+    const userId = await seedUser();
+
+    // The id is the FK contract surface — it may ONLY be a `computeStableEntityId`
+    // output (`ent_<26 base32>`). A hand-written id can't be persisted.
+    await rejectsConstraint(
+      () =>
+        db().insert(entityNodes).values({
+          id: "not_a_stable_entity_id",
+          userId,
+          canonicalIdentity: { kind: "email", value: "shape@example.com" },
+        }),
+      { code: "23514", constraint: "entity_nodes_id_shape" },
+    );
+
+    // Positive control: a real minted id is accepted (seedNode mints via computeStableEntityId).
+    await assert.doesNotReject(() => seedNode(userId, "valid-shape@example.com"));
+  });
+
+  test("rail 10: entity_identities active partial-unique blocks two LIVE rows but allows reuse of a CLOSED (kind, value)", async () => {
+    const userId = await seedUser();
+    const nodeA = await seedNode(userId, "reuse-a@example.com");
+    const nodeB = await seedNode(userId, "reuse-b@example.com");
+
+    // A live github_login `alice` on nodeA.
+    const [live] = await db()
+      .insert(entityIdentities)
+      .values({ userId, entityId: nodeA, kind: "github_login", value: "alice", source: "github" })
+      .returning({ id: entityIdentities.id });
+    assert.ok(live);
+
+    // A SECOND live row for the same (kind, value) — even on a different entity —
+    // collides on the partial unique (a `github_login` resolves to one live entity).
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityIdentities)
+          .values({ userId, entityId: nodeB, kind: "github_login", value: "alice", source: "github" }),
+      { code: "23505", constraint: "entity_identities_active_unique_idx" },
+    );
+
+    // Close the original (the GitHub login was freed), then a NEW live row for the
+    // reclaimed login on a DIFFERENT entity is allowed — the mutable-handle reuse
+    // the temporal columns exist for, which a globally-unique index would block.
+    await db()
+      .update(entityIdentities)
+      .set({ validUntil: new Date("2026-06-23T00:00:00.000Z") })
+      .where(and(eq(entityIdentities.userId, userId), eq(entityIdentities.id, live.id)));
+
+    await assert.doesNotReject(() =>
+      db()
+        .insert(entityIdentities)
+        .values({ userId, entityId: nodeB, kind: "github_login", value: "alice", source: "github" }),
+    );
+  });
+
+  test("rail 11: version-positive CHECK rejects a non-positive projection version", async () => {
+    const userId = await seedUser();
+
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({ userId, projectionName: "user-model", projectionVersion: 0 }),
+      { code: "23514", constraint: "projection_runs_version_positive" },
+    );
+
+    // Positive control: version 1 is accepted.
+    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
   });
 });
