@@ -17,7 +17,7 @@ import {
   projectionSourceHighWatermarkSchema,
   STANDING_INSTRUCTION_KEY,
 } from "@alfred/contracts";
-import { computeStableEntityId } from "@alfred/db/helpers";
+import { computeStableEntityId, makeEntityNodeInsert } from "@alfred/db/helpers";
 
 describe("computeStableEntityId", () => {
   const secret = "stable namespace secret for tests";
@@ -96,6 +96,47 @@ describe("computeStableEntityId", () => {
     assert.throws(() => computeStableEntityId(` ${valid}`, input), /whitespace/);
     assert.throws(() => computeStableEntityId(`${valid} `, input), /whitespace/);
     assert.throws(() => computeStableEntityId(`\t${valid}\n`, input), /whitespace/);
+  });
+});
+
+describe("makeEntityNodeInsert", () => {
+  const secret = "a".repeat(40);
+
+  test("derives id and canonical_identity from ONE identity so they can't disagree", () => {
+    const identity = { kind: "email" as const, value: "person@example.com" };
+    const row = makeEntityNodeInsert(secret, "usr_test", identity);
+
+    // The id IS the content address of the stored canonical identity…
+    assert.equal(row.canonicalIdentity, identity);
+    assert.equal(
+      row.id,
+      computeStableEntityId(secret, {
+        userId: "usr_test",
+        identityKind: identity.kind,
+        normalizedValue: identity.value,
+      }),
+    );
+    // …so a cold replay re-deriving the id FROM the row's own canonical identity
+    // reproduces the same id — the FK surface can never be silently orphaned.
+    assert.equal(
+      computeStableEntityId(secret, {
+        userId: row.userId,
+        identityKind: row.canonicalIdentity.kind,
+        normalizedValue: row.canonicalIdentity.value,
+      }),
+      row.id,
+    );
+  });
+
+  test("fails closed on a bad anchor (delegates to computeStableEntityId)", () => {
+    assert.throws(
+      () => makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: " padded@x.com " }),
+      /normalizedValue must be/,
+    );
+    assert.throws(
+      () => makeEntityNodeInsert("short", "usr_test", { kind: "email", value: "p@x.com" }),
+      /at least 32 chars/,
+    );
   });
 });
 
@@ -259,6 +300,54 @@ describe("user-model observation contracts", () => {
       }).recipientCount,
       1,
     );
+  });
+
+  test("counts a recipient in multiple roles once (distinct identities, not rows)", () => {
+    // Same person in To AND Cc, or a GitHub user who is both reviewer and
+    // assignee, is ONE recipient. Counting rows would reject a correct reducer
+    // (`recipientCount: 1`) and force it to inflate the count to pass — the exact
+    // per-reducer convention this rail removes.
+    const dup = { kind: "email" as const, value: "dup@example.com" };
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: dup, role: "to" },
+          { identity: dup, role: "cc" },
+        ],
+        recipientCount: 1,
+      }).recipientCount,
+      1,
+    );
+    const ghUser = { kind: "github_login" as const, value: "dev" };
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: ghUser, role: "reviewer" },
+          { identity: ghUser, role: "assignee" },
+        ],
+        recipientCount: 1,
+      }).recipientCount,
+      1,
+    );
+    // Two DISTINCT recipients still require recipientCount >= 2.
+    assert.throws(() =>
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: { kind: "email", value: "a@example.com" }, role: "to" },
+          { identity: { kind: "email", value: "b@example.com" }, role: "cc" },
+        ],
+        recipientCount: 1,
+      }),
+    );
+  });
+
+  test("registers google_directory as a first-party source with no kinds until P3", () => {
+    // The identity kind `google_directory_id` + the verified-directory anchor tier
+    // already exist in P0, so a Directory row needs a real source to attribute to
+    // rather than masquerading as google_calendar. Reducer (and its kinds) land at P3.
+    assert.equal(observationSourceSchema.parse("google_directory"), "google_directory");
+    assert.equal(OBSERVATION_SOURCE_RANK.google_directory, OBSERVATION_SOURCE_RANK.gmail);
+    assert.equal(isObservationKindForSource("google_directory", "calendar_meeting"), false);
   });
 
   test("observation subject is an identity OR the user themselves ({kind:'user'})", () => {

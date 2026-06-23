@@ -36,6 +36,7 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
 export const OBSERVATION_SOURCES = [
   "gmail",
   "google_calendar",
+  "google_directory",
   "github",
   "clickup",
   "notion",
@@ -59,8 +60,13 @@ export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>
   user: 0,
   alfred_chat: 1,
   // First-party integrations share rank 2 — recency breaks ties between them.
+  // `google_directory` is first-party (and its verified identities anchor at the
+  // strongest non-user IDENTITY tier, D2/D3), but identity-anchor strength and
+  // fold-conflict precedence are different axes: a Directory-sourced FACT must
+  // not silently beat a `user` correction, so it sits at the first-party rank.
   gmail: 2,
   google_calendar: 2,
+  google_directory: 2,
   github: 2,
   clickup: 2,
   notion: 2,
@@ -99,14 +105,20 @@ export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
  * Closed `source → kind` map (D1/D15). `source` and `kind` are NOT independent
  * vocabularies: a kind is legal only for the source whose reducer emits it, so
  * `{ source: "gmail", kind: "github_push" }` is rejected. Sources whose reducers
- * don't exist yet (`clickup`/`notion`/`railway`/`vercel`) map to `[]` — no
- * observation kind is legal for them until their reducer registers one here.
+ * don't exist yet (`google_directory`/`clickup`/`notion`/`railway`/`vercel`) map
+ * to `[]` — no observation kind is legal for them until their reducer registers
+ * one here. (`google_directory` is registered as a source in P0 — its identity
+ * kind `google_directory_id` and verified-directory anchor tier already exist —
+ * so a Directory-originated identity/observation has a real `source` to attribute
+ * to instead of masquerading as `google_calendar`; its profile/org-membership
+ * kinds land with the P3 People-API reducer.)
  * `user` and `alfred_chat` share the full user-authored set (D14): the same
  * correction/confirmation can arrive from a `/settings` edit or from chat.
  */
 export const OBSERVATION_KINDS_BY_SOURCE = {
   gmail: ["email_message"],
   google_calendar: ["calendar_meeting"],
+  google_directory: [],
   github: ["github_pull_request", "github_review", "github_push"],
   clickup: [],
   notion: [],
@@ -310,7 +322,21 @@ const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
  * corruption this design exists to kill: a reducer enumerating N audience
  * members but writing `recipientCount < N`, which would let an N-person blast
  * masquerade as a 1:1 and slip under `FAN_OUT_CUTOFF`.
+ *
+ * The lower bound counts DISTINCT recipient IDENTITIES, not raw rows — the fold
+ * (and `FAN_OUT_CUTOFF`) reason about distinct recipient participants, so one
+ * person appearing in both To and Cc, or a GitHub user who is both `reviewer`
+ * and `assignee`, is one recipient. Counting rows would force a correct reducer
+ * (`recipientCount = 1` distinct) to fail this refine and inflate the count to
+ * pass — re-introducing exactly the per-reducer convention this rail removes.
  */
+function distinctRecipientCount(items: readonly ObservationParticipant[]): number {
+  const seen = new Set<string>();
+  for (const p of items) {
+    if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind} ${p.identity.value}`);
+  }
+  return seen.size;
+}
 const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
   OBSERVATION_PARTICIPANT_ROLES.filter((role) => !ACTOR_ROLES.has(role)),
 );
@@ -321,23 +347,20 @@ export const observationParticipantsSchema = z
     /**
      * Total fan-out audience size (the cutoff signal). May exceed `items.length`
      * when the reducer truncates a blast's participant list; must never be LESS
-     * than the recipients actually enumerated in `items` (the refine below). The
-     * P1 fold derives fan-out as `max(recipientCount, |recipient items|)` so a
-     * miswritten count can never push a real blast back under the cutoff.
+     * than the DISTINCT recipient identities enumerated in `items` (the refine
+     * below). The P1 fold derives fan-out as `max(recipientCount, |distinct
+     * recipient identities|)` so a miswritten count can never push a real blast
+     * back under the cutoff.
      */
     recipientCount: z.number().int().nonnegative(),
     listId: z.string().nullable().optional(),
   })
   .strict()
-  .refine(
-    ({ items, recipientCount }) =>
-      recipientCount >= items.filter((p) => RECIPIENT_ROLES.has(p.role)).length,
-    {
-      error:
-        "recipientCount must be >= the number of enumerated recipient participants (a blast can't masquerade as a 1:1 and bypass FAN_OUT_CUTOFF)",
-      path: ["recipientCount"],
-    },
-  );
+  .refine(({ items, recipientCount }) => recipientCount >= distinctRecipientCount(items), {
+    error:
+      "recipientCount must be >= the number of DISTINCT enumerated recipient identities (a blast can't masquerade as a 1:1 and bypass FAN_OUT_CUTOFF)",
+    path: ["recipientCount"],
+  });
 export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
 
 export const observationPayloadSchema = jsonObjectSchema;
