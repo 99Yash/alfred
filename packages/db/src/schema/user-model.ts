@@ -552,8 +552,9 @@ export const entityProfiles = pgTable(
      * filtering by run id would then pull the wrong row into an active view. A
      * projection version is SINGLE-ATTEMPT: `projection_runs` is unique on
      * (user, name, version), so a retry reuses that one run row and must clear
-     * the prior attempt's rows before re-projecting (`DELETE ... WHERE
-     * projection_run_id = <run>`, or drop the run row and let this FK cascade).
+     * the prior attempt's rows before re-projecting (`DELETE ... WHERE user_id =
+     * <user> AND projection_run_id = <run>`, backed by the run index below, or
+     * drop the run row and let this FK cascade).
      * The binding is provenance: it proves the row came from one concrete run AT
      * THIS NAME+VERSION, and lets a read assert the active rows are from exactly
      * the run `active_run_id` names.
@@ -584,6 +585,7 @@ export const entityProfiles = pgTable(
       t.projectionVersion,
       t.entityId,
     ),
+    index("entity_profiles_run_idx").on(t.userId, t.projectionRunId),
     foreignKey({
       columns: [t.userId, t.entityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],
@@ -659,6 +661,7 @@ export const entityEdges = pgTable(
       t.fromEntityId,
     ),
     index("entity_edges_to_idx").on(t.userId, t.projectionName, t.projectionVersion, t.toEntityId),
+    index("entity_edges_run_idx").on(t.userId, t.projectionRunId),
     foreignKey({
       columns: [t.userId, t.fromEntityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],
@@ -738,6 +741,7 @@ export const entityCoOccurrence = pgTable(
       t.projectionVersion,
       t.weight,
     ),
+    index("entity_co_occurrence_run_idx").on(t.userId, t.projectionRunId),
     foreignKey({
       columns: [t.userId, t.aEntityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],
@@ -763,6 +767,8 @@ export const entityCoOccurrence = pgTable(
     check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
     check("entity_co_occurrence_family_count_nonnegative", sql`${t.familyCount} >= 0`),
+    check("entity_co_occurrence_family_count_lte_count", sql`${t.familyCount} <= ${t.count}`),
+    check("entity_co_occurrence_weight_requires_count", sql`${t.weight} = 0 OR ${t.count} > 0`),
   ],
 );
 

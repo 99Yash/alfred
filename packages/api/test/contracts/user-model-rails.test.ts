@@ -22,7 +22,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * DB-backed regression test for the ADR-0067 P0 integrity rails (migrations
- * 0053–0062). For this PR the schema constraints ARE the product — the prior
+ * 0053–0066). For this PR the schema constraints ARE the product — the prior
  * rounds verified them only in throwaway rollback-only `psql` probes, so a
  * future migration could silently drop one and nothing would notice. This pins
  * the load-bearing rails as committed tests:
@@ -42,6 +42,7 @@ import { and, eq, inArray } from "drizzle-orm";
  *   6. entity_edges self-relation CHECK → no from == to traversable edge;
  *  6b. entity_edges valid_from has no default and valid_until can't precede it;
  *   7. entity_edges + entity_co_occurrence run FKs reject name/version mismatch;
+ *  7b. entity_co_occurrence counters reject impossible family/count/weight states;
  *   8. active-pointer + cursor run FKs reject a run of another name/version;
  *   9. entity_nodes id-shape CHECK → only `ent_<26 base32>` content-addressed ids;
  *  10. entity_identities active partial-unique → ≤1 LIVE `(kind, value)`, but a
@@ -605,6 +606,57 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         projectionRunId: runV1,
         aEntityId: lo,
         bEntityId: hi,
+      }),
+    );
+  });
+
+  test("rail 7b: entity_co_occurrence counters reject impossible states", async () => {
+    const userId = await seedUser();
+    const a = await seedNode(userId, "cooc-a@example.com");
+    const b = await seedNode(userId, "cooc-b@example.com");
+    const runV1 = await seedRun(userId, { name: "user-model", version: 1 });
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+
+    await rejectsConstraint(
+      () =>
+        db().insert(entityCoOccurrence).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 1,
+          projectionRunId: runV1,
+          aEntityId: lo,
+          bEntityId: hi,
+          count: 1,
+          familyCount: 2,
+        }),
+      { code: "23514", constraint: "entity_co_occurrence_family_count_lte_count" },
+    );
+
+    await rejectsConstraint(
+      () =>
+        db().insert(entityCoOccurrence).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 1,
+          projectionRunId: runV1,
+          aEntityId: lo,
+          bEntityId: hi,
+          weight: 0.5,
+        }),
+      { code: "23514", constraint: "entity_co_occurrence_weight_requires_count" },
+    );
+
+    await assert.doesNotReject(() =>
+      db().insert(entityCoOccurrence).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        aEntityId: lo,
+        bEntityId: hi,
+        weight: 0.5,
+        count: 2,
+        familyCount: 2,
       }),
     );
   });
