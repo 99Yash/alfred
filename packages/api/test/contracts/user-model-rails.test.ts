@@ -56,10 +56,7 @@ const createdUserIds: string[] = [];
  * constraint/SQLSTATE proves the intended rail fired, not just "some insert
  * failed". 23503 = FK violation, 23505 = unique violation.
  */
-function rejectsConstraint(
-  fn: () => Promise<unknown>,
-  pattern: RegExp,
-): Promise<void> {
+function rejectsConstraint(fn: () => Promise<unknown>, pattern: RegExp): Promise<void> {
   return assert.rejects(fn, (err: unknown) => {
     const parts: string[] = [];
     let cur: unknown = err;
@@ -131,29 +128,25 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // pair does not exist in entity_nodes, so the composite FK rejects it.
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityIdentities)
-          .values({
-            userId: userA,
-            entityId: nodeB,
-            kind: "email",
-            value: "a@example.com",
-            source: "gmail",
-          }),
+        db().insert(entityIdentities).values({
+          userId: userA,
+          entityId: nodeB,
+          kind: "email",
+          value: "a@example.com",
+          source: "gmail",
+        }),
       /23503|entity_identities_entity_fk/,
     );
 
     // Positive control: the rightful owner can attach an identity to its node.
     await assert.doesNotReject(() =>
-      db()
-        .insert(entityIdentities)
-        .values({
-          userId: userB,
-          entityId: nodeB,
-          kind: "email",
-          value: "owner-b@example.com",
-          source: "gmail",
-        }),
+      db().insert(entityIdentities).values({
+        userId: userB,
+        entityId: nodeB,
+        kind: "email",
+        value: "owner-b@example.com",
+        source: "gmail",
+      }),
     );
   });
 
@@ -225,33 +218,29 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // projection_version, so (userId, "user-model", 2, runV1) has no matching run row.
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityProfiles)
-          .values({
-            userId,
-            projectionName: "user-model",
-            projectionVersion: 2,
-            projectionRunId: runV1,
-            entityId: node,
-            displayName: "Mismatched",
-            kind: "person",
-          }),
+        db().insert(entityProfiles).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 2,
+          projectionRunId: runV1,
+          entityId: node,
+          displayName: "Mismatched",
+          kind: "person",
+        }),
       /23503|entity_profiles_run_fk/,
     );
 
     // Positive control: name + version match the run → accepted.
     await assert.doesNotReject(() =>
-      db()
-        .insert(entityProfiles)
-        .values({
-          userId,
-          projectionName: "user-model",
-          projectionVersion: 1,
-          projectionRunId: runV1,
-          entityId: node,
-          displayName: "Consistent",
-          kind: "person",
-        }),
+      db().insert(entityProfiles).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        entityId: node,
+        displayName: "Consistent",
+        kind: "person",
+      }),
     );
   });
 
@@ -267,17 +256,15 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityProfiles)
-          .values({
-            userId,
-            projectionName: "not-user-model",
-            projectionVersion: 1,
-            projectionRunId: runV1,
-            entityId: node,
-            displayName: "Foreign projection",
-            kind: "person",
-          }),
+        db().insert(entityProfiles).values({
+          userId,
+          projectionName: "not-user-model",
+          projectionVersion: 1,
+          projectionRunId: runV1,
+          entityId: node,
+          displayName: "Foreign projection",
+          kind: "person",
+        }),
       /23503|entity_profiles_run_fk/,
     );
   });
@@ -292,33 +279,29 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // recursive traversal ingest a 1-cycle.
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityEdges)
-          .values({
-            userId,
-            projectionName: "user-model",
-            projectionVersion: 1,
-            projectionRunId: runV1,
-            fromEntityId: node,
-            toEntityId: node,
-            relationType: "frequent_collaborator",
-          }),
-      /23514|entity_edges_no_self_relation/,
-    );
-
-    // Positive control: a genuine edge between two distinct nodes is accepted.
-    await assert.doesNotReject(() =>
-      db()
-        .insert(entityEdges)
-        .values({
+        db().insert(entityEdges).values({
           userId,
           projectionName: "user-model",
           projectionVersion: 1,
           projectionRunId: runV1,
           fromEntityId: node,
-          toEntityId: other,
+          toEntityId: node,
           relationType: "frequent_collaborator",
         }),
+      /23514|entity_edges_no_self_relation/,
+    );
+
+    // Positive control: a genuine edge between two distinct nodes is accepted.
+    await assert.doesNotReject(() =>
+      db().insert(entityEdges).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        fromEntityId: node,
+        toEntityId: other,
+        relationType: "frequent_collaborator",
+      }),
     );
   });
 
@@ -332,47 +315,41 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityEdges)
-          .values({
-            userId,
-            projectionName: "user-model",
-            projectionVersion: 2, // mismatched vs runV1
-            projectionRunId: runV1,
-            fromEntityId: a,
-            toEntityId: b,
-            relationType: "frequent_collaborator",
-          }),
+        db().insert(entityEdges).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 2, // mismatched vs runV1
+          projectionRunId: runV1,
+          fromEntityId: a,
+          toEntityId: b,
+          relationType: "frequent_collaborator",
+        }),
       /23503|entity_edges_run_fk/,
     );
 
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityCoOccurrence)
-          .values({
-            userId,
-            projectionName: "not-user-model", // mismatched vs runV1
-            projectionVersion: 1,
-            projectionRunId: runV1,
-            aEntityId: lo,
-            bEntityId: hi,
-          }),
-      /23503|entity_co_occurrence_run_fk/,
-    );
-
-    // Positive control: matching name + version on both tables.
-    await assert.doesNotReject(() =>
-      db()
-        .insert(entityCoOccurrence)
-        .values({
+        db().insert(entityCoOccurrence).values({
           userId,
-          projectionName: "user-model",
+          projectionName: "not-user-model", // mismatched vs runV1
           projectionVersion: 1,
           projectionRunId: runV1,
           aEntityId: lo,
           bEntityId: hi,
         }),
+      /23503|entity_co_occurrence_run_fk/,
+    );
+
+    // Positive control: matching name + version on both tables.
+    await assert.doesNotReject(() =>
+      db().insert(entityCoOccurrence).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        aEntityId: lo,
+        bEntityId: hi,
+      }),
     );
   });
 
@@ -384,14 +361,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // row — claiming version 2 while naming the v1 run is rejected.
     await rejectsConstraint(
       () =>
-        db()
-          .insert(activeProjectionVersions)
-          .values({
-            userId,
-            projectionName: "user-model",
-            activeVersion: 2,
-            activeRunId: runV1,
-          }),
+        db().insert(activeProjectionVersions).values({
+          userId,
+          projectionName: "user-model",
+          activeVersion: 2,
+          activeRunId: runV1,
+        }),
       /23503|active_projection_versions_run_fk/,
     );
     await assert.doesNotReject(() =>
@@ -403,27 +378,23 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // The cursor's (user, name, version, run) is bound the same way.
     await rejectsConstraint(
       () =>
-        db()
-          .insert(projectionCursors)
-          .values({
-            userId,
-            projectionName: "not-user-model",
-            projectionVersion: 1,
-            projectionRunId: runV1,
-            source: "gmail",
-          }),
-      /23503|projection_cursors_run_fk/,
-    );
-    await assert.doesNotReject(() =>
-      db()
-        .insert(projectionCursors)
-        .values({
+        db().insert(projectionCursors).values({
           userId,
-          projectionName: "user-model",
+          projectionName: "not-user-model",
           projectionVersion: 1,
           projectionRunId: runV1,
           source: "gmail",
         }),
+      /23503|projection_cursors_run_fk/,
+    );
+    await assert.doesNotReject(() =>
+      db().insert(projectionCursors).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        source: "gmail",
+      }),
     );
   });
 });

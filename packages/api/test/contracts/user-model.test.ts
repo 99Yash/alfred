@@ -214,7 +214,9 @@ describe("user-model observation contracts", () => {
       observationSourceKindSchema.parse({ source: "github", kind: "github_review" }).kind,
       "github_review",
     );
-    assert.throws(() => observationSourceKindSchema.parse({ source: "gmail", kind: "github_push" }));
+    assert.throws(() =>
+      observationSourceKindSchema.parse({ source: "gmail", kind: "github_push" }),
+    );
     // A source whose reducer isn't built yet accepts no kind.
     assert.throws(() =>
       observationSourceKindSchema.parse({ source: "clickup", kind: "email_message" }),
