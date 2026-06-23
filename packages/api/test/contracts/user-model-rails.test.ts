@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { makeEntityNodeInsert } from "@alfred/db/helpers";
+import { computeStableEntityId, makeEntityNodeInsert } from "@alfred/db/helpers";
 import {
   activeProjectionVersions,
   entityCoOccurrence,
@@ -553,12 +553,44 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             id: "not_a_stable_entity_id",
             userId,
             canonicalIdentity: { kind: "email", value: "shape@example.com" },
+            // Supply `first_seen_at` so this insert is rejected by the id-shape
+            // CHECK specifically — the column is NOT NULL with no default, so
+            // omitting it would trip a NOT-NULL violation first (see rail 9b).
+            firstSeenAt: SEED_FIRST_SEEN_AT,
           }),
       { code: "23514", constraint: "entity_nodes_id_shape" },
     );
 
     // Positive control: a real minted id is accepted (seedNode mints via computeStableEntityId).
     await assert.doesNotReject(() => seedNode(userId, "valid-shape@example.com"));
+  });
+
+  test("rail 9b: entity_nodes.first_seen_at has NO default — a writer that omits it fails loud", async () => {
+    const userId = await seedUser();
+
+    // `first_seen_at` is the merge-survivor tie-break (D2), read at the fold and
+    // therefore replay-determinism-critical, so the column is NOT NULL with NO
+    // DEFAULT: a writer that bypasses `makeEntityNodeInsert` and forgets it must
+    // fail loud (NOT NULL violation) rather than silently record wall-clock time.
+    // A valid content-addressed id is used so the ONLY violation is the missing
+    // timestamp.
+    const id = computeStableEntityId(TEST_ENTITY_ID_SECRET, {
+      userId,
+      identityKind: "email",
+      normalizedValue: "no-first-seen@example.com",
+    });
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityNodes)
+          .values({
+            id,
+            userId,
+            canonicalIdentity: { kind: "email", value: "no-first-seen@example.com" },
+          } as never),
+      // 23502 = not_null_violation; the message names the offending column.
+      { code: "23502", constraint: "first_seen_at" },
+    );
   });
 
   test("rail 10: entity_identities active partial-unique blocks two LIVE rows but allows reuse of a CLOSED (kind, value)", async () => {
@@ -674,29 +706,25 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     );
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityIdentities)
-          .values({
-            userId,
-            entityId: node,
-            kind: "email",
-            value: " padded@example.com ",
-            source: "gmail",
-          }),
+        db().insert(entityIdentities).values({
+          userId,
+          entityId: node,
+          kind: "email",
+          value: " padded@example.com ",
+          source: "gmail",
+        }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },
     );
 
     // Positive control: a clean canonical value inserts.
     await assert.doesNotReject(() =>
-      db()
-        .insert(entityIdentities)
-        .values({
-          userId,
-          entityId: node,
-          kind: "email",
-          value: "value-rail@example.com",
-          source: "gmail",
-        }),
+      db().insert(entityIdentities).values({
+        userId,
+        entityId: node,
+        kind: "email",
+        value: "value-rail@example.com",
+        source: "gmail",
+      }),
     );
   });
 
@@ -742,14 +770,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     ]) {
       await rejectsConstraint(
         () =>
-          db()
-            .insert(projectionSyncState)
-            .values({
-              userId,
-              syncSlug: bad.syncSlug,
-              stableKey: bad.stableKey,
-              contentHash: bad.contentHash,
-            }),
+          db().insert(projectionSyncState).values({
+            userId,
+            syncSlug: bad.syncSlug,
+            stableKey: bad.stableKey,
+            contentHash: bad.contentHash,
+          }),
         { code: "23514", constraint: bad.constraint },
       );
     }
@@ -757,14 +783,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // Positive controls: clean keys insert.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
     await assert.doesNotReject(() =>
-      db()
-        .insert(projectionSyncState)
-        .values({
-          userId,
-          syncSlug: "active_user_facts",
-          stableKey: "fact:tz",
-          contentHash: "abc123",
-        }),
+      db().insert(projectionSyncState).values({
+        userId,
+        syncSlug: "active_user_facts",
+        stableKey: "fact:tz",
+        contentHash: "abc123",
+      }),
     );
   });
 

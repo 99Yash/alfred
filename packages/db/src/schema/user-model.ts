@@ -264,12 +264,15 @@ export const entityNodes = pgTable(
      * Earliest OBSERVATION timestamp for this node — the merge-survivor tie-break
      * after anchor rank (D2). Read at the fold, so it must be deterministic across
      * replays: the write API (`makeEntityNodeInsert`) REQUIRES the caller to pass
-     * the observation's `occurredAt`, never a wall clock. The `defaultNow()` is a
-     * degenerate fallback for a direct insert that bypasses that API (which no P1+
-     * writer is allowed to do) — relying on it would leak build/replay time into
-     * merge ordering and break D13 determinism.
+     * the observation's `occurredAt`, never a wall clock. NOT NULL with NO DEFAULT
+     * (on purpose): a `defaultNow()` would silently record build/replay wall-clock
+     * time for any writer that bypassed `makeEntityNodeInsert` and forgot the
+     * field — leaking non-deterministic time into merge ordering and breaking D13.
+     * Without a default that same bad write fails LOUD (NOT NULL violation) instead
+     * of corrupting the tie-break. Safe to drop now: the substrate has no rows yet,
+     * and the only legitimate writer (`makeEntityNodeInsert`) always supplies it.
      */
-    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     ...lifecycle_dates,
   },
   (t) => [

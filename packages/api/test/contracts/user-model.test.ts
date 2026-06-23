@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   canonicalizeIdentityValue,
   identityRefSchema,
+  identityValueMatchesKind,
   IDENTITY_ANCHOR_TIER,
   identityAnchorRank,
   isObservationKindForSource,
@@ -43,8 +44,13 @@ describe("computeStableEntityId", () => {
     const baseline = computeStableEntityId(secret, input);
 
     assert.notEqual(computeStableEntityId(secret, { ...input, userId: "usr_other" }), baseline);
+    // Isolate the kind field: flip ONLY `identityKind` while keeping the value. Use
+    // an unconstrained kind (`slack_id`) so the email-shaped value stays a legal
+    // input for it — the point is that the kind is part of the digest, not that the
+    // value re-validates (a formatted kind like `github_login` would, correctly,
+    // reject an email value now).
     assert.notEqual(
-      computeStableEntityId(secret, { ...input, identityKind: "github_login" }),
+      computeStableEntityId(secret, { ...input, identityKind: "slack_id" }),
       baseline,
     );
     assert.notEqual(
@@ -504,6 +510,73 @@ describe("user-model observation contracts", () => {
       kind: "slack_id",
       value: "U07ABC123",
     });
+  });
+
+  test("identityValueMatchesKind enforces per-kind value FORMATS (canonical isn't enough)", () => {
+    // Well-formed canonical values for each registered kind.
+    const valid: [Parameters<typeof identityValueMatchesKind>[0], string][] = [
+      ["email", "person@example.com"],
+      ["domain", "example.com"],
+      ["domain", "mail.corp.example.co.uk"],
+      ["github_login", "octocat"],
+      ["github_login", "a-b-c"],
+      ["github_user_id", "583231"],
+      ["github_repository_id", "1296269"],
+      ["github_repository_full_name", "owner/repo"],
+      ["github_repository_full_name", "octo-org/some.repo_name"],
+      ["integration_object_key", "clickup:task:abc123"],
+      ["integration_object_key", "notion:page:8a1f-1234-uuid"],
+    ];
+    for (const [kind, value] of valid) {
+      assert.equal(identityValueMatchesKind(kind, value), true, `${kind}=${value} should be valid`);
+    }
+
+    // Canonical-but-MALFORMED values that the floor (non-empty + canonical) lets
+    // through but the format gate must reject before a permanent `ent_*` is minted.
+    const invalid: [Parameters<typeof identityValueMatchesKind>[0], string][] = [
+      ["email", "not-an-email"],
+      ["email", "a@b"], // no dotted TLD
+      ["domain", "localhost"], // single label, no TLD
+      ["domain", "-bad.example.com"], // leading hyphen
+      ["github_login", "-octocat"], // leading hyphen
+      ["github_login", "octo--cat"], // consecutive hyphens
+      ["github_user_id", "abc"], // not numeric
+      ["github_user_id", "0123"], // leading zero
+      ["github_repository_id", "12x"],
+      ["github_repository_full_name", "owner"], // no slash
+      ["github_repository_full_name", "owner/.."], // path traversal
+      ["integration_object_key", "barekey"], // not provider:kind:id
+      ["integration_object_key", "clickup:task"], // missing externalId
+    ];
+    for (const [kind, value] of invalid) {
+      assert.equal(
+        identityValueMatchesKind(kind, value),
+        false,
+        `${kind}=${value} should be invalid`,
+      );
+    }
+
+    // Kinds with NO registered format pass on the floor alone (deliberate — opaque
+    // ids with no committed shape and no reducer yet).
+    assert.equal(identityValueMatchesKind("slack_id", "U07ABC123"), true);
+    assert.equal(identityValueMatchesKind("notion_user_id", "anything-goes"), true);
+    assert.equal(identityValueMatchesKind("phone", "+15551234567"), true);
+
+    // The boundary schema rejects a malformed value, and the mint chokepoint
+    // mirrors it (a malformed identity can't become a permanent anchor by either path).
+    assert.throws(
+      () => identityRefSchema.parse({ kind: "github_user_id", value: "abc" }),
+      /valid format/,
+    );
+    assert.throws(
+      () =>
+        computeStableEntityId("a".repeat(32), {
+          userId: "usr_test",
+          identityKind: "email",
+          normalizedValue: "not-an-email",
+        }),
+      /valid format/,
+    );
   });
 
   test("validates projection cursor values used by run-scoped cursors", () => {
