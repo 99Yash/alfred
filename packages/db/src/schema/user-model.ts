@@ -16,7 +16,6 @@ import type {
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
-  type AnyPgColumn,
   boolean,
   check,
   foreignKey,
@@ -79,10 +78,15 @@ export const observations = pgTable(
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     /** Stable event identity, e.g. `gmail:<message_id>`, `github:pr:<repo>:<number>` (D4). */
     familyKey: text("family_key").notNull(),
-    /** Hash over relationship-significant fields only (participants, start, …). */
+    /**
+     * Hash over relationship-significant fields only (participants, start, …).
+     * Dedup is the unique `(user_id, family_key, evidence_hash)` below — identical
+     * evidence collides (dedups), changed evidence is a new hash that appends +
+     * supersedes (D4). No separate `family_key:evidence_hash` string is stored;
+     * a denormalized concat would just be a second source of truth a reducer
+     * could compute wrong.
+     */
     evidenceHash: text("evidence_hash").notNull(),
-    /** `family_key:evidence_hash` — same evidence dedups, changed evidence appends + supersedes. */
-    dedupKey: text("dedup_key").notNull(),
     subjectIdentity: jsonb("subject_identity").$type<IdentityRef>().notNull(),
     objectIdentity: jsonb("object_identity").$type<IdentityRef | null>(),
     /** Full participant set + recipientCount + List-Id — the fold derives pairwise edges. */
@@ -98,26 +102,44 @@ export const observations = pgTable(
     reducerVersion: integer("reducer_version").notNull().default(1),
     /**
      * Prior active family member this row supersedes (changed evidence, D4).
-     * Self-FK + `<> id` check make the chain a real structural invariant, not a
-     * comment; `set null` (never cascade) so a delete can't unzip a family. The
-     * resolver (P1) still owns multi-hop cycle detection — the check only kills
-     * the trivial 1-cycle.
+     * Bound to the SAME (user_id, family_key) by the composite self-FK below — a
+     * single-column FK on `id` alone only proved the target existed, letting a
+     * row supersede another user's (or another family's) observation. `no action`
+     * (not `set null`) because the FK now spans the NOT NULL `user_id`/`family_key`
+     * columns, which can't be nulled; an append-only log never deletes a
+     * superseded member except via the user cascade (which drops the whole family
+     * together), so `no action` just hardens "don't strand a successor". The
+     * resolver (P1) still owns multi-hop cycle detection — the `<> id` check only
+     * kills the trivial 1-cycle, and the partial-unique index below makes the
+     * chain DB-provably fork-free (≤1 successor per predecessor per family).
      */
-    supersedesObservationId: text("supersedes_observation_id").references(
-      (): AnyPgColumn => observations.id,
-      { onDelete: "set null" },
-    ),
+    supersedesObservationId: text("supersedes_observation_id"),
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("observations_dedup_idx").on(t.userId, t.dedupKey),
+    uniqueIndex("observations_dedup_idx").on(t.userId, t.familyKey, t.evidenceHash),
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
     index("observations_family_idx").on(t.userId, t.familyKey),
     index("observations_supersedes_idx").on(t.supersedesObservationId),
-    // FK target for the family-head composite FK: lets `observation_family_heads`
-    // bind (user, family_key, observation id) together so a head can't point at an
-    // observation from a different user / family. Unique because `id` is the PK.
+    // FK target for the family-head + supersession composite FKs: lets a head /
+    // a successor bind (user, family_key, observation id) together so neither can
+    // point at an observation from a different user / family. Unique because `id`
+    // is the PK.
     uniqueIndex("observations_family_member_fk_idx").on(t.userId, t.familyKey, t.id),
+    // At most one row may supersede a given predecessor within a family — turns the
+    // supersession chain into a DB-enforced linear history. Two concurrent material
+    // updates that both read prior head A collide here (the second's insert is
+    // rejected) instead of both inserting and forking the chain; the P1 reducer
+    // retries against the new head. Partial so the many non-superseding roots don't
+    // collide on a shared NULL.
+    uniqueIndex("observations_no_fork_idx")
+      .on(t.userId, t.familyKey, t.supersedesObservationId)
+      .where(sql`${t.supersedesObservationId} IS NOT NULL`),
+    foreignKey({
+      columns: [t.userId, t.familyKey, t.supersedesObservationId],
+      foreignColumns: [t.userId, t.familyKey, t.id],
+      name: "observations_supersedes_fk",
+    }),
     check(
       "observations_no_self_supersede",
       sql`${t.supersedesObservationId} IS NULL OR ${t.supersedesObservationId} <> ${t.id}`,
@@ -130,14 +152,18 @@ export const observations = pgTable(
 // ---------------------------------------------------------------------------
 
 /**
- * The single active member of an observation family, materialized so the
- * supersession reducer (P1) has a DB-enforced serialization point. Without it,
- * two concurrent material updates for the same `family_key` can both supersede
- * the same prior row and leave TWO active heads, making replay depend on write
- * timing. The unique `(user_id, family_key)` lets the reducer `upsert ... ON
- * CONFLICT` the head inside its append transaction: concurrent appends collide
- * on the constraint instead of silently forking the family. Observations stay
- * insert-only — this is the only mutable "which one is live" pointer.
+ * The single active member of an observation family. The unique `(user_id,
+ * family_key)` guarantees exactly one *head pointer* per family and lets the P1
+ * reducer `upsert ... ON CONFLICT` it inside the append transaction.
+ *
+ * This table alone does NOT serialize the supersession chain — two concurrent
+ * writers could still insert two rows both superseding prior head A and only
+ * then race on the pointer. That fork is prevented one level down, by the
+ * partial-unique `observations_no_fork_idx` (≤1 successor per predecessor): the
+ * second insert is rejected, so the reducer must re-read the head and retry
+ * (the documented CAS protocol, owned by P1; covered by the P1 concurrency
+ * test). Observations stay insert-only — this is the only mutable "which one is
+ * live" pointer.
  */
 export const observationFamilyHeads = pgTable(
   "observation_family_heads",
@@ -185,14 +211,14 @@ export const entityNodes = pgTable(
     /**
      * Set on the loser of a merge → points at the surviving (best-anchor) node.
      * Reads resolve through this (D16), so it is the permanent FK safety rail,
-     * not free metadata: self-FK keeps it pointing at a real node, `set null`
-     * (never cascade) keeps a deleted survivor from dragging its forwarded
-     * aliases with it, and the `<> id` check kills self-forwarding.
+     * not free metadata. Bound to the SAME user by the composite self-FK below —
+     * a single-column FK on `id` alone let a node forward to another user's node.
+     * `no action` (not `set null`) because the FK now spans the NOT NULL
+     * `user_id`; nodes are deleted only via the user cascade (which drops the
+     * whole graph together), so `no action` just hardens "don't strand a
+     * forwarder". The `<> id` check kills self-forwarding.
      */
-    supersedesEntityId: text("supersedes_entity_id").references(
-      (): AnyPgColumn => entityNodes.id,
-      { onDelete: "set null" },
-    ),
+    supersedesEntityId: text("supersedes_entity_id"),
     /** Earliest observation timestamp for this node — anchor tie-break (D2). */
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
@@ -201,10 +227,16 @@ export const entityNodes = pgTable(
     index("entity_nodes_user_idx").on(t.userId),
     index("entity_nodes_supersedes_idx").on(t.supersedesEntityId),
     // FK target for the (user, entity id) composite FKs on every table that
-    // references a stable node (identities, profiles, edges, co-occurrence): binds
-    // the referencing row's user_id to the node's own, so a row can't point at a
-    // node owned by a different user. Unique because `id` is the PK.
+    // references a stable node (identities, profiles, edges, co-occurrence) and
+    // for this table's own forwarding self-FK: binds the referencing row's
+    // user_id to the node's own, so a row can't point at a node owned by a
+    // different user. Unique because `id` is the PK.
     uniqueIndex("entity_nodes_user_fk_idx").on(t.userId, t.id),
+    foreignKey({
+      columns: [t.userId, t.supersedesEntityId],
+      foreignColumns: [t.userId, t.id],
+      name: "entity_nodes_supersedes_fk",
+    }),
     check(
       "entity_nodes_no_self_supersede",
       sql`${t.supersedesEntityId} IS NULL OR ${t.supersedesEntityId} <> ${t.id}`,
@@ -239,13 +271,14 @@ export const entityIdentities = pgTable(
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     /**
-     * Prior identity row this one supersedes (re-anchoring on merge). Self-FK +
-     * `<> id` check + index make the chain enforced and traversable rather than
-     * a comment; `set null` so a delete can't strand a successor.
+     * Prior identity row this one supersedes (re-anchoring on merge). Bound to
+     * the SAME user by the composite self-FK below — a single-column FK on `id`
+     * alone let an identity supersede another user's. `no action` (not `set
+     * null`) because the FK now spans the NOT NULL `user_id`; identities are
+     * deleted only via the user cascade, so `no action` just hardens "don't
+     * strand a successor". The `<> id` check kills self-supersession.
      */
-    supersedesId: text("supersedes_id").references((): AnyPgColumn => entityIdentities.id, {
-      onDelete: "set null",
-    }),
+    supersedesId: text("supersedes_id"),
     /** Provenance: originating observation ids. */
     provenance: jsonb("provenance")
       .notNull()
@@ -256,11 +289,20 @@ export const entityIdentities = pgTable(
     uniqueIndex("entity_identities_unique_idx").on(t.userId, t.kind, t.value),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
     index("entity_identities_supersedes_idx").on(t.supersedesId),
+    // FK target for this table's own supersession self-FK: binds (user, id) so a
+    // successor can't point at another user's identity row. Unique because `id`
+    // is the PK.
+    uniqueIndex("entity_identities_user_fk_idx").on(t.userId, t.id),
     foreignKey({
       columns: [t.userId, t.entityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],
       name: "entity_identities_entity_fk",
     }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.supersedesId],
+      foreignColumns: [t.userId, t.id],
+      name: "entity_identities_supersedes_fk",
+    }),
     check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
     check(
       "entity_identities_no_self_supersede",
@@ -270,151 +312,9 @@ export const entityIdentities = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// entity_profiles — VERSIONED display/kind/significance components (D6, D7, D13)
-// ---------------------------------------------------------------------------
-
-export const entityProfiles = pgTable(
-  "entity_profiles",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("eprof")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    projectionVersion: integer("projection_version").notNull(),
-    /** Stable node this profile describes — bound to the same user by the composite FK below. */
-    entityId: text("entity_id").notNull(),
-    displayName: text("display_name").notNull(),
-    /** Kind lives here (versioned) — a better classifier can change it without re-minting the id (D7). */
-    kind: text("kind").$type<EntityNodeKind>().notNull(),
-    /** Time-invariant significance components only; final score = base(components) * recency(asOf) at read time (D6). */
-    significanceComponents: jsonb("significance_components")
-      .$type<SignificanceComponents>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-    provenance: jsonb("provenance")
-      .$type<ProjectionProvenance>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("entity_profiles_version_idx").on(t.userId, t.projectionVersion, t.entityId),
-    foreignKey({
-      columns: [t.userId, t.entityId],
-      foreignColumns: [entityNodes.userId, entityNodes.id],
-      name: "entity_profiles_entity_fk",
-    }).onDelete("cascade"),
-  ],
-);
-
-// ---------------------------------------------------------------------------
-// entity_edges — VERSIONED typed relations (D5, D13)
-// ---------------------------------------------------------------------------
-
-export const entityEdges = pgTable(
-  "entity_edges",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("eedge")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    projectionVersion: integer("projection_version").notNull(),
-    /** Stable endpoint nodes — both bound to the same user by the composite FKs below. */
-    fromEntityId: text("from_entity_id").notNull(),
-    toEntityId: text("to_entity_id").notNull(),
-    relationType: text("relation_type").$type<EntityEdgeType>().notNull(),
-    weight: real("weight").notNull().default(0),
-    confidence: real("confidence").notNull().default(1),
-    provenance: jsonb("provenance")
-      .$type<ProjectionProvenance>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
-    validUntil: timestamp("valid_until", { withTimezone: true }),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("entity_edges_unique_idx").on(
-      t.userId,
-      t.projectionVersion,
-      t.relationType,
-      t.fromEntityId,
-      t.toEntityId,
-    ),
-    index("entity_edges_from_idx").on(t.userId, t.projectionVersion, t.fromEntityId),
-    index("entity_edges_to_idx").on(t.userId, t.projectionVersion, t.toEntityId),
-    foreignKey({
-      columns: [t.userId, t.fromEntityId],
-      foreignColumns: [entityNodes.userId, entityNodes.id],
-      name: "entity_edges_from_fk",
-    }).onDelete("cascade"),
-    foreignKey({
-      columns: [t.userId, t.toEntityId],
-      foreignColumns: [entityNodes.userId, entityNodes.id],
-      name: "entity_edges_to_fk",
-    }).onDelete("cascade"),
-    check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
-    check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
-  ],
-);
-
-// ---------------------------------------------------------------------------
-// entity_co_occurrence — VERSIONED weighted pair projection (D5)
-// ---------------------------------------------------------------------------
-
-export const entityCoOccurrence = pgTable(
-  "entity_co_occurrence",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("ecooc")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    projectionVersion: integer("projection_version").notNull(),
-    /** Ordered pair (a < b) to dedupe the undirected edge — both bound to the same user by the composite FKs below. */
-    aEntityId: text("a_entity_id").notNull(),
-    bEntityId: text("b_entity_id").notNull(),
-    weight: real("weight").notNull().default(0),
-    count: integer("count").notNull().default(0),
-    /** Distinct event families backing the pair — gates promotion (PROMOTION_MIN_FAMILIES). */
-    familyCount: integer("family_count").notNull().default(0),
-    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("entity_co_occurrence_pair_idx").on(
-      t.userId,
-      t.projectionVersion,
-      t.aEntityId,
-      t.bEntityId,
-    ),
-    index("entity_co_occurrence_weight_idx").on(t.userId, t.projectionVersion, t.weight),
-    foreignKey({
-      columns: [t.userId, t.aEntityId],
-      foreignColumns: [entityNodes.userId, entityNodes.id],
-      name: "entity_co_occurrence_a_fk",
-    }).onDelete("cascade"),
-    foreignKey({
-      columns: [t.userId, t.bEntityId],
-      foreignColumns: [entityNodes.userId, entityNodes.id],
-      name: "entity_co_occurrence_b_fk",
-    }).onDelete("cascade"),
-    check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
-    check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
-    check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
-    check("entity_co_occurrence_family_count_nonnegative", sql`${t.familyCount} >= 0`),
-  ],
-);
-
-// ---------------------------------------------------------------------------
-// projection bookkeeping — the replay safety rail (D13, D17)
+// projection_runs — one row per (named projection, version) replay run (D13, D17)
+// Declared here (ahead of the bookkeeping section) so the VERSIONED output
+// tables below can FK their rows to the run that produced them.
 // ---------------------------------------------------------------------------
 
 /** One row per (named projection, version) replay run — watermarks, checksum, counts, status. */
@@ -457,8 +357,191 @@ export const projectionRuns = pgTable(
       t.projectionVersion,
       t.id,
     ),
+    // FK target for the versioned output tables' run-binding FK: lets a profile /
+    // edge / co-occurrence row bind (user, run id) so its data provably came from
+    // one concrete run (not just "some run at this version"). Unique because `id`
+    // is the PK.
+    uniqueIndex("projection_runs_user_fk_idx").on(t.userId, t.id),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// entity_profiles — VERSIONED display/kind/significance components (D6, D7, D13)
+// ---------------------------------------------------------------------------
+
+export const entityProfiles = pgTable(
+  "entity_profiles",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("eprof")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectionVersion: integer("projection_version").notNull(),
+    /**
+     * The concrete replay run that produced this row — bound to it by the
+     * composite FK below. `projection_version` alone can't prove provenance: a
+     * failed/partial run can leave version-N rows that a later completed run-N
+     * never overwrote, and the active pointer (which stores a run id) would then
+     * serve rows that didn't come from its run. Binding the row to its run makes
+     * orphans from a dead run identifiable (run id ≠ active run) and deletable.
+     */
+    projectionRunId: text("projection_run_id").notNull(),
+    /** Stable node this profile describes — bound to the same user by the composite FK below. */
+    entityId: text("entity_id").notNull(),
+    displayName: text("display_name").notNull(),
+    /** Kind lives here (versioned) — a better classifier can change it without re-minting the id (D7). */
+    kind: text("kind").$type<EntityNodeKind>().notNull(),
+    /** Time-invariant significance components only; final score = base(components) * recency(asOf) at read time (D6). */
+    significanceComponents: jsonb("significance_components")
+      .$type<SignificanceComponents>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    provenance: jsonb("provenance")
+      .$type<ProjectionProvenance>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("entity_profiles_version_idx").on(t.userId, t.projectionVersion, t.entityId),
+    foreignKey({
+      columns: [t.userId, t.entityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_profiles_entity_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      name: "entity_profiles_run_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// entity_edges — VERSIONED typed relations (D5, D13)
+// ---------------------------------------------------------------------------
+
+export const entityEdges = pgTable(
+  "entity_edges",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("eedge")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectionVersion: integer("projection_version").notNull(),
+    /** The concrete replay run that produced this row — bound by the composite FK below (see entity_profiles). */
+    projectionRunId: text("projection_run_id").notNull(),
+    /** Stable endpoint nodes — both bound to the same user by the composite FKs below. */
+    fromEntityId: text("from_entity_id").notNull(),
+    toEntityId: text("to_entity_id").notNull(),
+    relationType: text("relation_type").$type<EntityEdgeType>().notNull(),
+    weight: real("weight").notNull().default(0),
+    confidence: real("confidence").notNull().default(1),
+    provenance: jsonb("provenance")
+      .$type<ProjectionProvenance>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("entity_edges_unique_idx").on(
+      t.userId,
+      t.projectionVersion,
+      t.relationType,
+      t.fromEntityId,
+      t.toEntityId,
+    ),
+    index("entity_edges_from_idx").on(t.userId, t.projectionVersion, t.fromEntityId),
+    index("entity_edges_to_idx").on(t.userId, t.projectionVersion, t.toEntityId),
+    foreignKey({
+      columns: [t.userId, t.fromEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_edges_from_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.toEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_edges_to_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      name: "entity_edges_run_fk",
+    }).onDelete("cascade"),
+    check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
+    check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// entity_co_occurrence — VERSIONED weighted pair projection (D5)
+// ---------------------------------------------------------------------------
+
+export const entityCoOccurrence = pgTable(
+  "entity_co_occurrence",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("ecooc")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    projectionVersion: integer("projection_version").notNull(),
+    /** The concrete replay run that produced this row — bound by the composite FK below (see entity_profiles). */
+    projectionRunId: text("projection_run_id").notNull(),
+    /** Ordered pair (a < b) to dedupe the undirected edge — both bound to the same user by the composite FKs below. */
+    aEntityId: text("a_entity_id").notNull(),
+    bEntityId: text("b_entity_id").notNull(),
+    weight: real("weight").notNull().default(0),
+    count: integer("count").notNull().default(0),
+    /** Distinct event families backing the pair — gates promotion (PROMOTION_MIN_FAMILIES). */
+    familyCount: integer("family_count").notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("entity_co_occurrence_pair_idx").on(
+      t.userId,
+      t.projectionVersion,
+      t.aEntityId,
+      t.bEntityId,
+    ),
+    index("entity_co_occurrence_weight_idx").on(t.userId, t.projectionVersion, t.weight),
+    foreignKey({
+      columns: [t.userId, t.aEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_co_occurrence_a_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.bEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_co_occurrence_b_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      name: "entity_co_occurrence_run_fk",
+    }).onDelete("cascade"),
+    check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
+    check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
+    check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
+    check("entity_co_occurrence_family_count_nonnegative", sql`${t.familyCount} >= 0`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// projection bookkeeping — the replay safety rail (D13, D17)
+// (`projection_runs` itself is declared earlier, above the versioned tables, so
+// those tables can bind their output rows to the run that produced them.)
+// ---------------------------------------------------------------------------
 
 /** Per-(projection, source) replay cursor proving no observation is double-counted. */
 export const projectionCursors = pgTable(
