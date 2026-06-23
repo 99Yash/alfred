@@ -53,6 +53,17 @@ function base32(bytes: Buffer): string {
 }
 
 /**
+ * Minimum namespace-secret length, mirroring `ENTITY_ID_NAMESPACE`'s `serverEnv`
+ * policy (`optionalLongSecret`, min 32). Enforced HERE — at the only API that
+ * actually mints ids — because the env field is `optional` (P0 has no writer
+ * yet), so nothing stops a future P1 caller from doing
+ * `serverEnv().ENTITY_ID_NAMESPACE ?? ""` and silently shipping HMAC-with-a-
+ * blank-key ids, which are no harder to guess than the raw SHA the HMAC exists
+ * to avoid (D2). Fail closed at the chokepoint, not in every caller.
+ */
+const MIN_ENTITY_ID_SECRET_LENGTH = 32;
+
+/**
  * Stable, content-addressed entity id (ADR-0067 D2). HMAC-keyed (NOT raw SHA:
  * emails/logins are guessable and these ids surface in client sync + logs),
  * derived from a single normalized hard identity + the user. Deterministic, so
@@ -61,12 +72,20 @@ function base32(bytes: Buffer): string {
  *
  * `secret` is the server-held namespace key (from `serverEnv`); callers pass it
  * in so this stays a pure function and `@alfred/db` keeps no env dependency.
- * Never seed from display name, kind, significance, or a random id.
+ * Throws on a blank/short secret so a missing or mis-wired `ENTITY_ID_NAMESPACE`
+ * fails closed instead of minting guessable public ids. Never seed from display
+ * name, kind, significance, or a random id.
  */
 export function computeStableEntityId(
   secret: string,
   input: { userId: string; identityKind: IdentityKind; normalizedValue: string },
 ): string {
+  if (secret.trim().length < MIN_ENTITY_ID_SECRET_LENGTH) {
+    throw new Error(
+      `computeStableEntityId: namespace secret must be at least ${MIN_ENTITY_ID_SECRET_LENGTH} chars ` +
+        `(ENTITY_ID_NAMESPACE) — refusing to mint a guessable entity id with a blank/short HMAC key.`,
+    );
+  }
   // Canonical, key-ordered JSON so the digest is stable across call sites.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,

@@ -228,13 +228,46 @@ export const observationParticipantSchema = z
   .strict();
 export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
 
+/**
+ * Roles `recipientCount` counts — the fan-out audience (To/Cc/Bcc/attendees),
+ * NOT the sender/organizer/author side. `items` may legitimately carry MORE
+ * rows than `recipientCount` (it also holds `from`/`organizer`/`author`) or
+ * FEWER (a huge blast may store `recipientCount: 50` while enumerating only a
+ * subset in `items`). So the only direction the envelope can self-check is the
+ * one that catches the prod corruption this design exists to kill: a reducer
+ * enumerating N recipients but writing `recipientCount < N`, which would let a
+ * 50-person blast masquerade as a 1:1 and slip under `FAN_OUT_CUTOFF`.
+ */
+const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
+  "to",
+  "cc",
+  "bcc",
+  "attendee",
+]);
+
 export const observationParticipantsSchema = z
   .object({
     items: z.array(observationParticipantSchema),
+    /**
+     * Total fan-out audience size (the cutoff signal). May exceed `items.length`
+     * when the reducer truncates a blast's participant list; must never be LESS
+     * than the recipients actually enumerated in `items` (the refine below). The
+     * P1 fold derives fan-out as `max(recipientCount, |recipient items|)` so a
+     * miswritten count can never push a real blast back under the cutoff.
+     */
     recipientCount: z.number().int().nonnegative(),
     listId: z.string().nullable().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ items, recipientCount }) =>
+      recipientCount >= items.filter((p) => RECIPIENT_ROLES.has(p.role)).length,
+    {
+      error:
+        "recipientCount must be >= the number of enumerated recipient participants (a blast can't masquerade as a 1:1 and bypass FAN_OUT_CUTOFF)",
+      path: ["recipientCount"],
+    },
+  );
 export type ObservationParticipants = z.infer<typeof observationParticipantsSchema>;
 
 export const observationPayloadSchema = jsonObjectSchema;
@@ -408,6 +441,12 @@ export type EntityEdgeType = (typeof ENTITY_EDGE_TYPES)[number];
  * Events above this participant count contribute ZERO pairwise co-occurrence —
  * a 50-person blast is not social evidence (D5). Below it, each pair gets
  * `weight += sourceWeight / participantCount`.
+ *
+ * The count the P1 fold compares against this is `max(participants.recipientCount,
+ * |distinct recipient participants in items|)`, NOT `recipientCount` alone — the
+ * envelope refine guarantees `recipientCount` is never less than the enumerated
+ * recipients, so neither a truncated `items` nor an under-written count can
+ * push a real blast back under the cutoff.
  */
 export const FAN_OUT_CUTOFF = 12;
 
@@ -442,6 +481,15 @@ export const PROMOTION_MIN_FAMILIES = 2;
  * person↔person one, so it is intentionally low. `gmail_blast` is 0 (the
  * fan-out cutoff already zeroes its co-occurrence; kept explicit for non-person
  * significance accounting).
+ *
+ * NOTE — these keys are fold-derived INTERACTION CLASSES, not the raw
+ * `OBSERVATION_KINDS` vocabulary (`gmail`'s one kind `email_message` fans out
+ * into `gmail_reply`/`gmail_direct`/`gmail_cc`/`gmail_blast` here). So the
+ * `github_pull_request` observation kind has no 1:1 key on purpose: P2 owns the
+ * decision of which class a PR-open contributes to (author↔reviewer/assignee
+ * co-occurrence) versus what it only emits as an object edge (`authored_by`,
+ * D9). It is registered as a person-co-occurrence class at P2, not dropped — do
+ * not add a `github_pull_request` weight here before that fold lands.
  */
 export const SOURCE_WEIGHTS = {
   github_review: 1.0,
