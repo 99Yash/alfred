@@ -2,9 +2,17 @@ import type {
   EntityEdgeType,
   EntityNodeKind,
   IdentityKind,
+  IdentityRef,
+  ObservationParticipants,
   ObservationKind,
+  ObservationPayload,
   ObservationSource,
+  ProjectionCursorValue,
+  ProjectionProvenance,
   ProjectionRunStatus,
+  ProjectionRowCounts,
+  ProjectionSourceHighWatermark,
+  SignificanceComponents,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
@@ -49,9 +57,6 @@ import { user } from "./auth";
  * (reducers, the fold, active-version views) lands in P1+; P0 is shape only.
  */
 
-/** Typed identity reference stored in observation subject/object + entity canonical identity. */
-type IdentityRef = { kind: IdentityKind; value: string };
-
 // ---------------------------------------------------------------------------
 // observations — append-only system of record (D1, D4)
 // ---------------------------------------------------------------------------
@@ -78,11 +83,13 @@ export const observations = pgTable(
     dedupKey: text("dedup_key").notNull(),
     subjectIdentity: jsonb("subject_identity").$type<IdentityRef>().notNull(),
     objectIdentity: jsonb("object_identity").$type<IdentityRef | null>(),
-    /** Full participant set + recipientCount + list_id — the fold derives pairwise edges. */
+    /** Full participant set + recipientCount + List-Id — the fold derives pairwise edges. */
     participants: jsonb("participants")
+      .$type<ObservationParticipants>()
       .notNull()
-      .default(sql`'[]'::jsonb`),
+      .default(sql`'{"items":[],"recipientCount":0}'::jsonb`),
     payload: jsonb("payload")
+      .$type<ObservationPayload>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     schemaVersion: integer("schema_version").notNull().default(1),
@@ -161,6 +168,7 @@ export const entityIdentities = pgTable(
   (t) => [
     uniqueIndex("entity_identities_unique_idx").on(t.userId, t.kind, t.value),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
+    check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
   ],
 );
 
@@ -186,10 +194,12 @@ export const entityProfiles = pgTable(
     kind: text("kind").$type<EntityNodeKind>().notNull(),
     /** Time-invariant significance components only; final score = base(components) * recency(asOf) at read time (D6). */
     significanceComponents: jsonb("significance_components")
+      .$type<SignificanceComponents>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     provenance: jsonb("provenance")
+      .$type<ProjectionProvenance>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
@@ -222,6 +232,7 @@ export const entityEdges = pgTable(
     weight: real("weight").notNull().default(0),
     confidence: real("confidence").notNull().default(1),
     provenance: jsonb("provenance")
+      .$type<ProjectionProvenance>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
@@ -238,6 +249,8 @@ export const entityEdges = pgTable(
     ),
     index("entity_edges_from_idx").on(t.userId, t.projectionVersion, t.fromEntityId),
     index("entity_edges_to_idx").on(t.userId, t.projectionVersion, t.toEntityId),
+    check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
+    check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
   ],
 );
 
@@ -278,6 +291,9 @@ export const entityCoOccurrence = pgTable(
     ),
     index("entity_co_occurrence_weight_idx").on(t.userId, t.projectionVersion, t.weight),
     check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
+    check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
+    check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
+    check("entity_co_occurrence_family_count_nonnegative", sql`${t.familyCount} >= 0`),
   ],
 );
 
@@ -299,11 +315,13 @@ export const projectionRuns = pgTable(
     projectionVersion: integer("projection_version").notNull(),
     /** Per-source high-watermark consumed by this run. */
     sourceHighWatermark: jsonb("source_high_watermark")
+      .$type<ProjectionSourceHighWatermark>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /** Determinism check: over stable-ordered, rounded, time-invariant components only (D13). */
     checksum: text("checksum"),
     rowCounts: jsonb("row_counts")
+      .$type<ProjectionRowCounts>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /** running | completed | failed. */
@@ -311,7 +329,10 @@ export const projectionRuns = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
-  (t) => [index("projection_runs_name_idx").on(t.userId, t.projectionName, t.projectionVersion)],
+  (t) => [
+    uniqueIndex("projection_runs_unique_idx").on(t.userId, t.projectionName, t.projectionVersion),
+    index("projection_runs_name_idx").on(t.userId, t.projectionName, t.projectionVersion),
+  ],
 );
 
 /** Per-(projection, source) replay cursor proving no observation is double-counted. */
@@ -325,13 +346,21 @@ export const projectionCursors = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
+    projectionRunId: text("projection_run_id")
+      .notNull()
+      .references(() => projectionRuns.id, { onDelete: "cascade" }),
+    projectionVersion: integer("projection_version").notNull(),
     source: text("source").$type<ObservationSource>().notNull(),
     cursor: jsonb("cursor")
+      .$type<ProjectionCursorValue>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,
   },
-  (t) => [uniqueIndex("projection_cursors_unique_idx").on(t.userId, t.projectionName, t.source)],
+  (t) => [
+    uniqueIndex("projection_cursors_unique_idx").on(t.userId, t.projectionRunId, t.source),
+    index("projection_cursors_version_idx").on(t.userId, t.projectionName, t.projectionVersion),
+  ],
 );
 
 /** The cutover pointer: which version each named projection currently serves (D13). */
@@ -345,10 +374,16 @@ export const activeProjectionVersions = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
+    activeRunId: text("active_run_id")
+      .notNull()
+      .references(() => projectionRuns.id),
     activeVersion: integer("active_version").notNull(),
     ...lifecycle_dates,
   },
-  (t) => [uniqueIndex("active_projection_versions_unique_idx").on(t.userId, t.projectionName)],
+  (t) => [
+    uniqueIndex("active_projection_versions_unique_idx").on(t.userId, t.projectionName),
+    index("active_projection_versions_run_idx").on(t.userId, t.activeRunId),
+  ],
 );
 
 /**
@@ -377,6 +412,7 @@ export const projectionSyncState = pgTable(
   (t) => [
     uniqueIndex("projection_sync_state_unique_idx").on(t.userId, t.syncSlug, t.stableKey),
     index("projection_sync_state_slug_idx").on(t.userId, t.syncSlug),
+    check("projection_sync_state_row_version_nonnegative", sql`${t.rowVersion} >= 0`),
   ],
 );
 

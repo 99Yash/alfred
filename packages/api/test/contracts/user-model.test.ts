@@ -3,7 +3,11 @@ import { describe, test } from "node:test";
 import {
   IDENTITY_ANCHOR_TIER,
   identityAnchorRank,
+  OBSERVATION_SOURCE_RANK,
+  observationParticipantsSchema,
+  observationSourceSchema,
   PROJECTION_RUN_STATUS,
+  projectionCursorValueSchema,
   projectionRunStatusSchema,
 } from "@alfred/contracts";
 import { computeStableEntityId } from "@alfred/db/helpers";
@@ -68,5 +72,46 @@ describe("projectionRunStatusSchema", () => {
     assert.deepEqual(PROJECTION_RUN_STATUS, ["running", "completed", "failed"]);
     assert.equal(projectionRunStatusSchema.parse("running"), "running");
     assert.throws(() => projectionRunStatusSchema.parse("stalled"));
+  });
+});
+
+describe("user-model observation contracts", () => {
+  test("keeps enrichment as a lower-precedence source than first-party integrations", () => {
+    assert.equal(observationSourceSchema.parse("enrichment"), "enrichment");
+    assert.equal(OBSERVATION_SOURCE_RANK.gmail < OBSERVATION_SOURCE_RANK.enrichment, true);
+    assert.equal(OBSERVATION_SOURCE_RANK.user < OBSERVATION_SOURCE_RANK.alfred_chat, true);
+  });
+
+  test("validates the participant envelope reducers must write", () => {
+    const parsed = observationParticipantsSchema.parse({
+      items: [
+        {
+          identity: { kind: "email", value: "person@example.com" },
+          role: "from",
+          displayName: "Person Example",
+        },
+      ],
+      recipientCount: 1,
+      listId: null,
+    });
+
+    assert.equal(parsed.items[0]?.identity.kind, "email");
+    assert.throws(() =>
+      observationParticipantsSchema.parse({
+        items: [{ identity: { kind: "email", value: "person@example.com" }, role: "sender" }],
+        recipientCount: 1,
+      }),
+    );
+  });
+
+  test("validates projection cursor values used by run-scoped cursors", () => {
+    assert.equal(
+      projectionCursorValueSchema.parse({
+        lastObservationId: "obs_abc",
+        occurredAt: "2026-06-23T00:00:00.000Z",
+      }).lastObservationId,
+      "obs_abc",
+    );
+    assert.throws(() => projectionCursorValueSchema.parse({ occurredAt: "not-a-date" }));
   });
 });
