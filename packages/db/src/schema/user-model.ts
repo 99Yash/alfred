@@ -532,8 +532,11 @@ export const entityEdges = pgTable(
       t.fromEntityId,
       t.toEntityId,
     ),
-    index("entity_edges_from_idx").on(t.userId, t.projectionVersion, t.fromEntityId),
-    index("entity_edges_to_idx").on(t.userId, t.projectionVersion, t.toEntityId),
+    // Include projectionName: a version integer is shared across named
+    // projections (user_facts v1 and user-model v1 are both version 1), and
+    // active-view reads filter by (name, version) — matching the unique index.
+    index("entity_edges_from_idx").on(t.userId, t.projectionName, t.projectionVersion, t.fromEntityId),
+    index("entity_edges_to_idx").on(t.userId, t.projectionName, t.projectionVersion, t.toEntityId),
     foreignKey({
       columns: [t.userId, t.fromEntityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],
@@ -601,7 +604,14 @@ export const entityCoOccurrence = pgTable(
       t.aEntityId,
       t.bEntityId,
     ),
-    index("entity_co_occurrence_weight_idx").on(t.userId, t.projectionVersion, t.weight),
+    // projectionName included for the same reason as entity_edges' secondary
+    // indexes: version collides across named projections; reads filter by name+version.
+    index("entity_co_occurrence_weight_idx").on(
+      t.userId,
+      t.projectionName,
+      t.projectionVersion,
+      t.weight,
+    ),
     foreignKey({
       columns: [t.userId, t.aEntityId],
       foreignColumns: [entityNodes.userId, entityNodes.id],

@@ -9,10 +9,13 @@ import {
   observationSourceKindSchema,
   observationSourceSchema,
   observationSubjectSchema,
+  isFactKey,
+  isUserFactKey,
   PROJECTION_RUN_STATUS,
   projectionCursorValueSchema,
   projectionRunStatusSchema,
   projectionSourceHighWatermarkSchema,
+  STANDING_INSTRUCTION_KEY,
 } from "@alfred/contracts";
 import { computeStableEntityId } from "@alfred/db/helpers";
 
@@ -145,6 +148,24 @@ describe("projectionRunStatusSchema", () => {
     assert.deepEqual(PROJECTION_RUN_STATUS, ["running", "completed", "failed"]);
     assert.equal(projectionRunStatusSchema.parse("running"), "running");
     assert.throws(() => projectionRunStatusSchema.parse("stalled"));
+  });
+});
+
+describe("user_facts key gates", () => {
+  test("isFactKey covers only the durable fact ontology, not the standing-instruction key", () => {
+    assert.equal(isFactKey("employer"), true);
+    assert.equal(isFactKey("timezone"), true);
+    // standing_instruction is governed separately — it is NOT a durable fact-type.
+    assert.equal(isFactKey(STANDING_INSTRUCTION_KEY), false);
+    assert.equal(isFactKey("zoom_meeting_passcode"), false);
+  });
+
+  test("isUserFactKey is the column gate: ontology PLUS the standing-instruction key", () => {
+    assert.equal(isUserFactKey("employer"), true);
+    // The footgun this guard fixes: a standing instruction is a legal user_facts.key
+    // that the P4 fold migrates/projects back, so the boundary must accept it.
+    assert.equal(isUserFactKey(STANDING_INSTRUCTION_KEY), true);
+    assert.equal(isUserFactKey("zoom_meeting_passcode"), false);
   });
 });
 
