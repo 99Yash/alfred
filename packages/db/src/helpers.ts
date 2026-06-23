@@ -126,7 +126,9 @@ export function computeStableEntityId(
   // isn't already canonical rather than fold it silently (same fail-loud posture
   // as the whitespace check — these ids are permanent, so a non-canonical anchor
   // must surface as a bug, not get normalized behind the caller's back).
-  if (input.normalizedValue !== canonicalizeIdentityValue(input.identityKind, input.normalizedValue)) {
+  if (
+    input.normalizedValue !== canonicalizeIdentityValue(input.identityKind, input.normalizedValue)
+  ) {
     throw new Error(
       `computeStableEntityId: normalizedValue is not canonical for kind '${input.identityKind}' ` +
         `(expected '${canonicalizeIdentityValue(input.identityKind, input.normalizedValue)}') — ` +
