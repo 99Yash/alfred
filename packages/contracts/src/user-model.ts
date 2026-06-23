@@ -261,9 +261,12 @@ export const IMMUTABLE_ACCOUNT_ID_KINDS = [
  * node seeded by the best anchor survives (losers forward via
  * `supersedes_entity_id`). Lower wins. Not arrival order, not newest/oldest row.
  *
- * `verified` is a tie-break *within* a rank, not a gate — an email observed in a
- * From header is still the canonical hard bridge (D3), so `email` anchors at
- * tier 3 whether or not a stronger verification exists.
+ * `verified` does not gate the *email* tier — an email observed in a From header
+ * is still the canonical hard bridge (D3), so `email` anchors at tier 3 whether
+ * or not a stronger verification exists. It DOES gate the *directory* tier: the
+ * tier-2 slot means a *verified* Workspace Directory identity (D2/D3), so an
+ * unverified `google_directory_id` falls back to the provider-account tier
+ * rather than outranking email.
  *
  * Tie-break order after rank (resolved in the fold, not here): earliest
  * `first_seen_at` → normalized value lexicographic → entity id lexicographic.
@@ -288,14 +291,25 @@ export interface IdentityAnchorInput {
   readonly kind: IdentityKind;
   /** True when this identity was set by an explicit user pin / correction (source `user`). */
   readonly userPinned?: boolean;
+  /** Mirrors `entity_identities.verified` — gates the tier-2 directory slot (D2/D3). */
+  readonly verified?: boolean;
 }
 
 /** Anchor rank for seed/merge-survivor selection (lower = stronger). See `IDENTITY_ANCHOR_TIER`. */
-export function identityAnchorRank({ kind, userPinned }: IdentityAnchorInput): IdentityAnchorTier {
+export function identityAnchorRank({
+  kind,
+  userPinned,
+  verified,
+}: IdentityAnchorInput): IdentityAnchorTier {
   if (userPinned) return IDENTITY_ANCHOR_TIER.userPinned;
   switch (kind) {
     case "google_directory_id":
-      return IDENTITY_ANCHOR_TIER.directoryVerified;
+      // Tier 2 means a *verified* Workspace Directory identity (D2/D3). An
+      // unverified directory row must not outrank email — demote it to the
+      // provider-account tier (it is still a Google-immutable id).
+      return verified
+        ? IDENTITY_ANCHOR_TIER.directoryVerified
+        : IDENTITY_ANCHOR_TIER.providerAccountId;
     case "email":
       return IDENTITY_ANCHOR_TIER.email;
     case "github_user_id":
