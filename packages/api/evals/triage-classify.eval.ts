@@ -195,9 +195,54 @@ const CASES: Case[] = [
     senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: "fyi",
       todo: "suppress",
-      note: "A connection request is an optional nicety — the sender's want, not the user's obligation — whatever the title (16a-i no_obligation); no todo.",
+      note: "A social-network connection request is passive social activity → fyi (rule 8a), NOT awaiting_reply/action_needed — accepting or ignoring is the sender's want, not a question the user must answer (16a-i no_obligation); no todo.",
+    },
+  },
+  {
+    label: "linkedin-people-you-may-know",
+    from: "LinkedIn <notifications@linkedin.com>",
+    subject: "People you may know at Acme",
+    body: "Grow your network: add Priya, Karan, and Maya to your LinkedIn network. View profiles or connect now.",
+    senderKey: "notifications@linkedin.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Network-growth nudges are passive social activity (rule 8a), not a task the user owns; no todo.",
+    },
+  },
+  {
+    label: "linkedin-profile-search-nudge",
+    from: "LinkedIn <notifications@linkedin.com>",
+    subject: "You appeared in 13 searches this week",
+    body: "Your profile appeared in 13 searches this week. See who's searching for you and update your profile to get more views.",
+    senderKey: "notifications@linkedin.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Profile-activity notifications are passive awareness / manufactured engagement (rule 8a); no todo.",
+    },
+  },
+  {
+    label: "linkedin-real-person-message",
+    from: "LinkedIn <messages-noreply@linkedin.com>",
+    subject: "Priya sent you a message",
+    body: "Priya: Can you confirm whether the API migration is safe to ship this week?",
+    persona: "work",
+    knownContact: true,
+    sender: {
+      fromKind: "service",
+      effectiveAuthor: "person",
+      bodyActor: { kind: "person", name: "Priya" },
+    },
+    senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
+    expected: {
+      category: "awaiting_reply",
+      todo: "mint",
+      note: "Rule 8a exception: a real correspondent's platform message with a genuine ask is judged on content; strong relationship means a real person is waiting.",
     },
   },
   {
@@ -300,9 +345,9 @@ const CASES: Case[] = [
     senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: "fyi",
       todo: "suppress",
-      note: "Category action_needed — accepting/ignoring a connection request IS a discrete user action. Todo SUPPRESSED, though: an optional nicety carries no obligation even from a 'Founder & CEO' (the 16a title carve-out is deleted, 16a-i no_obligation). Category and todo legitimately disagree.",
+      note: "A connection request is passive social activity → fyi (rule 8a), even from a 'Founder & CEO' — the seniority of the requester does not make it a question the user must answer. Todo also suppressed (16a-i optional nicety). Reverses the prior action_needed expectation: an optional nicety with no obligation is passive awareness, not an action.",
     },
   },
   {
@@ -346,6 +391,7 @@ interface TaskOutput {
   todoName: string | null;
   wouldMintTodo: boolean;
   suppression: string | null;
+  context: string;
   email: { from: string; subject: string; body: string };
 }
 
@@ -384,9 +430,41 @@ function buildArgs(c: Case): ClassifyEmailArgs {
   };
 }
 
+function renderJudgeContext(c: Case): string {
+  const lines: string[] = [
+    `SenderContext: ${JSON.stringify(c.sender)}`,
+    `Known contact: ${c.knownContact ? "yes" : "no"}`,
+  ];
+
+  if (c.senderRelationship) {
+    lines.push(`Sender relationship: ${c.senderRelationship}`);
+  }
+
+  if (c.senderKey) {
+    const prior = c.senderPrior
+      ? Object.entries(c.senderPrior)
+          .map(([category, count]) => `${category}:${count}`)
+          .join(", ")
+      : "no history";
+    lines.push(`Sender prior [${c.senderKey}]: ${prior}`);
+  }
+
+  if (c.messageCount || c.recentMessages?.length) {
+    lines.push(
+      `Thread: ${c.messageCount ?? 0} prior message(s); newest is ${c.newestDirection ?? "unknown"}`,
+    );
+    for (const message of c.recentMessages ?? []) {
+      const who = message.direction === "sent" ? "you sent" : "received";
+      lines.push(`Recent thread message [${who}]: ${message.snippet}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 const RATIONALE_RUBRIC = `You are grading the REASONING of an email-triage classifier, not just its label.
-- A: The chosen category is well-justified AND the rationale cites concrete, accurate cues from the actual email (sender, subject phrasing, body content, a decisive signal). The reasoning would convince a skeptical reviewer.
-- B: The category is defensible but the rationale is generic, restates a rule without citing the email, or misses the decisive cue.
+- A: The chosen category is well-justified AND the rationale cites concrete, accurate cues from the actual email and supplied deterministic context (sender, subject phrasing, body content, thread/sender observations, a decisive signal). The reasoning would convince a skeptical reviewer.
+- B: The category is defensible but the rationale is generic, restates a rule without citing the email/context, or misses the decisive cue.
 - C: The rationale contains a minor factual error about the email, OR the category is a borderline/arguable miss with otherwise-sound reasoning.
 - D: The category is clearly indefensible for this email, OR the rationale fabricates a cue that isn't in the email.`;
 
@@ -412,6 +490,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       todoName: resolved?.name ?? null,
       wouldMintTodo,
       suppression,
+      context: renderJudgeContext(input),
       email: { from: input.from, subject: input.subject, body: input.body },
     };
   },
@@ -455,6 +534,9 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
           `From: ${output.email.from}`,
           `Subject: ${output.email.subject}`,
           `Body: ${output.email.body}`,
+          "",
+          "Supplied deterministic context visible to the classifier:",
+          output.context,
           "",
           "The classifier's output:",
           `- category: ${output.category}`,
