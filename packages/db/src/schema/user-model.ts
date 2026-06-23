@@ -381,11 +381,16 @@ export const entityProfiles = pgTable(
     projectionVersion: integer("projection_version").notNull(),
     /**
      * The concrete replay run that produced this row — bound to it by the
-     * composite FK below. `projection_version` alone can't prove provenance: a
-     * failed/partial run can leave version-N rows that a later completed run-N
-     * never overwrote, and the active pointer (which stores a run id) would then
-     * serve rows that didn't come from its run. Binding the row to its run makes
-     * orphans from a dead run identifiable (run id ≠ active run) and deletable.
+     * composite FK below. A projection version is SINGLE-ATTEMPT:
+     * `projection_runs` is unique on (user, name, version), so a retry reuses
+     * that one run row and must clear the prior attempt's rows before
+     * re-projecting (`DELETE ... WHERE projection_run_id = <run>`, or drop the
+     * run row and let this FK cascade). The binding is provenance, not
+     * stale-vs-active discrimination: it proves the row came from one concrete
+     * run, and lets a read assert the active rows are from exactly the run
+     * `active_run_id` names — not merely "some row at this version". (Two
+     * coexisting runs at the same version is impossible under the unique index,
+     * so there is never a version-N orphan to tell apart by run id.)
      */
     projectionRunId: text("projection_run_id").notNull(),
     /** Stable node this profile describes — bound to the same user by the composite FK below. */

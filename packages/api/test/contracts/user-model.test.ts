@@ -55,9 +55,15 @@ describe("identityAnchorRank", () => {
       identityAnchorRank({ kind: "email", userPinned: true }),
       IDENTITY_ANCHOR_TIER.userPinned,
     );
+    // A *verified* directory identity anchors at tier 2; an unverified one is
+    // demoted below email to the provider-account tier (D2/D3).
+    assert.equal(
+      identityAnchorRank({ kind: "google_directory_id", verified: true }),
+      IDENTITY_ANCHOR_TIER.directoryVerified,
+    );
     assert.equal(
       identityAnchorRank({ kind: "google_directory_id" }),
-      IDENTITY_ANCHOR_TIER.directoryVerified,
+      IDENTITY_ANCHOR_TIER.providerAccountId,
     );
     assert.equal(identityAnchorRank({ kind: "email" }), IDENTITY_ANCHOR_TIER.email);
     assert.equal(
