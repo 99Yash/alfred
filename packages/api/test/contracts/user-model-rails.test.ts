@@ -15,13 +15,14 @@ import {
   observations,
   projectionCursors,
   projectionRuns,
+  projectionSyncState,
   user,
 } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * DB-backed regression test for the ADR-0067 P0 integrity rails (migrations
- * 0053–0060). For this PR the schema constraints ARE the product — the prior
+ * 0053–0062). For this PR the schema constraints ARE the product — the prior
  * rounds verified them only in throwaway rollback-only `psql` probes, so a
  * future migration could silently drop one and nothing would notice. This pins
  * the load-bearing rails as committed tests:
@@ -45,7 +46,14 @@ import { and, eq, inArray } from "drizzle-orm";
  *      CLOSED row may repeat it (mutable-handle reuse the temporal columns exist for);
  *  11. version-positive CHECK → projection/schema/reducer versions are 1-based;
  *  12. observation_family_heads composite FK → a head can't point at an
- *      observation from a different (user, family).
+ *      observation from a different (user, family);
+ *  13. entity_identities value-nonempty CHECK → the live dedup key can't be an
+ *      empty / whitespace-padded value (a merge magnet).
+ *  14. projection identity-key non-empty CHECKs → projection_name and the
+ *      sync-state slug/key/hash (replay/sync keys feeding the unique indexes)
+ *      can't be empty / whitespace-padded slots that collapse unrelated rows;
+ *  15. projection_runs status + completed_at CHECKs → status is one of the legal
+ *      three and completed_at agrees with it (running⇒null, completed⇒not-null).
  *
  * Each rail asserts BOTH the rejection and a consistent positive control, so a
  * green test means "the constraint rejects the bad shape" not "the insert just
@@ -113,12 +121,17 @@ async function seedUser(): Promise<string> {
  */
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 
+// Fixed observation time for seeds — `makeEntityNodeInsert` requires the earliest
+// observation timestamp (the merge tie-break, D2), never a wall clock, so replay
+// ordering stays deterministic. A constant is fine for these structural rails.
+const SEED_FIRST_SEEN_AT = new Date("2026-06-23T00:00:00.000Z");
+
 async function seedNode(userId: string, value: string): Promise<string> {
   // Route through `makeEntityNodeInsert` (the write API) so the seeded id is, by
   // construction, the content address of its `canonical_identity` — the way a P1
   // writer must mint it; a hand-assembled `{ id, canonicalIdentity }` could put
   // the two out of sync, which the id-shape CHECK would NOT catch.
-  const row = makeEntityNodeInsert(TEST_ENTITY_ID_SECRET, userId, { kind: "email", value });
+  const row = makeEntityNodeInsert(TEST_ENTITY_ID_SECRET, userId, { kind: "email", value }, SEED_FIRST_SEEN_AT);
   await db().insert(entityNodes).values(row);
   return row.id;
 }
@@ -617,5 +630,120 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         headObservationId: obs.id,
       }),
     );
+  });
+
+  test("rail 13: entity_identities value-nonempty CHECK rejects empty / whitespace-padded values", async () => {
+    // `value` is the live dedup key (`entity_identities_active_unique_idx`) and the
+    // join target observations resolve through — an empty or whitespace-padded
+    // value is a merge magnet / split-brain. The DB pins the kind-independent floor
+    // (non-empty + no surrounding whitespace); per-kind CASE canonicalization is
+    // enforced above the DB at the write boundary (it needs the contract canonicalizer).
+    const userId = await seedUser();
+    const node = await seedNode(userId, "value-rail@example.com");
+
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityIdentities)
+          .values({ userId, entityId: node, kind: "email", value: "", source: "gmail" }),
+      { code: "23514", constraint: "entity_identities_value_nonempty" },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityIdentities)
+          .values({ userId, entityId: node, kind: "email", value: " padded@example.com ", source: "gmail" }),
+      { code: "23514", constraint: "entity_identities_value_nonempty" },
+    );
+
+    // Positive control: a clean canonical value inserts.
+    await assert.doesNotReject(() =>
+      db()
+        .insert(entityIdentities)
+        .values({ userId, entityId: node, kind: "email", value: "value-rail@example.com", source: "gmail" }),
+    );
+  });
+
+  test("rail 14: non-empty CHECKs reject empty / whitespace-padded projection identity keys", async () => {
+    // `projection_name` (and the sync-state slug/key/hash) are replay/sync identity
+    // keys feeding the unique indexes — an empty or padded value collapses unrelated
+    // projections or sync rows into one slot. Same kind-independent floor as the
+    // family_key / evidence_hash / entity_identities.value rails.
+    const userId = await seedUser();
+
+    await rejectsConstraint(
+      () => db().insert(projectionRuns).values({ userId, projectionName: "", projectionVersion: 1 }),
+      { code: "23514", constraint: "projection_runs_name_nonempty" },
+    );
+    await rejectsConstraint(
+      () => db().insert(projectionRuns).values({ userId, projectionName: " user-model ", projectionVersion: 1 }),
+      { code: "23514", constraint: "projection_runs_name_nonempty" },
+    );
+
+    for (const bad of [
+      { syncSlug: "", stableKey: "k", contentHash: "h", constraint: "projection_sync_state_sync_slug_nonempty" },
+      { syncSlug: "s", stableKey: "", contentHash: "h", constraint: "projection_sync_state_stable_key_nonempty" },
+      { syncSlug: "s", stableKey: "k", contentHash: "", constraint: "projection_sync_state_content_hash_nonempty" },
+    ]) {
+      await rejectsConstraint(
+        () =>
+          db()
+            .insert(projectionSyncState)
+            .values({ userId, syncSlug: bad.syncSlug, stableKey: bad.stableKey, contentHash: bad.contentHash }),
+        { code: "23514", constraint: bad.constraint },
+      );
+    }
+
+    // Positive controls: clean keys insert.
+    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
+    await assert.doesNotReject(() =>
+      db()
+        .insert(projectionSyncState)
+        .values({ userId, syncSlug: "active_user_facts", stableKey: "fact:tz", contentHash: "abc123" }),
+    );
+  });
+
+  test("rail 15: projection_runs status + completed_at CHECKs reject illegal lifecycle states", async () => {
+    // `status` is bare text the TS union can't police at a raw writer, and
+    // `completed_at` must agree with it (a `running` run has no completion time; a
+    // `completed` run must have one — the active pointer only cuts over to completed
+    // runs). The completed-only ACTIVATION guard still lives in the P1 helper.
+    const userId = await seedUser();
+
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({ userId, projectionName: "user-model", projectionVersion: 1, status: "bogus" as never }),
+      { code: "23514", constraint: "projection_runs_status_valid" },
+    );
+    // running + a completion time is contradictory.
+    await rejectsConstraint(
+      () =>
+        db().insert(projectionRuns).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 1,
+          status: "running",
+          completedAt: new Date("2026-06-23T00:00:00.000Z"),
+        }),
+      { code: "23514", constraint: "projection_runs_completed_at_consistency" },
+    );
+    // completed with no completion time is contradictory.
+    await rejectsConstraint(
+      () =>
+        db().insert(projectionRuns).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 2,
+          status: "completed",
+        }),
+      { code: "23514", constraint: "projection_runs_completed_at_consistency" },
+    );
+
+    // Positive controls: a default `running` run (no completedAt) and a finished
+    // `completed` run (with completedAt) both insert.
+    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 3 }));
+    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 4, completed: true }));
   });
 });

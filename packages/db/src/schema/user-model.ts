@@ -260,7 +260,15 @@ export const entityNodes = pgTable(
      * forwarder". The `<> id` check kills self-forwarding.
      */
     supersedesEntityId: text("supersedes_entity_id"),
-    /** Earliest observation timestamp for this node — anchor tie-break (D2). */
+    /**
+     * Earliest OBSERVATION timestamp for this node — the merge-survivor tie-break
+     * after anchor rank (D2). Read at the fold, so it must be deterministic across
+     * replays: the write API (`makeEntityNodeInsert`) REQUIRES the caller to pass
+     * the observation's `occurredAt`, never a wall clock. The `defaultNow()` is a
+     * degenerate fallback for a direct insert that bypasses that API (which no P1+
+     * writer is allowed to do) — relying on it would leak build/replay time into
+     * merge ordering and break D13 determinism.
+     */
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
   },
@@ -373,6 +381,15 @@ export const entityIdentities = pgTable(
       foreignColumns: [t.userId, t.id],
       name: "entity_identities_supersedes_fk",
     }),
+    // `value` is the live dedup key (it feeds `entity_identities_active_unique_idx`
+    // and is the join target observations resolve through), so an empty or
+    // whitespace-padded value is a merge magnet / split-brain — the exact failure
+    // this substrate exists to prevent. The DB can't enforce per-kind CASE
+    // canonicalization (that needs `kind` + the contract canonicalizer, done at
+    // the write boundary), but it CAN pin the kind-independent floor: non-empty and
+    // no surrounding whitespace, the same posture as the `family_key`/`evidence_hash`
+    // and `entity_nodes.id`-shape rails.
+    check("entity_identities_value_nonempty", sql`length(${t.value}) > 0 AND ${t.value} = btrim(${t.value})`),
     check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
     check(
       "entity_identities_no_self_supersede",
@@ -436,6 +453,31 @@ export const projectionRuns = pgTable(
       t.id,
     ),
     check("projection_runs_version_positive", sql`${t.projectionVersion} >= 1`),
+    // `projection_name` is a replay/binding identity key (it feeds
+    // `projection_runs_unique_idx` and is the name half every versioned output /
+    // pointer / cursor row binds back to). An empty or whitespace-padded name
+    // collapses unrelated named projections into one unique slot — same merge-
+    // magnet failure as the `entity_identities.value` / `family_key` rails, so it
+    // gets the same kind-independent floor (non-empty + no surrounding whitespace).
+    check("projection_runs_name_nonempty", sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`),
+    // `status` is typed `ProjectionRunStatus` but stored as bare text — the DB
+    // can't see the TS union, so pin the legal set here (a stray status would
+    // otherwise sail past the type at any raw writer).
+    check("projection_runs_status_valid", sql`${t.status} IN ('running', 'completed', 'failed')`),
+    // `completed_at` is the terminal-cutover instant the P1 activation guard reads,
+    // so it must agree with `status`: a still-`running` run has no completion time;
+    // a `completed` run MUST have one (the active pointer only cuts over to
+    // completed runs — D13). `failed` is left free (a run may record when it gave
+    // up). Phrased as two forbidden pairings (running-with-time, completed-without)
+    // rather than an allowlist of legal (status, completed_at) tuples so it stays
+    // ORTHOGONAL to `projection_runs_status_valid`: an out-of-enum status trips ONLY
+    // the status rail, not this one too — otherwise a bogus status violates both and
+    // which one Postgres reports is nondeterministic. The completed-only ACTIVATION
+    // guard still lives in the P1 helper (a FK can't read status).
+    check(
+      "projection_runs_completed_at_consistency",
+      sql`NOT (${t.status} = 'running' AND ${t.completedAt} IS NOT NULL) AND NOT (${t.status} = 'completed' AND ${t.completedAt} IS NULL)`,
+    ),
   ],
 );
 
@@ -727,6 +769,8 @@ export const projectionCursors = pgTable(
       name: "projection_cursors_run_fk",
     }).onDelete("cascade"),
     check("projection_cursors_version_positive", sql`${t.projectionVersion} >= 1`),
+    // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
+    check("projection_cursors_name_nonempty", sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`),
   ],
 );
 
@@ -765,6 +809,8 @@ export const activeProjectionVersions = pgTable(
       name: "active_projection_versions_run_fk",
     }),
     check("active_projection_versions_version_positive", sql`${t.activeVersion} >= 1`),
+    // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
+    check("active_projection_versions_name_nonempty", sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`),
   ],
 );
 
@@ -797,6 +843,14 @@ export const projectionSyncState = pgTable(
     // unique `projection_sync_state_unique_idx` (user_id, sync_slug, stable_key),
     // which the planner uses for per-slug scans too.
     check("projection_sync_state_row_version_nonnegative", sql`${t.rowVersion} >= 0`),
+    // `sync_slug` + `stable_key` are the Replicache sync identity (they feed
+    // `projection_sync_state_unique_idx`), and `content_hash` is what the synthetic
+    // `row_version` is derived from. An empty or whitespace-padded value collapses
+    // unrelated sync rows into one slot or hashes distinct content to the same
+    // version — the same merge-magnet floor as the other identity keys.
+    check("projection_sync_state_sync_slug_nonempty", sql`length(${t.syncSlug}) > 0 AND ${t.syncSlug} = btrim(${t.syncSlug})`),
+    check("projection_sync_state_stable_key_nonempty", sql`length(${t.stableKey}) > 0 AND ${t.stableKey} = btrim(${t.stableKey})`),
+    check("projection_sync_state_content_hash_nonempty", sql`length(${t.contentHash}) > 0 AND ${t.contentHash} = btrim(${t.contentHash})`),
   ],
 );
 

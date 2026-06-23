@@ -221,12 +221,59 @@ export const identityValueSchema = z
     error: "identity value must not have leading or trailing whitespace",
   });
 
+/**
+ * Identity kinds whose value is CASE-INSENSITIVE and so must be lowercased
+ * before it becomes the dedup key / `ent_*` content-address input. Email and DNS
+ * are case-insensitive by spec; GitHub logins and `owner/repo` names are
+ * case-insensitive at the provider. Without folding, `Person@Example.com` and
+ * `person@example.com` mint two different stable ids for one person — exactly the
+ * split-brain D2 exists to prevent. The OTHER kinds are deliberately left as-is:
+ * provider opaque ids (`slack_id` `U07ABC…`, `notion_user_id`,
+ * `google_directory_id`) are case-SIGNIFICANT, numeric ids
+ * (`github_user_id`/`github_repository_id`) are digits, and `phone` /
+ * `integration_object_key` carry no safe blanket case rule — folding them would
+ * corrupt a real distinct value.
+ */
+const CASE_FOLDED_IDENTITY_KINDS: ReadonlySet<IdentityKind> = new Set([
+  "email",
+  "domain",
+  "github_login",
+  "github_repository_full_name",
+]);
+
+/**
+ * The ONE canonicalizer for an identity value (D2). Stable `ent_*` ids are
+ * content-addressed from this output, so every reducer (P1 Gmail, P2 GitHub, …)
+ * and the mint chokepoint MUST run the SAME normalization or they mint diverging
+ * anchors for one identity. Centralizing it here — rather than letting each
+ * reducer lowercase "however it remembers to" — is what keeps the address space
+ * single-valued. Trims, then lowercases the case-insensitive kinds. Idempotent:
+ * `canonicalize(canonicalize(x)) === canonicalize(x)`, which is what the
+ * contract refine and the mint assertion below rely on.
+ */
+export function canonicalizeIdentityValue(kind: IdentityKind, value: string): string {
+  const trimmed = value.trim();
+  return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
+}
+
 export const identityRefSchema = z
   .object({
     kind: identityKindSchema,
     value: identityValueSchema,
   })
-  .strict();
+  .strict()
+  // The value must already be in canonical form for its kind — the contract
+  // boundary refuses a non-canonical identity (`Person@x.com`) rather than
+  // silently folding it, mirroring the mint chokepoint's fail-loud posture
+  // (`computeStableEntityId`): normalizing is the reducer's job (via
+  // `canonicalizeIdentityValue`), and an un-normalized value reaching the schema
+  // is a reducer bug that must surface, not get papered over into a second
+  // address for the same identity. The original un-normalized form lives in
+  // `observationParticipant.raw`, so nothing is lost by requiring this.
+  .refine((r) => r.value === canonicalizeIdentityValue(r.kind, r.value), {
+    error: "identity value must be canonical for its kind (e.g. lowercased email/domain/github handle)",
+    path: ["value"],
+  });
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
@@ -307,12 +354,29 @@ const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
 ]);
 
 /**
+ * Roles that are CONTRIBUTOR/authorship metadata, not fan-out audience and not
+ * the initiating actor — a third bucket excluded from `recipientCount`. A
+ * `committer` is whoever committed a commit, which on GitHub's merge/squash path
+ * is the bot identity `web-flow` (or "GitHub") rather than a person the event
+ * fans out to: counting it would make that bot a co-occurrence MAGNET linked to
+ * everyone, and a 30-committer PR would read as a 30-person blast and have its
+ * genuine collaboration co-occurrence suppressed under `FAN_OUT_CUTOFF`. It is
+ * also the symmetric partner of `author` (already an actor) — the same
+ * contributor class, so it shouldn't land on the opposite side of the audience
+ * line. Kept SEPARATE from `ACTOR_ROLES` (a committer isn't the initiating actor
+ * either) so the actor semantics stay clean; both sets are subtracted from the
+ * audience below.
+ */
+const CONTRIBUTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(["committer"]);
+
+/**
  * Roles `recipientCount` counts — the fan-out AUDIENCE: every co-occurrence-
- * bearing participant that is NOT the initiating actor. For email that is
- * To/Cc/Bcc; for calendar, attendees; for GitHub, the reviewers/assignees/
- * committers a PR or push fans out to. Defined as the COMPLEMENT of
- * `ACTOR_ROLES` (not a hand-listed allowlist) so a new audience role added to
- * `OBSERVATION_PARTICIPANT_ROLES` is counted automatically — otherwise every
+ * bearing participant that is neither the initiating actor nor contributor
+ * metadata. For email that is To/Cc/Bcc; for calendar, attendees; for GitHub,
+ * the reviewers/assignees a PR fans out to (NOT committers — see
+ * `CONTRIBUTOR_ROLES`). Defined as the COMPLEMENT of `ACTOR_ROLES ∪
+ * CONTRIBUTOR_ROLES` (not a hand-listed allowlist) so a new audience role added
+ * to `OBSERVATION_PARTICIPANT_ROLES` is counted automatically — otherwise every
  * future reducer (the P2 GitHub one first) would have to remember a separate
  * convention, and a 30-reviewer PR written with `recipientCount: 0` would slip
  * the fan-out rail. `items` may legitimately carry MORE rows than
@@ -343,7 +407,9 @@ function distinctRecipientCount(items: readonly ObservationParticipant[]): numbe
   return seen.size;
 }
 const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
-  OBSERVATION_PARTICIPANT_ROLES.filter((role) => !ACTOR_ROLES.has(role)),
+  OBSERVATION_PARTICIPANT_ROLES.filter(
+    (role) => !ACTOR_ROLES.has(role) && !CONTRIBUTOR_ROLES.has(role),
+  ),
 );
 
 export const observationParticipantsSchema = z

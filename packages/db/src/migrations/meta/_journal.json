@@ -428,6 +428,20 @@
       "when": 1782218782174,
       "tag": "0060_curious_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782220877517,
+      "tag": "0061_aromatic_wonder_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782220919241,
+      "tag": "0062_brave_menace",
+      "breakpoints": true
     }
   ]
 }
