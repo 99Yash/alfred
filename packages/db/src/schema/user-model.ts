@@ -4,6 +4,7 @@ import type {
   IdentityKind,
   IdentityRef,
   ObservationParticipants,
+  ObservationSubject,
   ObservationKind,
   ObservationPayload,
   ObservationSource,
@@ -87,7 +88,14 @@ export const observations = pgTable(
      * could compute wrong.
      */
     evidenceHash: text("evidence_hash").notNull(),
-    subjectIdentity: jsonb("subject_identity").$type<IdentityRef>().notNull(),
+    /**
+     * Who/what the observation is about — a cross-source identity OR the user
+     * themselves (`{kind:'user'}`, see `ObservationSubject`). `source='user'|
+     * 'alfred_chat'` observations and self-facts (timezone/location/standing
+     * instructions) bind to the user subject, which has no `IdentityRef`; column
+     * name kept (renaming jsonb is a migration, widening its `$type` is not).
+     */
+    subjectIdentity: jsonb("subject_identity").$type<ObservationSubject>().notNull(),
     objectIdentity: jsonb("object_identity").$type<IdentityRef | null>(),
     /** Full participant set + recipientCount + List-Id — the fold derives pairwise edges. */
     participants: jsonb("participants")
@@ -279,8 +287,9 @@ export const entityIdentities = pgTable(
      * strand a successor". The `<> id` check kills self-supersession.
      */
     supersedesId: text("supersedes_id"),
-    /** Provenance: originating observation ids. */
+    /** Provenance: originating observation ids — typed like the other projection envelopes (not bare jsonb → unknown). */
     provenance: jsonb("provenance")
+      .$type<ProjectionProvenance>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     ...lifecycle_dates,

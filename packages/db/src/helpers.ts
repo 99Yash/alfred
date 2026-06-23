@@ -95,6 +95,26 @@ export function computeStableEntityId(
         `whitespace-sensitive entity id.`,
     );
   }
+  // The id inputs are as load-bearing as the secret. An empty or whitespace-
+  // padded `userId`/`normalizedValue` would mint a deterministic `ent_*` anchor
+  // that every "unknown" identity collapses onto — exactly the bad anchor that
+  // merges unrelated identities forever. `identityRefSchema` enforces
+  // `value.min(1)` at the app boundary, but this helper is the mint chokepoint
+  // and is reached directly from `@alfred/db`, so fail closed here too. Reject
+  // surrounding whitespace for the same reason as the secret: these ids are
+  // permanent and must not be whitespace-sensitive (normalizing the value is
+  // the caller's job, not ours to silently paper over).
+  for (const [field, value] of [
+    ["userId", input.userId],
+    ["normalizedValue", input.normalizedValue],
+  ] as const) {
+    if (!value || value !== value.trim()) {
+      throw new Error(
+        `computeStableEntityId: ${field} must be non-empty and free of surrounding whitespace ` +
+          `— refusing to mint a stable entity id from a bad anchor.`,
+      );
+    }
+  }
   // Canonical, key-ordered JSON so the digest is stable across call sites.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,

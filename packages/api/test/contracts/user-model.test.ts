@@ -8,6 +8,7 @@ import {
   observationParticipantsSchema,
   observationSourceKindSchema,
   observationSourceSchema,
+  observationSubjectSchema,
   PROJECTION_RUN_STATUS,
   projectionCursorValueSchema,
   projectionRunStatusSchema,
@@ -57,6 +58,28 @@ describe("computeStableEntityId", () => {
     assert.throws(() => computeStableEntityId("short-secret", input), /at least 32 chars/);
     assert.throws(() => computeStableEntityId("a".repeat(31), input), /at least 32 chars/);
     assert.doesNotThrow(() => computeStableEntityId("a".repeat(32), input));
+  });
+
+  test("fails closed on an empty or whitespace-padded id input (no bad-anchor merge magnet)", () => {
+    // An empty/whitespace `userId` or `normalizedValue` would mint a
+    // deterministic `ent_*` id that every "unknown" identity collapses onto,
+    // merging unrelated entities forever. The mint chokepoint must reject it.
+    const valid = "a".repeat(40);
+    assert.throws(() => computeStableEntityId(valid, { ...input, userId: "" }), /userId must be/);
+    assert.throws(() => computeStableEntityId(valid, { ...input, userId: "  " }), /userId must be/);
+    assert.throws(
+      () => computeStableEntityId(valid, { ...input, userId: " usr_test " }),
+      /userId must be/,
+    );
+    assert.throws(
+      () => computeStableEntityId(valid, { ...input, normalizedValue: "" }),
+      /normalizedValue must be/,
+    );
+    assert.throws(
+      () => computeStableEntityId(valid, { ...input, normalizedValue: " person@example.com " }),
+      /normalizedValue must be/,
+    );
+    assert.doesNotThrow(() => computeStableEntityId(valid, input));
   });
 
   test("rejects surrounding whitespace so a stray space can't silently remint every id", () => {
@@ -191,6 +214,44 @@ describe("user-model observation contracts", () => {
       }).recipientCount,
       1,
     );
+  });
+
+  test("counts GitHub audience roles toward fan-out, not just email recipients", () => {
+    // reviewer/assignee/committer are co-occurrence-bearing audience roles. A PR
+    // fanned out to 30 reviewers with recipientCount: 0 must NOT pass — else a
+    // GitHub blast slips under FAN_OUT_CUTOFF the same way an email blast would.
+    const reviewers = Array.from({ length: 30 }, (_, i) => ({
+      identity: { kind: "github_login" as const, value: `reviewer-${i}` },
+      role: "reviewer" as const,
+    }));
+    assert.throws(() =>
+      observationParticipantsSchema.parse({ items: reviewers, recipientCount: 0 }),
+    );
+    // The author is the actor side (like an email `from`) → never inflates the count.
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: { kind: "github_login", value: "author" }, role: "author" },
+          { identity: { kind: "github_login", value: "rev" }, role: "reviewer" },
+        ],
+        recipientCount: 1,
+      }).recipientCount,
+      1,
+    );
+  });
+
+  test("observation subject is an identity OR the user themselves ({kind:'user'})", () => {
+    // user/alfred_chat observations + self-facts (timezone/standing instructions)
+    // are ABOUT the user, who has no IdentityRef — the union is the only way to
+    // express that subject without inventing a self-entity.
+    assert.deepEqual(observationSubjectSchema.parse({ kind: "user" }), { kind: "user" });
+    assert.deepEqual(observationSubjectSchema.parse({ kind: "email", value: "p@example.com" }), {
+      kind: "email",
+      value: "p@example.com",
+    });
+    // A user subject carries no value; an identity-shaped junk kind is rejected.
+    assert.throws(() => observationSubjectSchema.parse({ kind: "user", value: "x" }));
+    assert.throws(() => observationSubjectSchema.parse({ kind: "self" }));
   });
 
   test("validates projection cursor values used by run-scoped cursors", () => {

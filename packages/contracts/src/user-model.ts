@@ -200,6 +200,26 @@ export const identityRefSchema = z
   .strict();
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
+/**
+ * The subject an observation is ABOUT. Almost always a cross-source identity (a
+ * contact / org / repo). But `source='user'|'alfred_chat'` observations (D14) —
+ * and the self-facts whose `FACT_ONTOLOGY` subject is `'user'` (timezone,
+ * location, standing instructions, profile edits) — are about the user
+ * themselves, who has no `IdentityRef` of their own (they are the axis the
+ * graph is built around, not a node in it). `{ kind: 'user' }` is the only way
+ * to express that subject without inventing a self-entity or smuggling the
+ * meaning into `payload`. Mirrors `FACT_SUBJECT_KINDS` on the projection side.
+ *
+ * The `observations.subject_identity` column stays so named (renaming is a
+ * migration; widening the jsonb `$type` is not) — read it as "subject" when the
+ * kind is `user`.
+ */
+export const observationSubjectSchema = z.union([
+  identityRefSchema,
+  z.object({ kind: z.literal("user") }).strict(),
+]);
+export type ObservationSubject = z.infer<typeof observationSubjectSchema>;
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   | JsonPrimitive
@@ -246,21 +266,37 @@ export const observationParticipantSchema = z
 export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
 
 /**
- * Roles `recipientCount` counts — the fan-out audience (To/Cc/Bcc/attendees),
- * NOT the sender/organizer/author side. `items` may legitimately carry MORE
- * rows than `recipientCount` (it also holds `from`/`organizer`/`author`) or
- * FEWER (a huge blast may store `recipientCount: 50` while enumerating only a
- * subset in `items`). So the only direction the envelope can self-check is the
- * one that catches the prod corruption this design exists to kill: a reducer
- * enumerating N recipients but writing `recipientCount < N`, which would let a
- * 50-person blast masquerade as a 1:1 and slip under `FAN_OUT_CUTOFF`.
+ * The single initiating ACTOR side of an event — the sender / organizer / PR or
+ * commit author. Excluded from the fan-out audience count: one actor addressing
+ * N others is a 1→N event, and counting the actor would inflate a true 1:1.
+ * Closed, small set; everything else in the participant vocabulary is audience.
  */
-const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
-  "to",
-  "cc",
-  "bcc",
-  "attendee",
+const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
+  "from",
+  "organizer",
+  "author",
 ]);
+
+/**
+ * Roles `recipientCount` counts — the fan-out AUDIENCE: every co-occurrence-
+ * bearing participant that is NOT the initiating actor. For email that is
+ * To/Cc/Bcc; for calendar, attendees; for GitHub, the reviewers/assignees/
+ * committers a PR or push fans out to. Defined as the COMPLEMENT of
+ * `ACTOR_ROLES` (not a hand-listed allowlist) so a new audience role added to
+ * `OBSERVATION_PARTICIPANT_ROLES` is counted automatically — otherwise every
+ * future reducer (the P2 GitHub one first) would have to remember a separate
+ * convention, and a 30-reviewer PR written with `recipientCount: 0` would slip
+ * the fan-out rail. `items` may legitimately carry MORE rows than
+ * `recipientCount` (it also holds the actor roles) or FEWER (a huge blast may
+ * store `recipientCount: 50` while enumerating only a subset). So the only
+ * direction the envelope can self-check is the one that catches the prod
+ * corruption this design exists to kill: a reducer enumerating N audience
+ * members but writing `recipientCount < N`, which would let an N-person blast
+ * masquerade as a 1:1 and slip under `FAN_OUT_CUTOFF`.
+ */
+const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
+  OBSERVATION_PARTICIPANT_ROLES.filter((role) => !ACTOR_ROLES.has(role)),
+);
 
 export const observationParticipantsSchema = z
   .object({
