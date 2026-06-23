@@ -9,6 +9,7 @@ import {
   isHardPersonBridge,
   isImmutableAccountBridge,
   isObservationKindForSource,
+  MAX_IDENTITY_VALUE_BYTES,
   OBSERVATION_SOURCE_RANK,
   observationParticipantsSchema,
   observationSourceKindSchema,
@@ -456,6 +457,37 @@ describe("user-model observation contracts", () => {
     );
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "  " }));
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "" }));
+  });
+
+  test("identity value rejects values over the DB byte cap", () => {
+    // The DB rail is `octet_length(value) <= 1024`, so the contract has to count
+    // UTF-8 bytes too; a JS `.length` check would let multibyte values through and
+    // strand the projection at insert time.
+    assert.deepEqual(
+      identityRefSchema.parse({
+        kind: "slack_id",
+        value: "x".repeat(MAX_IDENTITY_VALUE_BYTES),
+      }),
+      {
+        kind: "slack_id",
+        value: "x".repeat(MAX_IDENTITY_VALUE_BYTES),
+      },
+    );
+    assert.throws(() =>
+      identityRefSchema.parse({
+        kind: "slack_id",
+        value: "x".repeat(MAX_IDENTITY_VALUE_BYTES + 1),
+      }),
+    );
+
+    const exactly1024Bytes = "é".repeat(MAX_IDENTITY_VALUE_BYTES / 2);
+    assert.deepEqual(identityRefSchema.parse({ kind: "slack_id", value: exactly1024Bytes }), {
+      kind: "slack_id",
+      value: exactly1024Bytes,
+    });
+    assert.throws(() =>
+      identityRefSchema.parse({ kind: "slack_id", value: `${exactly1024Bytes}a` }),
+    );
   });
 
   test("canonicalizes case-insensitive identity kinds and leaves opaque ids untouched", () => {
