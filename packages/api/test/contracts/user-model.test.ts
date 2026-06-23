@@ -254,6 +254,21 @@ describe("user-model observation contracts", () => {
     assert.throws(() => observationSubjectSchema.parse({ kind: "self" }));
   });
 
+  test("identity value rejects empty + surrounding whitespace (matches the mint chokepoint)", () => {
+    // The contract boundary must reject exactly what `computeStableEntityId`
+    // rejects (empty / surrounding whitespace) — otherwise a reducer can write a
+    // contract-valid observation (`value: " p@example.com "`) that then fails
+    // projection. Fail loud here, do not silently normalize.
+    assert.deepEqual(observationSubjectSchema.parse({ kind: "email", value: "p@example.com" }), {
+      kind: "email",
+      value: "p@example.com",
+    });
+    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: " p@example.com " }));
+    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "p@example.com\n" }));
+    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "  " }));
+    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "" }));
+  });
+
   test("validates projection cursor values used by run-scoped cursors", () => {
     assert.equal(
       projectionCursorValueSchema.parse({
