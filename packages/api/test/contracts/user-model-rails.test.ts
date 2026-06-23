@@ -467,15 +467,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // collides on the partial unique (a `github_login` resolves to one live entity).
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityIdentities)
-          .values({
-            userId,
-            entityId: nodeB,
-            kind: "github_login",
-            value: "alice",
-            source: "github",
-          }),
+        db().insert(entityIdentities).values({
+          userId,
+          entityId: nodeB,
+          kind: "github_login",
+          value: "alice",
+          source: "github",
+        }),
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
     );
 
@@ -488,15 +486,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       .where(and(eq(entityIdentities.userId, userId), eq(entityIdentities.id, live.id)));
 
     await assert.doesNotReject(() =>
-      db()
-        .insert(entityIdentities)
-        .values({
-          userId,
-          entityId: nodeB,
-          kind: "github_login",
-          value: "alice",
-          source: "github",
-        }),
+      db().insert(entityIdentities).values({
+        userId,
+        entityId: nodeB,
+        kind: "github_login",
+        value: "alice",
+        source: "github",
+      }),
     );
   });
 
