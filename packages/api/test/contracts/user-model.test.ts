@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import {
+  IDENTITY_ANCHOR_TIER,
+  identityAnchorRank,
+  PROJECTION_RUN_STATUS,
+  projectionRunStatusSchema,
+} from "@alfred/contracts";
+import { computeStableEntityId } from "@alfred/db/helpers";
+
+describe("computeStableEntityId", () => {
+  const secret = "stable namespace secret for tests";
+  const input = {
+    userId: "usr_test",
+    identityKind: "email" as const,
+    normalizedValue: "person@example.com",
+  };
+
+  test("pins the stable HMAC id contract", () => {
+    assert.equal(computeStableEntityId(secret, input), "ent_heqb3j5f3jihmydfr5yuddb5qu");
+    assert.equal(computeStableEntityId(secret, input), computeStableEntityId(secret, input));
+  });
+
+  test("emits the compact 128-bit base32 id shape", () => {
+    const id = computeStableEntityId(secret, input);
+    assert.match(id, /^ent_[a-z2-7]{26}$/);
+  });
+
+  test("is sensitive to every FK-defining input field and the namespace secret", () => {
+    const baseline = computeStableEntityId(secret, input);
+
+    assert.notEqual(computeStableEntityId(secret, { ...input, userId: "usr_other" }), baseline);
+    assert.notEqual(
+      computeStableEntityId(secret, { ...input, identityKind: "github_login" }),
+      baseline,
+    );
+    assert.notEqual(
+      computeStableEntityId(secret, { ...input, normalizedValue: "other@example.com" }),
+      baseline,
+    );
+    assert.notEqual(computeStableEntityId(`${secret}!`, input), baseline);
+  });
+});
+
+describe("identityAnchorRank", () => {
+  test("ranks the merge survivor anchors explicitly", () => {
+    assert.equal(
+      identityAnchorRank({ kind: "email", userPinned: true }),
+      IDENTITY_ANCHOR_TIER.userPinned,
+    );
+    assert.equal(
+      identityAnchorRank({ kind: "google_directory_id" }),
+      IDENTITY_ANCHOR_TIER.directoryVerified,
+    );
+    assert.equal(identityAnchorRank({ kind: "email" }), IDENTITY_ANCHOR_TIER.email);
+    assert.equal(
+      identityAnchorRank({ kind: "github_user_id" }),
+      IDENTITY_ANCHOR_TIER.providerAccountId,
+    );
+    assert.equal(identityAnchorRank({ kind: "domain" }), IDENTITY_ANCHOR_TIER.providerAccountId);
+    assert.equal(identityAnchorRank({ kind: "github_login" }), IDENTITY_ANCHOR_TIER.providerHandle);
+    assert.equal(identityAnchorRank({ kind: "phone" }), IDENTITY_ANCHOR_TIER.provisional);
+  });
+});
+
+describe("projectionRunStatusSchema", () => {
+  test("accepts only the closed projection run statuses", () => {
+    assert.deepEqual(PROJECTION_RUN_STATUS, ["running", "completed", "failed"]);
+    assert.equal(projectionRunStatusSchema.parse("running"), "running");
+    assert.throws(() => projectionRunStatusSchema.parse("stalled"));
+  });
+});
