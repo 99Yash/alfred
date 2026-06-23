@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { computeStableEntityId } from "@alfred/db/helpers";
+import { makeEntityNodeInsert } from "@alfred/db/helpers";
 import {
   activeProjectionVersions,
   entityCoOccurrence,
@@ -11,6 +11,7 @@ import {
   entityIdentities,
   entityNodes,
   entityProfiles,
+  observationFamilyHeads,
   observations,
   projectionCursors,
   projectionRuns,
@@ -38,7 +39,9 @@ import { and, eq, inArray } from "drizzle-orm";
  *   9. entity_nodes id-shape CHECK → only `ent_<26 base32>` content-addressed ids;
  *  10. entity_identities active partial-unique → ≤1 LIVE `(kind, value)`, but a
  *      CLOSED row may repeat it (mutable-handle reuse the temporal columns exist for);
- *  11. version-positive CHECK → projection/schema/reducer versions are 1-based.
+ *  11. version-positive CHECK → projection/schema/reducer versions are 1-based;
+ *  12. observation_family_heads composite FK → a head can't point at an
+ *      observation from a different (user, family).
  *
  * Each rail asserts BOTH the rejection and a consistent positive control, so a
  * green test means "the constraint rejects the bad shape" not "the insert just
@@ -107,15 +110,13 @@ async function seedUser(): Promise<string> {
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 
 async function seedNode(userId: string, value: string): Promise<string> {
-  const id = computeStableEntityId(TEST_ENTITY_ID_SECRET, {
-    userId,
-    identityKind: "email",
-    normalizedValue: value,
-  });
-  await db()
-    .insert(entityNodes)
-    .values({ id, userId, canonicalIdentity: { kind: "email", value } });
-  return id;
+  // Route through `makeEntityNodeInsert` (the write API) so the seeded id is, by
+  // construction, the content address of its `canonical_identity` — the way a P1
+  // writer must mint it; a hand-assembled `{ id, canonicalIdentity }` could put
+  // the two out of sync, which the id-shape CHECK would NOT catch.
+  const row = makeEntityNodeInsert(TEST_ENTITY_ID_SECRET, userId, { kind: "email", value });
+  await db().insert(entityNodes).values(row);
+  return row.id;
 }
 
 async function seedRun(
@@ -512,5 +513,40 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
 
     // Positive control: version 1 is accepted.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
+  });
+
+  test("rail 12: family-head composite FK rejects a head whose (user, family) != its observation's", async () => {
+    // The schema calls observation_family_heads_obs_fk load-bearing — it binds
+    // (user_id, family_key, head_observation_id) → observations(user_id,
+    // family_key, id) so a head can't point at another user's (or family's)
+    // observation — but no prior rail exercised it. A plain FK on
+    // head_observation_id alone would prove only that the observation exists.
+    const userId = await seedUser();
+    const [obs] = await db()
+      .insert(observations)
+      .values(gmailObs(userId, "famHead", "evidence-head"))
+      .returning({ id: observations.id });
+    assert.ok(obs);
+
+    // A head claiming family "wrongFam" but pointing at an observation in
+    // "famHead" — (userId, "wrongFam", obs.id) has no matching observations row.
+    await rejectsConstraint(
+      () =>
+        db().insert(observationFamilyHeads).values({
+          userId,
+          familyKey: "wrongFam",
+          headObservationId: obs.id,
+        }),
+      { code: "23503", constraint: "observation_family_heads_obs_fk" },
+    );
+
+    // Positive control: a head bound to the observation's real (user, family) is accepted.
+    await assert.doesNotReject(() =>
+      db().insert(observationFamilyHeads).values({
+        userId,
+        familyKey: "famHead",
+        headObservationId: obs.id,
+      }),
+    );
   });
 });

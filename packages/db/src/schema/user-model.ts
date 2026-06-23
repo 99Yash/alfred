@@ -127,7 +127,10 @@ export const observations = pgTable(
   (t) => [
     uniqueIndex("observations_dedup_idx").on(t.userId, t.familyKey, t.evidenceHash),
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
-    index("observations_family_idx").on(t.userId, t.familyKey),
+    // No standalone (user_id, family_key) index — it is a left-prefix of both
+    // `observations_dedup_idx` and `observations_family_member_fk_idx`, which the
+    // planner already uses for (user_id, family_key) lookups. An extra btree on an
+    // append/replay-heavy log is pure write tax for no new access path.
     index("observations_supersedes_idx").on(t.supersedesObservationId),
     // FK target for the family-head + supersession composite FKs: lets a head /
     // a successor bind (user, family_key, observation id) together so neither can
@@ -237,7 +240,9 @@ export const entityNodes = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("entity_nodes_user_idx").on(t.userId),
+    // No standalone (user_id) index — it is a left-prefix of the unique
+    // `entity_nodes_user_fk_idx` (user_id, id), which serves "all nodes for a
+    // user" scans equally. A second btree would only tax writes.
     index("entity_nodes_supersedes_idx").on(t.supersedesEntityId),
     // FK target for the (user, entity id) composite FKs on every table that
     // references a stable node (identities, profiles, edges, co-occurrence) and
@@ -285,7 +290,12 @@ export const entityIdentities = pgTable(
     value: text("value").notNull(),
     confidence: real("confidence").notNull().default(1),
     source: text("source").$type<ObservationSource>().notNull(),
-    /** True for a hard-verified identity (Workspace directory, confirmed bridge). Tie-break, not a rank gate. */
+    /**
+     * True for a hard-verified identity (Workspace directory, confirmed bridge).
+     * Gates the tier-2 directory anchor slot in `identityAnchorRank` (D2/D3): a
+     * `google_directory_id` anchors at `directoryVerified` only when verified,
+     * else it falls back to the provider-account tier. NOT a general tie-break.
+     */
     verified: boolean("verified").notNull().default(false),
     /** True when set by an explicit user pin / correction — anchor tier 1 (D2). */
     userPinned: boolean("user_pinned").notNull().default(false),
@@ -382,7 +392,9 @@ export const projectionRuns = pgTable(
   },
   (t) => [
     uniqueIndex("projection_runs_unique_idx").on(t.userId, t.projectionName, t.projectionVersion),
-    index("projection_runs_name_idx").on(t.userId, t.projectionName, t.projectionVersion),
+    // No separate (user_id, projection_name, projection_version) index — that is
+    // EXACTLY the column list of `projection_runs_unique_idx` above, so a
+    // non-unique duplicate buys nothing and only taxes writes.
     // FK target for BOTH the active-pointer composite FK and the versioned
     // output tables' run-binding FK: lets `active_projection_versions` /
     // `entity_profiles` / `entity_edges` / `entity_co_occurrence` bind
@@ -756,7 +768,9 @@ export const projectionSyncState = pgTable(
   },
   (t) => [
     uniqueIndex("projection_sync_state_unique_idx").on(t.userId, t.syncSlug, t.stableKey),
-    index("projection_sync_state_slug_idx").on(t.userId, t.syncSlug),
+    // No standalone (user_id, sync_slug) index — it is a left-prefix of the
+    // unique `projection_sync_state_unique_idx` (user_id, sync_slug, stable_key),
+    // which the planner uses for per-slug scans too.
     check("projection_sync_state_row_version_nonnegative", sql`${t.rowVersion} >= 0`),
   ],
 );

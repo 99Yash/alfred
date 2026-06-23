@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   STABLE_ENTITY_ID_VERSION,
   type IdentityKind,
+  type IdentityRef,
   type StableEntityIdInput,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
@@ -126,6 +127,34 @@ export function computeStableEntityId(
   const digest = createHmac("sha256", secret).update(canonical).digest();
   // 128 bits (~26 base32 chars) — ample collision resistance, compact id.
   return `ent_${base32(digest.subarray(0, 16))}`;
+}
+
+/**
+ * Build an `entity_nodes` insert whose `id` is GUARANTEED to be the content
+ * address of its `canonical_identity` (ADR-0067 D2). The two are stored in
+ * independent columns and the DB id-shape CHECK only proves the id is
+ * `ent_<base32>`-shaped — NOT that it was HMAC-derived from the stored identity.
+ * Nothing else stops a writer from persisting an id minted from `a@x.com` next
+ * to `canonicalIdentity: { value: "b@x.com" }`; a later cold replay re-derives
+ * the id FROM the identity, computes a different `ent_*`, and silently orphans
+ * every FK that bound to the old id — a permanent, spreading corruption of the
+ * one surface the whole substrate keys on. The DB can't recompute the HMAC
+ * (no secret), so the invariant can only be enforced at the write API: mint
+ * both fields from ONE identity here, and a mismatched pair is unrepresentable.
+ * Every `entity_nodes` writer (P1+) must go through this rather than hand-
+ * assembling the row.
+ */
+export function makeEntityNodeInsert(
+  secret: string,
+  userId: string,
+  identity: IdentityRef,
+): { id: string; userId: string; canonicalIdentity: IdentityRef } {
+  const id = computeStableEntityId(secret, {
+    userId,
+    identityKind: identity.kind,
+    normalizedValue: identity.value,
+  });
+  return { id, userId, canonicalIdentity: identity };
 }
 
 /**
