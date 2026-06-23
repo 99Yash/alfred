@@ -535,7 +535,12 @@ export const entityEdges = pgTable(
     // Include projectionName: a version integer is shared across named
     // projections (user_facts v1 and user-model v1 are both version 1), and
     // active-view reads filter by (name, version) — matching the unique index.
-    index("entity_edges_from_idx").on(t.userId, t.projectionName, t.projectionVersion, t.fromEntityId),
+    index("entity_edges_from_idx").on(
+      t.userId,
+      t.projectionName,
+      t.projectionVersion,
+      t.fromEntityId,
+    ),
     index("entity_edges_to_idx").on(t.userId, t.projectionName, t.projectionVersion, t.toEntityId),
     foreignKey({
       columns: [t.userId, t.fromEntityId],

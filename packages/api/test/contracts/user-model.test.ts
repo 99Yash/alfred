@@ -284,8 +284,12 @@ describe("user-model observation contracts", () => {
       kind: "email",
       value: "p@example.com",
     });
-    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: " p@example.com " }));
-    assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "p@example.com\n" }));
+    assert.throws(() =>
+      observationSubjectSchema.parse({ kind: "email", value: " p@example.com " }),
+    );
+    assert.throws(() =>
+      observationSubjectSchema.parse({ kind: "email", value: "p@example.com\n" }),
+    );
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "  " }));
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "" }));
   });
