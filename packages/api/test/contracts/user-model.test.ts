@@ -3,12 +3,15 @@ import { describe, test } from "node:test";
 import {
   IDENTITY_ANCHOR_TIER,
   identityAnchorRank,
+  isObservationKindForSource,
   OBSERVATION_SOURCE_RANK,
   observationParticipantsSchema,
+  observationSourceKindSchema,
   observationSourceSchema,
   PROJECTION_RUN_STATUS,
   projectionCursorValueSchema,
   projectionRunStatusSchema,
+  projectionSourceHighWatermarkSchema,
 } from "@alfred/contracts";
 import { computeStableEntityId } from "@alfred/db/helpers";
 
@@ -113,5 +116,35 @@ describe("user-model observation contracts", () => {
       "obs_abc",
     );
     assert.throws(() => projectionCursorValueSchema.parse({ occurredAt: "not-a-date" }));
+  });
+
+  test("closes the source→kind vocabulary so a kind can't ride the wrong source", () => {
+    assert.equal(isObservationKindForSource("gmail", "email_message"), true);
+    assert.equal(isObservationKindForSource("github", "github_push"), true);
+    // The half-open bug: independently-valid source + kind that don't belong together.
+    assert.equal(isObservationKindForSource("gmail", "github_push"), false);
+
+    assert.equal(
+      observationSourceKindSchema.parse({ source: "github", kind: "github_review" }).kind,
+      "github_review",
+    );
+    assert.throws(() => observationSourceKindSchema.parse({ source: "gmail", kind: "github_push" }));
+    // A source whose reducer isn't built yet accepts no kind.
+    assert.throws(() =>
+      observationSourceKindSchema.parse({ source: "clickup", kind: "email_message" }),
+    );
+  });
+
+  test("keys source high-watermarks by ObservationSource, rejecting typo keys", () => {
+    // Partial by design — a run consumes only the sources it touched.
+    assert.deepEqual(projectionSourceHighWatermarkSchema.parse({}), {});
+    assert.equal(
+      projectionSourceHighWatermarkSchema.parse({ gmail: { lastObservationId: "obs_1" } }).gmail
+        ?.lastObservationId,
+      "obs_1",
+    );
+    assert.throws(() =>
+      projectionSourceHighWatermarkSchema.parse({ gihub: { lastObservationId: "obs_1" } }),
+    );
   });
 });

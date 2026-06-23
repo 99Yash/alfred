@@ -16,8 +16,10 @@ import type {
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -94,14 +96,64 @@ export const observations = pgTable(
       .default(sql`'{}'::jsonb`),
     schemaVersion: integer("schema_version").notNull().default(1),
     reducerVersion: integer("reducer_version").notNull().default(1),
-    /** Prior active family member this row supersedes (changed evidence, D4). */
-    supersedesObservationId: text("supersedes_observation_id"),
+    /**
+     * Prior active family member this row supersedes (changed evidence, D4).
+     * Self-FK + `<> id` check make the chain a real structural invariant, not a
+     * comment; `set null` (never cascade) so a delete can't unzip a family. The
+     * resolver (P1) still owns multi-hop cycle detection — the check only kills
+     * the trivial 1-cycle.
+     */
+    supersedesObservationId: text("supersedes_observation_id").references(
+      (): AnyPgColumn => observations.id,
+      { onDelete: "set null" },
+    ),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("observations_dedup_idx").on(t.userId, t.dedupKey),
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
     index("observations_family_idx").on(t.userId, t.familyKey),
+    index("observations_supersedes_idx").on(t.supersedesObservationId),
+    check(
+      "observations_no_self_supersede",
+      sql`${t.supersedesObservationId} IS NULL OR ${t.supersedesObservationId} <> ${t.id}`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// observation_family_heads — one active head per (user, family_key) (D4)
+// ---------------------------------------------------------------------------
+
+/**
+ * The single active member of an observation family, materialized so the
+ * supersession reducer (P1) has a DB-enforced serialization point. Without it,
+ * two concurrent material updates for the same `family_key` can both supersede
+ * the same prior row and leave TWO active heads, making replay depend on write
+ * timing. The unique `(user_id, family_key)` lets the reducer `upsert ... ON
+ * CONFLICT` the head inside its append transaction: concurrent appends collide
+ * on the constraint instead of silently forking the family. Observations stay
+ * insert-only — this is the only mutable "which one is live" pointer.
+ */
+export const observationFamilyHeads = pgTable(
+  "observation_family_heads",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("ofh")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    familyKey: text("family_key").notNull(),
+    /** The currently-live observation for this family. */
+    headObservationId: text("head_observation_id")
+      .notNull()
+      .references(() => observations.id, { onDelete: "cascade" }),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("observation_family_heads_unique_idx").on(t.userId, t.familyKey),
+    index("observation_family_heads_obs_idx").on(t.headObservationId),
   ],
 );
 
@@ -119,8 +171,17 @@ export const entityNodes = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /** The anchor identity this id was seeded from. */
     canonicalIdentity: jsonb("canonical_identity").$type<IdentityRef>().notNull(),
-    /** Set on the loser of a merge → points at the surviving (best-anchor) node. Reads resolve through this. */
-    supersedesEntityId: text("supersedes_entity_id"),
+    /**
+     * Set on the loser of a merge → points at the surviving (best-anchor) node.
+     * Reads resolve through this (D16), so it is the permanent FK safety rail,
+     * not free metadata: self-FK keeps it pointing at a real node, `set null`
+     * (never cascade) keeps a deleted survivor from dragging its forwarded
+     * aliases with it, and the `<> id` check kills self-forwarding.
+     */
+    supersedesEntityId: text("supersedes_entity_id").references(
+      (): AnyPgColumn => entityNodes.id,
+      { onDelete: "set null" },
+    ),
     /** Earliest observation timestamp for this node — anchor tie-break (D2). */
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
@@ -128,6 +189,10 @@ export const entityNodes = pgTable(
   (t) => [
     index("entity_nodes_user_idx").on(t.userId),
     index("entity_nodes_supersedes_idx").on(t.supersedesEntityId),
+    check(
+      "entity_nodes_no_self_supersede",
+      sql`${t.supersedesEntityId} IS NULL OR ${t.supersedesEntityId} <> ${t.id}`,
+    ),
   ],
 );
 
@@ -158,7 +223,14 @@ export const entityIdentities = pgTable(
     userPinned: boolean("user_pinned").notNull().default(false),
     validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
-    supersedesId: text("supersedes_id"),
+    /**
+     * Prior identity row this one supersedes (re-anchoring on merge). Self-FK +
+     * `<> id` check + index make the chain enforced and traversable rather than
+     * a comment; `set null` so a delete can't strand a successor.
+     */
+    supersedesId: text("supersedes_id").references((): AnyPgColumn => entityIdentities.id, {
+      onDelete: "set null",
+    }),
     /** Provenance: originating observation ids. */
     provenance: jsonb("provenance")
       .notNull()
@@ -168,7 +240,12 @@ export const entityIdentities = pgTable(
   (t) => [
     uniqueIndex("entity_identities_unique_idx").on(t.userId, t.kind, t.value),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
+    index("entity_identities_supersedes_idx").on(t.supersedesId),
     check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
+    check(
+      "entity_identities_no_self_supersede",
+      sql`${t.supersedesId} IS NULL OR ${t.supersedesId} <> ${t.id}`,
+    ),
   ],
 );
 
@@ -332,6 +409,15 @@ export const projectionRuns = pgTable(
   (t) => [
     uniqueIndex("projection_runs_unique_idx").on(t.userId, t.projectionName, t.projectionVersion),
     index("projection_runs_name_idx").on(t.userId, t.projectionName, t.projectionVersion),
+    // FK target for the active-pointer composite FK: lets `active_projection_versions`
+    // bind (user, name, version, run id) together so a pointer can't name a run
+    // that belongs to a different user / projection / version.
+    uniqueIndex("projection_runs_active_fk_idx").on(
+      t.userId,
+      t.projectionName,
+      t.projectionVersion,
+      t.id,
+    ),
   ],
 );
 
@@ -374,15 +460,29 @@ export const activeProjectionVersions = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
-    activeRunId: text("active_run_id")
-      .notNull()
-      .references(() => projectionRuns.id),
+    /** The concrete run this pointer activates — bound to (user, name, version) by the composite FK below. */
+    activeRunId: text("active_run_id").notNull(),
     activeVersion: integer("active_version").notNull(),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("active_projection_versions_unique_idx").on(t.userId, t.projectionName),
     index("active_projection_versions_run_idx").on(t.userId, t.activeRunId),
+    // The pointer's (user, name, version, run id) must all belong to the SAME
+    // projection_runs row — a plain FK on active_run_id alone proved only that
+    // the run exists, not that its user/name/version match the pointer's. (The
+    // "completed-only" guard stays in the activation helper, P1 — a FK can't
+    // assert the target row's status.)
+    foreignKey({
+      columns: [t.userId, t.projectionName, t.activeVersion, t.activeRunId],
+      foreignColumns: [
+        projectionRuns.userId,
+        projectionRuns.projectionName,
+        projectionRuns.projectionVersion,
+        projectionRuns.id,
+      ],
+      name: "active_projection_versions_run_fk",
+    }),
   ],
 );
 
@@ -417,6 +517,7 @@ export const projectionSyncState = pgTable(
 );
 
 export type Observation = typeof observations.$inferSelect;
+export type ObservationFamilyHead = typeof observationFamilyHeads.$inferSelect;
 export type EntityNode = typeof entityNodes.$inferSelect;
 export type EntityIdentity = typeof entityIdentities.$inferSelect;
 export type EntityProfile = typeof entityProfiles.$inferSelect;
