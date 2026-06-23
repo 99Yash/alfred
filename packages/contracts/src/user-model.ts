@@ -125,7 +125,10 @@ export const identityRefSchema = z
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | { readonly [key: string]: JsonValue } | readonly JsonValue[];
+export type JsonValue =
+  | JsonPrimitive
+  | { readonly [key: string]: JsonValue }
+  | readonly JsonValue[];
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
@@ -412,7 +415,10 @@ export const projectionCursorValueSchema = z
   .strict();
 export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
 
-export const projectionSourceHighWatermarkSchema = z.record(z.string(), projectionCursorValueSchema);
+export const projectionSourceHighWatermarkSchema = z.record(
+  z.string(),
+  projectionCursorValueSchema,
+);
 export type ProjectionSourceHighWatermark = z.infer<typeof projectionSourceHighWatermarkSchema>;
 
 export const projectionRowCountsSchema = z.record(z.string(), z.number().int().nonnegative());
