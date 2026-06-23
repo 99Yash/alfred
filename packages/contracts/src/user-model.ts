@@ -274,6 +274,16 @@ export function canonicalizeIdentityValue(kind: IdentityKind, value: string): st
 // every JS engine.
 const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
+// Final DNS label: same label grammar, but must contain at least one letter. This
+// rejects all-numeric pseudo-TLDs (`example.123`) while still accepting punycoded
+// IDN labels (`xn--...`).
+const DNS_TLD = `(?=[a-z0-9-]*[a-z])${DNS_LABEL}`;
+// A DNS hostname: ≥2 labels (must carry a TLD), each per `DNS_LABEL` (so no empty
+// label, no leading/trailing hyphen — rejects `bad..com`, `-bad`, `bad-`), ≤253
+// chars total, and a non-numeric TLD. The lookahead bounds only the host (`[^@]`,
+// since a hostname never contains `@`), so the same constant validates a
+// standalone `domain` AND the part after `@` in an `email`.
+const HOSTNAME = `(?=[^@]{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})*\\.${DNS_TLD}`;
 
 /**
  * Per-kind VALUE FORMAT validators (D2/D3). Non-empty + canonical (above) is the
@@ -297,11 +307,14 @@ const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
  * case-folded patterns are written lowercase-only.
  */
 const IDENTITY_VALUE_FORMATS: Partial<Record<IdentityKind, RegExp>> = {
-  // Pragmatic, not full RFC 5322: a local part, an `@`, and a DOTTED domain.
-  // Rejects "not-an-email" and "a@b" (no TLD); accepts the canonical lowercase form.
-  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  // Pragmatic, not full RFC 5322, but the DOMAIN is validated for real (shared
+  // `HOSTNAME`): a local part with no whitespace / `@` / control chars (C0 +
+  // DEL — so `a\x00b@x.com` can't anchor), then `@`, then a true dotted hostname.
+  // Rejects "not-an-email", "a@b" (no TLD), and the near-miss domains a loose
+  // `[^\s@]+\.[^\s@]+` waved through — `a@-bad.com`, `a@bad..com`, `a@bad.com-`.
+  email: new RegExp(`^[^\\s@\\x00-\\x1f\\x7f]+@${HOSTNAME}$`),
   // DNS hostname: ≥2 labels (must carry a TLD) and ≤253 chars total.
-  domain: new RegExp(`^(?=.{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})+$`),
+  domain: new RegExp(`^${HOSTNAME}$`),
   // GitHub username rules (lowercased).
   github_login: new RegExp(`^${GITHUB_HANDLE}$`),
   // Immutable provider numeric ids — a positive integer with no leading zero.
@@ -528,21 +541,51 @@ export const projectionProvenanceSchema = z
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
- * Immutable PERSON/ACCOUNT ids — a stable per-account handle that never changes
- * AND identifies an individual, so sharing one is a hard cross-source bridge
- * between two people-observations (P2/P3 merge use). This is deliberately NOT
- * the same set as `identityAnchorRank`'s `providerAccountId` tier: that tier is
- * an anchor-STRENGTH bucket that also holds `domain` (an org, shared by many
- * people — never a person bridge) and `github_repository_id` /
+ * UNCONDITIONALLY immutable PERSON/ACCOUNT ids — a stable per-account handle with
+ * a committed value contract, so sharing one is always a hard cross-source bridge
+ * between two people-observations (P2/P3 merge use). This is deliberately NOT the
+ * same set as `identityAnchorRank`'s `providerAccountId` tier: that tier is an
+ * anchor-STRENGTH bucket that also holds `domain` (an org, shared by many people
+ * — never a person bridge), `slack_id`/`notion_user_id` (opaque until their
+ * reducers register value formats), and `github_repository_id` /
  * `integration_object_key` (immutable, but they anchor `repository`/`project`
  * nodes, not accounts). Keep the two distinct; don't widen this list to the
- * anchor tier or a repo/org id would falsely bridge two people.
+ * anchor tier or a repo/org/opaque id would falsely bridge two people.
+ *
+ * NOT the exhaustive merge-policy set — `google_directory_id` is ALSO a hard
+ * bridge, but only when `verified` (D2/D3), so it can't live in a bare list.
+ * Email is a hard bridge too, but it is not an opaque immutable account id. P2/P3
+ * merge code must gate on `isHardPersonBridge`, never this list directly, or it
+ * will miss email / verified Directory identities and over-merge future opaque ids.
  */
 export const IMMUTABLE_ACCOUNT_ID_KINDS = [
   "github_user_id",
-  "slack_id",
-  "notion_user_id",
 ] as const satisfies readonly IdentityKind[];
+
+export interface AccountBridgeInput {
+  readonly kind: IdentityKind;
+  /** Mirrors `entity_identities.verified` — gates the directory case (D2/D3). */
+  readonly verified?: boolean;
+}
+
+/**
+ * True iff sharing this opaque/directory account identity is a hard person bridge
+ * for P2/P3 auto-merge (D3). The unconditional account ids bridge whenever
+ * present; `google_directory_id` bridges ONLY when `verified`, exactly as it only
+ * anchors at the directory tier when verified in `identityAnchorRank` (an
+ * unverified Directory row is a weaker signal that must not auto-merge two
+ * people). Email is a hard bridge too, but it is not an opaque account id; use
+ * `isHardPersonBridge` for the complete merge-policy predicate.
+ */
+export function isImmutableAccountBridge({ kind, verified }: AccountBridgeInput): boolean {
+  if ((IMMUTABLE_ACCOUNT_ID_KINDS as readonly IdentityKind[]).includes(kind)) return true;
+  return kind === "google_directory_id" && verified === true;
+}
+
+/** Complete P2/P3 hard person-bridge predicate (D3): email OR a gated account id. */
+export function isHardPersonBridge(input: AccountBridgeInput): boolean {
+  return input.kind === "email" || isImmutableAccountBridge(input);
+}
 
 /**
  * Anchor rank (D2/D3) — the *stable entity id* is content-addressed from the

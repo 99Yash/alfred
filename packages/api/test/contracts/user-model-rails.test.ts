@@ -33,12 +33,14 @@ import { and, eq, inArray } from "drizzle-orm";
  *   3. partial-unique no-fork index → ≤1 successor per predecessor per family;
  *  3b. partial-unique single-root index → ≤1 unsuperseded root per family (the
  *      no-fork index's mirror: it serializes successors but is silent on the head);
- *  3c. non-empty CHECKs on family_key / evidence_hash → the two idempotency rails
- *      can't be empty strings that collapse families or dedup every member;
+ *  3c. bounded non-empty/no-edge-whitespace CHECKs on family_key / evidence_hash
+ *      → the two idempotency rails can't be empty, whitespace-padded, or oversized
+ *      strings that collapse families, fork exact-key lookups, or bloat indexes;
  *   4. version-bound run FK → a versioned row can't point at a run of another version;
  *   5. name-bound run FK → a versioned row can't bind to a run of another named
  *      projection (projection_runs is generic — the #2 finding);
  *   6. entity_edges self-relation CHECK → no from == to traversable edge;
+ *  6b. entity_edges valid_from has no default and valid_until can't precede it;
  *   7. entity_edges + entity_co_occurrence run FKs reject name/version mismatch;
  *   8. active-pointer + cursor run FKs reject a run of another name/version;
  *   9. entity_nodes id-shape CHECK → only `ent_<26 base32>` content-addressed ids;
@@ -47,13 +49,14 @@ import { and, eq, inArray } from "drizzle-orm";
  *  11. version-positive CHECK → projection/schema/reducer versions are 1-based;
  *  12. observation_family_heads composite FK → a head can't point at an
  *      observation from a different (user, family);
- *  13. entity_identities value-nonempty CHECK → the live dedup key can't be an
- *      empty / whitespace-padded value (a merge magnet).
- *  14. projection identity-key non-empty CHECKs → projection_name and the
+ *  13. entity_identities value CHECKs + temporal window → the live dedup key
+ *      can't be empty / whitespace-padded / oversized, and valid_from is semantic.
+ *  14. projection identity-key non-empty/bounded CHECKs → projection_name and the
  *      sync-state slug/key/hash (replay/sync keys feeding the unique indexes)
  *      can't be empty / whitespace-padded slots that collapse unrelated rows;
- *  15. projection_runs status + completed_at CHECKs → status is one of the legal
- *      three and completed_at agrees with it (running⇒null, completed⇒not-null).
+ *  15. projection_runs status + completed_at + checksum CHECKs → status is one
+ *      of the legal three, completed_at agrees with it, and completed runs carry
+ *      the deterministic checksum activation later compares.
  *
  * Each rail asserts BOTH the rejection and a consistent positive control, so a
  * green test means "the constraint rejects the bad shape" not "the insert just
@@ -125,6 +128,7 @@ const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 // observation timestamp (the merge tie-break, D2), never a wall clock, so replay
 // ordering stays deterministic. A constant is fine for these structural rails.
 const SEED_FIRST_SEEN_AT = new Date("2026-06-23T00:00:00.000Z");
+const SEED_VALID_UNTIL = new Date("2026-06-24T00:00:00.000Z");
 
 async function seedNode(userId: string, value: string): Promise<string> {
   // Route through `makeEntityNodeInsert` (the write API) so the seeded id is, by
@@ -160,7 +164,11 @@ async function seedRun(
       // any test that activates a run must seed it as a legitimately finished one
       // rather than normalizing a domain-invalid "activate a still-running run."
       ...(completed
-        ? { status: "completed" as const, completedAt: new Date("2026-06-23T00:00:00.000Z") }
+        ? {
+            status: "completed" as const,
+            completedAt: new Date("2026-06-23T00:00:00.000Z"),
+            checksum: `checksum-${name}-v${version}`,
+          }
         : {}),
     })
     .returning({ id: projectionRuns.id });
@@ -203,6 +211,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           kind: "email",
           value: "a@example.com",
           source: "gmail",
+          validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23503", constraint: "entity_identities_entity_fk" },
     );
@@ -215,6 +224,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         kind: "email",
         value: "owner-b@example.com",
         source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
       }),
     );
   });
@@ -317,7 +327,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("rail 3c: non-empty CHECKs reject empty family_key / evidence_hash", async () => {
+  test("rail 3c: observation key CHECKs reject empty / padded / oversized family_key and evidence_hash", async () => {
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -334,14 +344,64 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       () =>
         db()
           .insert(observations)
+          .values(gmailObs(userId, " fam-padded ", "hash-padded-family")),
+      {
+        code: "23514",
+        constraint: "observations_family_key_nonempty",
+      },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "\tfam-padded", "hash-tab-family")),
+      {
+        code: "23514",
+        constraint: "observations_family_key_nonempty",
+      },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "f".repeat(513), "hash-too-long-family")),
+      {
+        code: "23514",
+        constraint: "observations_family_key_nonempty",
+      },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
           .values(gmailObs(userId, "fam", "")),
       {
         code: "23514",
         constraint: "observations_evidence_hash_nonempty",
       },
     );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "famPaddedHash", "hash-padded\n")),
+      {
+        code: "23514",
+        constraint: "observations_evidence_hash_nonempty",
+      },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(observations)
+          .values(gmailObs(userId, "famTooLongHash", "h".repeat(257))),
+      {
+        code: "23514",
+        constraint: "observations_evidence_hash_nonempty",
+      },
+    );
 
-    // Positive control: both non-empty inserts cleanly.
+    // Positive control: both clean bounded keys insert.
     await assert.doesNotReject(() =>
       db()
         .insert(observations)
@@ -427,6 +487,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           fromEntityId: node,
           toEntityId: node,
           relationType: "frequent_collaborator",
+          validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23514", constraint: "entity_edges_no_self_relation" },
     );
@@ -441,6 +502,60 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         fromEntityId: node,
         toEntityId: other,
         relationType: "frequent_collaborator",
+        validFrom: SEED_FIRST_SEEN_AT,
+      }),
+    );
+  });
+
+  test("rail 6b: entity_edges.valid_from has no default and valid_until cannot precede it", async () => {
+    const userId = await seedUser();
+    const from = await seedNode(userId, "edge-window-from@example.com");
+    const to = await seedNode(userId, "edge-window-to@example.com");
+    const runV1 = await seedRun(userId);
+
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityEdges)
+          .values({
+            userId,
+            projectionName: "user-model",
+            projectionVersion: 1,
+            projectionRunId: runV1,
+            fromEntityId: from,
+            toEntityId: to,
+            relationType: "reports_to",
+          } as never),
+      { code: "23502", constraint: "valid_from" },
+    );
+
+    await rejectsConstraint(
+      () =>
+        db().insert(entityEdges).values({
+          userId,
+          projectionName: "user-model",
+          projectionVersion: 1,
+          projectionRunId: runV1,
+          fromEntityId: from,
+          toEntityId: to,
+          relationType: "reports_to",
+          validFrom: SEED_VALID_UNTIL,
+          validUntil: SEED_FIRST_SEEN_AT,
+        }),
+      { code: "23514", constraint: "entity_edges_valid_window" },
+    );
+
+    await assert.doesNotReject(() =>
+      db().insert(entityEdges).values({
+        userId,
+        projectionName: "user-model",
+        projectionVersion: 1,
+        projectionRunId: runV1,
+        fromEntityId: from,
+        toEntityId: to,
+        relationType: "reports_to",
+        validFrom: SEED_FIRST_SEEN_AT,
+        validUntil: SEED_VALID_UNTIL,
       }),
     );
   });
@@ -463,6 +578,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           fromEntityId: a,
           toEntityId: b,
           relationType: "frequent_collaborator",
+          validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23503", constraint: "entity_edges_run_fk" },
     );
@@ -601,7 +717,14 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // A live github_login `alice` on nodeA.
     const [live] = await db()
       .insert(entityIdentities)
-      .values({ userId, entityId: nodeA, kind: "github_login", value: "alice", source: "github" })
+      .values({
+        userId,
+        entityId: nodeA,
+        kind: "github_login",
+        value: "alice",
+        source: "github",
+        validFrom: SEED_FIRST_SEEN_AT,
+      })
       .returning({ id: entityIdentities.id });
     assert.ok(live);
 
@@ -615,6 +738,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           kind: "github_login",
           value: "alice",
           source: "github",
+          validFrom: SEED_FIRST_SEEN_AT,
         }),
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
     );
@@ -624,7 +748,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // the temporal columns exist for, which a globally-unique index would block.
     await db()
       .update(entityIdentities)
-      .set({ validUntil: new Date("2026-06-23T00:00:00.000Z") })
+      .set({ validUntil: SEED_VALID_UNTIL })
       .where(and(eq(entityIdentities.userId, userId), eq(entityIdentities.id, live.id)));
 
     await assert.doesNotReject(() =>
@@ -634,6 +758,52 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         kind: "github_login",
         value: "alice",
         source: "github",
+        validFrom: SEED_VALID_UNTIL,
+      }),
+    );
+  });
+
+  test("rail 10b: entity_identities.valid_from has no default and valid_until cannot precede it", async () => {
+    const userId = await seedUser();
+    const node = await seedNode(userId, "identity-window@example.com");
+
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityIdentities)
+          .values({
+            userId,
+            entityId: node,
+            kind: "email",
+            value: "no-valid-from@example.com",
+            source: "gmail",
+          } as never),
+      { code: "23502", constraint: "valid_from" },
+    );
+
+    await rejectsConstraint(
+      () =>
+        db().insert(entityIdentities).values({
+          userId,
+          entityId: node,
+          kind: "email",
+          value: "bad-window@example.com",
+          source: "gmail",
+          validFrom: SEED_VALID_UNTIL,
+          validUntil: SEED_FIRST_SEEN_AT,
+        }),
+      { code: "23514", constraint: "entity_identities_valid_window" },
+    );
+
+    await assert.doesNotReject(() =>
+      db().insert(entityIdentities).values({
+        userId,
+        entityId: node,
+        kind: "email",
+        value: "good-window@example.com",
+        source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
+        validUntil: SEED_VALID_UNTIL,
       }),
     );
   });
@@ -688,20 +858,25 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("rail 13: entity_identities value-nonempty CHECK rejects empty / whitespace-padded values", async () => {
+  test("rail 13: entity_identities value CHECK rejects empty / padded / oversized values", async () => {
     // `value` is the live dedup key (`entity_identities_active_unique_idx`) and the
     // join target observations resolve through — an empty or whitespace-padded
     // value is a merge magnet / split-brain. The DB pins the kind-independent floor
-    // (non-empty + no surrounding whitespace); per-kind CASE canonicalization is
-    // enforced above the DB at the write boundary (it needs the contract canonicalizer).
+    // (non-empty + no surrounding whitespace + bounded bytes); per-kind CASE
+    // canonicalization is enforced above the DB at the write boundary.
     const userId = await seedUser();
     const node = await seedNode(userId, "value-rail@example.com");
 
     await rejectsConstraint(
       () =>
-        db()
-          .insert(entityIdentities)
-          .values({ userId, entityId: node, kind: "email", value: "", source: "gmail" }),
+        db().insert(entityIdentities).values({
+          userId,
+          entityId: node,
+          kind: "email",
+          value: "",
+          source: "gmail",
+          validFrom: SEED_FIRST_SEEN_AT,
+        }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },
     );
     await rejectsConstraint(
@@ -712,7 +887,34 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           kind: "email",
           value: " padded@example.com ",
           source: "gmail",
+          validFrom: SEED_FIRST_SEEN_AT,
         }),
+      { code: "23514", constraint: "entity_identities_value_nonempty" },
+    );
+    await rejectsConstraint(
+      () =>
+        db().insert(entityIdentities).values({
+          userId,
+          entityId: node,
+          kind: "email",
+          value: "tabbed@example.com\n",
+          source: "gmail",
+          validFrom: SEED_FIRST_SEEN_AT,
+        }),
+      { code: "23514", constraint: "entity_identities_value_nonempty" },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(entityIdentities)
+          .values({
+            userId,
+            entityId: node,
+            kind: "slack_id",
+            value: "x".repeat(1025),
+            source: "github",
+            validFrom: SEED_FIRST_SEEN_AT,
+          }),
       { code: "23514", constraint: "entity_identities_value_nonempty" },
     );
 
@@ -724,15 +926,16 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         kind: "email",
         value: "value-rail@example.com",
         source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
       }),
     );
   });
 
-  test("rail 14: non-empty CHECKs reject empty / whitespace-padded projection identity keys", async () => {
+  test("rail 14: projection identity-key CHECKs reject empty / padded / oversized keys", async () => {
     // `projection_name` (and the sync-state slug/key/hash) are replay/sync identity
     // keys feeding the unique indexes — an empty or padded value collapses unrelated
-    // projections or sync rows into one slot. Same kind-independent floor as the
-    // family_key / evidence_hash / entity_identities.value rails.
+    // projections or sync rows into one slot. Same bounded kind-independent floor
+    // as the family_key / evidence_hash / entity_identities.value rails.
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -745,6 +948,20 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         db()
           .insert(projectionRuns)
           .values({ userId, projectionName: " user-model ", projectionVersion: 1 }),
+      { code: "23514", constraint: "projection_runs_name_nonempty" },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({ userId, projectionName: "\tuser-model", projectionVersion: 1 }),
+      { code: "23514", constraint: "projection_runs_name_nonempty" },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({ userId, projectionName: "p".repeat(129), projectionVersion: 1 }),
       { code: "23514", constraint: "projection_runs_name_nonempty" },
     );
 
@@ -765,6 +982,42 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         syncSlug: "s",
         stableKey: "k",
         contentHash: "",
+        constraint: "projection_sync_state_content_hash_nonempty",
+      },
+      {
+        syncSlug: "slug\n",
+        stableKey: "k",
+        contentHash: "h",
+        constraint: "projection_sync_state_sync_slug_nonempty",
+      },
+      {
+        syncSlug: "s".repeat(129),
+        stableKey: "k",
+        contentHash: "h",
+        constraint: "projection_sync_state_sync_slug_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "\tk",
+        contentHash: "h",
+        constraint: "projection_sync_state_stable_key_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "k".repeat(1025),
+        contentHash: "h",
+        constraint: "projection_sync_state_stable_key_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "k",
+        contentHash: "h\n",
+        constraint: "projection_sync_state_content_hash_nonempty",
+      },
+      {
+        syncSlug: "s",
+        stableKey: "k",
+        contentHash: "h".repeat(257),
         constraint: "projection_sync_state_content_hash_nonempty",
       },
     ]) {
@@ -792,11 +1045,12 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("rail 15: projection_runs status + completed_at CHECKs reject illegal lifecycle states", async () => {
+  test("rail 15: projection_runs lifecycle CHECKs reject illegal terminal states", async () => {
     // `status` is bare text the TS union can't police at a raw writer, and
     // `completed_at` must agree with it (a `running` run has no completion time; a
     // `completed` run must have one — the active pointer only cuts over to completed
-    // runs). The completed-only ACTIVATION guard still lives in the P1 helper.
+    // runs). Completed runs must also carry the replay checksum the activation
+    // guard compares. The completed-only ACTIVATION guard still lives in P1.
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -836,12 +1090,40 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         }),
       { code: "23514", constraint: "projection_runs_completed_at_consistency" },
     );
+    // completed + completed_at but no checksum is still not activation-safe.
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({
+            userId,
+            projectionName: "user-model",
+            projectionVersion: 3,
+            status: "completed",
+            completedAt: new Date("2026-06-23T00:00:00.000Z"),
+          }),
+      { code: "23514", constraint: "projection_runs_completed_checksum_present" },
+    );
+    await rejectsConstraint(
+      () =>
+        db()
+          .insert(projectionRuns)
+          .values({
+            userId,
+            projectionName: "user-model",
+            projectionVersion: 4,
+            status: "completed",
+            completedAt: new Date("2026-06-23T00:00:00.000Z"),
+            checksum: " checksum ",
+          }),
+      { code: "23514", constraint: "projection_runs_completed_checksum_present" },
+    );
 
     // Positive controls: a default `running` run (no completedAt) and a finished
-    // `completed` run (with completedAt) both insert.
-    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 3 }));
+    // `completed` run (with completedAt + checksum) both insert.
+    await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 5 }));
     await assert.doesNotReject(() =>
-      seedRun(userId, { name: "user-model", version: 4, completed: true }),
+      seedRun(userId, { name: "user-model", version: 6, completed: true }),
     );
   });
 });

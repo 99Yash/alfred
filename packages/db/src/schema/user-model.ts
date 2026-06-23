@@ -176,15 +176,25 @@ export const observations = pgTable(
     check("observations_reducer_version_positive", sql`${t.reducerVersion} >= 1`),
     // `family_key` and `evidence_hash` are the two idempotency rails: dedup is
     // `(user_id, family_key, evidence_hash)` and the family/supersession chain is
-    // keyed on `family_key`. An empty string in either is silent corruption a
-    // shape-only `notNull()` can't catch — an empty `family_key` collapses every
-    // such observation into one bogus family, and an empty `evidence_hash` makes
-    // every member of a family dedup onto the first. Both can only come from an
+    // keyed on `family_key`. An empty OR whitespace-padded string in either is
+    // silent corruption a shape-only `notNull()` can't catch — an empty
+    // `family_key` collapses every such observation into one bogus family, and a
+    // padded one (`" gmail:abc "`) forks a family or dedupes an identity off a
+    // typo since the keys are matched by exact bytes. Both can only come from an
     // application bug (a real event always has a stable id + a hash), so pin them
-    // non-empty at the DB, same posture as the id-shape / version checks. (The P1
-    // observation-insert parser will also enforce this above the DB.)
-    check("observations_family_key_nonempty", sql`length(${t.familyKey}) > 0`),
-    check("observations_evidence_hash_nonempty", sql`length(${t.evidenceHash}) > 0`),
+    // non-empty, bounded, and free of ANY edge whitespace at the DB. Use
+    // `[[:space:]]` instead of `btrim()` because Postgres `btrim(text)` only trims
+    // spaces by default, while the contract boundary rejects tabs/newlines too.
+    // The byte caps keep the composite btree keys below Postgres index-tuple
+    // limits; the P1 observation-insert parser will also enforce this above the DB.
+    check(
+      "observations_family_key_nonempty",
+      sql`length(${t.familyKey}) > 0 AND octet_length(${t.familyKey}) <= 512 AND ${t.familyKey} !~ '^[[:space:]]|[[:space:]]$'`,
+    ),
+    check(
+      "observations_evidence_hash_nonempty",
+      sql`length(${t.evidenceHash}) > 0 AND octet_length(${t.evidenceHash}) <= 256 AND ${t.evidenceHash} !~ '^[[:space:]]|[[:space:]]$'`,
+    ),
   ],
 );
 
@@ -335,7 +345,12 @@ export const entityIdentities = pgTable(
     verified: boolean("verified").notNull().default(false),
     /** True when set by an explicit user pin / correction — anchor tier 1 (D2). */
     userPinned: boolean("user_pinned").notNull().default(false),
-    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * Observation/effective time for this identity. No wall-clock default: a
+     * replay or backfill must supply the semantic time, or fail loud instead of
+     * making merge history depend on when the projection happened to run.
+     */
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     /**
      * Prior identity row this one supersedes (re-anchoring on merge). Bound to
@@ -391,10 +406,15 @@ export const entityIdentities = pgTable(
     // canonicalization (that needs `kind` + the contract canonicalizer, done at
     // the write boundary), but it CAN pin the kind-independent floor: non-empty and
     // no surrounding whitespace, the same posture as the `family_key`/`evidence_hash`
-    // and `entity_nodes.id`-shape rails.
+    // and `entity_nodes.id`-shape rails. The byte cap keeps the live dedup btree key
+    // bounded; per-kind max lengths still belong in the contract/write boundary.
     check(
       "entity_identities_value_nonempty",
-      sql`length(${t.value}) > 0 AND ${t.value} = btrim(${t.value})`,
+      sql`length(${t.value}) > 0 AND octet_length(${t.value}) <= 1024 AND ${t.value} !~ '^[[:space:]]|[[:space:]]$'`,
+    ),
+    check(
+      "entity_identities_valid_window",
+      sql`${t.validUntil} IS NULL OR ${t.validUntil} >= ${t.validFrom}`,
     ),
     check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
     check(
@@ -467,7 +487,7 @@ export const projectionRuns = pgTable(
     // gets the same kind-independent floor (non-empty + no surrounding whitespace).
     check(
       "projection_runs_name_nonempty",
-      sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`,
+      sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
     // `status` is typed `ProjectionRunStatus` but stored as bare text — the DB
     // can't see the TS union, so pin the legal set here (a stray status would
@@ -486,6 +506,10 @@ export const projectionRuns = pgTable(
     check(
       "projection_runs_completed_at_consistency",
       sql`NOT (${t.status} = 'running' AND ${t.completedAt} IS NOT NULL) AND NOT (${t.status} = 'completed' AND ${t.completedAt} IS NULL)`,
+    ),
+    check(
+      "projection_runs_completed_checksum_present",
+      sql`${t.status} <> 'completed' OR (${t.checksum} IS NOT NULL AND length(${t.checksum}) > 0 AND octet_length(${t.checksum}) <= 256 AND ${t.checksum} !~ '^[[:space:]]|[[:space:]]$')`,
     ),
   ],
 );
@@ -607,7 +631,12 @@ export const entityEdges = pgTable(
       .$type<ProjectionProvenance>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * Semantic/effective time for this edge. A replay must supply it from the
+     * source observation or projection window; defaulting to `now()` would make
+     * the versioned graph differ across identical replays.
+     */
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     ...lifecycle_dates,
   },
@@ -653,6 +682,10 @@ export const entityEdges = pgTable(
     check("entity_edges_version_positive", sql`${t.projectionVersion} >= 1`),
     check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
+    check(
+      "entity_edges_valid_window",
+      sql`${t.validUntil} IS NULL OR ${t.validUntil} >= ${t.validFrom}`,
+    ),
     // No self-relation: a traversable typed edge from a node to itself
     // (`reports_to`/`frequent_collaborator`/… self) is meaningless and would let
     // recursive traversal ingest a 1-cycle. `entity_co_occurrence` gets this for
@@ -781,7 +814,7 @@ export const projectionCursors = pgTable(
     // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
     check(
       "projection_cursors_name_nonempty",
-      sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`,
+      sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
   ],
 );
@@ -824,7 +857,7 @@ export const activeProjectionVersions = pgTable(
     // Replay identity key — same non-empty floor as `projection_runs.projection_name`.
     check(
       "active_projection_versions_name_nonempty",
-      sql`length(${t.projectionName}) > 0 AND ${t.projectionName} = btrim(${t.projectionName})`,
+      sql`length(${t.projectionName}) > 0 AND octet_length(${t.projectionName}) <= 128 AND ${t.projectionName} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
   ],
 );
@@ -865,15 +898,15 @@ export const projectionSyncState = pgTable(
     // version — the same merge-magnet floor as the other identity keys.
     check(
       "projection_sync_state_sync_slug_nonempty",
-      sql`length(${t.syncSlug}) > 0 AND ${t.syncSlug} = btrim(${t.syncSlug})`,
+      sql`length(${t.syncSlug}) > 0 AND octet_length(${t.syncSlug}) <= 128 AND ${t.syncSlug} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
     check(
       "projection_sync_state_stable_key_nonempty",
-      sql`length(${t.stableKey}) > 0 AND ${t.stableKey} = btrim(${t.stableKey})`,
+      sql`length(${t.stableKey}) > 0 AND octet_length(${t.stableKey}) <= 1024 AND ${t.stableKey} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
     check(
       "projection_sync_state_content_hash_nonempty",
-      sql`length(${t.contentHash}) > 0 AND ${t.contentHash} = btrim(${t.contentHash})`,
+      sql`length(${t.contentHash}) > 0 AND octet_length(${t.contentHash}) <= 256 AND ${t.contentHash} !~ '^[[:space:]]|[[:space:]]$'`,
     ),
   ],
 );
