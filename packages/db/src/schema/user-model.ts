@@ -146,6 +146,20 @@ export const observations = pgTable(
     uniqueIndex("observations_no_fork_idx")
       .on(t.userId, t.familyKey, t.supersedesObservationId)
       .where(sql`${t.supersedesObservationId} IS NOT NULL`),
+    // At most one ROOT per family — the mirror of `observations_no_fork_idx`.
+    // That index serializes successors (≤1 per predecessor) but is partial on
+    // `IS NOT NULL`, so it says nothing about the chain's HEAD: two rows with
+    // different `evidence_hash` and `supersedes_observation_id IS NULL` are two
+    // independent roots, neither colliding on the dedup index (distinct hashes)
+    // nor on no-fork (both NULL, excluded) — a family forked at the root. That
+    // is the exact race when two writers both see "no head yet" and each inserts
+    // a first member. Pin it: one unsuperseded root per (user, family_key), so a
+    // family is a single linear chain end-to-end, not just below the head. The
+    // second concurrent insert collides here and the P1 reducer retries against
+    // the now-existing head (the same CAS protocol no-fork documents).
+    uniqueIndex("observations_single_root_idx")
+      .on(t.userId, t.familyKey)
+      .where(sql`${t.supersedesObservationId} IS NULL`),
     foreignKey({
       columns: [t.userId, t.familyKey, t.supersedesObservationId],
       foreignColumns: [t.userId, t.familyKey, t.id],
@@ -160,6 +174,17 @@ export const observations = pgTable(
     // checks" contract (D13) holds for the version columns too, not just weights.
     check("observations_schema_version_positive", sql`${t.schemaVersion} >= 1`),
     check("observations_reducer_version_positive", sql`${t.reducerVersion} >= 1`),
+    // `family_key` and `evidence_hash` are the two idempotency rails: dedup is
+    // `(user_id, family_key, evidence_hash)` and the family/supersession chain is
+    // keyed on `family_key`. An empty string in either is silent corruption a
+    // shape-only `notNull()` can't catch — an empty `family_key` collapses every
+    // such observation into one bogus family, and an empty `evidence_hash` makes
+    // every member of a family dedup onto the first. Both can only come from an
+    // application bug (a real event always has a stable id + a hash), so pin them
+    // non-empty at the DB, same posture as the id-shape / version checks. (The P1
+    // observation-insert parser will also enforce this above the DB.)
+    check("observations_family_key_nonempty", sql`length(${t.familyKey}) > 0`),
+    check("observations_evidence_hash_nonempty", sql`length(${t.evidenceHash}) > 0`),
   ],
 );
 
