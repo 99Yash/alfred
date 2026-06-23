@@ -114,6 +114,10 @@ export const observations = pgTable(
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
     index("observations_family_idx").on(t.userId, t.familyKey),
     index("observations_supersedes_idx").on(t.supersedesObservationId),
+    // FK target for the family-head composite FK: lets `observation_family_heads`
+    // bind (user, family_key, observation id) together so a head can't point at an
+    // observation from a different user / family. Unique because `id` is the PK.
+    uniqueIndex("observations_family_member_fk_idx").on(t.userId, t.familyKey, t.id),
     check(
       "observations_no_self_supersede",
       sql`${t.supersedesObservationId} IS NULL OR ${t.supersedesObservationId} <> ${t.id}`,
@@ -145,15 +149,22 @@ export const observationFamilyHeads = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     familyKey: text("family_key").notNull(),
-    /** The currently-live observation for this family. */
-    headObservationId: text("head_observation_id")
-      .notNull()
-      .references(() => observations.id, { onDelete: "cascade" }),
+    /** The currently-live observation for this family — bound to (user, family_key) by the composite FK below. */
+    headObservationId: text("head_observation_id").notNull(),
     ...lifecycle_dates,
   },
   (t) => [
     uniqueIndex("observation_family_heads_unique_idx").on(t.userId, t.familyKey),
     index("observation_family_heads_obs_idx").on(t.headObservationId),
+    // The head's (user, family_key, observation id) must all belong to the SAME
+    // observations row — a plain FK on head_observation_id alone proved only that
+    // the observation exists, not that it belongs to this user's family. Cascade so
+    // deleting an observation can't strand a head pointing at it.
+    foreignKey({
+      columns: [t.userId, t.familyKey, t.headObservationId],
+      foreignColumns: [observations.userId, observations.familyKey, observations.id],
+      name: "observation_family_heads_obs_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -189,6 +200,11 @@ export const entityNodes = pgTable(
   (t) => [
     index("entity_nodes_user_idx").on(t.userId),
     index("entity_nodes_supersedes_idx").on(t.supersedesEntityId),
+    // FK target for the (user, entity id) composite FKs on every table that
+    // references a stable node (identities, profiles, edges, co-occurrence): binds
+    // the referencing row's user_id to the node's own, so a row can't point at a
+    // node owned by a different user. Unique because `id` is the PK.
+    uniqueIndex("entity_nodes_user_fk_idx").on(t.userId, t.id),
     check(
       "entity_nodes_no_self_supersede",
       sql`${t.supersedesEntityId} IS NULL OR ${t.supersedesEntityId} <> ${t.id}`,
@@ -209,9 +225,8 @@ export const entityIdentities = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    entityId: text("entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
+    /** The stable node this identity belongs to — bound to the same user by the composite FK below. */
+    entityId: text("entity_id").notNull(),
     kind: text("kind").$type<IdentityKind>().notNull(),
     /** Normalized identity value (lowercased email, canonical login, …). */
     value: text("value").notNull(),
@@ -241,6 +256,11 @@ export const entityIdentities = pgTable(
     uniqueIndex("entity_identities_unique_idx").on(t.userId, t.kind, t.value),
     index("entity_identities_entity_idx").on(t.userId, t.entityId),
     index("entity_identities_supersedes_idx").on(t.supersedesId),
+    foreignKey({
+      columns: [t.userId, t.entityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_identities_entity_fk",
+    }).onDelete("cascade"),
     check("entity_identities_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
     check(
       "entity_identities_no_self_supersede",
@@ -263,9 +283,8 @@ export const entityProfiles = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionVersion: integer("projection_version").notNull(),
-    entityId: text("entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
+    /** Stable node this profile describes — bound to the same user by the composite FK below. */
+    entityId: text("entity_id").notNull(),
     displayName: text("display_name").notNull(),
     /** Kind lives here (versioned) — a better classifier can change it without re-minting the id (D7). */
     kind: text("kind").$type<EntityNodeKind>().notNull(),
@@ -282,7 +301,14 @@ export const entityProfiles = pgTable(
     computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
   },
-  (t) => [uniqueIndex("entity_profiles_version_idx").on(t.userId, t.projectionVersion, t.entityId)],
+  (t) => [
+    uniqueIndex("entity_profiles_version_idx").on(t.userId, t.projectionVersion, t.entityId),
+    foreignKey({
+      columns: [t.userId, t.entityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_profiles_entity_fk",
+    }).onDelete("cascade"),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -299,12 +325,9 @@ export const entityEdges = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionVersion: integer("projection_version").notNull(),
-    fromEntityId: text("from_entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
-    toEntityId: text("to_entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
+    /** Stable endpoint nodes — both bound to the same user by the composite FKs below. */
+    fromEntityId: text("from_entity_id").notNull(),
+    toEntityId: text("to_entity_id").notNull(),
     relationType: text("relation_type").$type<EntityEdgeType>().notNull(),
     weight: real("weight").notNull().default(0),
     confidence: real("confidence").notNull().default(1),
@@ -326,6 +349,16 @@ export const entityEdges = pgTable(
     ),
     index("entity_edges_from_idx").on(t.userId, t.projectionVersion, t.fromEntityId),
     index("entity_edges_to_idx").on(t.userId, t.projectionVersion, t.toEntityId),
+    foreignKey({
+      columns: [t.userId, t.fromEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_edges_from_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.toEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_edges_to_fk",
+    }).onDelete("cascade"),
     check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_edges_confidence_range", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
   ],
@@ -345,13 +378,9 @@ export const entityCoOccurrence = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionVersion: integer("projection_version").notNull(),
-    /** Ordered pair (a < b) to dedupe the undirected edge. */
-    aEntityId: text("a_entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
-    bEntityId: text("b_entity_id")
-      .notNull()
-      .references(() => entityNodes.id, { onDelete: "cascade" }),
+    /** Ordered pair (a < b) to dedupe the undirected edge — both bound to the same user by the composite FKs below. */
+    aEntityId: text("a_entity_id").notNull(),
+    bEntityId: text("b_entity_id").notNull(),
     weight: real("weight").notNull().default(0),
     count: integer("count").notNull().default(0),
     /** Distinct event families backing the pair — gates promotion (PROMOTION_MIN_FAMILIES). */
@@ -367,6 +396,16 @@ export const entityCoOccurrence = pgTable(
       t.bEntityId,
     ),
     index("entity_co_occurrence_weight_idx").on(t.userId, t.projectionVersion, t.weight),
+    foreignKey({
+      columns: [t.userId, t.aEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_co_occurrence_a_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.userId, t.bEntityId],
+      foreignColumns: [entityNodes.userId, entityNodes.id],
+      name: "entity_co_occurrence_b_fk",
+    }).onDelete("cascade"),
     check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
     check("entity_co_occurrence_weight_nonnegative", sql`${t.weight} >= 0`),
     check("entity_co_occurrence_count_nonnegative", sql`${t.count} >= 0`),
@@ -432,9 +471,8 @@ export const projectionCursors = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     projectionName: text("projection_name").notNull(),
-    projectionRunId: text("projection_run_id")
-      .notNull()
-      .references(() => projectionRuns.id, { onDelete: "cascade" }),
+    /** The replay run this cursor belongs to — its (user, name, version) bound to the run by the composite FK below. */
+    projectionRunId: text("projection_run_id").notNull(),
     projectionVersion: integer("projection_version").notNull(),
     source: text("source").$type<ObservationSource>().notNull(),
     cursor: jsonb("cursor")
@@ -446,6 +484,20 @@ export const projectionCursors = pgTable(
   (t) => [
     uniqueIndex("projection_cursors_unique_idx").on(t.userId, t.projectionRunId, t.source),
     index("projection_cursors_version_idx").on(t.userId, t.projectionName, t.projectionVersion),
+    // The cursor's (user, name, version, run id) must all belong to the SAME
+    // projection_runs row — a plain FK on projection_run_id alone proved only that
+    // the run exists, not that its user/name/version match the cursor's. Reuses the
+    // `projection_runs_active_fk_idx` 4-col unique target.
+    foreignKey({
+      columns: [t.userId, t.projectionName, t.projectionVersion, t.projectionRunId],
+      foreignColumns: [
+        projectionRuns.userId,
+        projectionRuns.projectionName,
+        projectionRuns.projectionVersion,
+        projectionRuns.id,
+      ],
+      name: "projection_cursors_run_fk",
+    }).onDelete("cascade"),
   ],
 );
 
