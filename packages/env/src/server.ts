@@ -13,10 +13,22 @@ const optionalSecret = () =>
     z.string().min(1).optional(),
   );
 
+// Long secrets (currently only `ENTITY_ID_NAMESPACE`). Blank/whitespace-only
+// coerces to `undefined` (optional, may be half-configured); a non-blank value
+// must have NO surrounding whitespace — a stray space in a quoted `.env` line
+// would otherwise survive validation and silently change the HMAC keyed off it
+// (for ENTITY_ID_NAMESPACE that remints every content-addressed entity id).
+// Fail loud at boot rather than normalize behind the operator's back.
 const optionalLongSecret = () =>
   z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(32).optional(),
+    z
+      .string()
+      .min(32)
+      .refine((v) => v === v.trim(), {
+        error: "must not have leading or trailing whitespace",
+      })
+      .optional(),
   );
 
 const serverEnvSchema = z.object({

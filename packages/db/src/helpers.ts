@@ -80,10 +80,19 @@ export function computeStableEntityId(
   secret: string,
   input: { userId: string; identityKind: IdentityKind; normalizedValue: string },
 ): string {
-  if (secret.trim().length < MIN_ENTITY_ID_SECRET_LENGTH) {
+  // Validate and HMAC the SAME bytes: the prior check measured `secret.trim()`
+  // but the digest below keyed off the raw `secret`, so a value with accidental
+  // surrounding whitespace (a quoted `.env` line, ` abc… `) passed the length
+  // gate yet silently produced a DIFFERENT digest than the trimmed value — i.e.
+  // a stray space would remint every content-addressed `ent_*` id. Reject
+  // surrounding whitespace outright (these ids are permanent; a misconfigured
+  // namespace must fail loud, not normalize behind the operator's back) so the
+  // raw `secret` HMAC'd below is provably the value that cleared validation.
+  if (secret !== secret.trim() || secret.length < MIN_ENTITY_ID_SECRET_LENGTH) {
     throw new Error(
       `computeStableEntityId: namespace secret must be at least ${MIN_ENTITY_ID_SECRET_LENGTH} chars ` +
-        `(ENTITY_ID_NAMESPACE) — refusing to mint a guessable entity id with a blank/short HMAC key.`,
+        `and free of surrounding whitespace (ENTITY_ID_NAMESPACE) — refusing to mint a guessable or ` +
+        `whitespace-sensitive entity id.`,
     );
   }
   // Canonical, key-ordered JSON so the digest is stable across call sites.

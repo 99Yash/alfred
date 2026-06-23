@@ -161,6 +161,20 @@ export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
  * Typed identity keys. Replaces the legacy untyped `aliases` jsonb blob;
  * `entity_identities` is unique on `(user_id, kind, value)` and is both the
  * dedup index and the join target observations resolve through.
+ *
+ * People/org identifiers are the cross-source hard bridges (`email`,
+ * `github_user_id`, …). NON-person nodes need an anchor too: every
+ * `entity_nodes` row carries a NOT NULL `canonical_identity` (D2) and the kind
+ * taxonomy (D7) admits `repository` / `project`, so those nodes need a hard
+ * identity that is NOT a person/org key — otherwise P2 would have to abuse
+ * `github_login` / `domain` to mint a repo id and collide semantically with
+ * people. Hence:
+ *   - `github_repository_id`        — GitHub's immutable numeric repo id (never renamed).
+ *   - `github_repository_full_name` — `owner/repo` (mutable: rename/transfer), so it
+ *                                     anchors only at the provider-handle tier.
+ *   - `integration_object_key`      — generic provider object key for `project`
+ *                                     nodes from other sources (ClickUp/Notion/
+ *                                     Railway/Vercel), the ADR-0062 object-key shape.
  */
 export const IDENTITY_KINDS = [
   "email",
@@ -171,6 +185,9 @@ export const IDENTITY_KINDS = [
   "google_directory_id",
   "domain",
   "phone",
+  "github_repository_id",
+  "github_repository_full_name",
+  "integration_object_key",
 ] as const;
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
 export type IdentityKind = (typeof IDENTITY_KINDS)[number];
@@ -349,8 +366,17 @@ export function identityAnchorRank({
     case "slack_id":
     case "notion_user_id":
     case "domain":
+    // Immutable provider object ids — the anchor for non-person nodes
+    // (`repository` / `project`). They never bridge across sources, so the tier
+    // only matters for the single-identity content-address; they sit with the
+    // other immutable provider ids rather than the renamable-handle tier.
+    case "github_repository_id":
+    case "integration_object_key":
       return IDENTITY_ANCHOR_TIER.providerAccountId;
     case "github_login":
+    // `owner/repo` is renamable/transferable, exactly like a GitHub login — a
+    // weaker anchor than the immutable numeric repo id above.
+    case "github_repository_full_name":
       return IDENTITY_ANCHOR_TIER.providerHandle;
     case "phone":
       return IDENTITY_ANCHOR_TIER.provisional;
