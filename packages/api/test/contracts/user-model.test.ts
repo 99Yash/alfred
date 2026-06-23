@@ -47,6 +47,18 @@ describe("computeStableEntityId", () => {
     );
     assert.notEqual(computeStableEntityId(`${secret}!`, input), baseline);
   });
+
+  test("fails closed on a blank or short namespace secret (never mints a guessable id)", () => {
+    // The env field is optional in P0, so the guard must live in the helper —
+    // a caller doing `serverEnv().ENTITY_ID_NAMESPACE ?? ""` must throw, not
+    // silently HMAC with an empty/known key (defeats the HMAC-not-SHA rationale).
+    assert.throws(() => computeStableEntityId("", input), /at least 32 chars/);
+    assert.throws(() => computeStableEntityId("   ", input), /at least 32 chars/);
+    assert.throws(() => computeStableEntityId("short-secret", input), /at least 32 chars/);
+    // A 31-char (whitespace-trimmed) secret is still rejected; 32 is the floor.
+    assert.throws(() => computeStableEntityId(`  ${"a".repeat(31)}  `, input), /at least 32 chars/);
+    assert.doesNotThrow(() => computeStableEntityId("a".repeat(32), input));
+  });
 });
 
 describe("identityAnchorRank", () => {
@@ -110,6 +122,45 @@ describe("user-model observation contracts", () => {
         items: [{ identity: { kind: "email", value: "person@example.com" }, role: "sender" }],
         recipientCount: 1,
       }),
+    );
+  });
+
+  test("rejects an under-written recipientCount so a blast can't bypass the fan-out cutoff", () => {
+    const recipientItems = Array.from({ length: 50 }, (_, i) => ({
+      identity: { kind: "email" as const, value: `r${i}@example.com` },
+      role: "to" as const,
+    }));
+
+    // The prod corruption this rail exists to kill: 50 enumerated recipients but
+    // recipientCount: 1 — would let a 50-person blast read as a 1:1.
+    assert.throws(() =>
+      observationParticipantsSchema.parse({ items: recipientItems, recipientCount: 1 }),
+    );
+
+    // recipientCount >= enumerated recipients is accepted, including a truncated
+    // blast (more recipients than enumerated) and the sender not being counted.
+    assert.equal(
+      observationParticipantsSchema.parse({ items: recipientItems, recipientCount: 50 })
+        .recipientCount,
+      50,
+    );
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: recipientItems.slice(0, 5),
+        recipientCount: 50,
+      }).recipientCount,
+      50,
+    );
+    // `from` is not a recipient, so it never inflates the required count.
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: { kind: "email", value: "sender@example.com" }, role: "from" },
+          { identity: { kind: "email", value: "r@example.com" }, role: "to" },
+        ],
+        recipientCount: 1,
+      }).recipientCount,
+      1,
     );
   });
 
