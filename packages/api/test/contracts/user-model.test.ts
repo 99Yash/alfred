@@ -55,9 +55,21 @@ describe("computeStableEntityId", () => {
     assert.throws(() => computeStableEntityId("", input), /at least 32 chars/);
     assert.throws(() => computeStableEntityId("   ", input), /at least 32 chars/);
     assert.throws(() => computeStableEntityId("short-secret", input), /at least 32 chars/);
-    // A 31-char (whitespace-trimmed) secret is still rejected; 32 is the floor.
-    assert.throws(() => computeStableEntityId(`  ${"a".repeat(31)}  `, input), /at least 32 chars/);
+    assert.throws(() => computeStableEntityId("a".repeat(31), input), /at least 32 chars/);
     assert.doesNotThrow(() => computeStableEntityId("a".repeat(32), input));
+  });
+
+  test("rejects surrounding whitespace so a stray space can't silently remint every id", () => {
+    // The helper validates `secret.trim()` length but HMACs the raw secret, so a
+    // quoted `.env` value with accidental leading/trailing space would pass the
+    // length gate yet produce a DIFFERENT digest than the trimmed value — i.e. a
+    // single stray space remints every content-addressed id. Reject it outright
+    // (the validated value must equal the HMAC'd value).
+    const valid = `${"a".repeat(40)}`;
+    assert.doesNotThrow(() => computeStableEntityId(valid, input));
+    assert.throws(() => computeStableEntityId(` ${valid}`, input), /whitespace/);
+    assert.throws(() => computeStableEntityId(`${valid} `, input), /whitespace/);
+    assert.throws(() => computeStableEntityId(`\t${valid}\n`, input), /whitespace/);
   });
 });
 
@@ -85,6 +97,23 @@ describe("identityAnchorRank", () => {
     assert.equal(identityAnchorRank({ kind: "domain" }), IDENTITY_ANCHOR_TIER.providerAccountId);
     assert.equal(identityAnchorRank({ kind: "github_login" }), IDENTITY_ANCHOR_TIER.providerHandle);
     assert.equal(identityAnchorRank({ kind: "phone" }), IDENTITY_ANCHOR_TIER.provisional);
+  });
+
+  test("ranks the non-person (repository/project) node anchors", () => {
+    // Immutable provider object ids sit with the other immutable account ids…
+    assert.equal(
+      identityAnchorRank({ kind: "github_repository_id" }),
+      IDENTITY_ANCHOR_TIER.providerAccountId,
+    );
+    assert.equal(
+      identityAnchorRank({ kind: "integration_object_key" }),
+      IDENTITY_ANCHOR_TIER.providerAccountId,
+    );
+    // …while `owner/repo` is renamable, so it anchors at the handle tier (like github_login).
+    assert.equal(
+      identityAnchorRank({ kind: "github_repository_full_name" }),
+      IDENTITY_ANCHOR_TIER.providerHandle,
+    );
   });
 });
 
