@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Observation sources + precedence (D1, D14)
@@ -350,7 +351,17 @@ export const projectionProvenanceSchema = z
   .catchall(jsonValueSchema);
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
-/** Provider immutable account ids — stable handles that never change for an account. */
+/**
+ * Immutable PERSON/ACCOUNT ids — a stable per-account handle that never changes
+ * AND identifies an individual, so sharing one is a hard cross-source bridge
+ * between two people-observations (P2/P3 merge use). This is deliberately NOT
+ * the same set as `identityAnchorRank`'s `providerAccountId` tier: that tier is
+ * an anchor-STRENGTH bucket that also holds `domain` (an org, shared by many
+ * people — never a person bridge) and `github_repository_id` /
+ * `integration_object_key` (immutable, but they anchor `repository`/`project`
+ * nodes, not accounts). Keep the two distinct; don't widen this list to the
+ * anchor tier or a repo/org id would falsely bridge two people.
+ */
 export const IMMUTABLE_ACCOUNT_ID_KINDS = [
   "github_user_id",
   "slack_id",
@@ -584,6 +595,14 @@ export function sourceWeight(key: SourceWeightKey): number {
   return SOURCE_WEIGHTS[key];
 }
 
+/**
+ * TIME-INVARIANT significance components only (D6/D13). The final score is
+ * `base(components) * recency(asOf)` computed at READ time, and the projection
+ * checksum runs over these components — so anything wall-clock-derived must stay
+ * OUT of here or the checksum stops being deterministic across replays. Recency
+ * is NOT a component: `lastSeenAt` is a first-class column on `entity_profiles`
+ * (and `entity_co_occurrence`), the single source of truth read at scoring time.
+ */
 export const significanceComponentsSchema = z
   .object({
     volume: z.number().nonnegative().optional(),
@@ -592,7 +611,6 @@ export const significanceComponentsSchema = z
     interactionWeight: z.number().nonnegative().optional(),
     coOccurrenceWeight: z.number().nonnegative().optional(),
     topObservationIds: z.array(z.string()).optional(),
-    lastSeenAt: z.string().datetime().nullable().optional(),
   })
   .strict();
 export type SignificanceComponents = z.infer<typeof significanceComponentsSchema>;
@@ -653,7 +671,9 @@ export interface FactTypeDef {
  * incident timestamps) is NOT a fact-type — it stays in the document /
  * `memory_chunk`, never auto-confirmed as a fact (this is the fix for the 397
  * junk-drawer rows). `standing_instruction` is reserved and governed by
- * `standing-instructions.ts`, not folded as an ontology value here.
+ * `standing-instructions.ts`, not folded as an ontology value here — so the
+ * `user_facts.key` column gate is `isUserFactKey` (ontology ∪ the standing key),
+ * NOT `isFactKey` (durable fact-types only). See `isUserFactKey` below.
  */
 export const FACT_ONTOLOGY = {
   employer: { subject: "any", description: "Organization the subject works for." },
@@ -673,4 +693,21 @@ export type FactKey = keyof typeof FACT_ONTOLOGY;
 
 export function isFactKey(key: string): key is FactKey {
   return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);
+}
+
+/**
+ * Every legal `user_facts.key` — the boundary gate the P4 fact projection
+ * validates against. It is NOT just `FACT_ONTOLOGY`: `standing_instruction`
+ * (governed by `standing-instructions.ts`, ADR-0058) is a first-class
+ * `user_facts.key` that deliberately lives OUTSIDE the durable-fact ontology
+ * (its `value` is a structured directive, not a fact-type). The plan migrates
+ * standing instructions into `source='user'` observations that project back
+ * into `user_facts`, so a gate that checked `isFactKey` alone would reject the
+ * very rows it must accept. Validate column writes with THIS, classify
+ * fact-types with `isFactKey`.
+ */
+export type UserFactKey = FactKey | typeof STANDING_INSTRUCTION_KEY;
+
+export function isUserFactKey(key: string): key is UserFactKey {
+  return isFactKey(key) || key === STANDING_INSTRUCTION_KEY;
 }
