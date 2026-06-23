@@ -154,6 +154,16 @@ export function isObservationKindForSource(
  * written — closes the half-open vocabulary that independent `source`/`kind`
  * validation leaves (a `gmail` row carrying a `github_*` kind). P1's full
  * observation-insert schema composes this.
+ *
+ * HARD P1 GATE: this pair-check is necessary but not sufficient. No raw
+ * `.insert(observations)` (or projection write) is permitted until P1 lands an
+ * `insertObservation`-style boundary parser that validates the source→kind combo,
+ * the `participants` envelope, the `subject_identity` / `object_identity`
+ * `IdentityRef`s, and the projection lifecycle fields. The DB columns are
+ * deliberately bare `text`/`jsonb` (app-boundary validation, not pg enums — same
+ * rationale as the rest of the schema), so that parser is the only thing standing
+ * between a reducer bug and a permanently-corrupt log. Every P1+ writer routes
+ * through it, the way `entity_nodes` writers route through `makeEntityNodeInsert`.
  */
 export const observationSourceKindSchema = z
   .object({
@@ -256,6 +266,69 @@ export function canonicalizeIdentityValue(kind: IdentityKind, value: string): st
   return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
 }
 
+// A DNS label and the GitHub login/owner grammar, shared by the format regexes
+// below. `GITHUB_HANDLE`: 1–39 chars, alphanumeric with single INTERNAL hyphens
+// only (a hyphen is allowed only when immediately followed by an alphanumeric, so
+// no leading/trailing/consecutive hyphens). `DNS_LABEL`: 1–63 chars, no
+// leading/trailing hyphen. Both are written without lookbehind so they parse on
+// every JS engine.
+const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
+
+/**
+ * Per-kind VALUE FORMAT validators (D2/D3). Non-empty + canonical (above) is the
+ * FLOOR, not the whole contract: a kind whose value has a well-defined shape must
+ * also MATCH that shape before it becomes a permanent `ent_*` content-address.
+ * Without this, `{ kind: "email", value: "not-an-email" }` or `{ kind:
+ * "github_user_id", value: "abc" }` mints a permanent anchor from garbage that no
+ * later real value can ever reconcile with — the same split-brain class as the
+ * canonicalization gap, one rung lower. Enforced at the contract boundary
+ * (`identityRefSchema`) AND mirrored at the mint chokepoint (`computeStableEntityId`),
+ * same fail-loud posture as the whitespace/canonical checks.
+ *
+ * Only kinds with an UNAMBIGUOUS, spec- or contract-defined shape are listed.
+ * Provider-OPAQUE ids with no committed format and no reducer yet (`slack_id`,
+ * `notion_user_id`, `google_directory_id`, `phone`) are deliberately left at the
+ * non-empty+canonical floor — guessing their shape risks rejecting a legitimate
+ * value, and folding/validating an opaque id can corrupt a real distinct one.
+ * Their reducer registers a format HERE when it lands (the same "a new reducer
+ * registers first" precedent as `OBSERVATION_KINDS_BY_SOURCE`). Values are assumed
+ * already canonical for their kind (lowercased where case-folded), so the
+ * case-folded patterns are written lowercase-only.
+ */
+const IDENTITY_VALUE_FORMATS: Partial<Record<IdentityKind, RegExp>> = {
+  // Pragmatic, not full RFC 5322: a local part, an `@`, and a DOTTED domain.
+  // Rejects "not-an-email" and "a@b" (no TLD); accepts the canonical lowercase form.
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  // DNS hostname: ≥2 labels (must carry a TLD) and ≤253 chars total.
+  domain: new RegExp(`^(?=.{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})+$`),
+  // GitHub username rules (lowercased).
+  github_login: new RegExp(`^${GITHUB_HANDLE}$`),
+  // Immutable provider numeric ids — a positive integer with no leading zero.
+  github_user_id: /^[1-9]\d*$/,
+  github_repository_id: /^[1-9]\d*$/,
+  // `owner/repo`: owner follows login rules; repo is `[a-z0-9._-]` (1–100) and may
+  // not be exactly `.` or `..` (a path traversal, never a real repo name).
+  github_repository_full_name: new RegExp(`^${GITHUB_HANDLE}/(?!\\.{1,2}$)[a-z0-9._-]{1,100}$`),
+  // Generic provider object key for non-person `project` nodes (ADR-0062): the
+  // `provider:kind:externalId` shape mirroring the `(provider, kind, external_id)`
+  // native identity of an `integration_objects` row, so a bare token can't anchor a
+  // project node (and semantically collide with a person handle). The P2/P3
+  // reducer mints keys in this shape; `externalId` may itself contain colons.
+  integration_object_key: /^[a-z0-9_-]+:[a-z0-9_-]+:.+$/,
+};
+
+/**
+ * True iff `value` is a legal format for `kind` — or `kind` has no registered
+ * format, in which case only the non-empty+canonical floor applies. Assumes
+ * `value` is already canonical for the kind (run `canonicalizeIdentityValue`
+ * first). The mint chokepoint and the contract boundary both gate on this.
+ */
+export function identityValueMatchesKind(kind: IdentityKind, value: string): boolean {
+  const format = IDENTITY_VALUE_FORMATS[kind];
+  return format ? format.test(value) : true;
+}
+
 export const identityRefSchema = z
   .object({
     kind: identityKindSchema,
@@ -273,6 +346,14 @@ export const identityRefSchema = z
   .refine((r) => r.value === canonicalizeIdentityValue(r.kind, r.value), {
     error:
       "identity value must be canonical for its kind (e.g. lowercased email/domain/github handle)",
+    path: ["value"],
+  })
+  // Beyond canonical, the value must MATCH its kind's format (a real email, a
+  // numeric github id, an `owner/repo`, …) — a malformed value would otherwise
+  // mint a permanent `ent_*` anchor from garbage. Kinds with no registered format
+  // pass this (the floor still applies). See `identityValueMatchesKind`.
+  .refine((r) => identityValueMatchesKind(r.kind, r.value), {
+    error: "identity value is not a valid format for its kind",
     path: ["value"],
   });
 export type IdentityRef = z.infer<typeof identityRefSchema>;

@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   canonicalizeIdentityValue,
   identityRefSchema,
+  identityValueMatchesKind,
   STABLE_ENTITY_ID_VERSION,
   type IdentityKind,
   type IdentityRef,
@@ -135,6 +136,18 @@ export function computeStableEntityId(
         `refusing to mint a stable entity id from a non-canonical anchor.`,
     );
   }
+  // The value must also be a legal FORMAT for its kind (a real email, a numeric
+  // github id, an `owner/repo`, …). Canonical-but-malformed (`{ kind: "email",
+  // value: "not-an-email" }`, `{ kind: "github_user_id", value: "abc" }`) would
+  // otherwise mint a permanent `ent_*` anchor from garbage no later real value can
+  // reconcile with. Mirror the `identityRefSchema` boundary refine here — this
+  // helper is the mint chokepoint and is reached directly from `@alfred/db`.
+  if (!identityValueMatchesKind(input.identityKind, input.normalizedValue)) {
+    throw new Error(
+      `computeStableEntityId: normalizedValue '${input.normalizedValue}' is not a valid format ` +
+        `for kind '${input.identityKind}' — refusing to mint a stable entity id from a malformed identity.`,
+    );
+  }
   // Canonical, key-ordered JSON so the digest is stable across call sites.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,
@@ -175,9 +188,10 @@ export function computeStableEntityId(
  * fold, so it must be deterministic across replays. A wall-clock default (write/
  * replay time) would leak build time into merge ordering and break D13 replay
  * determinism, so the caller supplies the observation's `occurredAt` and the
- * write API makes it impossible to forget. (The column keeps a `defaultNow()`
- * only as a degenerate fallback for a direct insert that bypasses this API —
- * which no P1+ writer is allowed to do.)
+ * write API makes it impossible to forget. (The column is NOT NULL with NO
+ * DEFAULT, so a direct insert that bypasses this API and omits the field fails
+ * LOUD rather than silently recording wall-clock time — which no P1+ writer is
+ * allowed to do.)
  */
 export function makeEntityNodeInsert(
   secret: string,

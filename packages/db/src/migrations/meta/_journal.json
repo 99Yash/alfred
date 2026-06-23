@@ -442,6 +442,13 @@
       "when": 1782220919241,
       "tag": "0062_brave_menace",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1782222761256,
+      "tag": "0063_vengeful_richard_fisk",
+      "breakpoints": true
     }
   ]
 }
