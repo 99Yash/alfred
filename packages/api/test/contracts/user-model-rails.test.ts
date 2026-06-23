@@ -436,11 +436,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     // output (`ent_<26 base32>`). A hand-written id can't be persisted.
     await rejectsConstraint(
       () =>
-        db().insert(entityNodes).values({
-          id: "not_a_stable_entity_id",
-          userId,
-          canonicalIdentity: { kind: "email", value: "shape@example.com" },
-        }),
+        db()
+          .insert(entityNodes)
+          .values({
+            id: "not_a_stable_entity_id",
+            userId,
+            canonicalIdentity: { kind: "email", value: "shape@example.com" },
+          }),
       { code: "23514", constraint: "entity_nodes_id_shape" },
     );
 
@@ -466,7 +468,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       () =>
         db()
           .insert(entityIdentities)
-          .values({ userId, entityId: nodeB, kind: "github_login", value: "alice", source: "github" }),
+          .values({
+            userId,
+            entityId: nodeB,
+            kind: "github_login",
+            value: "alice",
+            source: "github",
+          }),
       { code: "23505", constraint: "entity_identities_active_unique_idx" },
     );
 
@@ -481,7 +489,13 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     await assert.doesNotReject(() =>
       db()
         .insert(entityIdentities)
-        .values({ userId, entityId: nodeB, kind: "github_login", value: "alice", source: "github" }),
+        .values({
+          userId,
+          entityId: nodeB,
+          kind: "github_login",
+          value: "alice",
+          source: "github",
+        }),
     );
   });
 
