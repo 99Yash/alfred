@@ -1,3 +1,9 @@
+import { createHmac } from "node:crypto";
+import {
+  STABLE_ENTITY_ID_VERSION,
+  type IdentityKind,
+  type StableEntityIdInput,
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { customType, timestamp } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
@@ -20,6 +26,58 @@ export function createId(prefix?: string, { length = 12, separator = "_" } = {})
 
 export function generateRandomCode(length: number = 8) {
   return customAlphabet("123456789", length)();
+}
+
+// ---------------------------------------------------------------------------
+// Stable entity id (ADR-0067 D2)
+// ---------------------------------------------------------------------------
+
+/** RFC 4648 base32 alphabet, lowercased (matches `createId`'s lowercase id shape). */
+const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+
+/** Encode bytes as lowercased, unpadded base32. */
+function base32(bytes: Buffer): string {
+  let bits = 0;
+  let value = 0;
+  let out = "";
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  return out;
+}
+
+/**
+ * Stable, content-addressed entity id (ADR-0067 D2). HMAC-keyed (NOT raw SHA:
+ * emails/logins are guessable and these ids surface in client sync + logs),
+ * derived from a single normalized hard identity + the user. Deterministic, so
+ * a cold replay re-mints the same id; the canonical winner on merge is chosen
+ * by anchor rank (see `identityAnchorRank`), never by re-hashing.
+ *
+ * `secret` is the server-held namespace key (from `serverEnv`); callers pass it
+ * in so this stays a pure function and `@alfred/db` keeps no env dependency.
+ * Never seed from display name, kind, significance, or a random id.
+ */
+export function computeStableEntityId(
+  secret: string,
+  input: { userId: string; identityKind: IdentityKind; normalizedValue: string },
+): string {
+  // Canonical, key-ordered JSON so the digest is stable across call sites.
+  const canonicalInput: StableEntityIdInput = {
+    v: STABLE_ENTITY_ID_VERSION,
+    userId: input.userId,
+    identityKind: input.identityKind,
+    normalizedValue: input.normalizedValue,
+  };
+  const canonical = JSON.stringify(canonicalInput);
+  const digest = createHmac("sha256", secret).update(canonical).digest();
+  // 128 bits (~26 base32 chars) — ample collision resistance, compact id.
+  return `ent_${base32(digest.subarray(0, 16))}`;
 }
 
 /**
