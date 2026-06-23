@@ -1,0 +1,1 @@
+ALTER TABLE "entity_identities" ADD CONSTRAINT "entity_identities_value_nonempty" CHECK (length("entity_identities"."value") > 0 AND "entity_identities"."value" = btrim("entity_identities"."value"));

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  canonicalizeIdentityValue,
+  identityRefSchema,
   IDENTITY_ANCHOR_TIER,
   identityAnchorRank,
   isObservationKindForSource,
@@ -102,12 +104,15 @@ describe("computeStableEntityId", () => {
 describe("makeEntityNodeInsert", () => {
   const secret = "a".repeat(40);
 
+  const firstSeenAt = new Date("2026-06-23T00:00:00.000Z");
+
   test("derives id and canonical_identity from ONE identity so they can't disagree", () => {
     const identity = { kind: "email" as const, value: "person@example.com" };
-    const row = makeEntityNodeInsert(secret, "usr_test", identity);
+    const row = makeEntityNodeInsert(secret, "usr_test", identity, firstSeenAt);
 
     // The id IS the content address of the stored canonical identity…
-    assert.equal(row.canonicalIdentity, identity);
+    assert.deepEqual(row.canonicalIdentity, identity);
+    assert.equal(row.firstSeenAt, firstSeenAt);
     assert.equal(
       row.id,
       computeStableEntityId(secret, {
@@ -128,13 +133,31 @@ describe("makeEntityNodeInsert", () => {
     );
   });
 
-  test("fails closed on a bad anchor (delegates to computeStableEntityId)", () => {
+  test("runtime-parses the identity so a coerced bad kind/value can't mint a node", () => {
+    // A reducer reading a provider payload through `any` could coerce an
+    // out-of-taxonomy kind or a non-canonical value into the `IdentityRef` type;
+    // the runtime parse rejects it before a permanent id is minted.
     assert.throws(
-      () => makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: " padded@x.com " }),
-      /normalizedValue must be/,
+      () =>
+        makeEntityNodeInsert(secret, "usr_test", { kind: "not_a_kind", value: "x" } as never, firstSeenAt),
+      /invalid|enum|expected/i,
     );
     assert.throws(
-      () => makeEntityNodeInsert("short", "usr_test", { kind: "email", value: "p@x.com" }),
+      () => makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: "Person@X.com" }, firstSeenAt),
+      /canonical/,
+    );
+  });
+
+  test("fails closed on a bad anchor (delegates to computeStableEntityId)", () => {
+    assert.throws(
+      () =>
+        makeEntityNodeInsert(secret, "usr_test", { kind: "email", value: " padded@x.com " }, firstSeenAt),
+      // Surrounding whitespace is rejected at the contract parse (canonical refine)
+      // before the digest is computed.
+      /whitespace|canonical/,
+    );
+    assert.throws(
+      () => makeEntityNodeInsert("short", "usr_test", { kind: "email", value: "p@x.com" }, firstSeenAt),
       /at least 32 chars/,
     );
   });
@@ -279,9 +302,9 @@ describe("user-model observation contracts", () => {
   });
 
   test("counts GitHub audience roles toward fan-out, not just email recipients", () => {
-    // reviewer/assignee/committer are co-occurrence-bearing audience roles. A PR
-    // fanned out to 30 reviewers with recipientCount: 0 must NOT pass — else a
-    // GitHub blast slips under FAN_OUT_CUTOFF the same way an email blast would.
+    // reviewer/assignee are co-occurrence-bearing audience roles. A PR fanned out
+    // to 30 reviewers with recipientCount: 0 must NOT pass — else a GitHub blast
+    // slips under FAN_OUT_CUTOFF the same way an email blast would.
     const reviewers = Array.from({ length: 30 }, (_, i) => ({
       identity: { kind: "github_login" as const, value: `reviewer-${i}` },
       role: "reviewer" as const,
@@ -294,6 +317,33 @@ describe("user-model observation contracts", () => {
       observationParticipantsSchema.parse({
         items: [
           { identity: { kind: "github_login", value: "author" }, role: "author" },
+          { identity: { kind: "github_login", value: "rev" }, role: "reviewer" },
+        ],
+        recipientCount: 1,
+      }).recipientCount,
+      1,
+    );
+  });
+
+  test("does NOT count committers toward fan-out (contributor metadata, not audience)", () => {
+    // `committer` is authorship/commit metadata — on GitHub's merge path it is the
+    // bot identity `web-flow`, not a person the event fans out to. Counting it would
+    // make a 30-committer PR read as a 30-person blast and suppress its real
+    // collaboration co-occurrence. So a push enumerating 30 committers with
+    // recipientCount: 0 is ACCEPTED (committers don't raise the floor).
+    const committers = Array.from({ length: 30 }, (_, i) => ({
+      identity: { kind: "github_login" as const, value: `committer-${i}` },
+      role: "committer" as const,
+    }));
+    assert.equal(
+      observationParticipantsSchema.parse({ items: committers, recipientCount: 0 }).recipientCount,
+      0,
+    );
+    // A committer alongside real audience: only the reviewer raises the floor.
+    assert.equal(
+      observationParticipantsSchema.parse({
+        items: [
+          { identity: { kind: "github_login", value: "web-flow" }, role: "committer" },
           { identity: { kind: "github_login", value: "rev" }, role: "reviewer" },
         ],
         recipientCount: 1,
@@ -381,6 +431,59 @@ describe("user-model observation contracts", () => {
     );
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "  " }));
     assert.throws(() => observationSubjectSchema.parse({ kind: "email", value: "" }));
+  });
+
+  test("canonicalizes case-insensitive identity kinds and leaves opaque ids untouched", () => {
+    // Case-FOLDED kinds: email/domain/github_login/github_repository_full_name —
+    // `Person@Example.com` and `person@example.com` must collapse to one value,
+    // else they mint two stable ids for one identity (the D2 split-brain).
+    assert.equal(canonicalizeIdentityValue("email", "Person@Example.com"), "person@example.com");
+    assert.equal(canonicalizeIdentityValue("domain", "Example.COM"), "example.com");
+    assert.equal(canonicalizeIdentityValue("github_login", "OctoCat"), "octocat");
+    assert.equal(
+      canonicalizeIdentityValue("github_repository_full_name", "Owner/Repo"),
+      "owner/repo",
+    );
+    // Trims regardless of kind.
+    assert.equal(canonicalizeIdentityValue("email", "  A@B.com "), "a@b.com");
+    // Case-SIGNIFICANT / opaque kinds keep their case (a Slack id, a numeric id):
+    // folding them would corrupt a real distinct value.
+    assert.equal(canonicalizeIdentityValue("slack_id", "U07ABC123"), "U07ABC123");
+    assert.equal(canonicalizeIdentityValue("github_user_id", "583231"), "583231");
+    assert.equal(canonicalizeIdentityValue("google_directory_id", "AbC123"), "AbC123");
+    // Idempotent — the property the contract refine + mint assertion rely on.
+    for (const [kind, raw] of [
+      ["email", "MixedCase@X.com"],
+      ["github_login", "MixedCase"],
+      ["slack_id", "U0XyZ"],
+    ] as const) {
+      const once = canonicalizeIdentityValue(kind, raw);
+      assert.equal(canonicalizeIdentityValue(kind, once), once);
+    }
+  });
+
+  test("identityRefSchema requires canonical values per kind (refuses non-canonical, never folds)", () => {
+    // Canonical values parse through.
+    assert.deepEqual(identityRefSchema.parse({ kind: "email", value: "p@example.com" }), {
+      kind: "email",
+      value: "p@example.com",
+    });
+    assert.deepEqual(identityRefSchema.parse({ kind: "github_login", value: "octocat" }), {
+      kind: "github_login",
+      value: "octocat",
+    });
+    // A non-canonical value for a case-folded kind is REJECTED at the boundary —
+    // a reducer must canonicalize first; the schema does not silently lowercase.
+    assert.throws(() => identityRefSchema.parse({ kind: "email", value: "Person@Example.com" }), /canonical/);
+    assert.throws(
+      () => identityRefSchema.parse({ kind: "github_repository_full_name", value: "Owner/Repo" }),
+      /canonical/,
+    );
+    // A case-significant kind accepts mixed case (it IS canonical for that kind).
+    assert.deepEqual(identityRefSchema.parse({ kind: "slack_id", value: "U07ABC123" }), {
+      kind: "slack_id",
+      value: "U07ABC123",
+    });
   });
 
   test("validates projection cursor values used by run-scoped cursors", () => {

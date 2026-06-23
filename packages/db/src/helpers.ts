@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 import {
+  canonicalizeIdentityValue,
+  identityRefSchema,
   STABLE_ENTITY_ID_VERSION,
   type IdentityKind,
   type IdentityRef,
@@ -116,6 +118,21 @@ export function computeStableEntityId(
       );
     }
   }
+  // The value must already be CANONICAL for its kind (lowercased email/domain/
+  // github handle, etc.). The id is content-addressed from this exact string, so
+  // `Person@x.com` and `person@x.com` would mint two permanent anchors for one
+  // identity — the split-brain D2 exists to kill. Canonicalizing here is the
+  // reducer's job (`canonicalizeIdentityValue`); the mint refuses a value that
+  // isn't already canonical rather than fold it silently (same fail-loud posture
+  // as the whitespace check — these ids are permanent, so a non-canonical anchor
+  // must surface as a bug, not get normalized behind the caller's back).
+  if (input.normalizedValue !== canonicalizeIdentityValue(input.identityKind, input.normalizedValue)) {
+    throw new Error(
+      `computeStableEntityId: normalizedValue is not canonical for kind '${input.identityKind}' ` +
+        `(expected '${canonicalizeIdentityValue(input.identityKind, input.normalizedValue)}') — ` +
+        `refusing to mint a stable entity id from a non-canonical anchor.`,
+    );
+  }
   // Canonical, key-ordered JSON so the digest is stable across call sites.
   const canonicalInput: StableEntityIdInput = {
     v: STABLE_ENTITY_ID_VERSION,
@@ -143,18 +160,36 @@ export function computeStableEntityId(
  * both fields from ONE identity here, and a mismatched pair is unrepresentable.
  * Every `entity_nodes` writer (P1+) must go through this rather than hand-
  * assembling the row.
+ *
+ * `identity` is runtime-PARSED (`identityRefSchema`), not just trusted by its
+ * TypeScript type: a coerced `unknown as IdentityRef` (e.g. a reducer reading a
+ * provider payload through an `any`) could otherwise mint a node from a kind
+ * outside `IDENTITY_KINDS` or a non-canonical value, and the DB id-shape CHECK
+ * would not catch it. Parsing fails loud on a bad kind/value here, at the write
+ * API, before a permanent id is minted.
+ *
+ * `firstSeenAt` is REQUIRED (not defaulted) and must be the earliest OBSERVATION
+ * timestamp for this node — it is the merge-survivor tie-break (D2) read at the
+ * fold, so it must be deterministic across replays. A wall-clock default (write/
+ * replay time) would leak build time into merge ordering and break D13 replay
+ * determinism, so the caller supplies the observation's `occurredAt` and the
+ * write API makes it impossible to forget. (The column keeps a `defaultNow()`
+ * only as a degenerate fallback for a direct insert that bypasses this API —
+ * which no P1+ writer is allowed to do.)
  */
 export function makeEntityNodeInsert(
   secret: string,
   userId: string,
   identity: IdentityRef,
-): { id: string; userId: string; canonicalIdentity: IdentityRef } {
+  firstSeenAt: Date,
+): { id: string; userId: string; canonicalIdentity: IdentityRef; firstSeenAt: Date } {
+  const parsed = identityRefSchema.parse(identity);
   const id = computeStableEntityId(secret, {
     userId,
-    identityKind: identity.kind,
-    normalizedValue: identity.value,
+    identityKind: parsed.kind,
+    normalizedValue: parsed.value,
   });
-  return { id, userId, canonicalIdentity: identity };
+  return { id, userId, canonicalIdentity: parsed, firstSeenAt };
 }
 
 /**
