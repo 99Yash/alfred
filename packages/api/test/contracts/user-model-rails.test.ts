@@ -51,12 +51,19 @@ const createdUserIds: string[] = [];
 
 /**
  * Drizzle wraps the pg error as `"Failed query: …"` with the real constraint
- * details on `.cause`, so match against the whole cause chain (`code` +
- * `constraint`) rather than the wrapper message. Asserting the specific
- * constraint/SQLSTATE proves the intended rail fired, not just "some insert
- * failed". 23503 = FK violation, 23505 = unique violation.
+ * details on `.cause`, so we walk the whole cause chain rather than the wrapper
+ * message. Asserts the expected SQLSTATE AND the expected constraint name
+ * SEPARATELY — an OR over `(code | constraint)` would pass for ANY violation
+ * sharing the SQLSTATE (e.g. any FK is 23503), so a different constraint firing
+ * would still go green and give false confidence that the intended rail fired.
+ * Requiring both proves THIS constraint rejected the bad shape, not just "some
+ * insert with this SQLSTATE failed". 23503 = FK violation, 23505 = unique
+ * violation, 23514 = check violation.
  */
-function rejectsConstraint(fn: () => Promise<unknown>, pattern: RegExp): Promise<void> {
+function rejectsConstraint(
+  fn: () => Promise<unknown>,
+  expected: { code: string; constraint: string },
+): Promise<void> {
   return assert.rejects(fn, (err: unknown) => {
     const parts: string[] = [];
     let cur: unknown = err;
@@ -65,7 +72,13 @@ function rejectsConstraint(fn: () => Promise<unknown>, pattern: RegExp): Promise
       parts.push(e.message ?? "", e.code ?? "", e.constraint ?? "");
       cur = e.cause;
     }
-    assert.match(parts.join(" "), pattern);
+    const haystack = parts.join(" ");
+    assert.match(haystack, new RegExp(expected.code), `expected SQLSTATE ${expected.code}`);
+    assert.match(
+      haystack,
+      new RegExp(expected.constraint),
+      `expected constraint ${expected.constraint}`,
+    );
     return true;
   });
 }
@@ -135,7 +148,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           value: "a@example.com",
           source: "gmail",
         }),
-      /23503|entity_identities_entity_fk/,
+      { code: "23503", constraint: "entity_identities_entity_fk" },
     );
 
     // Positive control: the rightful owner can attach an identity to its node.
@@ -169,7 +182,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             ...gmailObs(userId, "famB", "evidence-b"),
             supersedesObservationId: obsA.id,
           }),
-      /23503|observations_supersedes_fk/,
+      { code: "23503", constraint: "observations_supersedes_fk" },
     );
 
     // Positive control: a later evidence version within the SAME family supersedes fine.
@@ -205,7 +218,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
         db()
           .insert(observations)
           .values({ ...gmailObs(userId, "famFork", "succ-2"), supersedesObservationId: root.id }),
-      /23505|observations_no_fork_idx/,
+      { code: "23505", constraint: "observations_no_fork_idx" },
     );
   });
 
@@ -227,7 +240,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           displayName: "Mismatched",
           kind: "person",
         }),
-      /23503|entity_profiles_run_fk/,
+      { code: "23503", constraint: "entity_profiles_run_fk" },
     );
 
     // Positive control: name + version match the run → accepted.
@@ -265,7 +278,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           displayName: "Foreign projection",
           kind: "person",
         }),
-      /23503|entity_profiles_run_fk/,
+      { code: "23503", constraint: "entity_profiles_run_fk" },
     );
   });
 
@@ -288,7 +301,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           toEntityId: node,
           relationType: "frequent_collaborator",
         }),
-      /23514|entity_edges_no_self_relation/,
+      { code: "23514", constraint: "entity_edges_no_self_relation" },
     );
 
     // Positive control: a genuine edge between two distinct nodes is accepted.
@@ -324,7 +337,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           toEntityId: b,
           relationType: "frequent_collaborator",
         }),
-      /23503|entity_edges_run_fk/,
+      { code: "23503", constraint: "entity_edges_run_fk" },
     );
 
     await rejectsConstraint(
@@ -337,7 +350,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           aEntityId: lo,
           bEntityId: hi,
         }),
-      /23503|entity_co_occurrence_run_fk/,
+      { code: "23503", constraint: "entity_co_occurrence_run_fk" },
     );
 
     // Positive control: matching name + version on both tables.
@@ -367,7 +380,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           activeVersion: 2,
           activeRunId: runV1,
         }),
-      /23503|active_projection_versions_run_fk/,
+      { code: "23503", constraint: "active_projection_versions_run_fk" },
     );
     await assert.doesNotReject(() =>
       db()
@@ -385,7 +398,7 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
           projectionRunId: runV1,
           source: "gmail",
         }),
-      /23503|projection_cursors_run_fk/,
+      { code: "23503", constraint: "projection_cursors_run_fk" },
     );
     await assert.doesNotReject(() =>
       db().insert(projectionCursors).values({
