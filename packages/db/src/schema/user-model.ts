@@ -357,11 +357,15 @@ export const projectionRuns = pgTable(
       t.projectionVersion,
       t.id,
     ),
-    // FK target for the versioned output tables' run-binding FK: lets a profile /
-    // edge / co-occurrence row bind (user, run id) so its data provably came from
-    // one concrete run (not just "some run at this version"). Unique because `id`
-    // is the PK.
-    uniqueIndex("projection_runs_user_fk_idx").on(t.userId, t.id),
+    // FK target for the versioned output tables' run-binding FK. Carries
+    // `projection_version` (not just the id) so the FK can bind the ROW's own
+    // `projection_version` to the run's — otherwise a profile/edge/co-occurrence
+    // row could carry `projection_version = 1` while its `projection_run_id`
+    // named a version-2 run (the two columns are independent, and Postgres has no
+    // reason to relate them). That would let a read filtering by run id pull a
+    // v1-tagged row into a v2 active view and poison cutover. Unique because `id`
+    // is the PK, so adding `projection_version` keeps it a valid 1:1 FK target.
+    uniqueIndex("projection_runs_version_fk_idx").on(t.userId, t.projectionVersion, t.id),
   ],
 );
 
@@ -381,16 +385,19 @@ export const entityProfiles = pgTable(
     projectionVersion: integer("projection_version").notNull(),
     /**
      * The concrete replay run that produced this row — bound to it by the
-     * composite FK below. A projection version is SINGLE-ATTEMPT:
+     * composite FK below, which spans `projection_version` too: the FK target is
+     * `projection_runs(user_id, projection_version, id)`, so this row's
+     * `projection_version` must equal the named run's. Without that, the two
+     * columns are independent and a reducer bug could write
+     * `projection_version = 1` on a row whose `projection_run_id` named a
+     * version-2 run; a read filtering by run id would then pull a v1-tagged row
+     * into a v2 active view. A projection version is SINGLE-ATTEMPT:
      * `projection_runs` is unique on (user, name, version), so a retry reuses
      * that one run row and must clear the prior attempt's rows before
      * re-projecting (`DELETE ... WHERE projection_run_id = <run>`, or drop the
-     * run row and let this FK cascade). The binding is provenance, not
-     * stale-vs-active discrimination: it proves the row came from one concrete
-     * run, and lets a read assert the active rows are from exactly the run
-     * `active_run_id` names — not merely "some row at this version". (Two
-     * coexisting runs at the same version is impossible under the unique index,
-     * so there is never a version-N orphan to tell apart by run id.)
+     * run row and let this FK cascade). The binding is provenance: it proves the
+     * row came from one concrete run AT THIS VERSION, and lets a read assert the
+     * active rows are from exactly the run `active_run_id` names.
      */
     projectionRunId: text("projection_run_id").notNull(),
     /** Stable node this profile describes — bound to the same user by the composite FK below. */
@@ -419,8 +426,8 @@ export const entityProfiles = pgTable(
       name: "entity_profiles_entity_fk",
     }).onDelete("cascade"),
     foreignKey({
-      columns: [t.userId, t.projectionRunId],
-      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      columns: [t.userId, t.projectionVersion, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.projectionVersion, projectionRuns.id],
       name: "entity_profiles_run_fk",
     }).onDelete("cascade"),
   ],
@@ -477,8 +484,8 @@ export const entityEdges = pgTable(
       name: "entity_edges_to_fk",
     }).onDelete("cascade"),
     foreignKey({
-      columns: [t.userId, t.projectionRunId],
-      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      columns: [t.userId, t.projectionVersion, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.projectionVersion, projectionRuns.id],
       name: "entity_edges_run_fk",
     }).onDelete("cascade"),
     check("entity_edges_weight_nonnegative", sql`${t.weight} >= 0`),
@@ -531,8 +538,8 @@ export const entityCoOccurrence = pgTable(
       name: "entity_co_occurrence_b_fk",
     }).onDelete("cascade"),
     foreignKey({
-      columns: [t.userId, t.projectionRunId],
-      foreignColumns: [projectionRuns.userId, projectionRuns.id],
+      columns: [t.userId, t.projectionVersion, t.projectionRunId],
+      foreignColumns: [projectionRuns.userId, projectionRuns.projectionVersion, projectionRuns.id],
       name: "entity_co_occurrence_run_fk",
     }).onDelete("cascade"),
     check("entity_co_occurrence_pair_order", sql`${t.aEntityId} < ${t.bEntityId}`),
