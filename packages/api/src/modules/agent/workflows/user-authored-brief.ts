@@ -56,6 +56,9 @@ const briefRunStateSchema = z.object({
   // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
   // and reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
+  // User's IANA timezone, snapshotted once per run so tool-dispatch windows
+  // match the date grounding shown to the boss.
+  timezone: z.string().optional(),
   pendingToolCalls: z.array(pendingToolCallSchema),
   subAgent: subAgentMetadataSchema.nullable(),
   inFlightTailStart: z.number().int().min(0),
@@ -141,7 +144,10 @@ const bossTurnStep: Step<BriefRunState> = {
     };
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
-    const grounding = formatDateGrounding(await resolveUserTimezone(ctx.userId));
+    if (state.timezone === undefined) {
+      state.timezone = await resolveUserTimezone(ctx.userId);
+    }
+    const grounding = formatDateGrounding(state.timezone);
     if (state.connectedSummary === undefined) {
       state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
     }
@@ -237,6 +243,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         userId: ctx.userId,
         caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
+        timezone: state.timezone,
         allowedIntegrations: state.allowedIntegrations,
       });
 
