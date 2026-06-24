@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppInput } from "~/components/ui/v2";
@@ -84,13 +83,6 @@ export function PreviewIntegrationsBody() {
             </p>
           ) : null}
         </div>
-
-        <footer className="mt-16 flex items-center justify-center text-xs text-app-fg-2 gap-2">
-          <span>Comparing against</span>
-          <Link to="/integrations" className="font-medium text-app-fg-3 hover:text-app-fg-4">
-            /integrations
-          </Link>
-        </footer>
       </main>
     </div>
   );
