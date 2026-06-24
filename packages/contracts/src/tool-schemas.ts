@@ -458,8 +458,18 @@ export const notionAppendBlocksInput = z
 
 export const railwayListProjectsInput = z.object({}).strict();
 
+const railwayCredentialId = z
+  .string()
+  .min(1)
+  .max(200)
+  .describe(
+    "Credential id from railway.list_projects identifying which Railway connection to act through. Omit if only one Railway connection exists; required when several are connected.",
+  )
+  .optional();
+
 export const railwayListDeploymentsInput = z
   .object({
+    credentialId: railwayCredentialId,
     projectId: z.string().min(1).max(200).describe("Railway project id to list deployments for."),
     serviceId: z
       .string()
@@ -479,6 +489,7 @@ export const railwayListDeploymentsInput = z
 
 export const railwayGetLogsInput = z
   .object({
+    credentialId: railwayCredentialId,
     deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
     limit: z.number().int().min(1).max(500).default(100).catch(100),
   })
@@ -486,11 +497,40 @@ export const railwayGetLogsInput = z
 
 export const railwayRedeployInput = z
   .object({
+    credentialId: railwayCredentialId,
     deploymentId: z
       .string()
       .min(1)
       .max(200)
       .describe("Railway deployment id to redeploy (re-runs the same build/release)."),
+    // Display-only context for the human approval card. `redeploy` is the one
+    // irreversible Railway action and its approval can fire by email / from the
+    // standalone /approvals page with no surrounding chat narration — where the
+    // raw deploymentId + credentialId are two opaque cuids the approver can't
+    // evaluate. These name what is actually being redeployed (which the boss
+    // already resolved from list_projects + list_deployments). They are NOT used
+    // by the execute path — only deploymentId + credentialId drive the mutation —
+    // so a wrong label can mislead the card but can never redirect the redeploy.
+    serviceName: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Human name of the service being redeployed (from list_projects). Shown on the approval card so the user can see what is being redeployed, not just an id.",
+      ),
+    projectName: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Human name of the project the service belongs to (from list_projects)."),
+    environmentName: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Environment the deployment runs in, e.g. 'production' or 'staging' (from list_projects). Critical safety context on the approval card — include it whenever known.",
+      ),
   })
   .strict();
 

@@ -1,4 +1,5 @@
-import { railwayValidateToken } from "@alfred/integrations/railway";
+import { redactSecrets, toMessage } from "@alfred/contracts";
+import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
   listBearerCredentials,
@@ -6,14 +7,14 @@ import {
 } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError } from "../../middleware/errors";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes
- * an account API token (https://railway.com/account/tokens). We validate it
- * against the GraphQL API (`me`) before storing it via the shared
- * bearer-credential layer — a bad token is rejected at connect, not at first
- * tool call.
+ * an API token (https://railway.com/account/tokens) — either an account token
+ * or a workspace-scoped one. We validate it against the GraphQL API before
+ * storing it via the shared bearer-credential layer — a bad token is rejected
+ * at connect, not at first tool call.
  *
  *   POST   /api/integrations/railway/connect      { token }  → validate + store
  *   GET    /api/integrations/railway/credentials              → list connections
@@ -34,10 +35,21 @@ export const railwayIntegrationRoutes = new Elysia({
           let account: Awaited<ReturnType<typeof railwayValidateToken>>;
           try {
             account = await railwayValidateToken(token);
-          } catch {
-            // Don't leak the upstream error verbatim — a 401/403 just means the
-            // pasted token is wrong or lacks API access.
-            throw new BadRequestError("Railway rejected that token — check it and try again");
+          } catch (err) {
+            // Log the real upstream reason (redacted + bounded) so prod failures
+            // are diagnosable, but never leak it to the client.
+            console.error(
+              `[railway.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
+            );
+            // Only an authorization failure means the pasted token is actually
+            // wrong. A transient upstream failure (5xx / timeout) must not tell
+            // the user to regenerate a token that is perfectly valid.
+            if (isRailwayAuthorizationError(err)) {
+              throw new BadRequestError("Railway rejected that token. Check it and try again.");
+            }
+            throw new ServiceUnavailableError(
+              "Railway is unavailable right now. Try connecting again in a moment.",
+            );
           }
           const label = account.name ?? account.email ?? account.id;
           const credential = await upsertBearerCredential({

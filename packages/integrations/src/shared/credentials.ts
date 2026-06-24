@@ -5,10 +5,18 @@ import { and, desc, eq } from "drizzle-orm";
 /**
  * Shared persistence layer for providers whose access is a single long-lived
  * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
- * non-expiring), and Railway (a pasted account API token). None of them need
+ * non-expiring), and Railway (a pasted account/workspace API token). None of them need
  * Google's refresh-on-demand machinery, so the whole layer is "store one
  * bearer token, read it back." Google and GitHub keep their bespoke modules
  * (refresh rotation / installation-token minting); this is the third pattern.
+ *
+ * Known v1 limitation — staleness is discovered lazily: a token revoked on the
+ * provider side stays `status: 'active'` here until the next tool call fails
+ * authz (surfaced as a fan-out `failure` or a thrown connect-me error). Nothing
+ * proactively flips a dead token to a needs-reauth state, so the settings UI
+ * shows "Connected" for a revoked token until something tries to use it. Fine at
+ * single-user scale; a background health-check that demotes failing credentials
+ * is the obvious follow-up.
  */
 
 export interface UpsertBearerCredentialArgs {
@@ -134,12 +142,36 @@ export async function listBearerCredentials(
     .limit(100);
 }
 
-export interface ActiveBearerCredential {
-  id: string;
-  accessToken: string;
-  accountId: string;
-  accountLabel: string | null;
-  metadata: Record<string, unknown>;
+export type ActiveBearerCredential = Pick<
+  IntegrationCredential,
+  "id" | "accessToken" | "accountId" | "accountLabel" | "metadata"
+>;
+
+/** List active bearer credentials, newest-updated first (capped at `limit`). */
+export async function listActiveBearerCredentials(
+  userId: string,
+  provider: string,
+  limit = 100,
+): Promise<ActiveBearerCredential[]> {
+  const rows = await db()
+    .select({
+      id: integrationCredentials.id,
+      accessToken: integrationCredentials.accessToken,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+      metadata: integrationCredentials.metadata,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, userId),
+        eq(integrationCredentials.provider, provider),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .orderBy(desc(integrationCredentials.updatedAt))
+    .limit(limit);
+  return rows;
 }
 
 /**
@@ -151,36 +183,14 @@ export async function getActiveBearerCredential(
   userId: string,
   provider: string,
 ): Promise<ActiveBearerCredential> {
-  const rows = await db()
-    .select({
-      id: integrationCredentials.id,
-      accessToken: integrationCredentials.accessToken,
-      accountId: integrationCredentials.accountId,
-      accountLabel: integrationCredentials.accountLabel,
-      metadata: integrationCredentials.metadata,
-      status: integrationCredentials.status,
-    })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, provider),
-        eq(integrationCredentials.status, "active"),
-      ),
-    )
-    .orderBy(desc(integrationCredentials.updatedAt))
-    .limit(1);
+  const rows = await listActiveBearerCredentials(userId, provider, 1);
   const row = rows[0];
   if (!row) {
     throw new Error(
       `[${provider}.credentials] no active ${provider} credential — connect ${provider} in settings`,
     );
   }
-  return {
-    id: row.id,
-    accessToken: row.accessToken,
-    accountId: row.accountId,
-    accountLabel: row.accountLabel,
-    metadata: row.metadata,
-  };
+  // `row` is already an ActiveBearerCredential (the list query selects exactly
+  // these columns), so no re-map is needed.
+  return row;
 }
