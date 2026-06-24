@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  railwayGetLogsInput,
+  railwayListDeploymentsInput,
+  railwayRedeployInput,
+} from "@alfred/contracts";
+import {
   railwayListProjects,
   railwayValidateToken,
   type RailwayProject,
@@ -70,7 +75,12 @@ describe("Railway token handling", () => {
         { body: { data: null, errors: [{ message: "Not Authorized" }] } },
         {
           body: {
-            data: { apiToken: { workspaces: [{ id: "ws_123", name: "Acme" }] } },
+            data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } },
+          },
+        },
+        {
+          body: {
+            data: { workspace: { id: "ws_123", name: "Acme" } },
           },
         },
       ],
@@ -83,7 +93,47 @@ describe("Railway token handling", () => {
           email: null,
         });
         assert.match(calls[0]?.query ?? "", /me \{ id name email \}/);
-        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaces \{ id name \}/);
+        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaceId name \}/);
+        assert.match(calls[2]?.query ?? "", /workspace\(workspaceId: \$workspaceId\)/);
+        assert.deepEqual(calls[2]?.variables, { workspaceId: "ws_123" });
+      },
+    );
+  });
+
+  test("keeps workspace tokens valid when workspace-name enrichment fails", async () => {
+    await withMockedRailwayFetch(
+      [
+        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+        {
+          body: {
+            data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } },
+          },
+        },
+        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+      ],
+      async () => {
+        const account = await railwayValidateToken("tok_workspace");
+
+        assert.deepEqual(account, {
+          id: "workspace:ws_123",
+          name: "Production automation",
+          email: null,
+        });
+      },
+    );
+  });
+
+  test("rejects bearer tokens that are not account or workspace scoped", async () => {
+    await withMockedRailwayFetch(
+      [
+        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+        { body: { data: { apiToken: { workspaceId: null, name: "Project deploy" } } } },
+      ],
+      async () => {
+        await assert.rejects(
+          () => railwayValidateToken("tok_project"),
+          /not an account or workspace-scoped API token/,
+        );
       },
     );
   });
@@ -161,6 +211,30 @@ describe("Railway token handling", () => {
         assert.match(calls[0]?.query ?? "", /me/);
         assert.match(calls[1]?.query ?? "", /projects/);
       },
+    );
+  });
+
+  test("requires credential provenance on follow-up Railway tools", () => {
+    assert.throws(
+      () => railwayListDeploymentsInput.parse({ projectId: "project_1", limit: 5 }),
+      /credentialId/,
+    );
+    assert.throws(
+      () => railwayGetLogsInput.parse({ deploymentId: "deployment_1", limit: 100 }),
+      /credentialId/,
+    );
+    assert.throws(
+      () => railwayRedeployInput.parse({ deploymentId: "deployment_1" }),
+      /credentialId/,
+    );
+
+    assert.equal(
+      railwayListDeploymentsInput.parse({
+        credentialId: "intc_1",
+        projectId: "project_1",
+        limit: 5,
+      }).credentialId,
+      "intc_1",
     );
   });
 });

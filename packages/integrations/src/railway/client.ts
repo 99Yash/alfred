@@ -113,13 +113,35 @@ async function tryAccountIdentity(token: string): Promise<RailwayAccount | null>
 
 async function resolveWorkspaceIdentity(token: string): Promise<RailwayAccount> {
   const data = await railwayGraphql<{
-    apiToken: { workspaces: Array<{ id: string; name: string }> };
-  }>(token, `query { apiToken { workspaces { id name } } }`);
-  const workspace = data.apiToken.workspaces[0];
-  if (!workspace) {
-    throw new Error("[railway] token has no accessible workspaces");
+    apiToken: { workspaceId: string | null; name: string | null } | null;
+  }>(token, `query { apiToken { workspaceId name } }`);
+  const workspaceId = data.apiToken?.workspaceId;
+  if (!workspaceId) {
+    throw new Error("[railway] token is not an account or workspace-scoped API token");
   }
-  return { id: `workspace:${workspace.id}`, name: workspace.name, email: null };
+
+  const workspaceName = await resolveWorkspaceName(token, workspaceId);
+  return {
+    id: `workspace:${workspaceId}`,
+    name: workspaceName ?? data.apiToken?.name ?? `Railway workspace ${workspaceId}`,
+    email: null,
+  };
+}
+
+async function resolveWorkspaceName(token: string, workspaceId: string): Promise<string | null> {
+  try {
+    const data = await railwayGraphql<{ workspace: { id: string; name: string } | null }>(
+      token,
+      `query workspace($workspaceId: String!) {
+        workspace(workspaceId: $workspaceId) { id name }
+      }`,
+      { workspaceId },
+    );
+    return data.workspace?.name ?? null;
+  } catch {
+    // Label enrichment must not reject an otherwise valid workspace token.
+    return null;
+  }
 }
 
 export interface RailwayService {

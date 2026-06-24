@@ -430,8 +430,17 @@ export const notionAppendBlocksInput = z
 
 export const railwayListProjectsInput = z.object({}).strict();
 
+const railwayCredentialId = z
+  .string()
+  .min(1)
+  .max(200)
+  .describe(
+    "Credential id returned by railway.list_projects for the target Railway project/workspace.",
+  );
+
 export const railwayListDeploymentsInput = z
   .object({
+    credentialId: railwayCredentialId,
     projectId: z.string().min(1).max(200).describe("Railway project id to list deployments for."),
     serviceId: z
       .string()
@@ -451,6 +460,7 @@ export const railwayListDeploymentsInput = z
 
 export const railwayGetLogsInput = z
   .object({
+    credentialId: railwayCredentialId,
     deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
     limit: z.number().int().min(1).max(500).default(100).catch(100),
   })
@@ -458,6 +468,7 @@ export const railwayGetLogsInput = z
 
 export const railwayRedeployInput = z
   .object({
+    credentialId: railwayCredentialId,
     deploymentId: z
       .string()
       .min(1)
