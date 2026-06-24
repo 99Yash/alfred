@@ -2,11 +2,10 @@ import { localDateInTimezone } from "../briefing/preferences";
 import { resolveUserTimezone } from "../user-timezone";
 
 /**
- * The user's operational timezone — the same preference key
- * `calendar.list_events` resolves its relative windows against (the
- * `"timezone"` pref, NOT `"briefing.timezone"`). Grounding the agent's
- * "today" with this key keeps the date the model reasons about in lockstep
- * with the date the calendar tool actually queries. Falls back to UTC.
+ * The user's operational timezone — the same resolver `calendar.list_events`
+ * and GitHub relative windows use. Grounding the agent's "today" with this
+ * value keeps the date the model reasons about in lockstep with the date tools
+ * actually query. Falls back to UTC.
  */
 export { resolveUserTimezone };
 
