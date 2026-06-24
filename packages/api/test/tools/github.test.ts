@@ -136,5 +136,48 @@ describe("pullRequestQueryIssues", () => {
     // "PRs merged in October" — a specific range the *WithinDays fields can't
     // express — is legitimate free-form.
     assert.deepEqual(pullRequestQueryIssues({ query: "merged:2026-10-01..2026-10-31" }), []);
+    assert.deepEqual(pullRequestQueryIssues({ query: "closed:<2026-10-31" }), []);
+    assert.deepEqual(
+      pullRequestQueryIssues({ query: "created:>=2026-06-01T00:00:00+00:00" }),
+      [],
+    );
+  });
+
+  test("rejects malformed free-form date qualifier values before GitHub 422s", () => {
+    const bareOperatorIssues = pullRequestQueryIssues({ query: "closed:>" });
+    assert.equal(bareOperatorIssues.length, 1);
+    assert.match(bareOperatorIssues[0]!, /Malformed GitHub date qualifier/);
+    assert.match(bareOperatorIssues[0]!, /closed:>/);
+
+    const bareInclusiveOperatorIssues = pullRequestQueryIssues({ query: "merged:>=" });
+    assert.equal(bareInclusiveOperatorIssues.length, 1);
+    assert.match(bareInclusiveOperatorIssues[0]!, /Malformed GitHub date qualifier/);
+    assert.match(bareInclusiveOperatorIssues[0]!, /merged:>=/);
+  });
+
+  test("rejects contradictory structured state/window combinations", () => {
+    assert.match(
+      pullRequestQueryIssues({ state: "open", closedWithinDays: 7 })[0]!,
+      /closedWithinDays.*state:'open'/,
+    );
+    assert.match(
+      pullRequestQueryIssues({ state: "open", mergedWithinDays: 7 })[0]!,
+      /mergedWithinDays.*state:'open'/,
+    );
+  });
+
+  test("allows closed-unmerged searches but rejects unmerged merged-window collisions", () => {
+    assert.deepEqual(pullRequestQueryIssues({ state: "closed", query: "is:unmerged" }), []);
+
+    const stateIssues = pullRequestQueryIssues({ state: "merged", query: "is:unmerged" });
+    assert.equal(stateIssues.length, 1);
+    assert.match(stateIssues[0]!, /is:unmerged.*conflicts/);
+
+    const windowIssues = pullRequestQueryIssues({
+      query: "is:unmerged",
+      mergedWithinDays: 7,
+    });
+    assert.equal(windowIssues.length, 1);
+    assert.match(windowIssues[0]!, /is:unmerged.*conflicts/);
   });
 });

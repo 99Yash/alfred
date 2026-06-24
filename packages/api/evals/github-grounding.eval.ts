@@ -16,7 +16,8 @@ import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn"
 // 23 counts). We expose the real github tool with no `execute` so the model
 // stops at the call, then assert deterministically on its args.
 //
-// Run locally with ANTHROPIC_API_KEY in env: `pnpm --filter @alfred/api eval`.
+// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY +
+// GOOGLE_GENERATIVE_AI_API_KEY, matching serverEnv): `pnpm --filter @alfred/api eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -39,14 +40,34 @@ interface TaskOutput {
   text: string;
 }
 
-const CASES: string[] = [
-  "how many PRs did i merge today",
-  "how many pull requests have i merged this week",
-  "how many PRs did i close in the past week",
+interface ExpectedGithubCall {
+  state: "closed" | "merged";
+  windowField: "closedWithinDays" | "mergedWithinDays";
+  windowValue: number;
+}
+
+interface Case {
+  input: string;
+  expected: ExpectedGithubCall;
+}
+
+const CASES: Case[] = [
+  {
+    input: "how many PRs did i merge today",
+    expected: { state: "merged", windowField: "mergedWithinDays", windowValue: 1 },
+  },
+  {
+    input: "how many pull requests have i merged in the past week",
+    expected: { state: "merged", windowField: "mergedWithinDays", windowValue: 7 },
+  },
+  {
+    input: "how many PRs did i close in the past week",
+    expected: { state: "closed", windowField: "closedWithinDays", windowValue: 7 },
+  },
 ];
 
-evalite<string, TaskOutput, null>("Agent GitHub grounding", {
-  data: () => CASES.map((input) => ({ input, expected: null })),
+evalite<string, TaskOutput, ExpectedGithubCall>("Agent GitHub grounding", {
+  data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
     const system = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
@@ -84,19 +105,17 @@ evalite<string, TaskOutput, null>("Agent GitHub grounding", {
     },
     {
       // The core regression: recency must come from a structured *WithinDays
-      // field, not a free-form date qualifier the model computes by hand.
-      name: "Uses a structured recency window",
-      scorer: ({ output }) => {
+      // field, and it must be the specific field/value implied by the prompt.
+      name: "Uses the expected structured filters",
+      scorer: ({ output, expected }) => {
         const args = output.args ?? {};
-        const usesWindow =
-          typeof args.mergedWithinDays === "number" ||
-          typeof args.closedWithinDays === "number" ||
-          typeof args.createdWithinDays === "number";
+        const usesExpected =
+          args.state === expected.state && args[expected.windowField] === expected.windowValue;
         return {
-          score: usesWindow ? 1 : 0,
-          metadata: usesWindow
-            ? "structured *WithinDays field set"
-            : `no structured window; args=${JSON.stringify(args)}`,
+          score: usesExpected ? 1 : 0,
+          metadata: usesExpected
+            ? `${expected.state} + ${expected.windowField}:${expected.windowValue}`
+            : `expected ${expected.state} + ${expected.windowField}:${expected.windowValue}; args=${JSON.stringify(args)}`,
         };
       },
     },
@@ -108,6 +127,13 @@ evalite<string, TaskOutput, null>("Agent GitHub grounding", {
         const args = output.args ?? {};
         const issues = pullRequestQueryIssues({
           query: typeof args.query === "string" ? args.query : undefined,
+          state:
+            args.state === "open" ||
+            args.state === "closed" ||
+            args.state === "merged" ||
+            args.state === "all"
+              ? args.state
+              : undefined,
           closedWithinDays:
             typeof args.closedWithinDays === "number" ? args.closedWithinDays : undefined,
           createdWithinDays:
