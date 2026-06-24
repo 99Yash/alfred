@@ -8,6 +8,7 @@ import {
 } from "@alfred/db/schemas";
 import {
   identityRefSchema,
+  type IdentityKind,
   type IdentityRef,
   type ObservationSource,
 } from "@alfred/contracts";
@@ -65,6 +66,42 @@ export async function ensureEntityNode(
   return tx ? run(tx) : db().transaction(run);
 }
 
+/**
+ * A live `(kind, value)` identity already binds to a DIFFERENT stable node than
+ * the one the caller asked to link. This is the merge / re-anchor signal the
+ * stable layer exists to surface (ADR-0067 D2/D16): two nodes now claim the same
+ * hard identity, and only a reducer (P1/P2) may resolve it — by re-anchoring
+ * (close the old row, bind the freed handle) or merging the nodes. The link
+ * primitive refuses to silently hand back the other node's row as if the
+ * requested link succeeded, so the reducer can catch this and act.
+ */
+export class EntityIdentityConflictError extends Error {
+  readonly kind: IdentityKind;
+  readonly value: string;
+  /** The node the caller asked to bind the identity to. */
+  readonly requestedEntityId: string;
+  /** The node the live `(kind, value)` row actually binds to. */
+  readonly liveEntityId: string;
+
+  constructor(args: {
+    kind: IdentityKind;
+    value: string;
+    requestedEntityId: string;
+    liveEntityId: string;
+  }) {
+    super(
+      `[user-model.recordEntityIdentity] identity (${args.kind}, ${args.value}) already binds ` +
+        `to entity ${args.liveEntityId}, not the requested ${args.requestedEntityId} — ` +
+        `a reducer must re-anchor or merge (D2/D16); the link is NOT silently accepted.`,
+    );
+    this.name = "EntityIdentityConflictError";
+    this.kind = args.kind;
+    this.value = args.value;
+    this.requestedEntityId = args.requestedEntityId;
+    this.liveEntityId = args.liveEntityId;
+  }
+}
+
 export interface RecordEntityIdentityArgs {
   userId: string;
   /** The stable node this identity binds to (e.g. from {@link ensureEntityNode}). */
@@ -91,6 +128,11 @@ export interface RecordEntityIdentityArgs {
  * key. RE-ANCHORING (closing an old row + binding a freed handle to a different
  * entity) and cross-entity MERGE are reducer-owned (P1/P2) — this is the
  * validated link primitive they build on.
+ *
+ * If the live `(kind, value)` row already belongs to a DIFFERENT entity, this
+ * throws {@link EntityIdentityConflictError} rather than returning that other
+ * node's row — the caller's link did not succeed, and pretending it did would
+ * mask exactly the merge/re-anchor signal this stable layer must surface (D16).
  */
 export async function recordEntityIdentity(
   args: RecordEntityIdentityArgs,
@@ -134,6 +176,14 @@ export async function recordEntityIdentity(
         `[user-model.recordEntityIdentity] live identity missing after upsert ` +
           `(user=${args.userId}, kind=${identity.kind})`,
       );
+    }
+    if (live.entityId !== args.entityId) {
+      throw new EntityIdentityConflictError({
+        kind: identity.kind,
+        value: identity.value,
+        requestedEntityId: args.entityId,
+        liveEntityId: live.entityId,
+      });
     }
     return live;
   };

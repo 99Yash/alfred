@@ -20,6 +20,7 @@ export { insertObservation, type InsertObservationResult } from "./observations"
 export {
   ensureEntityNode,
   recordEntityIdentity,
+  EntityIdentityConflictError,
   type RecordEntityIdentityArgs,
 } from "./entities";
 export {

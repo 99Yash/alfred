@@ -14,7 +14,23 @@ import {
   type EntityEdgeType,
   type EntityNodeKind,
 } from "@alfred/contracts";
-import { and, desc, eq, gte, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql, type SQL } from "drizzle-orm";
+
+/**
+ * This is a prompt-assembly / read-model surface (triage, briefing, todos). Every
+ * `list*` method is therefore BOUNDED: an unbounded call could dump an entire
+ * projection into a model context / memory. A caller may pass a smaller `limit`,
+ * but never a larger one than {@link MAX_READ_LIMIT} — and omitting it still
+ * caps at {@link DEFAULT_READ_LIMIT} rather than fetching everything. Each list
+ * has a deterministic order so the cap is a stable top-N, not an arbitrary slice.
+ */
+const DEFAULT_READ_LIMIT = 500;
+const MAX_READ_LIMIT = 2000;
+
+function clampLimit(limit?: number): number {
+  if (limit === undefined || !Number.isFinite(limit) || limit <= 0) return DEFAULT_READ_LIMIT;
+  return Math.min(Math.floor(limit), MAX_READ_LIMIT);
+}
 
 /**
  * Rows served by the reader are the versioned-table rows pinned to the active
@@ -65,7 +81,9 @@ export function userModelReader(
     return row ?? null;
   }
 
-  async function listProfiles(opts: { kind?: EntityNodeKind } = {}): Promise<ActiveEntityProfile[]> {
+  async function listProfiles(
+    opts: { kind?: EntityNodeKind; limit?: number } = {},
+  ): Promise<ActiveEntityProfile[]> {
     const conds: SQL[] = [
       eq(entityProfiles.userId, userId),
       eq(entityProfiles.projectionName, projectionName),
@@ -83,10 +101,27 @@ export function userModelReader(
           eq(activeProjectionVersions.projectionName, projectionName),
         ),
       )
-      .where(and(...conds));
+      .where(and(...conds))
+      // Most-recently-seen first (nulls last), `entity_id` to break ties — a
+      // deterministic top-N so the cap below is stable across calls.
+      .orderBy(sql`${entityProfiles.lastSeenAt} desc nulls last`, asc(entityProfiles.entityId))
+      .limit(clampLimit(opts.limit));
     return rows.map((r) => r.entity_profiles);
   }
 
+  /**
+   * NOTE (scope): this resolves a profile by its RAW stable id. Merge forwarding
+   * through `entity_nodes.supersedes_entity_id` (D16) — so `getProfile(loserId)`
+   * reaches the survivor after a merge — lands with the projection/merge slice
+   * that actually writes that pointer and the survivor's profile row. That slice
+   * is where the merge model is decided (does the fold emit a survivor-only
+   * profile? is forwarding resolved at fold time or read time, and against the
+   * stable layer or the pinned version?), so resolving it here now — against a
+   * substrate where no reducer has written a single `supersedes_entity_id` yet —
+   * would hard-code that model prematurely and risk forwarding to a survivor with
+   * no row in the (possibly older) active version. Until then a loser id reads as
+   * absent, which is correct: no merge has happened.
+   */
   async function getProfile(entityId: string): Promise<ActiveEntityProfile | null> {
     const rows = await db()
       .select()
@@ -112,7 +147,7 @@ export function userModelReader(
   }
 
   async function listEdges(
-    opts: { relationType?: EntityEdgeType; fromEntityId?: string } = {},
+    opts: { relationType?: EntityEdgeType; fromEntityId?: string; limit?: number } = {},
   ): Promise<ActiveEntityEdge[]> {
     const conds: SQL[] = [
       eq(entityEdges.userId, userId),
@@ -132,12 +167,15 @@ export function userModelReader(
           eq(activeProjectionVersions.projectionName, projectionName),
         ),
       )
-      .where(and(...conds));
+      .where(and(...conds))
+      // Strongest edges first, `id` to break ties — a deterministic top-N.
+      .orderBy(desc(entityEdges.weight), asc(entityEdges.id))
+      .limit(clampLimit(opts.limit));
     return rows.map((r) => r.entity_edges);
   }
 
   async function listCoOccurrence(
-    opts: { minWeight?: number } = {},
+    opts: { minWeight?: number; limit?: number } = {},
   ): Promise<ActiveEntityCoOccurrence[]> {
     const conds: SQL[] = [
       eq(entityCoOccurrence.userId, userId),
@@ -157,7 +195,9 @@ export function userModelReader(
         ),
       )
       .where(and(...conds))
-      .orderBy(desc(entityCoOccurrence.weight));
+      // Heaviest pairs first, `id` to break ties — a deterministic top-N.
+      .orderBy(desc(entityCoOccurrence.weight), asc(entityCoOccurrence.id))
+      .limit(clampLimit(opts.limit));
     return rows.map((r) => r.entity_co_occurrence);
   }
 
