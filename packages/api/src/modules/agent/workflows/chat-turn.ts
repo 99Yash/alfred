@@ -946,6 +946,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             userId: ctx.userId,
             caller: "boss",
             scratchpadRunId: ctx.runId,
+            timezone: state.timezone,
             allowedIntegrations: state.allowedIntegrations,
           });
 

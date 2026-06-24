@@ -54,6 +54,7 @@ import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import { getTool, type ToolExecuteContext } from "../tools/registry";
+import { resolveUserTimezone } from "../user-timezone";
 
 export interface DispatchArgs {
   runId: string;
@@ -68,6 +69,11 @@ export interface DispatchArgs {
   caller?: ToolExecuteContext["caller"];
   /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
   scratchpadRunId?: string;
+  /**
+   * The user's IANA timezone, if the caller already has it (e.g. chat snapshots
+   * it once per run). Omitted → the dispatcher reads the `"timezone"` pref.
+   */
+  timezone?: string;
   /** Workflow integration cap, used by system tools such as `system.load_integration`. */
   allowedIntegrations?: readonly string[];
 }
@@ -211,6 +217,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
+    timezone: args.timezone ?? (await resolveUserTimezone(args.userId)),
     caller,
     allowedIntegrations: args.allowedIntegrations,
   };

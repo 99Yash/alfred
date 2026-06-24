@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { pullRequestQueryIssues } from "./github-search.js";
 import { todoSourceSchema } from "./todos.js";
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
 
@@ -165,20 +166,36 @@ export const searchPullRequestsInput = z
       .min(1)
       .max(365)
       .optional()
-      .describe("Only PRs closed within the last N days (e.g. 7 for the past week)."),
+      .describe(
+        "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
+      ),
     createdWithinDays: z
       .number()
       .int()
       .min(1)
       .max(365)
       .optional()
-      .describe("Only PRs created within the last N days."),
+      .describe(
+        "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
+      ),
+    mergedWithinDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(365)
+      .optional()
+      .describe(
+        "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/this week'. Prefer this over a free-form merged: qualifier.",
+      ),
     query: z
       .string()
       .max(256)
       .optional()
       .describe(
-        'Extra GitHub search qualifiers appended verbatim, e.g. "repo:owner/name label:bug".',
+        "Extra GitHub search qualifiers appended verbatim, for filters the structured fields don't cover " +
+          '(e.g. "repo:owner/name label:bug review:approved"). Do NOT use it for author, state, or recency — ' +
+          "set the author/state/*WithinDays fields instead — and do NOT invent qualifiers: GitHub silently " +
+          "ignores unknown ones (there is no merged-by:, closed-by:, etc.) and returns an empty result.",
       ),
     perPage: z
       .number()
@@ -192,7 +209,15 @@ export const searchPullRequestsInput = z
       .catch(30)
       .describe("Max PRs to return in the list (the total count is always exact)."),
   })
-  .strict();
+  .strict()
+  // Reject invented qualifiers (the silent zero-count `merged-by:` trap) and
+  // free-form clauses that collide with the structured fields (the #213
+  // 19-vs-23 non-determinism). The boss reads the joined message and retries.
+  .superRefine((value, ctx) => {
+    for (const message of pullRequestQueryIssues(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
+    }
+  });
 
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
@@ -203,7 +228,10 @@ export const gmailSearchInput = z
       .min(1)
       .max(500)
       .describe(
-        "Gmail search query. Supports the full Gmail operator set (in:, from:, newer_than:, has:, …).",
+        "Gmail search query. Supports the full Gmail operator set (in:, from:, has:, …). " +
+          "For recency, prefer Gmail's relative operators (newer_than:3d, older_than:1w) — Gmail " +
+          "resolves them server-side, so they're immune to timezone/date-math mistakes. Use absolute " +
+          "after:/before: dates only for a specific range, computed from the grounded date in the system prompt.",
       ),
     maxResults: z
       .number()
