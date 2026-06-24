@@ -5,7 +5,7 @@ import { and, desc, eq } from "drizzle-orm";
 /**
  * Shared persistence layer for providers whose access is a single long-lived
  * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
- * non-expiring), and Railway (a pasted account API token). None of them need
+ * non-expiring), and Railway (a pasted account/workspace API token). None of them need
  * Google's refresh-on-demand machinery, so the whole layer is "store one
  * bearer token, read it back." Google and GitHub keep their bespoke modules
  * (refresh rotation / installation-token minting); this is the third pattern.
@@ -142,15 +142,11 @@ export interface ActiveBearerCredential {
   metadata: Record<string, unknown>;
 }
 
-/**
- * Resolve the most-recently-updated active bearer credential for a provider.
- * Throws a connect-me error when none exists — tool code surfaces that to the
- * boss so it asks the user to connect rather than inventing an answer.
- */
-export async function getActiveBearerCredential(
+/** List active bearer credentials, newest-updated first. */
+export async function listActiveBearerCredentials(
   userId: string,
   provider: string,
-): Promise<ActiveBearerCredential> {
+): Promise<ActiveBearerCredential[]> {
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -158,7 +154,6 @@ export async function getActiveBearerCredential(
       accountId: integrationCredentials.accountId,
       accountLabel: integrationCredentials.accountLabel,
       metadata: integrationCredentials.metadata,
-      status: integrationCredentials.status,
     })
     .from(integrationCredentials)
     .where(
@@ -169,7 +164,20 @@ export async function getActiveBearerCredential(
       ),
     )
     .orderBy(desc(integrationCredentials.updatedAt))
-    .limit(1);
+    .limit(100);
+  return rows;
+}
+
+/**
+ * Resolve the most-recently-updated active bearer credential for a provider.
+ * Throws a connect-me error when none exists — tool code surfaces that to the
+ * boss so it asks the user to connect rather than inventing an answer.
+ */
+export async function getActiveBearerCredential(
+  userId: string,
+  provider: string,
+): Promise<ActiveBearerCredential> {
+  const rows = await listActiveBearerCredentials(userId, provider);
   const row = rows[0];
   if (!row) {
     throw new Error(
