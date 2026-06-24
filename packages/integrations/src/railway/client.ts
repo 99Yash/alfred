@@ -15,6 +15,10 @@ const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
 
 interface GraphqlError {
   message: string;
+  // GraphQL errors usually carry a machine-readable code; prefer it over the
+  // human-readable message when classifying (message wording is upstream copy
+  // and can change without notice).
+  extensions?: { code?: string | null } | null;
 }
 
 export class RailwayGraphqlError extends Error {
@@ -28,10 +32,22 @@ export class RailwayGraphqlError extends Error {
   }
 }
 
+const RAILWAY_AUTHZ_CODES = new Set([
+  "UNAUTHORIZED",
+  "UNAUTHENTICATED",
+  "FORBIDDEN",
+  "NOT_AUTHORIZED",
+]);
+
 export function isRailwayAuthorizationError(err: unknown): boolean {
   if (err instanceof HttpError) return err.status === 401 || err.status === 403;
   if (!(err instanceof RailwayGraphqlError)) return false;
-  return err.errors.some((e) => /not authorized|unauthorized|forbidden/i.test(e.message));
+  return err.errors.some((e) => {
+    const code = e.extensions?.code;
+    if (code && RAILWAY_AUTHZ_CODES.has(code.toUpperCase())) return true;
+    // Fall back to message text for upstreams that don't set a structured code.
+    return /\b(not authorized|unauthorized|unauthenticated|forbidden)\b/i.test(e.message);
+  });
 }
 
 async function railwayGraphql<T>(
@@ -84,12 +100,15 @@ export interface RailwayAccount {
 
 /**
  * Validate a pasted token and return an identity for it — used by the connect
- * route. Railway has two token shapes that answer different queries:
+ * route. Railway has three token shapes:
  *   - account tokens can run `me` (full personal identity);
- *   - workspace-scoped tokens CANNOT run `me` (it requires a personal token)
- *     and are limited to queries about their workspace.
- * So we try `me` first, then fall back to Railway's token introspection. Only
- * the expected `me` authz error falls through; upstream failures stay failures.
+ *   - workspace/team tokens CANNOT run `me` (it needs a personal token) but can
+ *     answer the top-level `projects` connection (railwayapp/cli#845);
+ *   - project tokens are out of scope.
+ * We try `me` first (account path). On a null / unauthorized `me` we treat the
+ * token as workspace-scoped and validate it against `projects` — the only shape
+ * confirmed to work for those tokens — so a valid token is never rejected over
+ * a schema guess. A non-authz upstream failure on `me` stays a failure.
  */
 export async function railwayValidateToken(token: string): Promise<RailwayAccount> {
   const account = await tryAccountIdentity(token);
@@ -111,21 +130,62 @@ async function tryAccountIdentity(token: string): Promise<RailwayAccount | null>
   }
 }
 
+/**
+ * Identity for a workspace-scoped token. We want the most stable per-workspace
+ * id we can get (it becomes the credential's `accountId`, the upsert key), so we
+ * try Railway's token introspection first — but its exact field shape is NOT in
+ * the public docs, so it is best-effort only and can never reject the token. The
+ * validating fallback is `projects`, the one query workspace tokens are confirmed
+ * to answer; a real team workspace exposes `team { id name }` there.
+ *
+ * TODO(railway): confirm `apiToken { workspaceId }` against the live API
+ * (apps/server/src/scripts/probe-railway-token.ts). If it resolves it stays the
+ * primary path; if not, this silently degrades to the team / synthetic id.
+ */
 async function resolveWorkspaceIdentity(token: string): Promise<RailwayAccount> {
-  const data = await railwayGraphql<{
-    apiToken: { workspaceId: string | null; name: string | null } | null;
-  }>(token, `query { apiToken { workspaceId name } }`);
-  const workspaceId = data.apiToken?.workspaceId;
-  if (!workspaceId) {
-    throw new Error("[railway] token is not an account or workspace-scoped API token");
-  }
+  const introspected = await tryWorkspaceIntrospection(token);
+  if (introspected) return introspected;
 
-  const workspaceName = await resolveWorkspaceName(token, workspaceId);
-  return {
-    id: `workspace:${workspaceId}`,
-    name: workspaceName ?? data.apiToken?.name ?? `Railway workspace ${workspaceId}`,
-    email: null,
-  };
+  // Validates the token (throws if it is actually invalid) and yields a stable
+  // team identity when the workspace is a real team.
+  const team = await firstTeamFromProjects(token);
+  if (team) return { id: `team:${team.id}`, name: team.name, email: null };
+
+  // Team-less workspace (e.g. a Hobby personal workspace) with no introspection
+  // available: accept the token with a synthetic identity. NOTE: two such tokens
+  // collapse onto one credential row — promoting introspection (above) gives
+  // them distinct ids once the field is confirmed against the live API.
+  return { id: "workspace", name: "Railway workspace", email: null };
+}
+
+/**
+ * Best-effort identity from Railway's token introspection. Returns null on ANY
+ * failure (unknown field, authz, network) so a wrong schema guess can never
+ * reject an otherwise-valid token.
+ */
+async function tryWorkspaceIntrospection(token: string): Promise<RailwayAccount | null> {
+  try {
+    const data = await railwayGraphql<{
+      apiToken: { workspaceId: string | null; name: string | null } | null;
+    }>(token, `query { apiToken { workspaceId name } }`);
+    const workspaceId = data.apiToken?.workspaceId;
+    if (!workspaceId) return null;
+    const name = (await resolveWorkspaceName(token, workspaceId)) ?? data.apiToken?.name;
+    return {
+      id: `workspace:${workspaceId}`,
+      name: name ?? `Railway workspace ${workspaceId}`,
+      email: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function firstTeamFromProjects(token: string): Promise<{ id: string; name: string } | null> {
+  const data = await railwayGraphql<{
+    projects: { edges: Array<{ node: { team: { id: string; name: string } | null } }> };
+  }>(token, `query { projects { edges { node { team { id name } } } } }`);
+  return data.projects.edges.map((e) => e.node.team).find((t) => t != null) ?? null;
 }
 
 async function resolveWorkspaceName(token: string, workspaceId: string): Promise<string | null> {
@@ -201,17 +261,26 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   } catch (err) {
     if (!isRailwayAuthorizationError(err)) throw err;
   }
-  for (const project of await railwayListProjectsTopLevel(token)) {
-    if (!projectsById.has(project.id)) projectsById.set(project.id, project);
+  try {
+    for (const project of await railwayListProjectsTopLevel(token)) {
+      if (!projectsById.has(project.id)) projectsById.set(project.id, project);
+    }
+  } catch (err) {
+    // The top-level query is additive for account tokens but the *only* path for
+    // workspace tokens. If `me` already produced projects, don't let a transient
+    // failure here tank the whole call; if we have nothing yet, surface it.
+    if (projectsById.size === 0) throw err;
   }
   return { projects: [...projectsById.values()] };
 }
 
 async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]> {
   const data = await railwayGraphql<{
+    // `me` can come back null for non-account tokens (mirrors the validate path);
+    // don't dereference it blindly.
     me: {
       workspaces: Array<{ team: { projects: Connection<ProjectNode> | null } | null } | null>;
-    };
+    } | null;
   }>(
     token,
     `query {
@@ -225,7 +294,7 @@ async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]
     }`,
   );
   const projects: RailwayProject[] = [];
-  for (const workspace of data.me.workspaces) {
+  for (const workspace of data.me?.workspaces ?? []) {
     for (const edge of workspace?.team?.projects?.edges ?? []) {
       projects.push(mapProjectNode(edge.node));
     }

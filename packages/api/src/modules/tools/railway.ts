@@ -2,39 +2,35 @@
  * Railway tools (read + write). Reads enumerate projects/services, deployments,
  * and logs; `redeploy` re-runs a deployment and is the one infra-mutating tool
  * here (tier `high` — a UX hint; the policy gate is the real control). All
- * resolve the user's pasted Railway API token via the shared credential layer.
+ * resolve the user's pasted Railway API token(s) via the shared credential
+ * layer; follow-up tools act through a specific credential (provenance),
+ * defaulting to the sole connection when only one is connected.
  */
 
 import {
-  toMessage,
   railwayGetLogsInput,
   railwayListDeploymentsInput,
   railwayListProjectsInput,
   railwayRedeployInput,
 } from "@alfred/contracts";
 import {
-  isRailwayAuthorizationError,
   railwayGetLogs,
   railwayListDeployments,
   railwayListProjects,
-  type RailwayDeployment,
-  type RailwayProject,
   railwayRedeploy,
 } from "@alfred/integrations/railway";
 import {
   listActiveBearerCredentials,
   type ActiveBearerCredential,
 } from "@alfred/integrations/shared";
+import {
+  credentialRef,
+  listProjectsForCredentials,
+  pickCredential,
+  withCredential,
+  type RailwayDeploymentWithCredential,
+} from "./railway-fanout";
 import { liveTool, type RegisteredTool } from "./registry";
-
-interface RailwayCredentialRef {
-  credentialId: string;
-  credentialLabel: string;
-  credentialAccountId: string;
-}
-
-type RailwayProjectWithCredential = RailwayProject & RailwayCredentialRef;
-type RailwayDeploymentWithCredential = RailwayDeployment & RailwayCredentialRef;
 
 async function credentialsFor(userId: string): Promise<ActiveBearerCredential[]> {
   const credentials = await listActiveBearerCredentials(userId, "railway");
@@ -46,64 +42,11 @@ async function credentialsFor(userId: string): Promise<ActiveBearerCredential[]>
   return credentials;
 }
 
-function credentialLabel(credential: ActiveBearerCredential): string {
-  return credential.accountLabel ?? credential.accountId;
-}
-
-function credentialRef(credential: ActiveBearerCredential): RailwayCredentialRef {
-  return {
-    credentialId: credential.id,
-    credentialLabel: credentialLabel(credential),
-    credentialAccountId: credential.accountId,
-  };
-}
-
-function withCredential<T extends object>(
-  value: T,
-  credential: ActiveBearerCredential,
-): T & RailwayCredentialRef {
-  return { ...value, ...credentialRef(credential) };
-}
-
 async function credentialFor(
   userId: string,
-  credentialId: string,
+  credentialId?: string,
 ): Promise<ActiveBearerCredential> {
-  const credentials = await credentialsFor(userId);
-  const credential = credentials.find((c) => c.id === credentialId);
-  if (!credential) {
-    throw new Error(
-      `[railway.credentials] Railway credential '${credentialId}' is not active or connected`,
-    );
-  }
-  return credential;
-}
-
-async function listProjectsAcrossCredentials(
-  userId: string,
-): Promise<{ projects: RailwayProjectWithCredential[] }> {
-  const credentials = await credentialsFor(userId);
-  const projectsById = new Map<string, RailwayProjectWithCredential>();
-  const failures: string[] = [];
-  for (const credential of credentials) {
-    try {
-      const result = await railwayListProjects(credential.accessToken);
-      for (const project of result.projects) {
-        if (!projectsById.has(project.id))
-          projectsById.set(project.id, withCredential(project, credential));
-      }
-    } catch (err) {
-      if (!isRailwayAuthorizationError(err)) throw err;
-      if (credentials.length === 1) throw err;
-      failures.push(`${credentialLabel(credential)}: ${toMessage(err)}`);
-    }
-  }
-  if (projectsById.size === 0 && failures.length > 0) {
-    throw new Error(
-      `[railway.credentials] no Railway credential could list projects: ${failures.join("; ")}`,
-    );
-  }
-  return { projects: [...projectsById.values()] };
+  return pickCredential(await credentialsFor(userId), credentialId);
 }
 
 export const railwayTools: readonly RegisteredTool[] = [
@@ -112,10 +55,16 @@ export const railwayTools: readonly RegisteredTool[] = [
     action: "list_projects",
     riskTier: "no_risk",
     description:
-      "List the Railway projects the connected credentials can access, each with its services and environments. Use this first to resolve project/service/environment ids for the other Railway tools.",
+      "List the Railway projects across every connected credential, each tagged with its credentialId. Use this first to resolve project/service/environment ids — and the credentialId — for the other Railway tools.",
     inputSchema: railwayListProjectsInput,
     execute: async (_input, ctx) => {
-      return listProjectsAcrossCredentials(ctx.userId);
+      const { projects, failures } = await listProjectsForCredentials(
+        await credentialsFor(ctx.userId),
+        railwayListProjects,
+      );
+      // Surface partial failures (e.g. a stale credential) so the boss can tell
+      // the user, but keep the happy-path output lean when nothing failed.
+      return failures.length > 0 ? { projects, failures } : { projects };
     },
   }),
   liveTool({
@@ -123,7 +72,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     action: "list_deployments",
     riskTier: "no_risk",
     description:
-      "List recent deployments for a Railway project, with status and id. Pass the credentialId from list_projects. Narrow with serviceId or environmentId. Use the returned credentialId and deployment id with get_logs or redeploy.",
+      "List recent deployments for a Railway project, with status and id. Pass the credentialId from list_projects (omit if only one Railway connection exists). Narrow with serviceId or environmentId. Use the returned credentialId and deployment id with get_logs or redeploy.",
     inputSchema: railwayListDeploymentsInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId, input.credentialId);
@@ -146,7 +95,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     action: "get_logs",
     riskTier: "no_risk",
     description:
-      "Read recent logs for a Railway deployment. Pass the credentialId and deployment id from list_deployments.",
+      "Read recent logs for a Railway deployment. Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists).",
     inputSchema: railwayGetLogsInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId, input.credentialId);
@@ -163,7 +112,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     action: "redeploy",
     riskTier: "high",
     description:
-      "Redeploy an existing Railway deployment (re-runs the same build/release). Pass the credential id and deployment id from list_deployments.",
+      "Redeploy an existing Railway deployment (re-runs the same build/release). Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists).",
     inputSchema: railwayRedeployInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId, input.credentialId);
