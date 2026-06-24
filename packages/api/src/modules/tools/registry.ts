@@ -29,6 +29,15 @@ export interface ToolExecuteContext {
   toolCallId: string;
   userId: string;
   /**
+   * The user's operational IANA timezone (the `"timezone"` pref, falling back
+   * to UTC), resolved once by the dispatcher. Tools that turn a relative window
+   * ("today", "the past week") into concrete bounds resolve it against this so
+   * "today" means the user's calendar day — never the server's UTC day. Always
+   * present; the dispatcher fills it from `DispatchArgs.timezone` or by reading
+   * the preference.
+   */
+  timezone: string;
+  /**
    * Who is calling — `'boss'` for the parent run, a sub-agent id like
    * `'sub_a'` when the dispatcher is serving a child run. Tools rarely
    * care; the scratchpad zone gate (Phase 6) does.

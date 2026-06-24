@@ -1,7 +1,7 @@
 import type { WorkflowTrigger } from "@alfred/schemas";
 import { CronExpressionParser } from "cron-parser";
-import { getPreference } from "../memory/preferences";
 import { isValidTimezone } from "../briefing/preferences";
+import { resolveUserTimezone } from "../user-timezone";
 
 /**
  * Workflow scheduling helpers (ADR-0027).
@@ -14,7 +14,7 @@ import { isValidTimezone } from "../briefing/preferences";
  * Tz resolution chain is shared with ADR-0025's morning briefing:
  *
  *   1. `trigger.timezone` on the workflow row, if set + valid IANA tz.
- *   2. `user_preferences.timezone`, if set + valid.
+ *   2. The shared user timezone resolver (`timezone`, then `briefing.timezone`).
  *   3. UTC fallback.
  */
 
@@ -58,11 +58,7 @@ export async function resolveWorkflowTimezone(
   if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
     return trigger.timezone;
   }
-  const prefRow = await getPreference(userId, "timezone");
-  if (prefRow && typeof prefRow.value === "string" && isValidTimezone(prefRow.value)) {
-    return prefRow.value;
-  }
-  return DEFAULT_WORKFLOW_TIMEZONE;
+  return resolveUserTimezone(userId);
 }
 
 /**

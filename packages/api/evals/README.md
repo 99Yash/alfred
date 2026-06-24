@@ -17,6 +17,9 @@ Env (loaded from `apps/server/.env`):
 
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). Deterministic only.
+- `github-grounding.eval.ts` — chat agent answers time-relative GitHub PR
+  questions with structured `*WithinDays` fields instead of invented or
+  colliding free-form GitHub search qualifiers.
 - `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
   mint decision, and an LLM-judge pass on rationale soundness.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
