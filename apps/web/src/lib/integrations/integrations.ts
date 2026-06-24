@@ -261,10 +261,10 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
     capabilities: ["List Projects", "Check Deployments", "Read Logs", "Redeploy"],
     trust: {
       title: "Your token, your control",
-      body: "Railway has no OAuth, so you paste an account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
+      body: "Railway has no OAuth, so you paste a workspace-scoped or account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
     },
     overview: {
-      body: "Connect Railway with an account API token so Alfred can answer questions about your projects and deployments — and redeploy when you ask.",
+      body: "Connect Railway with a workspace-scoped or account API token. Alfred answers questions about your projects and deployments, and redeploys when you ask.",
       heading: "Deployment Intelligence",
       detail:
         "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",

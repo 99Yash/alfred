@@ -4,6 +4,8 @@ export {
   railwayListDeployments,
   railwayGetLogs,
   railwayRedeploy,
+  isRailwayAuthorizationError,
+  RailwayGraphqlError,
 } from "./client";
 export type {
   RailwayAccount,

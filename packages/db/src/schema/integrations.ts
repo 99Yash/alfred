@@ -22,6 +22,14 @@ import { user } from "./auth";
  * Tokens are stored plaintext for now. Encryption-at-rest is a TODO that
  * lands when we move past single-user — Postgres column encryption with a
  * KMS-derived key is the cleanest path; not blocking v1.
+ *
+ * Threat-model note: this deferral was sized when the blast radius was
+ * read-mostly (read personal Gmail, read a Notion page). It now also covers
+ * Railway workspace tokens, which CANNOT be scoped down — a Railway workspace
+ * token is full workspace write (it can redeploy any service in a shared team).
+ * The deferral may still be the right v1 call at single-user scale, but the
+ * surface a leaked row exposes is strictly larger than it was; revisit
+ * encryption before this store holds tokens for more than one user.
  */
 export const integrationCredentials = pgTable(
   "integration_credentials",

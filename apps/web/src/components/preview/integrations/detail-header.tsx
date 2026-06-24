@@ -110,9 +110,10 @@ function RedirectConnect({
 }
 
 /**
- * Railway has no OAuth — the user pastes an account API token. We POST it to
- * the connect route (which validates it against Railway before storing) and
- * refresh the credential query on success so the tile flips to "Connected".
+ * Railway has no OAuth — the user pastes an account or workspace API token.
+ * We POST it to the connect route (which validates it against Railway before
+ * storing) and refresh the credential query on success so the tile flips to
+ * "Connected".
  */
 function RailwayConnect({ connected }: { connected: boolean }) {
   const queryClient = useQueryClient();
@@ -155,7 +156,7 @@ function RailwayConnect({ connected }: { connected: boolean }) {
         type="password"
         autoFocus
         value={token}
-        placeholder="Railway account API token"
+        placeholder="Railway workspace or account token"
         className="w-64"
         onChange={(e) => setToken(e.target.value)}
         onKeyDown={(e) => {

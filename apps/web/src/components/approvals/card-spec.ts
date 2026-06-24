@@ -24,6 +24,18 @@ const TITLE_OVERRIDES: Partial<Record<ToolName, (input: Record<string, unknown>)
     const summary = stringValue(input.summary);
     return summary ? `Schedule “${summary}”` : "Create a calendar event";
   },
+  "railway.redeploy": (input) => {
+    // redeploy is the one irreversible Railway action; surface WHAT is being
+    // redeployed (service · environment — project) so the email / standalone
+    // approval card isn't just two opaque cuids. Names are display context the
+    // boss resolved from list_projects (see railwayRedeployInput).
+    const service = stringValue(input.serviceName);
+    if (!service) return "Redeploy a Railway service";
+    const env = stringValue(input.environmentName);
+    const project = stringValue(input.projectName);
+    const scope = env ? `${service} · ${env}` : service;
+    return project ? `Redeploy ${scope} — ${project}` : `Redeploy ${scope}`;
+  },
 };
 
 /**
