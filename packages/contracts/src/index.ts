@@ -5,6 +5,7 @@ export * from "./tools.js";
 export * from "./integration-objects.js";
 export * from "./user-model.js";
 export * from "./tool-schemas.js";
+export * from "./github-search.js";
 export * from "./tool-fields.js";
 export * from "./mentions.js";
 export * from "./transcript.js";
