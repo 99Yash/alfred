@@ -12,7 +12,7 @@ import { searchPullRequestsInput } from "@alfred/contracts";
 import { getInstallationTokenForUser, searchPullRequests } from "@alfred/integrations/github";
 import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
-import { addLocalDays } from "../timezone";
+import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
 type SearchPullRequestsInput = z.infer<typeof searchPullRequestsInput>;
@@ -30,15 +30,20 @@ async function credentialFor(userId: string): Promise<GithubToolCredential> {
 }
 
 /**
- * Lower bound (YYYY-MM-DD) for a "within the last N days" filter, anchored on
- * the user's calendar day in their timezone — N=1 resolves to *today* in that
- * zone (not "24h ago in UTC"), so "PRs I merged today" for an IST user doesn't
- * silently miss a PR merged after the UTC midnight boundary. Mirrors how the
- * calendar tool resolves its relative windows.
+ * Lower bound for a "within the last N days" filter, anchored on local midnight
+ * in the user's timezone and serialized as a UTC-offset date-time for GitHub
+ * search. N=1 resolves to *today* in that zone (not "24h ago in UTC"), so "PRs
+ * I merged today" for an IST user includes the 00:00-05:29 IST slice that a
+ * date-only GitHub qualifier would miss.
  */
+function githubSearchDateTime(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
+}
+
 function windowLowerBound(days: number, timezone: string, nowMs: number): string {
   const today = localDateInTimezone(timezone, new Date(nowMs));
-  return addLocalDays(today, -(days - 1));
+  const lowerDate = addLocalDays(today, -(days - 1));
+  return githubSearchDateTime(localTimeInTimezone(lowerDate, 0, timezone));
 }
 
 export function buildPullRequestSearchQuery(
