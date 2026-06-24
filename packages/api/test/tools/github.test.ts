@@ -137,10 +137,7 @@ describe("pullRequestQueryIssues", () => {
     // express — is legitimate free-form.
     assert.deepEqual(pullRequestQueryIssues({ query: "merged:2026-10-01..2026-10-31" }), []);
     assert.deepEqual(pullRequestQueryIssues({ query: "closed:<2026-10-31" }), []);
-    assert.deepEqual(
-      pullRequestQueryIssues({ query: "created:>=2026-06-01T00:00:00+00:00" }),
-      [],
-    );
+    assert.deepEqual(pullRequestQueryIssues({ query: "created:>=2026-06-01T00:00:00+00:00" }), []);
   });
 
   test("rejects malformed free-form date qualifier values before GitHub 422s", () => {

@@ -160,11 +160,7 @@ function allReadsFailed(
   return events.length === 0 && failures.length === credentials.length;
 }
 
-async function executeListEvents(
-  input: CalendarListEventsInput,
-  userId: string,
-  timezone: string,
-) {
+async function executeListEvents(input: CalendarListEventsInput, userId: string, timezone: string) {
   const window = resolveCalendarListWindow(input, timezone);
   const credentials = await calendarReadCredentials(userId);
   if (credentials.length === 0) {
