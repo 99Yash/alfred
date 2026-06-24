@@ -120,7 +120,14 @@ export function userModelReader(
    * substrate where no reducer has written a single `supersedes_entity_id` yet —
    * would hard-code that model prematurely and risk forwarding to a survivor with
    * no row in the (possibly older) active version. Until then a loser id reads as
-   * absent, which is correct: no merge has happened.
+   * absent, which is correct: no merge has happened (no reducer writes
+   * `supersedes_entity_id` on this substrate yet, so no loser id can exist).
+   *
+   * Tracked: forwarding resolution (bounded recursive CTE/helper over the stable
+   * layer) + its fail-after-merge regression test land with the fold/merge slice
+   * in docs/plans/multi-source-user-model-v1.md, alongside the SQL `active_*`
+   * views — that PR is where the merge model is fixed and is the only place this
+   * can be implemented without guessing it.
    */
   async function getProfile(entityId: string): Promise<ActiveEntityProfile | null> {
     const rows = await db()
