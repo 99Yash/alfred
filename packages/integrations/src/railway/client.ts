@@ -67,12 +67,55 @@ export interface RailwayAccount {
   email: string | null;
 }
 
-/** Validate a pasted token and return the owning account — used by the connect route. */
+/**
+ * Validate a pasted token and return an identity for it — used by the connect
+ * route. Railway has two token shapes that answer different queries:
+ *   - account tokens can run `me` (full personal identity);
+ *   - workspace-scoped tokens CANNOT run `me` (it requires a personal token)
+ *     and are limited to queries about their workspace.
+ * So we try `me` first, then fall back to a workspace-token shape that only
+ * needs the top-level `projects` connection. Upstream errors from the fallback
+ * propagate so the connect route can log why an invalid token was rejected.
+ */
 export async function railwayValidateToken(token: string): Promise<RailwayAccount> {
-  const data = await railwayGraphql<{
-    me: { id: string; name: string | null; email: string | null };
-  }>(token, `query { me { id name email } }`);
-  return { id: data.me.id, name: data.me.name, email: data.me.email };
+  const account = await tryAccountIdentity(token);
+  if (account) return account;
+  return resolveWorkspaceIdentity(token);
+}
+
+async function tryAccountIdentity(token: string): Promise<RailwayAccount | null> {
+  try {
+    const data = await railwayGraphql<{
+      me: { id: string; name: string | null; email: string | null } | null;
+    }>(token, `query { me { id name email } }`);
+    // workspace tokens come back as `me: null` (or a field-level authz error,
+    // caught below) — either way, fall through to the workspace path.
+    return data.me ? { id: data.me.id, name: data.me.name, email: data.me.email } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveWorkspaceIdentity(token: string): Promise<RailwayAccount> {
+  // Prefer a team-named identity, but never reject a valid token over a schema
+  // guess: if the enriched query fails (e.g. `team` is unavailable), fall back
+  // to the minimal known-good query that workspace tokens can always answer.
+  try {
+    const data = await railwayGraphql<{
+      projects: { edges: Array<{ node: { team: { id: string; name: string } | null } }> };
+    }>(token, `query { projects { edges { node { team { id name } } } } }`);
+    const team = data.projects.edges.map((e) => e.node.team).find((t) => t != null);
+    if (team) return { id: `team:${team.id}`, name: team.name, email: null };
+  } catch {
+    // fall through to the minimal validity check
+  }
+  // Throws (HttpError / graphql error) if the token is actually invalid; the
+  // connect route logs that reason and surfaces a clean message.
+  await railwayGraphql<{ projects: { edges: unknown[] } }>(
+    token,
+    `query { projects { edges { node { id } } } }`,
+  );
+  return { id: "workspace", name: "Railway workspace", email: null };
 }
 
 export interface RailwayService {
@@ -102,10 +145,39 @@ interface ProjectNode {
   environments: Connection<{ id: string; name: string }> | null;
 }
 
+function mapProjectNode(node: ProjectNode): RailwayProject {
+  return {
+    id: node.id,
+    name: node.name,
+    services: node.services?.edges.map((e) => e.node) ?? [],
+    environments: node.environments?.edges.map((e) => e.node) ?? [],
+  };
+}
+
+// GraphQL connections can come back null; the node selection is shared by the
+// account (`me.workspaces`) and workspace (top-level `projects`) read paths.
+const PROJECT_NODE_FIELDS = `
+  id
+  name
+  services { edges { node { id name } } }
+  environments { edges { node { id name } } }`;
+
 export async function railwayListProjects(token: string): Promise<{ projects: RailwayProject[] }> {
-  // An account token's top-level `projects` only returns personally-owned
-  // projects — workspace/team projects (the common case) live under
-  // `me.workspaces[].team.projects`, so we traverse and flatten that.
+  // Account tokens see workspace/team projects under `me.workspaces[].team.projects`
+  // (and personal ones only at the top level); workspace-scoped tokens can't run
+  // `me` at all but answer the top-level `projects` connection. Try the account
+  // path first and fall back to the top level for workspace tokens (or accounts
+  // with no workspace projects).
+  try {
+    const viaMe = await railwayListProjectsViaMe(token);
+    if (viaMe.length > 0) return { projects: viaMe };
+  } catch {
+    // `me` is unauthorized for workspace tokens — use the top-level connection.
+  }
+  return { projects: await railwayListProjectsTopLevel(token) };
+}
+
+async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]> {
   const data = await railwayGraphql<{
     me: {
       workspaces: Array<{ team: { projects: Connection<ProjectNode> | null } | null } | null>;
@@ -116,16 +188,7 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
       me {
         workspaces {
           team {
-            projects {
-              edges {
-                node {
-                  id
-                  name
-                  services { edges { node { id name } } }
-                  environments { edges { node { id name } } }
-                }
-              }
-            }
+            projects { edges { node { ${PROJECT_NODE_FIELDS} } } }
           }
         }
       }
@@ -134,15 +197,18 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   const projects: RailwayProject[] = [];
   for (const workspace of data.me.workspaces) {
     for (const edge of workspace?.team?.projects?.edges ?? []) {
-      projects.push({
-        id: edge.node.id,
-        name: edge.node.name,
-        services: edge.node.services?.edges.map((e) => e.node) ?? [],
-        environments: edge.node.environments?.edges.map((e) => e.node) ?? [],
-      });
+      projects.push(mapProjectNode(edge.node));
     }
   }
-  return { projects };
+  return projects;
+}
+
+async function railwayListProjectsTopLevel(token: string): Promise<RailwayProject[]> {
+  const data = await railwayGraphql<{ projects: Connection<ProjectNode> }>(
+    token,
+    `query { projects { edges { node { ${PROJECT_NODE_FIELDS} } } } }`,
+  );
+  return data.projects.edges.map((edge) => mapProjectNode(edge.node));
 }
 
 export interface RailwayDeployment {
