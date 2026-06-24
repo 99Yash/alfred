@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import { railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
@@ -10,10 +11,10 @@ import { BadRequestError, NotFoundError } from "../../middleware/errors";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes
- * an account API token (https://railway.com/account/tokens). We validate it
- * against the GraphQL API (`me`) before storing it via the shared
- * bearer-credential layer — a bad token is rejected at connect, not at first
- * tool call.
+ * an API token (https://railway.com/account/tokens) — either an account token
+ * or a workspace-scoped one. We validate it against the GraphQL API before
+ * storing it via the shared bearer-credential layer — a bad token is rejected
+ * at connect, not at first tool call.
  *
  *   POST   /api/integrations/railway/connect      { token }  → validate + store
  *   GET    /api/integrations/railway/credentials              → list connections
@@ -34,9 +35,11 @@ export const railwayIntegrationRoutes = new Elysia({
           let account: Awaited<ReturnType<typeof railwayValidateToken>>;
           try {
             account = await railwayValidateToken(token);
-          } catch {
-            // Don't leak the upstream error verbatim — a 401/403 just means the
-            // pasted token is wrong or lacks API access.
+          } catch (err) {
+            // Log the real (redacted, bounded) upstream reason so prod failures
+            // are diagnosable, but don't leak it to the client — a 401/403 just
+            // means the pasted token is wrong or lacks API access.
+            console.error(`[railway.connect] token validation failed :: ${toMessage(err)}`);
             throw new BadRequestError("Railway rejected that token — check it and try again");
           }
           const label = account.name ?? account.email ?? account.id;
