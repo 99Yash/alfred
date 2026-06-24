@@ -11,6 +11,7 @@ import {
   entityProfiles,
   observationFamilyHeads,
   observations,
+  projectionCursors,
   projectionRuns,
   user,
 } from "@alfred/db/schemas";
@@ -20,11 +21,14 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   activateProjectionVersion,
   completeProjectionRun,
+  EntityIdentityConflictError,
   ensureEntityNode,
+  failProjectionRun,
   insertObservation,
   recordEntityIdentity,
   startProjectionRun,
   userModelReader,
+  writeProjectionCursor,
 } from "../../src/modules/user-model";
 
 /**
@@ -245,6 +249,43 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     assert.equal(a.id, b.id, "a repeat link returns the same live identity row");
   });
 
+  test("recordEntityIdentity surfaces a cross-entity collision instead of swallowing it", async () => {
+    const userId = await seedUser();
+    const entityA = await seedNode(userId, "node-a@example.com");
+    const entityB = await seedNode(userId, "node-b@example.com");
+    const shared = { kind: "email" as const, value: "shared@example.com" };
+
+    // The handle binds to A first.
+    await recordEntityIdentity({
+      userId,
+      entityId: entityA,
+      identity: shared,
+      source: "gmail",
+      validFrom: SEED_FIRST_SEEN_AT,
+    });
+
+    // Asking to bind the SAME live (kind, value) to a different node must NOT
+    // silently hand back A's row as if B's link succeeded — it is the merge/
+    // re-anchor signal, surfaced as a typed conflict for the reducer.
+    await assert.rejects(
+      () =>
+        recordEntityIdentity({
+          userId,
+          entityId: entityB,
+          identity: shared,
+          source: "gmail",
+          validFrom: SEED_FIRST_SEEN_AT,
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof EntityIdentityConflictError, "expected a typed conflict");
+        assert.equal(err.liveEntityId, entityA);
+        assert.equal(err.requestedEntityId, entityB);
+        assert.equal(err.value, "shared@example.com");
+        return true;
+      },
+    );
+  });
+
   test("ensureEntityNode converges firstSeenAt to the earliest observation regardless of replay order", async () => {
     seedServerEnvForStableIds();
     const userId = await seedUser();
@@ -324,6 +365,98 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     });
     assert.equal(pointer.activeRunId, run.id);
     assert.equal(pointer.activeVersion, 1);
+  });
+
+  test("a completed run is terminal: re-completing and failing-after-complete are both rejected", async () => {
+    const userId = await seedUser();
+    const { run } = await startProjectionRun({
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      projectionVersion: 1,
+    });
+    await completeProjectionRun({
+      runId: run.id,
+      userId,
+      checksum: "checksum-original",
+      completedAt: new Date("2026-06-23T01:00:00.000Z"),
+    });
+
+    // A second completion must NOT overwrite the trusted checksum/completedAt.
+    await assert.rejects(
+      () =>
+        completeProjectionRun({
+          runId: run.id,
+          userId,
+          checksum: "checksum-tampered",
+          completedAt: new Date("2026-06-24T01:00:00.000Z"),
+        }),
+      /already completed/,
+    );
+
+    // Demoting a completed run to failed would orphan the cutover invariant.
+    await assert.rejects(
+      () => failProjectionRun({ runId: run.id, userId }),
+      /already.*completed|cannot be demoted/,
+    );
+
+    // The original completion is intact.
+    const [after] = await db()
+      .select()
+      .from(projectionRuns)
+      .where(eq(projectionRuns.id, run.id));
+    assert.equal(after?.status, "completed");
+    assert.equal(after?.checksum, "checksum-original");
+  });
+
+  test("writeProjectionCursor writes while running and is rejected once completed", async () => {
+    const userId = await seedUser();
+    const { run } = await startProjectionRun({
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      projectionVersion: 1,
+    });
+
+    // While running: the cursor write lands.
+    await writeProjectionCursor({
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      projectionVersion: 1,
+      projectionRunId: run.id,
+      source: "gmail",
+      cursor: { lastObservationId: "obs_1" },
+    });
+    const [cursor] = await db()
+      .select()
+      .from(projectionCursors)
+      .where(
+        and(
+          eq(projectionCursors.userId, userId),
+          eq(projectionCursors.projectionRunId, run.id),
+          eq(projectionCursors.source, "gmail"),
+        ),
+      );
+    assert.equal(cursor?.cursor.lastObservationId, "obs_1");
+
+    await completeProjectionRun({
+      runId: run.id,
+      userId,
+      checksum: "checksum-v1",
+      completedAt: new Date("2026-06-23T01:00:00.000Z"),
+    });
+
+    // After completion the replay record is immutable — no more cursor writes.
+    await assert.rejects(
+      () =>
+        writeProjectionCursor({
+          userId,
+          projectionName: USER_MODEL_PROJECTION_NAME,
+          projectionVersion: 1,
+          projectionRunId: run.id,
+          source: "gmail",
+          cursor: { lastObservationId: "obs_2" },
+        }),
+      /not 'running'|immutable replay record/,
+    );
   });
 
   test("userModelReader returns empty until activated, then pins to the active run", async () => {

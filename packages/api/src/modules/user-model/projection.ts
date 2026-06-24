@@ -12,7 +12,7 @@ import {
   type ProjectionRowCounts,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 
 export interface StartProjectionRunArgs {
@@ -111,6 +111,15 @@ export interface CompleteProjectionRunArgs {
  * `projection_runs_completed_at_consistency` enforce it at the DB; this surfaces
  * a clear error before the round-trip). Only completed runs are eligible for
  * activation.
+ *
+ * Completion is a GUARDED one-way transition: it fires only from `running` /
+ * `failed` (a retried `failed` attempt reuses the same run row — see
+ * `startProjectionRun`). `completed` is TERMINAL — re-completing would overwrite
+ * the `checksum` / `completedAt` / `rowCounts` / `sourceHighWatermark` that the
+ * activation cutover already trusts, so a second call is rejected rather than
+ * silently mutating an immutable run record. The status predicate lives in the
+ * `WHERE` so the guard is atomic (a concurrent completer can't slip past a
+ * read-then-write gap); the follow-up read only sharpens the error message.
  */
 export async function completeProjectionRun(
   args: CompleteProjectionRunArgs,
@@ -132,9 +141,27 @@ export async function completeProjectionRun(
       ...(args.rowCounts ? { rowCounts: args.rowCounts } : {}),
       ...(args.sourceHighWatermark ? { sourceHighWatermark: args.sourceHighWatermark } : {}),
     })
-    .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
+    .where(
+      and(
+        eq(projectionRuns.id, args.runId),
+        eq(projectionRuns.userId, args.userId),
+        inArray(projectionRuns.status, ["running", "failed"]),
+      ),
+    )
     .returning();
   if (!row) {
+    const [existing] = await ex
+      .select({ status: projectionRuns.status })
+      .from(projectionRuns)
+      .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
+      .limit(1);
+    if (existing?.status === "completed") {
+      throw new Error(
+        `[user-model.completeProjectionRun] run ${args.runId} is already completed — ` +
+          `completion is terminal and immutable (its checksum is what cutover trusts); ` +
+          `bump the version to re-project.`,
+      );
+    }
     throw new Error(
       `[user-model.completeProjectionRun] no run ${args.runId} for user ${args.userId}`,
     );
@@ -145,6 +172,12 @@ export async function completeProjectionRun(
 /**
  * Mark a run `failed` (ADR-0067 D13). `completedAt` is optional — `failed` may
  * record when the run gave up, and the consistency CHECK leaves it free.
+ *
+ * `completed` is TERMINAL: a run that already cut over (or is eligible to) must
+ * never be demoted to `failed` after the fact, or the active pointer could name
+ * a non-completed run and the cutover invariant would be violated post hoc. The
+ * `status <> 'completed'` predicate in the `WHERE` makes the rejection atomic;
+ * the follow-up read only sharpens the error.
  */
 export async function failProjectionRun(
   args: { runId: string; userId: string; completedAt?: Date },
@@ -154,9 +187,27 @@ export async function failProjectionRun(
   const [row] = await ex
     .update(projectionRuns)
     .set({ status: "failed", ...(args.completedAt ? { completedAt: args.completedAt } : {}) })
-    .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
+    .where(
+      and(
+        eq(projectionRuns.id, args.runId),
+        eq(projectionRuns.userId, args.userId),
+        ne(projectionRuns.status, "completed"),
+      ),
+    )
     .returning();
   if (!row) {
+    const [existing] = await ex
+      .select({ status: projectionRuns.status })
+      .from(projectionRuns)
+      .where(and(eq(projectionRuns.id, args.runId), eq(projectionRuns.userId, args.userId)))
+      .limit(1);
+    if (existing?.status === "completed") {
+      throw new Error(
+        `[user-model.failProjectionRun] refusing to fail run ${args.runId}: it is already ` +
+          `completed (terminal) — a completed run cannot be demoted, or the active pointer ` +
+          `could name a non-completed run.`,
+      );
+    }
     throw new Error(`[user-model.failProjectionRun] no run ${args.runId} for user ${args.userId}`);
   }
   return row;
@@ -175,30 +226,59 @@ export interface WriteProjectionCursorArgs {
  * Upsert the per-(run, source) replay cursor that proves no observation is
  * double-counted (ADR-0067 D13). Keyed on `(user, run, source)`; the composite
  * FK binds the cursor's name+version to the run's.
+ *
+ * Cursors are part of the replay proof the run's checksum certifies, so they
+ * share the run's immutability: a cursor may only be written while the run is
+ * `running`. Writing one after the run is `completed` / `failed` would mutate
+ * the audit trail of an already-sealed (or abandoned) run. The status is read
+ * and asserted inside the same transaction as the upsert so the check can't race
+ * a concurrent completion.
  */
 export async function writeProjectionCursor(
   args: WriteProjectionCursorArgs,
   tx?: DbExecutor,
 ): Promise<void> {
-  const ex = tx ?? db();
-  await ex
-    .insert(projectionCursors)
-    .values({
-      userId: args.userId,
-      projectionName: args.projectionName,
-      projectionVersion: args.projectionVersion,
-      projectionRunId: args.projectionRunId,
-      source: args.source,
-      cursor: args.cursor,
-    })
-    .onConflictDoUpdate({
-      target: [
-        projectionCursors.userId,
-        projectionCursors.projectionRunId,
-        projectionCursors.source,
-      ],
-      set: { cursor: args.cursor },
-    });
+  const run = async (ex: DbExecutor): Promise<void> => {
+    const [target] = await ex
+      .select({ status: projectionRuns.status })
+      .from(projectionRuns)
+      .where(
+        and(eq(projectionRuns.id, args.projectionRunId), eq(projectionRuns.userId, args.userId)),
+      )
+      .limit(1);
+    if (!target) {
+      throw new Error(
+        `[user-model.writeProjectionCursor] no run ${args.projectionRunId} for user ${args.userId}`,
+      );
+    }
+    if (target.status !== "running") {
+      throw new Error(
+        `[user-model.writeProjectionCursor] refusing to write a cursor to run ` +
+          `${args.projectionRunId}: status is '${target.status}', not 'running' — cursors are ` +
+          `part of the immutable replay record the checksum certifies.`,
+      );
+    }
+    await ex
+      .insert(projectionCursors)
+      .values({
+        userId: args.userId,
+        projectionName: args.projectionName,
+        projectionVersion: args.projectionVersion,
+        projectionRunId: args.projectionRunId,
+        source: args.source,
+        cursor: args.cursor,
+      })
+      .onConflictDoUpdate({
+        target: [
+          projectionCursors.userId,
+          projectionCursors.projectionRunId,
+          projectionCursors.source,
+        ],
+        set: { cursor: args.cursor },
+      });
+  };
+
+  return tx ? run(tx) : db().transaction(run);
 }
 
 /**
