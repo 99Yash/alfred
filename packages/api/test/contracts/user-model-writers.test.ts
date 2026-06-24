@@ -212,7 +212,12 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         const parts: string[] = [];
         let cur: unknown = err;
         for (let i = 0; i < 5 && cur && typeof cur === "object"; i++) {
-          const e = cur as { message?: string; code?: string; constraint?: string; cause?: unknown };
+          const e = cur as {
+            message?: string;
+            code?: string;
+            constraint?: string;
+            cause?: unknown;
+          };
           parts.push(e.message ?? "", e.code ?? "", e.constraint ?? "");
           cur = e.cause;
         }
@@ -348,7 +353,12 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     });
 
     await assert.rejects(
-      () => activateProjectionVersion({ userId, projectionName: USER_MODEL_PROJECTION_NAME, runId: run.id }),
+      () =>
+        activateProjectionVersion({
+          userId,
+          projectionName: USER_MODEL_PROJECTION_NAME,
+          runId: run.id,
+        }),
       /not 'completed'/,
     );
 
@@ -400,10 +410,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     );
 
     // The original completion is intact.
-    const [after] = await db()
-      .select()
-      .from(projectionRuns)
-      .where(eq(projectionRuns.id, run.id));
+    const [after] = await db().select().from(projectionRuns).where(eq(projectionRuns.id, run.id));
     assert.equal(after?.status, "completed");
     assert.equal(after?.checksum, "checksum-original");
   });
