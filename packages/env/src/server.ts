@@ -141,20 +141,20 @@ const serverEnvSchema = z.object({
   ),
   VERCEL_APP_SLUG: optionalSecret(),
   /**
-   * Object storage for chat file uploads (ADR-0065). Backed by **Railway storage
-   * buckets** (S3-compatible) via `files-sdk`'s `s3` adapter. On Railway, attach
-   * a bucket and map its injected vars with references:
-   *   CHAT_S3_BUCKET            = ${{Bucket.BUCKET}}
-   *   CHAT_S3_REGION            = ${{Bucket.REGION}}            // typically "auto"
-   *   CHAT_S3_ENDPOINT          = ${{Bucket.ENDPOINT}}          // https://storage.railway.app
-   *   CHAT_S3_ACCESS_KEY_ID     = ${{Bucket.ACCESS_KEY_ID}}
-   *   CHAT_S3_SECRET_ACCESS_KEY = ${{Bucket.SECRET_ACCESS_KEY}}
+   * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**
+   * (S3-compatible) via `files-sdk`'s `s3` adapter. Create an R2 bucket + an R2
+   * API token, then set on the server service:
+   *   CHAT_S3_BUCKET            = <bucket name>
+   *   CHAT_S3_REGION            = auto
+   *   CHAT_S3_ENDPOINT          = https://<accountid>.r2.cloudflarestorage.com
+   *   CHAT_S3_ACCESS_KEY_ID     = <R2 token Access Key ID>
+   *   CHAT_S3_SECRET_ACCESS_KEY = <R2 token Secret Access Key>
    * All optional so the server boots before storage is provisioned; the upload
-   * route throws a clean 503 when unset (mirrors the OPENAI_API_KEY gate). Railway
-   * uses virtual-hosted URLs by default — only set `CHAT_S3_FORCE_PATH_STYLE=true`
-   * if the bucket's credentials tab says it needs path-style. Railway buckets are
-   * private with no CDN, so leave `CHAT_S3_PUBLIC_BASE_URL` unset (reads use
-   * presigned GETs); it exists only for a future CDN/custom-domain front.
+   * route throws a clean 503 when unset (mirrors the OPENAI_API_KEY gate). R2
+   * serves virtual-hosted URLs on the account endpoint, so leave
+   * `CHAT_S3_FORCE_PATH_STYLE` unset (false). R2 buckets are private with no
+   * public CDN, so leave `CHAT_S3_PUBLIC_BASE_URL` unset (reads use presigned
+   * GETs); it exists only for a future R2 custom-domain / CDN front.
    */
   CHAT_S3_BUCKET: optionalSecret(),
   CHAT_S3_REGION: optionalSecret(),

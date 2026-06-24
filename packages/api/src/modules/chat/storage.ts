@@ -3,13 +3,14 @@ import { Files } from "files-sdk";
 import { s3 } from "files-sdk/s3";
 
 /**
- * Object storage for chat file uploads (ADR-0065). Backed by **Railway storage
- * buckets**, which speak the S3 protocol (`ENDPOINT=https://storage.railway.app`,
- * `REGION=auto`, private-only — presigned URLs, no CDN). `files-sdk`'s `s3`
+ * Object storage for chat file uploads (ADR-0065). Backed by **Cloudflare R2**,
+ * which speaks the S3 protocol (`ENDPOINT=https://<accountid>.r2.cloudflarestorage.com`,
+ * `REGION=auto`, private-only — presigned URLs, no public CDN). `files-sdk`'s `s3`
  * adapter talks that protocol; the `@aws-sdk/client-s3` dependency is just the S3
  * *protocol client* (the standard way to reach any S3-compatible store), not AWS
- * the service. Provider-agnostic on purpose: to move off Railway, point the
- * `CHAT_S3_*` vars elsewhere or swap the adapter here — never the call sites.
+ * the service. Provider-agnostic on purpose: this began on Railway buckets and
+ * moved to R2 with no call-site changes — to move again, point the `CHAT_S3_*`
+ * vars elsewhere or swap the adapter here, never the call sites.
  *
  * What the model sees is the degraded artifact (text + images, ADR-0065):
  * phase-1 pass-through images are read back via `readObject` and inlined as
@@ -82,8 +83,8 @@ function files(): Files {
   const adapter = s3({
     bucket: env.bucket,
     region: env.region,
-    // Railway's S3 endpoint (https://storage.railway.app). Any S3-compatible
-    // endpoint works here; left unset only in tests / AWS-native setups.
+    // R2's S3 endpoint (https://<accountid>.r2.cloudflarestorage.com). Any
+    // S3-compatible endpoint works here; left unset only in tests / AWS-native setups.
     endpoint: env.endpoint,
     forcePathStyle: env.forcePathStyle,
     credentials: {
@@ -147,10 +148,12 @@ export async function readObject(key: string): Promise<Uint8Array> {
 
 /**
  * Write bytes straight to the bucket from the server (ADR-0065). Backs the
- * server-proxied upload route: the browser can't PUT/POST direct-to-bucket
- * because the Railway storage provider serves no CORS `Access-Control-Allow-Origin`
- * header, so the client posts the bytes to our API and we relay them here. Size
- * is already policy-checked by the caller before this runs.
+ * server-proxied upload route: the client posts the bytes to our API and we
+ * relay them here. This server-side relay is provider-independent (it sidestepped
+ * Railway's missing CORS `Access-Control-Allow-Origin` header on the old bucket);
+ * R2 *does* support a CORS policy, so direct browser→bucket presigned PUTs are a
+ * possible future optimization, but the relay stays the v1 path. Size is already
+ * policy-checked by the caller before this runs.
  */
 export async function writeObject(
   key: string,
