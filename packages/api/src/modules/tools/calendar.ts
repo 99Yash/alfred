@@ -12,7 +12,6 @@ import {
 import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
-import { resolveUserTimezone } from "../user-timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -161,8 +160,7 @@ function allReadsFailed(
   return events.length === 0 && failures.length === credentials.length;
 }
 
-async function executeListEvents(input: CalendarListEventsInput, userId: string) {
-  const timezone = await resolveUserTimezone(userId);
+async function executeListEvents(input: CalendarListEventsInput, userId: string, timezone: string) {
   const window = resolveCalendarListWindow(input, timezone);
   const credentials = await calendarReadCredentials(userId);
   if (credentials.length === 0) {
@@ -209,8 +207,11 @@ async function executeListEvents(input: CalendarListEventsInput, userId: string)
   };
 }
 
-async function executeCreateEvent(input: CalendarCreateEventInput, userId: string) {
-  const timezone = await resolveUserTimezone(userId);
+async function executeCreateEvent(
+  input: CalendarCreateEventInput,
+  userId: string,
+  timezone: string,
+) {
   const credential = await calendarWriteCredential(userId);
   await requireScopes(credential.id, ["calendar"]);
   const accessToken = await getFreshAccessToken(credential.id);
@@ -238,7 +239,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
     inputSchema: calendarListEventsInput,
     execute: async (input, ctx) => {
-      return executeListEvents(input, ctx.userId);
+      return executeListEvents(input, ctx.userId, ctx.timezone);
     },
   }),
   liveTool({
@@ -248,7 +249,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     description: "Create a Google Calendar event after the user approves the details.",
     inputSchema: calendarCreateEventInput,
     execute: async (input, ctx) => {
-      return executeCreateEvent(input, ctx.userId);
+      return executeCreateEvent(input, ctx.userId, ctx.timezone);
     },
   }),
 ];
