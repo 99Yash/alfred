@@ -142,10 +142,11 @@ export interface ActiveBearerCredential {
   metadata: Record<string, unknown>;
 }
 
-/** List active bearer credentials, newest-updated first. */
+/** List active bearer credentials, newest-updated first (capped at `limit`). */
 export async function listActiveBearerCredentials(
   userId: string,
   provider: string,
+  limit = 100,
 ): Promise<ActiveBearerCredential[]> {
   const rows = await db()
     .select({
@@ -164,7 +165,7 @@ export async function listActiveBearerCredentials(
       ),
     )
     .orderBy(desc(integrationCredentials.updatedAt))
-    .limit(100);
+    .limit(limit);
   return rows;
 }
 
@@ -177,7 +178,7 @@ export async function getActiveBearerCredential(
   userId: string,
   provider: string,
 ): Promise<ActiveBearerCredential> {
-  const rows = await listActiveBearerCredentials(userId, provider);
+  const rows = await listActiveBearerCredentials(userId, provider, 1);
   const row = rows[0];
   if (!row) {
     throw new Error(

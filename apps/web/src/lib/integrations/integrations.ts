@@ -264,7 +264,7 @@ export const INTEGRATION_PROVIDERS: ReadonlyArray<IntegrationProvider> = [
       body: "Railway has no OAuth, so you paste a workspace-scoped or account API token you generate yourself. Revoke it any time from Railway, or disconnect here.",
     },
     overview: {
-      body: "Connect Railway with a workspace-scoped API token so Alfred can answer questions about your projects and deployments — and redeploy when you ask. Account tokens work too; project tokens are not supported.",
+      body: "Connect Railway with a workspace-scoped or account API token so Alfred can answer questions about your projects and deployments — and redeploy when you ask.",
       heading: "Deployment Intelligence",
       detail:
         "Alfred can list your projects, services, and environments, check deployment status, read deployment logs, and trigger a redeploy.",

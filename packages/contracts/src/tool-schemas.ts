@@ -435,8 +435,9 @@ const railwayCredentialId = z
   .min(1)
   .max(200)
   .describe(
-    "Credential id returned by railway.list_projects for the target Railway project/workspace.",
-  );
+    "Credential id from railway.list_projects identifying which Railway connection to act through. Omit if only one Railway connection exists; required when several are connected.",
+  )
+  .optional();
 
 export const railwayListDeploymentsInput = z
   .object({

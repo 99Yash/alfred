@@ -7,10 +7,14 @@ import {
   railwayRedeployInput,
 } from "@alfred/contracts";
 import {
+  RailwayGraphqlError,
   railwayListProjects,
   railwayValidateToken,
   type RailwayProject,
 } from "@alfred/integrations/railway";
+import type { ActiveBearerCredential } from "@alfred/integrations/shared";
+
+import { listProjectsForCredentials, pickCredential } from "../../src/modules/tools/railway-fanout";
 
 interface RecordedGraphqlRequest {
   query: string;
@@ -68,30 +72,34 @@ function projectIds(projects: RailwayProject[]): string[] {
   return projects.map((project) => project.id);
 }
 
-describe("Railway token handling", () => {
-  test("validates workspace tokens with a stable workspace id", async () => {
+const notAuthorized: QueuedResponse = {
+  body: { data: null, errors: [{ message: "Not Authorized" }] },
+};
+
+describe("Railway token validation", () => {
+  test("validates account tokens via me", async () => {
+    await withMockedRailwayFetch(
+      [{ body: { data: { me: { id: "u1", name: "Yash", email: "y@x.com" } } } }],
+      async (calls) => {
+        const account = await railwayValidateToken("tok_account");
+        assert.deepEqual(account, { id: "u1", name: "Yash", email: "y@x.com" });
+        assert.equal(calls.length, 1);
+        assert.match(calls[0]?.query ?? "", /me \{ id name email \}/);
+      },
+    );
+  });
+
+  test("validates workspace tokens with a stable workspace id via introspection", async () => {
     await withMockedRailwayFetch(
       [
-        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
-        {
-          body: {
-            data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } },
-          },
-        },
-        {
-          body: {
-            data: { workspace: { id: "ws_123", name: "Acme" } },
-          },
-        },
+        notAuthorized,
+        { body: { data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } } } },
+        { body: { data: { workspace: { id: "ws_123", name: "Acme" } } } },
       ],
       async (calls) => {
         const account = await railwayValidateToken("tok_workspace");
 
-        assert.deepEqual(account, {
-          id: "workspace:ws_123",
-          name: "Acme",
-          email: null,
-        });
+        assert.deepEqual(account, { id: "workspace:ws_123", name: "Acme", email: null });
         assert.match(calls[0]?.query ?? "", /me \{ id name email \}/);
         assert.match(calls[1]?.query ?? "", /apiToken \{ workspaceId name \}/);
         assert.match(calls[2]?.query ?? "", /workspace\(workspaceId: \$workspaceId\)/);
@@ -103,17 +111,12 @@ describe("Railway token handling", () => {
   test("keeps workspace tokens valid when workspace-name enrichment fails", async () => {
     await withMockedRailwayFetch(
       [
-        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
-        {
-          body: {
-            data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } },
-          },
-        },
-        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+        notAuthorized,
+        { body: { data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } } } },
+        notAuthorized,
       ],
       async () => {
         const account = await railwayValidateToken("tok_workspace");
-
         assert.deepEqual(account, {
           id: "workspace:ws_123",
           name: "Production automation",
@@ -123,17 +126,50 @@ describe("Railway token handling", () => {
     );
   });
 
-  test("rejects bearer tokens that are not account or workspace scoped", async () => {
+  test("falls back to the projects team identity when introspection errors (never rejects a valid token over a schema guess)", async () => {
     await withMockedRailwayFetch(
       [
-        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+        notAuthorized,
+        {
+          body: {
+            data: null,
+            errors: [{ message: 'Cannot query field "workspaceId" on type "ApiToken"' }],
+          },
+        },
+        {
+          body: {
+            data: { projects: { edges: [{ node: { team: { id: "team_9", name: "Acme" } } }] } },
+          },
+        },
+      ],
+      async (calls) => {
+        const account = await railwayValidateToken("tok_workspace");
+        assert.deepEqual(account, { id: "team:team_9", name: "Acme", email: null });
+        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaceId name \}/);
+        assert.match(calls[2]?.query ?? "", /projects \{ edges \{ node \{ team/);
+      },
+    );
+  });
+
+  test("accepts a team-less workspace token with a synthetic identity", async () => {
+    await withMockedRailwayFetch(
+      [
+        notAuthorized,
         { body: { data: { apiToken: { workspaceId: null, name: "Project deploy" } } } },
+        { body: { data: { projects: { edges: [{ node: { team: null } }] } } } },
       ],
       async () => {
-        await assert.rejects(
-          () => railwayValidateToken("tok_project"),
-          /not an account or workspace-scoped API token/,
-        );
+        const account = await railwayValidateToken("tok_teamless");
+        assert.deepEqual(account, { id: "workspace", name: "Railway workspace", email: null });
+      },
+    );
+  });
+
+  test("rejects a token that can neither introspect nor list projects", async () => {
+    await withMockedRailwayFetch(
+      [notAuthorized, { body: { data: { apiToken: { workspaceId: null } } } }, notAuthorized],
+      async () => {
+        await assert.rejects(() => railwayValidateToken("tok_project"), /Not Authorized/);
       },
     );
   });
@@ -147,7 +183,9 @@ describe("Railway token handling", () => {
       },
     );
   });
+});
 
+describe("Railway project listing", () => {
   test("unions account workspace projects with top-level projects", async () => {
     await withMockedRailwayFetch(
       [
@@ -193,13 +231,11 @@ describe("Railway token handling", () => {
   test("lists projects for workspace tokens after the account path is unauthorized", async () => {
     await withMockedRailwayFetch(
       [
-        { body: { data: null, errors: [{ message: "Not Authorized" }] } },
+        notAuthorized,
         {
           body: {
             data: {
-              projects: {
-                edges: [{ node: projectNode("project_workspace", "Workspace scoped") }],
-              },
+              projects: { edges: [{ node: projectNode("project_workspace", "Workspace scoped") }] },
             },
           },
         },
@@ -214,18 +250,157 @@ describe("Railway token handling", () => {
     );
   });
 
-  test("requires credential provenance on follow-up Railway tools", () => {
-    assert.throws(
-      () => railwayListDeploymentsInput.parse({ projectId: "project_1", limit: 5 }),
-      /credentialId/,
+  test("keeps me-path projects when the additive top-level query fails transiently", async () => {
+    await withMockedRailwayFetch(
+      [
+        {
+          body: {
+            data: {
+              me: {
+                workspaces: [
+                  { team: { projects: { edges: [{ node: projectNode("project_1", "P1") }] } } },
+                ],
+              },
+            },
+          },
+        },
+        { status: 503, body: "temporarily unavailable" },
+      ],
+      async () => {
+        const result = await railwayListProjects("tok_account");
+        assert.deepEqual(projectIds(result.projects), ["project_1"]);
+      },
     );
+  });
+});
+
+function cred(id: string, label: string | null): ActiveBearerCredential {
+  return {
+    id,
+    accessToken: `tok_${id}`,
+    accountId: `acct_${id}`,
+    accountLabel: label,
+    metadata: {},
+  };
+}
+
+function proj(id: string, name = id): RailwayProject {
+  return { id, name, services: [], environments: [] };
+}
+
+const authz = (): RailwayGraphqlError => new RailwayGraphqlError([{ message: "Not Authorized" }]);
+
+describe("Railway credential fan-out", () => {
+  test("pickCredential defaults to the sole connection when none is named", () => {
+    assert.equal(pickCredential([cred("a", "A")]).id, "a");
+  });
+
+  test("pickCredential requires an explicit choice when several are connected", () => {
     assert.throws(
-      () => railwayGetLogsInput.parse({ deploymentId: "deployment_1", limit: 100 }),
-      /credentialId/,
+      () => pickCredential([cred("a", "A"), cred("b", "B")]),
+      /multiple Railway credentials/,
     );
-    assert.throws(
-      () => railwayRedeployInput.parse({ deploymentId: "deployment_1" }),
-      /credentialId/,
+  });
+
+  test("pickCredential resolves a named credential and rejects an unknown id", () => {
+    assert.equal(pickCredential([cred("a", "A"), cred("b", "B")], "b").id, "b");
+    assert.throws(() => pickCredential([cred("a", "A")], "zzz"), /not active or connected/);
+  });
+
+  test("de-dupes projects across credentials (first wins) and tags provenance", async () => {
+    const byToken: Record<string, RailwayProject[]> = {
+      tok_a: [proj("p1", "from-a")],
+      tok_b: [proj("p1", "from-b"), proj("p2")],
+    };
+    const { projects, failures } = await listProjectsForCredentials(
+      [cred("a", "A"), cred("b", "B")],
+      async (token) => ({ projects: byToken[token] ?? [] }),
+    );
+    assert.deepEqual(
+      projects.map((p) => p.id),
+      ["p1", "p2"],
+    );
+    assert.equal(projects[0]?.name, "from-a");
+    assert.equal(projects[0]?.credentialId, "a");
+    assert.equal(projects[1]?.credentialId, "b");
+    assert.deepEqual(failures, []);
+  });
+
+  test("tolerates an authz failure on one credential when another succeeds", async () => {
+    const { projects, failures } = await listProjectsForCredentials(
+      [cred("dead", "Dead"), cred("ok", "Ok")],
+      async (token) => {
+        if (token === "tok_dead") throw authz();
+        return { projects: [proj("p1")] };
+      },
+    );
+    assert.deepEqual(
+      projects.map((p) => p.id),
+      ["p1"],
+    );
+    assert.equal(projects[0]?.credentialId, "ok");
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0]?.credentialId, "dead");
+  });
+
+  test("returns empty without throwing when a dead credential coexists with a valid-but-empty one", async () => {
+    // Regression: empty must not be conflated with all-failed.
+    const { projects, failures } = await listProjectsForCredentials(
+      [cred("dead", "Dead"), cred("empty", "Empty")],
+      async (token) => {
+        if (token === "tok_dead") throw authz();
+        return { projects: [] };
+      },
+    );
+    assert.deepEqual(projects, []);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0]?.credentialId, "dead");
+  });
+
+  test("throws when every credential fails authz", async () => {
+    await assert.rejects(
+      () =>
+        listProjectsForCredentials([cred("a", "A"), cred("b", "B")], async () => {
+          throw authz();
+        }),
+      /no Railway credential could list projects/,
+    );
+  });
+
+  test("surfaces the single-credential authz error verbatim", async () => {
+    await assert.rejects(
+      () =>
+        listProjectsForCredentials([cred("only", "Only")], async () => {
+          throw authz();
+        }),
+      /Not Authorized/,
+    );
+  });
+
+  test("propagates a non-authz error immediately", async () => {
+    await assert.rejects(
+      () =>
+        listProjectsForCredentials([cred("a", "A"), cred("b", "B")], async () => {
+          throw new Error("network down");
+        }),
+      /network down/,
+    );
+  });
+});
+
+describe("Railway tool schemas", () => {
+  test("credentialId is optional on follow-up tools but validated when present", () => {
+    assert.equal(
+      railwayListDeploymentsInput.parse({ projectId: "project_1", limit: 5 }).credentialId,
+      undefined,
+    );
+    assert.equal(
+      railwayGetLogsInput.parse({ deploymentId: "deployment_1", limit: 100 }).credentialId,
+      undefined,
+    );
+    assert.equal(
+      railwayRedeployInput.parse({ deploymentId: "deployment_1" }).credentialId,
+      undefined,
     );
 
     assert.equal(
@@ -235,6 +410,11 @@ describe("Railway token handling", () => {
         limit: 5,
       }).credentialId,
       "intc_1",
+    );
+
+    // present-but-empty is still rejected by min(1)
+    assert.throws(() =>
+      railwayListDeploymentsInput.parse({ credentialId: "", projectId: "project_1", limit: 5 }),
     );
   });
 });
