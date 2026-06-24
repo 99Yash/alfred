@@ -21,7 +21,7 @@ describe("buildPullRequestSearchQuery", () => {
         NOW,
       ),
       // 6 June minus 6 days = 31 May → the last 7 calendar days, today included.
-      "is:pr author:@me is:closed closed:>=2026-05-31",
+      "is:pr author:@me is:closed closed:>=2026-05-31T00:00:00+00:00",
     );
   });
 
@@ -32,14 +32,15 @@ describe("buildPullRequestSearchQuery", () => {
         "UTC",
         NOW,
       ),
-      "is:pr author:99Yash is:merged merged:>=2026-06-06",
+      "is:pr author:99Yash is:merged merged:>=2026-06-06T00:00:00+00:00",
     );
   });
 
   test("'merged today' crosses the UTC midnight boundary in the user's zone", () => {
     // 23:30 UTC on 6 June is already 05:00 on 7 June in Asia/Kolkata (UTC+5:30).
-    // A UTC-sliced window would answer for the 6th and miss a PR merged on the
-    // user's "today" (the 7th). The tz-local window gets it right.
+    // A UTC-sliced window would answer for the 6th. A date-only `merged:>=2026-06-07`
+    // would start at 00:00 UTC and miss the first 5.5h of the user's day. The
+    // tz-local lower bound starts at 18:30 UTC on the prior date.
     const lateNight = Date.UTC(2026, 5, 6, 23, 30, 0);
     assert.equal(
       buildPullRequestSearchQuery(
@@ -47,7 +48,7 @@ describe("buildPullRequestSearchQuery", () => {
         "Asia/Kolkata",
         lateNight,
       ),
-      "is:pr author:@me is:merged merged:>=2026-06-07",
+      "is:pr author:@me is:merged merged:>=2026-06-06T18:30:00+00:00",
     );
   });
 
@@ -74,7 +75,7 @@ describe("buildPullRequestSearchQuery", () => {
         "UTC",
         NOW,
       ),
-      "is:pr author:99Yash is:merged created:>=2026-05-24 repo:99Yash/alfred label:bug",
+      "is:pr author:99Yash is:merged created:>=2026-05-24T00:00:00+00:00 repo:99Yash/alfred label:bug",
     );
   });
 
@@ -95,7 +96,12 @@ describe("buildPullRequestSearchQuery", () => {
 describe("pullRequestQueryIssues", () => {
   test("clean query (extra-only qualifiers) produces no issues", () => {
     assert.deepEqual(pullRequestQueryIssues({ query: "repo:99Yash/alfred label:bug" }), []);
-    assert.deepEqual(pullRequestQueryIssues({ query: 'label:"good first issue" review:approved' }), []);
+    assert.deepEqual(
+      pullRequestQueryIssues({ query: 'label:"good first issue" review:approved' }),
+      [],
+    );
+    assert.deepEqual(pullRequestQueryIssues({ query: "has:label user-review-requested:@me" }), []);
+    assert.deepEqual(pullRequestQueryIssues({ query: "is:draft is:queued is:private" }), []);
     assert.deepEqual(pullRequestQueryIssues({}), []);
   });
 
@@ -106,10 +112,18 @@ describe("pullRequestQueryIssues", () => {
     assert.match(issues[0]!, /merged-by/);
   });
 
+  test("rejects invented qualifiers even inside boolean groups", () => {
+    const issues = pullRequestQueryIssues({ query: "(repo:99Yash/alfred AND merged-by:@me)" });
+    assert.equal(issues.length, 1);
+    assert.match(issues[0]!, /Unknown GitHub search qualifier/);
+    assert.match(issues[0]!, /merged-by/);
+  });
+
   test("rejects structured-managed qualifiers free-typed into query (#213 dup clauses)", () => {
-    const issues = pullRequestQueryIssues({ query: "is:pr author:99Yash" });
+    const issues = pullRequestQueryIssues({ query: "is:pr author:99Yash state:closed" });
     assert.ok(issues.some((m) => /Don't put `is:`/.test(m)));
     assert.ok(issues.some((m) => /Don't put `author:`/.test(m)));
+    assert.ok(issues.some((m) => /Don't put `state:`/.test(m)));
   });
 
   test("rejects a free-form date window that collides with its structured field", () => {

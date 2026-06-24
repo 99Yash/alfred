@@ -38,6 +38,7 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
   "involves",
   "team",
   "review-requested",
+  "user-review-requested",
   "team-review-requested",
   "reviewed-by",
   "org",
@@ -56,6 +57,7 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
   "draft",
   "review",
   "linked",
+  "has",
   "no",
   "sort",
   "created",
@@ -66,28 +68,30 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Tokenize a GitHub search string into top-level tokens, keeping a
- * double-quoted run (e.g. `label:"good first issue"`) as one token so its
- * spaces don't split it.
+ * Pull qualifier heads out of a GitHub search string. Qualifiers can appear in
+ * nested boolean groups, e.g. `(label:bug OR review-requested:@me)`, so a
+ * parser that only checks the beginning of a whitespace token would miss the
+ * original failure class when the model wraps it in parentheses.
  */
-const SEARCH_TOKEN_RE = /(?:-?[\w-]+:)?"[^"]*"|\S+/g;
-/** A token shaped like `qualifier:` (optionally negated `-qualifier:`). */
-const QUALIFIER_RE = /^-?([A-Za-z][\w-]*):/;
+const QUALIFIER_SCAN_RE = /(^|[\s(])(-?([A-Za-z][\w-]*):(?:"[^"]*"|[^\s)]*))/g;
 
 export interface ParsedQualifier {
   /** Qualifier name as written, e.g. `merged-by`. */
   raw: string;
   /** Lower-cased name for whitelist lookup. */
   key: string;
+  /** Raw value after the `:`. Only interpreted for known managed qualifiers. */
+  value: string;
 }
 
 /** Pull the `qualifier:` heads out of a free-form query; bare words are skipped. */
 export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   const out: ParsedQualifier[] = [];
-  for (const token of query.match(SEARCH_TOKEN_RE) ?? []) {
-    const match = QUALIFIER_RE.exec(token);
-    if (!match) continue; // bare free-text term — fine
-    out.push({ raw: match[1]!, key: match[1]!.toLowerCase() });
+  for (const match of query.matchAll(QUALIFIER_SCAN_RE)) {
+    const raw = match[3]!;
+    const token = match[2]!;
+    const value = token.slice(token.indexOf(":") + 1);
+    out.push({ raw, key: raw.toLowerCase(), value });
   }
   return out;
 }
@@ -95,11 +99,22 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
 /** Human-readable name of the structured field that owns each managed qualifier. */
 const MANAGED_BY_FIELD: Record<string, string> = {
   is: "the `state` field",
+  state: "the `state` field",
   author: "the `author` field",
   closed: "the `closedWithinDays` field",
   created: "the `createdWithinDays` field",
   merged: "the `mergedWithinDays` field",
 };
+
+const STRUCTURED_IS_VALUES = new Set(["pr", "issue", "open", "closed", "merged"]);
+
+function normalizeQualifierValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^[("']+/, "")
+    .replace(/[)"']+$/, "")
+    .toLowerCase();
+}
 
 export interface PullRequestQueryContext {
   query?: string;
@@ -121,9 +136,7 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
 
   // 1. Invented qualifiers (the `merged-by:` bug) — the silent zero-count trap.
   const unknown = [
-    ...new Set(
-      qualifiers.filter((q) => !GITHUB_PR_SEARCH_QUALIFIERS.has(q.key)).map((q) => q.raw),
-    ),
+    ...new Set(qualifiers.filter((q) => !GITHUB_PR_SEARCH_QUALIFIERS.has(q.key)).map((q) => q.raw)),
   ];
   if (unknown.length > 0) {
     issues.push(
@@ -134,14 +147,26 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
     );
   }
 
-  // 2. `is:` / `author:` are always emitted from the structured fields — any
+  // 2. `author:` / `state:` are always represented by structured fields — any
   //    free-form occurrence duplicates or conflicts with them.
-  for (const key of ["is", "author"] as const) {
+  for (const key of ["author", "state"] as const) {
     if (qualifiers.some((q) => q.key === key)) {
       issues.push(
         `Don't put \`${key}:\` in \`query\` — set ${MANAGED_BY_FIELD[key]} instead (it is applied automatically).`,
       );
     }
+  }
+  // `is:` is a broad GitHub qualifier. Only the type/state values collide with
+  // this tool's structured fields; other values such as `is:draft` are valid
+  // extra filters.
+  if (
+    qualifiers.some(
+      (q) => q.key === "is" && STRUCTURED_IS_VALUES.has(normalizeQualifierValue(q.value)),
+    )
+  ) {
+    issues.push(
+      "Don't put `is:` PR/type/state filters in `query` — set the `state` field instead (`is:pr` is applied automatically).",
+    );
   }
 
   // 3. A free-form date window AND its structured field both set => conflicting
