@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
+import { databaseEnv } from "@alfred/env/database";
 import { computeStableEntityId, makeEntityNodeInsert } from "@alfred/db/helpers";
 import {
   activeProjectionVersions,
@@ -68,7 +69,18 @@ import { and, eq, inArray } from "drizzle-orm";
  * still run without a database. Seeds throwaway `test-umrails-*` users and
  * cascades them away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+// Probe DATABASE_URL through the env package (`databaseEnv` reads ONLY that var)
+// rather than `process.env` directly — the repo rule routes env access through
+// `@alfred/env`. `databaseEnv()` throws when it's absent, so the try/catch maps
+// "not configured" to the skip without pulling in the full `serverEnv` schema.
+function hasDatabaseUrl(): boolean {
+  try {
+    return Boolean(databaseEnv().DATABASE_URL);
+  } catch {
+    return false;
+  }
+}
+const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
 
 const ID_PREFIX = "test-umrails-";
 const createdUserIds: string[] = [];
