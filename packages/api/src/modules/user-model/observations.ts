@@ -1,13 +1,6 @@
 import { db } from "@alfred/db";
-import {
-  observationFamilyHeads,
-  observations,
-  type Observation,
-} from "@alfred/db/schemas";
-import {
-  observationInsertSchema,
-  type ObservationInsertInput,
-} from "@alfred/contracts";
+import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
+import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 

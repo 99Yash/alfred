@@ -739,7 +739,10 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
       assert.throws(() => observationInsertSchema.parse({ ...minimal, evidenceHash: bad }));
     }
     assert.throws(() =>
-      observationInsertSchema.parse({ ...minimal, familyKey: "f".repeat(MAX_FAMILY_KEY_BYTES + 1) }),
+      observationInsertSchema.parse({
+        ...minimal,
+        familyKey: "f".repeat(MAX_FAMILY_KEY_BYTES + 1),
+      }),
     );
     assert.throws(() =>
       observationInsertSchema.parse({
