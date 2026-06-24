@@ -10,7 +10,10 @@ import {
   isImmutableAccountBridge,
   isObservationKindForSource,
   MAX_IDENTITY_VALUE_BYTES,
+  MAX_EVIDENCE_HASH_BYTES,
+  MAX_FAMILY_KEY_BYTES,
   OBSERVATION_SOURCE_RANK,
+  observationInsertSchema,
   observationParticipantsSchema,
   observationSourceKindSchema,
   observationSourceSchema,
@@ -688,5 +691,119 @@ describe("user-model observation contracts", () => {
     assert.equal(isHardPersonBridge({ kind: "slack_id" }), false);
     assert.equal(isHardPersonBridge({ kind: "notion_user_id" }), false);
     assert.equal(isHardPersonBridge({ kind: "domain" }), false);
+  });
+});
+
+describe("observationInsertSchema (the HARD write-boundary parser)", () => {
+  const minimal = {
+    userId: "usr_test",
+    source: "gmail" as const,
+    kind: "email_message" as const,
+    occurredAt: new Date("2026-06-23T00:00:00.000Z"),
+    familyKey: "gmail:abc123",
+    evidenceHash: "sha256:deadbeef",
+    subjectIdentity: { kind: "email" as const, value: "person@example.com" },
+  };
+
+  test("accepts a minimal valid observation and applies column-matching defaults", () => {
+    const parsed = observationInsertSchema.parse(minimal);
+    assert.deepEqual(parsed.participants, { items: [], recipientCount: 0 });
+    assert.deepEqual(parsed.payload, {});
+    assert.equal(parsed.schemaVersion, 1);
+    assert.equal(parsed.reducerVersion, 1);
+    assert.equal(parsed.objectIdentity, undefined);
+    assert.equal(parsed.supersedesObservationId, undefined);
+  });
+
+  test("closes the half-open vocabulary: a kind not valid for its source is rejected", () => {
+    // `github_push` is a real kind, but not for `gmail` — the exact split a
+    // separate source-check + kind-check would wave through.
+    assert.throws(
+      () => observationInsertSchema.parse({ ...minimal, kind: "github_push" }),
+      /not valid for its source/,
+    );
+    // The same kind IS legal under its own source.
+    assert.doesNotThrow(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        source: "github",
+        kind: "github_push",
+        familyKey: "github:push:owner/repo:abc",
+      }),
+    );
+  });
+
+  test("pins the idempotency keys non-empty, edge-whitespace-free, and byte-bounded", () => {
+    for (const bad of ["", " ", "x ", " x", "x\t"]) {
+      assert.throws(() => observationInsertSchema.parse({ ...minimal, familyKey: bad }));
+      assert.throws(() => observationInsertSchema.parse({ ...minimal, evidenceHash: bad }));
+    }
+    assert.throws(() =>
+      observationInsertSchema.parse({ ...minimal, familyKey: "f".repeat(MAX_FAMILY_KEY_BYTES + 1) }),
+    );
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        evidenceHash: "e".repeat(MAX_EVIDENCE_HASH_BYTES + 1),
+      }),
+    );
+  });
+
+  test("inherits the identity canonical + format refines on subject and object", () => {
+    // Non-canonical subject (uppercase email) is refused, not silently folded.
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        subjectIdentity: { kind: "email", value: "Person@example.com" },
+      }),
+    );
+    // Malformed object identity (a numeric github id that isn't numeric).
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        objectIdentity: { kind: "github_user_id", value: "not-a-number" },
+      }),
+    );
+    // A canonical, well-formed object identity is accepted.
+    assert.doesNotThrow(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        objectIdentity: { kind: "github_user_id", value: "12345" },
+      }),
+    );
+  });
+
+  test("accepts the {kind:'user'} self-subject for user-authored observations", () => {
+    const parsed = observationInsertSchema.parse({
+      userId: "usr_test",
+      source: "user",
+      kind: "user_standing_instruction",
+      occurredAt: new Date("2026-06-23T00:00:00.000Z"),
+      familyKey: "user:standing:tz",
+      evidenceHash: "sha256:cafe",
+      subjectIdentity: { kind: "user" },
+    });
+    assert.deepEqual(parsed.subjectIdentity, { kind: "user" });
+  });
+
+  test("carries the participants fan-out refine through (a blast can't masquerade as a 1:1)", () => {
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        participants: {
+          items: [
+            { identity: { kind: "email", value: "a@example.com" }, role: "to" },
+            { identity: { kind: "email", value: "b@example.com" }, role: "cc" },
+          ],
+          recipientCount: 1,
+        },
+      }),
+    );
+  });
+
+  test("rejects unknown keys (strict) so a typo'd field can't slip into the log", () => {
+    assert.throws(() =>
+      observationInsertSchema.parse({ ...minimal, occured_at: new Date() } as never),
+    );
   });
 });
