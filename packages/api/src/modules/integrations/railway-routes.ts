@@ -1,5 +1,5 @@
-import { toMessage } from "@alfred/contracts";
-import { railwayValidateToken } from "@alfred/integrations/railway";
+import { redactSecrets, toMessage } from "@alfred/contracts";
+import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
   listBearerCredentials,
@@ -7,7 +7,7 @@ import {
 } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError } from "../../middleware/errors";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes
@@ -36,11 +36,20 @@ export const railwayIntegrationRoutes = new Elysia({
           try {
             account = await railwayValidateToken(token);
           } catch (err) {
-            // Log the real (redacted, bounded) upstream reason so prod failures
-            // are diagnosable, but don't leak it to the client — a 401/403 just
-            // means the pasted token is wrong or lacks API access.
-            console.error(`[railway.connect] token validation failed :: ${toMessage(err)}`);
-            throw new BadRequestError("Railway rejected that token — check it and try again");
+            // Log the real upstream reason (redacted + bounded) so prod failures
+            // are diagnosable, but never leak it to the client.
+            console.error(
+              `[railway.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
+            );
+            // Only an authorization failure means the pasted token is actually
+            // wrong. A transient upstream failure (5xx / timeout) must not tell
+            // the user to regenerate a token that is perfectly valid.
+            if (isRailwayAuthorizationError(err)) {
+              throw new BadRequestError("Railway rejected that token. Check it and try again.");
+            }
+            throw new ServiceUnavailableError(
+              "Railway is unavailable right now. Try connecting again in a moment.",
+            );
           }
           const label = account.name ?? account.email ?? account.id;
           const credential = await upsertBearerCredential({

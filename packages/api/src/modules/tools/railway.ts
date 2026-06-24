@@ -112,7 +112,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     action: "redeploy",
     riskTier: "high",
     description:
-      "Redeploy an existing Railway deployment (re-runs the same build/release). Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists).",
+      "Redeploy an existing Railway deployment (re-runs the same build/release). Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists). Also pass serviceName, projectName, and (when known) environmentName from list_projects — these name what is being redeployed on the human approval card; redeploy always requires approval, so omitting them leaves the approver staring at opaque ids.",
     inputSchema: railwayRedeployInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId, input.credentialId);

@@ -10,9 +10,11 @@
  *   $ pnpm --filter server tsx src/scripts/probe-railway-token.ts <token>
  *
  * Run it once with an ACCOUNT token and once with a WORKSPACE token. What to
- * look for: does `apiToken { workspaceId name }` resolve (the unverified field
- * the connect path now prefers), or does it error? `projects { ... team }` is
- * the shape workspace tokens are confirmed to answer (railwayapp/cli#845).
+ * look for: does `apiToken { workspaces { id name } }` resolve (the field the
+ * connect path uses to mint a stable `workspace:<id>` identity — verified
+ * 2026-06-24), or does it error? `projects { ... team }` is the shape workspace
+ * tokens are confirmed to answer (railwayapp/cli#845) and the connect path's
+ * fallback when introspection comes back empty/ambiguous.
  */
 
 const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
@@ -51,8 +53,8 @@ async function main(): Promise<void> {
   await run(token, "me (account identity)", `query { me { id name email } }`);
   await run(
     token,
-    "apiToken { workspaceId name }  <- UNVERIFIED (connect path prefers this)",
-    `query { apiToken { workspaceId name } }`,
+    "apiToken { workspaces { id name } }  <- connect path uses this for workspace identity",
+    `query { apiToken { workspaces { id name } } }`,
   );
   await run(
     token,
@@ -75,7 +77,7 @@ async function main(): Promise<void> {
     );
   } else {
     console.log(
-      "\n(set RAILWAY_WORKSPACE_ID=... — e.g. the workspaceId apiToken returned — to also probe workspace(workspaceId:))",
+      "\n(set RAILWAY_WORKSPACE_ID=... — e.g. a workspaces[].id apiToken returned — to also probe workspace(workspaceId:))",
     );
   }
 }

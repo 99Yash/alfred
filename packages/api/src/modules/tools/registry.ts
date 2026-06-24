@@ -5,10 +5,12 @@
  * every tool call and treats unknown names as a synthesized validation
  * failure.
  *
- * `riskTier` is a UX hint — the dispatcher's gate is `user_action_policies`,
- * not the tier (per the Tool-risk-tier glossary entry / ADR-0034). Tiers
- * drive integration-card summaries, staging-card badges, and email
- * subject prefixes; they never silently change whether a call is gated.
+ * `riskTier` drives integration-card summaries, staging-card badges, and email
+ * subject prefixes. For `no_risk`/`low`/`medium` it is purely a UX hint — the
+ * gate is `user_action_policies` (ADR-0034). The ONE exception is `high`: per
+ * ADR-0068 a high-tier tool ALWAYS confirms regardless of policy (a one-way
+ * floor the autonomy toggle can't override — see `toolRequiresApproval` in the
+ * dispatcher). So `high` is load-bearing for the gate; the lower tiers are not.
  */
 
 import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";

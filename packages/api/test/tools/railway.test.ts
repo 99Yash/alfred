@@ -93,35 +93,61 @@ describe("Railway token validation", () => {
     await withMockedRailwayFetch(
       [
         notAuthorized,
-        { body: { data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } } } },
-        { body: { data: { workspace: { id: "ws_123", name: "Acme" } } } },
+        { body: { data: { apiToken: { workspaces: [{ id: "ws_123", name: "Acme" }] } } } },
       ],
       async (calls) => {
         const account = await railwayValidateToken("tok_workspace");
 
         assert.deepEqual(account, { id: "workspace:ws_123", name: "Acme", email: null });
+        assert.equal(calls.length, 2);
         assert.match(calls[0]?.query ?? "", /me \{ id name email \}/);
-        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaceId name \}/);
-        assert.match(calls[2]?.query ?? "", /workspace\(workspaceId: \$workspaceId\)/);
-        assert.deepEqual(calls[2]?.variables, { workspaceId: "ws_123" });
+        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaces \{ id name \} \}/);
       },
     );
   });
 
-  test("keeps workspace tokens valid when workspace-name enrichment fails", async () => {
+  test("names a workspace token by its workspace, falling back to the id when unnamed", async () => {
     await withMockedRailwayFetch(
       [
         notAuthorized,
-        { body: { data: { apiToken: { workspaceId: "ws_123", name: "Production automation" } } } },
-        notAuthorized,
+        { body: { data: { apiToken: { workspaces: [{ id: "ws_123", name: null }] } } } },
       ],
       async () => {
         const account = await railwayValidateToken("tok_workspace");
         assert.deepEqual(account, {
           id: "workspace:ws_123",
-          name: "Production automation",
+          name: "Railway workspace ws_123",
           email: null,
         });
+      },
+    );
+  });
+
+  test("ignores ambiguous multi-workspace introspection and falls back to the projects team", async () => {
+    await withMockedRailwayFetch(
+      [
+        notAuthorized,
+        {
+          body: {
+            data: {
+              apiToken: {
+                workspaces: [
+                  { id: "w1", name: "One" },
+                  { id: "w2", name: "Two" },
+                ],
+              },
+            },
+          },
+        },
+        {
+          body: {
+            data: { projects: { edges: [{ node: { team: { id: "team_9", name: "Acme" } } }] } },
+          },
+        },
+      ],
+      async () => {
+        const account = await railwayValidateToken("tok_multi");
+        assert.deepEqual(account, { id: "team:team_9", name: "Acme", email: null });
       },
     );
   });
@@ -133,7 +159,7 @@ describe("Railway token validation", () => {
         {
           body: {
             data: null,
-            errors: [{ message: 'Cannot query field "workspaceId" on type "ApiToken"' }],
+            errors: [{ message: 'Cannot query field "workspaces" on type "ApiTokenContext"' }],
           },
         },
         {
@@ -145,29 +171,48 @@ describe("Railway token validation", () => {
       async (calls) => {
         const account = await railwayValidateToken("tok_workspace");
         assert.deepEqual(account, { id: "team:team_9", name: "Acme", email: null });
-        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaceId name \}/);
+        assert.match(calls[1]?.query ?? "", /apiToken \{ workspaces \{ id name \} \}/);
         assert.match(calls[2]?.query ?? "", /projects \{ edges \{ node \{ team/);
       },
     );
   });
 
-  test("accepts a team-less workspace token with a synthetic identity", async () => {
+  test("accepts a team-less workspace token with a synthetic token-fingerprint identity", async () => {
     await withMockedRailwayFetch(
       [
         notAuthorized,
-        { body: { data: { apiToken: { workspaceId: null, name: "Project deploy" } } } },
+        { body: { data: { apiToken: { workspaces: [] } } } },
         { body: { data: { projects: { edges: [{ node: { team: null } }] } } } },
       ],
       async () => {
         const account = await railwayValidateToken("tok_teamless");
-        assert.deepEqual(account, { id: "workspace", name: "Railway workspace", email: null });
+        assert.match(account.id, /^workspace-token:[0-9a-f]{16}$/);
+        assert.equal(account.name, "Railway workspace");
+        assert.equal(account.email, null);
       },
     );
   });
 
+  test("two distinct team-less tokens get distinct synthetic ids (no upsert collision)", async () => {
+    const idFor = async (token: string): Promise<string> =>
+      withMockedRailwayFetch(
+        [
+          notAuthorized,
+          { body: { data: { apiToken: { workspaces: [] } } } },
+          { body: { data: { projects: { edges: [{ node: { team: null } }] } } } },
+        ],
+        async () => (await railwayValidateToken(token)).id,
+      );
+    const first = await idFor("tok_teamless_one");
+    const second = await idFor("tok_teamless_two");
+    assert.notEqual(first, second);
+    // Same token reconnecting stays idempotent (same id → in-place upsert).
+    assert.equal(await idFor("tok_teamless_one"), first);
+  });
+
   test("rejects a token that can neither introspect nor list projects", async () => {
     await withMockedRailwayFetch(
-      [notAuthorized, { body: { data: { apiToken: { workspaceId: null } } } }, notAuthorized],
+      [notAuthorized, { body: { data: { apiToken: { workspaces: [] } } } }, notAuthorized],
       async () => {
         await assert.rejects(() => railwayValidateToken("tok_project"), /Not Authorized/);
       },
@@ -377,14 +422,32 @@ describe("Railway credential fan-out", () => {
     );
   });
 
-  test("propagates a non-authz error immediately", async () => {
+  test("surfaces a single-credential non-authz error verbatim", async () => {
     await assert.rejects(
       () =>
-        listProjectsForCredentials([cred("a", "A"), cred("b", "B")], async () => {
+        listProjectsForCredentials([cred("only", "Only")], async () => {
           throw new Error("network down");
         }),
       /network down/,
     );
+  });
+
+  test("tolerates a transient non-authz failure on one credential when another succeeds", async () => {
+    const { projects, failures } = await listProjectsForCredentials(
+      [cred("flaky", "Flaky"), cred("ok", "Ok")],
+      async (token) => {
+        if (token === "tok_flaky") throw new Error("network down");
+        return { projects: [proj("p1")] };
+      },
+    );
+    assert.deepEqual(
+      projects.map((p) => p.id),
+      ["p1"],
+    );
+    assert.equal(projects[0]?.credentialId, "ok");
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0]?.credentialId, "flaky");
+    assert.match(failures[0]?.message ?? "", /network down/);
   });
 });
 
@@ -399,9 +462,16 @@ describe("Railway tool schemas", () => {
       undefined,
     );
     assert.equal(
-      railwayRedeployInput.parse({ deploymentId: "deployment_1" }).credentialId,
+      railwayRedeployInput.parse({
+        deploymentId: "deployment_1",
+        serviceName: "api",
+        projectName: "alfred",
+      }).credentialId,
       undefined,
     );
+    // serviceName + projectName are required so the approval card can never fall
+    // back to bare ids; environmentName is optional.
+    assert.throws(() => railwayRedeployInput.parse({ deploymentId: "deployment_1" }));
 
     assert.equal(
       railwayListDeploymentsInput.parse({
