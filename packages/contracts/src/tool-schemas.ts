@@ -475,6 +475,34 @@ export const railwayRedeployInput = z
       .min(1)
       .max(200)
       .describe("Railway deployment id to redeploy (re-runs the same build/release)."),
+    // Display-only context for the human approval card. `redeploy` is the one
+    // irreversible Railway action and its approval can fire by email / from the
+    // standalone /approvals page with no surrounding chat narration — where the
+    // raw deploymentId + credentialId are two opaque cuids the approver can't
+    // evaluate. These name what is actually being redeployed (which the boss
+    // already resolved from list_projects + list_deployments). They are NOT used
+    // by the execute path — only deploymentId + credentialId drive the mutation —
+    // so a wrong label can mislead the card but can never redirect the redeploy.
+    serviceName: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Human name of the service being redeployed (from list_projects). Shown on the approval card so the user can see what is being redeployed, not just an id.",
+      ),
+    projectName: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Human name of the project the service belongs to (from list_projects)."),
+    environmentName: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Environment the deployment runs in, e.g. 'production' or 'staging' (from list_projects). Critical safety context on the approval card — include it whenever known.",
+      ),
   })
   .strict();
 

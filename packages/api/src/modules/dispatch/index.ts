@@ -32,7 +32,7 @@
  * Callers don't need a separate "resume" entry point.
  */
 
-import type { IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
+import type { IntegrationSlug, PolicyMode, ToolName, ToolRiskTier } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
   getPath,
@@ -280,7 +280,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const riskTier: ToolRiskTier = tool.riskTier;
   const policyMode =
     integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
-  const requiresApproval = policyMode === "gated";
+  const requiresApproval = toolRequiresApproval(policyMode, riskTier);
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
     : null;
@@ -490,10 +490,32 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 }
 
 /**
+ * Whether a tool call must be staged for human approval. Two independent
+ * triggers, OR'd:
+ *
+ *   1. The user's policy resolves to `gated` (tool override → integration mode
+ *      → user default, per ADR-0034).
+ *   2. A risk-tier floor: a `high`-tier tool ALWAYS confirms, regardless of
+ *      policy. The global "Auto" autonomy toggle is a chat-convenience control
+ *      (stop nagging me about reads); it must not silently authorize the
+ *      handful of genuinely-irreversible actions (send a real email, redeploy a
+ *      service — including a shared team workspace). riskTier was previously a
+ *      display-only hint (registry.ts header); this makes `high` load-bearing
+ *      for the gate. Amends ADR-0034 — see decisions.md.
+ *
+ * Keep this the single definition of the gate so the live dispatch path and the
+ * `toolCallWouldGate` scheduling hint can never drift apart.
+ */
+export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
+  return policyMode === "gated" || riskTier === "high";
+}
+
+/**
  * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
- * (stage for approval) instead of executing autonomously. Mirrors the policy
- * branch in {@link dispatchToolCall}: `system.*` is always autonomy, everything
- * else follows the user's (cached) policy mode.
+ * (stage for approval) instead of executing autonomously. Mirrors the policy +
+ * risk-tier gate in {@link dispatchToolCall}: `system.*` is always autonomy,
+ * everything else follows the user's (cached) policy mode OR the high-tier
+ * floor.
  *
  * This is a scheduling hint, not a correctness gate — `dispatchToolCall` stays
  * the source of truth and still honors the row's stored `requires_approval` on
@@ -506,7 +528,9 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
   if (!isToolName(toolName)) return false;
   if (integrationFromToolName(toolName) === "system") return false;
-  return (await resolvePolicyMode(userId, toolName)) === "gated";
+  const policyMode = await resolvePolicyMode(userId, toolName);
+  const riskTier = getTool(toolName)?.riskTier ?? "no_risk";
+  return toolRequiresApproval(policyMode, riskTier);
 }
 
 export function undeclaredToolMessage(
