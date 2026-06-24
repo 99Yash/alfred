@@ -541,6 +541,89 @@ export type ObservationParticipants = z.infer<typeof observationParticipantsSche
 export const observationPayloadSchema = jsonObjectSchema;
 export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
 
+// ───────────────────────────────────────────────────────────────────────────
+// Observation write boundary (HARD P1 GATE)
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Byte caps for the two idempotency keys, mirroring the DB CHECKs
+ * (`observations_family_key_nonempty` ≤ 512, `observations_evidence_hash_nonempty`
+ * ≤ 256). Pinned here so a write that would trip the constraint is rejected at the
+ * app boundary with a field-level message instead of surfacing as a raw 23514.
+ */
+export const MAX_FAMILY_KEY_BYTES = 512;
+export const MAX_EVIDENCE_HASH_BYTES = 256;
+
+/**
+ * An idempotency-key string column (`family_key` / `evidence_hash`): non-empty,
+ * no surrounding whitespace, bounded in UTF-8 bytes — the contract-side mirror of
+ * the `length(...) > 0 AND octet_length(...) <= N AND ... !~ '^[[:space:]]|[[:space:]]$'`
+ * DB rails. `trim()` covers the DB's `[[:space:]]` edge-whitespace check (and then
+ * some — JS trims all Unicode whitespace), so a value that clears this clears the
+ * DB constraint too.
+ */
+function boundedKeySchema(maxBytes: number, label: string) {
+  return z
+    .string()
+    .min(1, { error: `${label} must be non-empty` })
+    .refine((v) => v === v.trim(), {
+      error: `${label} must not have leading or trailing whitespace`,
+    })
+    .refine((v) => UTF8_ENCODER.encode(v).byteLength <= maxBytes, {
+      error: `${label} must be <= ${maxBytes} UTF-8 bytes`,
+    });
+}
+
+/**
+ * The ONE schema every observation write must pass before any `.insert(observations)`
+ * (ADR-0067 P1 HARD GATE). The DB columns are deliberately bare `text`/`jsonb`
+ * (app-boundary validation, not pg enums), so this parser — not the database — is
+ * what stands between a reducer bug and a permanently-corrupt log. It composes the
+ * pieces the schema comments name as its obligations:
+ *
+ *   - `source` × `kind` validated as a PAIR (`isObservationKindForSource`), closing
+ *     the half-open vocabulary a `gmail` row carrying a `github_*` kind would slip;
+ *   - `subjectIdentity` as an `ObservationSubject` (a canonical `IdentityRef` OR the
+ *     `{ kind: "user" }` self-subject), `objectIdentity` as a canonical `IdentityRef`
+ *     or null — both inherit the kind-specific FORMAT + canonicalization refines;
+ *   - `participants` as the full envelope (its `recipientCount >= distinct
+ *     recipients` refine guards `FAN_OUT_CUTOFF`); `payload` as a JSON object;
+ *   - `familyKey` / `evidenceHash` non-empty, edge-whitespace-free, byte-bounded
+ *     (mirrors the DB idempotency rails); `schemaVersion` / `reducerVersion` ≥ 1.
+ *
+ * `participants` and `payload` carry the same defaults as the DB columns so a
+ * minimal reducer need not restate them. `supersedesObservationId` is the prior
+ * active family member this row supersedes — its multi-hop cycle detection + the
+ * CAS retry against `observations_no_fork_idx` stay the reducer's job (the writer
+ * only performs the validated append + head upsert); the parser just types the
+ * pointer.
+ */
+export const observationInsertSchema = z
+  .object({
+    userId: z.string().min(1),
+    source: observationSourceSchema,
+    kind: observationKindSchema,
+    occurredAt: z.date(),
+    familyKey: boundedKeySchema(MAX_FAMILY_KEY_BYTES, "familyKey"),
+    evidenceHash: boundedKeySchema(MAX_EVIDENCE_HASH_BYTES, "evidenceHash"),
+    subjectIdentity: observationSubjectSchema,
+    objectIdentity: identityRefSchema.nullable().optional(),
+    participants: observationParticipantsSchema.default({ items: [], recipientCount: 0 }),
+    payload: observationPayloadSchema.default({}),
+    schemaVersion: z.number().int().min(1).default(1),
+    reducerVersion: z.number().int().min(1).default(1),
+    supersedesObservationId: z.string().min(1).nullable().optional(),
+  })
+  .strict()
+  .refine(({ source, kind }) => isObservationKindForSource(source, kind), {
+    error: "observation kind is not valid for its source",
+    path: ["kind"],
+  });
+/** Caller-facing input (pre-parse): defaulted fields are optional. */
+export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
+/** Validated, defaults-applied observation ready to persist. */
+export type ObservationInsert = z.infer<typeof observationInsertSchema>;
+
 export const projectionProvenanceSchema = z
   .object({
     observationIds: z.array(z.string()).optional(),
@@ -846,6 +929,15 @@ export type SignificanceComponents = z.infer<typeof significanceComponentsSchema
 // ───────────────────────────────────────────────────────────────────────────
 // Projection run bookkeeping
 // ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * The canonical projection name for the user-model graph (the `entity_profiles` /
+ * `entity_edges` / `entity_co_occurrence` triple). `projection_runs` is GENERIC
+ * (P4's `user_facts` projection reuses it under its own name), so the writer,
+ * the reader, and every `projection_*` row bind to this one string rather than
+ * scattering the literal — a typo would silently strand a run under an unread name.
+ */
+export const USER_MODEL_PROJECTION_NAME = "user-model";
 
 export const PROJECTION_RUN_STATUS = ["running", "completed", "failed"] as const;
 export const projectionRunStatusSchema = z.enum(PROJECTION_RUN_STATUS);
