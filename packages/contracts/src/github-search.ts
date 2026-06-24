@@ -107,6 +107,12 @@ const MANAGED_BY_FIELD: Record<string, string> = {
 };
 
 const STRUCTURED_IS_VALUES = new Set(["pr", "issue", "open", "closed", "merged"]);
+const DATE_QUALIFIERS = new Set(["created", "closed", "merged"]);
+const ISO_DATE = String.raw`\d{4}-\d{2}-\d{2}`;
+const ISO_DATE_TIME = String.raw`${ISO_DATE}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})`;
+const DATE_BOUND = String.raw`(?:${ISO_DATE}|${ISO_DATE_TIME})`;
+const DATE_COMPARISON_RE = new RegExp(String.raw`^(?:[<>]=?)?${DATE_BOUND}$`, "i");
+const DATE_RANGE_RE = new RegExp(String.raw`^${DATE_BOUND}\.\.${DATE_BOUND}$`, "i");
 
 function normalizeQualifierValue(value: string): string {
   return value
@@ -116,7 +122,20 @@ function normalizeQualifierValue(value: string): string {
     .toLowerCase();
 }
 
+function cleanQualifierValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^[("']+/, "")
+    .replace(/[)"']+$/, "");
+}
+
+function isValidDateQualifierValue(value: string): boolean {
+  const clean = cleanQualifierValue(value);
+  return DATE_COMPARISON_RE.test(clean) || DATE_RANGE_RE.test(clean);
+}
+
 export interface PullRequestQueryContext {
+  state?: "open" | "closed" | "merged" | "all";
   query?: string;
   closedWithinDays?: number;
   createdWithinDays?: number;
@@ -130,9 +149,15 @@ export interface PullRequestQueryContext {
  */
 export function pullRequestQueryIssues(input: PullRequestQueryContext): string[] {
   const query = input.query?.trim();
-  if (!query) return [];
   const issues: string[] = [];
-  const qualifiers = parseSearchQualifiers(query);
+  const qualifiers = query ? parseSearchQualifiers(query) : [];
+
+  if (input.state === "open" && input.closedWithinDays !== undefined) {
+    issues.push("`closedWithinDays` conflicts with `state:'open'` — open PRs have not closed.");
+  }
+  if (input.state === "open" && input.mergedWithinDays !== undefined) {
+    issues.push("`mergedWithinDays` conflicts with `state:'open'` — merged PRs are closed.");
+  }
 
   // 1. Invented qualifiers (the `merged-by:` bug) — the silent zero-count trap.
   const unknown = [
@@ -144,6 +169,21 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
         "GitHub silently ignores qualifiers it doesn't recognize and returns zero matches, " +
         "so an invented qualifier reads as a real but empty result. Use only real qualifiers " +
         "(e.g. repo:, label:, review:); for author, state, and recency use the structured fields.",
+    );
+  }
+
+  // Date qualifiers are legitimate for explicit ranges this tool's relative
+  // windows cannot express, but malformed comparison operators (`closed:>`,
+  // `closed:>=`) make GitHub reject the whole request. Catch those before the
+  // network call so the boss gets a local invalid_input retry signal.
+  const malformedDateQualifiers = qualifiers
+    .filter((q) => DATE_QUALIFIERS.has(q.key) && !isValidDateQualifierValue(q.value))
+    .map((q) => `${q.raw}:${q.value}`);
+  if (malformedDateQualifiers.length > 0) {
+    issues.push(
+      `Malformed GitHub date qualifier value(s) in \`query\`: ${malformedDateQualifiers.join(", ")}. ` +
+        "Use ISO 8601 dates/times such as `merged:>=2026-06-01`, " +
+        "`closed:2026-06-01..2026-06-30`, or the structured *WithinDays fields for relative windows.",
     );
   }
 
@@ -166,6 +206,14 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
   ) {
     issues.push(
       "Don't put `is:` PR/type/state filters in `query` — set the `state` field instead (`is:pr` is applied automatically).",
+    );
+  }
+  const hasUnmergedFilter = qualifiers.some(
+    (q) => q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
+  );
+  if (hasUnmergedFilter && (input.state === "merged" || input.mergedWithinDays !== undefined)) {
+    issues.push(
+      "`is:unmerged` conflicts with merged PR filters — remove it or search closed/unmerged PRs without `state:'merged'` or `mergedWithinDays`.",
     );
   }
 

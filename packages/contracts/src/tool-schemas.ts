@@ -185,7 +185,7 @@ export const searchPullRequestsInput = z
       .max(365)
       .optional()
       .describe(
-        "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/this week'. Prefer this over a free-form merged: qualifier.",
+        "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Prefer this over a free-form merged: qualifier.",
       ),
     query: z
       .string()

@@ -105,7 +105,7 @@ export const githubTools: readonly RegisteredTool[] = [
     action: "search_pull_requests",
     riskTier: "no_risk",
     description:
-      "Search the user's GitHub pull requests by author, state, and time window. Returns an exact total count plus the matching PRs. Always use the structured fields for author/state/recency — never hand-write those qualifiers into `query`. 'How many PRs did I merge today' → state:'merged', mergedWithinDays:1. 'closed this past week' → state:'closed', closedWithinDays:7. author defaults to @me.",
+      "Search the user's GitHub pull requests by author, state, and time window. Returns an exact total count plus the matching PRs. Always use the structured fields for author/state/recency — never hand-write those qualifiers into `query`. 'How many PRs did I merge today' → state:'merged', mergedWithinDays:1. 'merged in the past week' → state:'merged', mergedWithinDays:7. 'closed in the past week' → state:'closed', closedWithinDays:7. author defaults to @me.",
     inputSchema: searchPullRequestsInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
