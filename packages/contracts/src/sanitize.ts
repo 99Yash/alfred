@@ -38,33 +38,51 @@ function stripString(s: string): { value: string; removed: number } {
   return { value, removed };
 }
 
+/** The result of a sanitize pass. */
+export interface SanitizeResult {
+  value: unknown;
+  /** Total poison code units stripped across all strings and keys. */
+  removed: number;
+  /**
+   * Number of object keys that, *after* stripping, collided with another key
+   * in the same object. Stripping a NUL byte can map two distinct keys to the
+   * same name (`{"ab":1,"a\0b":2}` → both want `ab`); rather than silently
+   * overwrite, the colliding entries are preserved under a disambiguated key
+   * (`ab�1`) and counted here so the caller can warn loudly.
+   */
+  collisions: number;
+}
+
 /**
  * Recursively strip `U+0000` and lone surrogates from every string in a value
  * — including **object keys** (a NUL-byte key poisons the same jsonb write) —
- * returning the cleaned value and the total count of code units removed.
+ * returning the cleaned value, the total code units removed, and the number of
+ * key collisions stripping induced.
  *
  * Non-string scalars (number/boolean/null/undefined) pass through untouched.
  * The returned value is a *new* structure when anything changed; when nothing
  * was poisoned the input is returned as-is (so the common clean path allocates
- * nothing). Returns `{ removed }` so callers can warn/flag — the `sanitized`
- * flag must ride on the dispatch envelope, never be assigned onto the result
- * value (a bare string/array/primitive result can't carry a property, and
- * assigning to a string throws under ES-module strict mode).
+ * nothing). The `sanitized` flag the caller derives from this must ride on the
+ * dispatch envelope, never be assigned onto the result value (a bare
+ * string/array/primitive result can't carry a property, and assigning to a
+ * string throws under ES-module strict mode).
  */
-export function sanitizeToolResult(value: unknown): { value: unknown; removed: number } {
+export function sanitizeToolResult(value: unknown): SanitizeResult {
   if (typeof value === "string") {
-    return stripString(value);
+    return { ...stripString(value), collisions: 0 };
   }
   if (Array.isArray(value)) {
     let removed = 0;
+    let collisions = 0;
     let changed = false;
     const out = value.map((item) => {
       const r = sanitizeToolResult(item);
       removed += r.removed;
+      collisions += r.collisions;
       if (r.value !== item) changed = true;
       return r.value;
     });
-    return { value: changed ? out : value, removed };
+    return { value: changed ? out : value, removed, collisions };
   }
   if (value !== null && typeof value === "object") {
     // Skip exotic objects we shouldn't (and can't safely) rebuild — Date,
@@ -73,9 +91,10 @@ export function sanitizeToolResult(value: unknown): { value: unknown; removed: n
     // it here would silently flatten it. Tool results are POJO/JSON shaped.
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) {
-      return { value, removed: 0 };
+      return { value, removed: 0, collisions: 0 };
     }
     let removed = 0;
+    let collisions = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
@@ -83,12 +102,30 @@ export function sanitizeToolResult(value: unknown): { value: unknown; removed: n
       removed += keyResult.removed;
       const valResult = sanitizeToolResult(v);
       removed += valResult.removed;
+      collisions += valResult.collisions;
       if (keyResult.removed > 0 || valResult.value !== v) changed = true;
-      out[keyResult.value] = valResult.value;
+
+      // Stripping the key can collide with a key already written (or a clean
+      // key elsewhere in the object). Preserve both rather than silently drop:
+      // keep the existing entry and write this one under a unique disambiguated
+      // key. (Reachable only with NUL-byte keys, i.e. binary-ish garbage.)
+      let outKey = keyResult.value;
+      if (Object.prototype.hasOwnProperty.call(out, outKey)) {
+        collisions += 1;
+        changed = true;
+        let suffix = 1;
+        let candidate = `${keyResult.value}�${suffix}`;
+        while (Object.prototype.hasOwnProperty.call(out, candidate)) {
+          suffix += 1;
+          candidate = `${keyResult.value}�${suffix}`;
+        }
+        outKey = candidate;
+      }
+      out[outKey] = valResult.value;
     }
-    return { value: changed ? out : value, removed };
+    return { value: changed ? out : value, removed, collisions };
   }
-  return { value, removed: 0 };
+  return { value, removed: 0, collisions: 0 };
 }
 
 /**

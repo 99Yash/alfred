@@ -44,6 +44,20 @@ test("sanitizeToolResult strips poison from object keys, not only values", () =>
   const r = sanitizeToolResult(input);
   assert.deepEqual(r.value, { badkey: "val" });
   assert.equal(r.removed, 1);
+  assert.equal(r.collisions, 0);
+});
+
+test("sanitizeToolResult preserves both values on a key collision (no silent overwrite)", () => {
+  // "ab" and "a\0b" both strip to "ab"; the second must not clobber the first.
+  const input = { ab: 1, [`a${NUL}b`]: 2 };
+  const r = sanitizeToolResult(input);
+  assert.equal(r.collisions, 1);
+  const out = r.value as Record<string, unknown>;
+  assert.equal(out.ab, 1, "the original clean key keeps its value");
+  // The colliding entry is preserved under a disambiguated key, not dropped.
+  const values = Object.values(out);
+  assert.ok(values.includes(2), "the colliding value is preserved, not lost");
+  assert.equal(Object.keys(out).length, 2, "both entries survive");
 });
 
 test("sanitizeToolResult passes non-string scalars through and allocates nothing when clean", () => {

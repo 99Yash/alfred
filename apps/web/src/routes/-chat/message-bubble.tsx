@@ -42,6 +42,11 @@ const FAILURE_PRESENTATION: Record<
     message: "I couldn't read one of the attached files. I can try again with just your message.",
     retry: "without_attachments",
   },
+  attachment_history: {
+    message:
+      "I couldn't read an image from earlier in this thread, and it'll keep affecting replies here. Start a new chat to continue.",
+    retry: "none",
+  },
   overloaded: { message: "I hit a brief glitch on my end.", retry: "same" },
   rate_limited: {
     message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
