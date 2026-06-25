@@ -94,6 +94,22 @@ export interface ParsedQualifier {
   key: string;
   /** Raw value after the `:`. Only interpreted for known managed qualifiers. */
   value: string;
+  /**
+   * Whether the qualifier was negated (`-author:octocat`). GitHub treats a
+   * leading `-` as exclusion; the structured fields only express inclusion, so
+   * a negated qualifier is never folded — it stays in the free-form query.
+   */
+  negated: boolean;
+}
+
+/**
+ * Stable identity for a parsed token: `<negated?>-<key>:<value>`. Lets
+ * {@link stripQualifiers} re-tokenize the query with the same scanner and drop
+ * only the exact tokens that were folded, never a naive substring (so `is:pr`
+ * cannot clip `is:private`) and never the opposite polarity.
+ */
+function qualifierIdentity(q: Pick<ParsedQualifier, "key" | "value" | "negated">): string {
+  return `${q.negated ? "-" : ""}${q.key}:${q.value}`;
 }
 
 /** Pull the `qualifier:` heads out of a free-form query; bare words are skipped. */
@@ -102,8 +118,9 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   for (const match of query.matchAll(QUALIFIER_SCAN_RE)) {
     const raw = match[3]!;
     const token = match[2]!;
+    const negated = token.startsWith("-");
     const value = token.slice(token.indexOf(":") + 1);
-    out.push({ raw, key: raw.toLowerCase(), value });
+    out.push({ raw, key: raw.toLowerCase(), value, negated });
   }
   return out;
 }
@@ -144,9 +161,6 @@ export interface GithubSearchQueryContext {
   createdWithinDays?: number;
   mergedWithinDays?: number;
 }
-
-/** Backwards-compatible alias — the PR-only shape is a subset of the general one. */
-export type PullRequestQueryContext = GithubSearchQueryContext;
 
 /**
  * Validate the structured fields and the residue of the free-form `query` that
@@ -224,9 +238,6 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
   return issues;
 }
 
-/** @deprecated Renamed to {@link githubSearchQueryIssues}. Kept as a thin alias. */
-export const pullRequestQueryIssues = githubSearchQueryIssues;
-
 export interface SanitizedGithubSearchQuery {
   /** The input with colliding qualifiers folded into structured fields. */
   sanitized: GithubSearchQueryContext;
@@ -275,6 +286,11 @@ export function sanitizeGithubSearchQuery(
   };
 
   for (const q of qualifiers) {
+    // A negated qualifier is an exclusion (`-author:octocat`, `-label:wontfix`)
+    // that the inclusion-only structured fields cannot represent. Folding it
+    // would silently invert the user's intent, so leave it verbatim in the
+    // free-form query — GitHub understands the `-` directly.
+    if (q.negated) continue;
     if (q.key === "author") {
       sanitized.author = cleanQualifierValue(q.value) || sanitized.author;
       toRemove.push(q);
@@ -317,18 +333,28 @@ export function sanitizeGithubSearchQuery(
 }
 
 /**
- * Remove the given `qualifier:value` tokens from the query string and tidy the
- * leftover whitespace and now-empty boolean groups. Conservative: matches on
- * the exact token text the parser produced.
+ * Remove the given folded `qualifier:value` tokens from the query string and
+ * tidy the leftover whitespace and now-empty boolean groups.
+ *
+ * Re-tokenizes with the SAME scanner the parse used and drops only whole
+ * qualifier tokens whose identity is in `toRemove`. A naive `split(token)`
+ * would clip prefixes (`is:pr` inside `is:private`) and miss/garble the `-`
+ * negation; matching on the scanner's token boundaries + the negation-aware
+ * identity avoids both.
  */
 function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): string | undefined {
-  let out = query;
-  for (const q of toRemove) {
-    // Reconstruct the token exactly as it appears (qualifier + ":" + value),
-    // optionally negated, and remove it wherever it occurs.
-    const token = `${q.raw}:${q.value}`;
-    out = out.split(token).join(" ");
-  }
+  const drop = new Set(toRemove.map(qualifierIdentity));
+  // A fresh regex instance: QUALIFIER_SCAN_RE is global and module-shared, so
+  // reusing it in `.replace` could collide with another scan's `lastIndex`.
+  const scanner = new RegExp(QUALIFIER_SCAN_RE.source, QUALIFIER_SCAN_RE.flags);
+  const out = query.replace(scanner, (match, boundary: string, token: string, name: string) => {
+    const negated = token.startsWith("-");
+    const value = token.slice(token.indexOf(":") + 1);
+    const identity = qualifierIdentity({ key: name.toLowerCase(), value, negated });
+    // Keep the leading boundary char (space/`(`/start) so neighbouring tokens
+    // don't fuse; drop the qualifier itself when it was folded.
+    return drop.has(identity) ? boundary : match;
+  });
   const cleaned = out
     // Collapse whitespace and drop dangling boolean operators / empty groups.
     .replace(/\s+(AND|OR|NOT)\s+/g, " ")

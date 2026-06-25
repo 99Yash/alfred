@@ -14,6 +14,11 @@ import {
   signalRunInTx,
   type SignalArgs,
 } from "./service";
+import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
+import {
+  startSubAgentJoinWakeWorker,
+  stopSubAgentJoinWakeWorker,
+} from "./sub-agent-join-wake-worker";
 import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 import { toMessage } from "@alfred/contracts";
@@ -34,9 +39,11 @@ export {
   runOnce,
   startAgentWorker,
   stopAgentWorker,
+  startSubAgentJoinWakeWorker,
+  stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 };
-export { closeAgentQueue };
+export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 export type {
   RunStatus,
   Step,

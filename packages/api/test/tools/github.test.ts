@@ -147,6 +147,40 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     assert.equal(sanitized.query, "is:draft label:bug review:approved");
     assert.deepEqual(stripped, []);
   });
+
+  test("a negated qualifier is NOT folded — exclusion intent is preserved verbatim", () => {
+    // `-author:octocat` excludes; the inclusion-only structured field can't
+    // express that, so it must stay in the query (the prior code dropped the
+    // `-` and set author='octocat', inverting the user's intent).
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "-author:octocat repo:99Yash/alfred",
+    });
+    assert.equal(sanitized.author, undefined);
+    assert.equal(sanitized.query, "-author:octocat repo:99Yash/alfred");
+    assert.deepEqual(stripped, []);
+  });
+
+  test("folding is:pr does not clip a prefix-overlapping is:private token", () => {
+    // `split("is:pr")` would corrupt `is:private` into `ivate`; the
+    // scanner-based strip removes whole tokens only.
+    const { sanitized } = sanitizeGithubSearchQuery({
+      query: "is:pr is:private",
+    });
+    assert.equal(sanitized.type, "pr");
+    assert.equal(sanitized.query, "is:private");
+  });
+
+  test("a free-typed is:issue with unset type resolves to issue, not both", () => {
+    // With no schema default applied, an unset `type` + free-typed `is:issue`
+    // narrows to `issue` instead of silently widening to `both`.
+    const { sanitized } = sanitizeGithubSearchQuery({ query: "is:issue" });
+    assert.equal(sanitized.type, "issue");
+  });
+
+  test("an explicit type:'pr' plus free-typed is:issue widens to both", () => {
+    const { sanitized } = sanitizeGithubSearchQuery({ type: "pr", query: "is:issue" });
+    assert.equal(sanitized.type, "both");
+  });
 });
 
 describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {

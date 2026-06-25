@@ -10,6 +10,7 @@ import "./instrument";
 import {
   app,
   closeAgentQueue,
+  closeSubAgentJoinWakeQueue,
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
   closeBriefingQueue,
@@ -34,6 +35,7 @@ import {
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
   startAgentWorker,
+  startSubAgentJoinWakeWorker,
   startApprovalExpiryWorker,
   startApprovalNotificationWorker,
   startBriefingWorker,
@@ -41,6 +43,7 @@ import {
   startMemoryWorker,
   startWorkflowsWorker,
   stopAgentWorker,
+  stopSubAgentJoinWakeWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
   stopBriefingWorker,
@@ -118,6 +121,9 @@ await seedBuiltinWorkflowsForAllUsers();
 // the very first turn.
 await startPolicyBustSubscriber();
 await startAgentWorker();
+// ADR-0073 dead-man timer: revives a boss parked on a sub-agent join when the
+// in-band completion signal is lost, never fires, or is swallowed.
+await startSubAgentJoinWakeWorker();
 await startIngestionWorker();
 await startMemoryWorker();
 await startBriefingWorker();
@@ -173,6 +179,8 @@ async function shutdown(signal: string) {
     // shutdown drains the active step.
     await stopAgentWorker();
     await closeAgentQueue();
+    await stopSubAgentJoinWakeWorker();
+    await closeSubAgentJoinWakeQueue();
     await stopApprovalNotificationWorker();
     await closeApprovalNotificationQueue();
     await stopApprovalExpiryWorker();

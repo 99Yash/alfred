@@ -13,6 +13,7 @@ import {
 } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { enqueueRun } from "./queue";
 import { getWorkflow } from "./registry";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
 import {
@@ -308,6 +309,14 @@ export interface CancelTxResult {
    * ghost jobs in Redis). Empty unless `outcome === "cancelled"`.
    */
   rejectedStagingIds: string[];
+  /**
+   * Parent run id woken because this cancelled run was a sub-agent child it
+   * was joining (ADR-0073). The caller enqueues it after the tx commits so the
+   * boss resumes and reads the cancelled (terminal) outcome instead of hanging
+   * until the dead-man timer fires. `null` when this run is not an awaited
+   * child or its parent had already moved on.
+   */
+  wokenParentRunId: string | null;
 }
 
 /**
@@ -324,6 +333,10 @@ export interface CancelTxResult {
  */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   const result = await db().transaction((tx) => cancelRunInTx(tx, args));
+  // Resume a boss that was parked joining this (now-cancelled) child — the
+  // wake was committed in-tx; enqueue happens after commit so the executor
+  // sees the runnable row (ADR-0073).
+  if (result.wokenParentRunId) await enqueueRun(result.wokenParentRunId);
   return result.outcome;
 }
 
@@ -335,16 +348,17 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       status: agentRuns.status,
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
+      metadata: agentRuns.metadata,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, args.runId))
     .for("update");
   const row = rows[0];
-  if (!row) return { outcome: "not_found", rejectedStagingIds: [] };
+  if (!row) return { outcome: "not_found", rejectedStagingIds: [], wokenParentRunId: null };
   const status = runStatusSchema.parse(row.status);
 
   if (isTerminalStatus(status)) {
-    return { outcome: "already_terminal", rejectedStagingIds: [] };
+    return { outcome: "already_terminal", rejectedStagingIds: [], wokenParentRunId: null };
   }
 
   const now = new Date();
@@ -362,6 +376,22 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       updatedAt: now,
     })
     .where(eq(agentRuns.id, args.runId));
+
+  // ADR-0073: if this run is a sub-agent child, a parent boss may be parked
+  // awaiting it. The cancel above nulled the wake and the terminal-child
+  // signal only fires on completed|failed, so without this the parent would
+  // hang until the dead-man timer fires (≤6 min). Wake it in-tx — it reads the
+  // cancelled (terminal) outcome on resume — and hand the parent id back so
+  // the caller enqueues it after commit.
+  let wokenParentRunId: string | null = null;
+  const sub = readSubAgentMetadata(row.metadata);
+  if (sub) {
+    const signalOutcome = await signalRunInTx(tx, {
+      runId: sub.parentRunId,
+      match: { kind: "signal", name: subAgentDoneSignalName(args.runId) },
+    });
+    if (signalOutcome === "woken") wokenParentRunId = sub.parentRunId;
+  }
 
   const rejectedStagings = await tx
     .update(actionStagings)
@@ -396,6 +426,7 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
   return {
     outcome: "cancelled",
     rejectedStagingIds: rejectedStagings.map((r: { id: string }) => r.id),
+    wokenParentRunId,
   };
 }
 

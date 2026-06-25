@@ -112,9 +112,6 @@ export function buildGithubSearchQuery(
   return [...new Set(parts.filter(Boolean))].join(" ");
 }
 
-/** @deprecated Renamed to {@link buildGithubSearchQuery}. */
-export const buildPullRequestSearchQuery = buildGithubSearchQuery;
-
 export function resolvePullRequestAuthor(
   author: string,
   accountLogin: string | null,
@@ -169,7 +166,8 @@ export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
     action: "get_pull_request",
-    riskTier: "low",
+    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
+    riskTier: "no_risk",
     description:
       "Fetch one pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. To total lines changed across several PRs, search first, then call this for each hit and sum.",
     inputSchema: githubGetPullRequestInput,
@@ -186,7 +184,8 @@ export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
     action: "get_issue",
-    riskTier: "low",
+    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
+    riskTier: "no_risk",
     description:
       "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",
     inputSchema: githubGetIssueInput,
