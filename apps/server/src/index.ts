@@ -178,8 +178,12 @@ async function shutdown(signal: string) {
     // (or roll back) before we yank Redis. Per ADR-0014: graceful
     // shutdown drains the active step.
     await stopAgentWorker();
-    await closeAgentQueue();
+    // Stop the sub-agent join-wake worker BEFORE closing the agent queue: it
+    // enqueues parent agent runs (`enqueueRun`), which lazy-reopens the agent
+    // queue. Closing the queue first would let a late wake re-open it after
+    // teardown and race a half-closed connection.
     await stopSubAgentJoinWakeWorker();
+    await closeAgentQueue();
     await closeSubAgentJoinWakeQueue();
     await stopApprovalNotificationWorker();
     await closeApprovalNotificationQueue();

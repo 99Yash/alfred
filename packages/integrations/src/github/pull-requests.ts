@@ -58,11 +58,6 @@ export interface SearchGithubResult {
   items: GithubSearchHit[];
 }
 
-// Back-compat aliases (the surface was PR-only before ADR-0071).
-export type SearchPullRequestsArgs = SearchGithubArgs;
-export type SearchPullRequestsResult = SearchGithubResult;
-export type PullRequestHit = GithubSearchHit;
-
 /** `https://api.github.com/repos/owner/name` → `owner/name`. */
 function repositoryFromUrl(repositoryUrl: unknown): string {
   if (typeof repositoryUrl !== "string") return "";

@@ -190,7 +190,13 @@ const NARROWING_SCOPE_QUALIFIERS: ReadonlySet<string> = new Set([
  */
 export function queryHasNarrowingScope(query: string | undefined): boolean {
   if (!query?.trim()) return false;
-  return parseSearchQualifiers(query).some((q) => NARROWING_SCOPE_QUALIFIERS.has(q.key));
+  // Only a *positive* scope qualifier narrows the search. A negated one
+  // (`-author:octocat`, `-repo:x`) is an exclusion, not a scope — it doesn't
+  // name where/whom to look, so it must NOT suppress the `author:@me` default.
+  // Counting it as scope turned "my PRs except octocat" into a broad search.
+  return parseSearchQualifiers(query).some(
+    (q) => !q.negated && NARROWING_SCOPE_QUALIFIERS.has(q.key),
+  );
 }
 
 export interface GithubSearchQueryContext {
@@ -266,6 +272,34 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
       `Unrecognized GitHub state value(s) in \`query\`: ${badStateValues.join(", ")}. ` +
         "GitHub's `state:` accepts only `open` or `closed`. Use the structured `state` field " +
         "(`open`/`closed`/`merged`/`all`) for the state filter.",
+    );
+  }
+
+  // Negated type qualifiers (`-is:pr`, `-is:issue`) contradict the `type` field,
+  // which ALWAYS emits an `is:pr`/`is:issue` clause (defaulting to `is:pr`). The
+  // sanitizer leaves negated qualifiers verbatim — they're exclusions it can't
+  // fold — so `-is:pr` survives into a query the builder turns into
+  // `is:pr … -is:pr`, a guaranteed zero-match. There's no safe auto-fix (it's
+  // the structured field that owns type), so reject and point at it.
+  const negatedTypeQualifiers = [
+    ...new Set(
+      qualifiers
+        .filter(
+          (q) =>
+            q.negated &&
+            q.key === "is" &&
+            (normalizeQualifierValue(q.value) === "pr" ||
+              normalizeQualifierValue(q.value) === "issue"),
+        )
+        .map((q) => `-is:${normalizeQualifierValue(q.value)}`),
+    ),
+  ];
+  if (negatedTypeQualifiers.length > 0) {
+    issues.push(
+      `Negated type qualifier(s) in \`query\`: ${negatedTypeQualifiers.join(", ")}. ` +
+        "The `type` field always emits an `is:pr`/`is:issue` clause, so a negated one " +
+        "contradicts it and matches nothing. Use the structured `type` field instead " +
+        "(to exclude PRs set `type:'issue'`; to exclude issues set `type:'pr'`).",
     );
   }
 

@@ -262,6 +262,28 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     assert.match(issues[0]!, /merged-by/);
   });
 
+  test("rejects negated type qualifiers (-is:pr / -is:issue) that contradict the type field", () => {
+    // `type` always emits an `is:pr`/`is:issue` clause (defaulting to is:pr), so
+    // a negated one survives into `is:pr … -is:pr` → guaranteed zero matches.
+    const prIssues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "-is:pr" }).sanitized,
+    );
+    assert.equal(prIssues.length, 1);
+    assert.match(prIssues[0]!, /Negated type qualifier/);
+    assert.match(prIssues[0]!, /-is:pr/);
+    assert.match(prIssues[0]!, /type:'issue'/);
+
+    const issueIssues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "-is:issue repo:99Yash/alfred" }).sanitized,
+    );
+    assert.equal(issueIssues.length, 1);
+    assert.match(issueIssues[0]!, /Negated type qualifier/);
+
+    // A non-type negated qualifier is a legitimate exclusion GitHub handles — not rejected.
+    assert.deepEqual(githubSearchQueryIssues({ query: "-label:wontfix" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "-is:draft" }), []);
+  });
+
   test("allows an explicit date range when the structured window is unset", () => {
     assert.deepEqual(githubSearchQueryIssues({ query: "merged:2026-10-01..2026-10-31" }), []);
     assert.deepEqual(githubSearchQueryIssues({ query: "closed:<2026-10-31" }), []);
@@ -329,5 +351,15 @@ describe("queryHasNarrowingScope (author-default gate, ADR-0071)", () => {
     assert.equal(queryHasNarrowingScope("is:draft review:approved"), false);
     assert.equal(queryHasNarrowingScope(undefined), false);
     assert.equal(queryHasNarrowingScope(""), false);
+  });
+
+  test("a NEGATED scope qualifier is an exclusion, not scope → does not suppress @me", () => {
+    // `-author:octocat` is "exclude octocat", not "scope to octocat". Counting it
+    // as scope suppressed the `author:@me` default and turned "my PRs except
+    // octocat" into a broad all-authors search.
+    assert.equal(queryHasNarrowingScope("-author:octocat"), false);
+    assert.equal(queryHasNarrowingScope("-repo:99Yash/archived"), false);
+    // A positive scope alongside a negated one still scopes.
+    assert.equal(queryHasNarrowingScope("repo:99Yash/alfred -author:octocat"), true);
   });
 });

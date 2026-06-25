@@ -1,6 +1,7 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
+  clamp01,
   confidenceSchema,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
@@ -833,9 +834,9 @@ function defaultRunPass(
       },
     );
     // Clamp confidence into [0, 1] here rather than in the schema: the range
-    // can't be expressed in the Anthropic structured-output JSON schema the
-    // Haiku fallback uses (see `triageClassificationSchema`).
-    return { ...result.object, confidence: Math.min(1, Math.max(0, result.object.confidence)) };
+    // can't be expressed in the cheap-model structured-output JSON schema (see
+    // `confidenceSchema`). `clamp01` is the shared boundary clamp.
+    return { ...result.object, confidence: clamp01(result.object.confidence) };
   };
 }
 
