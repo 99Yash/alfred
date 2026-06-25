@@ -153,6 +153,7 @@ type StagingRow = Pick<
   | "decidedInput"
   | "rejectReason"
   | "executeResult"
+  | "executeSanitized"
   | "executeError"
   | "notifyAfterAt"
   | "notifiedAt"
@@ -169,6 +170,7 @@ const STAGING_COLUMNS = {
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
+  executeSanitized: actionStagings.executeSanitized,
   executeError: actionStagings.executeError,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
@@ -476,12 +478,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     case "executed":
       // Idempotent re-dispatch. The model proposed the same tool call
       // again (step re-attempt) and the row already carries the
-      // result — hand it straight back without re-executing.
+      // result — hand it straight back without re-executing. Carry the
+      // persisted sanitize verdict so the "may be incomplete" notice survives
+      // the replay (ADR-0070 §1.1); a stripped result must never read as
+      // pristine on a second look.
       return {
         kind: "executed",
         stagingId: row.id,
         toolResult: row.executeResult,
         editedByUser: row.decidedInput !== null && row.decidedInput !== undefined,
+        sanitized: row.executeSanitized,
       };
 
     case "failed":
@@ -721,6 +727,10 @@ async function executeAndCommit(
     .set({
       status: "executed",
       executeResult: (result === undefined ? null : result) as object | null,
+      // Persist the sanitize verdict alongside the scrubbed result so the
+      // idempotent `executed` replay (see dispatchStagedRow) can re-emit the
+      // same "may be incomplete" notice rather than replaying it as pristine.
+      executeSanitized: didSanitize,
       executedAt: now,
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })

@@ -37,6 +37,19 @@ export type RunOutcome =
   | { kind: "failed"; runId: string; error: string }
   | { kind: "skipped"; runId: string; reason: string };
 
+/**
+ * Result of attempting to lease a run for a step:
+ *  - `leased` — we hold it; run the step at `attempt`.
+ *  - `backstopped` — the non-progressing-step backstop (ADR-0070 §1.4) tripped
+ *    and terminal-failed `run` inside the lease tx; no step runs, but the
+ *    caller must still drive workflow-level failure finalization.
+ *  - `none` — no lease: held by a live worker, already terminal, or waiting.
+ */
+export type LeaseResult =
+  | { kind: "leased"; run: RunRow; attempt: number }
+  | { kind: "backstopped"; run: RunRow; error: string }
+  | { kind: "none" };
+
 interface RunRow {
   id: string;
   userId: string;
@@ -61,8 +74,16 @@ interface RunRow {
 export async function runOnce(runId: string): Promise<RunOutcome> {
   // 1) Lease the run. If another worker holds it, or it's terminal, skip.
   const leased = await leaseRun(runId);
-  if (!leased) {
+  if (leased.kind === "none") {
     return { kind: "skipped", runId, reason: "no_lease" };
+  }
+  // The backstop already terminal-failed the run inside the lease tx (and
+  // published `agent.run failed`). It runs *outside* any step body, so a
+  // workflow that owns client-facing closure (chat-turn) hasn't finalized —
+  // drive its `onTerminalFailure` here, then report the terminal failure.
+  if (leased.kind === "backstopped") {
+    await finalizeWorkflowFailure(leased.run, leased.error);
+    return { kind: "failed", runId, error: leased.error };
   }
 
   const { run, attempt } = leased;
@@ -84,6 +105,10 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   } catch (err) {
     const error = errorMessage(err);
     await markRunFailed(run.id, error);
+    // A post-deploy step-resolution failure also never enters a step body, so
+    // drive workflow-level closure (e.g. chat-turn's failed-message finalize)
+    // the same way the backstop does.
+    await finalizeWorkflowFailure(run, sanitizeErrorMessage(error));
     return { kind: "failed", runId: run.id, error };
   }
 
@@ -140,7 +165,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
  * Exported for the lease-test harness (#137 / ADR-0070 §1.4). Not part of the
  * public executor surface — `runOnce` is the only production caller.
  */
-export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number } | null> {
+export async function leaseRun(runId: string): Promise<LeaseResult> {
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
@@ -152,11 +177,11 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
     `);
 
     const row = rowsFromExecute<RunRow & { staleMs: number | string | null }>(result)[0];
-    if (!row) return null;
+    if (!row) return { kind: "none" };
 
     const status = runStatusSchema.parse(row.status);
-    if (isTerminalStatus(status)) return null;
-    if (status === "waiting") return null; // signal will flip to runnable first
+    if (isTerminalStatus(status)) return { kind: "none" };
+    if (status === "waiting") return { kind: "none" }; // signal will flip to runnable first
 
     // A `running` row is normally held by another worker. But if its
     // heartbeat (`last_checkpoint_at`) is older than the lease window,
@@ -170,7 +195,7 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
       if (staleMs == null || staleMs >= STALE_RUN_LEASE_MS) {
         isStaleRunning = true;
       } else {
-        return null; // another worker has it, heartbeat is fresh
+        return { kind: "none" }; // another worker has it, heartbeat is fresh
       }
     }
 
@@ -206,6 +231,7 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
       const priorReclaims = rowsFromExecute<{ reclaims: number }>(countResult)[0]?.reclaims ?? 0;
       if (priorReclaims + 1 >= BACKSTOP_RECLAIM_LIMIT) {
         const now = new Date();
+        const backstopError = `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`;
         // Mark the orphan step failed for audit, with the same structured
         // marker so the history reads consistently.
         await tx
@@ -213,7 +239,7 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
           .set({
             status: "failed",
             error: {
-              message: `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
+              message: backstopError,
               reason: "lease_reclaimed",
             },
             endedAt: now,
@@ -235,7 +261,7 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
           .set({
             status: "failed",
             error: {
-              message: `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
+              message: backstopError,
               step: row.currentStep,
               attempt: row.attempt,
             },
@@ -253,10 +279,16 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
             phase: "failed",
             step: row.currentStep,
             attempt: row.attempt,
-            error: `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
+            error: backstopError,
           },
         });
-        return null; // do not re-lease — the run is now terminal
+        // Do not re-lease — the run is now terminal. Hand the caller the run
+        // row + clean message so it can drive workflow-level failure closure.
+        return {
+          kind: "backstopped",
+          run: { ...row, status, attempt: row.attempt },
+          error: backstopError,
+        };
       }
     }
 
@@ -302,7 +334,7 @@ export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: n
       });
     }
 
-    return { run: { ...row, status, attempt }, attempt };
+    return { kind: "leased", run: { ...row, status, attempt }, attempt };
   });
 }
 
@@ -537,6 +569,39 @@ async function commitStepFailure(
       payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
     });
   });
+}
+
+/**
+ * Drive a workflow's `onTerminalFailure` hook (ADR-0070 §1.4) after the run was
+ * already terminal-failed in the DB by a path that never entered a step body
+ * (the non-progressing backstop, a post-deploy step-resolution failure). For
+ * chat-turn this writes the failed assistant row + emits `chat.message
+ * completed` so the streaming bubble reconciles instead of hanging forever.
+ *
+ * Best-effort by contract: the run is already failed, so any throw here (an
+ * unresolvable workflow after a deploy, a state-schema drift, the hook itself)
+ * is logged and swallowed — it must not resurrect or re-fail the run.
+ */
+async function finalizeWorkflowFailure(run: RunRow, error: string): Promise<void> {
+  try {
+    const { workflow } = await resolveWorkflowForRun({
+      userId: run.userId,
+      workflowSlug: run.workflowSlug,
+    });
+    if (!workflow.onTerminalFailure) return;
+    const state = workflow.stateSchema ? workflow.stateSchema.parse(run.state) : run.state;
+    await workflow.onTerminalFailure({
+      runId: run.id,
+      userId: run.userId,
+      state,
+      error,
+    });
+  } catch (err) {
+    console.warn(
+      `[agent] onTerminalFailure for run ${run.id} (${run.workflowSlug}) failed:`,
+      errorMessage(err),
+    );
+  }
 }
 
 async function markRunFailed(runId: string, error: string): Promise<void> {

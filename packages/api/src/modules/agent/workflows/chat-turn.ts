@@ -1425,13 +1425,22 @@ export function classifyChatFailure(
   // replay — see .lessons/chat-vision-transcript-replay-poison.md). The narrow
   // signal set replaces the old over-broad substring net (attachment|file|
   // image|media|mime) that mis-bucketed unrelated tool/export failures.
+  //
+  // "unsupported file" / "unsupported media" / "decode" / "corrupt" are NOT
+  // image-specific on their own — a `drive.export_file: unsupported file export
+  // type` (or any tool error) trips them in an image-bearing thread. Gate them
+  // behind an explicit image/picture/photo mention so only a message that
+  // actually names an image counts; everything else falls through to generic.
+  const mentionsImage = msg.includes("image") || msg.includes("picture") || msg.includes("photo");
   const isImageReject =
     msg.includes("unable to process input image") ||
     msg.includes("invalid image") ||
     msg.includes("unsupported image") ||
-    msg.includes("unsupported file") ||
-    msg.includes("unsupported media") ||
-    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")));
+    (mentionsImage &&
+      (msg.includes("unsupported file") ||
+        msg.includes("unsupported media") ||
+        msg.includes("decode") ||
+        msg.includes("corrupt")));
   if (isImageReject) {
     // Prefer the recoverable kind: if the current turn has an image, "Send
     // without it" can drop it. Otherwise, if only an earlier turn's replayed
@@ -1567,6 +1576,16 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     "dispatch-tools": dispatchToolsStep,
   },
   stateSchema: chatRunStateSchema,
+  // ADR-0070 §1.4: a run terminal-failed outside the step body (the
+  // non-progressing-step backstop, a post-deploy step-resolution failure)
+  // never reaches the in-step catch that finalizes the chat message. Without
+  // this hook the client's streaming bubble waits forever — it only completes
+  // on `chat.message completed` (use-chat-stream.ts). Write the failed
+  // assistant row + emit the event here so the UI reconciles. Idempotent on
+  // messageId, so it's safe even if a step-body finalize already landed.
+  async onTerminalFailure(ctx) {
+    await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+  },
 };
 
 /** Deterministic 31-bit hash for a fallback assistant message id. */

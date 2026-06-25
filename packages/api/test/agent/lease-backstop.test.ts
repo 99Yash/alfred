@@ -97,8 +97,12 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     await insertRunningStep(runId, 5);
 
     const leased = await leaseRun(runId);
-    assert.ok(leased, "stale-running with no prior reclaims must re-lease");
-    assert.equal(leased?.attempt, 6, "reclaim bumps the attempt");
+    assert.equal(leased.kind, "leased", "stale-running with no prior reclaims must re-lease");
+    assert.equal(
+      leased.kind === "leased" ? leased.attempt : undefined,
+      6,
+      "reclaim bumps the attempt",
+    );
     assert.equal(await runStatus(runId), "running", "the run stays runnable, not failed");
 
     // The orphan row is now marked failed with the structured marker.
@@ -118,7 +122,11 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     await insertRunningStep(runId, 5);
 
     const leased = await leaseRun(runId);
-    assert.ok(leased, "with one prior reclaim, the second reclaim still recovers");
+    assert.equal(
+      leased.kind,
+      "leased",
+      "with one prior reclaim, the second reclaim still recovers",
+    );
     assert.equal(await runStatus(runId), "running");
   });
 
@@ -130,7 +138,14 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     await insertRunningStep(runId, 5);
 
     const leased = await leaseRun(runId);
-    assert.equal(leased, null, "the backstop returns no lease");
+    // The backstop returns a `backstopped` result (not `none`/`leased`) so the
+    // caller can drive workflow-level failure finalization (#222 P1).
+    assert.equal(leased.kind, "backstopped", "the backstop signals a terminal failure");
+    assert.match(
+      leased.kind === "backstopped" ? leased.error : "",
+      /not progressing/,
+      "the backstop hands back the synthetic clean message",
+    );
     assert.equal(await runStatus(runId), "failed", "the run is now terminal");
 
     const rows = await db()
@@ -160,7 +175,11 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     await insertRunningStep(runId, 6);
 
     const leased = await leaseRun(runId);
-    assert.ok(leased, "an interrupt resets the reclaim count just like a completed step");
+    assert.equal(
+      leased.kind,
+      "leased",
+      "an interrupt resets the reclaim count just like a completed step",
+    );
     assert.equal(await runStatus(runId), "running");
   });
 
@@ -177,7 +196,11 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     await insertRunningStep(runId, 7);
 
     const leased = await leaseRun(runId);
-    assert.ok(leased, "reclaims before the last successful step don't count toward the limit");
+    assert.equal(
+      leased.kind,
+      "leased",
+      "reclaims before the last successful step don't count toward the limit",
+    );
     assert.equal(await runStatus(runId), "running");
   });
 });
