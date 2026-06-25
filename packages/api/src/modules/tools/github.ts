@@ -12,6 +12,7 @@ import {
   githubGetIssueInput,
   githubGetPullRequestInput,
   githubSearchInput,
+  queryHasNarrowingScope,
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
 import {
@@ -132,18 +133,23 @@ export const githubTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     description:
-      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. author defaults to @me; type defaults to pr.",
+      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'.",
     inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
       // Fold any free-typed author:/state:/is:/date qualifiers into the
       // structured fields (silent correctness, ADR-0071) before resolving @me.
       const { sanitized } = sanitizeGithubSearchQuery(input);
-      const author = resolvePullRequestAuthor(
-        sanitized.author ?? "@me",
-        credential.accountLogin,
-        ctx.userId,
-      );
+      // Resolve author honestly (ADR-0071, no silent narrowing): an explicit
+      // author (structured field or folded `author:` qualifier) wins; otherwise
+      // default to the connected user ONLY for an otherwise-unscoped search ("my
+      // PRs"). A query that already names a repo/org/person is left
+      // author-unfiltered — forcing `@me` there would silently narrow it.
+      const author = sanitized.author
+        ? resolvePullRequestAuthor(sanitized.author, credential.accountLogin, ctx.userId)
+        : queryHasNarrowingScope(sanitized.query)
+          ? undefined
+          : resolvePullRequestAuthor("@me", credential.accountLogin, ctx.userId);
       const q = buildGithubSearchQuery({ ...input, ...sanitized, author }, ctx.timezone);
       const result = await searchGithub({
         accessToken: credential.accessToken,

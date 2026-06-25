@@ -196,8 +196,16 @@ export const githubSearchInput = z
       .string()
       .min(1)
       .max(100)
-      .default("@me")
-      .describe("Author login, or `@me` (default) for the connected user."),
+      // No schema default. An applied `@me` default forces every search to be
+      // author-scoped, which silently narrows a repo/org search ("open issues in
+      // repo:X") to ones the user authored. The query builder defaults author to
+      // `@me` only for an otherwise-unscoped search (a bare "my PRs"); a query
+      // that names a repo/org/person is left author-unfiltered unless the model
+      // sets this. Set `@me` explicitly to force your own items even in a repo.
+      .optional()
+      .describe(
+        "Author login, or `@me` for the connected user. Omit to leave the search author-unscoped — an otherwise-unscoped search defaults to your items, but a repo-/org-scoped search is left unfiltered by author unless you set `@me`.",
+      ),
     state: z
       .enum(["open", "closed", "merged", "all"])
       .default("all")

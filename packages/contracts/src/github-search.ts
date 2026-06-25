@@ -151,6 +151,48 @@ function isValidDateQualifierValue(value: string): boolean {
 export type GithubSearchType = "issue" | "pr" | "both";
 export type GithubSearchState = "open" | "closed" | "merged" | "all";
 
+const STATE_FROM_IS: Record<string, GithubSearchState> = {
+  open: "open",
+  closed: "closed",
+  merged: "merged",
+};
+
+/**
+ * Qualifiers that already scope a search to a place or a person. When the boss
+ * types one of these (`repo:`, `org:`, `author:octocat`, `assignee:@me`, …) the
+ * search is NOT implicitly "the connected user's", so `github.search` must not
+ * layer an `author:@me` default on top — that silently narrows e.g. "open issues
+ * in repo:X" to ones I authored (ADR-0071, no silent narrowing). Pure filters
+ * (`label:`, `state:`, `is:`, `sort:`, dates) do not scope to a person/place and
+ * so do not count.
+ */
+const NARROWING_SCOPE_QUALIFIERS: ReadonlySet<string> = new Set([
+  "repo",
+  "org",
+  "user",
+  "author",
+  "assignee",
+  "mentions",
+  "commenter",
+  "involves",
+  "review-requested",
+  "user-review-requested",
+  "team-review-requested",
+  "reviewed-by",
+  "team",
+]);
+
+/**
+ * True when the free-form query already scopes the search to a repo/org/user or
+ * a specific person. `github.search` uses this to decide whether an unset author
+ * should default to the connected user (`@me`) — it should for a bare "my PRs"
+ * search, but NOT when the query names where/whom to look.
+ */
+export function queryHasNarrowingScope(query: string | undefined): boolean {
+  if (!query?.trim()) return false;
+  return parseSearchQualifiers(query).some((q) => NARROWING_SCOPE_QUALIFIERS.has(q.key));
+}
+
 export interface GithubSearchQueryContext {
   /** Whether the search targets issues, PRs, or both. Owns the `is:pr`/`is:issue` clause. */
   type?: GithubSearchType;
@@ -206,6 +248,27 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
+  // Unrecognized `state:` values (`state:done`, `state:wip`). GitHub's `state:`
+  // accepts only `open`/`closed`; anything else is silently demoted to a
+  // free-text term and returns zero matches — the same silent-zero trap as an
+  // invented qualifier. The sanitizer folds the recognized open/closed/merged
+  // values into the structured field, so a `state:` token surviving to here is
+  // unrecognized; reject it rather than ship a misleading empty result.
+  const badStateValues = [
+    ...new Set(
+      qualifiers
+        .filter((q) => q.key === "state" && !STATE_FROM_IS[normalizeQualifierValue(q.value)])
+        .map((q) => `${q.raw}:${q.value}`),
+    ),
+  ];
+  if (badStateValues.length > 0) {
+    issues.push(
+      `Unrecognized GitHub state value(s) in \`query\`: ${badStateValues.join(", ")}. ` +
+        "GitHub's `state:` accepts only `open` or `closed`. Use the structured `state` field " +
+        "(`open`/`closed`/`merged`/`all`) for the state filter.",
+    );
+  }
+
   // 1. Invented qualifiers (the `merged-by:` bug) — the silent zero-count trap.
   //    Sanitize cannot guess the intent of a non-existent qualifier, so reject.
   const unknown = [
@@ -244,12 +307,6 @@ export interface SanitizedGithubSearchQuery {
   /** The qualifier tokens lifted out of the free-form `query`, for logging. */
   stripped: string[];
 }
-
-const STATE_FROM_IS: Record<string, GithubSearchState> = {
-  open: "open",
-  closed: "closed",
-  merged: "merged",
-};
 
 /**
  * Strip the structured-field collisions out of the free-form `query` and fold
@@ -298,8 +355,14 @@ export function sanitizeGithubSearchQuery(
     }
     if (q.key === "state") {
       const v = normalizeQualifierValue(q.value);
-      if (STATE_FROM_IS[v]) sanitized.state = STATE_FROM_IS[v];
-      toRemove.push(q);
+      if (STATE_FROM_IS[v]) {
+        sanitized.state = STATE_FROM_IS[v];
+        toRemove.push(q);
+      }
+      // An unrecognized value (`state:done`) is NOT folded and NOT stripped:
+      // dropping it would silently rewrite the query into a different one. Leave
+      // it for `githubSearchQueryIssues` to reject instead of shipping a query
+      // GitHub would silently demote to a zero-match free-text term.
       continue;
     }
     if (q.key === "is") {

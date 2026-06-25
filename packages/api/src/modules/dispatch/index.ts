@@ -52,9 +52,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
-import { readChildRunOutcome } from "../agent/sub-agents";
+import { readChildRunOutcome, shouldResolveWithoutParking } from "../agent/sub-agents";
 import { subAgentDoneSignalName } from "../agent/sub-agent-metadata";
-import { scheduleSubAgentJoinWakeJob } from "../agent/sub-agent-join-wake-queue";
+import {
+  AWAIT_SUB_AGENT_CEILING_MS,
+  scheduleSubAgentJoinWakeJob,
+} from "../agent/sub-agent-join-wake-queue";
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
@@ -667,12 +670,27 @@ function toolNameForAction(integration: IntegrationSlug, action: string): ToolNa
   return isToolName(name) ? name : null;
 }
 
+/**
+ * Action-name tokens that signal an *enumeration* intent — an invented
+ * `list_*`/`find_*`/`search_*`/`all_*` tool is asking to list many items, which
+ * a single-item `get_<thing>` (needs a known id) can never satisfy. Plain token
+ * overlap routes `list_pull_requests` → `get_pull_request` (shared "pull"),
+ * which is exactly the wrong hint; an integration's `search` action is the one
+ * that can actually enumerate.
+ */
+const ENUMERATION_TOKENS = new Set(["list", "find", "all", "search"]);
+
 function closestAction(input: string, actions: readonly string[]): string | null {
   if (actions.length === 0) return null;
   if (actions.includes(input)) return input;
   if (actions.length === 1) return actions[0] ?? null;
 
   const inputTokens = actionTokens(input);
+  // Enumeration intent → `search` when the integration exposes one, before the
+  // generic overlap below can mis-route it to a single-item `get_*`.
+  if (actions.includes("search") && inputTokens.some((t) => ENUMERATION_TOKENS.has(t))) {
+    return "search";
+  }
   let best: { action: string; score: number } | null = null;
   for (const action of actions) {
     const actionTokenSet = new Set(actionTokens(action));
@@ -890,19 +908,6 @@ function validateSystemToolAccess(args: {
   return null;
 }
 
-/**
- * Wait-ceiling for the sub-agent join (ADR-0073 #4). Load-bearing in two ways:
- *  - It is the delay of the dead-man wake job scheduled on every `parked` (see
- *    `resolveAwaitSubAgent`): if the in-band `sub_agent_done` signal is lost,
- *    never fires, or is swallowed, this is when the parent is forcibly revived.
- *  - On resume, a parent woken with the child STILL running past the ceiling (a
- *    spurious early wake) surfaces the still-running result instead of
- *    re-parking, so the turn ends honestly rather than looping.
- * 6 min sits well above a normal sub-agent run (≈30–48s) plus ADR-0070's
- * reclaim window, so the timer only ever fires after the child is terminal.
- */
-const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
-
 async function resolveAwaitSubAgent(args: {
   parentRunId: string;
   userId: string;
@@ -911,12 +916,9 @@ async function resolveAwaitSubAgent(args: {
   const outcome = await readChildRunOutcome(args);
 
   // Terminal child, an ownership/lookup error, or a child that has outrun the
-  // wait-ceiling: hand the boss a real result to act on — never park.
-  if (
-    outcome.done ||
-    !outcome.ok ||
-    (outcome.runningMs !== undefined && outcome.runningMs > AWAIT_SUB_AGENT_CEILING_MS)
-  ) {
+  // wait-ceiling: hand the boss a real result to act on — never park. Shared
+  // with the chat-turn finalization guard so the two join sites stay in lockstep.
+  if (shouldResolveWithoutParking(outcome)) {
     return {
       kind: "executed",
       stagingId: null,
@@ -937,11 +939,32 @@ async function resolveAwaitSubAgent(args: {
   // strands the boss forever. This timer is the only backstop that covers all
   // of them: when it fires the await re-reads the (terminal-by-then) child and
   // returns inline. It no-ops if the in-band signal already woke the parent.
-  await scheduleSubAgentJoinWakeJob({
+  const scheduled = await scheduleSubAgentJoinWakeJob({
     childRunId: args.childRunId,
     parentRunId: args.parentRunId,
     delayMs: AWAIT_SUB_AGENT_CEILING_MS,
   });
+  if (scheduled !== "scheduled") {
+    // The dead-man timer is load-bearing, not best-effort: it is the ONLY thing
+    // that revives a parent parked in `waiting` if the in-band `sub_agent_done`
+    // signal is lost (`findResumableRunIds` never sweeps `waiting`). If we
+    // couldn't schedule it ("failed" transient queue error, or "disabled" with
+    // no queue at all), parking would risk an un-wakeable run — so don't park.
+    // Hand the boss the still-running outcome instead: the turn ends honestly
+    // ("the sub-agent is still running") rather than hanging forever.
+    console.warn(
+      "[await_sub_agent] dead-man wake not scheduled (",
+      scheduled,
+      ") — refusing to park",
+      args.childRunId,
+    );
+    return {
+      kind: "executed",
+      stagingId: null,
+      toolResult: { ...outcome, reason: "join_timer_unavailable" },
+      editedByUser: false,
+    };
+  }
   return {
     kind: "parked",
     wake: { kind: "signal", name: subAgentDoneSignalName(args.childRunId) },
