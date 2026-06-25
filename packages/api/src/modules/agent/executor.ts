@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { sanitizeErrorMessage } from "@alfred/contracts";
+import { sanitizeErrorMessage, sanitizeToolResult } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/schemas";
@@ -384,6 +384,31 @@ async function commitStepSuccess(
   result: StepResult<unknown>,
   staged: StagedAction[],
 ): Promise<RunOutcome> {
+  // ADR-0070 §1.1/1.3: every jsonb sink this commit writes — `agent_runs.state`,
+  // `agent_runs.transcript`, the step/run `output`, each staged action payload,
+  // and the interrupt `wake` — can carry model-derived poison (U+0000 / a lone
+  // surrogate) that the dispatch-boundary sanitizer never saw: e.g. assistant
+  // text or a tool-call *input* the model emitted, replayed in the transcript.
+  // The chat row is sanitized in its own transaction *before* this commit
+  // (chat-turn `finalizeAssistantMessage`), so an unsanitized sink here would
+  // throw on the jsonb write *after* the user-visible message is already
+  // `complete`, leaving the run stuck `running` → reclaim/backstop — the exact
+  // message/run split ADR-0072 kills. Strip every sink once, here, for ALL
+  // workflows. Clean values pass through by reference (no extra allocation).
+  const cleanState = sanitizeToolResult(result.state).value;
+  const cleanTranscript =
+    result.transcript === undefined
+      ? undefined
+      : (sanitizeToolResult(result.transcript).value as AgentTranscriptMessage[]);
+  const cleanOutput =
+    result.kind === "done"
+      ? (sanitizeToolResult(result.output ?? null).value as object | null)
+      : null;
+  const cleanWake =
+    result.kind === "interrupt"
+      ? (sanitizeToolResult(result.wake).value as WakeCondition)
+      : undefined;
+
   return await db().transaction(async (tx) => {
     const now = new Date();
 
@@ -391,7 +416,7 @@ async function commitStepSuccess(
       .update(agentSteps)
       .set({
         status: result.kind === "interrupt" ? "interrupted" : "completed",
-        output: result.kind === "done" ? ((result.output as object | undefined) ?? null) : null,
+        output: cleanOutput,
         endedAt: now,
       })
       .where(
@@ -413,7 +438,7 @@ async function commitStepSuccess(
           stepId,
           attempt,
           kind: action.kind,
-          payload: action.payload as object,
+          payload: sanitizeToolResult(action.payload).value as object,
           idempotencyKey: key,
         });
       } catch (err) {
@@ -425,7 +450,7 @@ async function commitStepSuccess(
       await tx
         .update(agentRuns)
         .set({
-          state: result.state as object,
+          state: cleanState as object,
           currentStep: result.nextStep,
           // Monotonic per-run execution counter, NOT reset to 0. The
           // `agent_steps` row identity is `(run_id, step_id, attempt)`, and a
@@ -442,7 +467,7 @@ async function commitStepSuccess(
           status: "runnable",
           lastCheckpointAt: now,
           updatedAt: now,
-          ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
+          ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
         })
         .where(eq(agentRuns.id, run.id));
 
@@ -459,13 +484,13 @@ async function commitStepSuccess(
       await tx
         .update(agentRuns)
         .set({
-          state: result.state as object,
+          state: cleanState as object,
           status: "completed",
-          output: (result.output as object | undefined) ?? null,
+          output: cleanOutput,
           endedAt: now,
           lastCheckpointAt: now,
           updatedAt: now,
-          ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
+          ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
         })
         .where(eq(agentRuns.id, run.id));
 
@@ -479,31 +504,32 @@ async function commitStepSuccess(
     }
 
     // interrupt
+    const wake = cleanWake!;
     await tx
       .update(agentRuns)
       .set({
-        state: result.state as object,
+        state: cleanState as object,
         status: "waiting",
-        wakeCondition: result.wake,
+        wakeCondition: wake,
         attempt: attempt + 1, // next attempt of the same step on resume
         lastCheckpointAt: now,
         updatedAt: now,
-        ...(result.transcript === undefined ? {} : { transcript: result.transcript }),
+        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
       })
       .where(eq(agentRuns.id, run.id));
 
-    if (result.wake.kind === "hil") {
+    if (wake.kind === "hil") {
       await publishEvent({
         tx,
         userId: run.userId,
         kind: "approval.requested",
         payload: {
           runId: run.id,
-          approvalId: result.wake.approvalId,
+          approvalId: wake.approvalId,
           // Default to "step" for the legacy approval kind — pre-m13 steps
           // returning HIL wakes didn't carry this field.
-          approvalKind: result.wake.approvalKind ?? "step",
-          prompt: result.wake.prompt ?? "Approval requested",
+          approvalKind: wake.approvalKind ?? "step",
+          prompt: wake.prompt ?? "Approval requested",
         },
       });
     }
@@ -517,10 +543,10 @@ async function commitStepSuccess(
         phase: "interrupted",
         step: stepId,
         attempt,
-        wake: result.wake,
+        wake,
       },
     });
-    return { kind: "interrupted", runId: run.id, wake: result.wake };
+    return { kind: "interrupted", runId: run.id, wake };
   });
 }
 

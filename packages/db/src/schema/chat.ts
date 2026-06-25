@@ -31,6 +31,12 @@ export interface ChatMessageToolCall {
   argsPreview?: string;
   resultPreview?: string;
   /**
+   * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes from this
+   * result before storage. Persisted so a reload re-renders the "trimmed" flag
+   * the user saw live, rather than showing a scrubbed result as pristine.
+   */
+  sanitized?: boolean;
+  /**
    * The narration segment this call follows, so a reload can interleave it
    * with the model's narration in the activity trail. Absent on rows written
    * before interleaved narration shipped (read back as 0).
