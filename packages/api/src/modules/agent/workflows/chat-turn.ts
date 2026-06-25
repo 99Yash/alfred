@@ -18,7 +18,6 @@ import {
   isPassThrough,
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
-  sanitizeErrorMessage,
   sanitizeToolResult,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -29,7 +28,7 @@ import {
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
@@ -107,11 +106,6 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
-  // The triggering user message id (ADR-0072). Used at failure time to derive
-  // `turnHadAttachment` — the presence gate that makes `error_kind:'attachment'`
-  // structurally impossible on a turn that carried nothing. Optional for legacy
-  // runs minted before this field existed.
-  userMessageId: z.string().optional(),
   tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
@@ -1058,6 +1052,7 @@ async function finalizeAssistantMessage(
   state: ChatRunState,
 ): Promise<void> {
   const now = new Date();
+  const fields = sanitizeChatMessageFields(state);
   await db()
     .insert(chatMessages)
     .values({
@@ -1065,23 +1060,23 @@ async function finalizeAssistantMessage(
       userId,
       threadId: state.threadId,
       role: "assistant",
-      content: state.assistantText,
-      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      content: fields.content,
+      reasoning: fields.reasoning,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "complete",
-      toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
-      narration: state.narration.length > 0 ? state.narration : null,
+      toolCalls: fields.toolCalls,
+      narration: fields.narration,
       runId,
     })
     .onConflictDoUpdate({
       target: chatMessages.id,
       set: {
-        content: state.assistantText,
-        reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+        content: fields.content,
+        reasoning: fields.reasoning,
         reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
         status: "complete",
-        toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
-        narration: state.narration.length > 0 ? state.narration : null,
+        toolCalls: fields.toolCalls,
+        narration: fields.narration,
         runId,
         rowVersion: sql`${chatMessages.rowVersion} + 1`,
         updatedAt: now,
@@ -1254,6 +1249,57 @@ function cleanTitle(raw: string): string | null {
 }
 
 /**
+ * The persisted text fields of an assistant chat message, scrubbed of
+ * persistence-poison (ADR-0070 §1.3). Both finalizers — success and failure —
+ * route every text/jsonb field they write through here, so a NUL byte or lone
+ * surrogate that streamed into `content`, `reasoning`, the tool-call previews,
+ * *or* `narration` can never re-throw on the insert and wedge the turn. One
+ * `sanitizeToolResult` pass covers nested structures and object keys.
+ */
+function sanitizeChatMessageFields(state: ChatRunState): {
+  content: string;
+  reasoning: string | null;
+  toolCalls: ChatRunState["toolCallsLog"] | null;
+  narration: ChatRunState["narration"] | null;
+} {
+  const raw = {
+    content: state.assistantText,
+    reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+    toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+    narration: state.narration.length > 0 ? state.narration : null,
+  };
+  return sanitizeToolResult(raw).value as typeof raw;
+}
+
+/**
+ * Whether the thread's replayed transcript carries any image attachment — a
+ * direct image upload or a degraded modality that contributed keyframe images
+ * (ADR-0065). This is the ADR-0072 presence gate for `error_kind:'attachment'`:
+ * the whole thread is replayed each turn, so a provider image-reject can fire
+ * on a later no-attachment turn from an earlier image. Joins through
+ * `chat_messages` because `chat_attachments` is keyed by message, not thread.
+ */
+async function threadHasImageAttachment(userId: string, threadId: string): Promise<boolean> {
+  const rows = await db()
+    .select({ id: chatAttachments.id })
+    .from(chatAttachments)
+    .innerJoin(chatMessages, eq(chatAttachments.messageId, chatMessages.id))
+    .where(
+      and(
+        eq(chatMessages.userId, userId),
+        eq(chatMessages.threadId, threadId),
+        eq(chatAttachments.status, "ready"),
+        or(
+          like(chatAttachments.mime, "image/%"),
+          sql`jsonb_array_length(${chatAttachments.degradedImageKeys}) > 0`,
+        ),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Terminal-failure counterpart to {@link finalizeAssistantMessage}. Persists a
  * `status:"failed"` assistant row (carrying whatever text streamed before the
  * fault) and emits `chat.message completed` so the client's streaming bubble
@@ -1274,25 +1320,24 @@ async function finalizeFailedMessage(
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
   // ADR-0072 presence gate: `error_kind:'attachment'` is only reachable when
-  // the triggering user turn actually carried a `ready` attachment. With no
-  // attachment it is structurally impossible — a tool/persistence fault
-  // classifies `generic` regardless of what the error string mentions.
-  const turnHadAttachment = state.userMessageId
-    ? (await loadReadyAttachments(userId, [state.userMessageId])).size > 0
-    : false;
+  // an image attachment is actually present in the model's input. Because the
+  // whole thread transcript is replayed each turn, a provider image-reject can
+  // surface on a *later* no-attachment turn from an earlier image
+  // (.lessons/chat-vision-transcript-replay-poison.md) — so the gate is
+  // thread-wide ("did any replayed message carry an image attachment"), not
+  // just the triggering user message. With no image anywhere in the thread,
+  // `attachment` is structurally impossible and the fault classifies `generic`.
+  const turnHadAttachment = await threadHasImageAttachment(userId, state.threadId);
   const errorKind = classifyChatFailure(err, { turnHadAttachment });
   console.warn(
     `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
     errorText(err),
   );
-  // ADR-0070 §1.3: a tool that streamed poison into `assistantText` (or a
-  // poisoned tool-call preview) would re-throw on this jsonb/text insert and
-  // wedge the failure path. Strip before persisting.
-  const content = state.assistantText.length > 0 ? sanitizeErrorMessage(state.assistantText) : "";
-  const toolCalls =
-    state.toolCallsLog.length > 0
-      ? (sanitizeToolResult(state.toolCallsLog).value as typeof state.toolCallsLog)
-      : null;
+  // ADR-0070 §1.3: a tool that streamed poison into any chat-message field
+  // (content / reasoning / tool-call previews / narration) would re-throw on
+  // this jsonb/text insert and wedge the failure path before `chat.message
+  // completed` fires. Strip every field via the shared sanitizer.
+  const fields = sanitizeChatMessageFields(state);
   await db()
     .insert(chatMessages)
     .values({
@@ -1300,13 +1345,13 @@ async function finalizeFailedMessage(
       userId,
       threadId: state.threadId,
       role: "assistant",
-      content,
-      reasoning: state.reasoningText.length > 0 ? sanitizeErrorMessage(state.reasoningText) : null,
+      content: fields.content,
+      reasoning: fields.reasoning,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
       errorKind,
-      toolCalls,
-      narration: state.narration.length > 0 ? state.narration : null,
+      toolCalls: fields.toolCalls,
+      narration: fields.narration,
       runId,
     })
     .onConflictDoNothing();
@@ -1417,12 +1462,9 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
-    const userMessageId =
-      typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
     return {
       threadId,
       messageId,
-      userMessageId,
       tier,
       activeIntegrations: [],
       allowedIntegrations,

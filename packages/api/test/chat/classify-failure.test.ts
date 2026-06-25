@@ -27,7 +27,10 @@ test("ADR-0072: the genuine provider image-reject classifies attachment only whe
     classifyChatFailure(new Error("unable to process input image"), WITH_ATTACHMENT),
     "attachment",
   );
-  assert.equal(classifyChatFailure(new Error("unsupported image type"), WITH_ATTACHMENT), "attachment");
+  assert.equal(
+    classifyChatFailure(new Error("unsupported image type"), WITH_ATTACHMENT),
+    "attachment",
+  );
   assert.equal(
     classifyChatFailure(new Error("failed to decode image: corrupt"), WITH_ATTACHMENT),
     "attachment",
