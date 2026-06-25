@@ -41,6 +41,8 @@ import {
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
+  sanitizeErrorMessage,
+  sanitizeToolResult,
   toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -109,6 +111,11 @@ export type DispatchResult =
        *  may want to surface that to the model so future suggestions
        *  account for the correction. */
       editedByUser: boolean;
+      /** ADR-0070: set when the result carried persistence-poison (NUL /
+       *  lone surrogates) that the dispatch-boundary sanitizer stripped. The
+       *  flag rides on the envelope, never on the result value (a bare
+       *  string/array result can't carry a property). */
+      sanitized?: boolean;
     }
   | {
       kind: "failed";
@@ -667,7 +674,11 @@ async function executeAndCommit(
   try {
     result = await tool.execute(input, ctx);
   } catch (err) {
-    error = { message: toMessage(err) };
+    // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
+    // message. The result-boundary sanitizer below can't reach this — a throw
+    // carries no result — so strip the error string before it hits the
+    // `execute_error` jsonb write.
+    error = { message: sanitizeErrorMessage(toMessage(err)) };
   }
   const now = new Date();
   if (error) {
@@ -682,6 +693,17 @@ async function executeAndCommit(
       .where(eq(actionStagings.id, row.id));
     if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
     return { kind: "failed", stagingId: row.id, error };
+  }
+  // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
+  // returns and before the value touches any persisted sink. This cleans the
+  // `execute_result` jsonb write below AND the `toolResult` returned to the
+  // caller (which flows into the transcript/state — the same poison sinks).
+  const sanitizedResult = sanitizeToolResult(result);
+  result = sanitizedResult.value;
+  if (sanitizedResult.removed > 0) {
+    console.warn(
+      `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s) from ${tool.name} result`,
+    );
   }
   // A tool legitimately returning `null` or `undefined` is stored as
   // SQL NULL in `execute_result`. The `status='executed'` field is the
@@ -701,7 +723,13 @@ async function executeAndCommit(
     })
     .where(eq(actionStagings.id, row.id));
   if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
-  return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
+  return {
+    kind: "executed",
+    stagingId: row.id,
+    toolResult: result,
+    editedByUser,
+    sanitized: sanitizedResult.removed > 0,
+  };
 }
 
 async function executeFastPath(
@@ -711,12 +739,27 @@ async function executeFastPath(
 ): Promise<DispatchResult> {
   try {
     const result = await tool.execute(input, ctx);
-    return { kind: "executed", stagingId: null, toolResult: result, editedByUser: false };
+    // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
+    // result flows into the transcript/state just like the staged path.
+    const sanitized = sanitizeToolResult(result);
+    if (sanitized.removed > 0) {
+      console.warn(
+        `[dispatch] sanitized ${sanitized.removed} poison code unit(s) from ${tool.name} result`,
+      );
+    }
+    return {
+      kind: "executed",
+      stagingId: null,
+      toolResult: sanitized.value,
+      editedByUser: false,
+      sanitized: sanitized.removed > 0,
+    };
   } catch (err) {
+    // Throw-poison class (ADR-0070 §1.3).
     return {
       kind: "failed",
       stagingId: null,
-      error: { message: toMessage(err) },
+      error: { message: sanitizeErrorMessage(toMessage(err)) },
     };
   }
 }

@@ -18,6 +18,8 @@ import {
   isPassThrough,
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
+  sanitizeErrorMessage,
+  sanitizeToolResult,
   toJsonValue,
   type AgentTranscriptMessage,
   type ChatErrorKind,
@@ -105,6 +107,11 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
+  // The triggering user message id (ADR-0072). Used at failure time to derive
+  // `turnHadAttachment` — the presence gate that makes `error_kind:'attachment'`
+  // structurally impossible on a turn that carried nothing. Optional for legacy
+  // runs minted before this field existed.
+  userMessageId: z.string().optional(),
   tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
@@ -1266,12 +1273,26 @@ async function finalizeFailedMessage(
   // tailored message + recovery action; log the raw detail server-side for
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
-  const errorKind = classifyChatFailure(err);
+  // ADR-0072 presence gate: `error_kind:'attachment'` is only reachable when
+  // the triggering user turn actually carried a `ready` attachment. With no
+  // attachment it is structurally impossible — a tool/persistence fault
+  // classifies `generic` regardless of what the error string mentions.
+  const turnHadAttachment = state.userMessageId
+    ? (await loadReadyAttachments(userId, [state.userMessageId])).size > 0
+    : false;
+  const errorKind = classifyChatFailure(err, { turnHadAttachment });
   console.warn(
     `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
     errorText(err),
   );
-  const content = state.assistantText.length > 0 ? state.assistantText : "";
+  // ADR-0070 §1.3: a tool that streamed poison into `assistantText` (or a
+  // poisoned tool-call preview) would re-throw on this jsonb/text insert and
+  // wedge the failure path. Strip before persisting.
+  const content = state.assistantText.length > 0 ? sanitizeErrorMessage(state.assistantText) : "";
+  const toolCalls =
+    state.toolCallsLog.length > 0
+      ? (sanitizeToolResult(state.toolCallsLog).value as typeof state.toolCallsLog)
+      : null;
   await db()
     .insert(chatMessages)
     .values({
@@ -1280,11 +1301,11 @@ async function finalizeFailedMessage(
       threadId: state.threadId,
       role: "assistant",
       content,
-      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      reasoning: state.reasoningText.length > 0 ? sanitizeErrorMessage(state.reasoningText) : null,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
       errorKind,
-      toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+      toolCalls,
       narration: state.narration.length > 0 ? state.narration : null,
       runId,
     })
@@ -1316,25 +1337,27 @@ function errorText(err: unknown): string {
  * Anything unrecognized is `generic` (the client shows a neutral retry). The
  * raw text never reaches the user — only this tag does.
  */
-function classifyChatFailure(err: unknown): ChatErrorKind {
+export function classifyChatFailure(
+  err: unknown,
+  opts: { turnHadAttachment: boolean },
+): ChatErrorKind {
   const msg = toMessage(err).toLowerCase();
-  const mentionsAttachment =
-    msg.includes("attachment") ||
-    msg.includes("file") ||
-    msg.includes("image") ||
-    msg.includes("media") ||
-    msg.includes("mime");
 
-  // The model couldn't read an attached file. Recoverable by dropping it.
-  // ("Unable to process input image" is the Gemini/Anthropic vision reject.)
+  // ADR-0072: the only genuine `attachment` failure is the model provider
+  // rejecting a hydrated image at the generation call (recurs on transcript
+  // replay — see .lessons/chat-vision-transcript-replay-poison.md). It is
+  // gated on `turnHadAttachment`: a turn that carried nothing can never fail
+  // *for* an attachment, so the over-broad substring net (attachment|file|
+  // image|media|mime) that mis-bucketed unrelated tool/export failures is
+  // gone. Without the gate, classify by the other signals or fall to generic.
   if (
-    msg.includes("unable to process input image") ||
-    msg.includes("invalid image") ||
-    msg.includes("unsupported image") ||
-    msg.includes("unsupported file") ||
-    msg.includes("unsupported media") ||
-    (mentionsAttachment && msg.includes("could not process")) ||
-    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")))
+    opts.turnHadAttachment &&
+    (msg.includes("unable to process input image") ||
+      msg.includes("invalid image") ||
+      msg.includes("unsupported image") ||
+      msg.includes("unsupported file") ||
+      msg.includes("unsupported media") ||
+      (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt"))))
   ) {
     return "attachment";
   }
@@ -1394,9 +1417,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
+    const userMessageId =
+      typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
     return {
       threadId,
       messageId,
+      userMessageId,
       tier,
       activeIntegrations: [],
       allowedIntegrations,
