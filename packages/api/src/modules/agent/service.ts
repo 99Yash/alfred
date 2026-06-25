@@ -14,6 +14,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { getWorkflow } from "./registry";
+import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
 import {
   isTerminalStatus,
   type ApprovalKind,
@@ -259,6 +260,30 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     })
     .where(eq(agentRuns.id, args.runId));
   return "woken";
+}
+
+/**
+ * ADR-0073: when a sub-agent child reaches a terminal state, wake the parent
+ * that is joining it. Reads the child's metadata, and if it is a sub-agent,
+ * fires `sub_agent_done:<childRunId>` so a parent parked in `await_sub_agent`
+ * flips back to `runnable`. Returns the parent's run id when it was actually
+ * woken (so the caller can enqueue it for an immediate resume), else null —
+ * a no-op when the run isn't a sub-agent, the parent already moved on, or the
+ * parent isn't waiting on this child. Best-effort and idempotent.
+ */
+export async function signalParentOfSubAgent(childRunId: string): Promise<string | null> {
+  const rows = await db()
+    .select({ metadata: agentRuns.metadata })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, childRunId))
+    .limit(1);
+  const sub = readSubAgentMetadata(rows[0]?.metadata);
+  if (!sub) return null;
+  const woken = await signalRun({
+    runId: sub.parentRunId,
+    match: { kind: "signal", name: subAgentDoneSignalName(childRunId) },
+  });
+  return woken ? sub.parentRunId : null;
 }
 
 export interface CancelRunArgs {

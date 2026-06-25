@@ -21,6 +21,76 @@ export const spawnSubAgentInputSchema = z
 
 export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInputSchema>;
 
+export const awaitSubAgentInputSchema = z
+  .object({
+    childRunId: z.string().min(1),
+  })
+  .strict();
+
+export type AwaitSubAgentInput = z.infer<typeof awaitSubAgentInputSchema>;
+
+export interface ChildRunOutcome {
+  ok: boolean;
+  /** True once the child reached a terminal status (completed/failed/cancelled). */
+  done: boolean;
+  status: string;
+  /** Present for a completed child — its run output. */
+  output?: unknown;
+  /** Present for a failed child — its terminal error. */
+  error?: unknown;
+  /** ms the child has been running, used by the await wait-ceiling. */
+  runningMs?: number;
+  /** Why the call could not return the child's result, if applicable. */
+  reason?: string;
+}
+
+const TERMINAL_CHILD_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * Read a spawned child run's real outcome for a parent that is joining it
+ * (ADR-0073). Enforces ownership: the child must be a sub-agent whose
+ * `parentRunId` is the caller's run, so a boss cannot await an arbitrary run.
+ * Returns `done:true` with the child's `status`/`output`/`error` once terminal,
+ * else `done:false` with how long it has been running (the join site decides
+ * whether to park or surface a still-running result).
+ */
+export async function readChildRunOutcome(args: {
+  parentRunId: string;
+  userId: string;
+  childRunId: string;
+}): Promise<ChildRunOutcome> {
+  const rows = await db()
+    .select({
+      status: agentRuns.status,
+      output: agentRuns.output,
+      error: agentRuns.error,
+      metadata: agentRuns.metadata,
+      startedAt: agentRuns.startedAt,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, args.childRunId), eq(agentRuns.userId, args.userId)))
+    .limit(1);
+  const child = rows[0];
+  if (!child) {
+    return { ok: false, done: false, status: "not_found", reason: "child_run_not_found" };
+  }
+  const sub = readSubAgentMetadata(child.metadata);
+  if (!sub || sub.parentRunId !== args.parentRunId) {
+    return { ok: false, done: false, status: child.status, reason: "not_your_sub_agent" };
+  }
+
+  const done = TERMINAL_CHILD_STATUSES.has(child.status);
+  const startedMs = child.startedAt ? child.startedAt.getTime() : null;
+  return {
+    ok: true,
+    done,
+    status: child.status,
+    output: done ? (child.output ?? null) : undefined,
+    error: done ? (child.error ?? null) : undefined,
+    runningMs: !done && startedMs !== null ? Date.now() - startedMs : undefined,
+  };
+}
+
 const existingSubAgentSelection = {
   id: agentRuns.id,
   status: agentRuns.status,
