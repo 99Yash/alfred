@@ -53,7 +53,7 @@ export const calendarListEventsInput = z
       ),
     // Result-count cap — cosmetic, never affects correctness. An out-of-range
     // value falls back to the default instead of bouncing a validation error
-    // back to the model (see github.search_pull_requests perPage).
+    // back to the model (same cosmetic behavior as github.search maxResults).
     maxResults: z.number().int().min(1).max(50).default(10).catch(10),
   })
   .strict()

@@ -90,6 +90,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
           system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),
           temperature: 0,
+          timeout: { totalMs: 60_000 },
         });
         return {
           score: GRADE_TO_SCORE[result.object.grade],

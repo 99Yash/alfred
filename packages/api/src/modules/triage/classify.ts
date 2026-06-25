@@ -57,9 +57,9 @@ export const triageClassificationSchema = z.object({
    * to avoid leaving the message untriaged), but flags it for the briefing
    * to optionally surface as "alfred wasn't sure."
    *
-   * Bare number (no `.min(0).max(1)`) so it round-trips through the Anthropic
-   * Haiku fallback the cheap model degrades to — see `confidenceSchema`. The
-   * range is enforced by clamping at the producer boundary (`defaultRunPass`),
+   * Bare number (no `.min(0).max(1)`) so it round-trips through providers that
+   * reject numeric bounds in structured output schemas — see `confidenceSchema`.
+   * The range is enforced by clamping at the producer boundary (`defaultRunPass`),
    * the one place a documented threshold (< 0.5 soft-confirm) keys off it.
    */
   confidence: confidenceSchema,
@@ -132,9 +132,10 @@ export interface ClassifyEmailArgs {
   /**
    * Override the AI SDK retry count for the cheap-model call. Production leaves
    * this unset (SDK default = 2 retries / 3 attempts). The eval lowers it so a
-   * provider-overload blip fails fast to the `withFallback` Haiku leg instead of
-   * burning three exponential-backoff cycles per case — without that, a CI run
-   * under sustained Gemini throttling exceeds the eval job's wall-clock budget.
+   * provider-overload blip fails fast to the configured cheap-model fallback
+   * instead of burning three exponential-backoff cycles per case — without that,
+   * a CI run under sustained provider throttling exceeds the eval job's
+   * wall-clock budget.
    */
   maxRetries?: number;
   /**
@@ -815,7 +816,8 @@ function defaultRunPass(
         // a blocked queue).
         timeout: { totalMs: 30_000 },
         // Undefined in production (SDK default). The eval lowers it to fail fast
-        // to the Haiku fallback under provider overload — see `maxRetries` doc.
+        // to the configured cheap-model fallback under provider overload — see
+        // `maxRetries` doc.
         ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
       },
       {
