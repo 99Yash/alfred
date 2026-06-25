@@ -58,6 +58,15 @@ export interface LlmJudgeOptions<TInput, TOutput, TExpected> {
   prompt: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) => string;
   /** Override the judge model. Defaults to the standard chat model (Sonnet). */
   model?: LanguageModel;
+  /**
+   * Short-circuit predicate. When it returns a string, the judge is NOT called:
+   * the scorer returns `{ score: 0, metadata: <string> }`. Used to avoid
+   * spending a judge call on a case the task could not produce real output for
+   * (e.g. skipped on provider overload).
+   */
+  skipWhen?: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) =>
+    | string
+    | null;
 }
 
 /**
@@ -70,6 +79,8 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
   return createScorer<TInput, TOutput, TExpected>({
     name: opts.name,
     scorer: async ({ input, output, expected }) => {
+      const skipReason = opts.skipWhen?.({ input, output, expected });
+      if (skipReason) return { score: 0, metadata: skipReason };
       const result = await generateObject({
         model: opts.model ?? getChatModel("standard"),
         schema: judgeOutputSchema,

@@ -393,6 +393,27 @@ interface TaskOutput {
   suppression: string | null;
   context: string;
   email: { from: string; subject: string; body: string };
+  /**
+   * True when the cheap model AND its Haiku fallback were both overloaded and
+   * the case couldn't be classified — see `isTransientOverload`. Such a case
+   * scores 0 (evalite has no per-case exclude), but with the Haiku fallback in
+   * place this is rare; a run with many skips is a provider outage, not a
+   * classifier regression, and the skip warnings in the log say so.
+   */
+  skipped: boolean;
+}
+
+/**
+ * Recognize a transient provider-capacity error (Gemini/Anthropic "high
+ * demand"/overloaded, 429, 503). These are NOT classifier defects — when both
+ * the cheap model and its fallback are saturated, retrying for minutes only
+ * blows the CI job's wall-clock budget, so the eval skips the case instead.
+ */
+function isTransientOverload(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  return /high demand|overloaded|rate.?limit|too many requests|\b429\b|\b503\b|temporarily unavailable|AI_RetryError/i.test(
+    msg,
+  );
 }
 
 function buildArgs(c: Case): ClassifyEmailArgs {
@@ -427,6 +448,11 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     senderContext: c.sender,
     observations,
+    // Fail fast to the Haiku fallback under a Gemini overload instead of burning
+    // three exponential-backoff cycles per case. Without this, a CI run during a
+    // sustained-throttle window blows the eval job's wall-clock budget. Prod
+    // leaves this unset (SDK default).
+    maxRetries: 1,
   };
 }
 
@@ -473,7 +499,35 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
   task: async (input) => {
     void serverEnv().GOOGLE_GENERATIVE_AI_API_KEY;
     const args = buildArgs(input);
-    const { classification } = await classifyEmail(args);
+    const email = { from: input.from, subject: input.subject, body: input.body };
+    const context = renderJudgeContext(input);
+
+    let classification;
+    try {
+      ({ classification } = await classifyEmail(args));
+    } catch (err) {
+      // A transient provider overload is not a classifier defect. Skip the case
+      // (scores 0) rather than letting one throw abort the whole eval file or
+      // burn the job's wall-clock retrying — and say so loudly in the log.
+      if (isTransientOverload(err)) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[triage-eval] SKIP "${input.label}" — provider overload: ${reason}`);
+        return {
+          category: "fyi",
+          confidence: 0,
+          rationale: "[skipped: provider overload]",
+          todoOutcome: undefined,
+          todoName: null,
+          wouldMintTodo: false,
+          suppression: null,
+          context,
+          email,
+          skipped: true,
+        };
+      }
+      throw err;
+    }
+
     const authoredAt = input.authoredAt ?? NOW;
     const resolved = resolveTodoSuggestion(classification, authoredAt);
     const suppression = todoSuppressionReason({
@@ -490,20 +544,24 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       todoName: resolved?.name ?? null,
       wouldMintTodo,
       suppression,
-      context: renderJudgeContext(input),
-      email: { from: input.from, subject: input.subject, body: input.body },
+      context,
+      email,
+      skipped: false,
     };
   },
   scorers: [
     {
       // The hard signal: did the classifier land the right category?
       name: "Category match",
-      scorer: ({ output, expected }) => ({
-        score: expected && output.category === expected.category ? 1 : 0,
-        metadata: expected
-          ? `got ${output.category} (conf ${output.confidence.toFixed(2)}), want ${expected.category}`
-          : "no expectation",
-      }),
+      scorer: ({ output, expected }) => {
+        if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+        return {
+          score: expected && output.category === expected.category ? 1 : 0,
+          metadata: expected
+            ? `got ${output.category} (conf ${output.confidence.toFixed(2)}), want ${expected.category}`
+            : "no expectation",
+        };
+      },
     },
     {
       // Mirrors production: would this email actually put a todo on the rail?
@@ -511,6 +569,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       // guard, the same path the email-triage tail step runs.
       name: "Todo mint decision",
       scorer: ({ output, expected }) => {
+        if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
         if (!expected) return { score: 0, metadata: "no expectation" };
         const want = expected.todo === "mint";
         const ok = output.wouldMintTodo === want;
@@ -528,6 +587,8 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     llmJudgeScorer<Case, TaskOutput, Expected>({
       name: "Classification defensible",
       rubric: RATIONALE_RUBRIC,
+      // Don't spend a judge call grading a case we couldn't classify.
+      skipWhen: ({ output }) => (output.skipped ? "skipped (provider overload)" : null),
       prompt: ({ output, expected }) =>
         [
           "Email under triage:",
