@@ -1,4 +1,4 @@
-import { Check, ChevronRight, X } from "lucide-react";
+import { Check, ChevronRight, Scissors, X } from "lucide-react";
 import { useId, useState } from "react";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
@@ -36,6 +36,9 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const [open, setOpen] = useState(false);
   const running = tool.status === "started";
   const failed = tool.status === "failed";
+  // ADR-0070: the result had non-text bytes stripped before storage, so the
+  // preview may be incomplete — flag it instead of letting it look pristine.
+  const trimmed = !running && !failed && Boolean(tool.sanitized);
   const expandable = !running && Boolean(tool.resultPreview);
 
   const {
@@ -107,6 +110,14 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
           </span>
         ) : null}
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {trimmed ? (
+            <span
+              className="inline-flex items-center text-app-fg-2"
+              title="Non-text bytes were stripped from this result before storage; it may be incomplete."
+            >
+              <Scissors size={12} aria-label="Result trimmed before storage" />
+            </span>
+          ) : null}
           {running ? null : failed ? (
             <X size={14} aria-hidden className="text-app-red-4" />
           ) : (
@@ -122,15 +133,22 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         </span>
       </button>
       {expandable && open ? (
-        <pre
-          id={panelId}
-          className={cn(
-            "animate-chat-in ml-8 mt-1.5 overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
-            failed ? "text-app-red-4/90" : "text-app-fg-3",
-          )}
-        >
-          {panelText}
-        </pre>
+        <div id={panelId} className="animate-chat-in ml-8 mt-1.5">
+          {trimmed ? (
+            <p className="mb-1.5 flex items-center gap-1.5 text-[12px] text-app-fg-2">
+              <Scissors size={12} aria-hidden />
+              Non-text bytes were stripped before storage; this result may be incomplete.
+            </p>
+          ) : null}
+          <pre
+            className={cn(
+              "overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
+              failed ? "text-app-red-4/90" : "text-app-fg-3",
+            )}
+          >
+            {panelText}
+          </pre>
+        </div>
       ) : null}
     </div>
   );

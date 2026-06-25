@@ -10,6 +10,8 @@ export interface ToolCallView {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string;
   resultPreview?: string;
+  /** ADR-0070: non-text bytes were stripped from this result before storage. */
+  sanitized?: boolean;
   /** Narration segment this call follows — orders it against the narration trail. */
   segmentIndex?: number;
 }

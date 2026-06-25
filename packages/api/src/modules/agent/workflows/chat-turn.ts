@@ -18,6 +18,7 @@ import {
   isPassThrough,
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
+  sanitizeToolResult,
   toJsonValue,
   type AgentTranscriptMessage,
   type ChatErrorKind,
@@ -27,7 +28,7 @@ import {
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
@@ -105,6 +106,11 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
+  // The triggering user message id (ADR-0072). Lets the failure path tell a
+  // *current-turn* image attachment (recoverable by "Send without it") apart
+  // from a *historical* one replayed in the transcript (recoverable only by a
+  // new chat). Optional for legacy runs minted before this field existed.
+  userMessageId: z.string().optional(),
   tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
@@ -568,7 +574,20 @@ function dispatchResultToToolOutput(
     case "executed":
       return {
         type: "json",
-        value: toJsonValue({ status: "executed", result: result.toolResult }),
+        value: toJsonValue({
+          status: "executed",
+          result: result.toolResult,
+          // ADR-0070: surface to the model that this result had non-text bytes
+          // stripped before storage, so it doesn't treat a silently-mutated
+          // (binary-ish) payload as pristine.
+          ...(result.sanitized
+            ? {
+                sanitized: true,
+                notice:
+                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
+              }
+            : {}),
+        }),
       };
     case "failed":
       return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
@@ -1002,11 +1021,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
               : result.kind === "failed"
                 ? preview(result.error)
                 : preview(result.result);
+          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
+          // envelope; carry it onto the durable tool-call log *and* the live
+          // event so a scrubbed result is flagged the same way live and on
+          // reload (otherwise the durable card looks pristine).
+          const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
             resultPreview,
+            ...(sanitized ? { sanitized } : {}),
             segmentIndex: call.segmentIndex,
           });
           await publishEvent({
@@ -1020,6 +1045,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
               toolName: call.toolName,
               status,
               resultPreview,
+              ...(sanitized ? { sanitized } : {}),
               segmentIndex: call.segmentIndex,
             },
           });
@@ -1051,6 +1077,7 @@ async function finalizeAssistantMessage(
   state: ChatRunState,
 ): Promise<void> {
   const now = new Date();
+  const fields = sanitizeChatMessageFields(state);
   await db()
     .insert(chatMessages)
     .values({
@@ -1058,23 +1085,23 @@ async function finalizeAssistantMessage(
       userId,
       threadId: state.threadId,
       role: "assistant",
-      content: state.assistantText,
-      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      content: fields.content,
+      reasoning: fields.reasoning,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "complete",
-      toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
-      narration: state.narration.length > 0 ? state.narration : null,
+      toolCalls: fields.toolCalls,
+      narration: fields.narration,
       runId,
     })
     .onConflictDoUpdate({
       target: chatMessages.id,
       set: {
-        content: state.assistantText,
-        reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+        content: fields.content,
+        reasoning: fields.reasoning,
         reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
         status: "complete",
-        toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
-        narration: state.narration.length > 0 ? state.narration : null,
+        toolCalls: fields.toolCalls,
+        narration: fields.narration,
         runId,
         rowVersion: sql`${chatMessages.rowVersion} + 1`,
         updatedAt: now,
@@ -1247,6 +1274,70 @@ function cleanTitle(raw: string): string | null {
 }
 
 /**
+ * The persisted text fields of an assistant chat message, scrubbed of
+ * persistence-poison (ADR-0070 §1.3). Both finalizers — success and failure —
+ * route every text/jsonb field they write through here, so a NUL byte or lone
+ * surrogate that streamed into `content`, `reasoning`, the tool-call previews,
+ * *or* `narration` can never re-throw on the insert and wedge the turn. One
+ * `sanitizeToolResult` pass covers nested structures and object keys.
+ */
+function sanitizeChatMessageFields(state: ChatRunState): {
+  content: string;
+  reasoning: string | null;
+  toolCalls: ChatRunState["toolCallsLog"] | null;
+  narration: ChatRunState["narration"] | null;
+} {
+  const raw = {
+    content: state.assistantText,
+    reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+    toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+    narration: state.narration.length > 0 ? state.narration : null,
+  };
+  return sanitizeToolResult(raw).value as typeof raw;
+}
+
+/**
+ * Where image attachments live in a thread's replayed transcript, split by the
+ * recovery the UI can offer (ADR-0072). The whole thread is replayed every turn
+ * (.lessons/chat-vision-transcript-replay-poison.md), so a provider image-reject
+ * can be caused by the current turn's image (droppable via "Send without it")
+ * OR by an earlier turn's image (the retry can't reach it — only a new chat
+ * can). Returns both so {@link classifyChatFailure} picks the honest kind.
+ *
+ * An "image attachment" is a `ready` direct image upload or a degraded modality
+ * that contributed keyframe images. Joins through `chat_messages` because
+ * `chat_attachments` is keyed by message, not thread.
+ */
+async function threadImageAttachments(
+  userId: string,
+  threadId: string,
+  currentUserMessageId: string | undefined,
+): Promise<{ currentTurn: boolean; historical: boolean }> {
+  const rows = await db()
+    .select({ messageId: chatAttachments.messageId })
+    .from(chatAttachments)
+    .innerJoin(chatMessages, eq(chatAttachments.messageId, chatMessages.id))
+    .where(
+      and(
+        eq(chatMessages.userId, userId),
+        eq(chatMessages.threadId, threadId),
+        eq(chatAttachments.status, "ready"),
+        or(
+          like(chatAttachments.mime, "image/%"),
+          sql`jsonb_array_length(${chatAttachments.degradedImageKeys}) > 0`,
+        ),
+      ),
+    );
+  let currentTurn = false;
+  let historical = false;
+  for (const r of rows) {
+    if (currentUserMessageId && r.messageId === currentUserMessageId) currentTurn = true;
+    else historical = true;
+  }
+  return { currentTurn, historical };
+}
+
+/**
  * Terminal-failure counterpart to {@link finalizeAssistantMessage}. Persists a
  * `status:"failed"` assistant row (carrying whatever text streamed before the
  * fault) and emits `chat.message completed` so the client's streaming bubble
@@ -1266,12 +1357,26 @@ async function finalizeFailedMessage(
   // tailored message + recovery action; log the raw detail server-side for
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
-  const errorKind = classifyChatFailure(err);
+  // ADR-0072 presence gate. An image-reject classifies `attachment` only when
+  // the current turn carries an image (the "Send without it" retry can drop
+  // it); when only an *earlier* turn's replayed image can be the culprit it
+  // classifies `attachment_history` (retry can't reach it — new chat only);
+  // with no image anywhere in the thread it's structurally impossible and falls
+  // through to `generic`.
+  const images = await threadImageAttachments(userId, state.threadId, state.userMessageId);
+  const errorKind = classifyChatFailure(err, {
+    currentTurnHasImage: images.currentTurn,
+    historicalHasImage: images.historical,
+  });
   console.warn(
     `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
     errorText(err),
   );
-  const content = state.assistantText.length > 0 ? state.assistantText : "";
+  // ADR-0070 §1.3: a tool that streamed poison into any chat-message field
+  // (content / reasoning / tool-call previews / narration) would re-throw on
+  // this jsonb/text insert and wedge the failure path before `chat.message
+  // completed` fires. Strip every field via the shared sanitizer.
+  const fields = sanitizeChatMessageFields(state);
   await db()
     .insert(chatMessages)
     .values({
@@ -1279,13 +1384,13 @@ async function finalizeFailedMessage(
       userId,
       threadId: state.threadId,
       role: "assistant",
-      content,
-      reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
+      content: fields.content,
+      reasoning: fields.reasoning,
       reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
       status: "failed",
       errorKind,
-      toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
-      narration: state.narration.length > 0 ? state.narration : null,
+      toolCalls: fields.toolCalls,
+      narration: fields.narration,
       runId,
     })
     .onConflictDoNothing();
@@ -1316,27 +1421,40 @@ function errorText(err: unknown): string {
  * Anything unrecognized is `generic` (the client shows a neutral retry). The
  * raw text never reaches the user — only this tag does.
  */
-function classifyChatFailure(err: unknown): ChatErrorKind {
+export function classifyChatFailure(
+  err: unknown,
+  opts: { currentTurnHasImage: boolean; historicalHasImage: boolean },
+): ChatErrorKind {
   const msg = toMessage(err).toLowerCase();
-  const mentionsAttachment =
-    msg.includes("attachment") ||
-    msg.includes("file") ||
-    msg.includes("image") ||
-    msg.includes("media") ||
-    msg.includes("mime");
 
-  // The model couldn't read an attached file. Recoverable by dropping it.
-  // ("Unable to process input image" is the Gemini/Anthropic vision reject.)
-  if (
+  // ADR-0072: the only genuine attachment failure is the model provider
+  // rejecting a hydrated image at the generation call (recurs on transcript
+  // replay — see .lessons/chat-vision-transcript-replay-poison.md). The narrow
+  // signal set replaces the old over-broad substring net (attachment|file|
+  // image|media|mime) that mis-bucketed unrelated tool/export failures.
+  //
+  // "unsupported file" / "unsupported media" / "decode" / "corrupt" are NOT
+  // image-specific on their own — a `drive.export_file: unsupported file export
+  // type` (or any tool error) trips them in an image-bearing thread. Gate them
+  // behind an explicit image/picture/photo mention so only a message that
+  // actually names an image counts; everything else falls through to generic.
+  const mentionsImage = msg.includes("image") || msg.includes("picture") || msg.includes("photo");
+  const isImageReject =
     msg.includes("unable to process input image") ||
     msg.includes("invalid image") ||
     msg.includes("unsupported image") ||
-    msg.includes("unsupported file") ||
-    msg.includes("unsupported media") ||
-    (mentionsAttachment && msg.includes("could not process")) ||
-    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")))
-  ) {
-    return "attachment";
+    (mentionsImage &&
+      (msg.includes("unsupported file") ||
+        msg.includes("unsupported media") ||
+        msg.includes("decode") ||
+        msg.includes("corrupt")));
+  if (isImageReject) {
+    // Prefer the recoverable kind: if the current turn has an image, "Send
+    // without it" can drop it. Otherwise, if only an earlier turn's replayed
+    // image can be the culprit, say so honestly — the retry can't reach it.
+    if (opts.currentTurnHasImage) return "attachment";
+    if (opts.historicalHasImage) return "attachment_history";
+    // No image anywhere → not an attachment failure; fall through to generic.
   }
 
   // Our own turn-cap sentinel (line ~480) — the turn can't continue.
@@ -1394,9 +1512,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
+    const userMessageId =
+      typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
     return {
       threadId,
       messageId,
+      userMessageId,
       tier,
       activeIntegrations: [],
       allowedIntegrations,
@@ -1462,6 +1583,16 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     "dispatch-tools": dispatchToolsStep,
   },
   stateSchema: chatRunStateSchema,
+  // ADR-0070 §1.4: a run terminal-failed outside the step body (the
+  // non-progressing-step backstop, a post-deploy step-resolution failure)
+  // never reaches the in-step catch that finalizes the chat message. Without
+  // this hook the client's streaming bubble waits forever — it only completes
+  // on `chat.message completed` (use-chat-stream.ts). Write the failed
+  // assistant row + emit the event here so the UI reconciles. Idempotent on
+  // messageId, so it's safe even if a step-body finalize already landed.
+  async onTerminalFailure(ctx) {
+    await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+  },
 };
 
 /** Deterministic 31-bit hash for a fallback assistant message id. */

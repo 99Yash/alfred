@@ -470,6 +470,13 @@
       "when": 1782226229475,
       "tag": "0066_watery_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1782364603523,
+      "tag": "0067_shiny_shriek",
+      "breakpoints": true
     }
   ]
 }
