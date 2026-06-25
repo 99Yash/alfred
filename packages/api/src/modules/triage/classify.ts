@@ -1,6 +1,7 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
+  confidenceSchema,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type SenderContext,
@@ -54,8 +55,13 @@ export const triageClassificationSchema = z.object({
    * 0.5 the workflow still applies the chosen label (we always pick one,
    * to avoid leaving the message untriaged), but flags it for the briefing
    * to optionally surface as "alfred wasn't sure."
+   *
+   * Bare number (no `.min(0).max(1)`) so it round-trips through the Anthropic
+   * Haiku fallback the cheap model degrades to — see `confidenceSchema`. The
+   * range is enforced by clamping at the producer boundary (`defaultRunPass`),
+   * the one place a documented threshold (< 0.5 soft-confirm) keys off it.
    */
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(500),
   /**
@@ -815,7 +821,10 @@ function defaultRunPass(
         name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
       },
     );
-    return result.object;
+    // Clamp confidence into [0, 1] here rather than in the schema: the range
+    // can't be expressed in the Anthropic structured-output JSON schema the
+    // Haiku fallback uses (see `triageClassificationSchema`).
+    return { ...result.object, confidence: Math.min(1, Math.max(0, result.object.confidence)) };
   };
 }
 
