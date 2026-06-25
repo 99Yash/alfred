@@ -140,9 +140,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
  * Exported for the lease-test harness (#137 / ADR-0070 §1.4). Not part of the
  * public executor surface — `runOnce` is the only production caller.
  */
-export async function leaseRun(
-  runId: string,
-): Promise<{ run: RunRow; attempt: number } | null> {
+export async function leaseRun(runId: string): Promise<{ run: RunRow; attempt: number } | null> {
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
@@ -197,7 +195,11 @@ export async function leaseRun(
             (SELECT max(attempt) FROM agent_steps
              WHERE run_id = ${row.id}
                AND step_id = ${row.currentStep}
-               AND status = 'completed'),
+               -- Both are genuine forward progress: 'completed' (the step ran
+               -- and advanced/finished) and 'interrupted' (the step ran and
+               -- parked for HIL/wake, then resumes at attempt+1). A reclaim
+               -- after either must NOT count toward the backstop limit.
+               AND status IN ('completed', 'interrupted')),
             -1
           )
       `);

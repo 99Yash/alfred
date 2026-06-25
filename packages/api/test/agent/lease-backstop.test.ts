@@ -54,14 +54,19 @@ async function insertRunningStep(runId: string, attempt: number) {
 
 /** Insert a prior `lease_reclaimed` failure row for the step at `attempt`. */
 async function insertReclaimedStep(runId: string, attempt: number) {
-  await db().insert(agentSteps).values({
-    runId,
-    stepId: STEP,
-    attempt,
-    status: "failed",
-    error: { message: "lease reclaimed: previous worker presumed dead", reason: "lease_reclaimed" },
-    endedAt: STALE_CHECKPOINT,
-  });
+  await db()
+    .insert(agentSteps)
+    .values({
+      runId,
+      stepId: STEP,
+      attempt,
+      status: "failed",
+      error: {
+        message: "lease reclaimed: previous worker presumed dead",
+        reason: "lease_reclaimed",
+      },
+      endedAt: STALE_CHECKPOINT,
+    });
 }
 
 async function runStatus(runId: string): Promise<string | undefined> {
@@ -74,7 +79,9 @@ async function runStatus(runId: string): Promise<string | undefined> {
 
 describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {
@@ -132,6 +139,31 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .where(eq(agentRuns.id, runId));
     const message = (rows[0]?.error as { message?: string })?.message ?? "";
     assert.match(message, /not progressing/, "the terminal message is the synthetic clean string");
+  });
+
+  test("a HIL interrupt since the prior reclaims resets the count (forward progress)", async () => {
+    // Regression for the P1 review finding: an `interrupted` step is real
+    // forward progress (the step ran and parked for approval, then resumes at
+    // attempt+1). Two prior reclaims (3,4), then an interrupt at 5, then a
+    // stale running attempt at 6 must NOT terminal-fail — only attempt > 5
+    // counts, and there are none.
+    const { runId } = await seedStaleRunningRun(6);
+    await insertReclaimedStep(runId, 3);
+    await insertReclaimedStep(runId, 4);
+    await db()
+      .insert(agentSteps)
+      .values({
+        runId,
+        stepId: STEP,
+        attempt: 5,
+        status: "interrupted",
+        endedAt: STALE_CHECKPOINT,
+      });
+    await insertRunningStep(runId, 6);
+
+    const leased = await leaseRun(runId);
+    assert.ok(leased, "an interrupt resets the reclaim count just like a completed step");
+    assert.equal(await runStatus(runId), "running");
   });
 
   test("a successful step since the prior reclaims resets the count", async () => {
