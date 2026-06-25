@@ -18,7 +18,9 @@ describe("undeclaredToolMessage", () => {
     const message = undeclaredToolMessage("github.list_pull_requests", ["github"]);
 
     assert.match(message, /github exposes: `search`, `get_pull_request`, `get_issue`/);
-    assert.match(message, /Use 'github\.get_pull_request' instead/);
+    // An invented `list_*` tool wants to enumerate; the recovery hint must point
+    // at `search` (which can list), not `get_pull_request` (needs a known PR #).
+    assert.match(message, /Use 'github\.search' instead/);
     assert.match(message, /system\.load_integration/);
   });
 

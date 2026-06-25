@@ -72,16 +72,34 @@ export interface SubAgentJoinWakeResult {
 async function processSubAgentJoinWakeJob(
   job: Job<SubAgentJoinWakeJobData>,
 ): Promise<SubAgentJoinWakeResult> {
-  const { childRunId } = subAgentJoinWakeJobDataSchema.parse(job.data);
+  const { childRunId, parentRunId } = subAgentJoinWakeJobDataSchema.parse(job.data);
   try {
-    const parentRunId = await signalParentOfSubAgent(childRunId);
-    if (parentRunId) {
-      await enqueueRun(parentRunId);
-      return { status: "woken", childRunId, parentRunId };
-    }
-    return { status: "noop", childRunId };
+    const woken = await signalParentOfSubAgent(childRunId);
+    // Always enqueue the parent so it resumes — `leaseRun` no-ops on a terminal,
+    // `waiting`, or freshly-`running` row, so a redundant enqueue is harmless.
+    // The case that NEEDS the job-data `parentRunId`: a prior attempt fired the
+    // signal (parent → `runnable`) then died before `enqueueRun`. This retry
+    // gets `woken === null` (the parent is no longer `waiting`) yet the parent
+    // is still `runnable`-but-unqueued; enqueuing from job data revives it
+    // instead of leaning on the slow periodic resume sweep. On the happy path
+    // (in-band signal already woke and finished the parent) `woken` is null too
+    // and the enqueue lands on a terminal row as a no-op.
+    const target = woken ?? parentRunId;
+    await enqueueRun(target);
+    return { status: woken ? "woken" : "noop", childRunId, parentRunId };
   } catch (err) {
-    console.warn("[sub-agent-join:wake-worker] wake failed for", childRunId, toMessage(err));
-    return { status: "noop", childRunId };
+    // Rethrow so BullMQ consumes a configured retry (attempts: 3, exponential
+    // backoff) instead of marking the job complete. This delayed job is the
+    // ONLY backstop for a parent stranded in `waiting` (the in-band signal was
+    // lost and `findResumableRunIds` never sweeps `waiting`); swallowing a
+    // transient DB/Redis failure here would burn that backstop on the first
+    // hiccup and leave the boss waiting forever.
+    console.warn(
+      "[sub-agent-join:wake-worker] wake failed for",
+      childRunId,
+      toMessage(err),
+      "— will retry",
+    );
+    throw err;
   }
 }

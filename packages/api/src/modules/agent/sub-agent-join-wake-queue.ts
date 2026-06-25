@@ -34,6 +34,23 @@ import { toMessage } from "@alfred/contracts";
 
 export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";
 
+/**
+ * Wait-ceiling for the sub-agent join (ADR-0073 #4) and the delay of the
+ * dead-man wake job. Load-bearing in three ways:
+ *  - It is the delay of every dead-man wake scheduled on a `parked`
+ *    `await_sub_agent` (see `resolveAwaitSubAgent`): if the in-band
+ *    `sub_agent_done` signal is lost, never fires, or is swallowed, this is when
+ *    the parent is forcibly revived.
+ *  - On resume, a parent woken with the child STILL running past the ceiling (a
+ *    spurious early wake) surfaces the still-running result instead of
+ *    re-parking, so the turn ends honestly rather than looping.
+ *  - It bounds the chat-turn finalization guard's own dead-man timers when the
+ *    boss skips the await and the guard parks on its outstanding children.
+ * 6 min sits well above a normal sub-agent run (≈30–48s) plus ADR-0070's
+ * reclaim window, so the timer only ever fires after the child is terminal.
+ */
+export const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
+
 export const subAgentJoinWakeJobDataSchema = z.object({
   childRunId: z.string().min(1),
   parentRunId: z.string().min(1),

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "@alfred/contracts";
+import {
+  githubSearchQueryIssues,
+  queryHasNarrowingScope,
+  sanitizeGithubSearchQuery,
+} from "@alfred/contracts";
 import { buildGithubSearchQuery, resolvePullRequestAuthor } from "../../src/modules/tools/github";
 
 // Noon UTC on Sat 6 June 2026 — far enough from a tz boundary that UTC and
@@ -170,6 +174,18 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     assert.equal(sanitized.query, "is:private");
   });
 
+  test("an unrecognized state: value is NOT folded and NOT silently stripped", () => {
+    // `state:done` is not a real GitHub state. The old code stripped every
+    // `state:` token regardless, silently rewriting the query into a different
+    // one. It must now be left in place for the validator to reject.
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "state:done repo:99Yash/alfred",
+    });
+    assert.equal(sanitized.state, undefined);
+    assert.equal(sanitized.query, "state:done repo:99Yash/alfred");
+    assert.deepEqual(stripped, []);
+  });
+
   test("a free-typed is:issue with unset type resolves to issue, not both", () => {
     // With no schema default applied, an unset `type` + free-typed `is:issue`
     // narrows to `issue` instead of silently widening to `both`.
@@ -207,6 +223,26 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     assert.deepEqual(
       githubSearchQueryIssues(
         sanitizeGithubSearchQuery({ query: "merged:>=2026-06-01", mergedWithinDays: 7 }).sanitized,
+      ),
+      [],
+    );
+  });
+
+  test("rejects an unrecognized state: value instead of dropping it silently", () => {
+    // `state:done` survives sanitize (see above); the validator must reject it
+    // rather than ship a query GitHub silently demotes to a zero-match term.
+    const issues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "state:done repo:99Yash/alfred" }).sanitized,
+    );
+    assert.equal(issues.length, 1);
+    assert.match(issues[0]!, /Unrecognized GitHub state value/);
+    assert.match(issues[0]!, /state:done/);
+  });
+
+  test("recognized state: values still fold cleanly (no false rejection)", () => {
+    assert.deepEqual(
+      githubSearchQueryIssues(
+        sanitizeGithubSearchQuery({ query: "state:open repo:99Yash/alfred" }).sanitized,
       ),
       [],
     );
@@ -276,5 +312,22 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     const windowIssues = githubSearchQueryIssues({ query: "is:unmerged", mergedWithinDays: 7 });
     assert.equal(windowIssues.length, 1);
     assert.match(windowIssues[0]!, /is:unmerged.*conflicts/);
+  });
+});
+
+describe("queryHasNarrowingScope (author-default gate, ADR-0071)", () => {
+  test("true when the query names a repo/org/user or a person", () => {
+    assert.equal(queryHasNarrowingScope("repo:99Yash/alfred"), true);
+    assert.equal(queryHasNarrowingScope("org:anthropics is:open"), true);
+    assert.equal(queryHasNarrowingScope("assignee:octocat"), true);
+    assert.equal(queryHasNarrowingScope("author:99Yash"), true);
+    assert.equal(queryHasNarrowingScope("involves:@me label:bug"), true);
+  });
+
+  test("false for pure filters that don't scope to a place or person", () => {
+    assert.equal(queryHasNarrowingScope("label:bug is:open sort:updated"), false);
+    assert.equal(queryHasNarrowingScope("is:draft review:approved"), false);
+    assert.equal(queryHasNarrowingScope(undefined), false);
+    assert.equal(queryHasNarrowingScope(""), false);
   });
 });

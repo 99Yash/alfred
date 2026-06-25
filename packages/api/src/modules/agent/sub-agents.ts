@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createRun } from "./service";
 import { enqueueRun } from "./queue";
+import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
 import {
   readSubAgentMetadata,
   subAgentIdSchema,
@@ -45,6 +46,49 @@ export interface ChildRunOutcome {
 }
 
 const TERMINAL_CHILD_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+export function isTerminalChildStatus(status: string): boolean {
+  return TERMINAL_CHILD_STATUSES.has(status);
+}
+
+/**
+ * The join invariant shared by the two sites that can park a parent on a child:
+ * the `await_sub_agent` tool (`resolveAwaitSubAgent`) and the chat-turn
+ * finalization guard (`guardSpawnedChildren`). A parent must NEVER park when
+ * there is already something to surface — true when the child is terminal, when
+ * it is unreadable (ownership/lookup error), or when it has outrun the
+ * wait-ceiling. In every one of those cases the caller hands back the outcome
+ * (a real result, an error, or an honest still-running note) instead of parking
+ * again. Centralized so the two join sites can't drift on *when* parking is safe
+ * — drift there is what strands a parent in `waiting` (the timer is the only
+ * thing that sweeps `waiting`, and a too-late re-park just resets it forever).
+ */
+export function shouldResolveWithoutParking(outcome: ChildRunOutcome): boolean {
+  return (
+    outcome.done ||
+    !outcome.ok ||
+    (outcome.runningMs !== undefined && outcome.runningMs > AWAIT_SUB_AGENT_CEILING_MS)
+  );
+}
+
+export interface SpawnedChildRun {
+  id: string;
+  status: string;
+}
+
+/**
+ * List every sub-agent run spawned by `parentRunId` (terminal or not). Used by
+ * the chat-turn finalization guard (ADR-0073) to detect children the boss
+ * spawned but never awaited — so the parent turn cannot complete while its
+ * children are still running. Keyed on the trusted `subAgent.parentRunId`
+ * metadata pointer that `spawnSubAgent` stamps.
+ */
+export async function listSpawnedChildRuns(parentRunId: string): Promise<SpawnedChildRun[]> {
+  return await db()
+    .select({ id: agentRuns.id, status: agentRuns.status })
+    .from(agentRuns)
+    .where(sql`${agentRuns.metadata}->'subAgent'->>'parentRunId' = ${parentRunId}`);
+}
 
 /**
  * Read a spawned child run's real outcome for a parent that is joining it

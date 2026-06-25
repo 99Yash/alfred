@@ -64,9 +64,11 @@ export interface LlmJudgeOptions<TInput, TOutput, TExpected> {
    * spending a judge call on a case the task could not produce real output for
    * (e.g. skipped on provider overload).
    */
-  skipWhen?: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) =>
-    | string
-    | null;
+  skipWhen?: (args: {
+    input: TInput;
+    output: TOutput;
+    expected: TExpected | undefined;
+  }) => string | null;
 }
 
 /**
