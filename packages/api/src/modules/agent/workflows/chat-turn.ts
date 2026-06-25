@@ -1021,11 +1021,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
               : result.kind === "failed"
                 ? preview(result.error)
                 : preview(result.result);
+          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
+          // envelope; carry it onto the durable tool-call log *and* the live
+          // event so a scrubbed result is flagged the same way live and on
+          // reload (otherwise the durable card looks pristine).
+          const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
             resultPreview,
+            ...(sanitized ? { sanitized } : {}),
             segmentIndex: call.segmentIndex,
           });
           await publishEvent({
@@ -1039,6 +1045,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
               toolName: call.toolName,
               status,
               resultPreview,
+              ...(sanitized ? { sanitized } : {}),
               segmentIndex: call.segmentIndex,
             },
           });

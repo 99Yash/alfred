@@ -137,6 +137,13 @@ export const chatToolSchema = z.object({
   /** Trimmed preview of the tool result for the card's done state. */
   resultPreview: z.string().max(2_000).optional(),
   /**
+   * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes (U+0000 /
+   * lone surrogates) from this result before storage, so the card can flag the
+   * preview as possibly-incomplete instead of looking pristine. Absent/false on
+   * clean results.
+   */
+  sanitized: z.boolean().optional(),
+  /**
    * The narration segment this call follows (see `chatDeltaSchema.segmentIndex`)
    * so the client can order the card relative to the model's interleaved
    * narration. Defaults to 0.
