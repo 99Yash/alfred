@@ -106,6 +106,11 @@ const narrationSegmentSchema = z.object({
 const chatRunStateSchema = z.object({
   threadId: z.string().min(1),
   messageId: z.string().min(1),
+  // The triggering user message id (ADR-0072). Lets the failure path tell a
+  // *current-turn* image attachment (recoverable by "Send without it") apart
+  // from a *historical* one replayed in the transcript (recoverable only by a
+  // new chat). Optional for legacy runs minted before this field existed.
+  userMessageId: z.string().optional(),
   tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
@@ -569,7 +574,20 @@ function dispatchResultToToolOutput(
     case "executed":
       return {
         type: "json",
-        value: toJsonValue({ status: "executed", result: result.toolResult }),
+        value: toJsonValue({
+          status: "executed",
+          result: result.toolResult,
+          // ADR-0070: surface to the model that this result had non-text bytes
+          // stripped before storage, so it doesn't treat a silently-mutated
+          // (binary-ish) payload as pristine.
+          ...(result.sanitized
+            ? {
+                sanitized: true,
+                notice:
+                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
+              }
+            : {}),
+        }),
       };
     case "failed":
       return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
@@ -1272,16 +1290,24 @@ function sanitizeChatMessageFields(state: ChatRunState): {
 }
 
 /**
- * Whether the thread's replayed transcript carries any image attachment — a
- * direct image upload or a degraded modality that contributed keyframe images
- * (ADR-0065). This is the ADR-0072 presence gate for `error_kind:'attachment'`:
- * the whole thread is replayed each turn, so a provider image-reject can fire
- * on a later no-attachment turn from an earlier image. Joins through
- * `chat_messages` because `chat_attachments` is keyed by message, not thread.
+ * Where image attachments live in a thread's replayed transcript, split by the
+ * recovery the UI can offer (ADR-0072). The whole thread is replayed every turn
+ * (.lessons/chat-vision-transcript-replay-poison.md), so a provider image-reject
+ * can be caused by the current turn's image (droppable via "Send without it")
+ * OR by an earlier turn's image (the retry can't reach it — only a new chat
+ * can). Returns both so {@link classifyChatFailure} picks the honest kind.
+ *
+ * An "image attachment" is a `ready` direct image upload or a degraded modality
+ * that contributed keyframe images. Joins through `chat_messages` because
+ * `chat_attachments` is keyed by message, not thread.
  */
-async function threadHasImageAttachment(userId: string, threadId: string): Promise<boolean> {
+async function threadImageAttachments(
+  userId: string,
+  threadId: string,
+  currentUserMessageId: string | undefined,
+): Promise<{ currentTurn: boolean; historical: boolean }> {
   const rows = await db()
-    .select({ id: chatAttachments.id })
+    .select({ messageId: chatAttachments.messageId })
     .from(chatAttachments)
     .innerJoin(chatMessages, eq(chatAttachments.messageId, chatMessages.id))
     .where(
@@ -1294,9 +1320,14 @@ async function threadHasImageAttachment(userId: string, threadId: string): Promi
           sql`jsonb_array_length(${chatAttachments.degradedImageKeys}) > 0`,
         ),
       ),
-    )
-    .limit(1);
-  return rows.length > 0;
+    );
+  let currentTurn = false;
+  let historical = false;
+  for (const r of rows) {
+    if (currentUserMessageId && r.messageId === currentUserMessageId) currentTurn = true;
+    else historical = true;
+  }
+  return { currentTurn, historical };
 }
 
 /**
@@ -1319,16 +1350,17 @@ async function finalizeFailedMessage(
   // tailored message + recovery action; log the raw detail server-side for
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
-  // ADR-0072 presence gate: `error_kind:'attachment'` is only reachable when
-  // an image attachment is actually present in the model's input. Because the
-  // whole thread transcript is replayed each turn, a provider image-reject can
-  // surface on a *later* no-attachment turn from an earlier image
-  // (.lessons/chat-vision-transcript-replay-poison.md) — so the gate is
-  // thread-wide ("did any replayed message carry an image attachment"), not
-  // just the triggering user message. With no image anywhere in the thread,
-  // `attachment` is structurally impossible and the fault classifies `generic`.
-  const turnHadAttachment = await threadHasImageAttachment(userId, state.threadId);
-  const errorKind = classifyChatFailure(err, { turnHadAttachment });
+  // ADR-0072 presence gate. An image-reject classifies `attachment` only when
+  // the current turn carries an image (the "Send without it" retry can drop
+  // it); when only an *earlier* turn's replayed image can be the culprit it
+  // classifies `attachment_history` (retry can't reach it — new chat only);
+  // with no image anywhere in the thread it's structurally impossible and falls
+  // through to `generic`.
+  const images = await threadImageAttachments(userId, state.threadId, state.userMessageId);
+  const errorKind = classifyChatFailure(err, {
+    currentTurnHasImage: images.currentTurn,
+    historicalHasImage: images.historical,
+  });
   console.warn(
     `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
     errorText(err),
@@ -1384,27 +1416,29 @@ function errorText(err: unknown): string {
  */
 export function classifyChatFailure(
   err: unknown,
-  opts: { turnHadAttachment: boolean },
+  opts: { currentTurnHasImage: boolean; historicalHasImage: boolean },
 ): ChatErrorKind {
   const msg = toMessage(err).toLowerCase();
 
-  // ADR-0072: the only genuine `attachment` failure is the model provider
+  // ADR-0072: the only genuine attachment failure is the model provider
   // rejecting a hydrated image at the generation call (recurs on transcript
-  // replay — see .lessons/chat-vision-transcript-replay-poison.md). It is
-  // gated on `turnHadAttachment`: a turn that carried nothing can never fail
-  // *for* an attachment, so the over-broad substring net (attachment|file|
-  // image|media|mime) that mis-bucketed unrelated tool/export failures is
-  // gone. Without the gate, classify by the other signals or fall to generic.
-  if (
-    opts.turnHadAttachment &&
-    (msg.includes("unable to process input image") ||
-      msg.includes("invalid image") ||
-      msg.includes("unsupported image") ||
-      msg.includes("unsupported file") ||
-      msg.includes("unsupported media") ||
-      (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt"))))
-  ) {
-    return "attachment";
+  // replay — see .lessons/chat-vision-transcript-replay-poison.md). The narrow
+  // signal set replaces the old over-broad substring net (attachment|file|
+  // image|media|mime) that mis-bucketed unrelated tool/export failures.
+  const isImageReject =
+    msg.includes("unable to process input image") ||
+    msg.includes("invalid image") ||
+    msg.includes("unsupported image") ||
+    msg.includes("unsupported file") ||
+    msg.includes("unsupported media") ||
+    (msg.includes("image") && (msg.includes("decode") || msg.includes("corrupt")));
+  if (isImageReject) {
+    // Prefer the recoverable kind: if the current turn has an image, "Send
+    // without it" can drop it. Otherwise, if only an earlier turn's replayed
+    // image can be the culprit, say so honestly — the retry can't reach it.
+    if (opts.currentTurnHasImage) return "attachment";
+    if (opts.historicalHasImage) return "attachment_history";
+    // No image anywhere → not an attachment failure; fall through to generic.
   }
 
   // Our own turn-cap sentinel (line ~480) — the turn can't continue.
@@ -1462,9 +1496,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
       : [];
+    const userMessageId =
+      typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
     return {
       threadId,
       messageId,
+      userMessageId,
       tier,
       activeIntegrations: [],
       allowedIntegrations,

@@ -545,6 +545,14 @@ function dispatchResultToToolOutput(
           status: "executed",
           result: result.toolResult,
           editedByUser: result.editedByUser,
+          // ADR-0070: tell the model the result was scrubbed of non-text bytes.
+          ...(result.sanitized
+            ? {
+                sanitized: true,
+                notice:
+                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
+              }
+            : {}),
         }),
       };
     case "failed":

@@ -700,9 +700,12 @@ async function executeAndCommit(
   // caller (which flows into the transcript/state — the same poison sinks).
   const sanitizedResult = sanitizeToolResult(result);
   result = sanitizedResult.value;
-  if (sanitizedResult.removed > 0) {
+  const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
+  if (didSanitize) {
     console.warn(
-      `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s) from ${tool.name} result`,
+      `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s)` +
+        `${sanitizedResult.collisions > 0 ? `, ${sanitizedResult.collisions} key collision(s)` : ""}` +
+        ` from ${tool.name} result`,
     );
   }
   // A tool legitimately returning `null` or `undefined` is stored as
@@ -728,7 +731,7 @@ async function executeAndCommit(
     stagingId: row.id,
     toolResult: result,
     editedByUser,
-    sanitized: sanitizedResult.removed > 0,
+    sanitized: didSanitize,
   };
 }
 
@@ -742,9 +745,12 @@ async function executeFastPath(
     // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
     // result flows into the transcript/state just like the staged path.
     const sanitized = sanitizeToolResult(result);
-    if (sanitized.removed > 0) {
+    const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
+    if (didSanitize) {
       console.warn(
-        `[dispatch] sanitized ${sanitized.removed} poison code unit(s) from ${tool.name} result`,
+        `[dispatch] sanitized ${sanitized.removed} poison code unit(s)` +
+          `${sanitized.collisions > 0 ? `, ${sanitized.collisions} key collision(s)` : ""}` +
+          ` from ${tool.name} result`,
       );
     }
     return {
@@ -752,7 +758,7 @@ async function executeFastPath(
       stagingId: null,
       toolResult: sanitized.value,
       editedByUser: false,
-      sanitized: sanitized.removed > 0,
+      sanitized: didSanitize,
     };
   } catch (err) {
     // Throw-poison class (ADR-0070 §1.3).
