@@ -2,6 +2,7 @@ import { getBossModel, meteredGenerateObject } from "@alfred/ai";
 import {
   SEVERITY_SUSPECT_BOTS,
   TRIAGE_CATEGORIES,
+  confidenceSchema,
   type SenderContext,
   type TriageCategory,
 } from "@alfred/contracts";
@@ -50,7 +51,7 @@ const importantCategories = new Set<TriageCategory>(["urgent", "action_needed", 
 
 const deepenOutputSchema = z.object({
   refinedCategory: z.enum(TRIAGE_CATEGORIES),
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   rationale: z.string().min(1).max(500),
   severityFlag: z.enum(["severe", "normal", "low"]),
   dossierRequest: z.object({ personEmail: z.string().email() }).optional(),

@@ -30,6 +30,7 @@ async function main(): Promise<void> {
       toolCallId: "smoke-call",
       userId: "smoke-user",
       caller: "boss",
+      timezone: "UTC",
     },
   )) as { ok: boolean; answer: string; citations: string[] };
 

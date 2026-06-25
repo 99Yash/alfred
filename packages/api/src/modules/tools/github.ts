@@ -2,20 +2,31 @@
  * GitHub tools registered into the boss's tool surface.
  *
  * Read-only over the GitHub App's installation (ADR-0052): search the user's
- * pull requests by author, state, and time window, scoped to the repos the
- * App is installed on. The boss uses `search_pull_requests` to answer
- * questions like "how many PRs did I close last week" directly, instead of
- * spawning a sub-agent (which it did when GitHub had no tools).
+ * issues and pull requests, and fetch one by number for the per-item detail
+ * search structurally cannot return (ADR-0071). The boss uses `github.search`
+ * to answer "how many PRs did I merge today" / "what issues are open" directly,
+ * and `github.get_pull_request` to total LOC across a set of PRs (#222).
  */
 
-import { searchPullRequestsInput } from "@alfred/contracts";
-import { getInstallationTokenForUser, searchPullRequests } from "@alfred/integrations/github";
+import {
+  githubGetIssueInput,
+  githubGetPullRequestInput,
+  githubSearchInput,
+  queryHasNarrowingScope,
+  sanitizeGithubSearchQuery,
+} from "@alfred/contracts";
+import {
+  getInstallationTokenForUser,
+  getIssue,
+  getPullRequest,
+  searchGithub,
+} from "@alfred/integrations/github";
 import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
 
-type SearchPullRequestsInput = z.infer<typeof searchPullRequestsInput>;
+type GithubSearchInput = z.infer<typeof githubSearchInput>;
 
 interface GithubToolCredential {
   accessToken: string;
@@ -23,7 +34,7 @@ interface GithubToolCredential {
 }
 
 async function credentialFor(userId: string): Promise<GithubToolCredential> {
-  // The REST search runs on a short-lived installation token; `accountLogin`
+  // The REST calls run on a short-lived installation token; `accountLogin`
   // resolves `author:@me` to the connected handle.
   const { token, accountLogin } = await getInstallationTokenForUser(userId);
   return { accessToken: token, accountLogin };
@@ -46,14 +57,34 @@ function windowLowerBound(days: number, timezone: string, nowMs: number): string
   return githubSearchDateTime(localTimeInTimezone(lowerDate, 0, timezone));
 }
 
-export function buildPullRequestSearchQuery(
-  input: SearchPullRequestsInput,
+/**
+ * Build the fully-formed `/search/issues` query from the (already sanitized)
+ * structured fields plus any clean free-form qualifiers. The `type` field owns
+ * the `is:pr`/`is:issue` clause. A trailing `new Set` dedupe guarantees no
+ * doubled token even if a clean extra qualifier coincides with a structured one.
+ */
+export function buildGithubSearchQuery(
+  input: GithubSearchInput,
   timezone: string,
   nowMs = Date.now(),
 ): string {
-  const parts: string[] = ["is:pr"];
-  parts.push(`author:${input.author}`);
-  switch (input.state) {
+  const parts: string[] = [];
+  const type = input.type ?? "pr";
+  switch (type) {
+    case "pr":
+      parts.push("is:pr");
+      break;
+    case "issue":
+      parts.push("is:issue");
+      break;
+    case "both":
+      break;
+    default:
+      assertNever(type);
+  }
+  if (input.author) parts.push(`author:${input.author}`);
+  const state = input.state ?? "all";
+  switch (state) {
     case "open":
       parts.push("is:open");
       break;
@@ -66,7 +97,7 @@ export function buildPullRequestSearchQuery(
     case "all":
       break;
     default:
-      assertNever(input.state);
+      assertNever(state);
   }
   if (input.closedWithinDays !== undefined) {
     parts.push(`closed:>=${windowLowerBound(input.closedWithinDays, timezone, nowMs)}`);
@@ -79,9 +110,6 @@ export function buildPullRequestSearchQuery(
   }
   const extra = input.query?.trim();
   if (extra) parts.push(extra);
-  // Defensive dedupe: the schema already rejects free-form clauses that collide
-  // with the structured fields (#213), but if any identical token slips through
-  // we never want it doubled in the emitted query.
   return [...new Set(parts.filter(Boolean))].join(" ");
 }
 
@@ -102,30 +130,83 @@ export function resolvePullRequestAuthor(
 export const githubTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "github",
-    action: "search_pull_requests",
+    action: "search",
     riskTier: "no_risk",
     description:
-      "Search the user's GitHub pull requests by author, state, and time window. Returns an exact total count plus the matching PRs. Always use the structured fields for author/state/recency — never hand-write those qualifiers into `query`. 'How many PRs did I merge today' → state:'merged', mergedWithinDays:1. 'merged in the past week' → state:'merged', mergedWithinDays:7. 'closed in the past week' → state:'closed', closedWithinDays:7. author defaults to @me.",
-    inputSchema: searchPullRequestsInput,
+      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'.",
+    inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
-      const author = resolvePullRequestAuthor(input.author, credential.accountLogin, ctx.userId);
-      const q = buildPullRequestSearchQuery({ ...input, author }, ctx.timezone);
-      const result = await searchPullRequests({
+      // Fold any free-typed author:/state:/is:/date qualifiers into the
+      // structured fields (silent correctness, ADR-0071) before resolving @me.
+      const { sanitized } = sanitizeGithubSearchQuery(input);
+      // Resolve author honestly (ADR-0071, no silent narrowing): an explicit
+      // author (structured field or folded `author:` qualifier) wins; otherwise
+      // default to the connected user ONLY for an otherwise-unscoped search ("my
+      // PRs"). A query that already names a repo/org/person is left
+      // author-unfiltered — forcing `@me` there would silently narrow it.
+      const author = sanitized.author
+        ? resolvePullRequestAuthor(sanitized.author, credential.accountLogin, ctx.userId)
+        : queryHasNarrowingScope(sanitized.query)
+          ? undefined
+          : resolvePullRequestAuthor("@me", credential.accountLogin, ctx.userId);
+      const q = buildGithubSearchQuery({ ...input, ...sanitized, author }, ctx.timezone);
+      const result = await searchGithub({
         accessToken: credential.accessToken,
         q,
         perPage: input.perPage,
       });
+      // Result-honesty (ADR-0071 #6): never present a truncated count as exact.
+      const note = result.incompleteResults
+        ? "GitHub reported incomplete_results — its search index timed out, so this count may be partial. Narrow the query (repo:, a tighter window) and retry for an exact figure."
+        : undefined;
       return {
         totalCount: result.totalCount,
         query: q,
         incompleteResults: result.incompleteResults,
-        pullRequests: result.items,
+        items: result.items,
+        ...(note ? { note } : {}),
       };
+    },
+  }),
+  liveTool({
+    integration: "github",
+    action: "get_pull_request",
+    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
+    riskTier: "no_risk",
+    description:
+      "Fetch one pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. To total lines changed across several PRs, search first, then call this for each hit and sum.",
+    inputSchema: githubGetPullRequestInput,
+    execute: async (input, ctx) => {
+      const credential = await credentialFor(ctx.userId);
+      return getPullRequest({
+        accessToken: credential.accessToken,
+        owner: input.owner,
+        repo: input.repo,
+        number: input.pull_number,
+      });
+    },
+  }),
+  liveTool({
+    integration: "github",
+    action: "get_issue",
+    // Read-only fetch-by-number — same tier as github.search and drive.get_file.
+    riskTier: "no_risk",
+    description:
+      "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",
+    inputSchema: githubGetIssueInput,
+    execute: async (input, ctx) => {
+      const credential = await credentialFor(ctx.userId);
+      return getIssue({
+        accessToken: credential.accessToken,
+        owner: input.owner,
+        repo: input.repo,
+        number: input.issue_number,
+      });
     },
   }),
 ];
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled pull-request state: ${String(value)}`);
+  throw new Error(`Unhandled github search enum: ${String(value)}`);
 }

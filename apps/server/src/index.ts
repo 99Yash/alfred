@@ -10,6 +10,7 @@ import "./instrument";
 import {
   app,
   closeAgentQueue,
+  closeSubAgentJoinWakeQueue,
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
   closeBriefingQueue,
@@ -34,6 +35,7 @@ import {
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
   startAgentWorker,
+  startSubAgentJoinWakeWorker,
   startApprovalExpiryWorker,
   startApprovalNotificationWorker,
   startBriefingWorker,
@@ -41,6 +43,7 @@ import {
   startMemoryWorker,
   startWorkflowsWorker,
   stopAgentWorker,
+  stopSubAgentJoinWakeWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
   stopBriefingWorker,
@@ -118,6 +121,9 @@ await seedBuiltinWorkflowsForAllUsers();
 // the very first turn.
 await startPolicyBustSubscriber();
 await startAgentWorker();
+// ADR-0073 dead-man timer: revives a boss parked on a sub-agent join when the
+// in-band completion signal is lost, never fires, or is swallowed.
+await startSubAgentJoinWakeWorker();
 await startIngestionWorker();
 await startMemoryWorker();
 await startBriefingWorker();
@@ -172,7 +178,13 @@ async function shutdown(signal: string) {
     // (or roll back) before we yank Redis. Per ADR-0014: graceful
     // shutdown drains the active step.
     await stopAgentWorker();
+    // Stop the sub-agent join-wake worker BEFORE closing the agent queue: it
+    // enqueues parent agent runs (`enqueueRun`), which lazy-reopens the agent
+    // queue. Closing the queue first would let a late wake re-open it after
+    // teardown and race a half-closed connection.
+    await stopSubAgentJoinWakeWorker();
     await closeAgentQueue();
+    await closeSubAgentJoinWakeQueue();
     await stopApprovalNotificationWorker();
     await closeApprovalNotificationQueue();
     await stopApprovalExpiryWorker();

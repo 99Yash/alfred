@@ -51,7 +51,22 @@ export function getCheapModel(): LanguageModel {
   // from `gemini-2.5-flash` after the user flagged label-write lag on a
   // single inbound email; the larger Flash model was the bottleneck, not
   // the pipeline.
-  return googleModel("gemini-2.5-flash-lite");
+  //
+  // Wrapped in `withFallback` like every other model getter so a flash-lite
+  // capacity blip ("high demand" overload) degrades instead of throwing
+  // `AI_RetryError`. Previously the only fallback-less getter: a sustained
+  // overload hard-failed triage classification (and reddened the eval gate).
+  //
+  // Fallback is the larger SAME-PROVIDER tier (gemini-2.5-flash), NOT a
+  // cross-provider Anthropic model. The cheap path runs `generateObject` over
+  // a nested/optional schema, and Anthropic's structured-output (`Output.object`
+  // → `output_config.format.schema`) handles that poorly: it rejects numeric
+  // min/max and intermittently returns `AI_NoObjectGeneratedError` on
+  // valid-looking JSON. Staying on Google keeps the structured-output mechanism
+  // that already works; the bigger Flash pool absorbs flash-lite pressure.
+  // (Boss/chat fall back cross-provider to Anthropic because they run
+  // `generateText`, not structured object generation — different constraint.)
+  return withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash"));
 }
 
 /**

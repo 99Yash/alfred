@@ -1,6 +1,8 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
+  clamp01,
+  confidenceSchema,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type SenderContext,
@@ -54,8 +56,13 @@ export const triageClassificationSchema = z.object({
    * 0.5 the workflow still applies the chosen label (we always pick one,
    * to avoid leaving the message untriaged), but flags it for the briefing
    * to optionally surface as "alfred wasn't sure."
+   *
+   * Bare number (no `.min(0).max(1)`) so it round-trips through providers that
+   * reject numeric bounds in structured output schemas — see `confidenceSchema`.
+   * The range is enforced by clamping at the producer boundary (`defaultRunPass`),
+   * the one place a documented threshold (< 0.5 soft-confirm) keys off it.
    */
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(500),
   /**
@@ -122,6 +129,15 @@ export interface ClassifyEmailArgs {
   stepId?: string;
   /** Stable per-call idempotency key — caller derives from `(runId, stepId, doc.id, attempt)`. */
   idempotencyKey?: string;
+  /**
+   * Override the AI SDK retry count for the cheap-model call. Production leaves
+   * this unset (SDK default = 2 retries / 3 attempts). The eval lowers it so a
+   * provider-overload blip fails fast to the configured cheap-model fallback
+   * instead of burning three exponential-backoff cycles per case — without that,
+   * a CI run under sustained provider throttling exceeds the eval job's
+   * wall-clock budget.
+   */
+  maxRetries?: number;
   /**
    * Test/seam override for the cheap model call. Production leaves this unset
    * and the real metered `getCheapModel()` call is used; tests inject canned
@@ -799,6 +815,10 @@ function defaultRunPass(
         // timeout and falls through to the default category (better a label than
         // a blocked queue).
         timeout: { totalMs: 30_000 },
+        // Undefined in production (SDK default). The eval lowers it to fail fast
+        // to the configured cheap-model fallback under provider overload — see
+        // `maxRetries` doc.
+        ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
       },
       {
         role: "triage",
@@ -815,7 +835,10 @@ function defaultRunPass(
         name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
       },
     );
-    return result.object;
+    // Clamp confidence into [0, 1] here rather than in the schema: the range
+    // can't be expressed in the cheap-model structured-output JSON schema (see
+    // `confidenceSchema`). `clamp01` is the shared boundary clamp.
+    return { ...result.object, confidence: clamp01(result.object.confidence) };
   };
 }
 

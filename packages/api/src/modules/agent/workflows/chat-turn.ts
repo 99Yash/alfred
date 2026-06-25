@@ -34,12 +34,24 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
+import {
+  AWAIT_SUB_AGENT_CEILING_MS,
+  scheduleSubAgentJoinWakeJob,
+} from "../sub-agent-join-wake-queue";
+import { subAgentDoneSignalName } from "../sub-agent-metadata";
+import {
+  isTerminalChildStatus,
+  listSpawnedChildRuns,
+  readChildRunOutcome,
+  shouldResolveWithoutParking,
+  type ChildRunOutcome,
+} from "../sub-agents";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import type { AgentDbExecutor, Step, Workflow } from "../types";
+import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -137,8 +149,16 @@ const chatRunStateSchema = z.object({
   reasoningSeq: z.number().int().min(0).default(0),
   turnCount: z.number().int().min(0).default(0),
   started: z.boolean().default(false),
+  // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
+  // are already accounted for in the transcript — either folded by the guard, or
+  // surfaced because the boss explicitly called `await_sub_agent` (a successful
+  // await commits the child's real outcome as a normal tool result). Lets the
+  // guard re-run on each resume without re-folding a child it already surfaced,
+  // and stops it from injecting a false "finished without you awaiting it" note
+  // for a child the boss did await.
+  foldedChildRunIds: z.array(z.string()).default([]),
 });
-type ChatRunState = z.infer<typeof chatRunStateSchema>;
+export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
 // Structured after the Anthropic prompt template: role first, the operating
 // rules in a labelled block, then a couple of log-sourced boundary exemplars
@@ -155,19 +175,24 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user asks for a real connected service whose tool is not active yet, infer the integration and call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
     "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
-    "- For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
+    "- Default to calling tools directly, and fan out independent lookups in the same turn rather than one item at a time; then synthesize their results. Reserve system.spawn_sub_agent for a subtask that itself needs its own multi-step investigation — many dependent tool calls and reasoning of its own. Spawning one is a full agent run, far too costly for a single lookup.",
+    "- When you do spawn a sub-agent, call system.await_sub_agent with its childRunId to get its real result (await each one you spawned) before you reply. Never tell the user you'll notify them or follow up when the sub-agent finishes — there is no out-of-turn notification. Either await it and answer with the result in this turn, or, if it genuinely can't finish, say plainly that it didn't complete and what you do know.",
     "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- When the user asks to stop surfacing reminders, todos, or briefing items from a sender, use system.remember after resolving a concrete sender email. If the tool asks for clarification, ask the user rather than claiming it is done. When system.remember succeeds, say Alfred will stop surfacing reminders and briefing items from that sender, and that emails will still arrive in Gmail unless the user wants a Gmail filter.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions (sending email, creating events) are gated for user approval — propose them and the user confirms. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+    "- Attempt the closest real capability before declaring you can't do something, and never silently narrow the request — if a tool can't return part of what was asked (for example diff/line counts from a search), get it the right way (github.search to find the PRs, then github.get_pull_request per PR to total the lines) or say plainly what you can and can't provide. When you genuinely can't, state both halves: what you can't do and what you can.",
+    "- A live Google Sheet, Doc, or shareable link that already answers the request is a finished deliverable — stop there. Do not chase a downloadable PDF/PowerPoint/Excel export; reading a Google file in is text-only, and producing a downloadable binary is a capability you do not have.",
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
     '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
+    "- When your answer references a fetched item that carries a url, link it using the exact url from that tool result. Never construct a URL yourself from an id or number; if the result has no url, cite the bare reference instead.",
   ].join("\n"),
   [
     "Examples of the judgment above:",
     '- User: "how many meetings do i have in october 2026" → call calendar.list_events with timeMin/timeMax bounding October 2026. Do NOT reply "which year?": the year is given, and today\'s date is below.',
-    '- User: "what are my open PRs" → call the github tool that actually exists (for example github.search_pull_requests filtered to the user). Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo — search across the user\'s PRs.',
+    "- User: \"what are my open PRs\" → call github.search with type:'pr', state:'open' filtered to the user. Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo — search across the user's PRs. For \"how many lines did those PRs change\", call github.get_pull_request per hit and total the additions/deletions; don't drop the requirement just because search has no diff stats. In the final answer, render each PR as a link to its url from the result — [#274](<url>) — not a bare #274.",
+    '- User: "summarise issues 222, 267, 268 and 269" → call github.get_issue four times in the SAME turn (one per number), then write one combined summary. Do NOT spawn a sub-agent per issue — these are single direct lookups. Link each as [#222](<url>) using the url field from each result.',
   ].join("\n"),
   "Finish each turn with a clear reply and no trailing tool calls.",
 ].join("\n\n");
@@ -552,7 +577,7 @@ async function hydrateTranscriptForModel(
 
 function toolResultMessage(
   call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): AgentTranscriptMessage {
   return {
     role: "tool",
@@ -568,7 +593,7 @@ function toolResultMessage(
 }
 
 function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
   switch (result.kind) {
     case "executed":
@@ -629,6 +654,215 @@ function splitEventText(text: string): string[] {
 }
 
 // ── steps ─────────────────────────────────────────────────────────────────
+
+const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
+const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
+
+/**
+ * The `childRunId` argument of a `system.await_sub_agent` call, if present. A
+ * successful await hands the boss the child's real outcome as a normal tool
+ * result in-transcript, so the child is already accounted for — see the
+ * finalization-guard accounting at the dispatch-tools commit pass.
+ */
+export function awaitedChildRunId(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  const id = input.childRunId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/** Truncated, model-readable rendering of a folded child's output/error. */
+function renderChildOutcome(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
+}
+
+/**
+ * Synthetic transcript turn folding a finished-but-unawaited child's outcome
+ * back to the boss, so a regenerated answer is informed by it. Phrased as a
+ * system note in a user turn (there is no matching tool-call id to attach a real
+ * tool result to — the boss never called `await_sub_agent`).
+ */
+function syntheticChildResultMessage(
+  childRunId: string,
+  outcome: ChildRunOutcome,
+): AgentTranscriptMessage {
+  if (!isTerminalChildStatus(outcome.status)) {
+    // Folded WITHOUT a terminal result: the guard gave up parking because it
+    // couldn't schedule the dead-man timer ("disabled"/"failed") or the child
+    // outran the wait-ceiling. Tell the boss to answer honestly with what it has
+    // rather than inventing a result it never received.
+    const why = outcome.reason ? ` (${outcome.reason})` : ` (still ${outcome.status})`;
+    return {
+      role: "user",
+      content:
+        `[system] A sub-agent you spawned (childRunId ${childRunId}) could not be awaited${why}. ` +
+        "Answer now with what you already have. Tell the user that part of the work is still in progress; do not fabricate its result.",
+    } satisfies AgentTranscriptMessage;
+  }
+  const detail =
+    outcome.status === "completed"
+      ? `completed with result:\n${renderChildOutcome(outcome.output)}`
+      : outcome.status === "failed"
+        ? `failed: ${renderChildOutcome(outcome.error)}`
+        : outcome.status; // cancelled / other terminal
+  return {
+    role: "user",
+    content:
+      `[system] A sub-agent you spawned (childRunId ${childRunId}) finished without you awaiting it — it ${detail}. ` +
+      "Incorporate this into your answer now. Do not say you will follow up when it finishes; it already has.",
+  } satisfies AgentTranscriptMessage;
+}
+
+/**
+ * ADR-0073 finalization guard (#268 runtime invariant). The prompt tells the
+ * boss to `await_sub_agent` every child it spawns, but a prompt is not a
+ * guarantee — if it skips the await and tries to finalize, the parent would
+ * answer while its children still run (the abandonment bug). This makes the
+ * await load-bearing at the finalize boundary:
+ *
+ *  - Folds every newly-terminal spawned child's outcome into the transcript so a
+ *    regenerated reply is actually informed by it.
+ *  - If any spawned child is still running, parks the turn on its completion
+ *    signal (with a dead-man timer backstop) instead of finalizing — the turn
+ *    CANNOT complete while a child it spawned is non-terminal.
+ *  - Once all children are terminal and folded, loops back to regenerate an
+ *    informed answer (bounded by `TURN_CAP_MAX`).
+ *
+ * Returns a `StepResult` to take over finalization, or `null` to let the caller
+ * finalize normally. Gated on an actual spawn this turn, so a turn with no
+ * sub-agents pays nothing.
+ *
+ * The I/O is injectable purely so the runtime invariant can be unit-tested
+ * (timer-scheduling failure, ceiling expiry, terminal folding, the live segment
+ * transition) without a DB or Redis; production always uses the real impls.
+ */
+export interface GuardSpawnedChildrenDeps {
+  listChildren: typeof listSpawnedChildRuns;
+  readOutcome: typeof readChildRunOutcome;
+  scheduleWake: typeof scheduleSubAgentJoinWakeJob;
+  publish: typeof publishEvent;
+}
+
+const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
+  listChildren: listSpawnedChildRuns,
+  readOutcome: readChildRunOutcome,
+  scheduleWake: scheduleSubAgentJoinWakeJob,
+  publish: publishEvent,
+};
+
+export async function guardSpawnedChildren(
+  ctx: StepContext<ChatRunState>,
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+  deps: GuardSpawnedChildrenDeps = defaultGuardSpawnedChildrenDeps,
+): Promise<StepResult<ChatRunState> | null> {
+  const spawnedThisTurn = state.toolCallsLog.some(
+    (t) => t.toolName === SPAWN_SUB_AGENT_TOOL && t.status === "succeeded",
+  );
+  if (!spawnedThisTurn) return null;
+
+  const children = await deps.listChildren(ctx.runId);
+  const unfolded = children.filter((c) => !state.foldedChildRunIds.includes(c.id));
+  if (unfolded.length === 0) return null;
+
+  const foldMessages: AgentTranscriptMessage[] = [];
+  const parkOn: string[] = [];
+  const fold = (childId: string, outcome: ChildRunOutcome): void => {
+    foldMessages.push(syntheticChildResultMessage(childId, outcome));
+    state.foldedChildRunIds = [...state.foldedChildRunIds, childId];
+  };
+
+  for (const child of unfolded) {
+    const outcome = await deps.readOutcome({
+      parentRunId: ctx.runId,
+      userId: ctx.userId,
+      childRunId: child.id,
+    });
+
+    // Same no-park invariant the `await_sub_agent` tool enforces: a terminal,
+    // unreadable, or past-the-ceiling child must NOT be parked on. Fold its
+    // outcome (a real result, or — for the ceiling case — an honest
+    // still-running note) and stop tracking it. This is what stops a stuck child
+    // re-parking forever: once it outruns the ceiling we surface it instead of
+    // scheduling yet another timer and parking again.
+    if (shouldResolveWithoutParking(outcome)) {
+      fold(child.id, outcome);
+      continue;
+    }
+
+    // Still running within the ceiling. Parking is only safe if the dead-man
+    // timer actually scheduled: `findResumableRunIds` never sweeps `waiting`, so
+    // the in-band `sub_agent_done` signal aside, this timer is the ONLY thing
+    // that can revive the parent. If we can't schedule it ("disabled" with no
+    // queue, or a "failed" transient error), parking would risk an un-wakeable
+    // run — so fold a still-running note and finalize honestly instead, exactly
+    // as `resolveAwaitSubAgent` refuses to park on a scheduling miss.
+    const scheduled = await deps.scheduleWake({
+      childRunId: child.id,
+      parentRunId: ctx.runId,
+      delayMs: AWAIT_SUB_AGENT_CEILING_MS,
+    });
+    if (scheduled === "scheduled") {
+      parkOn.push(child.id);
+    } else {
+      console.warn(
+        "[guard_spawned_children] dead-man wake not scheduled (",
+        scheduled,
+        ") — folding still-running child instead of parking",
+        child.id,
+      );
+      fold(child.id, { ...outcome, reason: "join_timer_unavailable" });
+    }
+  }
+
+  // Close the model's premature (uninformed) answer into a narration segment so
+  // the eventual informed reply lands in a fresh segment instead of appending to
+  // the abandoned text — same move the tool-call path makes. (At the finalize
+  // boundary `assistantText` is always non-empty; the guard only runs after the
+  // empty-text check above it. The guard still gates on it to stay correct if
+  // re-ordered.)
+  if (state.assistantText.trim().length > 0) {
+    state.narration = [
+      ...state.narration,
+      { index: state.segmentIndex, text: state.assistantText },
+    ];
+    state.assistantText = "";
+    state.segmentIndex += 1;
+    // That premature text already streamed to the client as a `chat.delta`, and
+    // while parked there is no later delta to advance the client — so without
+    // this it would keep rendering the answer the guard just rejected as the
+    // live reply (use-chat-stream only advances `currentSegment` on a
+    // higher-segment delta). Publish a zero-length delta on the new segment to
+    // advance the client too: the premature text drops into the narration trail
+    // (matching the server state we just wrote) and the live answer area clears
+    // back to the working indicator until the informed reply streams in.
+    state.deltaSeq += 1;
+    await deps.publish({
+      userId: ctx.userId,
+      kind: "chat.delta",
+      payload: {
+        runId: ctx.runId,
+        threadId: state.threadId,
+        messageId: state.messageId,
+        seq: state.deltaSeq,
+        text: "",
+        segmentIndex: state.segmentIndex,
+      },
+    });
+  }
+
+  const nextTranscript = foldMessages.length > 0 ? [...transcript, ...foldMessages] : transcript;
+
+  if (parkOn.length > 0) {
+    return {
+      kind: "interrupt",
+      state,
+      transcript: nextTranscript,
+      wake: { kind: "signal", name: subAgentDoneSignalName(parkOn[0]!) },
+    };
+  }
+  return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
+}
 
 const chatTurnStep: Step<ChatRunState> = {
   id: "chat-turn",
@@ -889,7 +1123,14 @@ const chatTurnStep: Step<ChatRunState> = {
         throw new Error("Assistant finished without producing a response.");
       }
 
-      // final | stopped → persist the assistant message and complete.
+      // ADR-0073 runtime invariant: before completing, never let the parent
+      // answer while a sub-agent it spawned is still running. If the boss skipped
+      // the prompted `await_sub_agent`, this folds finished children in and parks
+      // on (or regenerates for) any still-running ones instead of finalizing.
+      const guard = await guardSpawnedChildren(ctx, state, nextTranscript);
+      if (guard) return guard;
+
+      // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
       return {
         kind: "done",
@@ -1002,6 +1243,18 @@ const dispatchToolsStep: Step<ChatRunState> = {
           return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
+        // ADR-0073: an `await_sub_agent` on a still-running child parks the run
+        // on its completion signal — same shape as a gated stage, but the wake
+        // is a `signal` the child fires on terminal commit. Leave the batch
+        // untouched so it re-dispatches on resume (the await then reads the
+        // child's real outcome). HIL staging takes precedence above.
+        const parkedResult = results.find(
+          (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
+        );
+        if (parkedResult) {
+          return { kind: "interrupt", state, transcript, wake: parkedResult.wake };
+        }
+
         // No gate in the batch — commit every result in original call order
         // (transcript order is load-bearing). With nothing staged, every call
         // was dispatched, so each slot is populated.
@@ -1009,8 +1262,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const call = calls[i]!;
           const result = results[i]!;
           // Already handled above; the guard also narrows `result` away from
-          // `staged` for the helpers below.
-          if (result.kind === "staged") continue;
+          // `staged`/`parked` for the helpers below (both cause an early
+          // interrupt return, so neither reaches the commit pass).
+          if (result.kind === "staged" || result.kind === "parked") continue;
 
           applyLoadIntegrationEffect(state, call.toolName, result);
 
@@ -1034,6 +1288,19 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(sanitized ? { sanitized } : {}),
             segmentIndex: call.segmentIndex,
           });
+
+          // ADR-0073: a successful `await_sub_agent` already handed the boss the
+          // child's real outcome in-transcript, so the finalization guard must
+          // treat that child as accounted for — otherwise it re-folds it and
+          // injects a false "finished without you awaiting it" note, demoting the
+          // boss's answer and burning another turn. (A still-running await parks
+          // and never reaches this commit pass, so only resolved awaits land here.)
+          if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
+            const childRunId = awaitedChildRunId(call.input);
+            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
+              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
+            }
+          }
           await publishEvent({
             userId: ctx.userId,
             kind: "chat.tool",
@@ -1532,6 +1799,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       reasoningSeq: 0,
       turnCount: 0,
       started: false,
+      foldedChildRunIds: [],
     };
   },
   async initialTranscript(input, context) {

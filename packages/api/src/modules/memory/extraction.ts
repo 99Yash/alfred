@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { confidenceSchema } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
 import { factValueSchema } from "@alfred/sync";
 import { z } from "zod";
@@ -24,7 +25,7 @@ export const factProposalSchema = z.object({
    */
   key: z.string().min(1).max(200),
   value: factValueSchema,
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   /** Short justification grounded in the source — used for audit and to debug bad proposals. */
   rationale: z.string().min(1).max(500),
 });

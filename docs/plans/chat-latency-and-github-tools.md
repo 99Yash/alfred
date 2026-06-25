@@ -13,7 +13,7 @@ Four independent problems were stacked on top of each other:
 
 1. **Orchestration latency (the real "slowness").** The model was *not* slow — all LLM calls in the 6-minute prod run totalled **8.5 seconds**. The other ~5.5 minutes was **dead time between workflow steps**, caused by a step-row `attempt` reset that collides with `agent_steps`' unique key on loop re-entry, so the run stalled ~60–90s per step waiting for the stale-lease sweep. **Fixed.**
 2. **Blank UI.** On a *new* chat, the `/chat → /chat/<id>` navigation reopens the SSE stream and the `chat.message` "started" event is lost; the client only initialized its stream state on that event, so every subsequent token/tool/thinking event was dropped and the turn rendered blank. **Fixed.**
-3. **GitHub has no agent tools.** `GITHUB_ACTIONS = []`. The boss *could not* answer a PR question — it loaded the (toolless) integration, found nothing, and spawned a sub-agent as the only escape hatch. **Fixed** (added `github.search_pull_requests`).
+3. **GitHub has no agent tools.** `GITHUB_ACTIONS = []`. The boss *could not* answer a PR question — it loaded the (toolless) integration, found nothing, and spawned a sub-agent as the only escape hatch. **Fixed** (added GitHub search, now exposed as `github.search`).
 4. **Sub-agent spawn crashes.** `spawnSubAgent` creates the child run with the parent's `chat-turn` workflow but no `threadId`, so `createRun` throws `"chat-turn workflow requires metadata.threadId"`. **Not fixed** (see Remaining work) — but with #3 the boss no longer needs to spawn for PR questions.
 
 Also improved: the tool-call cards (integration logos + human labels + clean failure reasons) — see "Fixes applied."
@@ -84,14 +84,14 @@ Added `ensureStreamRef(messageId, runId)` and made `chat.reasoning` / `chat.delt
 - Reload fallback: `load_integration` reads the slug from `resultPreview` when `argsPreview` isn't persisted.
 
 ### 4. GitHub PR tools — make "count my PRs" actually work
-- `packages/contracts/src/tools.ts`: `GITHUB_ACTIONS = ["search_pull_requests"]`.
+- `packages/contracts/src/tools.ts`: `GITHUB_ACTIONS = ["search"]`.
 - `packages/integrations/src/github/credentials.ts`: added `listGithubCredentials(userId)` (+ `GithubCredentialSummary`).
 - `packages/integrations/src/github/pull-requests.ts` (new): `searchPullRequests({accessToken, q, perPage})` → GitHub REST Search API (`GET /search/issues`), returns `{ totalCount, incompleteResults, query, items[] }`. Plain `fetch` with `User-Agent` (GitHub rejects requests without one).
 - `packages/integrations/src/github/index.ts`: barrel exports for the above.
-- `packages/api/src/modules/tools/github.ts` (new): `github.search_pull_requests` (`riskTier: no_risk`). Structured input — `author` (default `@me`), `state` (open|closed|merged|all), `closedWithinDays`, `createdWithinDays`, `query`, `perPage` — that the tool composes into a GitHub query server-side (so the model doesn't have to compute dates). For the PR question: `state:"closed", closedWithinDays:7` → exact `totalCount`.
+- `packages/api/src/modules/tools/github.ts` (new): `github.search` (`riskTier: no_risk`). Structured input — `type`, `author`, `state` (open|closed|merged|all), `closedWithinDays`, `createdWithinDays`, `query`, `maxResults` — that the tool composes into a GitHub query server-side (so the model doesn't have to compute dates). For the PR question: `type:"pr", state:"closed", closedWithinDays:7` → exact `totalCount`.
 - `packages/api/src/modules/tools/index.ts`: registered `githubTools` in `registerBuiltinTools()`.
 
-The boss already calls `system.load_integration("github")`; the next turn's `resolveSdkTools` now surfaces `github.search_pull_requests`, so it answers directly — no sub-agent needed.
+The boss already calls `system.load_integration("github")`; the next turn's `resolveSdkTools` now surfaces `github.search`, so it answers directly — no sub-agent needed.
 
 ---
 
@@ -130,7 +130,7 @@ from api_call_log where run_id = '<run>' order by created_at;
 -- sum(latency_ms) ≈ model time; compare to run wall-clock (agent_runs.created_at→updated_at).
 ```
 
-**GitHub tool:** ask "how many PRs did I close in the past week?" — boss should `load_integration(github)` then `github.search_pull_requests({state:"closed", closedWithinDays:7})` and report `totalCount`.
+**GitHub tool:** ask "how many PRs did I close in the past week?" — boss should `load_integration(github)` then `github.search({type:"pr", state:"closed", closedWithinDays:7})` and report `totalCount`.
 
 ---
 

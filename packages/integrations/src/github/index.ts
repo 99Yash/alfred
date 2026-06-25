@@ -20,9 +20,12 @@ export type {
   GithubCredentialSummary,
   UserInstallationToken,
 } from "./credentials";
-export { searchPullRequests } from "./pull-requests";
+export { searchGithub, getPullRequest, getIssue } from "./pull-requests";
 export type {
-  SearchPullRequestsArgs,
-  SearchPullRequestsResult,
-  PullRequestHit,
+  SearchGithubArgs,
+  SearchGithubResult,
+  GithubSearchHit,
+  GetByNumberArgs,
+  PullRequestDetail,
+  IssueDetail,
 } from "./pull-requests";
