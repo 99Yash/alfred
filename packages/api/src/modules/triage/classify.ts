@@ -129,6 +129,14 @@ export interface ClassifyEmailArgs {
   /** Stable per-call idempotency key — caller derives from `(runId, stepId, doc.id, attempt)`. */
   idempotencyKey?: string;
   /**
+   * Override the AI SDK retry count for the cheap-model call. Production leaves
+   * this unset (SDK default = 2 retries / 3 attempts). The eval lowers it so a
+   * provider-overload blip fails fast to the `withFallback` Haiku leg instead of
+   * burning three exponential-backoff cycles per case — without that, a CI run
+   * under sustained Gemini throttling exceeds the eval job's wall-clock budget.
+   */
+  maxRetries?: number;
+  /**
    * Test/seam override for the cheap model call. Production leaves this unset
    * and the real metered `getCheapModel()` call is used; tests inject canned
    * pass outputs to exercise the conflict/second-pass/floor logic without a
@@ -805,6 +813,9 @@ function defaultRunPass(
         // timeout and falls through to the default category (better a label than
         // a blocked queue).
         timeout: { totalMs: 30_000 },
+        // Undefined in production (SDK default). The eval lowers it to fail fast
+        // to the Haiku fallback under provider overload — see `maxRetries` doc.
+        ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
       },
       {
         role: "triage",
