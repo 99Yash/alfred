@@ -150,15 +150,13 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     const { runId } = await seedStaleRunningRun(6);
     await insertReclaimedStep(runId, 3);
     await insertReclaimedStep(runId, 4);
-    await db()
-      .insert(agentSteps)
-      .values({
-        runId,
-        stepId: STEP,
-        attempt: 5,
-        status: "interrupted",
-        endedAt: STALE_CHECKPOINT,
-      });
+    await db().insert(agentSteps).values({
+      runId,
+      stepId: STEP,
+      attempt: 5,
+      status: "interrupted",
+      endedAt: STALE_CHECKPOINT,
+    });
     await insertRunningStep(runId, 6);
 
     const leased = await leaseRun(runId);

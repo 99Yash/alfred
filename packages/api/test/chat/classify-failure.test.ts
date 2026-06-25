@@ -16,7 +16,10 @@ test("ADR-0072: no image anywhere never classifies as attachment, regardless of 
     classifyChatFailure(new Error("could not process file export"), NO_IMAGE),
     "generic",
   );
-  assert.equal(classifyChatFailure(new Error("unable to process input image"), NO_IMAGE), "generic");
+  assert.equal(
+    classifyChatFailure(new Error("unable to process input image"), NO_IMAGE),
+    "generic",
+  );
   assert.equal(classifyChatFailure(new Error("invalid image data"), NO_IMAGE), "generic");
 });
 
