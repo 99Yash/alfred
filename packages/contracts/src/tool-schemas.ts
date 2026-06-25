@@ -19,7 +19,7 @@
  */
 
 import { z } from "zod";
-import { pullRequestQueryIssues } from "./github-search.js";
+import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search.js";
 import { todoSourceSchema } from "./todos.js";
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
 
@@ -130,6 +130,25 @@ export const driveSearchInput = z
 
 export const driveGetFileInput = z.object({ fileId: driveFileId }).strict();
 
+/**
+ * The only MIME types `drive.export_file` will export to (ADR-0071 honest
+ * read-in). This tool exists to pull a Google-native file's **text** into the
+ * agent's context to reason over — never to produce a downloadable binary
+ * (PDF/PPTX/XLSX). A binary export streamed through `res.text()` returns
+ * mojibake carrying NUL bytes that poison the result persist (#267), so binary
+ * MIME types are rejected with a teaching redirect rather than attempted.
+ * Single source of truth — the tool's runtime guard reads this same set.
+ */
+export const DRIVE_TEXT_EXPORT_MIME_TYPES: ReadonlySet<string> = new Set([
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "text/html",
+  "application/rtf",
+  "application/json",
+]);
+
 export const driveExportFileInput = z
   .object({
     fileId: driveFileId,
@@ -138,8 +157,11 @@ export const driveExportFileInput = z
       .min(1)
       .max(100)
       .optional()
+      .refine((m) => m === undefined || DRIVE_TEXT_EXPORT_MIME_TYPES.has(m.toLowerCase().trim()), {
+        message: `mimeType must be a text export type — one of: ${[...DRIVE_TEXT_EXPORT_MIME_TYPES].join(", ")}. This tool reads a Google file's text into context; producing a downloadable PDF/slides/spreadsheet is a separate capability it does not have.`,
+      })
       .describe(
-        "Export MIME type for a Google-native file: `text/plain` (default), `text/csv`, `text/markdown`, …",
+        "Export MIME type for a Google-native file. Text only: `text/plain` (default), `text/csv`, `text/markdown`, `text/html`. Binary types (PDF, PPTX, XLSX) are not supported — this reads files in as text, it does not produce downloadable documents.",
       ),
   })
   .strict();
@@ -148,18 +170,31 @@ export const driveDownloadFileInput = z.object({ fileId: driveFileId }).strict()
 
 /* ── github ───────────────────────────────────────────────────────────── */
 
-export const searchPullRequestsInput = z
+const githubOwnerRepo = {
+  owner: z.string().min(1).max(100).describe("Repository owner (user or org login)."),
+  repo: z.string().min(1).max(100).describe("Repository name."),
+};
+
+export const githubSearchInput = z
   .object({
+    type: z
+      .enum(["issue", "pr", "both"])
+      .default("pr")
+      .describe(
+        "What to search: `pr` (pull requests, default), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
+      ),
     author: z
       .string()
       .min(1)
       .max(100)
       .default("@me")
-      .describe("PR author login, or `@me` (default) for the connected user."),
+      .describe("Author login, or `@me` (default) for the connected user."),
     state: z
       .enum(["open", "closed", "merged", "all"])
       .default("all")
-      .describe("PR state filter. `closed` includes merged PRs; `merged` is merged-only."),
+      .describe(
+        "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
+      ),
     closedWithinDays: z
       .number()
       .int()
@@ -193,9 +228,10 @@ export const searchPullRequestsInput = z
       .optional()
       .describe(
         "Extra GitHub search qualifiers appended verbatim, for filters the structured fields don't cover " +
-          '(e.g. "repo:owner/name label:bug review:approved"). Do NOT use it for author, state, or recency — ' +
-          "set the author/state/*WithinDays fields instead — and do NOT invent qualifiers: GitHub silently " +
-          "ignores unknown ones (there is no merged-by:, closed-by:, etc.) and returns an empty result.",
+          '(e.g. "repo:owner/name label:bug review:approved"). Prefer the author/state/type/*WithinDays ' +
+          "fields for those — any author:/state:/is: you put here is folded into them automatically — and " +
+          "do NOT invent qualifiers: GitHub silently ignores unknown ones (there is no merged-by:, " +
+          "closed-by:, etc.) and returns an empty result.",
       ),
     perPage: z
       .number()
@@ -207,17 +243,39 @@ export const searchPullRequestsInput = z
       // perPage (e.g. the model passing 0 to mean "count only") shouldn't burn a
       // turn on a validation error — fall back to the default instead of throwing.
       .catch(30)
-      .describe("Max PRs to return in the list (the total count is always exact)."),
+      .describe("Max items to return in the list (the total count is always exact)."),
   })
   .strict()
-  // Reject invented qualifiers (the silent zero-count `merged-by:` trap) and
-  // free-form clauses that collide with the structured fields (the #213
-  // 19-vs-23 non-determinism). The boss reads the joined message and retries.
+  // Sanitize-and-merge first (fold colliding author:/state:/is:/date qualifiers
+  // into the structured fields), then reject only the residue that has no safe
+  // auto-fix: invented qualifiers (the silent zero-count `merged-by:` trap),
+  // malformed date values, and contradictory field combinations (ADR-0071).
   .superRefine((value, ctx) => {
-    for (const message of pullRequestQueryIssues(value)) {
+    const { sanitized } = sanitizeGithubSearchQuery(value);
+    for (const message of githubSearchQueryIssues(sanitized)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
     }
   });
+
+/** @deprecated Renamed to {@link githubSearchInput} (now spans issues + PRs). */
+export const searchPullRequestsInput = githubSearchInput;
+
+export const githubGetPullRequestInput = z
+  .object({
+    ...githubOwnerRepo,
+    // Named to match GitHub's own REST path param (`/pulls/{pull_number}`) so
+    // the model passes the field it already knows.
+    pull_number: z.number().int().min(1).describe("Pull request number."),
+  })
+  .strict();
+
+export const githubGetIssueInput = z
+  .object({
+    ...githubOwnerRepo,
+    // Matches GitHub's REST path param (`/issues/{issue_number}`).
+    issue_number: z.number().int().min(1).describe("Issue number."),
+  })
+  .strict();
 
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
@@ -769,7 +827,9 @@ export const TOOL_INPUT_SCHEMAS = {
   "drive.get_file": driveGetFileInput,
   "drive.export_file": driveExportFileInput,
   "drive.download_file": driveDownloadFileInput,
-  "github.search_pull_requests": searchPullRequestsInput,
+  "github.search": githubSearchInput,
+  "github.get_pull_request": githubGetPullRequestInput,
+  "github.get_issue": githubGetIssueInput,
   "notion.search": notionSearchInput,
   "notion.get_page": notionGetPageInput,
   "notion.create_page": notionCreatePageInput,

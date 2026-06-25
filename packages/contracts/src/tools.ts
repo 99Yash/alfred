@@ -55,7 +55,7 @@ export const INTEGRATION_ACTIONS = {
   slides: ["create_presentation", "get_presentation", "batch_update", "add_slide"],
   slack: [],
   linear: [],
-  github: ["search_pull_requests"],
+  github: ["search", "get_pull_request", "get_issue"],
   notion: ["search", "get_page", "create_page", "append_blocks"],
   railway: ["list_projects", "list_deployments", "get_logs", "redeploy"],
   vercel: ["list_projects", "list_deployments", "redeploy"],
@@ -311,10 +311,20 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     title: "add a slide",
   },
 
-  "github.search_pull_requests": {
-    running: "Searching pull requests",
-    done: "Searched pull requests",
-    title: "search pull requests",
+  "github.search": {
+    running: "Searching GitHub",
+    done: "Searched GitHub",
+    title: "search issues and pull requests",
+  },
+  "github.get_pull_request": {
+    running: "Reading a pull request",
+    done: "Read a pull request",
+    title: "read a pull request",
+  },
+  "github.get_issue": {
+    running: "Reading an issue",
+    done: "Read an issue",
+    title: "read an issue",
   },
 
   "notion.search": {

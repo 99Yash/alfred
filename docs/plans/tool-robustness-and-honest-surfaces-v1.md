@@ -38,11 +38,11 @@ Two themes: **platform robustness** (#267/#269 + #268-design) and **boss capabil
 | Non-progressing-step backstop (3 consecutive same-step reclaims → terminal) | 0070 | **build** |
 | Presence gate (load-bearing) + narrow attachment signal (drop the broad substring net) | 0072 | **build** |
 | Terminal-aware `finalizeFailedMessage` | 0072 | **build** |
-| GitHub `search` extended to issues (keep+extend ADR-0068 validator) | 0071 | **build** |
-| GitHub `get_pull_request` / `get_issue` (fetch-by-number, LOC) | 0071 | **build** |
-| `drive.export_file` honest read-in (text allowlist + teaching redirect) | 0071 | **build** |
-| Boss rubric (resolve-or-state, attempt-closest) + F2 connected-identity grounding | 0071 | **build** |
-| Result-honesty primitive (defense-in-depth behind 0068; guards residue + general tier) | 0071 | **build** |
+| GitHub `search` extended to issues (keep+extend ADR-0068 validator) | 0071 | **done** (PR honest-surfaces) |
+| GitHub `get_pull_request` / `get_issue` (fetch-by-number, LOC) | 0071 | **done** |
+| `drive.export_file` honest read-in (text allowlist + teaching redirect) | 0071 | **done** (schema-bound allowlist `DRIVE_TEXT_EXPORT_MIME_TYPES`) |
+| Boss rubric (resolve-or-state, attempt-closest) + F2 connected-identity grounding | 0071 | **done** (chat + boss prompt bases; `connected-summary` `— connected as <login>`) |
+| Result-honesty primitive (defense-in-depth behind 0068; guards residue + general tier) | 0071 | **done** (`incomplete_results` note + sanitize-and-merge) |
 | Sub-agent join (`await_sub_agent` + child-completion signal) | 0073 | **design only** |
 | General tier (raw passthrough / Code Mode), BYO-MCP | 0074 | **framed/deferred** |
 | Produce-artifact epic (inline sidebar + renderers) | 0075 | **framed/deferred** |
@@ -70,7 +70,9 @@ Two themes: **platform robustness** (#267/#269 + #268-design) and **boss capabil
 2. **Narrow the signal.** Keep only the genuine provider-image-reject signals (`"unable to process input image"`, the `invalid`/`unsupported image` family) and **delete the over-broad `mentionsAttachment` net** (`attachment|file|image|media|mime` + the `could not process` clause) — that net is what mis-bucketed the export failure. Do **not** relocate a throw to hydration: hydration already swallows a bad image to a placeholder and continues; leave it. Add the `attachment_history` kind to `chatErrorKindValues` and a `FAILURE_PRESENTATION` row (copy → start a new chat, `retry:"none"`).
 3. `finalizeFailedMessage`: mark the message `failed` only on a terminal fault (not a to-be-reclaimed error), so `chat_messages.status` and `agent_runs.status` agree. Tests: a tool failure with no image → `generic`; a current-turn image-reject → `attachment`; a historical-only image-reject → `attachment_history`; structured signals (429/5xx/turn-cap) unaffected.
 
-## Phase 3 — Honest surfaces (ADR-0071)
+## Phase 3 — Honest surfaces (ADR-0071) — ✅ BUILT (branch `feat/honest-surfaces-0071`)
+
+**Status (2026-06-25).** All five build items landed. Notable design realizations: the `author:`-collision lever became `sanitizeGithubSearchQuery` (fold colliding `author:`/`is:`/`state:`/redundant-date qualifiers into structured fields; `githubSearchQueryIssues` now rejects only the residue with no safe auto-fix — invented keys, malformed dates, field contradictions). `search_pull_requests` → `github.search({ type, … })`; integration `searchPullRequests` → `searchGithub` (+`getPullRequest`/`getIssue`). Drive allowlist enforced at the **schema refine** (single source `DRIVE_TEXT_EXPORT_MIME_TYPES`) so a binary `mimeType` returns `invalid_input` with the teaching redirect pre-execute. F2 identity rides the ADR-0053 catalog line (`— connected as 99Yash`), scoped to GitHub. Verified: 13-package typecheck, web-boundaries, 326 api tests (21 github), eval `github-grounding` 5/5 incl. issue-search + LOC no-give-up. **Remaining: live verify** (re-run the PDF/issue-summary/LOC prompts against the dev app) before closing #222/#267/#269.
 
 1. **GitHub search**: generalize `search_pull_requests` → `github.search({ q, type, … })` on `/search/issues`; extend the whitelist (today `GITHUB_PR_SEARCH_QUALIFIERS` in `contracts/src/github-search.ts`) to issue qualifiers and conditionalize the always-appended `is:pr` on `type`; preserve `@me`→login. For the per-turn `author:`-collision retry, prefer **sanitize-and-merge** (strip colliding qualifiers from freeform `q`, fold into the structured fields) over description tweaks — the description is already explicit and the boss still re-trips it (#213's own suggested lever). Result-honesty: 0068's validator already rejects invented qualifier *keys* pre-network, so flag only the residue it can't catch — a valid key with an unsatisfiable value, or `incomplete_results`.
 2. **Fetch-by-number**: `github.get_pull_request` / `github.get_issue` (`owner`/`repo`/`number`, `riskTier:'low'`) → `GET /repos/{o}/{r}/{pulls|issues}/{n}`; PR returns `additions`/`deletions`/`changed_files`. Boss fans out over search hits to total LOC (cap + `log()` truncation).

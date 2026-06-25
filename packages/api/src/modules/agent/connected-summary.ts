@@ -42,6 +42,14 @@ interface SummarySlug {
   anyOfScopes: readonly string[];
   /** Short, user-facing description of what the slug reaches. */
   blurb: string;
+  /**
+   * When true, append the connected account's identity (e.g. GitHub login) to
+   * the catalog line — the F2 binding (ADR-0071). It lets the boss resolve
+   * `author:@me` / `owner` from its own connection instead of asking the user.
+   * Scoped to GitHub today: that is the connection whose missing identity made
+   * the boss ask "which repo?" on a self-referential question.
+   */
+  showIdentity?: boolean;
 }
 
 /**
@@ -80,7 +88,13 @@ const SUMMARY_SLUGS: readonly SummarySlug[] = [
     anyOfScopes: [SLIDES_SCOPE],
     blurb: "the user's presentations",
   },
-  { slug: "github", provider: "github", anyOfScopes: [], blurb: "the user's GitHub pull requests" },
+  {
+    slug: "github",
+    provider: "github",
+    anyOfScopes: [],
+    blurb: "the user's GitHub issues and pull requests",
+    showIdentity: true,
+  },
   // Bearer-token providers (Notion OAuth, Railway API token, Vercel OAuth):
   // connection is proven by an active credential, not a granted scope, so
   // `anyOfScopes` is empty like GitHub.
@@ -115,6 +129,7 @@ type SlugHealth = "active" | "needs_reauth";
 interface ProviderRow {
   status: string;
   scopes: Set<string>;
+  accountLabel: string | null;
 }
 
 /**
@@ -138,6 +153,14 @@ function healthForSlug(
   return capable ? "active" : "needs_reauth";
 }
 
+/** The active credential's account label for a slug's provider (the F2 identity). */
+function identityForSlug(spec: SummarySlug, byProvider: Map<string, ProviderRow[]>): string | null {
+  if (!spec.showIdentity) return null;
+  const active = byProvider.get(spec.provider)?.find((r) => r.status === "active");
+  const label = active?.accountLabel?.trim();
+  return label ? label : null;
+}
+
 /**
  * Build the connected summary for `userId`, bounded to `allowedIntegrations`
  * (empty = unrestricted among connected loadable integrations, per ADR-0053).
@@ -152,6 +175,7 @@ export async function buildConnectedSummary(
       provider: integrationCredentials.provider,
       status: integrationCredentials.status,
       scopes: integrationCredentials.scopes,
+      accountLabel: integrationCredentials.accountLabel,
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.userId, userId));
@@ -160,7 +184,7 @@ export async function buildConnectedSummary(
   for (const row of rows) {
     const scopeList = toStringArray(row.scopes);
     const list = byProvider.get(row.provider) ?? [];
-    list.push({ status: row.status, scopes: new Set(scopeList) });
+    list.push({ status: row.status, scopes: new Set(scopeList), accountLabel: row.accountLabel });
     byProvider.set(row.provider, list);
   }
 
@@ -172,7 +196,9 @@ export async function buildConnectedSummary(
     if (health === null) continue;
     const actions = INTEGRATION_ACTIONS[spec.slug].join(", ");
     const marker = health === "needs_reauth" ? " (needs reauth)" : "";
-    lines.push(`- ${spec.slug} — ${actions} — ${spec.blurb}${marker}`);
+    const identity = identityForSlug(spec, byProvider);
+    const binding = identity ? ` — connected as ${identity}` : "";
+    lines.push(`- ${spec.slug} — ${actions} — ${spec.blurb}${binding}${marker}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;

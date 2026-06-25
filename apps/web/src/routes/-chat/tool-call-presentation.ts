@@ -150,7 +150,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
     return { fallbackIcon: Wrench, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
-  // Integration-scoped tool, e.g. `github.search_pull_requests`.
+  // Integration-scoped tool, e.g. `github.search`.
   const provider = getIntegrationProvider(slug);
   const brand = provider?.brand ?? (slug === "web" ? "web" : undefined);
   if (label) {

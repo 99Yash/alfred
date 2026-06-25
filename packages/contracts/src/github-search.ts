@@ -1,8 +1,8 @@
 /**
- * GitHub PR-search qualifier hardening (issue #213 + GROUND).
+ * GitHub search query hardening (issue #213 + GROUND; extended by ADR-0071).
  *
- * The boss appends free-form qualifiers to `github.search_pull_requests`'s
- * `query` field. Two failure modes have bitten us in prod:
+ * The boss appends free-form qualifiers to `github.search`'s `query` field.
+ * Two failure modes have bitten us in prod:
  *
  *  - **Invented qualifiers.** The model wrote `merged-by:@me` — GitHub has no
  *    `merged-by:` qualifier. GitHub does NOT error on an unknown qualifier; it
@@ -10,20 +10,32 @@
  *    `total_count: 0`. The tool call therefore "succeeds" with a zero count and
  *    the boss reports "0 PRs" with no signal that its query was malformed.
  *  - **Structured-field collisions.** The model free-typed `is:pr`, `author:`,
- *    or a `closed:>` / `closed:>=` window that the structured fields already
- *    emit — producing duplicate or conflicting clauses and non-deterministic
- *    counts (the observed 19-vs-23 gap across two identical questions, #213).
+ *    `state:`, or a `closed:>` / `merged:>=` window that the structured fields
+ *    already emit — producing duplicate or conflicting clauses and
+ *    non-deterministic counts (the observed 19-vs-23 gap across two identical
+ *    questions, #213). The boss **re-trips this every turn** (it re-derives the
+ *    query from scratch and never carries the lesson forward).
  *
- * We reject both at schema-validation time so the dispatcher returns an
- * actionable `invalid_input` the boss can correct, instead of a confidently
- * wrong answer. Pure string logic — no Date, no server imports — so it lives in
- * the web-safe contracts package and is unit-testable in isolation.
+ * Two layers, per ADR-0071:
+ *  - {@link sanitizeGithubSearchQuery} — **sanitize-and-merge**: strip the
+ *    colliding `author:`/`is:`/`state:`/date qualifiers out of the freeform
+ *    query and fold their intent into the structured fields, turning the
+ *    re-tripped collision into *silent correctness* rather than a hard error +
+ *    wasted retry. This is the robust lever #213 itself proposed.
+ *  - {@link githubSearchQueryIssues} — **reject** only what sanitize can't
+ *    safely fix: invented qualifier *keys* (the silent-zero trap), malformed
+ *    date *values* (GitHub 422s), and genuinely contradictory structured
+ *    field combinations. The boss reads the joined message and retries.
+ *
+ * Pure string logic — no Date, no server imports — so it lives in the web-safe
+ * contracts package and is unit-testable in isolation.
  */
 
 /**
  * Real GitHub issue/PR search qualifiers the boss may append verbatim to the
  * `query` field. Sourced from GitHub's "Searching issues and pull requests"
- * docs. Anything not here is treated as invented and rejected.
+ * docs — spans both issues (`is:issue`, `label:`, `state:`, `reason:`) and PRs.
+ * Anything not here is treated as invented and rejected.
  */
 export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
   "type",
@@ -96,17 +108,6 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   return out;
 }
 
-/** Human-readable name of the structured field that owns each managed qualifier. */
-const MANAGED_BY_FIELD: Record<string, string> = {
-  is: "the `state` field",
-  state: "the `state` field",
-  author: "the `author` field",
-  closed: "the `closedWithinDays` field",
-  created: "the `createdWithinDays` field",
-  merged: "the `mergedWithinDays` field",
-};
-
-const STRUCTURED_IS_VALUES = new Set(["pr", "issue", "open", "closed", "merged"]);
 const DATE_QUALIFIERS = new Set(["created", "closed", "merged"]);
 const ISO_DATE = String.raw`\d{4}-\d{2}-\d{2}`;
 const ISO_DATE_TIME = String.raw`${ISO_DATE}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})`;
@@ -115,11 +116,7 @@ const DATE_COMPARISON_RE = new RegExp(String.raw`^(?:[<>]=?)?${DATE_BOUND}$`, "i
 const DATE_RANGE_RE = new RegExp(String.raw`^${DATE_BOUND}\.\.${DATE_BOUND}$`, "i");
 
 function normalizeQualifierValue(value: string): string {
-  return value
-    .trim()
-    .replace(/^[("']+/, "")
-    .replace(/[)"']+$/, "")
-    .toLowerCase();
+  return cleanQualifierValue(value).toLowerCase();
 }
 
 function cleanQualifierValue(value: string): string {
@@ -134,32 +131,69 @@ function isValidDateQualifierValue(value: string): boolean {
   return DATE_COMPARISON_RE.test(clean) || DATE_RANGE_RE.test(clean);
 }
 
-export interface PullRequestQueryContext {
-  state?: "open" | "closed" | "merged" | "all";
+export type GithubSearchType = "issue" | "pr" | "both";
+export type GithubSearchState = "open" | "closed" | "merged" | "all";
+
+export interface GithubSearchQueryContext {
+  /** Whether the search targets issues, PRs, or both. Owns the `is:pr`/`is:issue` clause. */
+  type?: GithubSearchType;
+  author?: string;
+  state?: GithubSearchState;
   query?: string;
   closedWithinDays?: number;
   createdWithinDays?: number;
   mergedWithinDays?: number;
 }
 
+/** Backwards-compatible alias — the PR-only shape is a subset of the general one. */
+export type PullRequestQueryContext = GithubSearchQueryContext;
+
 /**
- * Validate the free-form `query` against the structured fields. Returns a list
- * of human-readable problems (empty when the query is clean) — the schema joins
- * them into one `invalid_input` message the boss reads and retries against.
+ * Validate the structured fields and the residue of the free-form `query` that
+ * {@link sanitizeGithubSearchQuery} cannot safely auto-fix. Returns a list of
+ * human-readable problems (empty when clean) — the schema joins them into one
+ * `invalid_input` message the boss reads and retries against.
+ *
+ * Run this against the **sanitized** input: collisions the sanitizer strips
+ * (free-typed `author:`/`state:`/`is:`/redundant date windows) are silently
+ * corrected and never surface here; what remains is the genuinely
+ * unresolvable class — invented keys, malformed date values, and contradictory
+ * field combinations.
  */
-export function pullRequestQueryIssues(input: PullRequestQueryContext): string[] {
+export function githubSearchQueryIssues(input: GithubSearchQueryContext): string[] {
   const query = input.query?.trim();
   const issues: string[] = [];
   const qualifiers = query ? parseSearchQualifiers(query) : [];
 
+  // Logical contradictions between structured fields — sanitize can't resolve
+  // these (there is no single correct intent), so they stay hard rejections.
   if (input.state === "open" && input.closedWithinDays !== undefined) {
     issues.push("`closedWithinDays` conflicts with `state:'open'` — open PRs have not closed.");
   }
   if (input.state === "open" && input.mergedWithinDays !== undefined) {
     issues.push("`mergedWithinDays` conflicts with `state:'open'` — merged PRs are closed.");
   }
+  if (
+    input.type === "issue" &&
+    (input.state === "merged" || input.mergedWithinDays !== undefined)
+  ) {
+    issues.push(
+      "`merged` filters conflict with `type:'issue'` — issues are never merged. Use `type:'pr'` (or `'both'`) to filter by merge.",
+    );
+  }
+  // `is:unmerged` in `query` while merged filters are set is a true semantic
+  // contradiction (a PR can't be both) — sanitize can't pick a side, so reject.
+  const hasUnmergedFilter = qualifiers.some(
+    (q) => q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
+  );
+  if (hasUnmergedFilter && (input.state === "merged" || input.mergedWithinDays !== undefined)) {
+    issues.push(
+      "`is:unmerged` conflicts with merged PR filters — remove it or search closed/unmerged PRs without `state:'merged'` or `mergedWithinDays`.",
+    );
+  }
 
   // 1. Invented qualifiers (the `merged-by:` bug) — the silent zero-count trap.
+  //    Sanitize cannot guess the intent of a non-existent qualifier, so reject.
   const unknown = [
     ...new Set(qualifiers.filter((q) => !GITHUB_PR_SEARCH_QUALIFIERS.has(q.key)).map((q) => q.raw)),
   ];
@@ -172,10 +206,10 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
     );
   }
 
-  // Date qualifiers are legitimate for explicit ranges this tool's relative
-  // windows cannot express, but malformed comparison operators (`closed:>`,
-  // `closed:>=`) make GitHub reject the whole request. Catch those before the
-  // network call so the boss gets a local invalid_input retry signal.
+  // Malformed date comparison operators (`closed:>`, `merged:>=`) make GitHub
+  // reject the whole request — catch them before the network call. (A valid
+  // date window in `query` is legitimate for explicit ranges the relative
+  // *WithinDays fields can't express.)
   const malformedDateQualifiers = qualifiers
     .filter((q) => DATE_QUALIFIERS.has(q.key) && !isValidDateQualifierValue(q.value))
     .map((q) => `${q.raw}:${q.value}`);
@@ -187,50 +221,121 @@ export function pullRequestQueryIssues(input: PullRequestQueryContext): string[]
     );
   }
 
-  // 2. `author:` / `state:` are always represented by structured fields — any
-  //    free-form occurrence duplicates or conflicts with them.
-  for (const key of ["author", "state"] as const) {
-    if (qualifiers.some((q) => q.key === key)) {
-      issues.push(
-        `Don't put \`${key}:\` in \`query\` — set ${MANAGED_BY_FIELD[key]} instead (it is applied automatically).`,
-      );
-    }
-  }
-  // `is:` is a broad GitHub qualifier. Only the type/state values collide with
-  // this tool's structured fields; other values such as `is:draft` are valid
-  // extra filters.
-  if (
-    qualifiers.some(
-      (q) => q.key === "is" && STRUCTURED_IS_VALUES.has(normalizeQualifierValue(q.value)),
-    )
-  ) {
-    issues.push(
-      "Don't put `is:` PR/type/state filters in `query` — set the `state` field instead (`is:pr` is applied automatically).",
-    );
-  }
-  const hasUnmergedFilter = qualifiers.some(
-    (q) => q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
-  );
-  if (hasUnmergedFilter && (input.state === "merged" || input.mergedWithinDays !== undefined)) {
-    issues.push(
-      "`is:unmerged` conflicts with merged PR filters — remove it or search closed/unmerged PRs without `state:'merged'` or `mergedWithinDays`.",
-    );
-  }
-
-  // 3. A free-form date window AND its structured field both set => conflicting
-  //    boundaries (the #213 19-vs-23 bug). The structured field wins; pick one.
-  const windowFields: Array<[string, number | undefined]> = [
-    ["closed", input.closedWithinDays],
-    ["created", input.createdWithinDays],
-    ["merged", input.mergedWithinDays],
-  ];
-  for (const [key, field] of windowFields) {
-    if (field !== undefined && qualifiers.some((q) => q.key === key)) {
-      issues.push(
-        `\`${key}:\` in \`query\` conflicts with the \`${key}WithinDays\` field — use one, not both.`,
-      );
-    }
-  }
-
   return issues;
+}
+
+/** @deprecated Renamed to {@link githubSearchQueryIssues}. Kept as a thin alias. */
+export const pullRequestQueryIssues = githubSearchQueryIssues;
+
+export interface SanitizedGithubSearchQuery {
+  /** The input with colliding qualifiers folded into structured fields. */
+  sanitized: GithubSearchQueryContext;
+  /** The qualifier tokens lifted out of the free-form `query`, for logging. */
+  stripped: string[];
+}
+
+const STATE_FROM_IS: Record<string, GithubSearchState> = {
+  open: "open",
+  closed: "closed",
+  merged: "merged",
+};
+
+/**
+ * Strip the structured-field collisions out of the free-form `query` and fold
+ * their intent into the structured fields (ADR-0071 sanitize-and-merge):
+ *
+ *  - `author:X`           → set `author` (the explicit value the model typed
+ *                            wins over the field default), drop from `query`.
+ *  - `state:S` / `is:S`   → set `state` from `open`/`closed`/`merged`, drop.
+ *  - `is:pr` / `is:issue` → set `type`, drop (owned by the `type` field now).
+ *  - `created:`/`closed:`/`merged:` date window that **duplicates** a set
+ *    *WithinDays field → drop the free-form one (the structured window wins).
+ *    A date window with *no* corresponding field is a legitimate explicit
+ *    range the relative fields can't express, so it is **kept**.
+ *
+ * Invented keys and malformed date values are left in place for
+ * {@link githubSearchQueryIssues} to reject — they have no safe auto-fix.
+ */
+export function sanitizeGithubSearchQuery(
+  input: GithubSearchQueryContext,
+): SanitizedGithubSearchQuery {
+  const sanitized: GithubSearchQueryContext = { ...input };
+  const stripped: string[] = [];
+  const query = input.query?.trim();
+  if (!query) return { sanitized, stripped };
+
+  const qualifiers = parseSearchQualifiers(query);
+  // Tokens (qualifier:value, as written) to remove from the free-form query.
+  const toRemove: ParsedQualifier[] = [];
+
+  const windowFieldSet: Record<string, boolean> = {
+    closed: input.closedWithinDays !== undefined,
+    created: input.createdWithinDays !== undefined,
+    merged: input.mergedWithinDays !== undefined,
+  };
+
+  for (const q of qualifiers) {
+    if (q.key === "author") {
+      sanitized.author = cleanQualifierValue(q.value) || sanitized.author;
+      toRemove.push(q);
+      continue;
+    }
+    if (q.key === "state") {
+      const v = normalizeQualifierValue(q.value);
+      if (STATE_FROM_IS[v]) sanitized.state = STATE_FROM_IS[v];
+      toRemove.push(q);
+      continue;
+    }
+    if (q.key === "is") {
+      const v = normalizeQualifierValue(q.value);
+      if (v === "pr") {
+        sanitized.type = sanitized.type === "issue" ? "both" : "pr";
+        toRemove.push(q);
+      } else if (v === "issue") {
+        sanitized.type = sanitized.type === "pr" ? "both" : "issue";
+        toRemove.push(q);
+      } else if (STATE_FROM_IS[v]) {
+        sanitized.state = STATE_FROM_IS[v];
+        toRemove.push(q);
+      }
+      // Other `is:` values (is:draft, is:queued, …) are valid extra filters; keep.
+      continue;
+    }
+    if (DATE_QUALIFIERS.has(q.key) && windowFieldSet[q.key] && isValidDateQualifierValue(q.value)) {
+      // Duplicates a structured window — the field wins; drop the free-form one.
+      toRemove.push(q);
+      continue;
+    }
+  }
+
+  if (toRemove.length > 0) {
+    sanitized.query = stripQualifiers(query, toRemove);
+    for (const q of toRemove) stripped.push(`${q.raw}:${q.value}`);
+  }
+
+  return { sanitized, stripped };
+}
+
+/**
+ * Remove the given `qualifier:value` tokens from the query string and tidy the
+ * leftover whitespace and now-empty boolean groups. Conservative: matches on
+ * the exact token text the parser produced.
+ */
+function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): string | undefined {
+  let out = query;
+  for (const q of toRemove) {
+    // Reconstruct the token exactly as it appears (qualifier + ":" + value),
+    // optionally negated, and remove it wherever it occurs.
+    const token = `${q.raw}:${q.value}`;
+    out = out.split(token).join(" ");
+  }
+  const cleaned = out
+    // Collapse whitespace and drop dangling boolean operators / empty groups.
+    .replace(/\s+(AND|OR|NOT)\s+/g, " ")
+    .replace(/\(\s*\)/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^\s*(AND|OR|NOT)\s+/i, "")
+    .replace(/\s+(AND|OR|NOT)\s*$/i, "")
+    .trim();
+  return cleaned.length > 0 ? cleaned : undefined;
 }
