@@ -51,7 +51,18 @@ export function getCheapModel(): LanguageModel {
   // from `gemini-2.5-flash` after the user flagged label-write lag on a
   // single inbound email; the larger Flash model was the bottleneck, not
   // the pipeline.
-  return googleModel("gemini-2.5-flash-lite");
+  //
+  // Wrapped in `withFallback` (cross-provider, to Anthropic Haiku 4.5) like
+  // every other model getter so a Google capacity blip ("high demand"
+  // overload) degrades to a comparable cheap tier instead of throwing
+  // `AI_RetryError`. Previously the only fallback-less getter: a sustained
+  // flash-lite overload hard-failed triage classification (and reddened the
+  // triage eval gate). Haiku 4.5 is the cheapest Anthropic tier and supports
+  // the structured-object output the classifier relies on.
+  return withFallback(
+    googleModel("gemini-2.5-flash-lite"),
+    anthropicModel("claude-haiku-4-5-20251001"),
+  );
 }
 
 /**
