@@ -99,15 +99,17 @@ const BOSS_SYSTEM_PROMPT_BASE = [
     "- When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
     "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
-    "- Use system.spawn_sub_agent for focused independent investigation. Read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*.",
+    "- Use system.spawn_sub_agent for focused independent investigation, then call system.await_sub_agent with its childRunId to get the real result before you continue; read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*. Never promise an out-of-turn notification when a sub-agent finishes — await it and use the result, or report honestly that it could not complete.",
     "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- When the user asks to stop surfacing reminders, todos, or briefing items from a sender, use system.remember after resolving a concrete sender email. If the tool asks for clarification, ask the user rather than claiming it is done. When system.remember succeeds, say Alfred will stop surfacing reminders and briefing items from that sender, and that emails will still arrive in Gmail unless the user wants a Gmail filter.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions are gated for user approval. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
+    "- Attempt the closest real capability before declaring you can't, and never silently narrow the request — if a tool can't return part of what was asked (for example diff/line counts from a search), get it the right way (github.search to find the PRs, then github.get_pull_request per PR to total the lines) or state plainly what you can and can't provide.",
+    "- A live Google Sheet, Doc, or shareable link that already answers the request is a finished deliverable — stop there. Do not chase a downloadable PDF/PowerPoint/Excel export; reading a Google file in is text-only, and producing a downloadable binary is a capability you do not have.",
   ].join("\n"),
   [
     "Examples of the judgment above:",
-    "- Asked about the user's open PRs → call the github tool that actually exists (for example github.search_pull_requests filtered to the user). Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo.",
+    "- Asked about the user's open PRs → call github.search with type:'pr', state:'open' filtered to the user. Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo. For total lines changed, fan out github.get_pull_request over the hits and sum.",
     '- Asked about meetings "in October 2026" → call calendar.list_events with explicit October-2026 bounds; never bounce a resolvable date back to the user.',
   ].join("\n"),
   "End the run with one user-facing summary message and no tool calls.",
@@ -117,18 +119,28 @@ function buildBossSystemPrompt(grounding: string, connectedSummary: string): str
   return `${BOSS_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
-const SUB_AGENT_SYSTEM_PROMPT_BASE = [
-  "You are a focused Alfred sub-agent working from a narrow brief.",
-  [
-    "How you work:",
-    "- Do not spawn other agents. Use tools only when they directly serve the brief, and only tools that exist — never invent a tool name.",
-    "- Write useful findings to scratch.<yourSubId>.summary or a more specific scratch.<yourSubId>.<path> key.",
-  ].join("\n"),
-  "End with a concise summary of what you found and any limits or uncertainty.",
-].join("\n\n");
+function buildSubAgentSystemPromptBase(subId: string): string {
+  return [
+    "You are a focused Alfred sub-agent working from a narrow brief.",
+    [
+      "How you work:",
+      "- Do not spawn other agents. Use tools only when they directly serve the brief, and only tools that exist — never invent a tool name.",
+      // The sub-agent must know its own id to address its scratch zone — the
+      // scratch key format is scratch.<subId>.<path> and a literal "<subId>"
+      // (or a guessed one) is rejected by parseScratchToolKey. Inject the real
+      // id so manual writes land in a valid, boss-readable key.
+      `- Your sub-agent id is "${subId}". When you write findings, write them to scratch.${subId}.summary or a more specific scratch.${subId}.<path> key — always use "${subId}" as the sub-agent id in the key; never write a literal "<subId>" or any other value.`,
+    ].join("\n"),
+    "End with a concise summary of what you found and any limits or uncertainty.",
+  ].join("\n\n");
+}
 
-function buildSubAgentSystemPrompt(grounding: string, connectedSummary: string): string {
-  return `${SUB_AGENT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+function buildSubAgentSystemPrompt(
+  grounding: string,
+  connectedSummary: string,
+  subId: string,
+): string {
+  return `${buildSubAgentSystemPromptBase(subId)}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
 const bossTurnStep: Step<BriefRunState> = {
@@ -154,7 +166,7 @@ const bossTurnStep: Step<BriefRunState> = {
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
-        ? buildSubAgentSystemPrompt(grounding, state.connectedSummary)
+        ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
       tools: () => resolveSdkTools(state.activeIntegrations, subAgent !== null),
       model: subAgent ? getSubAgentModel() : getBossModel(),
@@ -248,6 +260,18 @@ const dispatchToolsStep: Step<BriefRunState> = {
       });
 
       if (result.kind === "staged") {
+        return {
+          kind: "interrupt",
+          state,
+          transcript,
+          wake: result.wake,
+        };
+      }
+
+      // ADR-0073: await_sub_agent on a still-running child parks this run on
+      // the child's completion signal. The pending call is left in place, so
+      // on resume it re-dispatches and reads the child's terminal outcome.
+      if (result.kind === "parked") {
         return {
           kind: "interrupt",
           state,
@@ -463,8 +487,13 @@ function resolveSdkTools(activeIntegrations: readonly string[], isSubAgent: bool
     for (const registered of listToolsForIntegration(slug)) {
       if (
         isSubAgent &&
-        (registered.name === "system.spawn_sub_agent" || registered.name === "system.promote")
+        (registered.name === "system.spawn_sub_agent" ||
+          registered.name === "system.await_sub_agent" ||
+          registered.name === "system.promote")
       ) {
+        // The join tools are boss-only — the dispatcher rejects them for a
+        // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
+        // burning a turn on an invalid call the dispatcher would only bounce.
         continue;
       }
       out[registered.name] = tool({
@@ -518,7 +547,7 @@ function isSuccessfulLoadIntegrationResult(
 
 function toolResultMessage(
   call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): AgentTranscriptMessage {
   const output = dispatchResultToToolOutput(result);
   return {
@@ -535,7 +564,7 @@ function toolResultMessage(
 }
 
 function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
   switch (result.kind) {
     case "executed":

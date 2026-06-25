@@ -58,6 +58,17 @@ export interface LlmJudgeOptions<TInput, TOutput, TExpected> {
   prompt: (args: { input: TInput; output: TOutput; expected: TExpected | undefined }) => string;
   /** Override the judge model. Defaults to the standard chat model (Sonnet). */
   model?: LanguageModel;
+  /**
+   * Short-circuit predicate. When it returns a string, the judge is NOT called:
+   * the scorer returns `{ score: 0, metadata: <string> }`. Used to avoid
+   * spending a judge call on a case the task could not produce real output for
+   * (e.g. skipped on provider overload).
+   */
+  skipWhen?: (args: {
+    input: TInput;
+    output: TOutput;
+    expected: TExpected | undefined;
+  }) => string | null;
 }
 
 /**
@@ -70,17 +81,30 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
   return createScorer<TInput, TOutput, TExpected>({
     name: opts.name,
     scorer: async ({ input, output, expected }) => {
-      const result = await generateObject({
-        model: opts.model ?? getChatModel("standard"),
-        schema: judgeOutputSchema,
-        system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
-        prompt: opts.prompt({ input, output, expected }),
-        temperature: 0,
-      });
-      return {
-        score: GRADE_TO_SCORE[result.object.grade],
-        metadata: `${result.object.grade} — ${result.object.feedback}`,
-      };
+      const skipReason = opts.skipWhen?.({ input, output, expected });
+      if (skipReason) return { score: 0, metadata: skipReason };
+      try {
+        const result = await generateObject({
+          model: opts.model ?? getChatModel("standard"),
+          schema: judgeOutputSchema,
+          system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
+          prompt: opts.prompt({ input, output, expected }),
+          temperature: 0,
+          timeout: { totalMs: 60_000 },
+        });
+        return {
+          score: GRADE_TO_SCORE[result.object.grade],
+          metadata: `${result.object.grade} — ${result.object.feedback}`,
+        };
+      } catch (err) {
+        // A scorer must never throw: an errored eval trips an evalite-beta
+        // reporter bug that hangs the run until the CI job timeout. A judge-model
+        // failure (overload, `Output.object` parse) is infra, not a real grade,
+        // so score 0 and surface why.
+        const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        console.warn(`[llm-judge] "${opts.name}" judge error: ${reason}`);
+        return { score: 0, metadata: `judge error: ${reason}` };
+      }
     },
   });
 }

@@ -1,22 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { pullRequestQueryIssues } from "@alfred/contracts";
 import {
-  buildPullRequestSearchQuery,
-  resolvePullRequestAuthor,
-} from "../../src/modules/tools/github";
+  githubSearchQueryIssues,
+  queryHasNarrowingScope,
+  sanitizeGithubSearchQuery,
+} from "@alfred/contracts";
+import { buildGithubSearchQuery, resolvePullRequestAuthor } from "../../src/modules/tools/github";
 
 // Noon UTC on Sat 6 June 2026 — far enough from a tz boundary that UTC and
 // Asia/Kolkata agree on the calendar day, except where a case picks a
 // near-midnight time to exercise the boundary.
 const NOW = Date.UTC(2026, 5, 6, 12, 0, 0);
 
-describe("buildPullRequestSearchQuery", () => {
+describe("buildGithubSearchQuery", () => {
   test("closed-in-the-past-week resolves to a tz-local calendar window (N days incl today)", () => {
     assert.equal(
-      buildPullRequestSearchQuery(
-        { author: "@me", state: "closed", closedWithinDays: 7, perPage: 30 },
+      buildGithubSearchQuery(
+        { type: "pr", author: "@me", state: "closed", closedWithinDays: 7, perPage: 30 },
         "UTC",
         NOW,
       ),
@@ -27,8 +28,8 @@ describe("buildPullRequestSearchQuery", () => {
 
   test("mergedWithinDays:1 means *today* in the user's timezone", () => {
     assert.equal(
-      buildPullRequestSearchQuery(
-        { author: "99Yash", state: "merged", mergedWithinDays: 1, perPage: 30 },
+      buildGithubSearchQuery(
+        { type: "pr", author: "99Yash", state: "merged", mergedWithinDays: 1, perPage: 30 },
         "UTC",
         NOW,
       ),
@@ -38,17 +39,36 @@ describe("buildPullRequestSearchQuery", () => {
 
   test("'merged today' crosses the UTC midnight boundary in the user's zone", () => {
     // 23:30 UTC on 6 June is already 05:00 on 7 June in Asia/Kolkata (UTC+5:30).
-    // A UTC-sliced window would answer for the 6th. A date-only `merged:>=2026-06-07`
-    // would start at 00:00 UTC and miss the first 5.5h of the user's day. The
-    // tz-local lower bound starts at 18:30 UTC on the prior date.
     const lateNight = Date.UTC(2026, 5, 6, 23, 30, 0);
     assert.equal(
-      buildPullRequestSearchQuery(
-        { author: "@me", state: "merged", mergedWithinDays: 1, perPage: 30 },
+      buildGithubSearchQuery(
+        { type: "pr", author: "@me", state: "merged", mergedWithinDays: 1, perPage: 30 },
         "Asia/Kolkata",
         lateNight,
       ),
       "is:pr author:@me is:merged merged:>=2026-06-06T18:30:00+00:00",
+    );
+  });
+
+  test("type:'issue' searches issues, not PRs", () => {
+    assert.equal(
+      buildGithubSearchQuery(
+        { type: "issue", author: "@me", state: "open", perPage: 30 },
+        "UTC",
+        NOW,
+      ),
+      "is:issue author:@me is:open",
+    );
+  });
+
+  test("type:'both' omits the is:pr/is:issue clause", () => {
+    assert.equal(
+      buildGithubSearchQuery(
+        { type: "both", author: "99Yash", state: "all", perPage: 30 },
+        "UTC",
+        NOW,
+      ),
+      "author:99Yash",
     );
   });
 
@@ -64,8 +84,9 @@ describe("buildPullRequestSearchQuery", () => {
 
   test("composes merged, created-window, and extra qualifiers without blank fragments", () => {
     assert.equal(
-      buildPullRequestSearchQuery(
+      buildGithubSearchQuery(
         {
+          type: "pr",
           author: "99Yash",
           state: "merged",
           createdWithinDays: 14,
@@ -80,11 +101,9 @@ describe("buildPullRequestSearchQuery", () => {
   });
 
   test("dedupes an identical token that slips into the free-form query", () => {
-    // The schema rejects is:/author: collisions before dispatch, but the
-    // builder must never emit a doubled token even if one reaches it.
     assert.equal(
-      buildPullRequestSearchQuery(
-        { author: "@me", state: "open", query: "is:pr", perPage: 30 },
+      buildGithubSearchQuery(
+        { type: "pr", author: "@me", state: "open", query: "is:pr", perPage: 30 },
         "UTC",
         NOW,
       ),
@@ -93,60 +112,191 @@ describe("buildPullRequestSearchQuery", () => {
   });
 });
 
-describe("pullRequestQueryIssues", () => {
+describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
+  test("folds free-typed author:/state:/is: into the structured fields and strips them", () => {
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      type: "pr",
+      author: "@me",
+      state: "all",
+      query: "is:pr author:99Yash state:closed",
+    });
+    assert.equal(sanitized.author, "99Yash");
+    assert.equal(sanitized.state, "closed");
+    assert.equal(sanitized.type, "pr");
+    assert.equal(sanitized.query, undefined); // every token was folded out
+    assert.ok(stripped.length >= 3);
+  });
+
+  test("a duplicate date window is dropped (the structured field wins)", () => {
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "merged:>=2026-06-01 repo:99Yash/alfred",
+      mergedWithinDays: 7,
+    });
+    assert.equal(sanitized.query, "repo:99Yash/alfred");
+    assert.ok(stripped.some((s) => s.startsWith("merged:")));
+  });
+
+  test("a standalone explicit date window is kept (no structured field to fold into)", () => {
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "merged:2026-10-01..2026-10-31",
+    });
+    assert.equal(sanitized.query, "merged:2026-10-01..2026-10-31");
+    assert.deepEqual(stripped, []);
+  });
+
+  test("valid extra qualifiers (is:draft, label:) survive untouched", () => {
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "is:draft label:bug review:approved",
+    });
+    assert.equal(sanitized.query, "is:draft label:bug review:approved");
+    assert.deepEqual(stripped, []);
+  });
+
+  test("a negated qualifier is NOT folded — exclusion intent is preserved verbatim", () => {
+    // `-author:octocat` excludes; the inclusion-only structured field can't
+    // express that, so it must stay in the query (the prior code dropped the
+    // `-` and set author='octocat', inverting the user's intent).
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "-author:octocat repo:99Yash/alfred",
+    });
+    assert.equal(sanitized.author, undefined);
+    assert.equal(sanitized.query, "-author:octocat repo:99Yash/alfred");
+    assert.deepEqual(stripped, []);
+  });
+
+  test("folding is:pr does not clip a prefix-overlapping is:private token", () => {
+    // `split("is:pr")` would corrupt `is:private` into `ivate`; the
+    // scanner-based strip removes whole tokens only.
+    const { sanitized } = sanitizeGithubSearchQuery({
+      query: "is:pr is:private",
+    });
+    assert.equal(sanitized.type, "pr");
+    assert.equal(sanitized.query, "is:private");
+  });
+
+  test("an unrecognized state: value is NOT folded and NOT silently stripped", () => {
+    // `state:done` is not a real GitHub state. The old code stripped every
+    // `state:` token regardless, silently rewriting the query into a different
+    // one. It must now be left in place for the validator to reject.
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "state:done repo:99Yash/alfred",
+    });
+    assert.equal(sanitized.state, undefined);
+    assert.equal(sanitized.query, "state:done repo:99Yash/alfred");
+    assert.deepEqual(stripped, []);
+  });
+
+  test("a free-typed is:issue with unset type resolves to issue, not both", () => {
+    // With no schema default applied, an unset `type` + free-typed `is:issue`
+    // narrows to `issue` instead of silently widening to `both`.
+    const { sanitized } = sanitizeGithubSearchQuery({ query: "is:issue" });
+    assert.equal(sanitized.type, "issue");
+  });
+
+  test("an explicit type:'pr' plus free-typed is:issue widens to both", () => {
+    const { sanitized } = sanitizeGithubSearchQuery({ type: "pr", query: "is:issue" });
+    assert.equal(sanitized.type, "both");
+  });
+});
+
+describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   test("clean query (extra-only qualifiers) produces no issues", () => {
-    assert.deepEqual(pullRequestQueryIssues({ query: "repo:99Yash/alfred label:bug" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "repo:99Yash/alfred label:bug" }), []);
     assert.deepEqual(
-      pullRequestQueryIssues({ query: 'label:"good first issue" review:approved' }),
+      githubSearchQueryIssues({ query: 'label:"good first issue" review:approved' }),
       [],
     );
-    assert.deepEqual(pullRequestQueryIssues({ query: "has:label user-review-requested:@me" }), []);
-    assert.deepEqual(pullRequestQueryIssues({ query: "is:draft is:queued is:private" }), []);
-    assert.deepEqual(pullRequestQueryIssues({}), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "has:label user-review-requested:@me" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "is:draft is:queued is:private" }), []);
+    assert.deepEqual(githubSearchQueryIssues({}), []);
+  });
+
+  test("folded structured-field collisions no longer reject (sanitize handles them)", () => {
+    // is:/author:/state: free-typed into query are now silently merged, not
+    // rejected — so the residue checker sees nothing wrong.
+    assert.deepEqual(
+      githubSearchQueryIssues(
+        sanitizeGithubSearchQuery({ query: "is:pr author:99Yash state:closed" }).sanitized,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      githubSearchQueryIssues(
+        sanitizeGithubSearchQuery({ query: "merged:>=2026-06-01", mergedWithinDays: 7 }).sanitized,
+      ),
+      [],
+    );
+  });
+
+  test("rejects an unrecognized state: value instead of dropping it silently", () => {
+    // `state:done` survives sanitize (see above); the validator must reject it
+    // rather than ship a query GitHub silently demotes to a zero-match term.
+    const issues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "state:done repo:99Yash/alfred" }).sanitized,
+    );
+    assert.equal(issues.length, 1);
+    assert.match(issues[0]!, /Unrecognized GitHub state value/);
+    assert.match(issues[0]!, /state:done/);
+  });
+
+  test("recognized state: values still fold cleanly (no false rejection)", () => {
+    assert.deepEqual(
+      githubSearchQueryIssues(
+        sanitizeGithubSearchQuery({ query: "state:open repo:99Yash/alfred" }).sanitized,
+      ),
+      [],
+    );
   });
 
   test("rejects an invented qualifier (the merged-by: silent-zero bug)", () => {
-    const issues = pullRequestQueryIssues({ query: "merged-by:@me" });
+    const issues = githubSearchQueryIssues({ query: "merged-by:@me" });
     assert.equal(issues.length, 1);
     assert.match(issues[0]!, /Unknown GitHub search qualifier/);
     assert.match(issues[0]!, /merged-by/);
   });
 
   test("rejects invented qualifiers even inside boolean groups", () => {
-    const issues = pullRequestQueryIssues({ query: "(repo:99Yash/alfred AND merged-by:@me)" });
+    const issues = githubSearchQueryIssues({ query: "(repo:99Yash/alfred AND merged-by:@me)" });
     assert.equal(issues.length, 1);
     assert.match(issues[0]!, /Unknown GitHub search qualifier/);
     assert.match(issues[0]!, /merged-by/);
   });
 
-  test("rejects structured-managed qualifiers free-typed into query (#213 dup clauses)", () => {
-    const issues = pullRequestQueryIssues({ query: "is:pr author:99Yash state:closed" });
-    assert.ok(issues.some((m) => /Don't put `is:`/.test(m)));
-    assert.ok(issues.some((m) => /Don't put `author:`/.test(m)));
-    assert.ok(issues.some((m) => /Don't put `state:`/.test(m)));
-  });
+  test("rejects negated type qualifiers (-is:pr / -is:issue) that contradict the type field", () => {
+    // `type` always emits an `is:pr`/`is:issue` clause (defaulting to is:pr), so
+    // a negated one survives into `is:pr … -is:pr` → guaranteed zero matches.
+    const prIssues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "-is:pr" }).sanitized,
+    );
+    assert.equal(prIssues.length, 1);
+    assert.match(prIssues[0]!, /Negated type qualifier/);
+    assert.match(prIssues[0]!, /-is:pr/);
+    assert.match(prIssues[0]!, /type:'issue'/);
 
-  test("rejects a free-form date window that collides with its structured field", () => {
-    const issues = pullRequestQueryIssues({ query: "merged:>=2026-06-01", mergedWithinDays: 7 });
-    assert.equal(issues.length, 1);
-    assert.match(issues[0]!, /`merged:` in `query` conflicts with the `mergedWithinDays` field/);
+    const issueIssues = githubSearchQueryIssues(
+      sanitizeGithubSearchQuery({ query: "-is:issue repo:99Yash/alfred" }).sanitized,
+    );
+    assert.equal(issueIssues.length, 1);
+    assert.match(issueIssues[0]!, /Negated type qualifier/);
+
+    // A non-type negated qualifier is a legitimate exclusion GitHub handles — not rejected.
+    assert.deepEqual(githubSearchQueryIssues({ query: "-label:wontfix" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "-is:draft" }), []);
   });
 
   test("allows an explicit date range when the structured window is unset", () => {
-    // "PRs merged in October" — a specific range the *WithinDays fields can't
-    // express — is legitimate free-form.
-    assert.deepEqual(pullRequestQueryIssues({ query: "merged:2026-10-01..2026-10-31" }), []);
-    assert.deepEqual(pullRequestQueryIssues({ query: "closed:<2026-10-31" }), []);
-    assert.deepEqual(pullRequestQueryIssues({ query: "created:>=2026-06-01T00:00:00+00:00" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "merged:2026-10-01..2026-10-31" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "closed:<2026-10-31" }), []);
+    assert.deepEqual(githubSearchQueryIssues({ query: "created:>=2026-06-01T00:00:00+00:00" }), []);
   });
 
   test("rejects malformed free-form date qualifier values before GitHub 422s", () => {
-    const bareOperatorIssues = pullRequestQueryIssues({ query: "closed:>" });
+    const bareOperatorIssues = githubSearchQueryIssues({ query: "closed:>" });
     assert.equal(bareOperatorIssues.length, 1);
     assert.match(bareOperatorIssues[0]!, /Malformed GitHub date qualifier/);
     assert.match(bareOperatorIssues[0]!, /closed:>/);
 
-    const bareInclusiveOperatorIssues = pullRequestQueryIssues({ query: "merged:>=" });
+    const bareInclusiveOperatorIssues = githubSearchQueryIssues({ query: "merged:>=" });
     assert.equal(bareInclusiveOperatorIssues.length, 1);
     assert.match(bareInclusiveOperatorIssues[0]!, /Malformed GitHub date qualifier/);
     assert.match(bareInclusiveOperatorIssues[0]!, /merged:>=/);
@@ -154,27 +304,67 @@ describe("pullRequestQueryIssues", () => {
 
   test("rejects contradictory structured state/window combinations", () => {
     assert.match(
-      pullRequestQueryIssues({ state: "open", closedWithinDays: 7 })[0]!,
+      githubSearchQueryIssues({ state: "open", closedWithinDays: 7 })[0]!,
       /closedWithinDays.*state:'open'/,
     );
     assert.match(
-      pullRequestQueryIssues({ state: "open", mergedWithinDays: 7 })[0]!,
+      githubSearchQueryIssues({ state: "open", mergedWithinDays: 7 })[0]!,
       /mergedWithinDays.*state:'open'/,
     );
   });
 
-  test("allows closed-unmerged searches but rejects unmerged merged-window collisions", () => {
-    assert.deepEqual(pullRequestQueryIssues({ state: "closed", query: "is:unmerged" }), []);
+  test("rejects merged filters on type:'issue' (issues are never merged)", () => {
+    assert.match(
+      githubSearchQueryIssues({ type: "issue", state: "merged" })[0]!,
+      /conflict with `type:'issue'`/,
+    );
+    assert.match(
+      githubSearchQueryIssues({ type: "issue", mergedWithinDays: 7 })[0]!,
+      /conflict with `type:'issue'`/,
+    );
+  });
 
-    const stateIssues = pullRequestQueryIssues({ state: "merged", query: "is:unmerged" });
+  test("allows closed-unmerged searches but rejects unmerged merged-window collisions", () => {
+    assert.deepEqual(githubSearchQueryIssues({ state: "closed", query: "is:unmerged" }), []);
+    assert.deepEqual(
+      githubSearchQueryIssues({ state: "merged", query: "-is:unmerged repo:99Yash/alfred" }),
+      [],
+      "negated is:unmerged excludes unmerged PRs; it does not contradict merged filters",
+    );
+
+    const stateIssues = githubSearchQueryIssues({ state: "merged", query: "is:unmerged" });
     assert.equal(stateIssues.length, 1);
     assert.match(stateIssues[0]!, /is:unmerged.*conflicts/);
 
-    const windowIssues = pullRequestQueryIssues({
-      query: "is:unmerged",
-      mergedWithinDays: 7,
-    });
+    const windowIssues = githubSearchQueryIssues({ query: "is:unmerged", mergedWithinDays: 7 });
     assert.equal(windowIssues.length, 1);
     assert.match(windowIssues[0]!, /is:unmerged.*conflicts/);
+  });
+});
+
+describe("queryHasNarrowingScope (author-default gate, ADR-0071)", () => {
+  test("true when the query names a repo/org/user or a person", () => {
+    assert.equal(queryHasNarrowingScope("repo:99Yash/alfred"), true);
+    assert.equal(queryHasNarrowingScope("org:anthropics is:open"), true);
+    assert.equal(queryHasNarrowingScope("assignee:octocat"), true);
+    assert.equal(queryHasNarrowingScope("author:99Yash"), true);
+    assert.equal(queryHasNarrowingScope("involves:@me label:bug"), true);
+  });
+
+  test("false for pure filters that don't scope to a place or person", () => {
+    assert.equal(queryHasNarrowingScope("label:bug is:open sort:updated"), false);
+    assert.equal(queryHasNarrowingScope("is:draft review:approved"), false);
+    assert.equal(queryHasNarrowingScope(undefined), false);
+    assert.equal(queryHasNarrowingScope(""), false);
+  });
+
+  test("a NEGATED scope qualifier is an exclusion, not scope → does not suppress @me", () => {
+    // `-author:octocat` is "exclude octocat", not "scope to octocat". Counting it
+    // as scope suppressed the `author:@me` default and turned "my PRs except
+    // octocat" into a broad all-authors search.
+    assert.equal(queryHasNarrowingScope("-author:octocat"), false);
+    assert.equal(queryHasNarrowingScope("-repo:99Yash/archived"), false);
+    // A positive scope alongside a negated one still scopes.
+    assert.equal(queryHasNarrowingScope("repo:99Yash/alfred -author:octocat"), true);
   });
 });

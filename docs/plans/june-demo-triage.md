@@ -187,7 +187,7 @@ Files to start:
 
 Acceptance:
 
-- An unknown action on an allowed + connected integration returns that integration's **real action list** ("github exposes: `search_pull_requests`…"), not just "is not declared."
+- An unknown action on an allowed + connected integration returns that integration's **real action list** ("github exposes: `search`…"), not just "is not declared."
 - `integrationActionSuggestion` handles qualified names (today it bails on any `.`).
 - Message is actionable: closest-match suggestion + the valid action set.
 

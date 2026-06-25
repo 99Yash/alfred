@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { confidenceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { ColdStartSignals } from "./signals";
 
@@ -42,7 +43,7 @@ export const coldStartProposalSchema = z.object({
    */
   key: z.string().min(1).max(100),
   value: z.string().min(1).max(2_000),
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   /** Quote or paraphrase the citation that grounds the fact. */
   rationale: z.string().min(1).max(2_000),
 });

@@ -29,6 +29,11 @@ interface DecisionOutcome {
    * commit so they don't linger as ghost jobs in Redis.
    */
   rejectedStagingIds?: string[];
+  /**
+   * Parent boss run woken because a `cancel_run` cancelled a sub-agent child it
+   * was joining (ADR-0073). Enqueued after commit so the boss resumes promptly.
+   */
+  wokenParentRunId?: string | null;
 }
 
 /**
@@ -109,7 +114,11 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
           let shouldEnqueue = false;
           if (decision === "cancel_run") {
-            const { outcome: cancelOutcome, rejectedStagingIds } = await cancelRunInTx(tx, {
+            const {
+              outcome: cancelOutcome,
+              rejectedStagingIds,
+              wokenParentRunId,
+            } = await cancelRunInTx(tx, {
               runId: row.runId,
               reason: "cancelled_by_user",
               pendingApprovalRejectReason: reason,
@@ -122,6 +131,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               status: "rejected",
               shouldEnqueue,
               rejectedStagingIds,
+              // If the cancelled run was itself a sub-agent child, a parent
+              // boss joining it was woken in-tx — enqueue it after commit too.
+              wokenParentRunId,
             };
           } else {
             const signalOutcome = await signalRunInTx(tx, {
@@ -174,6 +186,21 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             console.warn(
               "[approvals] failed to enqueue woken run; resume sweep will retry",
               outcome.runId,
+              toMessage(err),
+            );
+          }
+        }
+        // A `cancel_run` on a sub-agent child wakes the parent boss joining it
+        // (ADR-0073); resume it so the boss reads the cancelled outcome rather
+        // than hanging until its dead-man timer fires.
+        const wokenParentRunId = outcome.wokenParentRunId;
+        if (wokenParentRunId) {
+          try {
+            await enqueueRun(wokenParentRunId);
+          } catch (err) {
+            console.warn(
+              "[approvals] failed to enqueue woken parent run; dead-man timer will retry",
+              wokenParentRunId,
               toMessage(err),
             );
           }

@@ -1,3 +1,4 @@
+import { clamp01 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
 import { and, asc, desc, eq, getTableColumns, gt, isNull, lte, or, sql } from "drizzle-orm";
@@ -23,8 +24,14 @@ export const proposeFactArgsSchema = z.object({
   key: z.string().min(1).max(200),
   /** Any JSON-serializable value. Extractor decides shape per key. */
   value: z.unknown(),
-  /** [0, 1] — ≥ AUTO_CONFIRM_THRESHOLD auto-confirms. */
-  confidence: z.number().min(0).max(1),
+  /**
+   * [0, 1] — ≥ AUTO_CONFIRM_THRESHOLD auto-confirms. Clamped here at the
+   * persistence boundary: model confidences (`confidenceSchema`) are a bare
+   * `z.number()` with no schema-enforced range, and extractors pass them
+   * straight through (memory-extraction, cold-start, learn-skill), so a stray
+   * 1.1 / -0.1 from structured output would otherwise crash this gate.
+   */
+  confidence: z.number().transform(clamp01),
   source: memorySourceSchema,
   /** When the fact became true. Defaults to now() server-side. */
   validFrom: z.date().optional(),
@@ -46,7 +53,8 @@ export const supersedeFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
-  confidence: z.number().min(0).max(1),
+  /** [0, 1] — clamped at the boundary, like `proposeFactArgsSchema.confidence`. */
+  confidence: z.number().transform(clamp01),
   source: memorySourceSchema,
 });
 export type SupersedeFactArgs = z.infer<typeof supersedeFactArgsSchema>;
