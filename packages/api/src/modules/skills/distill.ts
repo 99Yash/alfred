@@ -1,4 +1,5 @@
 import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { confidenceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { SkillLearnContext } from "./context";
 import { parseMentions, resolveMentions } from "./mentions";
@@ -34,7 +35,7 @@ export const skillProposalSchema = z.object({
   key: z.string().min(1).max(120),
   /** Single-string value (Gemini struct-output handles unions inconsistently — see ADR-0011 distill notes). */
   value: z.string().min(1).max(2_000),
-  confidence: z.number().min(0).max(1),
+  confidence: confidenceSchema,
   /** One sentence on why this fact follows from the prompt. */
   rationale: z.string().min(1).max(500),
 });
