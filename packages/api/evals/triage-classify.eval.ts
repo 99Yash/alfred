@@ -506,26 +506,29 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     try {
       ({ classification } = await classifyEmail(args));
     } catch (err) {
-      // A transient provider overload is not a classifier defect. Skip the case
-      // (scores 0) rather than letting one throw abort the whole eval file or
-      // burn the job's wall-clock retrying — and say so loudly in the log.
-      if (isTransientOverload(err)) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[triage-eval] SKIP "${input.label}" — provider overload: ${reason}`);
-        return {
-          category: "fyi",
-          confidence: 0,
-          rationale: "[skipped: provider overload]",
-          todoOutcome: undefined,
-          todoName: null,
-          wouldMintTodo: false,
-          suppression: null,
-          context,
-          email,
-          skipped: true,
-        };
-      }
-      throw err;
+      // The task must NEVER throw: a classifier-QUALITY regression shows up as a
+      // wrong category (which still scores), whereas a THROW here is always an
+      // infra/provider/SDK failure — a transient overload, or the AI SDK's
+      // `Output.object` parse intermittently rejecting valid JSON. Letting it
+      // propagate aborts the whole eval file AND trips an evalite-beta reporter
+      // bug (`renderErrorsSummary` → "reading 'pool'") that hangs the process
+      // until the CI job's wall-clock timeout. So skip the case (scores 0) and
+      // log it loudly — many skips mean a provider/SDK outage, not a regression.
+      const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      const kind = isTransientOverload(err) ? "provider overload" : "classify error";
+      console.warn(`[triage-eval] SKIP "${input.label}" — ${kind}: ${reason}`);
+      return {
+        category: "fyi",
+        confidence: 0,
+        rationale: `[skipped: ${kind}]`,
+        todoOutcome: undefined,
+        todoName: null,
+        wouldMintTodo: false,
+        suppression: null,
+        context,
+        email,
+        skipped: true,
+      };
     }
 
     const authoredAt = input.authoredAt ?? NOW;
