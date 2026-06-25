@@ -95,6 +95,13 @@ const searchIssuesResponseSchema = z.object({
 export async function searchGithub(args: SearchGithubArgs): Promise<SearchGithubResult> {
   const url = new URL(`${GITHUB_API}/search/issues`);
   url.searchParams.set("q", args.q);
+  // Advanced search has been the default for /search/issues since 2025-09-04
+  // (the legacy mode was removed then), so this is no longer strictly required.
+  // We set it explicitly anyway: the query builder joins qualifiers with spaces
+  // expecting AND semantics, which is exactly advanced search's space operator
+  // — pinning the flag documents that dependency and is future-proof.
+  // https://github.blog/changelog/2025-03-06-github-issues-projects-api-support-for-issues-advanced-search-and-more/
+  url.searchParams.set("advanced_search", "true");
   url.searchParams.set("per_page", String(Math.min(Math.max(args.perPage ?? 30, 1), 100)));
   if (args.sort) url.searchParams.set("sort", args.sort);
   if (args.order) url.searchParams.set("order", args.order);
@@ -125,9 +132,6 @@ export async function searchGithub(args: SearchGithubArgs): Promise<SearchGithub
     items,
   };
 }
-
-/** @deprecated Renamed to {@link searchGithub} (now spans issues + PRs). */
-export const searchPullRequests = searchGithub;
 
 export interface GetByNumberArgs {
   accessToken: string;

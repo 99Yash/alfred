@@ -157,7 +157,11 @@ export const driveExportFileInput = z
       .min(1)
       .max(100)
       .optional()
-      .refine((m) => m === undefined || DRIVE_TEXT_EXPORT_MIME_TYPES.has(m.toLowerCase().trim()), {
+      // Normalize at parse so the value forwarded downstream is exactly the one
+      // that was validated — otherwise `" Text/Plain "` passes the refine
+      // (which lower-cases+trims) but reaches the Drive API raw and fails there.
+      .transform((m) => (m === undefined ? undefined : m.toLowerCase().trim()))
+      .refine((m) => m === undefined || DRIVE_TEXT_EXPORT_MIME_TYPES.has(m), {
         message: `mimeType must be a text export type — one of: ${[...DRIVE_TEXT_EXPORT_MIME_TYPES].join(", ")}. This tool reads a Google file's text into context; producing a downloadable PDF/slides/spreadsheet is a separate capability it does not have.`,
       })
       .describe(
@@ -179,9 +183,14 @@ export const githubSearchInput = z
   .object({
     type: z
       .enum(["issue", "pr", "both"])
-      .default("pr")
+      // No schema default: the query builder treats an omitted `type` as `pr`
+      // (its `?? "pr"`), but keeping it OPTIONAL here lets the sanitizer tell a
+      // deliberate `type:'pr'` apart from "unset". A free-typed `is:issue` with
+      // an unset type then resolves to `issue` instead of silently widening to
+      // `both` (which an applied default would have caused).
+      .optional()
       .describe(
-        "What to search: `pr` (pull requests, default), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
+        "What to search: `pr` (pull requests, the default when omitted), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
       ),
     author: z
       .string()
@@ -256,9 +265,6 @@ export const githubSearchInput = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
     }
   });
-
-/** @deprecated Renamed to {@link githubSearchInput} (now spans issues + PRs). */
-export const searchPullRequestsInput = githubSearchInput;
 
 export const githubGetPullRequestInput = z
   .object({

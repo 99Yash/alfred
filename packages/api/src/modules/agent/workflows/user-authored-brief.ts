@@ -487,8 +487,13 @@ function resolveSdkTools(activeIntegrations: readonly string[], isSubAgent: bool
     for (const registered of listToolsForIntegration(slug)) {
       if (
         isSubAgent &&
-        (registered.name === "system.spawn_sub_agent" || registered.name === "system.promote")
+        (registered.name === "system.spawn_sub_agent" ||
+          registered.name === "system.await_sub_agent" ||
+          registered.name === "system.promote")
       ) {
+        // The join tools are boss-only — the dispatcher rejects them for a
+        // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
+        // burning a turn on an invalid call the dispatcher would only bounce.
         continue;
       }
       out[registered.name] = tool({

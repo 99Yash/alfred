@@ -54,6 +54,7 @@ import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-polic
 import type { WakeCondition } from "../agent/types";
 import { readChildRunOutcome } from "../agent/sub-agents";
 import { subAgentDoneSignalName } from "../agent/sub-agent-metadata";
+import { scheduleSubAgentJoinWakeJob } from "../agent/sub-agent-join-wake-queue";
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
@@ -890,13 +891,15 @@ function validateSystemToolAccess(args: {
 }
 
 /**
- * Defensive wait-ceiling for the sub-agent join (ADR-0073 #4). ADR-0070's
- * backstop guarantees a child reaches a terminal state and fires its signal,
- * so a parent normally wakes exactly once — when the child is done. This bound
- * only matters if the parent is woken with the child still running (a spurious
- * wake): past the ceiling we surface a still-running result instead of
- * re-parking, so the turn ends honestly rather than hanging. 6 min sits well
- * above a normal sub-agent run (≈30–48s) plus the backstop's reclaim window.
+ * Wait-ceiling for the sub-agent join (ADR-0073 #4). Load-bearing in two ways:
+ *  - It is the delay of the dead-man wake job scheduled on every `parked` (see
+ *    `resolveAwaitSubAgent`): if the in-band `sub_agent_done` signal is lost,
+ *    never fires, or is swallowed, this is when the parent is forcibly revived.
+ *  - On resume, a parent woken with the child STILL running past the ceiling (a
+ *    spurious early wake) surfaces the still-running result instead of
+ *    re-parking, so the turn ends honestly rather than looping.
+ * 6 min sits well above a normal sub-agent run (≈30–48s) plus ADR-0070's
+ * reclaim window, so the timer only ever fires after the child is terminal.
  */
 const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
 
@@ -925,6 +928,20 @@ async function resolveAwaitSubAgent(args: {
   // Still running within the ceiling — park the parent on the child's
   // completion signal. On resume the await re-runs and reads the terminal
   // outcome (or re-parks if a spurious wake fired early).
+  //
+  // Schedule a dead-man wake at the ceiling BEFORE returning the park. The
+  // in-band `sub_agent_done` signal is the happy-path waker, but it can be
+  // lost (the child finishes in the gap before the executor commits
+  // `waiting`), never fire (a cancelled child), or be swallowed by a worker
+  // crash — and `findResumableRunIds` never sweeps `waiting`, so any of those
+  // strands the boss forever. This timer is the only backstop that covers all
+  // of them: when it fires the await re-reads the (terminal-by-then) child and
+  // returns inline. It no-ops if the in-band signal already woke the parent.
+  await scheduleSubAgentJoinWakeJob({
+    childRunId: args.childRunId,
+    parentRunId: args.parentRunId,
+    delayMs: AWAIT_SUB_AGENT_CEILING_MS,
+  });
   return {
     kind: "parked",
     wake: { kind: "signal", name: subAgentDoneSignalName(args.childRunId) },

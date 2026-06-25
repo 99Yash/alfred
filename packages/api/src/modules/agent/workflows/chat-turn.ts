@@ -172,7 +172,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "Examples of the judgment above:",
     '- User: "how many meetings do i have in october 2026" → call calendar.list_events with timeMin/timeMax bounding October 2026. Do NOT reply "which year?": the year is given, and today\'s date is below.',
     "- User: \"what are my open PRs\" → call github.search with type:'pr', state:'open' filtered to the user. Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo — search across the user's PRs. For \"how many lines did those PRs change\", call github.get_pull_request per hit and total the additions/deletions; don't drop the requirement just because search has no diff stats. In the final answer, render each PR as a link to its url from the result — [#274](<url>) — not a bare #274.",
-    "- User: \"summarise issues 222, 267, 268 and 269\" → call github.get_issue four times in the SAME turn (one per number), then write one combined summary. Do NOT spawn a sub-agent per issue — these are single direct lookups. Link each as [#222](<url>) using the url field from each result.",
+    '- User: "summarise issues 222, 267, 268 and 269" → call github.get_issue four times in the SAME turn (one per number), then write one combined summary. Do NOT spawn a sub-agent per issue — these are single direct lookups. Link each as [#222](<url>) using the url field from each result.',
   ].join("\n"),
   "Finish each turn with a clear reply and no trailing tool calls.",
 ].join("\n\n");
