@@ -52,17 +52,21 @@ export function getCheapModel(): LanguageModel {
   // single inbound email; the larger Flash model was the bottleneck, not
   // the pipeline.
   //
-  // Wrapped in `withFallback` (cross-provider, to Anthropic Haiku 4.5) like
-  // every other model getter so a Google capacity blip ("high demand"
-  // overload) degrades to a comparable cheap tier instead of throwing
+  // Wrapped in `withFallback` like every other model getter so a flash-lite
+  // capacity blip ("high demand" overload) degrades instead of throwing
   // `AI_RetryError`. Previously the only fallback-less getter: a sustained
-  // flash-lite overload hard-failed triage classification (and reddened the
-  // triage eval gate). Haiku 4.5 is the cheapest Anthropic tier and supports
-  // the structured-object output the classifier relies on.
-  return withFallback(
-    googleModel("gemini-2.5-flash-lite"),
-    anthropicModel("claude-haiku-4-5-20251001"),
-  );
+  // overload hard-failed triage classification (and reddened the eval gate).
+  //
+  // Fallback is the larger SAME-PROVIDER tier (gemini-2.5-flash), NOT a
+  // cross-provider Anthropic model. The cheap path runs `generateObject` over
+  // a nested/optional schema, and Anthropic's structured-output (`Output.object`
+  // → `output_config.format.schema`) handles that poorly: it rejects numeric
+  // min/max and intermittently returns `AI_NoObjectGeneratedError` on
+  // valid-looking JSON. Staying on Google keeps the structured-output mechanism
+  // that already works; the bigger Flash pool absorbs flash-lite pressure.
+  // (Boss/chat fall back cross-provider to Anthropic because they run
+  // `generateText`, not structured object generation — different constraint.)
+  return withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash"));
 }
 
 /**

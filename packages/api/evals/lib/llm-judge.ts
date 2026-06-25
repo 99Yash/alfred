@@ -81,17 +81,27 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
     scorer: async ({ input, output, expected }) => {
       const skipReason = opts.skipWhen?.({ input, output, expected });
       if (skipReason) return { score: 0, metadata: skipReason };
-      const result = await generateObject({
-        model: opts.model ?? getChatModel("standard"),
-        schema: judgeOutputSchema,
-        system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
-        prompt: opts.prompt({ input, output, expected }),
-        temperature: 0,
-      });
-      return {
-        score: GRADE_TO_SCORE[result.object.grade],
-        metadata: `${result.object.grade} — ${result.object.feedback}`,
-      };
+      try {
+        const result = await generateObject({
+          model: opts.model ?? getChatModel("standard"),
+          schema: judgeOutputSchema,
+          system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
+          prompt: opts.prompt({ input, output, expected }),
+          temperature: 0,
+        });
+        return {
+          score: GRADE_TO_SCORE[result.object.grade],
+          metadata: `${result.object.grade} — ${result.object.feedback}`,
+        };
+      } catch (err) {
+        // A scorer must never throw: an errored eval trips an evalite-beta
+        // reporter bug that hangs the run until the CI job timeout. A judge-model
+        // failure (overload, `Output.object` parse) is infra, not a real grade,
+        // so score 0 and surface why.
+        const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        console.warn(`[llm-judge] "${opts.name}" judge error: ${reason}`);
+        return { score: 0, metadata: `judge error: ${reason}` };
+      }
     },
   });
 }
