@@ -25,8 +25,16 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  * the web bubble. Borrows Effect's tagged-error → handle-per-tag shape in
  * plain TS (we deliberately don't depend on Effect).
  *
- *   - `attachment`    — the model couldn't read an attached file (bad/oversized
- *                       image, unsupported type). Recoverable: drop it + retry.
+ *   - `attachment`    — the model couldn't read an image attached to the
+ *                       *current* turn. Recoverable: drop it + retry ("Send
+ *                       without it").
+ *   - `attachment_history` — the model couldn't read an image from an *earlier*
+ *                       turn that the whole-thread transcript replays every turn
+ *                       (.lessons/chat-vision-transcript-replay-poison.md).
+ *                       Dropping the current turn's attachments can't fix it —
+ *                       the poison lives in history — so the only recovery is a
+ *                       new chat. Distinct from `attachment` precisely so the UI
+ *                       doesn't offer a dead-end "Send without it" retry.
  *   - `overloaded`    — a transient provider fault (5xx / "internal error" /
  *                       overloaded / network). Recoverable: retry.
  *   - `rate_limited`  — upstream throttling (429). Recoverable: wait + retry.
@@ -35,6 +43,7 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  */
 export const chatErrorKindValues = [
   "attachment",
+  "attachment_history",
   "overloaded",
   "rate_limited",
   "too_long",

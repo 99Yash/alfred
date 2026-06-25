@@ -92,6 +92,15 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         inputSchema: z.object({ slug: z.string() }),
         execute: async (input) => {
           executeCount += 1;
+          // The `poison` sentinel returns a NUL byte the dispatch-boundary
+          // sanitizer must strip (ADR-0070 §1.1) — used to prove the sanitize
+          // verdict is persisted and replayed. Written as the `\x00` ESCAPE,
+          // never a literal NUL byte (a literal one turns this file binary
+          // to rg/grep/git — see the round-10 distinctRecipientCount lesson
+          // in user-model.test.ts).
+          if (input.slug === "poison") {
+            return { ok: true, note: "tail\x00end", call: executeCount };
+          }
           return { ok: true, slug: input.slug, call: executeCount };
         },
       }),
@@ -156,6 +165,47 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 1, "the unique (run_id, tool_call_id) index keeps exactly one row");
     assert.equal(rows[0]?.status, "executed");
+  });
+
+  test("a sanitized result keeps its honesty flag on idempotent re-dispatch", async () => {
+    // ADR-0070 §1.1 review finding: the first execution returns `sanitized:
+    // true` in-memory, but the idempotent `executed` replay re-reads the row.
+    // Unless the verdict is persisted, the model sees the scrubbed result a
+    // second time WITHOUT the "may be incomplete" notice. The result NUL is
+    // stripped at the boundary, so both dispatches must flag `sanitized`.
+    const { userId, runId } = await seedUserAndRun();
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const args = {
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "system.load_integration" as const,
+      input: { slug: "poison" },
+      userId,
+      caller: "boss" as const,
+    };
+
+    const first = await dispatchToolCall(args);
+    assert.equal(first.kind, "executed");
+    assert.equal(
+      first.kind === "executed" ? first.sanitized : undefined,
+      true,
+      "first execution flags the boundary strip",
+    );
+
+    const second = await dispatchToolCall(args);
+    assert.equal(second.kind, "executed");
+    assert.equal(
+      second.kind === "executed" ? second.sanitized : undefined,
+      true,
+      "the idempotent replay must re-emit the persisted sanitize verdict",
+    );
+
+    const rows = await db()
+      .select({ executeSanitized: actionStagings.executeSanitized })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+    assert.equal(rows[0]?.executeSanitized, true, "the verdict is persisted on the row");
   });
 
   test("a fresh toolCallId in the same run executes again", async () => {

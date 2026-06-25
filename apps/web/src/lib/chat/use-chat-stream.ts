@@ -9,6 +9,8 @@ export interface StreamingToolCall {
   status: "started" | "succeeded" | "failed";
   argsPreview?: string;
   resultPreview?: string;
+  /** ADR-0070: non-text bytes were stripped from this result before storage. */
+  sanitized?: boolean;
   /** Narration segment this call follows — orders it against the narration trail. */
   segmentIndex: number;
 }
@@ -324,6 +326,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           status: p.status,
           argsPreview: p.argsPreview ?? prev?.argsPreview,
           resultPreview: p.resultPreview ?? prev?.resultPreview,
+          sanitized: p.sanitized ?? prev?.sanitized,
           segmentIndex: p.segmentIndex ?? prev?.segmentIndex ?? 0,
         });
         markChatTimingByAssistant(
@@ -399,6 +402,7 @@ function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): 
       left.status !== right.status ||
       left.argsPreview !== right.argsPreview ||
       left.resultPreview !== right.resultPreview ||
+      left.sanitized !== right.sanitized ||
       left.segmentIndex !== right.segmentIndex
     ) {
       return false;

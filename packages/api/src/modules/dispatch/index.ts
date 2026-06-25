@@ -41,6 +41,8 @@ import {
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
+  sanitizeErrorMessage,
+  sanitizeToolResult,
   toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -109,6 +111,11 @@ export type DispatchResult =
        *  may want to surface that to the model so future suggestions
        *  account for the correction. */
       editedByUser: boolean;
+      /** ADR-0070: set when the result carried persistence-poison (NUL /
+       *  lone surrogates) that the dispatch-boundary sanitizer stripped. The
+       *  flag rides on the envelope, never on the result value (a bare
+       *  string/array result can't carry a property). */
+      sanitized?: boolean;
     }
   | {
       kind: "failed";
@@ -146,6 +153,7 @@ type StagingRow = Pick<
   | "decidedInput"
   | "rejectReason"
   | "executeResult"
+  | "executeSanitized"
   | "executeError"
   | "notifyAfterAt"
   | "notifiedAt"
@@ -162,6 +170,7 @@ const STAGING_COLUMNS = {
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
+  executeSanitized: actionStagings.executeSanitized,
   executeError: actionStagings.executeError,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
@@ -469,12 +478,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     case "executed":
       // Idempotent re-dispatch. The model proposed the same tool call
       // again (step re-attempt) and the row already carries the
-      // result — hand it straight back without re-executing.
+      // result — hand it straight back without re-executing. Carry the
+      // persisted sanitize verdict so the "may be incomplete" notice survives
+      // the replay (ADR-0070 §1.1); a stripped result must never read as
+      // pristine on a second look.
       return {
         kind: "executed",
         stagingId: row.id,
         toolResult: row.executeResult,
         editedByUser: row.decidedInput !== null && row.decidedInput !== undefined,
+        sanitized: row.executeSanitized,
       };
 
     case "failed":
@@ -667,7 +680,11 @@ async function executeAndCommit(
   try {
     result = await tool.execute(input, ctx);
   } catch (err) {
-    error = { message: toMessage(err) };
+    // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
+    // message. The result-boundary sanitizer below can't reach this — a throw
+    // carries no result — so strip the error string before it hits the
+    // `execute_error` jsonb write.
+    error = { message: sanitizeErrorMessage(toMessage(err)) };
   }
   const now = new Date();
   if (error) {
@@ -683,6 +700,20 @@ async function executeAndCommit(
     if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
     return { kind: "failed", stagingId: row.id, error };
   }
+  // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
+  // returns and before the value touches any persisted sink. This cleans the
+  // `execute_result` jsonb write below AND the `toolResult` returned to the
+  // caller (which flows into the transcript/state — the same poison sinks).
+  const sanitizedResult = sanitizeToolResult(result);
+  result = sanitizedResult.value;
+  const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
+  if (didSanitize) {
+    console.warn(
+      `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s)` +
+        `${sanitizedResult.collisions > 0 ? `, ${sanitizedResult.collisions} key collision(s)` : ""}` +
+        ` from ${tool.name} result`,
+    );
+  }
   // A tool legitimately returning `null` or `undefined` is stored as
   // SQL NULL in `execute_result`. The `status='executed'` field is the
   // discriminator for "execution happened" — readers should never infer
@@ -696,12 +727,22 @@ async function executeAndCommit(
     .set({
       status: "executed",
       executeResult: (result === undefined ? null : result) as object | null,
+      // Persist the sanitize verdict alongside the scrubbed result so the
+      // idempotent `executed` replay (see dispatchStagedRow) can re-emit the
+      // same "may be incomplete" notice rather than replaying it as pristine.
+      executeSanitized: didSanitize,
       executedAt: now,
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })
     .where(eq(actionStagings.id, row.id));
   if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
-  return { kind: "executed", stagingId: row.id, toolResult: result, editedByUser };
+  return {
+    kind: "executed",
+    stagingId: row.id,
+    toolResult: result,
+    editedByUser,
+    sanitized: didSanitize,
+  };
 }
 
 async function executeFastPath(
@@ -711,12 +752,30 @@ async function executeFastPath(
 ): Promise<DispatchResult> {
   try {
     const result = await tool.execute(input, ctx);
-    return { kind: "executed", stagingId: null, toolResult: result, editedByUser: false };
+    // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
+    // result flows into the transcript/state just like the staged path.
+    const sanitized = sanitizeToolResult(result);
+    const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
+    if (didSanitize) {
+      console.warn(
+        `[dispatch] sanitized ${sanitized.removed} poison code unit(s)` +
+          `${sanitized.collisions > 0 ? `, ${sanitized.collisions} key collision(s)` : ""}` +
+          ` from ${tool.name} result`,
+      );
+    }
+    return {
+      kind: "executed",
+      stagingId: null,
+      toolResult: sanitized.value,
+      editedByUser: false,
+      sanitized: didSanitize,
+    };
   } catch (err) {
+    // Throw-poison class (ADR-0070 §1.3).
     return {
       kind: "failed",
       stagingId: null,
-      error: { message: toMessage(err) },
+      error: { message: sanitizeErrorMessage(toMessage(err)) },
     };
   }
 }
