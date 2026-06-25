@@ -28,6 +28,11 @@ function getClient(): Langfuse | null {
     publicKey: env.LANGFUSE_PUBLIC_KEY,
     secretKey: env.LANGFUSE_SECRET_KEY,
     baseUrl: env.LANGFUSE_HOST,
+    // Stamp every trace with the deploy environment (#226) so local and prod
+    // traces never blur once both report. `NODE_ENV` is already one of
+    // development|production|test — all valid Langfuse environment slugs
+    // (lowercase, no leading "langfuse"), so it maps straight through.
+    environment: env.NODE_ENV,
   });
   return _client;
 }
@@ -54,6 +59,14 @@ export interface LangfuseSpanCloser {
     output?: unknown;
     /** Small response metadata (finish_reason, tool-call count) — always attached. */
     responseMeta?: Record<string, unknown>;
+    /**
+     * Model the request actually resolved to (#216). When a `withFallback`
+     * cascade switches providers mid-call, `metered()` reconciles the served
+     * id and passes it here so the generation's `model` reflects what ran —
+     * not the nominal id the span opened with. Defaults to the requested id
+     * when undefined or unchanged.
+     */
+    servedModel?: string;
   }): void;
   error(message: string): void;
 }
@@ -99,6 +112,12 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   // We catch construction errors so a misconfigured SDK can't crash the
   // call site.
   const captureIo = shouldCaptureIo();
+  // Ad-hoc traces hold exactly one generation (unique traceId per call), so the
+  // trace root is the call — mirror the generation I/O up to it (#226) so the
+  // Traces view stops showing the "didn't receive input/output" banner. Run
+  // traces hold many generations; mirroring any single call's I/O to the root
+  // would misrepresent the run, so we leave the root I/O off there.
+  const isAdhocTrace = !meta.runId;
   let generation: ReturnType<Langfuse["generation"]> | null = null;
   try {
     // Upsert the parent trace first. `generation()` with a custom traceId
@@ -106,12 +125,22 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     // orphan observations, so without this the Traces view is empty and
     // runId grouping never materializes. Idempotent on `id`: every call in
     // one run collapses into a single trace tree. Only run-stable fields go
-    // here; per-call identity (model, role, kind) lives on the generation, so
-    // the repeated upserts don't rewrite the trace with the last call's values.
+    // here; per-call identity (model) lives on the generation, so the repeated
+    // upserts don't rewrite the trace with the last call's values. Tags are
+    // unioned by Langfuse across upserts, so a multi-role run accumulates every
+    // surface tag rather than the last writer winning.
     client.trace({
       id: traceId,
       name: traceName,
       userId: meta.userId,
+      // Group a multi-turn conversation (each turn its own run/trace) under one
+      // Sessions-view entry. Chat passes `threadId`; everything else falls back
+      // to the run id so a run's traces still group sensibly (#226).
+      sessionId: meta.sessionId ?? meta.runId,
+      // Promote role/kind to filterable trace tags (#226) — they otherwise only
+      // live in generation metadata, which the Traces filter can't slice by.
+      tags: traceTags(meta),
+      input: captureIo && isAdhocTrace ? meta.input : undefined,
     });
     generation = client.generation({
       traceId,
@@ -135,9 +164,15 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   return {
-    success({ usage, costUsd, output, responseMeta }) {
+    success({ usage, costUsd, output, responseMeta, servedModel }) {
       try {
+        // The span opened with the requested model; if the call actually
+        // resolved to a different (registry-known) model via fallback, restamp
+        // the generation so per-model cost/latency attributes correctly, and
+        // keep the requested id in metadata for fallback debugging (#216).
+        const servedDiverged = servedModel != null && servedModel !== meta.model;
         generation?.end({
+          model: servedDiverged ? servedModel : undefined,
           usage: usage
             ? {
                 input: usage.inputTokens,
@@ -158,8 +193,13 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
           // Full completion only when capture is on; the small response
           // metadata (finish_reason, tool-call count) is always useful.
           output: captureIo ? output : undefined,
-          metadata: responseMeta,
+          metadata: servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta,
         });
+        // Mirror the completion up to an ad-hoc trace's root (#226) so the
+        // Traces view shows the call's I/O instead of the empty-root banner.
+        if (captureIo && isAdhocTrace) {
+          client.trace({ id: traceId, output });
+        }
       } catch (err) {
         console.warn("[langfuse] span end failed:", toMessage(err));
       }
@@ -197,6 +237,20 @@ export async function shutdownLangfuse(): Promise<void> {
   } catch {
     /* swallow */
   }
+}
+
+/**
+ * Build the filterable trace tags from a call's attribution (#226). `role`
+ * names the surface (chat/triage/briefing/cold_start/…) and `kind` the call
+ * shape (llm/embedding/web_search); both are namespaced so the Traces filter
+ * reads cleanly (`role:triage`, `kind:embedding`). Returns undefined when
+ * neither is present so we don't stamp an empty array.
+ */
+function traceTags(meta: MeteredMeta): string[] | undefined {
+  const tags: string[] = [];
+  if (meta.role) tags.push(`role:${meta.role}`);
+  if (meta.kind) tags.push(`kind:${meta.kind}`);
+  return tags.length > 0 ? tags : undefined;
 }
 
 type LangfuseModelParam = string | number | boolean | string[] | null;

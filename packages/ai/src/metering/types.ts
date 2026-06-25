@@ -62,6 +62,14 @@ export interface CallAttribution {
    * omit it.
    */
   role?: CallRole;
+  /**
+   * Langfuse session id (#226). Groups multiple traces that belong to one
+   * conversation/thread into a single Sessions-view entry. Chat passes the
+   * `threadId` so a multi-turn conversation (each turn its own run/trace)
+   * collapses into one session. When omitted, the trace falls back to
+   * grouping by `runId` — never persisted to `api_call_log`, trace-only.
+   */
+  sessionId?: string;
 }
 
 export interface MeteredMeta extends CallAttribution {

@@ -77,6 +77,7 @@ export async function metered<T>(
       costUsd,
       output: extracted.output,
       responseMeta: served.responseMeta,
+      servedModel: served.model,
     });
     return result;
   } catch (err) {
@@ -144,6 +145,7 @@ export function meteredStream<T>(
         costUsd,
         output: extracted.output,
         responseMeta,
+        servedModel: served.model,
       });
     })();
   };

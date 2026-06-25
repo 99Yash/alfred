@@ -95,6 +95,7 @@ export async function runBriefingAgent(
     },
     {
       kind: "llm",
+      role: "briefing",
       userId: args.userId,
       runId: args.runId,
       stepId: args.stepId,
