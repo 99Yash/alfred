@@ -69,6 +69,12 @@ export const actionStagings = pgTable(
     rejectReason: text("reject_reason"),
     executedAt: timestamp("executed_at", { withTimezone: true }),
     executeResult: jsonb("execute_result"),
+    // ADR-0070 §1.1: true when the dispatch-boundary sanitizer stripped
+    // persistence-poison (NUL / lone surrogates) from `executeResult` before it
+    // was stored. Persisted so an idempotent `executed` re-dispatch can hand the
+    // model back the same "this result may be incomplete" notice it saw on the
+    // first execution — otherwise the scrubbed payload replays as if pristine.
+    executeSanitized: boolean("execute_sanitized").notNull().default(false),
     executeError: jsonb("execute_error"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     notifyAfterAt: timestamp("notify_after_at", { withTimezone: true }),

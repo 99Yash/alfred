@@ -77,6 +77,16 @@ export interface Step<S> {
   run(ctx: StepContext<S>): Promise<StepResult<S>>;
 }
 
+/** Context handed to {@link Workflow.onTerminalFailure}. */
+export interface TerminalFailureContext<S> {
+  runId: string;
+  userId: string;
+  /** The run's last-committed state (validated against `stateSchema` if present). */
+  state: S;
+  /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
+  error: string;
+}
+
 export interface WorkflowInput {
   /** User who owns this run; needed by DB-aware run initializers. */
   userId: string;
@@ -139,6 +149,17 @@ export interface Workflow<S = unknown> {
   steps: Record<string, Step<S>>;
   /** Optional zod schema validating `initialState` shape. Run on every load to catch state drift after deploys. */
   stateSchema?: z.ZodType<S>;
+  /**
+   * Optional hook invoked when a run is terminally failed *outside* the step
+   * body — the non-progressing-step backstop (ADR-0070 §1.4) or a post-deploy
+   * step-resolution failure. Step-body faults already finalize themselves
+   * before rethrowing, but those external paths never enter the step, so a
+   * workflow that owns client-facing closure (chat-turn writes a failed
+   * assistant row + emits `chat.message completed`) would otherwise strand the
+   * UI. Best-effort: the run is already terminal in the DB; a throw here is
+   * logged and swallowed.
+   */
+  onTerminalFailure?(ctx: TerminalFailureContext<S>): Promise<void>;
   /**
    * Optional singleton-key derivation for workflows that may run at most
    * once per (user, key) at a time. When defined and non-null, the

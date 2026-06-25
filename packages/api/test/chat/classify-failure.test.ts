@@ -57,6 +57,40 @@ test("an unrelated tool failure with an image present still classifies generic",
   );
 });
 
+test("a drive export failure mentioning 'file' stays generic in an image-bearing thread", () => {
+  // The remaining trap: "unsupported file" / "unsupported media" were
+  // image-reject signals unconditionally, so a `drive.export_file` error
+  // mis-bucketed as `attachment`/`attachment_history` whenever the thread held
+  // an image. They now require an explicit image mention.
+  assert.equal(
+    classifyChatFailure(
+      new Error("drive.export_file: unsupported file export type"),
+      CURRENT_IMAGE,
+    ),
+    "generic",
+  );
+  assert.equal(
+    classifyChatFailure(
+      new Error("drive.export_file: unsupported file export type"),
+      HISTORICAL_IMAGE,
+    ),
+    "generic",
+  );
+  assert.equal(
+    classifyChatFailure(new Error("unsupported media type: application/zip"), CURRENT_IMAGE),
+    "generic",
+  );
+});
+
+test("an image-named 'unsupported media' still classifies attachment", () => {
+  // The narrowing must not regress genuine provider image rejects that phrase
+  // themselves as "unsupported media" — as long as an image is named.
+  assert.equal(
+    classifyChatFailure(new Error("unsupported media type: image/heic"), CURRENT_IMAGE),
+    "attachment",
+  );
+});
+
 test("structured signals still classify correctly (image flags don't touch them)", () => {
   const http = (status: number) =>
     new HttpError({ provider: "test", status, url: "https://x.test", body: "" });
