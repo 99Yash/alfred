@@ -155,7 +155,8 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user asks for a real connected service whose tool is not active yet, infer the integration and call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
     "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
-    "- For a demanding, multi-part request, use system.spawn_sub_agent to investigate in parallel, then synthesize.",
+    "- Default to calling tools directly, and fan out independent lookups in the same turn rather than one item at a time; then synthesize their results. Reserve system.spawn_sub_agent for a subtask that itself needs its own multi-step investigation — many dependent tool calls and reasoning of its own. Spawning one is a full agent run, far too costly for a single lookup.",
+    "- When you do spawn a sub-agent, call system.await_sub_agent with its childRunId to get its real result (await each one you spawned) before you reply. Never tell the user you'll notify them or follow up when the sub-agent finishes — there is no out-of-turn notification. Either await it and answer with the result in this turn, or, if it genuinely can't finish, say plainly that it didn't complete and what you do know.",
     "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- When the user asks to stop surfacing reminders, todos, or briefing items from a sender, use system.remember after resolving a concrete sender email. If the tool asks for clarification, ask the user rather than claiming it is done. When system.remember succeeds, say Alfred will stop surfacing reminders and briefing items from that sender, and that emails will still arrive in Gmail unless the user wants a Gmail filter.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
@@ -165,11 +166,13 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
     '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
+    "- When your answer references a fetched item that carries a url, link it using the exact url from that tool result. Never construct a URL yourself from an id or number; if the result has no url, cite the bare reference instead.",
   ].join("\n"),
   [
     "Examples of the judgment above:",
     '- User: "how many meetings do i have in october 2026" → call calendar.list_events with timeMin/timeMax bounding October 2026. Do NOT reply "which year?": the year is given, and today\'s date is below.',
-    "- User: \"what are my open PRs\" → call github.search with type:'pr', state:'open' filtered to the user. Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo — search across the user's PRs. For \"how many lines did those PRs change\", call github.get_pull_request per hit and total the additions/deletions; don't drop the requirement just because search has no diff stats.",
+    "- User: \"what are my open PRs\" → call github.search with type:'pr', state:'open' filtered to the user. Do NOT call an invented tool like github.list_pull_requests, and do NOT ask which repo — search across the user's PRs. For \"how many lines did those PRs change\", call github.get_pull_request per hit and total the additions/deletions; don't drop the requirement just because search has no diff stats. In the final answer, render each PR as a link to its url from the result — [#274](<url>) — not a bare #274.",
+    "- User: \"summarise issues 222, 267, 268 and 269\" → call github.get_issue four times in the SAME turn (one per number), then write one combined summary. Do NOT spawn a sub-agent per issue — these are single direct lookups. Link each as [#222](<url>) using the url field from each result.",
   ].join("\n"),
   "Finish each turn with a clear reply and no trailing tool calls.",
 ].join("\n\n");
@@ -554,7 +557,7 @@ async function hydrateTranscriptForModel(
 
 function toolResultMessage(
   call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): AgentTranscriptMessage {
   return {
     role: "tool",
@@ -570,7 +573,7 @@ function toolResultMessage(
 }
 
 function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" }>,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
   switch (result.kind) {
     case "executed":
@@ -1004,6 +1007,18 @@ const dispatchToolsStep: Step<ChatRunState> = {
           return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
+        // ADR-0073: an `await_sub_agent` on a still-running child parks the run
+        // on its completion signal — same shape as a gated stage, but the wake
+        // is a `signal` the child fires on terminal commit. Leave the batch
+        // untouched so it re-dispatches on resume (the await then reads the
+        // child's real outcome). HIL staging takes precedence above.
+        const parkedResult = results.find(
+          (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
+        );
+        if (parkedResult) {
+          return { kind: "interrupt", state, transcript, wake: parkedResult.wake };
+        }
+
         // No gate in the batch — commit every result in original call order
         // (transcript order is load-bearing). With nothing staged, every call
         // was dispatched, so each slot is populated.
@@ -1011,8 +1026,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const call = calls[i]!;
           const result = results[i]!;
           // Already handled above; the guard also narrows `result` away from
-          // `staged` for the helpers below.
-          if (result.kind === "staged") continue;
+          // `staged`/`parked` for the helpers below (both cause an early
+          // interrupt return, so neither reaches the commit pass).
+          if (result.kind === "staged" || result.kind === "parked") continue;
 
           applyLoadIntegrationEffect(state, call.toolName, result);
 

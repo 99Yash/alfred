@@ -34,3 +34,14 @@ export function readSubAgentMetadata(metadata: unknown): SubAgentMetadata | null
   const parsed = subAgentMetadataSchema.safeParse(getPath(metadata, "subAgent"));
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * The wake-condition signal a sub-agent fires (via the executor's terminal
+ * commit) so its waiting parent flips back to `runnable`. ADR-0073: keyed by
+ * the child's run id, so a boss awaiting several children wakes only for the
+ * one that finished. Both the `await_sub_agent` park and the terminal-signal
+ * site derive the name from here — one definition, no string drift.
+ */
+export function subAgentDoneSignalName(childRunId: string): string {
+  return `sub_agent_done:${childRunId}`;
+}

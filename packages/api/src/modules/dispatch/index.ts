@@ -52,6 +52,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
+import { readChildRunOutcome } from "../agent/sub-agents";
+import { subAgentDoneSignalName } from "../agent/sub-agent-metadata";
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
@@ -132,6 +134,14 @@ export type DispatchResult =
       kind: "staged";
       stagingId: string;
       wake: Extract<WakeCondition, { kind: "hil" }>;
+    }
+  | {
+      // ADR-0073: `system.await_sub_agent` on a still-running child. Carries a
+      // `signal` wake the parent parks on; the child fires it on terminal
+      // commit. Symmetric to `staged` — the agent loop turns it into a
+      // `StepResult.interrupt`, and the whole batch re-dispatches on resume.
+      kind: "parked";
+      wake: Extract<WakeCondition, { kind: "signal" }>;
     }
   | {
       kind: "invalid_input";
@@ -252,6 +262,19 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       },
     };
   }
+
+  // ADR-0073: the join. Intercept before the staging/execute path so we can
+  // *park* the parent on the child's completion signal instead of returning a
+  // result the boss would have to poll. A terminal (or timed-out) child returns
+  // its real outcome inline; a still-running child parks the step.
+  if (toolName === "system.await_sub_agent") {
+    return await resolveAwaitSubAgent({
+      parentRunId: args.runId,
+      userId: args.userId,
+      childRunId: (input as { childRunId: string }).childRunId,
+    });
+  }
+
   if (isScratchFastPathTool(toolName)) {
     return executeFastPath(tool, input, ctx);
   }
@@ -860,7 +883,52 @@ function validateSystemToolAccess(args: {
   if (args.toolName === "system.spawn_sub_agent" && args.caller !== "boss") {
     return "system.spawn_sub_agent can only be called by the boss";
   }
+  if (args.toolName === "system.await_sub_agent" && args.caller !== "boss") {
+    return "system.await_sub_agent can only be called by the boss";
+  }
   return null;
+}
+
+/**
+ * Defensive wait-ceiling for the sub-agent join (ADR-0073 #4). ADR-0070's
+ * backstop guarantees a child reaches a terminal state and fires its signal,
+ * so a parent normally wakes exactly once — when the child is done. This bound
+ * only matters if the parent is woken with the child still running (a spurious
+ * wake): past the ceiling we surface a still-running result instead of
+ * re-parking, so the turn ends honestly rather than hanging. 6 min sits well
+ * above a normal sub-agent run (≈30–48s) plus the backstop's reclaim window.
+ */
+const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
+
+async function resolveAwaitSubAgent(args: {
+  parentRunId: string;
+  userId: string;
+  childRunId: string;
+}): Promise<DispatchResult> {
+  const outcome = await readChildRunOutcome(args);
+
+  // Terminal child, an ownership/lookup error, or a child that has outrun the
+  // wait-ceiling: hand the boss a real result to act on — never park.
+  if (
+    outcome.done ||
+    !outcome.ok ||
+    (outcome.runningMs !== undefined && outcome.runningMs > AWAIT_SUB_AGENT_CEILING_MS)
+  ) {
+    return {
+      kind: "executed",
+      stagingId: null,
+      toolResult: outcome,
+      editedByUser: false,
+    };
+  }
+
+  // Still running within the ceiling — park the parent on the child's
+  // completion signal. On resume the await re-runs and reads the terminal
+  // outcome (or re-parks if a spurious wake fired early).
+  return {
+    kind: "parked",
+    wake: { kind: "signal", name: subAgentDoneSignalName(args.childRunId) },
+  };
 }
 
 function parseScratchAccessKey(key: string | null): ScratchToolKey | string {

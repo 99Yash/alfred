@@ -3,7 +3,12 @@ import { createRedisConnection } from "../../queue/connection";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { runOnce } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
-import { findResumableRunIds, heartbeatRun, STALE_RUN_LEASE_MS } from "./service";
+import {
+  findResumableRunIds,
+  heartbeatRun,
+  signalParentOfSubAgent,
+  STALE_RUN_LEASE_MS,
+} from "./service";
 import { toMessage } from "@alfred/contracts";
 
 /**
@@ -86,6 +91,19 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
         await snapshotScratchToPostgres(runId);
       } catch (err) {
         console.warn("[agent:worker] scratchpad snapshot failed for", runId, toMessage(err));
+      }
+    }
+    // ADR-0073: a sub-agent child just reached a terminal state — wake the
+    // parent joining it (system.await_sub_agent) and enqueue it for an
+    // immediate resume so the boss reports the real result this turn instead
+    // of polling scratch and giving up (#268). Best-effort: a non-sub-agent
+    // run or an already-moved-on parent is a no-op.
+    if (outcome.kind === "completed" || outcome.kind === "failed") {
+      try {
+        const parentRunId = await signalParentOfSubAgent(runId);
+        if (parentRunId) await enqueueRun(parentRunId);
+      } catch (err) {
+        console.warn("[agent:worker] sub-agent parent signal failed for", runId, toMessage(err));
       }
     }
   } finally {

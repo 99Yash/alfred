@@ -10,7 +10,12 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
-import { spawnSubAgent, spawnSubAgentInputSchema } from "../agent/sub-agents";
+import {
+  awaitSubAgentInputSchema,
+  readChildRunOutcome,
+  spawnSubAgent,
+  spawnSubAgentInputSchema,
+} from "../agent/sub-agents";
 import { readUserContext } from "../memory/user-context";
 import { rememberSenderSuppression } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
@@ -70,6 +75,25 @@ export const systemTools: readonly RegisteredTool[] = [
         subId: input.subId,
         brief: input.brief,
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "await_sub_agent",
+    riskTier: "no_risk",
+    description:
+      "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
+    inputSchema: awaitSubAgentInputSchema,
+    // The dispatcher (dispatch/index.ts) intercepts this tool to park the parent
+    // on a child-completion signal when the child is still running (ADR-0073).
+    // This execute is the read-only fallback (terminal children, or a direct
+    // call that bypasses the dispatcher); it never blocks.
+    execute: async (input, ctx) => {
+      return await readChildRunOutcome({
+        parentRunId: ctx.runId,
+        userId: ctx.userId,
+        childRunId: input.childRunId,
       });
     },
   }),

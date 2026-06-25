@@ -31,6 +31,7 @@ export const INTEGRATION_ACTIONS = {
   system: [
     "load_integration",
     "spawn_sub_agent",
+    "await_sub_agent",
     "read_user_context",
     "read_scratch",
     "write_scratch",
@@ -179,6 +180,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Delegating a sub-task",
     done: "Delegated a sub-task",
     title: "delegate a sub-task",
+  },
+  "system.await_sub_agent": {
+    running: "Waiting on a sub-task",
+    done: "Sub-task finished",
+    title: "wait for a sub-task",
   },
   "system.read_user_context": {
     running: "Reading user context",
