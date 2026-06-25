@@ -68,7 +68,7 @@ export const driveTools: readonly RegisteredTool[] = [
     action: "export_file",
     riskTier: "low",
     description:
-      "Export a Google-native file (Doc/Sheet/Slide) to text. Use download_file for non-Google uploads.",
+      "Read a Google-native file (Doc/Sheet/Slide) in as text so you can reason over its contents. Text export only (text/plain default, text/csv, text/markdown, text/html) — it does NOT produce a downloadable PDF/slides/spreadsheet; that is a separate capability. Use download_file for non-Google uploads. When the user wants a shareable document, a live Google Sheet/Doc link is the deliverable.",
     inputSchema: driveExportFileInput,
     execute: async (input, ctx) => {
       const accessToken = await accessTokenFor(ctx.userId);

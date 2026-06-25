@@ -44,16 +44,16 @@ function followUpForTool(tool: PersistedToolCall): FollowUpSuggestion | null {
   const raw = tool.resultPreview ?? "";
   const result = parseJsonRecord(raw);
 
-  if (tool.toolName === "github.search_pull_requests") {
+  if (tool.toolName === "github.search") {
     const totalCount =
       result && typeof result.totalCount === "number"
         ? result.totalCount
         : Number(/"totalCount"\s*:\s*(\d+)/.exec(raw)?.[1] ?? 0);
     const hasRows = result
-      ? Array.isArray(result.pullRequests) && result.pullRequests.length > 0
-      : /"pullRequests"\s*:\s*\[\s*\{/.test(raw);
+      ? Array.isArray(result.items) && result.items.length > 0
+      : /"items"\s*:\s*\[\s*\{/.test(raw);
     if (totalCount <= 0 || !hasRows) return null;
-    return { id: "github-pr-list", text: "Show me the matching PRs.", brand: "github" };
+    return { id: "github-pr-list", text: "Show me the matching results.", brand: "github" };
   }
 
   if (tool.toolName === "calendar.list_events") {

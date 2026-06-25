@@ -1,6 +1,6 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
@@ -137,6 +137,16 @@ export function ToolCallGroup({
     setValue(active ? ITEM : "");
   }
 
+  // While the turn runs, the capped trail box would otherwise pin to the top and
+  // hide the newest step below the fold — keep it stuck to the bottom so the
+  // step the model is currently on stays in view as the trail grows.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    const el = contentRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [tools, narration, active]);
+
   if (tools.length === 0) return null;
   if (tools.length === 1 && narration.length === 0) return <ToolCallCard tool={tools[0]!} />;
 
@@ -201,7 +211,10 @@ export function ToolCallGroup({
           id={contentId}
           className="overflow-hidden data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down"
         >
-          <div className="ml-3 mt-1.5 flex max-h-80 flex-col gap-1.5 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pl-3">
+          <div
+            ref={contentRef}
+            className="ml-3 mt-1.5 flex max-h-80 flex-col gap-1.5 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pl-3"
+          >
             {trail.map((item) =>
               item.kind === "tool" ? (
                 <ToolCallCard key={item.key} tool={item.tool} />

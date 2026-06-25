@@ -17,8 +17,8 @@ describe("undeclaredToolMessage", () => {
   test("enumerates valid actions for an invented qualified integration tool", () => {
     const message = undeclaredToolMessage("github.list_pull_requests", ["github"]);
 
-    assert.match(message, /github exposes: `search_pull_requests`/);
-    assert.match(message, /Use 'github\.search_pull_requests' instead/);
+    assert.match(message, /github exposes: `search`, `get_pull_request`, `get_issue`/);
+    assert.match(message, /Use 'github\.get_pull_request' instead/);
     assert.match(message, /system\.load_integration/);
   });
 
