@@ -150,8 +150,12 @@ const chatRunStateSchema = z.object({
   turnCount: z.number().int().min(0).default(0),
   started: z.boolean().default(false),
   // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
-  // have already been folded into the transcript. Lets the guard re-run on each
-  // resume without re-folding a child it already surfaced.
+  // are already accounted for in the transcript — either folded by the guard, or
+  // surfaced because the boss explicitly called `await_sub_agent` (a successful
+  // await commits the child's real outcome as a normal tool result). Lets the
+  // guard re-run on each resume without re-folding a child it already surfaced,
+  // and stops it from injecting a false "finished without you awaiting it" note
+  // for a child the boss did await.
   foldedChildRunIds: z.array(z.string()).default([]),
 });
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
@@ -652,6 +656,19 @@ function splitEventText(text: string): string[] {
 // ── steps ─────────────────────────────────────────────────────────────────
 
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
+const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
+
+/**
+ * The `childRunId` argument of a `system.await_sub_agent` call, if present. A
+ * successful await hands the boss the child's real outcome as a normal tool
+ * result in-transcript, so the child is already accounted for — see the
+ * finalization-guard accounting at the dispatch-tools commit pass.
+ */
+export function awaitedChildRunId(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  const id = input.childRunId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
 
 /** Truncated, model-readable rendering of a folded child's output/error. */
 function renderChildOutcome(value: unknown): string {
@@ -1271,6 +1288,19 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(sanitized ? { sanitized } : {}),
             segmentIndex: call.segmentIndex,
           });
+
+          // ADR-0073: a successful `await_sub_agent` already handed the boss the
+          // child's real outcome in-transcript, so the finalization guard must
+          // treat that child as accounted for — otherwise it re-folds it and
+          // injects a false "finished without you awaiting it" note, demoting the
+          // boss's answer and burning another turn. (A still-running await parks
+          // and never reaches this commit pass, so only resolved awaits land here.)
+          if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
+            const childRunId = awaitedChildRunId(call.input);
+            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
+              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
+            }
+          }
           await publishEvent({
             userId: ctx.userId,
             kind: "chat.tool",

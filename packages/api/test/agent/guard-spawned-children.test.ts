@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import type { ChildRunOutcome } from "../../src/modules/agent/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-join-wake-queue";
 import {
+  awaitedChildRunId,
   guardSpawnedChildren,
   type ChatRunState,
   type GuardSpawnedChildrenDeps,
@@ -229,6 +230,48 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result, null, "nothing left unfolded → the turn finalizes normally");
     assert.equal(rec.published.length, 0, "no segment churn when there's nothing to guard");
+  });
+
+  test("spawn + terminal await → guard returns null (no false 'unawaited' note)", async () => {
+    // The boss spawned a child and then correctly `await_sub_agent`'d it. The
+    // dispatch commit pass records that successful await by adding the child to
+    // `foldedChildRunIds` (see `awaitedChildRunId` accounting), so the guard must
+    // see nothing left to fold — otherwise it injects the false "finished without
+    // you awaiting it" note, demotes the streamed answer, and burns a turn.
+    const state = baseState({
+      toolCallsLog: [
+        {
+          toolCallId: "tc_spawn",
+          toolName: "system.spawn_sub_agent",
+          status: "succeeded",
+          segmentIndex: 0,
+        },
+        {
+          toolCallId: "tc_await",
+          toolName: "system.await_sub_agent",
+          status: "succeeded",
+          segmentIndex: 0,
+        },
+      ],
+      // What the commit-pass accounting leaves behind for an awaited child.
+      foldedChildRunIds: ["child_a"],
+    });
+    const rec = recorder({
+      children: [{ id: "child_a", status: "completed" }],
+      outcomes: { child_a: { ok: true, done: true, status: "completed", output: { ok: 1 } } },
+    });
+    const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
+    assert.equal(result, null, "the awaited child is already accounted for → finalize normally");
+    assert.equal(rec.published.length, 0, "no segment churn for a correctly-awaited child");
+  });
+
+  test("awaitedChildRunId extracts the childRunId from a well-formed await input", () => {
+    assert.equal(awaitedChildRunId({ childRunId: "run_child" }), "run_child");
+    assert.equal(awaitedChildRunId({ childRunId: "" }), null);
+    assert.equal(awaitedChildRunId({ childRunId: 42 }), null);
+    assert.equal(awaitedChildRunId({}), null);
+    assert.equal(awaitedChildRunId(null), null);
+    assert.equal(awaitedChildRunId("run_child"), null);
   });
 
   test("the live segment transition: a zero-length delta closes the premature answer", async () => {
