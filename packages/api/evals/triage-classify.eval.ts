@@ -394,9 +394,9 @@ interface TaskOutput {
   context: string;
   email: { from: string; subject: string; body: string };
   /**
-   * True when the cheap model AND its Haiku fallback were both overloaded and
+   * True when the cheap model AND its configured fallback were both overloaded and
    * the case couldn't be classified — see `isTransientOverload`. Such a case
-   * scores 0 (evalite has no per-case exclude), but with the Haiku fallback in
+   * scores 0 (evalite has no per-case exclude), but with the fallback in
    * place this is rare; a run with many skips is a provider outage, not a
    * classifier regression, and the skip warnings in the log say so.
    */
@@ -448,7 +448,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     senderContext: c.sender,
     observations,
-    // Fail fast to the Haiku fallback under a Gemini overload instead of burning
+    // Fail fast to the configured fallback under provider overload instead of burning
     // three exponential-backoff cycles per case. Without this, a CI run during a
     // sustained-throttle window blows the eval job's wall-clock budget. Prod
     // leaves this unset (SDK default).

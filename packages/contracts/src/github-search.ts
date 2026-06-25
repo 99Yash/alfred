@@ -243,10 +243,11 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
       "`merged` filters conflict with `type:'issue'` — issues are never merged. Use `type:'pr'` (or `'both'`) to filter by merge.",
     );
   }
-  // `is:unmerged` in `query` while merged filters are set is a true semantic
-  // contradiction (a PR can't be both) — sanitize can't pick a side, so reject.
+  // Positive `is:unmerged` in `query` while merged filters are set is a true
+  // semantic contradiction (a PR can't be both) — sanitize can't pick a side,
+  // so reject. A negated `-is:unmerged` is compatible with merged filters.
   const hasUnmergedFilter = qualifiers.some(
-    (q) => q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
+    (q) => !q.negated && q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
   );
   if (hasUnmergedFilter && (input.state === "merged" || input.mergedWithinDays !== undefined)) {
     issues.push(

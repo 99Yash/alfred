@@ -116,7 +116,7 @@ Ordered by dependency. P0–P1 = Track 1 (the screenshot unblock, days). P2–P5
 - **Connected summary already exists** (`agent/connected-summary.ts`, ADR-0053) — snapshotted into `agent_runs.state` at run start and injected into the boss/chat prompt. The **remaining** P0 work is eager connected *tool declaration* + the dispatch floor (chat still initializes `activeIntegrations: []` and lazy-loads — `chat-turn.ts`). **For the suppression slice this is mostly deferrable:** the slice adds always-on `system.*` tools, which don't ride `allowed_integrations`/lazy-load; the slice's real P0 dependency is the **date + tz grounding recovery** above, not the tool-declaration work.
 - Inject date + connected summary into **both** boss and chat prompts as one run-start snapshot.
 - Recovery envelope (`dispatch/index.ts`): an unknown action on an allowed+connected integration returns that integration's **real action list**; `integrationActionSuggestion` handles qualified names (today bails on any `.`).
-- **Accept:** date eval passes + a connected-summary assertion; inventing `github.list_pull_requests` returns "github exposes: `search_pull_requests`…".
+- **Accept:** date eval passes + a connected-summary assertion; inventing `github.list_pull_requests` returns "github exposes: `search`…".
 
 ### P1 — Wire `read_user_context` (`GROUND-002`)
 - Promote `readTriageUserContext` to a shared reader; register `system.read_user_context` (always-on, autonomy, `no_risk`) for boss/chat/sub-agents.

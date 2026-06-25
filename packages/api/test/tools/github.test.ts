@@ -326,6 +326,11 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
 
   test("allows closed-unmerged searches but rejects unmerged merged-window collisions", () => {
     assert.deepEqual(githubSearchQueryIssues({ state: "closed", query: "is:unmerged" }), []);
+    assert.deepEqual(
+      githubSearchQueryIssues({ state: "merged", query: "-is:unmerged repo:99Yash/alfred" }),
+      [],
+      "negated is:unmerged excludes unmerged PRs; it does not contradict merged filters",
+    );
 
     const stateIssues = githubSearchQueryIssues({ state: "merged", query: "is:unmerged" });
     assert.equal(stateIssues.length, 1);
