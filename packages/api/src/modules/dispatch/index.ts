@@ -45,6 +45,7 @@ import {
   sanitizeToolResult,
   toMessage,
 } from "@alfred/contracts";
+import { startToolSpan } from "@alfred/ai";
 import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/schemas";
@@ -710,6 +711,39 @@ function actionTokens(action: string): string[] {
     .filter((token) => token.length > 0);
 }
 
+/**
+ * Run a tool inside a Langfuse span nested under the run trace (#214). Both
+ * execution paths (staged + scratch fast-path) funnel through here so every
+ * actual execution — and only execution, never a stage/reject/invalid branch —
+ * lands as a `tool:<name>` span in the run tree. The span records timing and
+ * metadata always; I/O rides the `LANGFUSE_CAPTURE_IO` gate. Errors close the
+ * span and rethrow so each caller keeps its own poison-aware error handling.
+ */
+async function executeToolWithSpan(
+  tool: ReturnType<typeof getTool> & object,
+  input: unknown,
+  ctx: ToolExecuteContext,
+): Promise<unknown> {
+  const span = startToolSpan({
+    runId: ctx.runId,
+    toolName: tool.name,
+    toolCallId: ctx.toolCallId,
+    userId: ctx.userId,
+    caller: ctx.caller === "boss" ? "boss" : `sub:${ctx.caller.subId}`,
+    stepId: ctx.stepId,
+    input,
+    startedAt: new Date(),
+  });
+  try {
+    const result = await tool.execute(input, ctx);
+    span.success(result);
+    return result;
+  } catch (err) {
+    span.error(toMessage(err));
+    throw err;
+  }
+}
+
 async function executeAndCommit(
   row: StagingRow,
   tool: ReturnType<typeof getTool> & object,
@@ -720,7 +754,7 @@ async function executeAndCommit(
   let result: unknown;
   let error: { message: string } | undefined;
   try {
-    result = await tool.execute(input, ctx);
+    result = await executeToolWithSpan(tool, input, ctx);
   } catch (err) {
     // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
     // message. The result-boundary sanitizer below can't reach this — a throw
@@ -793,7 +827,7 @@ async function executeFastPath(
   ctx: ToolExecuteContext,
 ): Promise<DispatchResult> {
   try {
-    const result = await tool.execute(input, ctx);
+    const result = await executeToolWithSpan(tool, input, ctx);
     // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
     // result flows into the transcript/state just like the staged path.
     const sanitized = sanitizeToolResult(result);
