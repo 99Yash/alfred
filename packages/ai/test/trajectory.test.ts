@@ -24,7 +24,7 @@ function span(
   toolName: string,
   input: unknown,
   startTime: string,
-  opts: { error?: string } = {},
+  opts: { error?: string; toolCallId?: string } = {},
 ): TraceObservation {
   return {
     type: "SPAN",
@@ -33,6 +33,7 @@ function span(
     input,
     level: opts.error ? "ERROR" : "DEFAULT",
     statusMessage: opts.error ?? null,
+    metadata: opts.toolCallId ? { toolCallId: opts.toolCallId } : null,
   };
 }
 
@@ -86,13 +87,49 @@ describe("extractTrajectory", () => {
           "2026-06-26T01:00:01",
         ),
         // ...but only the search executed (the write was HIL-gated, no span).
-        span("github.search", { q: "is:open" }, "2026-06-26T01:00:02"),
+        span("github.search", { q: "is:open" }, "2026-06-26T01:00:02", { toolCallId: "c1" }),
       ],
     };
     const tj = extractTrajectory(trace);
     assert.deepEqual(tj.steps.map((s) => s.toolName), ["github.search"]);
     assert.deepEqual(tj.decidedNotExecuted, [
       { toolName: "calendar.create_event", input: { title: "Sync" } },
+    ]);
+  });
+
+  // The live-data regression (run_wdtn451w1zp0): the model tried calendar.list_events
+  // three times; only the third ran, with SDK-injected `maxResults`. Matching by
+  // canonical args wrongly flagged the executed one too. Match by toolCallId instead.
+  test("matches decided→executed by toolCallId even when the args were transformed", () => {
+    const trace: TraceLike = {
+      id: "run_3",
+      observations: [
+        gen(
+          {
+            toolCalls: [
+              { toolName: "calendar.list_events", toolCallId: "tc1", input: { timeframe: "today" } },
+              {
+                toolName: "calendar.list_events",
+                toolCallId: "tc2",
+                input: { timeMin: "2026-06-26T00:00:00Z", timeMax: "2026-06-26T23:59:59Z" },
+              },
+            ],
+          },
+          "t1",
+        ),
+        // Executed with an injected `maxResults` — args differ from the decision,
+        // but the toolCallId matches tc2, so it must NOT be flagged.
+        span(
+          "calendar.list_events",
+          { timeMin: "2026-06-26T00:00:00Z", timeMax: "2026-06-26T23:59:59Z", maxResults: 10 },
+          "t2",
+          { toolCallId: "tc2" },
+        ),
+      ],
+    };
+    const tj = extractTrajectory(trace);
+    assert.deepEqual(tj.decidedNotExecuted, [
+      { toolName: "calendar.list_events", input: { timeframe: "today" } },
     ]);
   });
 });
