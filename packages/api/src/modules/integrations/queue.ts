@@ -7,15 +7,17 @@ import {
   installGmailWatch,
   pollGmailHistory,
   pollGmailRecent,
+  reconcileGmailThreads,
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
-import { chatAttachments } from "@alfred/db/schemas";
-import { inArray } from "drizzle-orm";
+import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
+import { gmailSentSql } from "../triage/sent-mail";
 import { reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 
@@ -219,7 +221,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           async () => {
             if (data.triageInsertedDocs) {
               await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+              // Reply re-eval emits forced triage runs, so it rides the same
+              // gate — a bulk backlog re-ingest (triageInsertedDocs=false)
+              // must not fan a forced re-classify per historical sent reply.
+              await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
             }
+          },
+          async () => {
+            await reconcileThreadsBestEffort(
+              data.credentialId,
+              result.userId,
+              result.touchedThreadIds,
+            );
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -254,6 +267,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook");
           },
           async () => {
+            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+          },
+          async () => {
+            await reconcileThreadsBestEffort(
+              data.credentialId,
+              result.userId,
+              result.touchedThreadIds,
+            );
+          },
+          async () => {
             await embedRealtimeInserts(result.insertedDocumentIds);
           },
           async () => {
@@ -280,6 +303,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         await runTaskGroup([
           async () => {
             await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+          },
+          async () => {
+            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+          },
+          async () => {
+            await reconcileThreadsBestEffort(
+              data.credentialId,
+              result.userId,
+              result.touchedThreadIds,
+            );
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -462,6 +495,108 @@ async function emitGmailMessageEvents(
       );
     }
   });
+}
+
+/**
+ * Re-evaluate a thread's triage tag when the user sends an outbound reply
+ * (issue #282). Sent mail is ingested + embedded but deliberately never
+ * triaged/labeled and never a sender prior (ADR-0051 #7) — so the kept
+ * "re-evaluate on reply" contract only ever fired on INBOUND replies, freezing
+ * the tag until the counterparty sent again.
+ *
+ * We preserve both ADR-0051 #7 guardrails by NOT triaging the sent doc: instead
+ * we re-key the received-only classify on the thread's newest INBOUND doc and
+ * pass `force` so the already-tagged skip guard re-classifies. `getThreadState`
+ * folds the outbound reply in (`lastUserReplyAt` / `recentMessages`), and the
+ * workflow skips the sender-prior bump for `reason: "reply"`. A reply means it
+ * matters — we re-eval on every outbound reply regardless of current tag.
+ *
+ * Best-effort: failures are logged, never bubbled into the ingest result.
+ */
+async function reEvaluateRepliedThreads(
+  userId: string,
+  sentDocumentIds: string[],
+): Promise<void> {
+  if (!sentDocumentIds.length) return;
+  try {
+    const sentDocs = await db()
+      .select({ threadId: documents.sourceThreadId })
+      .from(documents)
+      .where(and(eq(documents.userId, userId), inArray(documents.id, sentDocumentIds)));
+    const threadIds = Array.from(
+      new Set(sentDocs.map((d) => d.threadId).filter((t): t is string => Boolean(t))),
+    );
+    if (!threadIds.length) return;
+
+    // Only threads we already triage. A brand-new outbound-first thread has no
+    // triage row to refresh and no inbound doc to key the received-only
+    // classify on.
+    const triaged = await db()
+      .select({ threadId: emailTriage.sourceThreadId })
+      .from(emailTriage)
+      .where(and(eq(emailTriage.userId, userId), inArray(emailTriage.sourceThreadId, threadIds)));
+    const triagedThreadIds = triaged.map((t) => t.threadId);
+    if (!triagedThreadIds.length) return;
+
+    await mapConcurrent(triagedThreadIds, REALTIME_EMIT_CONCURRENCY, async (threadId) => {
+      const inbound = await db()
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.userId, userId),
+            eq(documents.source, "gmail"),
+            eq(documents.sourceThreadId, threadId),
+            sql`NOT (${gmailSentSql()})`,
+          ),
+        )
+        .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)
+        .limit(1);
+      const inboundId = inbound[0]?.id;
+      if (!inboundId) return;
+      try {
+        await emitEvent({
+          userId,
+          source: "gmail",
+          type: "message_received",
+          eventId: inboundId,
+          payload: { documentId: inboundId, reason: "reply", force: true },
+        });
+      } catch (err) {
+        console.warn(
+          `[ingestion:worker] reply re-eval failed thread=${threadId}:`,
+          toMessage(err),
+        );
+      }
+    });
+  } catch (err) {
+    console.warn(`[ingestion:worker] reEvaluateRepliedThreads failed user=${userId}:`, toMessage(err));
+  }
+}
+
+/**
+ * Converge a run's touched threads to the live Gmail message set (issue #279),
+ * pruning the tail of dead/superseded `source_id`s. Best-effort and fanned out
+ * OFF the tag-latency path so its threads.get calls never delay triage.
+ */
+async function reconcileThreadsBestEffort(
+  credentialId: string,
+  userId: string,
+  threadIds: string[],
+): Promise<void> {
+  if (!threadIds.length) return;
+  try {
+    const result = await reconcileGmailThreads({ credentialId, userId, threadIds });
+    if (result.docsDeleted > 0 || result.triageRepointed > 0) {
+      console.log(
+        `[ingestion:worker] gmail.reconcile credential=${credentialId} ` +
+          `threadsChecked=${result.threadsChecked} reconciled=${result.threadsReconciled} ` +
+          `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[ingestion:worker] reconcileThreads failed credential=${credentialId}:`, toMessage(err));
+  }
 }
 
 /**

@@ -36,6 +36,10 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
   const reason = typeof args.payload?.reason === "string" ? args.payload.reason : undefined;
   const documentId =
     typeof args.payload?.documentId === "string" ? args.payload.documentId : undefined;
+  // Threaded into the run input so a re-key on an already-classified doc (the
+  // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
+  // skip guard instead of no-op'ing.
+  const force = typeof args.payload?.force === "boolean" ? args.payload.force : undefined;
 
   const rows = await db()
     .select({
@@ -93,7 +97,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
         const { runId } = await createRun({
           userId: args.userId,
           workflowSlug: row.slug,
-          input: { documentId, reason, source: args.source, type: args.type },
+          input: { documentId, reason, force, source: args.source, type: args.type },
           metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
           trigger: {
             kind: "event",
