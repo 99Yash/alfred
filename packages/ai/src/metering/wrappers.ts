@@ -286,17 +286,39 @@ export function meteredStreamText(
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
+        // No top-level `response` on an abort, so mine the served model id
+        // off the last finished step — otherwise a stop/timeout after a
+        // `withFallback` cascade gets logged as the nominal primary (#216).
+        const served = servedFromSteps(event.steps);
         abort({
           usage: usageFromSteps(event.steps),
           responseMeta: {
             finishReason: "abort",
             stepCount: event.steps.length,
+            ...(served.served ? {} : { servedModelUnknown: true }),
           },
+          ...served,
         });
         callerOnAbort?.(event);
       },
     }),
   ) as StreamTextResult<ToolSet, never>;
+}
+
+/**
+ * Latest served model id across finished steps. Walks from the end so the
+ * most recent step (the one the cascade landed on) wins; returns `{}` when no
+ * step reported a `response.modelId`, so the caller can flag the attribution
+ * as unknown rather than silently keeping the pre-call primary.
+ */
+function servedFromSteps(
+  steps: readonly { response?: { modelId?: string } }[],
+): Pick<MeteredResult, "served"> {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const modelId = steps[i]?.response?.modelId;
+    if (modelId) return { served: { model: modelId } };
+  }
+  return {};
 }
 
 function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {

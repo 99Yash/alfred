@@ -81,13 +81,24 @@ function openAndClose() {
   }
 }
 
-async function fetchTrace(host: string, auth: string, traceId: string): Promise<any | null> {
+/** The slice of the Langfuse trace payload the envelope assertions read back. */
+interface VerifiedTrace {
+  sessionId?: string | null;
+  tags?: string[] | null;
+  environment?: string | null;
+}
+
+async function fetchTrace(
+  host: string,
+  auth: string,
+  traceId: string,
+): Promise<VerifiedTrace | null> {
   const res = await fetch(`${host}/api/public/traces/${traceId}`, {
     headers: { Authorization: `Basic ${auth}` },
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
-  return res.json();
+  return res.json() as Promise<VerifiedTrace>;
 }
 
 async function main() {
@@ -106,7 +117,7 @@ async function main() {
 
   // Ingestion is async (worker). Poll until all three traces materialize.
   const ids = [chatRun, jobRun, embedRun];
-  let traces: Record<string, any> = {};
+  let traces: Record<string, VerifiedTrace> = {};
   for (let attempt = 1; attempt <= 20; attempt++) {
     traces = {};
     for (const id of ids) {
