@@ -46,6 +46,16 @@ export interface ToolExecuteContext {
    */
   caller: "boss" | { subId: string };
   /**
+   * The chat thread + assistant message this call belongs to, when the call
+   * originates from a chat turn. Present only for chat dispatch (the chat-turn
+   * workflow snapshots both on its run state); background/sub-agent runs leave
+   * them undefined. Artifact authoring tools (ADR-0075) require them — an
+   * artifact is owned by the thread/message that produced it — and refuse the
+   * call honestly when they are absent.
+   */
+  threadId?: string;
+  messageId?: string;
+  /**
    * Workflow-level integration cap. Empty or undefined means unrestricted.
    * Internal system tools such as `system.load_integration` use this to
    * validate without reading or mutating run state.

@@ -48,6 +48,7 @@ import {
 } from "../sub-agents";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
+import { finalizeRunArtifacts } from "../../artifacts/write";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
@@ -182,7 +183,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
     "- Write actions (sending email, creating events) are gated for user approval — propose them and the user confirms. If a tool result says status is rejected_by_user, do not retry the identical proposal.",
     "- Attempt the closest real capability before declaring you can't do something, and never silently narrow the request — if a tool can't return part of what was asked (for example diff/line counts from a search), get it the right way (github.search to find the PRs, then github.get_pull_request per PR to total the lines) or say plainly what you can and can't provide. When you genuinely can't, state both halves: what you can't do and what you can.",
-    "- A live Google Sheet, Doc, or shareable link that already answers the request is a finished deliverable — stop there. Do not chase a downloadable PDF/PowerPoint/Excel export; reading a Google file in is text-only, and producing a downloadable binary is a capability you do not have.",
+    "- When the user wants something written or built to read or present — a doc, brief, report, one-pager, slide deck, or PDF — author it as an artifact with system.create_artifact (then append_artifact_page per page for a deck/PDF). It renders in a side panel they can read, resize, and ask you to revise; don't bury a long deliverable in the chat reply. A live Google Sheet, Doc, or shareable link that already answers the request is also a finished deliverable — stop there. The one thing you cannot produce is a downloadable binary export (.pdf/.pptx/.xlsx); offer the artifact or the live link instead.",
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
     '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
@@ -1265,6 +1266,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
             input: call.input,
             userId: ctx.userId,
             caller: "boss",
+            threadId: state.threadId,
+            messageId: state.messageId,
             scratchpadRunId: ctx.runId,
             timezone: state.timezone,
             allowedIntegrations: state.allowedIntegrations,
@@ -1443,6 +1446,11 @@ async function finalizeAssistantMessage(
     .update(chatThreads)
     .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
     .where(and(eq(chatThreads.id, state.threadId), eq(chatThreads.userId, userId)));
+
+  // Close out any artifacts this turn authored: flip still-`generating` rows to
+  // `complete` so the sidebar leaves the placeholder state (ADR-0075). Tied to
+  // the run lifecycle so the boss never has to call a separate "finish" tool.
+  await finalizeRunArtifacts(userId, runId, "complete");
 
   await publishEvent({
     userId,
@@ -1725,6 +1733,10 @@ async function finalizeFailedMessage(
     .update(chatThreads)
     .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
     .where(and(eq(chatThreads.id, state.threadId), eq(chatThreads.userId, userId)));
+
+  // Mark any in-flight artifacts from the faulted turn as `error` rather than
+  // leaving them stuck `generating` (ADR-0075). Partial content stays visible.
+  await finalizeRunArtifacts(userId, runId, "error");
 
   await publishEvent({
     userId,
