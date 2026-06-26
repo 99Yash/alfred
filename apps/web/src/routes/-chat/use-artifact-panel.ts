@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
+
 /**
  * Local UI state for the chat's artifact sidebar (ADR-0075 Phase 3). The
  * artifact *content* is the synced `artifacts` row (see `useArtifact`); this
@@ -27,13 +29,6 @@ export interface ArtifactPanelState {
   width: number;
   /** Open the panel to a specific artifact (or refocus it on a new one). */
   open: (artifactId: string) => void;
-  /**
-   * Open the panel for an artifact the boss just started authoring — but only
-   * the first time we see that id (ADR-0075 Phase 4). After the user closes an
-   * auto-opened artifact, later pokes for the same row won't pop it back open;
-   * a brand-new artifact (new id) auto-opens again. Manual `open` is unaffected.
-   */
-  autoOpen: (artifactId: string) => void;
   /** Close the panel; restores the Today rail in the shared right slot. */
   close: () => void;
   /** Persist a new inline width (clamped + written to localStorage). */
@@ -53,7 +48,10 @@ function readStoredWidth(): number {
   return Number.isNaN(parsed) ? ARTIFACT_PANEL_DEFAULT_WIDTH : clampWidth(parsed);
 }
 
-export function useArtifactPanel(threadId: string | undefined): ArtifactPanelState {
+export function useArtifactPanel(
+  threadId: string | undefined,
+  activeRunId: string | undefined,
+): ArtifactPanelState {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [width, setWidthState] = useState<number>(readStoredWidth);
   // Artifact ids we've already auto-opened, so closing one doesn't make the
@@ -68,12 +66,25 @@ export function useArtifactPanel(threadId: string | undefined): ArtifactPanelSta
     autoOpenedRef.current = new Set();
   }, [threadId]);
 
+  // Auto-open the sidebar when the boss authors an artifact in the live run
+  // (ADR-0075 Phase 4). We own this here — rather than letting the shell push
+  // freshly-synced ids into us via an effect — so the panel's state stays
+  // self-contained. We bind to the synced row (which carries the real id and
+  // `runId`) rather than the `chat.tool` event, which only has a title. Gating
+  // on `activeRunId` means reloading a finished thread never springs the panel
+  // open; the ref makes auto-open fire once per id, so a manual close sticks.
+  const threadArtifacts = useThreadArtifacts(threadId);
+  useEffect(() => {
+    if (!activeRunId) return;
+    // `threadArtifacts` is newest-first, so this opens the most recent artifact
+    // the live run has produced so far.
+    const fresh = threadArtifacts.find((a) => a.runId === activeRunId);
+    if (!fresh || autoOpenedRef.current.has(fresh.id)) return;
+    autoOpenedRef.current.add(fresh.id);
+    setSelectedId(fresh.id);
+  }, [activeRunId, threadArtifacts]);
+
   const open = useCallback((artifactId: string) => setSelectedId(artifactId), []);
-  const autoOpen = useCallback((artifactId: string) => {
-    if (autoOpenedRef.current.has(artifactId)) return;
-    autoOpenedRef.current.add(artifactId);
-    setSelectedId(artifactId);
-  }, []);
   const close = useCallback(() => setSelectedId(null), []);
 
   const setWidth = useCallback((next: number) => {
@@ -89,7 +100,6 @@ export function useArtifactPanel(threadId: string | undefined): ArtifactPanelSta
     isOpen: selectedId !== null,
     width,
     open,
-    autoOpen,
     close,
     setWidth,
   };
