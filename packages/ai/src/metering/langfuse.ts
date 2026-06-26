@@ -1,7 +1,7 @@
 import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
-import type { CallUsage, MeteredMeta } from "./types";
+import type { CallKind, CallUsage, MeteredMeta } from "./types";
 import { toMessage } from "@alfred/contracts";
 
 /**
@@ -28,6 +28,13 @@ function getClient(): Langfuse | null {
     publicKey: env.LANGFUSE_PUBLIC_KEY,
     secretKey: env.LANGFUSE_SECRET_KEY,
     baseUrl: env.LANGFUSE_HOST,
+    // Stamp every trace with the deploy environment (#226) so traces never
+    // blur once multiple targets report. `NODE_ENV` only separates
+    // development|production|test, but staging/preview/prod all run with
+    // `NODE_ENV=production`, so prefer the dedicated
+    // `LANGFUSE_TRACING_ENVIRONMENT` slug per deploy target and fall back to
+    // `NODE_ENV` only when it's unset (#226 review).
+    environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
   });
   return _client;
 }
@@ -54,6 +61,14 @@ export interface LangfuseSpanCloser {
     output?: unknown;
     /** Small response metadata (finish_reason, tool-call count) — always attached. */
     responseMeta?: Record<string, unknown>;
+    /**
+     * Model the request actually resolved to (#216). When a `withFallback`
+     * cascade switches providers mid-call, `metered()` reconciles the served
+     * id and passes it here so the generation's `model` reflects what ran —
+     * not the nominal id the span opened with. Defaults to the requested id
+     * when undefined or unchanged.
+     */
+    servedModel?: string;
   }): void;
   error(message: string): void;
 }
@@ -82,23 +97,12 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   const { meta, startedAt } = input;
-  // Prefer runId so calls inside one run group; fall back to idempotency
-  // key (stable across retries) and finally a UUID. Date.now() would
-  // collide for concurrent calls in the same ms and merge unrelated traces.
-  const traceId = meta.runId ?? `adhoc:${meta.idempotencyKey ?? randomUUID()}`;
-  // The trace names the whole run; the generation below names the call. A run
-  // mixes models and roles (boss + sub-agents + compactor), so naming the trace
-  // after any single call's `provider/model` would churn — every call upserts
-  // the trace, and the last writer would win. `run:<id>` is stable by
-  // construction. Ad-hoc traces hold exactly one generation (unique traceId per
-  // call), so there's no churn and the descriptive name is more useful there.
-  const traceName = meta.runId
-    ? `run:${meta.runId}`
-    : (meta.name ?? `${meta.provider}/${meta.model}`);
   // generation() in Langfuse v3 returns an object with .end()/.update().
   // We catch construction errors so a misconfigured SDK can't crash the
   // call site.
   const captureIo = shouldCaptureIo();
+  const traceId = resolveTraceId(meta);
+  const adhoc = isAdhocTrace(meta);
   let generation: ReturnType<Langfuse["generation"]> | null = null;
   try {
     // Upsert the parent trace first. `generation()` with a custom traceId
@@ -106,60 +110,35 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
     // orphan observations, so without this the Traces view is empty and
     // runId grouping never materializes. Idempotent on `id`: every call in
     // one run collapses into a single trace tree. Only run-stable fields go
-    // here; per-call identity (model, role, kind) lives on the generation, so
-    // the repeated upserts don't rewrite the trace with the last call's values.
-    client.trace({
-      id: traceId,
-      name: traceName,
-      userId: meta.userId,
-    });
-    generation = client.generation({
-      traceId,
-      name: meta.name ?? `${meta.provider}/${meta.model}`,
-      model: meta.model,
-      modelParameters: stripParams(meta.requestMeta),
-      startTime: startedAt,
-      input: captureIo ? meta.input : undefined,
-      metadata: {
-        kind: meta.kind,
-        role: meta.role,
-        userId: meta.userId,
-        runId: meta.runId,
-        stepId: meta.stepId,
-        attempt: meta.attempt,
-        idempotencyKey: meta.idempotencyKey,
-      },
-    });
+    // here; per-call identity (model) lives on the generation, so the repeated
+    // upserts don't rewrite the trace with the last call's values. Tags are
+    // unioned by Langfuse across upserts, so a multi-role run accumulates every
+    // surface tag rather than the last writer winning.
+    client.trace(buildTracePayload({ meta, captureIo }));
+    generation = client.generation(buildGenerationPayload({ meta, startedAt, captureIo }));
   } catch (err) {
     console.warn("[langfuse] span start failed:", toMessage(err));
   }
 
   return {
-    success({ usage, costUsd, output, responseMeta }) {
+    success({ usage, costUsd, output, responseMeta, servedModel }) {
       try {
-        generation?.end({
-          usage: usage
-            ? {
-                input: usage.inputTokens,
-                output: usage.outputTokens,
-                total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-                unit: "TOKENS",
-              }
-            : undefined,
-          usageDetails: usage
-            ? {
-                input: usage.inputTokens ?? 0,
-                output: usage.outputTokens ?? 0,
-                cached: usage.cachedInputTokens ?? 0,
-              }
-            : undefined,
-          // Cost in USD; Langfuse's `costDetails` accepts arbitrary keys.
-          costDetails: { total: costUsd },
-          // Full completion only when capture is on; the small response
-          // metadata (finish_reason, tool-call count) is always useful.
-          output: captureIo ? output : undefined,
-          metadata: responseMeta,
-        });
+        generation?.end(
+          buildGenerationEndPayload({
+            meta,
+            usage,
+            costUsd,
+            output,
+            responseMeta,
+            servedModel,
+            captureIo,
+          }),
+        );
+        // Mirror the completion up to an ad-hoc trace's root (#226) so the
+        // Traces view shows the call's I/O instead of the empty-root banner.
+        if (captureIo && adhoc) {
+          client.trace({ id: traceId, output });
+        }
       } catch (err) {
         console.warn("[langfuse] span end failed:", toMessage(err));
       }
@@ -197,6 +176,167 @@ export async function shutdownLangfuse(): Promise<void> {
   } catch {
     /* swallow */
   }
+}
+
+/**
+ * `CallKind` overloads two dimensions: call *shape* (llm/embedding/web_search/
+ * transcription/tool_api) and cost *bucket* (`briefing`, added per ADR-0041 so
+ * daily-briefing spend rolls up apart from per-run LLM cost). For trace tags
+ * these must stay separate, or filtering breaks: the briefing agent emits
+ * `kind:"llm"` while briefing compose emits `kind:"briefing"`, yet both are LLM
+ * calls — a `kind:llm` filter would silently miss compose (#226 review). This
+ * map projects every kind onto its underlying shape; the cost-bucket kinds map
+ * to the shape they actually run as and are surfaced under a separate
+ * `cost_kind:` namespace.
+ */
+const CALL_SHAPE: Record<CallKind, string> = {
+  llm: "llm",
+  embedding: "embedding",
+  web_search: "web_search",
+  transcription: "transcription",
+  tool_api: "tool_api",
+  // A briefing call is an LLM generation; `briefing` is only a cost bucket.
+  briefing: "llm",
+};
+
+/**
+ * Build the filterable trace tags from a call's attribution (#226). Three
+ * independent namespaces so the Traces filter slices cleanly:
+ * - `role:<surface>` — chat/triage/briefing/cold_start/…
+ * - `call_kind:<shape>` — the call shape (llm/embedding/web_search/…), derived
+ *   so cost-bucket kinds normalize to their real shape.
+ * - `cost_kind:<bucket>` — only when `kind` is a cost bucket that isn't itself
+ *   a shape (e.g. `briefing`), so spend-bucket filtering stays independent of
+ *   shape filtering.
+ * Returns undefined when nothing is present so we don't stamp an empty array.
+ */
+export function traceTags(meta: MeteredMeta): string[] | undefined {
+  const tags: string[] = [];
+  if (meta.role) tags.push(`role:${meta.role}`);
+  if (meta.kind) {
+    const shape = CALL_SHAPE[meta.kind];
+    tags.push(`call_kind:${shape}`);
+    if (meta.kind !== shape) tags.push(`cost_kind:${meta.kind}`);
+  }
+  return tags.length > 0 ? tags : undefined;
+}
+
+/**
+ * Trace id for a call. `runId` groups every call inside one agent run into a
+ * single trace tree; ad-hoc calls (no run) get a unique id keyed off the
+ * idempotency key (stable across retries) or a fresh UUID. `Date.now()` would
+ * collide for concurrent same-ms calls and merge unrelated traces.
+ */
+export function resolveTraceId(meta: MeteredMeta): string {
+  return meta.runId ?? `adhoc:${meta.idempotencyKey ?? randomUUID()}`;
+}
+
+/**
+ * Trace name. A run mixes models and roles (boss + sub-agents + compactor), so
+ * naming the trace after any single call's `provider/model` would churn as each
+ * call upserts the trace. `run:<id>` is stable by construction. Ad-hoc traces
+ * hold exactly one generation, so the descriptive name is more useful there.
+ */
+export function resolveTraceName(meta: MeteredMeta): string {
+  return meta.runId ? `run:${meta.runId}` : (meta.name ?? `${meta.provider}/${meta.model}`);
+}
+
+/**
+ * An ad-hoc trace (no run) holds exactly one generation, so its root *is* the
+ * call — we mirror the generation I/O up to it. Run traces hold many
+ * generations; mirroring any single call's I/O to the root would misrepresent
+ * the run.
+ */
+export function isAdhocTrace(meta: MeteredMeta): boolean {
+  return !meta.runId;
+}
+
+/** Payload for the parent `client.trace()` upsert. Pure, for testability. */
+export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean }) {
+  const { meta, captureIo } = args;
+  return {
+    id: resolveTraceId(meta),
+    name: resolveTraceName(meta),
+    userId: meta.userId,
+    // Only group under a Sessions-view entry when the caller supplied a real
+    // session id (chat passes `threadId`). Falling back to `runId` would mint a
+    // one-trace "session" per background/job run that duplicates the trace and
+    // pollutes the Sessions view — Langfuse sessions are for grouping *multiple*
+    // traces under a real product session (#226 review).
+    sessionId: meta.sessionId,
+    // Promote role/kind to filterable trace tags (#226) — they otherwise only
+    // live in generation metadata, which the Traces filter can't slice by.
+    tags: traceTags(meta),
+    input: captureIo && isAdhocTrace(meta) ? meta.input : undefined,
+  };
+}
+
+/** Payload for `client.generation()`. Pure, for testability. */
+export function buildGenerationPayload(args: {
+  meta: MeteredMeta;
+  startedAt: Date;
+  captureIo: boolean;
+}) {
+  const { meta, startedAt, captureIo } = args;
+  return {
+    traceId: resolveTraceId(meta),
+    name: meta.name ?? `${meta.provider}/${meta.model}`,
+    model: meta.model,
+    modelParameters: stripParams(meta.requestMeta),
+    startTime: startedAt,
+    input: captureIo ? meta.input : undefined,
+    metadata: {
+      kind: meta.kind,
+      role: meta.role,
+      userId: meta.userId,
+      runId: meta.runId,
+      stepId: meta.stepId,
+      attempt: meta.attempt,
+      idempotencyKey: meta.idempotencyKey,
+    },
+  };
+}
+
+/** Payload for `generation.end()` on success. Pure, for testability. */
+export function buildGenerationEndPayload(args: {
+  meta: MeteredMeta;
+  usage?: CallUsage;
+  costUsd: number;
+  output?: unknown;
+  responseMeta?: Record<string, unknown>;
+  servedModel?: string;
+  captureIo: boolean;
+}) {
+  const { meta, usage, costUsd, output, responseMeta, servedModel, captureIo } = args;
+  // The span opened with the requested model; if the call actually resolved to
+  // a different (registry-known) model via fallback, restamp the generation so
+  // per-model cost/latency attributes correctly, and keep the requested id in
+  // metadata for fallback debugging (#216).
+  const servedDiverged = servedModel != null && servedModel !== meta.model;
+  return {
+    model: servedDiverged ? servedModel : undefined,
+    usage: usage
+      ? {
+          input: usage.inputTokens,
+          output: usage.outputTokens,
+          total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+          unit: "TOKENS" as const,
+        }
+      : undefined,
+    usageDetails: usage
+      ? {
+          input: usage.inputTokens ?? 0,
+          output: usage.outputTokens ?? 0,
+          cached: usage.cachedInputTokens ?? 0,
+        }
+      : undefined,
+    // Cost in USD; Langfuse's `costDetails` accepts arbitrary keys.
+    costDetails: { total: costUsd },
+    // Full completion only when capture is on; the small response metadata
+    // (finish_reason, tool-call count) is always useful.
+    output: captureIo ? output : undefined,
+    metadata: servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta,
+  };
 }
 
 type LangfuseModelParam = string | number | boolean | string[] | null;

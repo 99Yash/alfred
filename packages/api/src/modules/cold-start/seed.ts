@@ -96,6 +96,7 @@ export async function resolveIdentity(args: ResolveIdentityArgs): Promise<Identi
     },
     {
       kind: "llm",
+      role: "cold_start",
       userId: args.signals.userId,
       runId: args.runId,
       stepId: args.stepId,

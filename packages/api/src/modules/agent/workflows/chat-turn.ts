@@ -909,7 +909,14 @@ const chatTurnStep: Step<ChatRunState> = {
         // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
         // Tier-aware: `deep` escalates Anthropic adaptive-thinking effort.
         providerOptions: getChatProviderOptions(state.tier),
-        attribution: { kind: "llm", userId: ctx.userId, runId: ctx.runId },
+        // `sessionId: threadId` groups every turn of this conversation (each its
+        // own run/trace) under one Langfuse session (#226).
+        attribution: {
+          kind: "llm",
+          userId: ctx.userId,
+          runId: ctx.runId,
+          sessionId: state.threadId,
+        },
       });
 
       // User-initiated stop (composer stop button → Redis flag). Polled while
@@ -1507,7 +1514,7 @@ async function maybeGenerateThreadTitle(args: {
         maxOutputTokens: 32,
         timeout: TITLE_TIMEOUT_MS,
       },
-      { kind: "llm", userId, runId, name: "chat.thread-title" },
+      { kind: "llm", userId, runId, sessionId: threadId, name: "chat.thread-title" },
     );
 
     const title = cleanTitle(result.text);
