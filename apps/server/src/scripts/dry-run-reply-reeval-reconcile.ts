@@ -2,10 +2,10 @@
  * Dry-run replay for #282 (reply re-eval) + #279 (thread reconcile) — READ-ONLY.
  *
  * Simulates exactly what the two new code paths would do, against the live dev
- * DB + live Gmail, but MUTATES NOTHING: it never emits a triage event, never
- * repoints `email_triage.document_id`, never deletes a `documents` row. It only
- * fetches live Gmail thread message lists (read) to compute what reconcile
- * would prune.
+ * DB + live Gmail, but MUTATES NOTHING: it never refreshes credentials, never
+ * emits a triage event, never repoints `email_triage.document_id`, never deletes
+ * a `documents` row. It only fetches live Gmail thread message lists (read) to
+ * compute what reconcile would prune.
  *
  * #282 — for each thread that has BOTH a sent doc and a triage row, report the
  *        newest INBOUND doc the reply-re-eval would re-key the classify on, and
@@ -23,11 +23,12 @@ import { isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
-import { getFreshAccessToken, getThreadMessageLabels } from "@alfred/integrations/google";
+import { getThreadMessageLabels } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const SCAN_LIMIT_282 = 8;
 const SCAN_LIMIT_279 = 15;
+const TOKEN_EXPIRY_SAFETY_MS = 60_000;
 
 type DocRow = {
   id: string;
@@ -36,6 +37,11 @@ type DocRow = {
   accountId: string | null;
   metadata: Record<string, unknown>;
 };
+
+type GoogleCredentialSnapshot = Pick<
+  typeof integrationCredentials.$inferSelect,
+  "id" | "userId" | "accountId" | "accessToken" | "expiresAt" | "status"
+>;
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
   return (await db()
@@ -72,6 +78,9 @@ async function main() {
       id: integrationCredentials.id,
       userId: integrationCredentials.userId,
       accountId: integrationCredentials.accountId,
+      accessToken: integrationCredentials.accessToken,
+      expiresAt: integrationCredentials.expiresAt,
+      status: integrationCredentials.status,
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
@@ -82,18 +91,20 @@ async function main() {
   const firstCred = creds[0]!;
   const userId = firstCred.userId;
   const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
+  const credById = new Map(creds.map((c) => [c.id, c]));
   const tokenCache = new Map<string, string>();
   async function tokenForAccount(accountId: string | null): Promise<string | null> {
     const credId = (accountId && credByAccount.get(accountId)) ?? firstCred.id;
     if (tokenCache.has(credId)) return tokenCache.get(credId)!;
-    try {
-      const tok = await getFreshAccessToken(credId);
-      tokenCache.set(credId, tok);
-      return tok;
-    } catch (err) {
-      console.warn(`  token fetch failed for cred=${credId}: ${toMessage(err)}`);
+    const cred = credById.get(credId);
+    if (!cred) return null;
+    const token = readOnlyUsableToken(cred);
+    if (!token) {
+      console.warn(`  stored token unavailable/expired for cred=${credId}; skipping live fetch`);
       return null;
     }
+    tokenCache.set(credId, token);
+    return token;
   }
 
   // ---- #282: reply re-eval candidates -------------------------------------
@@ -188,13 +199,9 @@ async function main() {
     .groupBy(documents.sourceThreadId)
     .having(sql`count(*) > 1`)
     .orderBy(sql`count(*) desc`);
-  const multiThreadIds = multiRows
-    .map((r) => r.threadId)
-    .filter((t): t is string => Boolean(t));
+  const multiThreadIds = multiRows.map((r) => r.threadId).filter((t): t is string => Boolean(t));
 
-  const candidates279 = argThreads.length
-    ? argThreads
-    : multiThreadIds.slice(0, SCAN_LIMIT_279);
+  const candidates279 = argThreads.length ? argThreads : multiThreadIds.slice(0, SCAN_LIMIT_279);
 
   let totalDead = 0;
   let threadsWithDead = 0;
@@ -228,8 +235,7 @@ async function main() {
       liveDocs
         .slice()
         .sort(
-          (a, b) =>
-            (b.authoredAt?.getTime() ?? -Infinity) - (a.authoredAt?.getTime() ?? -Infinity),
+          (a, b) => (b.authoredAt?.getTime() ?? -Infinity) - (a.authoredAt?.getTime() ?? -Infinity),
         )[0] ?? null;
     const tr = await db()
       .select({ documentId: emailTriage.documentId })
@@ -257,9 +263,7 @@ async function main() {
         );
       }
     } else {
-      console.log(
-        `  → triage pointer is live/none — WOULD delete all ${dead.length} dead docs`,
-      );
+      console.log(`  → triage pointer is live/none — WOULD delete all ${dead.length} dead docs`);
     }
   }
   if (threadsWithDead === 0) {
@@ -269,6 +273,14 @@ async function main() {
       `\n# Reconcile would touch ${threadsWithDead} thread(s), prune ${totalDead} dead doc(s)`,
     );
   }
+}
+
+function readOnlyUsableToken(cred: GoogleCredentialSnapshot): string | null {
+  if (cred.status !== "active") return null;
+  if (!cred.accessToken) return null;
+  if (!cred.expiresAt) return null;
+  if (cred.expiresAt.getTime() - Date.now() < TOKEN_EXPIRY_SAFETY_MS) return null;
+  return cred.accessToken;
 }
 
 main()
