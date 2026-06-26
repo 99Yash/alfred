@@ -1,6 +1,7 @@
 import {
   actionStagings,
   agentRuns,
+  artifacts,
   briefings,
   chatAttachments,
   chatMessages,
@@ -17,6 +18,7 @@ import {
   workflows,
   type AgentRunTrigger,
   type ActionStaging,
+  type Artifact,
   type Briefing,
   type ChatAttachment,
   type ChatMessage,
@@ -43,6 +45,7 @@ import {
   memorySourceSchema,
   syncedActionPolicySchema,
   syncedActionStagingSchema,
+  syncedArtifactSchema,
   syncedBriefingSchema,
   syncedChatAttachmentSchema,
   syncedChatMessageSchema,
@@ -59,6 +62,7 @@ import {
   type IDBKeys,
   type SyncedActionPolicy,
   type SyncedActionStaging,
+  type SyncedArtifact,
   type SyncedBriefing,
   type SyncedChatAttachment,
   type SyncedChatMessage,
@@ -112,6 +116,8 @@ const BRIEFING_PULL_WINDOW_DAYS = 30;
 const TODO_DONE_WINDOW_DAYS = 7;
 /** Most-recent chat messages synced per user — bounds the Replicache pull. */
 const CHAT_MESSAGE_PULL_LIMIT = 500;
+/** Most-recent agent-produced artifacts synced per user (ADR-0075). */
+const ARTIFACT_PULL_LIMIT = 200;
 /** Auto triage tags sync for this long after classification (rfc-triage-tags.md). */
 const TRIAGE_TAG_WINDOW_DAYS = 30;
 
@@ -475,6 +481,27 @@ const ENTITY_FETCHERS = {
     );
   },
 
+  // Agent-produced artifacts (ADR-0075). Flat per-user pull bounded to the most
+  // recent ARTIFACT_PULL_LIMIT; the sidebar filters by threadId client-side. A
+  // `generating` row syncs too (content may still be null) so the sidebar can
+  // render the placeholder while the boss authors.
+  ARTIFACT: async (tx, userId) => {
+    const rows = await tx
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.userId, userId))
+      .orderBy(desc(artifacts.createdAt), desc(artifacts.id))
+      .limit(ARTIFACT_PULL_LIMIT);
+    return rows.flatMap((a: Artifact) =>
+      toEntityRow({
+        slug: "ARTIFACT",
+        id: a.id,
+        rowVersion: a.rowVersion,
+        serialize: () => serializeArtifact(a),
+      }),
+    );
+  },
+
   // rfc-triage-tags.md. `user` overrides always sync; `auto` tags sync within
   // TRIAGE_TAG_WINDOW_DAYS and outside the rail-suppressed categories. Keyed by
   // `source_thread_id` so the client store holds one tag per thread.
@@ -630,6 +657,26 @@ function serializeChatAttachment(a: ChatAttachment): SyncedChatAttachment {
     status: a.status,
     rowVersion: a.rowVersion,
     createdAt: toRequiredIso(a.createdAt, "chatAttachments.createdAt"),
+    updatedAt: toIso(a.updatedAt),
+  });
+}
+
+function serializeArtifact(a: Artifact): SyncedArtifact {
+  // `storageKey` is server-only (R2 seam) and deliberately omitted from the
+  // synced shape. `content` may be null on a freshly-created `generating` row.
+  return syncedArtifactSchema.parse({
+    id: a.id,
+    userId: a.userId,
+    threadId: a.threadId,
+    runId: a.runId,
+    messageId: a.messageId,
+    kind: a.kind,
+    format: a.format,
+    title: a.title,
+    status: a.status,
+    content: a.content ?? null,
+    rowVersion: a.rowVersion,
+    createdAt: toRequiredIso(a.createdAt, "artifacts.createdAt"),
     updatedAt: toIso(a.updatedAt),
   });
 }

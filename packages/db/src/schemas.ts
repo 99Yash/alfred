@@ -19,3 +19,4 @@ export * from "./schema/briefings.js";
 export * from "./schema/todos.js";
 export * from "./schema/sender-priors.js";
 export * from "./schema/chat.js";
+export * from "./schema/artifacts.js";

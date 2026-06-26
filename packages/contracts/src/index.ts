@@ -13,6 +13,7 @@ export * from "./triage.js";
 export * from "./attention.js";
 export * from "./briefing.js";
 export * from "./chat.js";
+export * from "./artifacts.js";
 export * from "./briefing-references.js";
 export * from "./attachments.js";
 export * from "./weather.js";
