@@ -101,10 +101,7 @@ function promoteWindowSynonym(value: unknown): unknown {
 // maxResults } surface — the synonyms are an accepted-input convenience, not
 // advertised parameters. `.shape` is not available on the wrapper; read it from
 // `calendarListEventsObject` if you need the field map.
-export const calendarListEventsInput = z.preprocess(
-  promoteWindowSynonym,
-  calendarListEventsObject,
-);
+export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
 
 export const calendarCreateEventInput = z
   .object({

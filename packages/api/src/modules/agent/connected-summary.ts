@@ -201,7 +201,9 @@ export async function buildConnectedSummary(
     // exactly that — emitting a bare `calendar {action:"list_events"}` call
     // that dispatch can only reject ("Couldn't" card). Handing it the literal
     // `integration.action` strings is the shape it should paste verbatim.
-    const tools = INTEGRATION_ACTIONS[spec.slug].map((action) => `${spec.slug}.${action}`).join(", ");
+    const tools = INTEGRATION_ACTIONS[spec.slug]
+      .map((action) => `${spec.slug}.${action}`)
+      .join(", ");
     const marker = health === "needs_reauth" ? " (needs reauth)" : "";
     const identity = identityForSlug(spec, byProvider);
     const binding = identity ? ` — connected as ${identity}` : "";
