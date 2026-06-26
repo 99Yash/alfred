@@ -1,7 +1,7 @@
 /**
  * Smoke test for the `system.fetch_url` tool (#286).
  *
- *   $ pnpm --filter server tsx --env-file=.env src/scripts/smoke-fetch-url.ts [url]
+ *   $ pnpm --dir apps/server exec tsx --env-file=.env src/scripts/smoke-fetch-url.ts [url]
  *
  * Verifies, with no server process needed:
  *   1. The tool registers and resolves by name from the registry.
