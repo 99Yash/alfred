@@ -516,6 +516,9 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+      undici:
+        specifier: ^7.25.0
+        version: 7.25.0
       zod:
         specifier: 'catalog:'
         version: 4.3.6

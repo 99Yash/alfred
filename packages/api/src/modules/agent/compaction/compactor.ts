@@ -21,11 +21,11 @@ import { estimateTranscriptTokens } from "./tokens";
  *   - One metered LLM round-trip via `COMPACTOR_MODEL`, falling over to
  *     `COMPACTOR_FALLBACK_MODEL` only when the prior slice exceeds the
  *     primary compactor's context window.
- *   - The new system message carries an ephemeral 1h Anthropic
- *     `cacheControl` annotation (ADR-0026's reserved third breakpoint).
- *     Gemini and other providers ignore the namespaced metadata
- *     silently, so the same construction is safe across the
- *     swap-back-to-Anthropic window in `provider.ts`.
+ *   - The new system message carries NO `cacheControl` breakpoint of its
+ *     own — it lands as `transcript[0]` where `decorateTranscript` owns all
+ *     transcript breakpoints (and a breakpoint here would overflow
+ *     Anthropic's 4-cap on a compacted tool-burst turn, silently evicting
+ *     the tool-definition cache). See `buildSummaryMessage`.
  *   - `inFlightTail` is appended unchanged. The caller decides which
  *     suffix counts as "in-flight" via `state.inFlightTailStart`.
  *
@@ -148,20 +148,25 @@ function stripCodeFences(text: string): string {
 }
 
 /**
- * Build the `<run_summary>` system message with an ephemeral 1h Anthropic
- * cache breakpoint. Wrapping the model output in the same XML tag the
- * prompt instructs the model to emit (`<run_summary>...</run_summary>`)
- * would double-wrap; the prompt already requires the model to emit the
- * outer element, so we trust the model's output verbatim.
+ * Build the `<run_summary>` system message. Wrapping the model output in the
+ * same XML tag the prompt instructs the model to emit
+ * (`<run_summary>...</run_summary>`) would double-wrap; the prompt already
+ * requires the model to emit the outer element, so we trust the model's
+ * output verbatim.
+ *
+ * This message carries NO `cacheControl` breakpoint of its own. It lands as
+ * `transcript[0]` on the compacted boss path, where `decorateTranscript`
+ * (packages/ai/src/agent.ts) owns all transcript breakpoints. A dedicated
+ * breakpoint here would push a compacted, tool-burst-ending turn to 5
+ * breakpoints (system + summary + burst-boundary + last-message + last-tool)
+ * — over Anthropic's cap of 4 — and the provider silently evicts the
+ * *tool definitions* (the largest, most valuable static prefix) rather than
+ * 400ing. The summary still caches: `decorateTranscript`'s moving last-message
+ * breakpoint cache-writes the whole prefix (this message included) each turn.
  */
 function buildSummaryMessage(text: string): AgentTranscriptMessage {
   return {
     role: "system",
     content: text,
-    providerOptions: {
-      anthropic: {
-        cacheControl: { type: "ephemeral", ttl: "1h" },
-      },
-    },
   };
 }

@@ -131,16 +131,9 @@ export function AppSidebar({
     else setMinimized((m) => !m);
   };
 
-  // Overlay drawer: collapse on navigation so a tapped nav row doesn't leave
-  // the drawer floating over the page it just routed to. Inline mode keeps the
-  // sidebar pinned, so this is scoped to overlay. The ref tracks the previous
-  // path so we only fire on an actual route change, not every render.
-  const prevPathRef = useRef(path);
-  useEffect(() => {
-    if (prevPathRef.current === path) return;
-    prevPathRef.current = path;
-    if (mode === "overlay" && open) onCollapse?.();
-  }, [path, mode, open, onCollapse]);
+  // Note: dismissing the overlay drawer on navigation is owned by AppShell
+  // (the `sidebarOpen` source of truth) via a during-render route-change reset,
+  // not a child effect calling `onCollapse` — see `app-shell.tsx`.
 
   // Rename / delete UI state (lifted so the dialog survives row re-renders).
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -363,7 +356,7 @@ function FullContent({
       </div>
 
       <div className="px-2 pt-1 pb-2 space-y-0.5 animate-sidebar-reveal">
-        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
+        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘J" active={isChat} />
         <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
         <NavLink
           icon={Plug}
@@ -496,7 +489,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 flex flex-col items-center gap-0.5">
-        <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} />
+        <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} kbd="⌘J" />
         <RailButton icon={Search} label="Search" onClick={onOpenSearch} />
         <RailLink
           icon={Plug}
@@ -686,7 +679,7 @@ const railIconClass = (active = false) =>
       : "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
   );
 
-function RailTip({ label, children }: { label: string; children: ReactNode }) {
+function RailTip({ label, kbd, children }: { label: string; kbd?: string; children: ReactNode }) {
   const { resolved } = useAppTheme();
   return (
     <Tooltip.Root>
@@ -697,12 +690,13 @@ function RailTip({ label, children }: { label: string; children: ReactNode }) {
           sideOffset={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-[200] rounded-lg px-2 py-1 text-xs font-medium",
+            "app z-[200] inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
           )}
         >
           {label}
+          {kbd ? <span className="text-app-bg-1/60 tabular-nums">{kbd}</span> : null}
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
@@ -715,15 +709,17 @@ function RailLink({
   to,
   active,
   badge,
+  kbd,
 }: {
   icon: LucideIcon;
   label: string;
   to: string;
   active?: boolean;
   badge?: string;
+  kbd?: string;
 }) {
   return (
-    <RailTip label={label}>
+    <RailTip label={label} kbd={kbd}>
       <Link
         to={to}
         aria-label={label}

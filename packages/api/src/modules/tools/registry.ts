@@ -51,6 +51,11 @@ export interface ToolExecuteContext {
    * validate without reading or mutating run state.
    */
   allowedIntegrations?: readonly string[];
+  // TODO(#286): no abortSignal is threaded here yet, so a long network tool
+  // (system.fetch_url, system.web_search) outlives a stopped turn until its own
+  // ~15s timeout fires. Platform-level — every tool shares this; wire a per-run
+  // AbortSignal through the dispatcher and into the network tools when the turn
+  // cancellation path lands.
 }
 
 export interface LiveToolArgs<

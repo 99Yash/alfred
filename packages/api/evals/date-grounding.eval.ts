@@ -34,9 +34,9 @@ const CALENDAR_TOOL = "calendar.list_events";
 // being dropped from the system prompt the way the date once was.
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail — search, read_message, send_draft — the user's email",
-  "- calendar — list_events, create_event — the user's calendar",
-  "- github — search, get_pull_request, get_issue — the user's GitHub issues and pull requests",
+  "- gmail.search, gmail.read_message, gmail.send_draft — the user's email",
+  "- calendar.list_events, calendar.create_event — the user's calendar",
+  "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests",
 ].join("\n");
 
 interface TargetWindow {
@@ -171,7 +171,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       scorer: ({ output }) => {
         const ok =
           output.system.includes("integration.action") &&
-          output.system.includes("calendar — list_events");
+          output.system.includes("calendar.list_events");
         return {
           score: ok ? 1 : 0,
           metadata: ok
