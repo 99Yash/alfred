@@ -26,22 +26,26 @@ import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
 
 /* ── calendar ─────────────────────────────────────────────────────────── */
 
-export const calendarListEventsInput = z
+const CALENDAR_WINDOW_VALUES = ["today", "tomorrow", "next_7_days"] as const;
+
+const calendarListEventsObject = z
   .object({
     timeMin: z
       .string()
-      .datetime()
-      .optional()
-      .describe("Explicit RFC3339 lower bound. Use when the user gave an exact date/time window."),
-    timeMax: z
-      .string()
-      .datetime()
+      .datetime({ offset: true })
       .optional()
       .describe(
-        "Explicit RFC3339 upper bound. Use with timeMin when the user gave an exact date/time window.",
+        "Explicit RFC3339 lower bound. Use when the user gave an exact date/time window. A trailing 'Z' or a numeric UTC offset (e.g. +05:30) are both accepted.",
+      ),
+    timeMax: z
+      .string()
+      .datetime({ offset: true })
+      .optional()
+      .describe(
+        "Explicit RFC3339 upper bound. Use with timeMin when the user gave an exact date/time window. A trailing 'Z' or a numeric UTC offset (e.g. +05:30) are both accepted.",
       ),
     window: z
-      .enum(["today", "tomorrow", "next_7_days"])
+      .enum(CALENDAR_WINDOW_VALUES)
       .optional()
       .describe(
         "Relative window in the user's timezone when explicit bounds are omitted. Omit for the next 7 days. Use 'tomorrow' for requests like 'tomorrow morning'.",
@@ -67,6 +71,39 @@ export const calendarListEventsInput = z
     },
   );
 
+// The model reliably emits the right relative *value* ("today") but keeps
+// guessing the *key* — `timeframe`, `range`, `time_range`, … — instead of
+// `window` (observed across traces run_wdtn451w1zp0 / run_w648c33jvwxo /
+// run_bwo3shcjqp84). A fixed synonym allowlist is whack-a-mole, so promote
+// value-first: if `window` is unset, any key carrying a real window value gets
+// renamed to `window`. This is unambiguous because the window values
+// (today/tomorrow/next_7_days) are disjoint from every other field's value
+// space — partOfDay is morning/…, the bounds are RFC3339 strings, maxResults is
+// a number — so no legitimate field can hold one. A synonym carrying a
+// non-window value (e.g. `range:"this month"`) is left to fail strict
+// validation, surfacing the enriched "valid parameters: …" dispatcher message.
+function promoteWindowSynonym(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const obj = { ...(value as Record<string, unknown>) };
+  if (obj.window !== undefined) return obj;
+  const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
+  for (const [key, val] of Object.entries(obj)) {
+    if (typeof val === "string" && windowValues.includes(val)) {
+      obj.window = val;
+      delete obj[key];
+      break;
+    }
+  }
+  return obj;
+}
+
+// `z.toJSONSchema` unwraps the preprocess and serializes the inner object, so
+// the model still sees the clean { timeMin, timeMax, window, partOfDay,
+// maxResults } surface — the synonyms are an accepted-input convenience, not
+// advertised parameters. `.shape` is not available on the wrapper; read it from
+// `calendarListEventsObject` if you need the field map.
+export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
+
 export const calendarCreateEventInput = z
   .object({
     calendarId: z
@@ -80,8 +117,8 @@ export const calendarCreateEventInput = z
     summary: z.string().min(1).max(500),
     description: z.string().max(10_000).optional(),
     location: z.string().max(1_000).optional(),
-    start: z.string().datetime(),
-    end: z.string().datetime(),
+    start: z.string().datetime({ offset: true }),
+    end: z.string().datetime({ offset: true }),
     timeZone: z
       .string()
       .min(1)
@@ -820,6 +857,27 @@ export const webSearchInput = z
   })
   .strict();
 
+export const fetchUrlInput = z
+  .object({
+    url: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2_048)
+      // Validate the URL shape here so a malformed string bounces back to the
+      // model with a clear message rather than failing deep in the fetch. The
+      // scheme + host safety checks (ADR-0071 honest read-in) run server-side in
+      // the handler, since they need URL parsing the web bundle shouldn't carry.
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), {
+        message: "url must be an http(s) URL.",
+      })
+      .describe(
+        "The exact http(s) URL to read. Use this when you already hold a link (from the user, from read_user_context, or from a prior tool result) and want its page contents — prefer it over web_search, which discovers sources for a question rather than reading a known page.",
+      ),
+  })
+  .strict();
+
 export const suggestTodoInput = z
   .object({
     name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
@@ -984,6 +1042,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
+  "system.fetch_url": fetchUrlInput,
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
   "system.update_artifact": updateArtifactInput,

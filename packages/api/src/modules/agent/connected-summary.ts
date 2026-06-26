@@ -18,14 +18,15 @@ import { eq } from "drizzle-orm";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration
- * grounding block ("slug — actions — short desc", with `(needs reauth)` markers)
+ * grounding block ("integration.action names — short desc", with `(needs reauth)` markers)
  * snapshotted into `agent_runs.state` at run start and concatenated into the
  * boss/chat/sub-agent system prompt. It is *grounding*, not the security floor:
  * the dispatcher still hard-enforces `allowed_integrations` + connection health
- * before any tool executes. Its job here is to tell the model — in exact-slug
- * copy it can paste into an `integration.action` tool name — which services are
- * actually live, so the boss stops inventing tools or asking the user to load
- * an integration it is already connected to.
+ * before any tool executes. Its job here is to tell the model — in the exact
+ * fully-qualified `integration.action` tool names it can paste verbatim — which
+ * services are actually live, so the boss stops inventing tools, mis-shaping a
+ * call as a bare slug, or asking the user to load an integration it is already
+ * connected to.
  *
  * Computed once per run (one DB read) and cached in run state; never recomputed
  * mid-turn, so the system-prompt prefix stays cache-stable (ADR-0053 / ADR-0026).
@@ -194,11 +195,28 @@ export async function buildConnectedSummary(
     if (allowed.size > 0 && !allowed.has(spec.slug)) continue;
     const health = healthForSlug(spec, byProvider);
     if (health === null) continue;
-    const actions = INTEGRATION_ACTIONS[spec.slug].join(", ");
-    const marker = health === "needs_reauth" ? " (needs reauth)" : "";
+    // List the fully-qualified tool names (`calendar.list_events`), not the
+    // bare actions. A slug-then-actions shape ("calendar — list_events, …")
+    // reads like "call `calendar` with action=list_events", and the boss did
+    // exactly that — emitting a bare `calendar {action:"list_events"}` call
+    // that dispatch can only reject ("Couldn't" card). Handing it the literal
+    // `integration.action` strings is the shape it should paste verbatim.
     const identity = identityForSlug(spec, byProvider);
     const binding = identity ? ` — connected as ${identity}` : "";
-    lines.push(`- ${spec.slug} — ${actions} — ${spec.blurb}${binding}${marker}`);
+    // A needs_reauth slug's tools will be rejected by the dispatcher, so don't
+    // list them as callable — naming them under an "authoritative" header
+    // invites calls that can only fail. Surface the reconnect state instead
+    // (#286 review).
+    if (health === "needs_reauth") {
+      lines.push(
+        `- ${spec.slug} — ${spec.blurb}${binding} (needs reauth — tell the user to reconnect ${spec.slug}; don't call its tools yet)`,
+      );
+      continue;
+    }
+    const tools = INTEGRATION_ACTIONS[spec.slug]
+      .map((action) => `${spec.slug}.${action}`)
+      .join(", ");
+    lines.push(`- ${tools} — ${spec.blurb}${binding}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;

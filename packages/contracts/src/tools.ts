@@ -40,6 +40,7 @@ export const INTEGRATION_ACTIONS = {
     "resolve_todo",
     "suggest_todo",
     "web_search",
+    "fetch_url",
     "create_artifact",
     "append_artifact_page",
     "update_artifact",
@@ -220,6 +221,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Searching the web",
     done: "Searched the web",
     title: "search the web",
+  },
+  "system.fetch_url": {
+    running: "Reading a web page",
+    done: "Read a web page",
+    title: "read a web page",
   },
   "system.create_artifact": {
     running: "Creating an artifact",

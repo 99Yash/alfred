@@ -238,6 +238,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (prevLocationRef.current !== location) {
     prevLocationRef.current = location;
     setPaletteOpen(false);
+    // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
+    // leave it floating over the page it just routed to. Owned here (not via a
+    // child effect calling back up) for the same reason as the palette close —
+    // the route is the owner's external store, and navigation can come from
+    // anywhere (nav rows, browser back, programmatic). Inline mode stays pinned.
+    if (sidebarMode === "overlay") setSidebarOpen(false);
   }
 
   /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in
@@ -276,15 +282,29 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [mustRedirectToLogin, pathname, searchStr, navigate]);
 
-  // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
+  // Global navigation chords while authenticated: ⌘/Ctrl+K toggles the command
+  // palette, ⌘J starts a new chat (⌘N is browser-reserved, so we use ⌘J).
   const authed = !isPending && !!session?.user && !chromeless;
   const togglePaletteEvent = useEffectEvent(() => setPaletteOpen((o) => !o));
+  const newChatEvent = useEffectEvent(() => void navigate({ to: "/chat" }));
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
+      // No isEditableTarget guard: these are navigation chords with no
+      // text-editing meaning, and the composer (the dominant focus surface) is
+      // contenteditable — guarding would dead-key them there (#286 review).
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         togglePaletteEvent();
+      } else if (
+        e.key.toLowerCase() === "j" &&
+        e.metaKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.shiftKey
+      ) {
+        e.preventDefault();
+        newChatEvent();
       }
     };
     window.addEventListener("keydown", onKey);

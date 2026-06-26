@@ -111,7 +111,7 @@ export interface TurnArgs<CTX> {
   abortSignal?: AbortSignal;
   /**
    * Streaming circuit-breaker (`streamTurn` only). The SDK aborts the call if
-   * it stalls past these bounds. Defaults to {@link DEFAULT_STREAM_TIMEOUT}.
+   * it stalls past these bounds. Defaults to {@link DEFAULT_TURN_STREAM_TIMEOUT}.
    */
   streamTimeout?: { totalMs?: number; stepMs?: number; chunkMs?: number };
 }
@@ -122,7 +122,7 @@ export interface TurnArgs<CTX> {
  * generation), with a 3-minute total ceiling as a hard backstop. Without this
  * a hung stream holds the workflow step open indefinitely.
  */
-const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
+const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
 
 /**
  * Discriminated result of a single turn. The executor consumes `kind`:
@@ -186,7 +186,7 @@ export class AlfredAgent<CTX = unknown> {
       {
         model,
         system: buildSystem(system, this.cacheTtl()),
-        messages: transcript,
+        messages: decorateTranscript(transcript, this.cacheTtl()),
         tools,
         // Cap at 1 step: the SDK should send the model request and return
         // — even if the model emits tool calls. Combined with `execute`-
@@ -234,14 +234,14 @@ export class AlfredAgent<CTX = unknown> {
       {
         model,
         system: buildSystem(system, this.cacheTtl()),
-        messages: transcript,
+        messages: decorateTranscript(transcript, this.cacheTtl()),
         tools,
         stopWhen: stepCountIs(1),
         maxOutputTokens: this.s.maxOutputTokens,
         temperature: this.s.temperature,
         providerOptions: this.s.providerOptions as Record<string, never> | undefined,
         abortSignal: args.abortSignal,
-        timeout: args.streamTimeout ?? DEFAULT_STREAM_TIMEOUT,
+        timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT,
       },
       attribution,
     );
@@ -346,6 +346,82 @@ function buildSystem(
       anthropic: { cacheControl: { type: "ephemeral", ttl: cacheTtl } },
     },
   };
+}
+
+/**
+ * Cache the growing transcript, not just the static system+tool prefix (#223).
+ *
+ * The system block and the last tool definition each carry a cacheControl
+ * breakpoint, so the ~static prefix caches — but the message history (tool
+ * results, prior turns) is re-sent uncached every turn, and it's the bulk:
+ * boss turns were measured re-processing 4.7k → 53k input tokens with only the
+ * 4.4k prefix cached, because that history balloons as tool results accumulate.
+ *
+ * The transcript is append-only and byte-stable, so a breakpoint on the
+ * **last message** makes Anthropic cache-write the whole prefix this turn and
+ * cache-*read* the longest matching prefix next turn (everything except the
+ * newly-appended messages), writing only the delta. When a turn ends in a large
+ * tool-result burst, the prior cached prefix may be too far behind the last
+ * message for Anthropic's breakpoint lookback; in that shape we also mark the
+ * message immediately before the assistant tool-call turn, giving the provider
+ * an exact cache-read boundary before writing the new full prefix. That keeps
+ * us within the provider's {@link https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching 4-breakpoint cap}
+ * (system + last tool + up to two transcript messages).
+ *
+ * No-op when caching is disabled (non-Anthropic models / tests) or the
+ * transcript is empty (first turn). Never mutates the caller's transcript —
+ * the breakpoint rides a shallow clone of the last message, preserving any
+ * providerOptions already on it. A drifting prefix (e.g. after compaction
+ * rewrites history) simply costs one cold-cache turn; it is never incorrect.
+ *
+ * Invariant: this function OWNS all transcript breakpoints. No transcript
+ * message may carry its own `cacheControl` — otherwise a compacted,
+ * tool-burst-ending turn (compactor summary + burst-boundary + last-message)
+ * plus the system + last-tool breakpoints overruns Anthropic's 4-cap, and the
+ * provider silently evicts the tool definitions. The compactor's `<run_summary>`
+ * message is deliberately breakpoint-free for this reason (see compactor.ts).
+ */
+export function decorateTranscript(
+  transcript: Transcript,
+  cacheTtl: "5m" | "1h" | undefined,
+): Transcript {
+  if (!cacheTtl || transcript.length === 0) return transcript;
+  const out = transcript.slice();
+  const lastIndex = out.length - 1;
+  const toolBurstBoundaryIndex = previousToolBurstBoundaryIndex(out);
+  if (toolBurstBoundaryIndex !== null) {
+    out[toolBurstBoundaryIndex] = withMessageCacheControl(out[toolBurstBoundaryIndex]!, cacheTtl);
+  }
+  out[lastIndex] = withMessageCacheControl(out[lastIndex]!, cacheTtl);
+  return out;
+}
+
+function previousToolBurstBoundaryIndex(transcript: Transcript): number | null {
+  let firstTrailingToolIndex = transcript.length;
+  while (firstTrailingToolIndex > 0 && transcript[firstTrailingToolIndex - 1]?.role === "tool") {
+    firstTrailingToolIndex--;
+  }
+  if (firstTrailingToolIndex === transcript.length) return null;
+
+  const assistantIndex = firstTrailingToolIndex - 1;
+  if (assistantIndex < 1 || transcript[assistantIndex]?.role !== "assistant") return null;
+
+  return assistantIndex - 1;
+}
+
+function withMessageCacheControl(message: ModelMessage, ttl: "5m" | "1h"): ModelMessage {
+  const existing = message.providerOptions ?? {};
+  const existingAnthropic = (existing.anthropic ?? {}) as Record<string, unknown>;
+  return {
+    ...message,
+    providerOptions: {
+      ...existing,
+      anthropic: {
+        ...existingAnthropic,
+        cacheControl: { type: "ephemeral", ttl },
+      },
+    },
+  } as ModelMessage;
 }
 
 function classifyTurnResult(result: GenerateTextResult<ToolSet, never>): TurnResult {

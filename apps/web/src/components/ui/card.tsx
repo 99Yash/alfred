@@ -5,8 +5,6 @@
  * /skills, /library. Rounded-2xl, transparent at rest, fills to `#181818`
  * on hover OR focus-visible (same value — no ring). Pass `interactive` when
  * the entire card is clickable so the hover transition + focus state apply.
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.8.
  */
 
 import type { HTMLAttributes, Ref } from "react";

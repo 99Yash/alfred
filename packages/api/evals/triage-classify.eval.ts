@@ -416,6 +416,49 @@ function isTransientOverload(err: unknown): boolean {
   );
 }
 
+/**
+ * An empty-output failure from `generateObject`: the provider returns a 200 with
+ * no parseable object, so the AI SDK throws `AI_NoOutputGeneratedError` /
+ * `AI_NoObjectGeneratedError`. These fire ABOVE the model layer that
+ * `getCheapModel`'s `withFallback` wraps — ai-retry only sees the raw provider
+ * call *succeed*, so the flash-lite→flash fallback never engages. They are
+ * transient (a fresh attempt almost always parses), and a Gemini blip would
+ * otherwise skip a chunk of the suite and redden the gate with no code defect —
+ * so the task retries before giving up. See `classifyWithRetry`.
+ */
+function isEmptyOutput(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  return /AI_NoOutputGeneratedError|AI_NoObjectGeneratedError|No output generated|No object generated/i.test(
+    msg,
+  );
+}
+
+/**
+ * Classify with a bounded retry on empty-output failures. `withFallback` can't
+ * catch these (wrong layer — see `isEmptyOutput`), so the recovery lives here.
+ * A genuine provider outage still surfaces: after every attempt empty-outputs
+ * we rethrow and the case skips (scores 0), so "many skips" stays a real outage
+ * signal rather than being silently masked.
+ */
+const EMPTY_OUTPUT_ATTEMPTS = 3;
+
+async function classifyWithRetry(
+  args: ClassifyEmailArgs,
+): Promise<Awaited<ReturnType<typeof classifyEmail>>> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= EMPTY_OUTPUT_ATTEMPTS; attempt++) {
+    try {
+      return await classifyEmail(args);
+    } catch (err) {
+      lastErr = err;
+      if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
+      // Brief escalating backoff so the flash-lite pool can drain between tries.
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 function buildArgs(c: Case): ClassifyEmailArgs {
   const authoredAt = c.authoredAt ?? NOW;
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
@@ -504,7 +547,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
 
     let classification;
     try {
-      ({ classification } = await classifyEmail(args));
+      ({ classification } = await classifyWithRetry(args));
     } catch (err) {
       // The task must NEVER throw: a classifier-QUALITY regression shows up as a
       // wrong category (which still scores), whereas a THROW here is always an
@@ -515,7 +558,8 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       // until the CI job's wall-clock timeout. So skip the case (scores 0) and
       // log it loudly — many skips mean a provider/SDK outage, not a regression.
       const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      const kind = isTransientOverload(err) ? "provider overload" : "classify error";
+      const kind =
+        isTransientOverload(err) || isEmptyOutput(err) ? "provider overload" : "classify error";
       console.warn(`[triage-eval] SKIP "${input.label}" — ${kind}: ${reason}`);
       return {
         category: "fyi",
