@@ -15,7 +15,10 @@ import { captureOutput } from "../src/metering/wrappers";
 describe("captureOutput", () => {
   test("returns the bare string when there are no tool calls (final / object turn)", () => {
     assert.equal(captureOutput({ text: "the answer" }), "the answer");
-    assert.equal(captureOutput({ text: '{"category":"fyi"}', toolCalls: [] }), '{"category":"fyi"}');
+    assert.equal(
+      captureOutput({ text: '{"category":"fyi"}', toolCalls: [] }),
+      '{"category":"fyi"}',
+    );
   });
 
   test("captures the proposed calls on a tool-call turn with no prose (was NULL before)", () => {
@@ -60,7 +63,9 @@ describe("captureOutput", () => {
       ],
     });
     assert.deepEqual(out, {
-      toolCalls: [{ toolName: "calendar.list_events", toolCallId: "c9", input: { range: "next_7_days" } }],
+      toolCalls: [
+        { toolName: "calendar.list_events", toolCallId: "c9", input: { range: "next_7_days" } },
+      ],
     });
   });
 });

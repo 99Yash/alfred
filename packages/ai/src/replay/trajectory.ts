@@ -85,7 +85,9 @@ function byStartTime(a: TraceObservation, b: TraceObservation): number {
 }
 
 /** Tool calls the model decided on, mined from generation outputs. */
-function decidedCalls(obs: TraceObservation[]): { toolName: string; toolCallId?: string; input: unknown }[] {
+function decidedCalls(
+  obs: TraceObservation[],
+): { toolName: string; toolCallId?: string; input: unknown }[] {
   const calls: { toolName: string; toolCallId?: string; input: unknown }[] = [];
   for (const o of obs) {
     if (o.type !== "GENERATION") continue;
@@ -94,7 +96,11 @@ function decidedCalls(obs: TraceObservation[]): { toolName: string; toolCallId?:
     const tc = (out as { toolCalls?: unknown }).toolCalls;
     if (!Array.isArray(tc)) continue;
     for (const c of tc) {
-      if (c && typeof c === "object" && typeof (c as { toolName?: unknown }).toolName === "string") {
+      if (
+        c &&
+        typeof c === "object" &&
+        typeof (c as { toolName?: unknown }).toolName === "string"
+      ) {
         const call = c as { toolName: string; toolCallId?: string; input?: unknown };
         calls.push({ toolName: call.toolName, toolCallId: call.toolCallId, input: call.input });
       }

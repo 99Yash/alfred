@@ -98,11 +98,16 @@ describe("decorateTranscript", () => {
   test("keeps a previous-turn boundary for large trailing tool-result bursts", () => {
     const toolResults = Array.from({ length: 32 }, (_, i) => ({
       role: "tool" as const,
-      content: [{ type: "tool-result", toolCallId: `call_${i}`, toolName: "search", result: `r${i}` }],
+      content: [
+        { type: "tool-result", toolCallId: `call_${i}`, toolName: "search", result: `r${i}` },
+      ],
     }));
     const grown: Transcript = [
       ...sample(),
-      { role: "assistant", content: [{ type: "tool-call", toolCallId: "call_0", toolName: "search", input: {} }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call_0", toolName: "search", input: {} }],
+      },
       ...toolResults,
     ] as Transcript;
 
