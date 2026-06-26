@@ -5,8 +5,6 @@
  * `apps/web/src/index.css`. Used for tables, code blocks, structured agent
  * output, and other "lifted" surfaces. Holds a hairline + inset glow that
  * make the panel read as floating above the body bg.
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.8.
  */
 
 import type { HTMLAttributes, Ref } from "react";
