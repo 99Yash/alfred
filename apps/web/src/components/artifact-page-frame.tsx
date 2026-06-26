@@ -34,8 +34,13 @@ export function ArtifactPageFrame({
   // it unmounts, without a separate useEffect to read DOM state at init time.
   const frameRef = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
-    const observer = new ResizeObserver(() => {
-      const nextWidth = element.getBoundingClientRect().width;
+    // Read the layout content-box from the ResizeObserver entry rather than
+    // `getBoundingClientRect()`, which folds in ancestor CSS transforms — an
+    // animating `scale(...)` ancestor (e.g. the fullscreen present entrance)
+    // would otherwise be measured mid-animation and leave the iframe scaled to
+    // the shrunken width once the transform settles.
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width ?? 0;
       if (nextWidth > 0) setWidth(nextWidth);
     });
     observer.observe(element);
