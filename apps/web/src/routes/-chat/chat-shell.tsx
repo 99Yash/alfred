@@ -72,6 +72,7 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
+import { ArtifactSidebar } from "./artifact-sidebar";
 import { Conversation } from "./conversation";
 import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
@@ -79,6 +80,7 @@ import { MicWaveform, useMicRecording } from "./mic-recording";
 import { formatElapsed } from "./mic-recording-format";
 import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
 import { Tip } from "./tip";
+import { useArtifactPanel } from "./use-artifact-panel";
 import {
   TiptapComposer,
   type SuggestionRenderState,
@@ -130,6 +132,12 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
+  // Artifact sidebar (ADR-0075). When the boss authors an artifact the user
+  // can open it from its trigger card; the panel then takes over the shared
+  // right slot (the Today rail steps aside) until closed. State is local UI —
+  // the content rides the synced `artifacts` row.
+  const artifact = useArtifactPanel(threadId);
+
   // Memoize the rail node so `useRightRail`'s effect only fires when the
   // rail's inputs actually change — otherwise every ChatShell re-render
   // would push a new JSX reference into AppShell and trigger an extra
@@ -145,7 +153,21 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ),
     [railOpen, railMode, railData],
   );
-  useRightRail(railNode);
+  const artifactNode = useMemo(
+    () =>
+      artifact.selectedId ? (
+        <ArtifactSidebar
+          artifactId={artifact.selectedId}
+          mode={railMode}
+          width={artifact.width}
+          onWidthChange={artifact.setWidth}
+          onClose={artifact.close}
+        />
+      ) : null,
+    [artifact.selectedId, railMode, artifact.width, artifact.setWidth, artifact.close],
+  );
+  // One shell slot, two occupants: the artifact panel wins while open.
+  useRightRail(artifactNode ?? railNode);
 
   const messages = useChatMessages(threadId);
   const { stream, stopStream } = useChatStream(threadId);
@@ -238,6 +260,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               onFollowUp={onSend}
               onRetry={onRetry}
               followUps={chipFollowUps}
+              onOpenArtifact={artifact.open}
+              openArtifactId={artifact.selectedId}
             />
             <div className="shrink-0 px-4 pb-4">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">

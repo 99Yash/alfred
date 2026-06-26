@@ -1,11 +1,13 @@
-import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
+import type { SyncedArtifact, SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { ArrowDown, ShieldQuestion } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
+import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
+import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
@@ -25,6 +27,8 @@ export function Conversation({
   onFollowUp,
   onRetry,
   followUps = EMPTY_FOLLOW_UPS,
+  onOpenArtifact,
+  openArtifactId,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
@@ -41,6 +45,10 @@ export function Conversation({
   ) => void;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
   followUps?: ReadonlyArray<FollowUpSuggestion>;
+  /** Opens an artifact in the sidebar (from a message's trigger card). */
+  onOpenArtifact?: (artifactId: string) => void;
+  /** The artifact currently open in the sidebar, so its card shows "Viewing". */
+  openArtifactId?: string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -55,7 +63,23 @@ export function Conversation({
 
   // Attachments for this thread, grouped by message id (ADR-0065). One
   // subscription for the whole feed; each bubble looks up its own.
-  const attachmentsByMessage = useChatAttachmentsByMessage(messages[0]?.threadId);
+  const threadId = messages[0]?.threadId;
+  const attachmentsByMessage = useChatAttachmentsByMessage(threadId);
+
+  // Agent-produced artifacts for this thread (ADR-0075), grouped by the
+  // assistant message that authored each one — that message renders a trigger
+  // card. A run can produce more than one artifact, so the value is a list.
+  const threadArtifacts = useThreadArtifacts(threadId);
+  const artifactsByMessage = useMemo(() => {
+    const map = new Map<string, SyncedArtifact[]>();
+    for (const artifact of threadArtifacts) {
+      if (!artifact.messageId) continue;
+      const list = map.get(artifact.messageId);
+      if (list) list.push(artifact);
+      else map.set(artifact.messageId, [artifact]);
+    }
+    return map;
+  }, [threadArtifacts]);
 
   // ---- Follow the live edge -------------------------------------------
   // While a turn is in flight the viewport rides the bottom so the newest
@@ -138,14 +162,26 @@ export function Conversation({
               onRetry && m.role === "assistant" && m.status === "failed"
                 ? prevUserTurn(messages, i, attachmentsByMessage, onRetry)
                 : undefined;
+            const messageArtifacts = onOpenArtifact ? artifactsByMessage.get(m.id) : undefined;
             return (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                attachments={attachmentsByMessage[m.id]}
-                onRetry={retry?.same}
-                onRetryWithoutAttachments={retry?.withoutAttachments}
-              />
+              <Fragment key={m.id}>
+                <MessageBubble
+                  message={m}
+                  attachments={attachmentsByMessage[m.id]}
+                  onRetry={retry?.same}
+                  onRetryWithoutAttachments={retry?.withoutAttachments}
+                />
+                {messageArtifacts && onOpenArtifact
+                  ? messageArtifacts.map((artifact) => (
+                      <ArtifactTriggerCard
+                        key={artifact.id}
+                        artifact={artifact}
+                        active={artifact.id === openArtifactId}
+                        onOpen={onOpenArtifact}
+                      />
+                    ))
+                  : null}
+              </Fragment>
             );
           })}
 
