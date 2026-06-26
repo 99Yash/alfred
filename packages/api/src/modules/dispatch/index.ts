@@ -76,6 +76,13 @@ export interface DispatchArgs {
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
   caller?: ToolExecuteContext["caller"];
+  /**
+   * Chat thread + assistant message that owns this call, when dispatched from a
+   * chat turn. Threaded into the tool context so artifact tools (ADR-0075) can
+   * attribute the artifact to its thread/message. Omitted for background runs.
+   */
+  threadId?: string;
+  messageId?: string;
   /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
   scratchpadRunId?: string;
   /**
@@ -243,6 +250,8 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     userId: args.userId,
     timezone: args.timezone ?? (await resolveUserTimezone(args.userId)),
     caller,
+    threadId: args.threadId,
+    messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,
   };
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });

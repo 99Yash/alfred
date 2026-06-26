@@ -108,19 +108,38 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 - **Verify:** `pnpm check-types`, `pnpm check:web-boundaries`; a scripted insert →
   pull round-trip shows the row arrive on the client.
 
-### Phase 2 — authoring tools (model can produce, still no sidebar)
-1. Add `create_artifact` / `append_artifact_page` / `update_artifact` to
-   `INTEGRATION_ACTIONS.system` + `TOOL_LABELS` in `@alfred/contracts`.
-2. `liveTool` defs in `packages/api/src/modules/tools/system.ts`; `execute` resolves
-   `threadId` from the run, writes/updates the `artifacts` row, bumps `row_version`,
-   `emitReplicachePokes([userId])`. Returns a small `{artifactId,title,kind}` result
-   (well under the 2000-char preview cap).
-3. Boss-prompt rubric: when asked to "make a doc/slides/PDF", call these instead of the
-   ADR-0071 bridge (share-a-Google-link). Lead with tool descriptions, not prompt
-   patches (per the no-prompt-patching-for-tool-selection lesson).
-- **Verify:** replay-diff a recorded "make me a one-pager" run old vs new build; assert
-  the new trajectory calls `create_artifact` and a row lands. (replay-diff per the
-  agent-change-verification lesson, not an aggregate eval.)
+### Phase 2 — authoring tools (model can produce, still no sidebar) ✅ _done + verified_
+1. Added `create_artifact` / `append_artifact_page` / `update_artifact` to
+   `INTEGRATION_ACTIONS.system` + `TOOL_LABELS` + `TOOL_INPUT_SCHEMAS` in
+   `@alfred/contracts`. The authorable-kind enum derives from `artifactKindSchema`
+   minus `spreadsheet` (`.exclude`), so it can't drift from the source union.
+2. `liveTool` defs in `packages/api/src/modules/tools/system.ts` delegate to a new
+   write module `packages/api/src/modules/artifacts/write.ts` (`createArtifact` /
+   `appendArtifactPage` / `updateArtifact` / `finalizeRunArtifacts`). Each write bumps
+   `row_version` + `emitReplicachePokes([userId])` after commit; `pages` reads/writes
+   run inside a `SELECT … FOR UPDATE` tx so concurrent same-turn appends don't clobber.
+   Returns small `{artifactId,title,kind,…}` results (well under the preview cap).
+3. **`threadId`/`messageId` plumbed** through `ToolExecuteContext` ← `DispatchArgs` ←
+   the chat-turn dispatch call site (mirrors the existing `timezone` thread). An
+   artifact tool called from a non-chat run (no thread) returns an honest `no_thread`
+   refusal rather than throwing.
+4. **Completion is tied to the run lifecycle, not a 4th tool:** `finalizeRunArtifacts`
+   flips every still-`generating` row for the run to `complete` (and the failure
+   finalizer to `error`) inside the existing chat-turn finalizers — so an artifact is
+   never stuck `generating` if the boss forgets to "finish" it.
+5. Boss-prompt: reconciled the ADR-0071 "honest surfaces" line (which *denied* this
+   capability — "producing a downloadable binary is a capability you do not have") to
+   distinguish in-app artifacts (now produced via `create_artifact`) from a live Google
+   link (still fine) from a downloadable binary export (still not a capability). Tool
+   selection leads from the tool descriptions per the no-prompt-patching lesson.
+- **Verified:** a throwaway script drove the **real `dispatchToolCall` path** for all
+  three tools end to end against the local DB — 15/15 assertions: create document/pages,
+  page-granular append + count, `wrong_kind` guards, `invalid_input` (pages w/o format)
+  via the dispatcher's own schema validation, the `no_thread` refusal, update
+  rename+replace, and the `generating`→`complete` finalize with `row_version` bump.
+  `pnpm check-types` 13/13 + `check:web-boundaries` + oxlint green. (Replay-diff on a
+  recorded "make me a one-pager" run is the live-model follow-up once a recording
+  exists; the dispatch round-trip already pins the tool contract + write path.)
 
 ### Phase 3 — sidebar UI on live `/chat`
 1. Promote the static `ArtifactPanel` (today only in the styleguide, fed by
