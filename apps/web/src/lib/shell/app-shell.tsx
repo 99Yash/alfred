@@ -238,6 +238,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (prevLocationRef.current !== location) {
     prevLocationRef.current = location;
     setPaletteOpen(false);
+    // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
+    // leave it floating over the page it just routed to. Owned here (not via a
+    // child effect calling back up) for the same reason as the palette close —
+    // the route is the owner's external store, and navigation can come from
+    // anywhere (nav rows, browser back, programmatic). Inline mode stays pinned.
+    if (sidebarMode === "overlay") setSidebarOpen(false);
   }
 
   /* Routes that render edge-to-edge — no sidebar, no rail. `/` is in

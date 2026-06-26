@@ -131,16 +131,9 @@ export function AppSidebar({
     else setMinimized((m) => !m);
   };
 
-  // Overlay drawer: collapse on navigation so a tapped nav row doesn't leave
-  // the drawer floating over the page it just routed to. Inline mode keeps the
-  // sidebar pinned, so this is scoped to overlay. The ref tracks the previous
-  // path so we only fire on an actual route change, not every render.
-  const prevPathRef = useRef(path);
-  useEffect(() => {
-    if (prevPathRef.current === path) return;
-    prevPathRef.current = path;
-    if (mode === "overlay" && open) onCollapse?.();
-  }, [path, mode, open, onCollapse]);
+  // Note: dismissing the overlay drawer on navigation is owned by AppShell
+  // (the `sidebarOpen` source of truth) via a during-render route-change reset,
+  // not a child effect calling `onCollapse` — see `app-shell.tsx`.
 
   // Rename / delete UI state (lifted so the dialog survives row re-renders).
   const [renamingId, setRenamingId] = useState<string | null>(null);
