@@ -2,6 +2,10 @@ import {
   INTEGRATION_SLUGS,
   POLICY_MODES,
   TOOL_RISK_TIERS,
+  artifactContentSchema,
+  artifactFormatSchema,
+  artifactKindSchema,
+  artifactStatusSchema,
   briefingGatherSchema,
   briefingSendDecisionSchema,
   briefingSlotSchema,
@@ -334,6 +338,32 @@ export const syncedChatAttachmentSchema = z.object({
 export type SyncedChatAttachment = z.infer<typeof syncedChatAttachmentSchema>;
 
 /**
+ * An agent-produced artifact (ADR-0075), synced so the chat artifact sidebar
+ * renders it inline and it survives reload + multi-device. `content` is the
+ * full body (markdown or ordered HTML pages) — the boss rewrites the row as it
+ * authors (each authoring tool call bumps `rowVersion` + pokes), so the sidebar
+ * sees pages appear during generation. `content` is nullable + defaulted so a
+ * freshly-created `generating` row (content not yet written) still parses. The
+ * server-only `storageKey` (R2 seam) never crosses to the client.
+ */
+export const syncedArtifactSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  threadId: z.string(),
+  runId: z.string().nullable().default(null),
+  messageId: z.string().nullable().default(null),
+  kind: artifactKindSchema,
+  format: artifactFormatSchema.nullable().default(null),
+  title: z.string(),
+  status: artifactStatusSchema,
+  content: artifactContentSchema.nullable().default(null),
+  rowVersion: z.number(),
+  createdAt: isoDateTimeStringSchema,
+  updatedAt: isoDateTimeStringSchema.nullable(),
+});
+export type SyncedArtifact = z.infer<typeof syncedArtifactSchema>;
+
+/**
  * A thread's triage tag, synced read-only to the client and overridable via
  * the `triageTagOverride` mutator (ADR-0025 #1, rfc-triage-tags.md).
  *
@@ -471,4 +501,5 @@ export type SyncedEntity =
   | SyncedChatThread
   | SyncedChatMessage
   | SyncedChatAttachment
+  | SyncedArtifact
   | SyncedTriageTag;

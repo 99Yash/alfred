@@ -477,6 +477,13 @@
       "when": 1782364603523,
       "tag": "0067_shiny_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1782468862115,
+      "tag": "0068_lyrical_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }
