@@ -103,4 +103,4 @@ Two themes: **platform robustness** (#267/#269 + #268-design) and **boss capabil
 
 - **#268 join** (ADR-0073) — next, once this batch lands. Its follow-up also owns the two #268 UX findings: the false "I'll notify you" promise (covered by ADR-0073 rubric #5) and the `TOOL_LABELS` card that undersells a delegating, partly-failed turn ("Searched multiple sources and saved notes" + a quiet "Some steps failed") — a sibling honest-surface gap not touched here.
 - **General tier / Code Mode / BYO-MCP** (ADR-0074, tracked in **#271**) — needs a sandbox + cross-integration risk grill; Railway + R2 + Vercel-AI-SDK constraints (no CF Workers isolate in hand).
-- **Produce-artifact epic** (ADR-0075, tracked in **#272**) — inline sidebar + renderers, borrow from `-dimension-ai-web`.
+- **Produce-artifact epic** (ADR-0075, tracked in **#272**) — inline sidebar + renderers, borrow from Dimension's web app.

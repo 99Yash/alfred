@@ -172,8 +172,7 @@ turn arrives (picker tier rides with the send, as today)
 ## 5. Observability — the feedback loop
 
 **A settings "model activity" table**, borrowing dimension's surfacing pattern
-(`MODEL_DISPLAY_NAMES` map + frosted `<table>`, see
-`-dimension-ai-web/apps/web/src/pages/settings/_components/usage/usage-dashboard.tsx`) and
+(`MODEL_DISPLAY_NAMES` map + frosted `<table>`) and
 **none** of their routing logic. Built as Alfred's own thing.
 
 - **Data source:** `api_call_log` records the **served** model for successful calls (the

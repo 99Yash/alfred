@@ -12,8 +12,6 @@ import type { ReadonlyJSONValue } from "replicache";
  * Why one map: the server's pull dispatcher (`packages/api/.../pull.ts`)
  * iterates `Object.keys(IDB_KEY)` to emit patches generically — adding a
  * new synced entity is one line here, no per-entity loop on the server.
- *
- * Pattern adapted from the dimension/replicache-cvr reference repo.
  */
 
 function constructIDBKey(parts: (string | null | undefined | number)[]): string {
