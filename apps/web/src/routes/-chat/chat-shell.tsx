@@ -141,11 +141,21 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   // "Suggest an edit" from the sidebar prefills the composer (ADR-0075 Phase 4):
   // a nonce makes the same scaffold re-apply if requested twice, and the main
-  // Composer consumes it via an effect (see `prefill`).
-  const [editPrefill, setEditPrefill] = useState<{ text: string; nonce: number } | null>(null);
-  const onSuggestArtifactEdit = useCallback((text: string) => {
-    setEditPrefill((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }));
-  }, []);
+  // Composer consumes it via an effect (see `prefill`). The prefill is tagged
+  // with the thread it was created for so a stale prefill doesn't leak into a
+  // different thread's composer when the user navigates away (the Composer
+  // remounts per-thread, which would otherwise re-fire the apply effect).
+  const [editPrefill, setEditPrefill] = useState<{
+    text: string;
+    nonce: number;
+    threadId: string | undefined;
+  } | null>(null);
+  const onSuggestArtifactEdit = useCallback(
+    (text: string) => {
+      setEditPrefill((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1, threadId }));
+    },
+    [threadId],
+  );
 
   // Memoize the rail node so `useRightRail`'s effect only fires when the
   // rail's inputs actually change — otherwise every ChatShell re-render
@@ -689,7 +699,7 @@ function Composer({
    * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
    * request; the editor inserts it at the caret and focuses (ADR-0075 Phase 4).
    */
-  prefill?: { text: string; nonce: number } | null;
+  prefill?: { text: string; nonce: number; threadId: string | undefined } | null;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
   onGhostAccept?: () => void;
@@ -738,10 +748,14 @@ function Composer({
   const appliedPrefillNonce = useRef<number | null>(null);
   useEffect(() => {
     if (!prefill || composerDisabled) return;
+    // Ignore a prefill created for a different thread — the Composer remounts
+    // per-thread, so without this a stale prefill would re-apply after the user
+    // navigates away from the thread it was requested in.
+    if (prefill.threadId !== threadId) return;
     if (appliedPrefillNonce.current === prefill.nonce) return;
     appliedPrefillNonce.current = prefill.nonce;
     editorRef.current?.insertText(prefill.text);
-  }, [prefill, composerDisabled]);
+  }, [prefill, composerDisabled, threadId]);
 
   const onAttachClick = useCallback(() => {
     if (composerDisabled || mic.recording) return;
