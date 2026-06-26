@@ -4,6 +4,7 @@ import {
   promoteScratchInput,
   readScratchInput,
   readUserContextInput,
+  fetchUrlInput,
   rememberInput,
   resolveTodoInput,
   suggestTodoInput,
@@ -21,6 +22,7 @@ import { rememberSenderSuppression } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
+import { runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
@@ -274,6 +276,21 @@ export const systemTools: readonly RegisteredTool[] = [
         idempotencyKey: ctx.toolCallId,
       });
       return { ok: true, query: input.query, answer, citations };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "fetch_url",
+    // Read-only external fetch with no side effect on the user's accounts —
+    // like web_search, `system.*` tools dispatch in autonomy mode so this never
+    // awaits approval. Honest read-in (ADR-0071): text only, size-bounded,
+    // binary resources reported rather than garbled; host-guarded for SSRF.
+    riskTier: "no_risk",
+    description:
+      "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
+    inputSchema: fetchUrlInput,
+    execute: async (input) => {
+      return await runFetchUrl({ url: input.url });
     },
   }),
 ];
