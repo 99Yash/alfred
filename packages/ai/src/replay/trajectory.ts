@@ -68,7 +68,12 @@ export function canonicalize(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = canonicalize((value as Record<string, unknown>)[key]);
+      const v = (value as Record<string, unknown>)[key];
+      // Drop undefined explicitly so an absent key and an explicit `undefined`
+      // canonicalize identically, rather than relying on JSON.stringify's quirk
+      // of silently omitting them (a deep-equal compare would diverge).
+      if (v === undefined) continue;
+      out[key] = canonicalize(v);
     }
     return out;
   }

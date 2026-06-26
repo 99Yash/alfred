@@ -496,7 +496,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 flex flex-col items-center gap-0.5">
-        <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} />
+        <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} kbd="⌘J" />
         <RailButton icon={Search} label="Search" onClick={onOpenSearch} />
         <RailLink
           icon={Plug}
@@ -686,7 +686,7 @@ const railIconClass = (active = false) =>
       : "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
   );
 
-function RailTip({ label, children }: { label: string; children: ReactNode }) {
+function RailTip({ label, kbd, children }: { label: string; kbd?: string; children: ReactNode }) {
   const { resolved } = useAppTheme();
   return (
     <Tooltip.Root>
@@ -697,12 +697,13 @@ function RailTip({ label, children }: { label: string; children: ReactNode }) {
           sideOffset={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-[200] rounded-lg px-2 py-1 text-xs font-medium",
+            "app z-[200] inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
           )}
         >
           {label}
+          {kbd ? <span className="text-app-bg-1/60 tabular-nums">{kbd}</span> : null}
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
@@ -715,15 +716,17 @@ function RailLink({
   to,
   active,
   badge,
+  kbd,
 }: {
   icon: LucideIcon;
   label: string;
   to: string;
   active?: boolean;
   badge?: string;
+  kbd?: string;
 }) {
   return (
-    <RailTip label={label}>
+    <RailTip label={label} kbd={kbd}>
       <Link
         to={to}
         aria-label={label}

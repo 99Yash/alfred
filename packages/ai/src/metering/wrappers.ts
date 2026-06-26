@@ -358,7 +358,9 @@ function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
   if (steps.length === 0) return undefined;
   let inputTokens = 0;
   let outputTokens = 0;
-  let cachedInputTokens = 0;
+  // Leave undefined when no step reported cache info, matching the
+  // non-abort path (`usageFromSdk`) instead of asserting a false `0`.
+  let cachedInputTokens: number | undefined;
   let sawUsage = false;
   for (const step of steps) {
     const usage = usageFromSdk(step.usage);
@@ -366,7 +368,9 @@ function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
     sawUsage = true;
     inputTokens += usage.inputTokens ?? 0;
     outputTokens += usage.outputTokens ?? 0;
-    cachedInputTokens += usage.cachedInputTokens ?? 0;
+    if (usage.cachedInputTokens != null) {
+      cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
+    }
   }
   if (!sawUsage) return undefined;
   return { inputTokens, outputTokens, cachedInputTokens };
