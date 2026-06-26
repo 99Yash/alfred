@@ -44,13 +44,14 @@ function okResult(text: string): GenResult {
   };
 }
 
-function apiError(statusCode: number): APICallError {
+function apiError(statusCode: number, message = `mock ${statusCode}`, responseBody?: string): APICallError {
   return new APICallError({
-    message: `mock ${statusCode}`,
+    message,
     url: "https://mock.invalid/v1",
     requestBodyValues: {},
     statusCode,
     isRetryable: false,
+    responseBody,
   });
 }
 
@@ -108,6 +109,32 @@ describe("withFallback", () => {
   for (const code of [408, 429, 500, 502, 503]) {
     test(`${code} degrades to the fallback`, async () => {
       const primary = throwingModel("primary", apiError(code));
+      const fallback = okModel("fallback", TEXT_FALLBACK);
+
+      const { text } = await run(primary, fallback);
+
+      assert.equal(text, TEXT_FALLBACK);
+      assert.equal(fallback.doGenerateCalls.length, 1);
+    });
+  }
+
+  // A billing/quota condition (workspace spend cap, exhausted credits) arrives
+  // as a 4xx that is NOT 408/429, but it is a *capacity* condition we want to
+  // degrade through — not a malformed request. #303: Anthropic's workspace
+  // spend cap hard-failed the turn at attempt 0 because the generic client-bug
+  // guard surfaced it. These must reach the fallback.
+  const quotaErrors = [
+    apiError(400, "You have reached your specified workspace API usage limits."),
+    apiError(400, "Your credit balance is too low to access the Anthropic API."),
+    apiError(
+      400,
+      "Request failed",
+      JSON.stringify({ type: "error", error: { type: "billing_error", message: "usage limit reached" } }),
+    ),
+  ];
+  for (const [i, err] of quotaErrors.entries()) {
+    test(`billing/quota 4xx (#${i}) degrades to the fallback`, async () => {
+      const primary = throwingModel("primary", err);
       const fallback = okModel("fallback", TEXT_FALLBACK);
 
       const { text } = await run(primary, fallback);

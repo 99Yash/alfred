@@ -192,6 +192,29 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  * model from the response (`served` in `MeteredResult`), so `api_call_log`
  * stays correct when the fallback fires.
  */
+/**
+ * True when a 4xx is a billing/quota *capacity* condition (a workspace spend
+ * cap, exhausted credits, or a usage-limit ceiling) rather than a malformed
+ * request. Anthropic surfaces the workspace spend cap as a 400 whose body
+ * carries the signature message "...workspace API usage limits..."; out-of-
+ * credit and usage-limit errors read similarly ("credit balance is too low",
+ * "usage limit"). These should degrade to the fallback like a 429, not
+ * hard-fail the turn (#303).
+ *
+ * Matches defensively across the parsed message and the raw response body so a
+ * provider tweak to either field still trips the carve-out, and the phrases are
+ * specific enough not to catch a request-shape 4xx (illegal tool name, bad
+ * schema), which must keep surfacing loudly.
+ */
+function isQuotaOrBillingError(e: APICallError): boolean {
+  const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
+  return (
+    haystack.includes("usage limit") ||
+    haystack.includes("credit balance") ||
+    haystack.includes("billing")
+  );
+}
+
 export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3): LanguageModel {
   // True for any error worth degrading to the fallback; false for a
   // non-retryable client bug we want to surface. Built with the raw `error`
@@ -201,7 +224,13 @@ export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
-      if (isClientBug) return false;
+      // A spend-cap / workspace-usage-limit error is a *capacity* condition we
+      // want to degrade through, but Anthropic returns it as a 4xx billing
+      // error (not 408/429), so the generic client-bug guard would surface it
+      // and hard-fail the turn (#303). Carve it out so it degrades like a 429,
+      // while genuine request-shape 4xx (dotted tool name, malformed schema)
+      // still surface loudly.
+      if (isClientBug && !isQuotaOrBillingError(e)) return false;
     }
     return true;
   });
