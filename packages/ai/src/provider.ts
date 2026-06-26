@@ -1,7 +1,7 @@
 import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import type { ChatModelTier } from "@alfred/contracts";
-import type { LanguageModel, ToolSet } from "ai";
+import { APICallError, type LanguageModel, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
@@ -9,6 +9,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import type { LanguageModel as LanguageModelV3 } from "ai-retry";
 import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
 import type { ModelIdFor } from "./models";
+import { withAnthropicToolNames } from "./tool-name-shim";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
@@ -19,7 +20,11 @@ export type { ChatModelTier };
 // for that provider. Routing every `anthropic(...)`/`google(...)` literal
 // through these makes registry drift (a typo, or an id the registry never
 // listed) a compile error rather than a silent cost-attribution miss.
-const anthropicModel = (id: ModelIdFor<"anthropic">) => anthropic(id);
+// Every Anthropic model is wrapped in the tool-name boundary shim so our dotted
+// `integration.action` tool names survive Anthropic's pattern-validated API
+// (which rejects the `.`); see `withAnthropicToolNames`. The shim is a no-op on
+// tool-less calls, so routing the whole factory through it is safe and uniform.
+const anthropicModel = (id: ModelIdFor<"anthropic">) => withAnthropicToolNames(anthropic(id));
 const googleModel = (id: ModelIdFor<"google">) => google(id);
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
@@ -171,11 +176,13 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  *   1. Transient errors (provider-flagged retryable — 429/529/overload — or
  *      timeout) retry the primary once after a short delay, honoring
  *      `Retry-After` headers.
- *   2. Any error after that (including non-retryable ones) switches to
- *      `fallback` for a single attempt. Deliberate any-error semantics: these
- *      dispatchers serve user-facing turns that should never hard-fail on a
- *      single provider; a systematic bug fails on the fallback too and still
- *      surfaces.
+ *   2. Anything else switches to `fallback` for a single attempt — EXCEPT a
+ *      non-retryable 4xx client error, which means OUR request is malformed
+ *      (e.g. an illegal tool name) rather than the provider being down.
+ *      Switching providers on a 4xx just hides the bug behind a weaker model:
+ *      that is exactly how the dotted-tool-name 400 silently ran the chat boss
+ *      on Gemini for weeks. A 4xx (other than 408/429, which are transient and
+ *      a legit reason to try the other provider) now surfaces loudly instead.
  *
  * Streaming caveat: fallback only covers errors raised before the stream
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
@@ -186,13 +193,23 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  * stays correct when the fallback fires.
  */
 export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3): LanguageModel {
+  // True for any error worth degrading to the fallback; false for a
+  // non-retryable client bug we want to surface. Built with the raw `error`
+  // helper (not `.not()`) so it is inherently error-only — `.not()` of an error
+  // condition also matches *successful* results, which the retry loop consults.
+  const shouldSwitch = error((e) => {
+    if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+      const code = e.statusCode;
+      const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
+      if (isClientBug) return false;
+    }
+    return true;
+  });
   return createRetryable({
     model: primary,
     retries: [
       error.isRetryable(true).or(timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
-      error(() => true)
-        .or(timeout())
-        .switch({ model: fallback }),
+      shouldSwitch.switch({ model: fallback }),
     ],
   });
 }

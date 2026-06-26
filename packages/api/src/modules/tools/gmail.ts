@@ -12,7 +12,9 @@ import { gmailReadMessageInput, gmailSearchInput, gmailSendDraftInput } from "@a
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
+  extractMessageContent,
   getFreshAccessToken,
+  getMessage,
   listCredentials,
   listMessages,
   requireScopes,
@@ -20,6 +22,15 @@ import {
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import { liveTool, type RegisteredTool } from "./registry";
+
+/**
+ * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/` path
+ * and picks the active account itself, so we don't need to know which account
+ * the user is viewing. Mirrors `gmailThreadUrl` in the briefing gather module.
+ */
+function gmailThreadUrl(threadId: string): string {
+  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+}
 
 async function pickGoogleCredentialId(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");
@@ -38,7 +49,9 @@ export const gmailTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     description:
-      "Search Gmail messages using Gmail query operators and return message ids plus cached subject metadata when available.",
+      "Search Gmail messages using Gmail query operators. Returns each hit's `messageId` " +
+      "(pass it straight to gmail.read_message), its `threadId`, and a `documentId` plus cached " +
+      "subject metadata when the message has been ingested (documentId may be null for fresh results).",
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const credentialId = await pickGoogleCredentialId(ctx.userId);
@@ -77,7 +90,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         messages: result.messages.map((m) => {
           const cached = cachedBySourceId.get(m.id);
           return {
-            id: m.id,
+            messageId: m.id,
             threadId: m.threadId,
             documentId: cached?.id ?? null,
             subject: cached?.title ?? null,
@@ -93,7 +106,10 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "read_message",
     riskTier: "low",
-    description: "Read the cached full text and metadata for one ingested Gmail message.",
+    description:
+      "Read the full text and metadata for one Gmail message. Pass the `messageId` from a " +
+      "gmail.search hit (or a `documentId` for an ingested message). Reads the cached copy when " +
+      "ingested, otherwise fetches it live from Gmail — so it works on fresh search results too.",
     inputSchema: gmailReadMessageInput,
     execute: async (input, ctx) => {
       const where = input.documentId
@@ -122,23 +138,53 @@ export const gmailTools: readonly RegisteredTool[] = [
         .where(where)
         .limit(1);
       const row = rows[0];
-      if (!row) {
+      if (row) {
         return {
-          status: "not_found",
-          documentId: input.documentId ?? null,
-          messageId: input.messageId ?? null,
+          status: "ok",
+          source: "ingested" as const,
+          documentId: row.id,
+          messageId: row.sourceId,
+          threadId: row.sourceThreadId,
+          subject: row.title,
+          authoredAt: row.authoredAt?.toISOString() ?? null,
+          url: row.url,
+          metadata: row.metadata,
+          content: row.content,
         };
       }
+
+      // Not ingested. `gmail.search` hits the live Gmail API and returns
+      // provider message ids that frequently aren't in `documents` (anything
+      // not yet ingested), so a cached-only read would return not_found for
+      // every fresh search result — the model can list the ids but never read
+      // them. When we have a provider message id, fetch it live from Gmail so
+      // the search→read flow actually completes. A `documentId` that misses is
+      // a genuine not_found (it's our own id; there's nothing live to fetch).
+      if (input.messageId) {
+        const credentialId = await pickGoogleCredentialId(ctx.userId);
+        const accessToken = await getFreshAccessToken(credentialId);
+        const message = await getMessage({ accessToken, id: input.messageId, format: "full" });
+        const extracted = extractMessageContent(message);
+        return {
+          status: "ok",
+          source: "live" as const,
+          documentId: null,
+          messageId: message.id,
+          threadId: message.threadId,
+          subject: extracted.subject,
+          from: extracted.from,
+          to: extracted.to,
+          cc: extracted.cc,
+          authoredAt: extracted.date?.toISOString() ?? null,
+          url: gmailThreadUrl(message.threadId),
+          content: extracted.body,
+        };
+      }
+
       return {
-        status: "ok",
-        documentId: row.id,
-        messageId: row.sourceId,
-        threadId: row.sourceThreadId,
-        subject: row.title,
-        authoredAt: row.authoredAt?.toISOString() ?? null,
-        url: row.url,
-        metadata: row.metadata,
-        content: row.content,
+        status: "not_found",
+        documentId: input.documentId ?? null,
+        messageId: input.messageId ?? null,
       };
     },
   }),

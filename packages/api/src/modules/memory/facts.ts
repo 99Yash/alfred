@@ -86,6 +86,29 @@ function requireRow<T>(row: T | undefined, op: string): T {
   return row;
 }
 
+/**
+ * Keys that describe a *source document* (an email, a PR, a newsletter) rather
+ * than the user. The extractor occasionally harvests these despite the prompt;
+ * persisting them as durable `user_facts` is what let `readUserContext` surface
+ * an email's subject/sender/id — and feed the chat boss enough per-message
+ * debris to invent a wrong identity. Reject at the persistence boundary so the
+ * extraction prompt and the store can't drift. This guards document-metadata
+ * only; mis-sourced-but-real keys like `company`/`job_title` are handled by the
+ * prompt (don't harvest from job postings), not here — we can't tell a genuine
+ * `company = <employer>` from a harvested one by key name alone.
+ */
+function isDocumentMetadataKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return (
+    k.startsWith("email_") ||
+    k.startsWith("pull_request") ||
+    k.startsWith("github_pull_request") ||
+    k.endsWith("_message_id") ||
+    k === "author" ||
+    k === "author_name"
+  );
+}
+
 function rowToFact(r: UserFact): FactRow {
   return {
     ...r,
@@ -117,6 +140,10 @@ function rowToFact(r: UserFact): FactRow {
 export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null> {
   const parsed = proposeFactArgsSchema.parse(args);
   const sig = valueSignature(parsed.value);
+
+  // (0) Drop document-metadata keys — these describe the source email/PR, not
+  // the user, and never belong in `user_facts` (see `isDocumentMetadataKey`).
+  if (isDocumentMetadataKey(parsed.key)) return null;
 
   // (1) Bypass if already rejected.
   const [rejectedHit] = await db()
