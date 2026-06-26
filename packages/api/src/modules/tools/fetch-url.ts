@@ -72,6 +72,13 @@ export interface FetchUrlOk {
   chars: number;
   /** True when the text was cut off at {@link MAX_TEXT_CHARS}. */
   truncated: boolean;
+  /**
+   * Ordered URLs that issued a redirect on the way to {@link finalUrl} (the
+   * "from" of each hop). Present only when the request was redirected, so an
+   * `innocuous.com → 302 → attacker.com` hop is auditable in the persisted
+   * `action_stagings` row, not just the final URL.
+   */
+  redirects?: string[];
 }
 
 export interface FetchUrlError {
@@ -82,6 +89,8 @@ export interface FetchUrlError {
   reason: "blocked_host" | "unsupported_content_type" | "too_large" | "http_error" | "fetch_failed";
   /** A plain-language explanation the boss can relay to the user. */
   message: string;
+  /** Redirect hops taken before the failure, when any (see {@link FetchUrlOk.redirects}). */
+  redirects?: string[];
 }
 
 export type FetchUrlResult = FetchUrlOk | FetchUrlError;
@@ -412,12 +421,32 @@ export interface RawResponse {
   charset: string | null;
   contentLength: number | null;
   body: AsyncIterable<Uint8Array>;
+  /** URLs that issued a redirect en route to {@link finalUrl}, in order. */
+  redirectChain?: string[];
 }
 
 export type Transport = (url: string, signal: AbortSignal) => Promise<RawResponse>;
 
+/** The slice of `undici.request` {@link safeRequest} uses — injectable for tests. */
+export interface UndiciResponseLike {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: AsyncIterable<Uint8Array>;
+}
+export type HttpRequester = (
+  url: string,
+  opts: {
+    method: string;
+    headers: Record<string, string>;
+    dispatcher?: Agent;
+    signal: AbortSignal;
+  },
+) => Promise<UndiciResponseLike>;
+
 /** Carries a {@link FetchUrlError} reason out of the transport layer. */
 export class FetchError extends Error {
+  /** Redirect hops taken before the failure, when any. Set by {@link safeRequest}. */
+  redirects?: string[];
   constructor(
     readonly reason: FetchUrlError["reason"],
     message: string,
@@ -429,12 +458,27 @@ export class FetchError extends Error {
 }
 
 /**
+ * The slice of `dns.lookup` (its `all: true` form) that {@link pinningLookup}
+ * depends on. Injectable so tests can drive the connect-time pin with a fake
+ * resolver — a resolver returning a private address must surface `EBLOCKEDHOST`
+ * — without touching real DNS or opening a socket.
+ */
+export type DnsLookupAll = (
+  hostname: string,
+  options: dns.LookupAllOptions,
+  // `addresses` is absent on the error path — `dns.lookup` calls back with just
+  // the error there, and the pin only reads addresses when `err` is null.
+  callback: (err: NodeJS.ErrnoException | null, addresses?: dns.LookupAddress[]) => void,
+) => void;
+
+/**
  * Custom DNS lookup for the undici connector: resolve the host, refuse if *any*
  * address is private/internal, and hand back only validated addresses so the
  * socket connects to one of them (connect-time pinning). Supports both the
- * `all:true` (array) and single-address callback shapes Node uses.
+ * `all:true` (array) and single-address callback shapes Node uses. The resolver
+ * is injectable (defaults to `dns.lookup`) purely so the pin is unit-testable.
  */
-function pinningLookup(
+export function pinningLookup(
   hostname: string,
   options: dns.LookupOneOptions | dns.LookupAllOptions,
   callback: (
@@ -442,8 +486,9 @@ function pinningLookup(
     address?: string | dns.LookupAddress[],
     family?: number,
   ) => void,
+  resolve: DnsLookupAll = dns.lookup as DnsLookupAll,
 ): void {
-  dns.lookup(
+  resolve(
     hostname,
     {
       all: true,
@@ -456,7 +501,8 @@ function pinningLookup(
         callback(err);
         return;
       }
-      const list = Array.isArray(addresses) ? addresses : [addresses];
+      // `all: true` always calls back with an array on the success path.
+      const list = addresses ?? [];
       const blocked = list.find((a) => isBlockedIp(a.address));
       if (blocked) {
         const e = new Error(
@@ -562,7 +608,7 @@ function decoderForEncoding(encoding: string): Transform | null {
   }
 }
 
-function decodeResponseBody(
+export function decodeResponseBody(
   body: AsyncIterable<Uint8Array>,
   contentEncoding: string | undefined,
   finalUrl: string,
@@ -616,15 +662,30 @@ function decodeResponseBody(
 /**
  * The real transport: follow redirects manually (no undici interceptor) so every
  * hop runs back through {@link validateUrl} *and* the pinning connector, then
- * return the final response with its body still streaming.
+ * return the final response with its body still streaming. The requester is
+ * injectable (defaults to undici) so the manual-redirect re-validation — the
+ * property that a 302 into private space is refused — is unit-testable without
+ * a socket; production always pins via {@link safeAgent}.
  */
-async function safeRequest(initialUrl: string, signal: AbortSignal): Promise<RawResponse> {
+export async function safeRequest(
+  initialUrl: string,
+  signal: AbortSignal,
+  doRequest: HttpRequester = undiciRequest as unknown as HttpRequester,
+): Promise<RawResponse> {
   let url = initialUrl;
+  const redirectChain: string[] = [];
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const parsed = validateUrl(url);
-    let res: Awaited<ReturnType<typeof undiciRequest>>;
+    let parsed: URL;
     try {
-      res = await undiciRequest(parsed.toString(), {
+      parsed = validateUrl(url);
+    } catch (err) {
+      // A blocked *redirect* target carries the hops that led here.
+      if (err instanceof FetchError && redirectChain.length > 0) err.redirects = [...redirectChain];
+      throw err;
+    }
+    let res: UndiciResponseLike;
+    try {
+      res = await doRequest(parsed.toString(), {
         method: "GET",
         headers: {
           "user-agent": USER_AGENT,
@@ -637,16 +698,26 @@ async function safeRequest(initialUrl: string, signal: AbortSignal): Promise<Raw
         // No maxRedirections → undici does NOT auto-follow; we chase 3xx ourselves.
       });
     } catch (err) {
+      const chain = redirectChain.length > 0 ? [...redirectChain] : undefined;
       if ((err as NodeJS.ErrnoException)?.code === "EBLOCKEDHOST") {
-        throw new FetchError("blocked_host", (err as Error).message, parsed.toString());
+        const e = new FetchError("blocked_host", (err as Error).message, parsed.toString());
+        e.redirects = chain;
+        throw e;
       }
       const why = err instanceof Error ? err.message : String(err);
-      throw new FetchError("fetch_failed", `Could not reach the URL: ${why}`, parsed.toString());
+      const e = new FetchError(
+        "fetch_failed",
+        `Could not reach the URL: ${why}`,
+        parsed.toString(),
+      );
+      e.redirects = chain;
+      throw e;
     }
 
     const location = headerValue(res.headers.location);
     if (res.statusCode >= 300 && res.statusCode < 400 && location) {
       await disposeBody(res.body); // free the socket before the next hop
+      redirectChain.push(parsed.toString());
       url = new URL(location, parsed).toString();
       continue;
     }
@@ -661,6 +732,7 @@ async function safeRequest(initialUrl: string, signal: AbortSignal): Promise<Raw
       );
     } catch (err) {
       await disposeBody(res.body);
+      if (err instanceof FetchError && redirectChain.length > 0) err.redirects = [...redirectChain];
       throw err;
     }
     return {
@@ -675,9 +747,12 @@ async function safeRequest(initialUrl: string, signal: AbortSignal): Promise<Raw
             return Number.isFinite(n) && n >= 0 ? n : null;
           })(),
       body: decoded.body,
+      ...(redirectChain.length > 0 ? { redirectChain } : {}),
     };
   }
-  throw new FetchError("fetch_failed", `Too many redirects (more than ${MAX_REDIRECTS}).`, url);
+  const e = new FetchError("fetch_failed", `Too many redirects (more than ${MAX_REDIRECTS}).`, url);
+  e.redirects = [...redirectChain];
+  throw e;
 }
 
 /** Read at most `maxBytes`; report `overflow` if the body had more. */
@@ -720,6 +795,7 @@ export async function runFetchUrl(
         ...(err.finalUrl ? { finalUrl: err.finalUrl } : {}),
         reason: err.reason,
         message: err.message,
+        ...(err.redirects && err.redirects.length > 0 ? { redirects: err.redirects } : {}),
       };
     }
     const why = err instanceof Error ? err.message : String(err);
@@ -830,6 +906,7 @@ export async function runFetchUrl(
     text,
     chars: text.length,
     truncated,
+    ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
   };
 }
 

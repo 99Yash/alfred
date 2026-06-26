@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import {
   decodeEntities,
+  decodeResponseBody,
   FetchError,
   htmlToText,
   isBlockedHost,
   isBlockedIp,
   MAX_TEXT_CHARS,
+  pinningLookup,
   runFetchUrl,
+  safeRequest,
+  type DnsLookupAll,
+  type HttpRequester,
   type RawResponse,
   type Transport,
+  type UndiciResponseLike,
 } from "../../src/modules/tools/fetch-url";
 
 /**
@@ -435,5 +442,198 @@ describe("runFetchUrl (stubbed transport)", () => {
       assert.equal(r.truncated, true);
       assert.equal(r.chars, MAX_TEXT_CHARS);
     }
+  });
+});
+
+/* ── hermetic SSRF + transport coverage (no network) ──────────────────────── */
+
+function streamOfBytes(...parts: Uint8Array[]): AsyncIterable<Uint8Array> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const p of parts) yield p;
+    },
+  };
+}
+
+async function collect(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const c of body) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  return Buffer.concat(chunks);
+}
+
+describe("decodeResponseBody", () => {
+  const payload = Buffer.from("the quick brown fox ".repeat(50), "utf-8");
+
+  for (const [encoding, compress] of [
+    ["gzip", gzipSync],
+    ["deflate", deflateSync],
+    ["br", brotliCompressSync],
+  ] as const) {
+    test(`decodes ${encoding}`, async () => {
+      const { body, decoded } = decodeResponseBody(
+        streamOfBytes(compress(payload)),
+        encoding,
+        "https://example.com/",
+      );
+      assert.equal(decoded, true);
+      assert.deepEqual(await collect(body), payload);
+    });
+  }
+
+  test("decodes a doubly-encoded body (gzip then deflate) in the right order", async () => {
+    // Content-Encoding lists outermost-first; decoders apply in reverse.
+    const doubly = deflateSync(gzipSync(payload));
+    const { body, decoded } = decodeResponseBody(
+      streamOfBytes(doubly),
+      "gzip, deflate",
+      "https://example.com/",
+    );
+    assert.equal(decoded, true);
+    assert.deepEqual(await collect(body), payload);
+  });
+
+  test("identity / empty encoding is a no-op pass-through", () => {
+    const src = streamOfBytes(payload);
+    assert.equal(decodeResponseBody(src, "identity", "https://e.com/").decoded, false);
+    assert.equal(decodeResponseBody(src, undefined, "https://e.com/").decoded, false);
+    assert.equal(decodeResponseBody(src, "", "https://e.com/").decoded, false);
+  });
+
+  test("rejects an unsupported content encoding", () => {
+    assert.throws(
+      () => decodeResponseBody(streamOfBytes(payload), "compress", "https://e.com/"),
+      (e) => e instanceof FetchError && e.reason === "fetch_failed",
+    );
+  });
+
+  test("rejects an absurd encoding stack (decompression-bomb guard)", () => {
+    assert.throws(
+      () =>
+        decodeResponseBody(
+          streamOfBytes(payload),
+          "gzip,gzip,gzip,gzip,gzip,gzip",
+          "https://e.com/",
+        ),
+      (e) => e instanceof FetchError && e.reason === "fetch_failed",
+    );
+  });
+});
+
+describe("pinningLookup (connect-time IP pin)", () => {
+  const opts = { all: true } as Parameters<typeof pinningLookup>[1];
+
+  function run(
+    hostname: string,
+    resolve: DnsLookupAll,
+  ): Promise<{ err: NodeJS.ErrnoException | null; address?: string | { address: string }[] }> {
+    return new Promise((res) => {
+      pinningLookup(hostname, opts, (err, address) => res({ err, address }), resolve);
+    });
+  }
+
+  test("refuses EBLOCKEDHOST when the host resolves to a private address", async () => {
+    const resolve: DnsLookupAll = (_h, _o, cb) => cb(null, [{ address: "10.0.0.5", family: 4 }]);
+    const { err } = await run("rebind.example", resolve);
+    assert.equal(err?.code, "EBLOCKEDHOST");
+  });
+
+  test("refuses EBLOCKEDHOST when ANY resolved address is private", async () => {
+    const resolve: DnsLookupAll = (_h, _o, cb) =>
+      cb(null, [
+        { address: "93.184.216.34", family: 4 },
+        { address: "127.0.0.1", family: 4 },
+      ]);
+    const { err } = await run("mixed.example", resolve);
+    assert.equal(err?.code, "EBLOCKEDHOST");
+  });
+
+  test("passes validated public addresses through (all:true array shape)", async () => {
+    const resolve: DnsLookupAll = (_h, _o, cb) =>
+      cb(null, [{ address: "93.184.216.34", family: 4 }]);
+    const { err, address } = await run("example.com", resolve);
+    assert.equal(err, null);
+    assert.ok(Array.isArray(address));
+  });
+
+  test("surfaces ENOTFOUND when nothing resolves", async () => {
+    const resolve: DnsLookupAll = (_h, _o, cb) => cb(null, []);
+    const { err } = await run("void.example", resolve);
+    assert.equal(err?.code, "ENOTFOUND");
+  });
+
+  test("propagates a resolver error verbatim", async () => {
+    const boom = Object.assign(new Error("dns down"), { code: "EAI_AGAIN" });
+    const resolve: DnsLookupAll = (_h, _o, cb) => cb(boom);
+    const { err } = await run("flaky.example", resolve);
+    assert.equal(err?.code, "EAI_AGAIN");
+  });
+});
+
+describe("safeRequest (manual redirect re-validation)", () => {
+  const signal = AbortSignal.timeout(5_000);
+
+  function res(over: Partial<UndiciResponseLike>): UndiciResponseLike {
+    return {
+      statusCode: 200,
+      headers: {},
+      body: streamOfBytes(new TextEncoder().encode("body")),
+      ...over,
+    };
+  }
+
+  test("refuses a redirect into private/metadata space (the hop, not just hop 0)", async () => {
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://innocuous.example/")
+        return res({ statusCode: 302, headers: { location: "http://169.254.169.254/latest" } });
+      throw new Error("must not fetch the private target");
+    };
+    await assert.rejects(
+      safeRequest("https://innocuous.example/", signal, requester),
+      (e) =>
+        e instanceof FetchError &&
+        e.reason === "blocked_host" &&
+        Array.isArray(e.redirects) &&
+        e.redirects.includes("https://innocuous.example/"),
+    );
+  });
+
+  test("follows redirects manually and records the chain", async () => {
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://a.example/")
+        return res({ statusCode: 301, headers: { location: "https://b.example/" } });
+      if (url === "https://b.example/")
+        return res({ statusCode: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+      throw new Error(`unexpected url ${url}`);
+    };
+    const out = await safeRequest("https://a.example/", signal, requester);
+    assert.equal(out.finalUrl, "https://b.example/");
+    assert.deepEqual(out.redirectChain, ["https://a.example/"]);
+    assert.equal(out.contentType, "text/plain");
+    assert.equal(out.charset, "utf-8");
+  });
+
+  test("gives up after too many redirects rather than auto-following forever", async () => {
+    const requester: HttpRequester = async () =>
+      res({ statusCode: 302, headers: { location: "https://loop.example/next" } });
+    await assert.rejects(
+      safeRequest("https://loop.example/", signal, requester),
+      (e) => e instanceof FetchError && /Too many redirects/.test(e.message),
+    );
+  });
+
+  test("the recorded redirect chain surfaces all the way out to runFetchUrl", async () => {
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://start.example/")
+        return res({ statusCode: 302, headers: { location: "https://final.example/" } });
+      return res({
+        statusCode: 200,
+        headers: { "content-type": "text/plain" },
+        body: streamOfBytes(new TextEncoder().encode("hi")),
+      });
+    };
+    const transport: Transport = (url, sig) => safeRequest(url, sig, requester);
+    const r = await runFetchUrl({ url: "https://start.example/" }, { transport });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.redirects, ["https://start.example/"]);
   });
 });
