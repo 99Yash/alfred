@@ -30,6 +30,8 @@ export interface TraceObservation {
   output?: unknown;
   level?: string | null; // "DEFAULT" | "ERROR" | ...
   statusMessage?: string | null;
+  /** Tool spans (#214) carry `{ toolCallId, ... }` here; used to reconcile decided↔executed. */
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface TraceLike {
@@ -101,46 +103,53 @@ function decidedCalls(obs: TraceObservation[]): { toolName: string; toolCallId?:
   return calls;
 }
 
+function readToolCallId(metadata: Record<string, unknown> | null | undefined): string | undefined {
+  const id = metadata?.toolCallId;
+  return typeof id === "string" ? id : undefined;
+}
+
 export function extractTrajectory(trace: TraceLike): Trajectory {
   const obs = (trace.observations ?? []).slice().sort(byStartTime);
 
   const steps: TrajectoryStep[] = [];
   const executedCallIds = new Set<string>();
+  const executedKeys = new Map<string, number>();
   for (const o of obs) {
     if (o.type !== "SPAN" || !o.name.startsWith(TOOL_SPAN_PREFIX)) continue;
     const toolName = o.name.slice(TOOL_SPAN_PREFIX.length);
     const isError = (o.level ?? "").toUpperCase() === "ERROR";
-    steps.push({
+    const step: TrajectoryStep = {
       toolName,
       input: canonicalize(o.input),
       status: isError ? "error" : "ok",
       ...(isError && o.statusMessage ? { error: String(o.statusMessage).slice(0, 200) } : {}),
-    });
-  }
-
-  // Match decided calls to executed spans by toolCallId where present; anything
-  // decided but unmatched is proposed-but-not-executed.
-  const decided = decidedCalls(obs);
-  for (const d of decided) {
-    if (d.toolCallId) executedCallIds.add(d.toolCallId);
-  }
-  // A span doesn't carry the toolCallId in this slice, so we match decided →
-  // executed positionally by (toolName, canonical args). Build a multiset of
-  // executed keys and subtract.
-  const executedKeys = new Map<string, number>();
-  for (const s of steps) {
-    const k = stepKey(s);
+    };
+    steps.push(step);
+    const callId = readToolCallId(o.metadata);
+    if (callId) executedCallIds.add(callId);
+    const k = stepKey(step);
     executedKeys.set(k, (executedKeys.get(k) ?? 0) + 1);
   }
+
+  // Reconcile the model's decided calls against what executed. Prefer matching
+  // by toolCallId: args get TRANSFORMED between decision and execution (relative
+  // dates resolved to absolute, defaults like `maxResults` injected by the SDK),
+  // so an args match over-reports "not executed" (observed live: a calendar call
+  // that ran was flagged because `maxResults:10` was added). Fall back to an
+  // (toolName, canonical args) multiset only when a decided call carries no id.
+  const decided = decidedCalls(obs);
   const decidedNotExecuted: { toolName: string; input: unknown }[] = [];
   for (const d of decided) {
+    if (d.toolCallId) {
+      if (!executedCallIds.has(d.toolCallId)) {
+        decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
+      }
+      continue;
+    }
     const k = stepKey({ toolName: d.toolName, input: d.input });
     const remaining = executedKeys.get(k) ?? 0;
-    if (remaining > 0) {
-      executedKeys.set(k, remaining - 1);
-    } else {
-      decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
-    }
+    if (remaining > 0) executedKeys.set(k, remaining - 1);
+    else decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
   }
 
   return { traceId: trace.id, steps, decidedNotExecuted };
