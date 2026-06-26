@@ -373,6 +373,13 @@ function buildSystem(
  * the breakpoint rides a shallow clone of the last message, preserving any
  * providerOptions already on it. A drifting prefix (e.g. after compaction
  * rewrites history) simply costs one cold-cache turn; it is never incorrect.
+ *
+ * Invariant: this function OWNS all transcript breakpoints. No transcript
+ * message may carry its own `cacheControl` — otherwise a compacted,
+ * tool-burst-ending turn (compactor summary + burst-boundary + last-message)
+ * plus the system + last-tool breakpoints overruns Anthropic's 4-cap, and the
+ * provider silently evicts the tool definitions. The compactor's `<run_summary>`
+ * message is deliberately breakpoint-free for this reason (see compactor.ts).
  */
 export function decorateTranscript(
   transcript: Transcript,

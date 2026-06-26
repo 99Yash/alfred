@@ -117,4 +117,32 @@ describe("decorateTranscript", () => {
     assert.deepEqual(anthropicCache(out[grown.length - 1]!), { type: "ephemeral", ttl: "1h" });
     assert.equal(anthropicCache(out[3]!), undefined);
   });
+
+  test("stays within the 4-breakpoint budget on the compacted tool-burst shape (#223)", () => {
+    // The worst case: a compaction step prepends a role:"system" <run_summary>
+    // as transcript[0], and the turn ends in a tool-result burst. The summary
+    // must carry NO breakpoint of its own (the compactor leaves it clean), so
+    // decorateTranscript adds at most 2 transcript breakpoints. With the system
+    // block + last tool def, that totals 4 — at, not over, Anthropic's cap. A
+    // breakpoint on the summary would push it to 5 and silently evict the tool
+    // definitions.
+    const compacted: Transcript = [
+      { role: "system", content: "<run_summary>…</run_summary>" }, // no cacheControl
+      ...sample(),
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call_0", toolName: "search", input: {} }],
+      },
+      ...Array.from({ length: 8 }, (_, i) => ({
+        role: "tool" as const,
+        content: [
+          { type: "tool-result", toolCallId: `call_${i}`, toolName: "search", result: `r${i}` },
+        ],
+      })),
+    ] as Transcript;
+
+    const out = decorateTranscript(compacted, "1h");
+    assert.equal(anthropicCache(out[0]!), undefined); // summary stays breakpoint-free
+    assert.ok(cachedIndexes(out).length <= 2, "decorateTranscript adds at most 2 breakpoints");
+  });
 });
