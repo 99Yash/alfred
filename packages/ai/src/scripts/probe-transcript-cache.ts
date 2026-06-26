@@ -27,6 +27,7 @@ import { generateText, type ModelMessage } from "ai";
 import { decorateTranscript } from "../agent.js";
 
 const TTL = "5m" as const;
+const GENERATE_TIMEOUT_MS = 60_000;
 
 // A stable, sizable first message so the prefix clears Anthropic's ~1024-token
 // minimum cacheable size. Deterministic content (no timestamps) so the prefix
@@ -64,6 +65,7 @@ async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
     messages: [systemBlock, ...decorateTranscript(transcript, TTL)],
     maxOutputTokens: 64,
     temperature: 0,
+    timeout: GENERATE_TIMEOUT_MS,
   });
   const { read, created } = cacheStats(res.providerMetadata);
   console.log(

@@ -23,9 +23,12 @@ import {
   type TraceLike,
 } from "../replay/trajectory";
 
+const FETCH_TIMEOUT_MS = 15_000;
+
 async function fetchTrace(host: string, auth: string, traceId: string): Promise<TraceLike> {
   const res = await fetch(`${host}/api/public/traces/${traceId}`, {
     headers: { Authorization: `Basic ${auth}` },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`GET trace ${traceId} → ${res.status} ${await res.text()}`);
   return res.json() as Promise<TraceLike>;

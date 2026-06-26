@@ -11,7 +11,7 @@ import { asRecord, type JsonRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
-type CalendarListEventsKey = keyof z.input<typeof calendarListEventsInput>;
+type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
 
 /**
  * Editable view of a staged tool's proposed input. Every control is derived

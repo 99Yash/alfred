@@ -320,6 +320,15 @@ describe("runFetchUrl (stubbed transport)", () => {
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
   });
 
+  test("refuses a body with a late NUL byte beyond the sniff head", async () => {
+    const r = await runFetchUrl(
+      { url: "https://example.com/blob" },
+      { transport: transportOf({ contentType: "text/plain", body: `${"a".repeat(2048)}\u0000` }) },
+    );
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
+  });
+
   test("maps a transport blocked_host error (e.g. redirect into private space)", async () => {
     const transport: Transport = async () => {
       throw new FetchError(
