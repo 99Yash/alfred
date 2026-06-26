@@ -58,6 +58,7 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
+import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
@@ -72,6 +73,7 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
+import { ArtifactSidebar } from "./artifact-sidebar";
 import { Conversation } from "./conversation";
 import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
@@ -79,6 +81,7 @@ import { MicWaveform, useMicRecording } from "./mic-recording";
 import { formatElapsed } from "./mic-recording-format";
 import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
 import { Tip } from "./tip";
+import { useArtifactPanel } from "./use-artifact-panel";
 import {
   TiptapComposer,
   type SuggestionRenderState,
@@ -130,6 +133,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
+  // Artifact sidebar (ADR-0075). When the boss authors an artifact the user
+  // can open it from its trigger card; the panel then takes over the shared
+  // right slot (the Today rail steps aside) until closed. State is local UI —
+  // the content rides the synced `artifacts` row.
+  const artifact = useArtifactPanel(threadId);
+
+  // "Suggest an edit" from the sidebar prefills the composer (ADR-0075 Phase 4):
+  // a nonce makes the same scaffold re-apply if requested twice, and the main
+  // Composer consumes it via an effect (see `prefill`).
+  const [editPrefill, setEditPrefill] = useState<{ text: string; nonce: number } | null>(null);
+  const onSuggestArtifactEdit = useCallback((text: string) => {
+    setEditPrefill((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+
   // Memoize the rail node so `useRightRail`'s effect only fires when the
   // rail's inputs actually change — otherwise every ChatShell re-render
   // would push a new JSX reference into AppShell and trigger an extra
@@ -145,7 +162,29 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ),
     [railOpen, railMode, railData],
   );
-  useRightRail(railNode);
+  const artifactNode = useMemo(
+    () =>
+      artifact.selectedId ? (
+        <ArtifactSidebar
+          artifactId={artifact.selectedId}
+          mode={railMode}
+          width={artifact.width}
+          onWidthChange={artifact.setWidth}
+          onClose={artifact.close}
+          onSuggestEdit={onSuggestArtifactEdit}
+        />
+      ) : null,
+    [
+      artifact.selectedId,
+      railMode,
+      artifact.width,
+      artifact.setWidth,
+      artifact.close,
+      onSuggestArtifactEdit,
+    ],
+  );
+  // One shell slot, two occupants: the artifact panel wins while open.
+  useRightRail(artifactNode ?? railNode);
 
   const messages = useChatMessages(threadId);
   const { stream, stopStream } = useChatStream(threadId);
@@ -170,6 +209,21 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const showStream = shouldShowStream(messages, stream);
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
+
+  // Auto-open the sidebar when the boss authors an artifact in the live run
+  // (ADR-0075 Phase 4). We bind to the synced row — which carries the real id
+  // and `runId` — rather than the `chat.tool` event, which only has a title.
+  // Gating on the active run means reloading a finished thread never springs
+  // the panel open; `autoOpen` fires once per id so a manual close stays closed.
+  const threadArtifacts = useThreadArtifacts(threadId);
+  const autoOpenArtifact = artifact.autoOpen;
+  useEffect(() => {
+    if (!activeRunId) return;
+    // `threadArtifacts` is newest-first, so this opens the most recent artifact
+    // the live run has produced so far.
+    const fresh = threadArtifacts.find((a) => a.runId === activeRunId);
+    if (fresh) autoOpenArtifact(fresh.id);
+  }, [activeRunId, threadArtifacts, autoOpenArtifact]);
   const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
   const { rows: approvalRows } = useActionStagings();
   const runApprovals = useMemo(
@@ -238,6 +292,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               onFollowUp={onSend}
               onRetry={onRetry}
               followUps={chipFollowUps}
+              onOpenArtifact={artifact.open}
+              openArtifactId={artifact.selectedId}
             />
             <div className="shrink-0 px-4 pb-4">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
@@ -253,6 +309,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   disabled={approvalTrayActive}
                   onSend={onSend}
                   onStopGeneration={onStopGeneration}
+                  prefill={editPrefill}
                   ghostText={ghostText}
                   onGhostAccept={onGhostDone}
                   onGhostDismiss={onGhostDone}
@@ -620,12 +677,19 @@ function Composer({
   onToggleAutoApprove,
   tier,
   onTierChange,
+  prefill,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
   onSend?: (text: string, files?: File[]) => Promise<boolean>;
   onStopGeneration?: () => void;
+  /**
+   * Text to drop into the editor on demand (e.g. the artifact sidebar's
+   * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
+   * request; the editor inserts it at the caret and focuses (ADR-0075 Phase 4).
+   */
+  prefill?: { text: string; nonce: number } | null;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
   onGhostAccept?: () => void;
@@ -666,6 +730,18 @@ function Composer({
   }, [composerDisabled]);
 
   useTypeAnywhere(editorRef, composerDisabled);
+
+  // Apply a "Suggest an edit" prefill from the artifact sidebar. Keyed on the
+  // nonce so the same scaffold re-applies on a repeat click; `insertText`
+  // focuses the editor at the caret. Skipped while the composer is disabled
+  // (pending approval) so we don't fight a parked turn.
+  const appliedPrefillNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!prefill || composerDisabled) return;
+    if (appliedPrefillNonce.current === prefill.nonce) return;
+    appliedPrefillNonce.current = prefill.nonce;
+    editorRef.current?.insertText(prefill.text);
+  }, [prefill, composerDisabled]);
 
   const onAttachClick = useCallback(() => {
     if (composerDisabled || mic.recording) return;
@@ -762,6 +838,7 @@ function Composer({
             accept={ACCEPT_ATTR}
             multiple
             disabled={composerDisabled}
+            aria-label="Attach files"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) attachments.addFiles(e.target.files);
@@ -938,7 +1015,7 @@ function AttachmentChips({
       {items.map((a) => (
         <div
           key={a.key}
-          className="group relative h-16 w-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
+          className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
         >
           <img src={a.previewUrl} alt={a.file.name} className="h-full w-full object-cover" />
           <button

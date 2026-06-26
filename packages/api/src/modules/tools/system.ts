@@ -1,4 +1,6 @@
 import {
+  appendArtifactPageInput,
+  createArtifactInput,
   isLoadableIntegrationSlug,
   loadIntegrationInput,
   promoteScratchInput,
@@ -8,15 +10,23 @@ import {
   rememberInput,
   resolveTodoInput,
   suggestTodoInput,
+  updateArtifactInput,
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
+import {
+  appendArtifactPage,
+  createArtifact,
+  updateArtifact,
+  type ArtifactWriteContext,
+} from "../artifacts/write";
 import {
   awaitSubAgentInputSchema,
   readChildRunOutcome,
   spawnSubAgent,
   spawnSubAgentInputSchema,
 } from "../agent/sub-agents";
+import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
 import { rememberSenderSuppression } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
@@ -26,6 +36,37 @@ import { runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
+
+/**
+ * Resolve the thread/message provenance an artifact tool needs from the call
+ * context. Returns an honest refusal (not a throw) when the call didn't come
+ * from a chat turn — an artifact is owned by the thread/message that produced
+ * it, so a background/sub-agent run has nowhere to attach one (ADR-0075).
+ */
+function resolveArtifactContext(
+  ctx: ToolExecuteContext,
+): { ok: true; ctx: ArtifactWriteContext } | { ok: false; result: unknown } {
+  if (!ctx.threadId || !ctx.messageId) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        status: "no_thread",
+        reason:
+          "Artifacts can only be authored inside a chat conversation; this run has no chat thread.",
+      },
+    };
+  }
+  return {
+    ok: true,
+    ctx: {
+      userId: ctx.userId,
+      threadId: ctx.threadId,
+      runId: ctx.runId,
+      messageId: ctx.messageId,
+    },
+  };
+}
 
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({
@@ -291,6 +332,47 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: fetchUrlInput,
     execute: async (input) => {
       return await runFetchUrl({ url: input.url });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "create_artifact",
+    // Authors a synced artifact row for the user's own sidebar — no external
+    // side effect, so it stays off the approvals path like other system tools.
+    riskTier: "no_risk",
+    description:
+      "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial they'll want to read or present — a one-pager, a brief, a report, a slide deck, a PDF — instead of dumping it all into the chat reply. Opens the artifact; for a `document` author the whole markdown here, for `pages` follow with append_artifact_page per page. This is in-app content, not a downloadable file.",
+    inputSchema: createArtifactInput,
+    execute: async (input, ctx) => {
+      const resolved = resolveArtifactContext(ctx);
+      if (!resolved.ok) return resolved.result;
+      return await createArtifact(resolved.ctx, input);
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "append_artifact_page",
+    riskTier: "no_risk",
+    description:
+      "Append one HTML page to a `pages` artifact created with create_artifact. Call once per page, in order; each page is self-contained HTML (inline all CSS, no external refs). Pages appear in the sidebar as you add them.",
+    inputSchema: appendArtifactPageInput,
+    execute: async (input, ctx) => {
+      const resolved = resolveArtifactContext(ctx);
+      if (!resolved.ok) return resolved.result;
+      return await appendArtifactPage(resolved.ctx, input);
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "update_artifact",
+    riskTier: "no_risk",
+    description:
+      "Revise an existing artifact: rename it, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation.",
+    inputSchema: updateArtifactInput,
+    execute: async (input, ctx) => {
+      const resolved = resolveArtifactContext(ctx);
+      if (!resolved.ok) return resolved.result;
+      return await updateArtifact(resolved.ctx, input);
     },
   }),
 ];
