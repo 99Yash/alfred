@@ -7,17 +7,20 @@ import {
   installGmailWatch,
   pollGmailHistory,
   pollGmailRecent,
-  reconcileGmailThreads,
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
-import { gmailSentSql } from "../triage/sent-mail";
+import {
+  findNewestLiveInboundGmailDocuments,
+  reconcileGmailThreads,
+  type LiveInboundGmailDocument,
+} from "../triage/gmail-reconcile";
 import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 
@@ -570,8 +573,23 @@ async function runGmailRepairSideEffects(
   userId: string,
   plan: GmailPostInsertSideEffectPlan,
 ): Promise<void> {
+  const replyReevalThreadIds = await resolveReplyReevalThreadIds(
+    userId,
+    plan.replyReevalSentDocumentIds,
+  );
   await reconcileThreadsBestEffort(credentialId, userId, plan.reconcileThreadIds);
-  await reEvaluateRepliedThreads(userId, plan.replyReevalSentDocumentIds);
+  const replyReevalTargets = await findNewestLiveInboundGmailDocuments({
+    credentialId,
+    userId,
+    threadIds: replyReevalThreadIds,
+  }).catch((err: unknown) => {
+    console.warn(
+      `[ingestion:worker] live inbound resolve failed credential=${credentialId}:`,
+      toMessage(err),
+    );
+    return [];
+  });
+  await reEvaluateRepliedThreads(userId, replyReevalTargets);
   if (plan.skippedReplyReevalSentDocs > 0) {
     console.warn(
       `[ingestion:worker] reply re-eval skipped sentDocs=${plan.skippedReplyReevalSentDocs} ` +
@@ -596,8 +614,11 @@ async function runGmailRepairSideEffects(
  *
  * Best-effort: failures are logged, never bubbled into the ingest result.
  */
-async function reEvaluateRepliedThreads(userId: string, sentDocumentIds: string[]): Promise<void> {
-  if (!sentDocumentIds.length) return;
+async function resolveReplyReevalThreadIds(
+  userId: string,
+  sentDocumentIds: string[],
+): Promise<string[]> {
+  if (!sentDocumentIds.length) return [];
   try {
     const sentDocs = await db()
       .select({ threadId: documents.sourceThreadId })
@@ -606,7 +627,7 @@ async function reEvaluateRepliedThreads(userId: string, sentDocumentIds: string[
     const threadIds = Array.from(
       new Set(sentDocs.map((d) => d.threadId).filter((t): t is string => Boolean(t))),
     );
-    if (!threadIds.length) return;
+    if (!threadIds.length) return [];
 
     // Only threads we already triage. A brand-new outbound-first thread has no
     // triage row to refresh and no inbound doc to key the received-only
@@ -615,32 +636,30 @@ async function reEvaluateRepliedThreads(userId: string, sentDocumentIds: string[
       .select({ threadId: emailTriage.sourceThreadId })
       .from(emailTriage)
       .where(and(eq(emailTriage.userId, userId), inArray(emailTriage.sourceThreadId, threadIds)));
-    const triagedThreadIds = triaged.map((t) => t.threadId);
-    if (!triagedThreadIds.length) return;
+    return triaged.map((t) => t.threadId);
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] resolveReplyReevalThreadIds failed user=${userId}:`,
+      toMessage(err),
+    );
+    return [];
+  }
+}
 
-    await mapConcurrent(triagedThreadIds, REALTIME_EMIT_CONCURRENCY, async (threadId) => {
-      const inbound = await db()
-        .select({ id: documents.id })
-        .from(documents)
-        .where(
-          and(
-            eq(documents.userId, userId),
-            eq(documents.source, "gmail"),
-            eq(documents.sourceThreadId, threadId),
-            sql`NOT (${gmailSentSql()})`,
-          ),
-        )
-        .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)
-        .limit(1);
-      const inboundId = inbound[0]?.id;
-      if (!inboundId) return;
+async function reEvaluateRepliedThreads(
+  userId: string,
+  targets: LiveInboundGmailDocument[],
+): Promise<void> {
+  if (!targets.length) return;
+  try {
+    await mapConcurrent(targets, REALTIME_EMIT_CONCURRENCY, async ({ threadId, documentId }) => {
       try {
         await emitEvent({
           userId,
           source: "gmail",
           type: "message_received",
-          eventId: inboundId,
-          payload: { documentId: inboundId, reason: "reply", force: true },
+          eventId: documentId,
+          payload: { documentId, reason: "reply", force: true },
         });
       } catch (err) {
         console.warn(`[ingestion:worker] reply re-eval failed thread=${threadId}:`, toMessage(err));
