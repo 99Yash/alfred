@@ -36,6 +36,21 @@ describe("undeclaredToolMessage", () => {
     assert.equal(message, "Tool 'calendar.read_events' is not declared");
   });
 
+  test("recovers a bare integration slug (the boss mistook the integration for a tool)", () => {
+    // The boss emitted `calendar {action:"list_events"}` — a bare slug, not a
+    // real tool. The recovery must enumerate the integration's qualified tools
+    // and point at load_integration, not dead-end at "not declared".
+    const message = undeclaredToolMessage("calendar");
+
+    assert.match(message, /calendar exposes: `list_events`, `create_event`/);
+    assert.match(message, /system\.load_integration with slug 'calendar' first\./);
+    assert.match(message, /Do not ask the user/);
+  });
+
+  test("does not recover a bare integration slug outside a workflow allowlist", () => {
+    assert.equal(undeclaredToolMessage("calendar", ["github"]), "Tool 'calendar' is not declared");
+  });
+
   test("does not suggest an integration for ambiguous bare actions", () => {
     const message = undeclaredToolMessage("batch_update");
 

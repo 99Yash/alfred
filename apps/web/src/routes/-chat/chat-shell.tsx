@@ -838,6 +838,7 @@ function Composer({
             accept={ACCEPT_ATTR}
             multiple
             disabled={composerDisabled}
+            aria-label="Attach files"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) attachments.addFiles(e.target.files);
@@ -1014,7 +1015,7 @@ function AttachmentChips({
       {items.map((a) => (
         <div
           key={a.key}
-          className="group relative h-16 w-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
+          className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
         >
           <img src={a.previewUrl} alt={a.file.name} className="h-full w-full object-cover" />
           <button

@@ -67,9 +67,9 @@ ui-polish-loop.sh
 .warden/
 
 # Local design recon dumps (screenshots, DOM/network captures)
-references/dimension-dev/_live/
+references/
 
-# Dimension.dev design archive (snapshot only, never shipped)
+# Local design archive (snapshot only, never shipped)
 archive/
 
 # Local browser/chrome-devtools screenshots + scratch

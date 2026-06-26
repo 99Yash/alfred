@@ -98,4 +98,9 @@ jobs:
         run: pnpm --filter @alfred/db db:migrate
 
       - name: Run triage eval (fails below threshold)
-        run: pnpm --filter @alfred/api exec evalite run --threshold 70
+        # Scoped to the triage-classify suite by name. `evalite run` with no
+        # path globs every *.eval.ts, which would pull the live behavioral
+        # grounding evals (calendar/date/github) into this gate — they score 0
+        # (not skip) on a provider blip and drag the average under the bar with
+        # no code defect. Those run via `pnpm eval` locally, off the CI gate.
+        run: pnpm --filter @alfred/api exec evalite run triage-classify --threshold 70

@@ -6,8 +6,6 @@
  *               model picker. Used wherever a real image would be overkill.
  *   - initial — same disc + a single letter centered in white-ish. 28px in
  *               the sidebar user row.
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.13.
  */
 
 import type { HTMLAttributes, Ref } from "react";

@@ -11,7 +11,7 @@ import { asRecord, type JsonRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
-type CalendarListEventsKey = keyof z.input<typeof calendarListEventsInput>;
+type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
 
 /**
  * Editable view of a staged tool's proposed input. Every control is derived
@@ -65,8 +65,10 @@ export function ApprovalInputEditor({
 
 // z.toJSONSchema cannot preserve calendarListEventsInput's explicit-vs-relative
 // refine, so this UI visibility rule intentionally mirrors the schema and
-// resolver guards. Type it against the zod input so key renames fail at compile
-// time instead of silently showing the wrong field set.
+// resolver guards. Type it against the inferred output (z.infer, not z.input —
+// the schema's preprocess makes z.input `unknown`, which wouldn't constrain
+// the keys) so key renames fail at compile time instead of silently showing
+// the wrong field set.
 const CALENDAR_EXPLICIT_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
   "timeMin",
   "timeMax",

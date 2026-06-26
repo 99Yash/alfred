@@ -1116,11 +1116,23 @@ const chatTurnStep: Step<ChatRunState> = {
         };
       }
 
-      const [toolCalls, finishReason, response] = await Promise.all([
+      const [toolCalls, finishReason, response, warnings] = await Promise.all([
         stream.toolCalls,
         stream.finishReason,
         stream.response,
+        stream.warnings,
       ]);
+      // Surface provider warnings — most importantly the Anthropic
+      // "cacheControl breakpoint limit" warning, which signals that the
+      // 4-breakpoint cap was exceeded and a cache block (the tool definitions)
+      // was silently dropped. Without this, that cost regression is invisible
+      // at runtime. See decorateTranscript / buildSummaryMessage (#223).
+      if (warnings && warnings.length > 0) {
+        console.warn(
+          `[chat-turn] provider warnings (run ${ctx.runId}):`,
+          warnings.map((w) => ("message" in w && w.message ? w.message : w.type)).join("; "),
+        );
+      }
       // Our tools are execute-less: the `dispatch-tools` step is the SOLE author
       // of tool results (see `toolResultMessage`). The SDK normally emits only
       // `tool-call` parts here — but when the model hands a tool schema-invalid

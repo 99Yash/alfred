@@ -11,10 +11,9 @@
  *     inside the authenticated app, and a lot of the recipes (frost-border,
  *     gray ramp, lavender heading) carry forward into the new grammar.
  *
- * Add new primitives to the appropriate half as they're built. Cross-reference
- * references/dimension-dev/dimension-design-reference-2026-05-18.md §2 for the
- * Dimension recipes; the App half is the source of truth for the new
- * marketing direction (see components/landing/landing-page.tsx).
+ * Add new primitives to the appropriate half as they're built. The App half is
+ * the source of truth for the new marketing direction (see
+ * components/landing/landing-page.tsx).
  */
 
 import type { SyncedActionStaging } from "@alfred/sync";

@@ -37,9 +37,9 @@ const GET_PR_TOOL = "github.get_pull_request";
 
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail — search, read_message, send_draft — the user's email",
-  "- calendar — list_events, create_event — the user's calendar",
-  "- github — search, get_pull_request, get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
+  "- gmail.search, gmail.read_message, gmail.send_draft — the user's email",
+  "- calendar.list_events, calendar.create_event — the user's calendar",
+  "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
 ].join("\n");
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);

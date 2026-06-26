@@ -61,8 +61,7 @@
   --radius: 0.625rem;
 
   /* -------------------------------------------------------------------------
-   * Dimension token scales (captured 2026-05-18 from dimension.dev live recon —
-   * see references/dimension-dev/dimension-design-reference-2026-05-18.md).
+   * Dimension token scales (captured 2026-05-18 from dimension.dev live recon).
    * RGB triplets stored space-separated so they compose with `rgb(var(--…))`
    * and `rgb(var(--…) / 0.5)` for opacity.
    * --------------------------------------------------------------------- */
@@ -392,7 +391,7 @@
      * elevation. The accent identity comes back via the focus ring
      * (--app-purple-2), not the resting fill.
      *
-     * V3 (ported from dimension-ai-web's black colored-frost button): the
+     * V3 (ported from Dimension's black colored-frost button): the
      * V2 fill bottomed out at #0c0c10 on the #0a0a0a page bg, so the
      * button read as transparent. Fill now lifts to #26262c→#131318 and
      * gains dimension's omnidirectional inset frost glow
@@ -1316,9 +1315,7 @@
   /* `composer-editor` — applied to the home composer textarea. Matches the
    * Dimension /chat composer's fade: the top 12px and bottom 12px of any
    * long input fades to transparent so scrolled-off content trails out
-   * gracefully instead of clipping at the viewport edge.
-   *
-   * See dimension-design-reference-2026-05-18.md §3.1. */
+   * gracefully instead of clipping at the viewport edge. */
   .composer-editor {
     -webkit-mask-image: linear-gradient(
       to bottom,
@@ -1447,7 +1444,6 @@
 
   /* ---------------------------------------------------------------------------
    * Landing primitives (added 2026-05-20 after dimension.dev sunset archive).
-   * Pulled from archive/dimension/components.md §5, §7, §10.
    * -------------------------------------------------------------------------*/
 
   /* 100rem (1600px) max-width landing container — Dimension's `new-landing-layout`. */
