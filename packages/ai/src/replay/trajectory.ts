@@ -120,6 +120,7 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
   const steps: TrajectoryStep[] = [];
   const executedCallIds = new Set<string>();
   const executedKeys = new Map<string, number>();
+  const executedKeyByCallId = new Map<string, string>();
   for (const o of obs) {
     if (o.type !== "SPAN" || !o.name.startsWith(TOOL_SPAN_PREFIX)) continue;
     const toolName = o.name.slice(TOOL_SPAN_PREFIX.length);
@@ -132,8 +133,11 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
     };
     steps.push(step);
     const callId = readToolCallId(o.metadata);
-    if (callId) executedCallIds.add(callId);
     const k = stepKey(step);
+    if (callId) {
+      executedCallIds.add(callId);
+      executedKeyByCallId.set(callId, k);
+    }
     executedKeys.set(k, (executedKeys.get(k) ?? 0) + 1);
   }
 
@@ -149,6 +153,14 @@ export function extractTrajectory(trace: TraceLike): Trajectory {
     if (d.toolCallId) {
       if (!executedCallIds.has(d.toolCallId)) {
         decidedNotExecuted.push({ toolName: d.toolName, input: canonicalize(d.input) });
+      } else {
+        // Consume the executed span this id maps to, so a later no-id decided
+        // call can't re-match it through the multiset fallback (#286 review).
+        const k = executedKeyByCallId.get(d.toolCallId);
+        if (k !== undefined) {
+          const remaining = executedKeys.get(k) ?? 0;
+          if (remaining > 0) executedKeys.set(k, remaining - 1);
+        }
       }
       continue;
     }

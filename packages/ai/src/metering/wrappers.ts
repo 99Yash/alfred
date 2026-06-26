@@ -380,11 +380,17 @@ export async function meteredEmbed(
   const meta: MeteredMeta = { ...attribution, kind: "embedding", ...ids };
   // `embed` has no `timeout` param, only `abortSignal` — inject a timeout
   // signal so a hung embedding call can't wedge a worker step forever, same
-  // backstop the text wrappers get via `timeout`.
-  const callArgs: EmbedArgs =
-    args.abortSignal !== undefined
-      ? args
-      : { ...args, abortSignal: AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS) };
+  // backstop the text wrappers get via `timeout`. Compose (not replace) any
+  // caller signal so a stop button still works AND the timeout still fires
+  // even if the caller's signal never does (#286 review).
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS);
+  const callArgs: EmbedArgs = {
+    ...args,
+    abortSignal:
+      args.abortSignal !== undefined
+        ? AbortSignal.any([args.abortSignal, timeoutSignal])
+        : timeoutSignal,
+  };
   return metered(meta, () => embed(callArgs), extractEmbedUsage);
 }
 

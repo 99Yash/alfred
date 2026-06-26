@@ -105,17 +105,6 @@ type ShellAction =
   | { type: "setSidebarOpen"; value: SetStateAction<boolean> }
   | { type: "setActiveThread"; value: string };
 
-/**
- * True when the keystroke landed in an editable surface (a form field or a
- * contenteditable region). Global ⌘-shortcuts skip these so they don't hijack
- * typing inside the composer or a rich-text editor.
- */
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
-}
-
 function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
   return typeof next === "function" ? (next as (current: T) => T)(current) : next;
 }
@@ -293,7 +282,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey) && !isEditableTarget(e.target)) {
+      // No isEditableTarget guard: ⌘/Ctrl+K is a navigation chord with no
+      // text-editing meaning, and the composer (the dominant focus surface) is
+      // contenteditable — guarding would dead-key it there (#286 review).
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         togglePaletteEvent();
       }
@@ -307,14 +299,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (
-        e.key.toLowerCase() === "j" &&
-        e.metaKey &&
-        !e.altKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !isEditableTarget(e.target)
-      ) {
+      // No isEditableTarget guard, same reasoning as ⌘K above: ⌘J is a
+      // navigation chord and must fire from the contenteditable composer.
+      if (e.key.toLowerCase() === "j" && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
         e.preventDefault();
         void navigate({ to: "/chat" });
       }

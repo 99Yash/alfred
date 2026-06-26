@@ -201,13 +201,22 @@ export async function buildConnectedSummary(
     // exactly that — emitting a bare `calendar {action:"list_events"}` call
     // that dispatch can only reject ("Couldn't" card). Handing it the literal
     // `integration.action` strings is the shape it should paste verbatim.
+    const identity = identityForSlug(spec, byProvider);
+    const binding = identity ? ` — connected as ${identity}` : "";
+    // A needs_reauth slug's tools will be rejected by the dispatcher, so don't
+    // list them as callable — naming them under an "authoritative" header
+    // invites calls that can only fail. Surface the reconnect state instead
+    // (#286 review).
+    if (health === "needs_reauth") {
+      lines.push(
+        `- ${spec.slug} — ${spec.blurb}${binding} (needs reauth — tell the user to reconnect ${spec.slug}; don't call its tools yet)`,
+      );
+      continue;
+    }
     const tools = INTEGRATION_ACTIONS[spec.slug]
       .map((action) => `${spec.slug}.${action}`)
       .join(", ");
-    const marker = health === "needs_reauth" ? " (needs reauth)" : "";
-    const identity = identityForSlug(spec, byProvider);
-    const binding = identity ? ` — connected as ${identity}` : "";
-    lines.push(`- ${tools} — ${spec.blurb}${binding}${marker}`);
+    lines.push(`- ${tools} — ${spec.blurb}${binding}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
