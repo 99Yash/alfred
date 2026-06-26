@@ -79,12 +79,43 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
     },
-    // Full completion text — only sent to Langfuse when capture is on
-    // (gated in metering/langfuse.ts). Covers both the text path and the
-    // structured-object path (which serializes its JSON into `.text`).
-    output: result.text,
+    // Completion — only sent to Langfuse when capture is on (gated in
+    // metering/langfuse.ts). Folds the turn's tool calls in alongside the text:
+    // on a tool-call turn the model often emits no prose, so `.text` alone would
+    // drop the one thing a trajectory replay needs — what the model decided to
+    // call (see captureOutput).
+    output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
     ...servedFromResponse(result.response),
   };
+}
+
+/**
+ * The captured generation output. `result.text` alone is lossy: on a turn that
+ * ends in tool calls the model frequently emits no assistant prose, so the
+ * trace would record `null`/empty and lose the turn's actual decision. The
+ * executed calls do surface later as their own tool spans (#214), but a call
+ * that's staged / HIL-gated / rejected never executes and thus never spans — so
+ * the model's *decision* is only reliably recoverable here, on the generation.
+ *
+ * Returns the bare string for a plain final turn or the structured-object path
+ * (no tool calls, `.text` carries the JSON) so existing renders and ad-hoc
+ * trace I/O mirroring are unchanged; only a tool-call turn gets the object
+ * shape with `{ toolName, toolCallId, input }` per proposed call.
+ */
+export function captureOutput(args: {
+  text: string;
+  toolCalls?: readonly { toolName: string; toolCallId: string; input: unknown }[];
+}): unknown {
+  const { text, toolCalls } = args;
+  if (toolCalls && toolCalls.length > 0) {
+    const calls = toolCalls.map((c) => ({
+      toolName: c.toolName,
+      toolCallId: c.toolCallId,
+      input: c.input,
+    }));
+    return text ? { text, toolCalls: calls } : { toolCalls: calls };
+  }
+  return text;
 }
 
 /**
@@ -276,7 +307,9 @@ export function meteredStreamText(
             toolCallCount: event.toolCalls?.length,
             stepCount: event.steps?.length,
           },
-          output: event.text,
+          // Same fold as the non-streaming path: a streamed tool-call turn emits
+          // no prose, so capture the proposed calls or the replay loses them.
+          output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
           ...servedFromResponse(event.response),
         });
         callerOnFinish?.(event);
