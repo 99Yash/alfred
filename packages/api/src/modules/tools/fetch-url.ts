@@ -375,7 +375,7 @@ function isHtmlType(mime: string): boolean {
  * Sniff the leading bytes for a binary resource that a `Content-Type` might be
  * lying about (a PDF served as `text/html`, etc.). Returns a best-guess MIME
  * label when the body is binary, or `null` when it reads as text. A single NUL
- * in the head is the catch-all: UTF-8 text never contains one.
+ * in the bounded body is the catch-all: UTF-8 text never contains one.
  */
 function sniffBinaryType(bytes: Buffer): string | null {
   if (bytes.length === 0) return null;
@@ -394,9 +394,8 @@ function sniffBinaryType(bytes: Buffer): string | null {
   if (text("OggS")) return "application/ogg";
   if (has(0x00, 0x00, 0x01, 0x00)) return "image/x-icon";
 
-  // Catch-all: a NUL byte in the head means it isn't UTF-8 text.
-  const head = bytes.subarray(0, 1024);
-  for (const b of head) if (b === 0) return "application/octet-stream";
+  // Catch-all: a NUL byte anywhere in the bounded body means it isn't UTF-8 text.
+  for (const b of bytes) if (b === 0) return "application/octet-stream";
 
   return null;
 }
@@ -653,11 +652,17 @@ async function safeRequest(initialUrl: string, signal: AbortSignal): Promise<Raw
     }
 
     const contentTypeHeader = headerValue(res.headers["content-type"]);
-    const decoded = decodeResponseBody(
-      res.body,
-      headerValue(res.headers["content-encoding"]),
-      parsed.toString(),
-    );
+    let decoded: { body: AsyncIterable<Uint8Array>; decoded: boolean };
+    try {
+      decoded = decodeResponseBody(
+        res.body,
+        headerValue(res.headers["content-encoding"]),
+        parsed.toString(),
+      );
+    } catch (err) {
+      await disposeBody(res.body);
+      throw err;
+    }
     return {
       finalUrl: parsed.toString(),
       status: res.statusCode,

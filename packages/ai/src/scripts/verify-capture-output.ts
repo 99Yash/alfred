@@ -20,6 +20,8 @@ import { meteredGenerateText } from "../metering/wrappers";
 
 const stamp = randomUUID().slice(0, 8);
 const runId = `verify_capture_${stamp}`;
+const GENERATE_TIMEOUT_MS = 60_000;
+const LANGFUSE_FETCH_TIMEOUT_MS = 10_000;
 
 const weather = tool({
   description: "Get the current weather for a city.",
@@ -55,6 +57,7 @@ async function main() {
       prompt: "What's the weather in Paris?",
       tools: { weather },
       toolChoice: "required",
+      timeout: GENERATE_TIMEOUT_MS,
     },
     { runId, role: "boss", name: "agent:chat", userId: "verify-user" },
   );
@@ -68,6 +71,7 @@ async function main() {
   for (let attempt = 1; attempt <= 20; attempt++) {
     const res = await fetch(`${host}/api/public/traces/${runId}`, {
       headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(LANGFUSE_FETCH_TIMEOUT_MS),
     });
     if (res.ok) {
       const t = (await res.json()) as { observations?: Obs[] };
