@@ -4,6 +4,10 @@ import {
   FULL_RESYNC_REPLY_REEVAL_SENT_DOC_LIMIT,
   planGmailPostInsertSideEffects,
 } from "../../src/modules/integrations/queue";
+import {
+  planGmailThreadReconcile,
+  type ReconcileStoredGmailDoc,
+} from "../../src/modules/triage/gmail-reconcile";
 
 test("gmail initial triage seed emits normal triage and exactly one reply re-eval set", () => {
   const plan = planGmailPostInsertSideEffects({
@@ -88,3 +92,71 @@ test("gmail normal history catch-up emits ingest triage and unbounded reply re-e
   assert.deepEqual(plan.replyReevalSentDocumentIds, ["doc_sent_1", "doc_sent_2"]);
   assert.equal(plan.skippedReplyReevalSentDocs, 0);
 });
+
+test("gmail thread reconcile repoints dead triage pointer to newest live inbound, not sent", () => {
+  const fetchedAt = new Date("2026-06-26T10:00:00Z");
+  const plan = planGmailThreadReconcile({
+    storedDocs: [
+      doc("doc_dead_pointed", "msg_dead", "2026-06-26T09:59:00Z", false),
+      doc("doc_live_sent", "msg_live_sent", "2026-06-26T09:58:00Z", true),
+      doc("doc_live_inbound", "msg_live_inbound", "2026-06-26T09:57:00Z", false),
+    ],
+    liveSourceIds: new Set(["msg_live_sent", "msg_live_inbound"]),
+    triageDocumentId: "doc_dead_pointed",
+    liveFetchedAt: fetchedAt,
+  });
+
+  assert.equal(plan.repointDocumentId, "doc_live_inbound");
+  assert.deepEqual(plan.deadDocumentIdsToDelete, ["doc_dead_pointed"]);
+});
+
+test("gmail thread reconcile keeps pointed dead doc when only live candidate is sent", () => {
+  const fetchedAt = new Date("2026-06-26T10:00:00Z");
+  const plan = planGmailThreadReconcile({
+    storedDocs: [
+      doc("doc_dead_pointed", "msg_dead_1", "2026-06-26T09:59:00Z", false),
+      doc("doc_dead_other", "msg_dead_2", "2026-06-26T09:58:00Z", false),
+      doc("doc_live_sent", "msg_live_sent", "2026-06-26T09:57:00Z", true),
+    ],
+    liveSourceIds: new Set(["msg_live_sent"]),
+    triageDocumentId: "doc_dead_pointed",
+    liveFetchedAt: fetchedAt,
+  });
+
+  assert.equal(plan.repointDocumentId, null);
+  assert.deepEqual(plan.deadDocumentIdsToDelete, ["doc_dead_other"]);
+});
+
+test("gmail thread reconcile does not delete rows inserted after live fetch started", () => {
+  const fetchedAt = new Date("2026-06-26T10:00:00Z");
+  const plan = planGmailThreadReconcile({
+    storedDocs: [
+      doc("doc_old_dead", "msg_old_dead", "2026-06-26T09:55:00Z", false),
+      {
+        ...doc("doc_new_unseen", "msg_new_unseen", "2026-06-26T10:00:01Z", false),
+        ingestedAt: new Date("2026-06-26T10:00:01Z"),
+      },
+    ],
+    liveSourceIds: new Set(),
+    triageDocumentId: null,
+    liveFetchedAt: fetchedAt,
+  });
+
+  assert.equal(plan.repointDocumentId, null);
+  assert.deepEqual(plan.deadDocumentIdsToDelete, ["doc_old_dead"]);
+});
+
+function doc(
+  id: string,
+  sourceId: string,
+  authoredAt: string,
+  isSent: boolean,
+): ReconcileStoredGmailDoc {
+  return {
+    id,
+    sourceId,
+    authoredAt: new Date(authoredAt),
+    ingestedAt: new Date("2026-06-26T09:00:00Z"),
+    isSent,
+  };
+}
