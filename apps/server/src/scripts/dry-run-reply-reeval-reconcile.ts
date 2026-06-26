@@ -20,6 +20,10 @@
  * target known cases (e.g. 19ef44b6b5a0183b — the #282 Tania thread).
  */
 import { isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
+import {
+  planGmailThreadReconcile,
+  type ReconcileStoredGmailDoc,
+} from "@alfred/api/modules/triage/gmail-reconcile";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -34,6 +38,7 @@ type DocRow = {
   id: string;
   sourceId: string;
   authoredAt: Date | null;
+  ingestedAt: Date;
   accountId: string | null;
   metadata: Record<string, unknown>;
 };
@@ -49,6 +54,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
       id: documents.id,
       sourceId: documents.sourceId,
       authoredAt: documents.authoredAt,
+      ingestedAt: documents.ingestedAt,
       accountId: documents.accountId,
       metadata: documents.metadata,
     })
@@ -214,6 +220,7 @@ async function main() {
       continue;
     }
     let liveIds: Set<string>;
+    const liveFetchedAt = new Date();
     try {
       const live = await getThreadMessageLabels({ accessToken: token, threadId });
       liveIds = new Set(live.map((m) => m.id));
@@ -230,13 +237,6 @@ async function main() {
 
     threadsWithDead++;
     totalDead += dead.length;
-    const liveDocs = docs.filter((d) => liveIds.has(d.sourceId));
-    const repointTarget =
-      liveDocs
-        .slice()
-        .sort(
-          (a, b) => (b.authoredAt?.getTime() ?? -Infinity) - (a.authoredAt?.getTime() ?? -Infinity),
-        )[0] ?? null;
     const tr = await db()
       .select({ documentId: emailTriage.documentId })
       .from(emailTriage)
@@ -244,26 +244,38 @@ async function main() {
       .limit(1);
     const pointedDocId = tr[0]?.documentId ?? null;
     const pointedIsDead = pointedDocId ? dead.some((d) => d.id === pointedDocId) : false;
+    const pointedIsSent = pointedDocId
+      ? Boolean(docs.find((d) => d.id === pointedDocId && isSentGmailMetadata(d.metadata)))
+      : false;
+    const plan = planGmailThreadReconcile({
+      storedDocs: docs.map(toStoredDoc),
+      liveSourceIds: liveIds,
+      triageDocumentId: pointedDocId,
+      liveFetchedAt,
+    });
 
     console.log(`\nthread=${threadId}`);
     console.log(
       `  stored=${docs.length} live=${liveIds.size} DEAD=${dead.length} ` +
         `(stored ids that 404 in the live thread)`,
     );
-    if (pointedIsDead) {
-      if (repointTarget) {
+    if (pointedIsDead || pointedIsSent) {
+      if (plan.repointDocumentId) {
         console.log(
-          `  → WOULD repoint email_triage.document_id ${pointedDocId} → ${repointTarget.id} (newest live)`,
+          `  → WOULD repoint email_triage.document_id ${pointedDocId} → ${plan.repointDocumentId} (newest live inbound)`,
         );
-        console.log(`  → WOULD delete ${dead.length} dead docs`);
+        console.log(`  → WOULD delete ${plan.deadDocumentIdsToDelete.length} dead docs`);
       } else {
         console.log(
-          `  → triage points at a dead doc but NO live doc to repoint to — ` +
-            `KEEP ${pointedDocId}, delete ${dead.length - 1} others`,
+          `  → triage points at ${pointedIsSent ? "a SENT" : "a dead"} doc but NO live inbound ` +
+            `doc to repoint to — delete ${plan.deadDocumentIdsToDelete.length} others`,
         );
       }
     } else {
-      console.log(`  → triage pointer is live/none — WOULD delete all ${dead.length} dead docs`);
+      console.log(
+        `  → triage pointer is live inbound/none — WOULD delete ` +
+          `${plan.deadDocumentIdsToDelete.length} dead docs`,
+      );
     }
   }
   if (threadsWithDead === 0) {
@@ -281,6 +293,16 @@ function readOnlyUsableToken(cred: GoogleCredentialSnapshot): string | null {
   if (!cred.expiresAt) return null;
   if (cred.expiresAt.getTime() - Date.now() < TOKEN_EXPIRY_SAFETY_MS) return null;
   return cred.accessToken;
+}
+
+function toStoredDoc(doc: DocRow): ReconcileStoredGmailDoc {
+  return {
+    id: doc.id,
+    sourceId: doc.sourceId,
+    authoredAt: doc.authoredAt,
+    ingestedAt: doc.ingestedAt,
+    isSent: isSentGmailMetadata(doc.metadata),
+  };
 }
 
 main()

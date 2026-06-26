@@ -11,6 +11,8 @@ export interface ReconcileGmailThreadsArgs {
   userId: string;
   /** Threads that received a fresh insert this run (`*.touchedThreadIds`). */
   threadIds: string[];
+  /** Freshly inserted rows from the current job; never delete them in the same repair pass. */
+  protectedDocumentIds?: readonly string[];
 }
 
 export interface ReconcileGmailThreadsResult {
@@ -52,26 +54,36 @@ export function planGmailThreadReconcile(args: {
   liveSourceIds: ReadonlySet<string>;
   triageDocumentId: string | null;
   liveFetchedAt: Date;
+  protectedDocumentIds?: ReadonlySet<string>;
 }): GmailThreadReconcilePlan {
   const confirmedDead = args.storedDocs.filter(
     (doc) => !args.liveSourceIds.has(doc.sourceId) && doc.ingestedAt <= args.liveFetchedAt,
   );
   const deadIds = new Set(confirmedDead.map((doc) => doc.id));
+  const protectedIds = args.protectedDocumentIds ?? new Set<string>();
   const repointTarget =
     args.storedDocs
       .filter((doc) => args.liveSourceIds.has(doc.sourceId) && !doc.isSent)
       .sort(compareNewestFirst)[0] ?? null;
 
-  let deadToDelete = confirmedDead;
+  let deadToDelete = confirmedDead.filter((doc) => !protectedIds.has(doc.id));
   let repointDocumentId: string | null = null;
-  if (args.triageDocumentId && deadIds.has(args.triageDocumentId)) {
+  const pointedDoc = args.triageDocumentId
+    ? (args.storedDocs.find((doc) => doc.id === args.triageDocumentId) ?? null)
+    : null;
+  const pointerNeedsRepoint = Boolean(
+    args.triageDocumentId && (deadIds.has(args.triageDocumentId) || pointedDoc?.isSent === true),
+  );
+  if (pointerNeedsRepoint) {
     if (repointTarget) {
       repointDocumentId = repointTarget.id;
-    } else {
+    } else if (args.triageDocumentId && deadIds.has(args.triageDocumentId)) {
       // Keep the pointed row so briefing's inner join still resolves. A sent doc
       // is not a valid repair target, so when no live inbound exists we prefer a
       // stale-but-resolving pointer over inventing a sent canonical document.
-      deadToDelete = confirmedDead.filter((doc) => doc.id !== args.triageDocumentId);
+      deadToDelete = confirmedDead.filter(
+        (doc) => doc.id !== args.triageDocumentId && !protectedIds.has(doc.id),
+      );
     }
   }
 
@@ -141,6 +153,7 @@ export async function reconcileGmailThreads(
   if (multi.length === 0) return empty;
 
   const accessToken = await getFreshAccessToken(args.credentialId);
+  const protectedDocumentIds = new Set(args.protectedDocumentIds ?? []);
   let threadsReconciled = 0;
   let docsDeleted = 0;
   let triageRepointed = 0;
@@ -179,9 +192,7 @@ export async function reconcileGmailThreads(
         const triageRow = await tx
           .select({ documentId: emailTriage.documentId })
           .from(emailTriage)
-          .where(
-            and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
-          )
+          .where(and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)))
           .limit(1);
         const pointedDocId = triageRow[0]?.documentId ?? null;
 
@@ -190,6 +201,7 @@ export async function reconcileGmailThreads(
           liveSourceIds: liveIds,
           triageDocumentId: pointedDocId,
           liveFetchedAt,
+          protectedDocumentIds,
         });
 
         if (!plan.repointDocumentId && plan.deadDocumentIdsToDelete.length === 0) {
@@ -211,14 +223,16 @@ export async function reconcileGmailThreads(
         }
 
         if (plan.deadDocumentIdsToDelete.length > 0) {
-          await tx.delete(documents).where(
-            and(
-              eq(documents.userId, args.userId),
-              eq(documents.source, "gmail"),
-              eq(documents.accountId, cred.accountId),
-              inArray(documents.id, plan.deadDocumentIdsToDelete),
-            ),
-          );
+          await tx
+            .delete(documents)
+            .where(
+              and(
+                eq(documents.userId, args.userId),
+                eq(documents.source, "gmail"),
+                eq(documents.accountId, cred.accountId),
+                inArray(documents.id, plan.deadDocumentIdsToDelete),
+              ),
+            );
         }
 
         return {
