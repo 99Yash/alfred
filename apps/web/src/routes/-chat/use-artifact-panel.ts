@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Local UI state for the chat's artifact sidebar (ADR-0075 Phase 3). The
@@ -27,6 +27,13 @@ export interface ArtifactPanelState {
   width: number;
   /** Open the panel to a specific artifact (or refocus it on a new one). */
   open: (artifactId: string) => void;
+  /**
+   * Open the panel for an artifact the boss just started authoring — but only
+   * the first time we see that id (ADR-0075 Phase 4). After the user closes an
+   * auto-opened artifact, later pokes for the same row won't pop it back open;
+   * a brand-new artifact (new id) auto-opens again. Manual `open` is unaffected.
+   */
+  autoOpen: (artifactId: string) => void;
   /** Close the panel; restores the Today rail in the shared right slot. */
   close: () => void;
   /** Persist a new inline width (clamped + written to localStorage). */
@@ -49,15 +56,24 @@ function readStoredWidth(): number {
 export function useArtifactPanel(threadId: string | undefined): ArtifactPanelState {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [width, setWidthState] = useState<number>(readStoredWidth);
+  // Artifact ids we've already auto-opened, so closing one doesn't make the
+  // next generation poke re-open it. Reset on thread switch.
+  const autoOpenedRef = useRef<Set<string>>(new Set());
 
   // Switching threads closes the panel — a selected id from another thread's
   // artifact would render nothing (the row scopes to its own thread) or, worse,
   // leak across conversations. Keyed on threadId so it fires once per switch.
   useEffect(() => {
     setSelectedId(null);
+    autoOpenedRef.current = new Set();
   }, [threadId]);
 
   const open = useCallback((artifactId: string) => setSelectedId(artifactId), []);
+  const autoOpen = useCallback((artifactId: string) => {
+    if (autoOpenedRef.current.has(artifactId)) return;
+    autoOpenedRef.current.add(artifactId);
+    setSelectedId(artifactId);
+  }, []);
   const close = useCallback(() => setSelectedId(null), []);
 
   const setWidth = useCallback((next: number) => {
@@ -73,6 +89,7 @@ export function useArtifactPanel(threadId: string | undefined): ArtifactPanelSta
     isOpen: selectedId !== null,
     width,
     open,
+    autoOpen,
     close,
     setWidth,
   };

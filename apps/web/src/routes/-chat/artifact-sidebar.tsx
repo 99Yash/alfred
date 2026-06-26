@@ -10,6 +10,7 @@ import {
   Layers,
   Loader2,
   Maximize2,
+  Pencil,
   X,
 } from "lucide-react";
 import {
@@ -47,6 +48,8 @@ interface ArtifactSidebarProps {
   width: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
+  /** Prefill the composer with an edit scaffold for this artifact. */
+  onSuggestEdit?: (text: string) => void;
 }
 
 export function ArtifactSidebar({
@@ -55,6 +58,7 @@ export function ArtifactSidebar({
   width,
   onWidthChange,
   onClose,
+  onSuggestEdit,
 }: ArtifactSidebarProps) {
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
@@ -72,12 +76,22 @@ export function ArtifactSidebar({
 
   const isPages = artifact?.kind === "pages";
 
+  // "Suggest an edit" hands the boss a scaffold in the composer. On overlay
+  // (narrow) the panel covers the composer, so close it first — the user lands
+  // on the focused composer with the scaffold inserted.
+  const onEdit = useCallback(() => {
+    if (!artifact || !onSuggestEdit) return;
+    onSuggestEdit(`Edit "${artifact.title}": `);
+    if (mode === "overlay") onClose();
+  }, [artifact, onSuggestEdit, mode, onClose]);
+
   const inner = (
     <div className="flex h-full flex-col overflow-hidden">
       <ArtifactHeader
         artifact={artifact}
         canFullscreen={isPages}
         onFullscreen={isPages ? () => setFullscreen(true) : undefined}
+        onEdit={onSuggestEdit ? onEdit : undefined}
         onClose={onClose}
       />
       <ArtifactBody artifact={artifact} onFullscreen={isPages ? () => setFullscreen(true) : null} />
@@ -99,6 +113,7 @@ export function ArtifactSidebar({
             "fixed top-0 right-0 bottom-0 z-50 w-[560px] max-w-[92vw]",
             "border-l border-app-bg-3/60 bg-app-bg-1",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
+            "animate-artifact-panel",
           )}
         >
           {inner}
@@ -118,6 +133,7 @@ export function ArtifactSidebar({
         "relative shrink-0 h-full",
         "rounded-2xl border border-app-bg-3/60 bg-app-bg-1 overflow-hidden",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
+        "animate-artifact-panel",
       )}
     >
       <ResizeHandle width={width} onWidthChange={onWidthChange} />
@@ -137,11 +153,13 @@ function ArtifactHeader({
   artifact,
   canFullscreen,
   onFullscreen,
+  onEdit,
   onClose,
 }: {
   artifact: SyncedArtifact | null;
   canFullscreen: boolean;
   onFullscreen?: () => void;
+  onEdit?: () => void;
   onClose: () => void;
 }) {
   const isPages = artifact?.kind === "pages";
@@ -162,6 +180,11 @@ function ArtifactHeader({
       </div>
       {artifact?.kind === "document" && artifact.content?.kind === "document" ? (
         <CopyMarkdownButton markdown={artifact.content.markdown} />
+      ) : null}
+      {onEdit && artifact && artifact.status !== "generating" ? (
+        <IconButton label="Suggest an edit" onClick={onEdit}>
+          <Pencil size={13} />
+        </IconButton>
       ) : null}
       {canFullscreen && onFullscreen ? (
         <IconButton label="Present fullscreen" onClick={onFullscreen}>
