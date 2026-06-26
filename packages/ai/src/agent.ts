@@ -186,7 +186,7 @@ export class AlfredAgent<CTX = unknown> {
       {
         model,
         system: buildSystem(system, this.cacheTtl()),
-        messages: transcript,
+        messages: decorateTranscript(transcript, this.cacheTtl()),
         tools,
         // Cap at 1 step: the SDK should send the model request and return
         // — even if the model emits tool calls. Combined with `execute`-
@@ -234,7 +234,7 @@ export class AlfredAgent<CTX = unknown> {
       {
         model,
         system: buildSystem(system, this.cacheTtl()),
-        messages: transcript,
+        messages: decorateTranscript(transcript, this.cacheTtl()),
         tools,
         stopWhen: stepCountIs(1),
         maxOutputTokens: this.s.maxOutputTokens,
@@ -346,6 +346,54 @@ function buildSystem(
       anthropic: { cacheControl: { type: "ephemeral", ttl: cacheTtl } },
     },
   };
+}
+
+/**
+ * Cache the growing transcript, not just the static system+tool prefix (#223).
+ *
+ * The system block and the last tool definition each carry a cacheControl
+ * breakpoint, so the ~static prefix caches — but the message history (tool
+ * results, prior turns) is re-sent uncached every turn, and it's the bulk:
+ * boss turns were measured re-processing 4.7k → 53k input tokens with only the
+ * 4.4k prefix cached, because that history balloons as tool results accumulate.
+ *
+ * The transcript is append-only and byte-stable, so a single breakpoint on the
+ * **last message** makes Anthropic cache-write the whole prefix this turn and
+ * cache-*read* the longest matching prefix next turn (everything except the
+ * newly-appended messages), writing only the delta. That keeps us at 3 of the
+ * provider's {@link https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching 4-breakpoint cap}
+ * (system + last tool + last message).
+ *
+ * No-op when caching is disabled (non-Anthropic models / tests) or the
+ * transcript is empty (first turn). Never mutates the caller's transcript —
+ * the breakpoint rides a shallow clone of the last message, preserving any
+ * providerOptions already on it. A drifting prefix (e.g. after compaction
+ * rewrites history) simply costs one cold-cache turn; it is never incorrect.
+ */
+export function decorateTranscript(
+  transcript: Transcript,
+  cacheTtl: "5m" | "1h" | undefined,
+): Transcript {
+  if (!cacheTtl || transcript.length === 0) return transcript;
+  const out = transcript.slice();
+  const lastIndex = out.length - 1;
+  out[lastIndex] = withMessageCacheControl(out[lastIndex]!, cacheTtl);
+  return out;
+}
+
+function withMessageCacheControl(message: ModelMessage, ttl: "5m" | "1h"): ModelMessage {
+  const existing = message.providerOptions ?? {};
+  const existingAnthropic = (existing.anthropic ?? {}) as Record<string, unknown>;
+  return {
+    ...message,
+    providerOptions: {
+      ...existing,
+      anthropic: {
+        ...existingAnthropic,
+        cacheControl: { type: "ephemeral", ttl },
+      },
+    },
+  } as ModelMessage;
 }
 
 function classifyTurnResult(result: GenerateTextResult<ToolSet, never>): TurnResult {
