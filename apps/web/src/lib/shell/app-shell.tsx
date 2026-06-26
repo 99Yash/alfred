@@ -291,6 +291,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
+  // Global ⌘J / Ctrl+J starts a new chat. (⌘N is browser-reserved and can't be
+  // intercepted, so we use a non-reserved combo.)
+  useEffect(() => {
+    if (!authed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "j" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void navigate({ to: "/chat" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [authed, navigate]);
+
   const ctx = useMemo<RightRailContextValue>(
     () => ({ setContent: setRightRailNode }),
     [setRightRailNode],
