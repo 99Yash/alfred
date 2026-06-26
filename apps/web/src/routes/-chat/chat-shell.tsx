@@ -58,7 +58,6 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
-import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
@@ -133,11 +132,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
+  const messages = useChatMessages(threadId);
+  const { stream, stopStream } = useChatStream(threadId);
+  useRunComplete(stream);
+  const showStream = shouldShowStream(messages, stream);
+  const isStreaming = showStream && !stream.done;
+  const activeRunId = showStream ? stream.runId : undefined;
+
   // Artifact sidebar (ADR-0075). When the boss authors an artifact the user
   // can open it from its trigger card; the panel then takes over the shared
   // right slot (the Today rail steps aside) until closed. State is local UI —
-  // the content rides the synced `artifacts` row.
-  const artifact = useArtifactPanel(threadId);
+  // the content rides the synced `artifacts` row. The panel also auto-opens the
+  // freshest artifact of the live run (`activeRunId`), so the shell doesn't have
+  // to push synced ids into it from an effect.
+  const artifact = useArtifactPanel(threadId, activeRunId);
 
   // "Suggest an edit" from the sidebar prefills the composer (ADR-0075 Phase 4):
   // a nonce makes the same scaffold re-apply if requested twice, and the main
@@ -196,9 +204,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // One shell slot, two occupants: the artifact panel wins while open.
   useRightRail(artifactNode ?? railNode);
 
-  const messages = useChatMessages(threadId);
-  const { stream, stopStream } = useChatStream(threadId);
-  useRunComplete(stream);
   const send = useSendMessage();
   // Model tier from the composer's picker (Auto vs Deep). Persisted so the
   // choice survives reloads and thread switches; rides with every turn.
@@ -216,24 +221,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       void send(threadId, text, tier, undefined, retryAttachmentIds, retryAttachmentMessageId),
     [send, threadId, tier],
   );
-  const showStream = shouldShowStream(messages, stream);
-  const isStreaming = showStream && !stream.done;
-  const activeRunId = showStream ? stream.runId : undefined;
-
-  // Auto-open the sidebar when the boss authors an artifact in the live run
-  // (ADR-0075 Phase 4). We bind to the synced row — which carries the real id
-  // and `runId` — rather than the `chat.tool` event, which only has a title.
-  // Gating on the active run means reloading a finished thread never springs
-  // the panel open; `autoOpen` fires once per id so a manual close stays closed.
-  const threadArtifacts = useThreadArtifacts(threadId);
-  const autoOpenArtifact = artifact.autoOpen;
-  useEffect(() => {
-    if (!activeRunId) return;
-    // `threadArtifacts` is newest-first, so this opens the most recent artifact
-    // the live run has produced so far.
-    const fresh = threadArtifacts.find((a) => a.runId === activeRunId);
-    if (fresh) autoOpenArtifact(fresh.id);
-  }, [activeRunId, threadArtifacts, autoOpenArtifact]);
   const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
   const { rows: approvalRows } = useActionStagings();
   const runApprovals = useMemo(
