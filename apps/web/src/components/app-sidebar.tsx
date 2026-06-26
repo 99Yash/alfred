@@ -363,7 +363,7 @@ function FullContent({
       </div>
 
       <div className="px-2 pt-1 pb-2 space-y-0.5 animate-sidebar-reveal">
-        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘N" active={isChat} />
+        <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘J" active={isChat} />
         <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
         <NavLink
           icon={Plug}
