@@ -10,7 +10,9 @@
  *   - a compressed text response is transparently decoded before sniffing;
  *   - a name that *resolves to loopback* (127.0.0.1.nip.io) is BLOCKED — proves
  *     the pin validates the resolved IP, not just the hostname string;
+ *   - IANA special-use IPv4 literals are BLOCKED before the socket path;
  *   - an IPv4-mapped IPv6 literal is BLOCKED;
+ *   - an IPv4-compatible IPv6 literal is BLOCKED;
  *   - a redirect into cloud-metadata space is BLOCKED at the hop.
  */
 
@@ -37,8 +39,18 @@ const CASES: Case[] = [
     expect: "blocked",
   },
   {
+    label: "benchmark IPv4 literal is blocked",
+    url: "http://198.18.0.1/",
+    expect: "blocked",
+  },
+  {
     label: "IPv4-mapped IPv6 literal is blocked",
     url: "http://[::ffff:127.0.0.1]/",
+    expect: "blocked",
+  },
+  {
+    label: "IPv4-compatible IPv6 literal is blocked",
+    url: "http://[::7f00:1]/",
     expect: "blocked",
   },
   {

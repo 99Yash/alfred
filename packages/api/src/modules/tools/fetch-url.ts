@@ -93,18 +93,51 @@ export interface FetchUrlArgs {
 
 /* ── host safety ──────────────────────────────────────────────────────── */
 
-function isBlockedV4(ip: string): boolean {
+type V4Cidr = readonly [base: string, prefixBits: number];
+
+const BLOCKED_V4_CIDRS: readonly V4Cidr[] = [
+  ["0.0.0.0", 8], // current network
+  ["10.0.0.0", 8], // private
+  ["100.64.0.0", 10], // CGNAT
+  ["127.0.0.0", 8], // loopback
+  ["169.254.0.0", 16], // link-local incl. 169.254.169.254 metadata
+  ["172.16.0.0", 12], // private
+  ["192.0.0.0", 24], // IETF protocol assignments
+  ["192.0.2.0", 24], // documentation
+  ["192.31.196.0", 24], // AS112
+  ["192.52.193.0", 24], // AMT
+  ["192.88.99.0", 24], // deprecated 6to4 relay anycast
+  ["192.168.0.0", 16], // private
+  ["192.175.48.0", 24], // AS112
+  ["198.18.0.0", 15], // benchmarking
+  ["198.51.100.0", 24], // documentation
+  ["203.0.113.0", 24], // documentation
+  ["224.0.0.0", 4], // multicast
+  ["240.0.0.0", 4], // reserved / broadcast
+];
+
+function ipv4ToInt(ip: string): number | null {
   const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
+  if (!m) return null;
   const parts = m.slice(1).map(Number);
-  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a = -1, b = -1] = parts;
-  if (a === 0 || a === 10 || a === 127) return true; // this-network, private, loopback
-  if (a === 169 && b === 254) return true; // link-local incl. 169.254.169.254 metadata
-  if (a === 172 && b >= 16 && b <= 31) return true; // private
-  if (a === 192 && b === 168) return true; // private
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  if (a >= 224) return true; // multicast + reserved
+  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  const [a = 0, b = 0, c = 0, d = 0] = parts;
+  return a * 2 ** 24 + b * 2 ** 16 + c * 2 ** 8 + d;
+}
+
+function ipv4InCidr(value: number, base: string, prefixBits: number): boolean {
+  const baseValue = ipv4ToInt(base);
+  if (baseValue === null) return false;
+  const divisor = 2 ** (32 - prefixBits);
+  return Math.floor(value / divisor) === Math.floor(baseValue / divisor);
+}
+
+function isBlockedV4(ip: string): boolean {
+  const value = ipv4ToInt(ip);
+  if (value === null) return true;
+  for (const [base, prefixBits] of BLOCKED_V4_CIDRS) {
+    if (ipv4InCidr(value, base, prefixBits)) return true;
+  }
   return false;
 }
 
@@ -150,6 +183,10 @@ function isBlockedV6(host: string): boolean {
   const value = ipv6ToBigInt(host);
   if (value === null) return true;
 
+  // Deprecated IPv4-compatible IPv6: ::7f00:1 / ::127.0.0.1. Block the whole
+  // special prefix rather than trying to make URL literals in it useful.
+  if (ipv6InRange(value, "::", 96)) return true;
+
   // IPv4-mapped IPv6: ::ffff:7f00:1 -> 127.0.0.1.
   if (ipv6InRange(value, "::ffff:0:0", 96)) {
     const v4 = Number(value & 0xffffffffn);
@@ -165,18 +202,22 @@ function isBlockedV6(host: string): boolean {
     ipv6InRange(value, "fe80::", 10) || // link-local
     ipv6InRange(value, "fec0::", 10) || // deprecated site-local
     ipv6InRange(value, "ff00::", 8) || // multicast
+    ipv6InRange(value, "64:ff9b:1::", 48) || // local-use NAT64 translation
+    ipv6InRange(value, "100::", 64) || // discard-only
+    ipv6InRange(value, "2001::", 23) || // IETF protocol assignments
     ipv6InRange(value, "2001:db8::", 32) || // documentation
     ipv6InRange(value, "2002::", 16) || // 6to4 tunnel addresses can embed private IPv4
+    ipv6InRange(value, "3fff::", 20) || // documentation
     ipv6InRange(value, "64:ff9b::", 96) // well-known NAT64 IPv4 translation prefix
   );
 }
 
 /**
- * Classify a resolved IP literal. Refuses loopback, link-local (incl. the
- * `169.254.169.254` cloud-metadata IP), private IPv4/IPv6, CGNAT, multicast,
- * and IPv4-mapped IPv6 (`::ffff:127.0.0.1`, both dotted and hex forms) so a
- * `[::ffff:127.0.0.1]` URL or a name that resolves to one can't tunnel to
- * private space. This is the connect-time boundary used by {@link pinningLookup}.
+ * Classify a resolved IP literal. Refuses non-public special-use ranges:
+ * loopback, link-local (incl. the `169.254.169.254` cloud-metadata IP),
+ * private IPv4/IPv6, CGNAT, benchmarking/documentation ranges, multicast,
+ * reserved space, and IPv4-mapped / compatible IPv6 private forms. This is the
+ * connect-time boundary used by {@link pinningLookup}.
  */
 export function isBlockedIp(ip: string): boolean {
   const host = ip
