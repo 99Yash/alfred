@@ -3,7 +3,6 @@
  *
  * One pill shape (`rounded-full`) for every text button; icon-only buttons
  * are square and `rounded-lg`. Variants change fill + inset glow only.
- * Recipes pulled from dimension-design-reference-2026-05-18.md §2.1.
  *
  * IMPORTANT: This is the new primitive. The legacy ad-hoc Button in
  * apps/web/src/lib/ui.tsx is kept for now so existing routes don't break;

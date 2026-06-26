@@ -10,8 +10,6 @@
  * Two sizes:
  *   - md (2.5) — the canonical Dimension composer dot
  *   - sm (1.5) — Alfred-specific health dot
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.14.
  */
 
 import { type HTMLAttributes } from "react";

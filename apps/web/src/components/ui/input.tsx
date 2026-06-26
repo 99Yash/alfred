@@ -8,8 +8,6 @@
  * Background ramps from `gray-50 @ 50%` (default) through `gray-50 @ 80%` (hover)
  * to fully opaque on focus. Border steps gray-100 → gray-200 → gray-300.
  * No outline ring — focus is signalled by the border step + fill ramp.
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.3.
  */
 
 import type { InputHTMLAttributes, ReactNode, Ref } from "react";
