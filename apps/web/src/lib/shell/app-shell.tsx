@@ -105,6 +105,17 @@ type ShellAction =
   | { type: "setSidebarOpen"; value: SetStateAction<boolean> }
   | { type: "setActiveThread"; value: string };
 
+/**
+ * True when the keystroke landed in an editable surface (a form field or a
+ * contenteditable region). Global ⌘-shortcuts skip these so they don't hijack
+ * typing inside the composer or a rich-text editor.
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
 function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
   return typeof next === "function" ? (next as (current: T) => T)(current) : next;
 }
@@ -282,7 +293,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey) && !isEditableTarget(e.target)) {
         e.preventDefault();
         togglePaletteEvent();
       }
@@ -291,12 +302,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
 
-  // Global ⌘J / Ctrl+J starts a new chat. (⌘N is browser-reserved and can't be
+  // Global ⌘J starts a new chat. (⌘N is browser-reserved and can't be
   // intercepted, so we use a non-reserved combo.)
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "j" && (e.metaKey || e.ctrlKey)) {
+      if (e.key.toLowerCase() === "j" && e.metaKey && !isEditableTarget(e.target)) {
         e.preventDefault();
         void navigate({ to: "/chat" });
       }

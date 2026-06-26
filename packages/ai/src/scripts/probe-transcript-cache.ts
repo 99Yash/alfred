@@ -17,6 +17,11 @@
  * If turn 2's cache_read is ~0, transcript caching is NOT working.
  */
 
+// NOTE: this probe deliberately bypasses the package's model-dispatch helpers and
+// reads `process.env` directly. The whole point is to isolate the raw Anthropic
+// cache accounting from the agent stack — `getChatModel()` would pull in fallback
+// wrapping, and `serverEnv()` would throw on ~19 unrelated vars a bare probe has no
+// business requiring. Do not "fix" this to route through the helpers.
 import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, type ModelMessage } from "ai";
 import { decorateTranscript } from "../agent.js";
