@@ -29,8 +29,11 @@ import type { LanguageModel as LanguageModelV3 } from "ai-retry";
  * round-trips cleanly: `drive.search_files` → `drive__search_files` → back.
  */
 
-const encodeToolName = (name: string): string => name.replace(".", "__");
-const decodeToolName = (name: string): string => name.replace("__", ".");
+// Exported for the registry invariant test (`tool-name-shim.test.ts`), which
+// asserts these round-trip over every real `ToolName` — the reversibility this
+// encoding depends on (exactly one `.`, no `__`).
+export const encodeToolName = (name: string): string => name.replace(".", "__");
+export const decodeToolName = (name: string): string => name.replace("__", ".");
 
 // Derive the SDK's call-options / result shapes off the middleware type so we
 // don't take a direct dep on `@ai-sdk/provider` for these granular types.

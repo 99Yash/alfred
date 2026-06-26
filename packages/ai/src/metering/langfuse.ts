@@ -2,7 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
 import type { CallKind, CallUsage, MeteredMeta } from "./types";
-import { toMessage } from "@alfred/contracts";
+import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
 
 /**
  * Lazy-init Langfuse client. We construct it once per process when the
@@ -243,7 +243,12 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
     },
     error(message) {
       try {
-        span?.end({ level: "ERROR", statusMessage: message });
+        // A tool error can carry user content, response fragments, or secrets
+        // from an integration. `statusMessage` is recorded even with I/O capture
+        // off, so redact + bound here (the funnel) so no raw error reaches
+        // Langfuse regardless of the caller. `summarizeBody` strips secrets and
+        // caps length; `sanitizeErrorMessage` strips NUL-byte poison.
+        span?.end({ level: "ERROR", statusMessage: summarizeBody(sanitizeErrorMessage(message)) });
       } catch (err) {
         console.warn("[langfuse] tool span error end failed:", toMessage(err));
       }
