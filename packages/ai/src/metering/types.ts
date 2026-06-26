@@ -64,10 +64,13 @@ export interface CallAttribution {
   role?: CallRole;
   /**
    * Langfuse session id (#226). Groups multiple traces that belong to one
-   * conversation/thread into a single Sessions-view entry. Chat passes the
-   * `threadId` so a multi-turn conversation (each turn its own run/trace)
-   * collapses into one session. When omitted, the trace falls back to
-   * grouping by `runId` — never persisted to `api_call_log`, trace-only.
+   * real conversation/thread into a single Sessions-view entry. Chat passes
+   * the `threadId` so a multi-turn conversation (each turn its own run/trace)
+   * collapses into one session. Omit it for background/job runs: a Langfuse
+   * session is for grouping *multiple* traces, and falling back to `runId`
+   * would mint a one-trace "session" per run that just duplicates the trace
+   * and pollutes the Sessions view (#226 review). Trace-only — never persisted
+   * to `api_call_log`.
    */
   sessionId?: string;
 }

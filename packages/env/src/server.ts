@@ -75,6 +75,16 @@ const serverEnvSchema = z.object({
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().url().optional(),
   /**
+   * Langfuse tracing environment slug (#226 review). `NODE_ENV` only
+   * separates development|production|test, but every deploy target (staging,
+   * preview, prod) runs with `NODE_ENV=production`, so it can't keep their
+   * traces apart. Set this per deploy target (e.g. `staging`, `preview`,
+   * `production`) to slice the Langfuse Environments view; falls back to
+   * `NODE_ENV` when unset. Lowercase, no leading `langfuse` (Langfuse's own
+   * reserved-prefix rule).
+   */
+  LANGFUSE_TRACING_ENVIRONMENT: z.string().optional(),
+  /**
    * Opt-in capture of prompt/completion text on Langfuse spans (#215).
    * Off by default: the metering layer records usage/cost/latency but NOT
    * the full I/O, so prod stays lean and prompt content (which may carry
