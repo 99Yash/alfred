@@ -819,6 +819,27 @@ export const webSearchInput = z
   })
   .strict();
 
+export const fetchUrlInput = z
+  .object({
+    url: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2_048)
+      // Validate the URL shape here so a malformed string bounces back to the
+      // model with a clear message rather than failing deep in the fetch. The
+      // scheme + host safety checks (ADR-0071 honest read-in) run server-side in
+      // the handler, since they need URL parsing the web bundle shouldn't carry.
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), {
+        message: "url must be an http(s) URL.",
+      })
+      .describe(
+        "The exact http(s) URL to read. Use this when you already hold a link (from the user, from read_user_context, or from a prior tool result) and want its page contents — prefer it over web_search, which discovers sources for a question rather than reading a known page.",
+      ),
+  })
+  .strict();
+
 export const suggestTodoInput = z
   .object({
     name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
@@ -894,4 +915,5 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
+  "system.fetch_url": fetchUrlInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
