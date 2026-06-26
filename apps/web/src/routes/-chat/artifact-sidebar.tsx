@@ -16,6 +16,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -63,16 +64,20 @@ export function ArtifactSidebar({
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Escape closes the panel (overlay) or exits fullscreen first.
+  // Escape closes the panel (overlay) or exits fullscreen first. The handler
+  // reads the latest fullscreen/mode/onClose through an Effect Event so the
+  // listener mounts once and never re-subscribes on a parent re-render.
+  const onEscape = useEffectEvent(() => {
+    if (fullscreen) setFullscreen(false);
+    else if (mode === "overlay") onClose();
+  });
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (fullscreen) setFullscreen(false);
-      else if (mode === "overlay") onClose();
+      if (e.key === "Escape") onEscape();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [fullscreen, mode, onClose]);
+  }, []);
 
   const isPages = artifact?.kind === "pages";
 
@@ -269,7 +274,7 @@ function ArtifactBody({
       );
     }
     return (
-      <div className="minimal-scrollbar flex-1 overflow-y-auto px-5 py-5">
+      <div className="minimal-scrollbar flex-1 overflow-y-auto p-5">
         <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
       </div>
     );
@@ -514,6 +519,11 @@ function ResizeHandle({
   );
 
   return (
+    // react-doctor's prefer-tag-over-role maps role="separator" → <hr>, but an
+    // <hr> is a thematic break — it can't be an interactive drag splitter. The
+    // ARIA separator role (with orientation + label) is the right semantics for
+    // a resize handle, so the role stays. Same deliberate compromise as the
+    // mention palette's role="menu".
     <div
       role="separator"
       aria-orientation="vertical"
