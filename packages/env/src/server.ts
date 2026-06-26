@@ -83,7 +83,14 @@ const serverEnvSchema = z.object({
    * `NODE_ENV` when unset. Lowercase, no leading `langfuse` (Langfuse's own
    * reserved-prefix rule).
    */
-  LANGFUSE_TRACING_ENVIRONMENT: z.string().optional(),
+  LANGFUSE_TRACING_ENVIRONMENT: z
+    .string()
+    .max(40)
+    .regex(
+      /^(?!langfuse)[a-z0-9-_]+$/,
+      "must be lowercase [a-z0-9-_], max 40 chars, and not start with 'langfuse' (Langfuse Environments rule)",
+    )
+    .optional(),
   /**
    * Opt-in capture of prompt/completion text on Langfuse spans (#215).
    * Off by default: the metering layer records usage/cost/latency but NOT
