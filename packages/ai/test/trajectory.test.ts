@@ -91,7 +91,10 @@ describe("extractTrajectory", () => {
       ],
     };
     const tj = extractTrajectory(trace);
-    assert.deepEqual(tj.steps.map((s) => s.toolName), ["github.search"]);
+    assert.deepEqual(
+      tj.steps.map((s) => s.toolName),
+      ["github.search"],
+    );
     assert.deepEqual(tj.decidedNotExecuted, [
       { toolName: "calendar.create_event", input: { title: "Sync" } },
     ]);
@@ -107,7 +110,11 @@ describe("extractTrajectory", () => {
         gen(
           {
             toolCalls: [
-              { toolName: "calendar.list_events", toolCallId: "tc1", input: { timeframe: "today" } },
+              {
+                toolName: "calendar.list_events",
+                toolCallId: "tc1",
+                input: { timeframe: "today" },
+              },
               {
                 toolName: "calendar.list_events",
                 toolCallId: "tc2",
@@ -179,12 +186,18 @@ describe("diffTrajectories", () => {
       ],
     };
     const d1 = diffTrajectories(extractTrajectory(base()), extractTrajectory(added));
-    assert.deepEqual(d1.added.map((s) => s.toolName), ["web.search"]);
+    assert.deepEqual(
+      d1.added.map((s) => s.toolName),
+      ["web.search"],
+    );
     assert.equal(d1.removed.length, 0);
 
     // reverse direction → removal
     const d2 = diffTrajectories(extractTrajectory(added), extractTrajectory(base()));
-    assert.deepEqual(d2.removed.map((s) => s.toolName), ["web.search"]);
+    assert.deepEqual(
+      d2.removed.map((s) => s.toolName),
+      ["web.search"],
+    );
     assert.equal(d2.added.length, 0);
   });
 });
