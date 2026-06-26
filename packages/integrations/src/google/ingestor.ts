@@ -1,6 +1,6 @@
 import { mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
+import { documents, emailTriage, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { embedDocument } from "@alfred/ingestion";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { getFreshAccessToken } from "./credentials";
 import {
   extractMessageContent,
   getMessage,
+  getThreadMessageLabels,
   isHistoryGoneError,
   listHistory,
   listMessages,
@@ -56,6 +57,19 @@ export interface IngestRecentResult {
    * Embed/index over `insertedDocumentIds`; fan triage over this.
    */
   triageDocumentIds: string[];
+  /**
+   * Inserted documents carrying Gmail's `SENT` label (the user's own outbound
+   * mail). Never triaged/labeled (ADR-0051 #7), but the caller uses these to
+   * re-evaluate the thread tag on an outbound reply (issue #282) — keying the
+   * received-only classify on the thread's newest inbound doc.
+   */
+  sentDocumentIds: string[];
+  /**
+   * Distinct Gmail thread ids that received a freshly-inserted message this
+   * run. The caller reconciles these threads' `documents` against the live
+   * Gmail thread so dead/superseded message ids don't accumulate (issue #279).
+   */
+  touchedThreadIds: string[];
   /** User who owns the credential — handy for downstream fanout (triage, indexing). */
   userId: string;
 }
@@ -93,6 +107,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let highWaterHistoryId: string | null = null;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   for (const ref of refs) {
     try {
@@ -101,7 +117,9 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
         // Embed inline. Failures don't bubble — the doc row is still
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
@@ -149,6 +167,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     highWaterHistoryId,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
   };
 }
@@ -431,6 +451,10 @@ export interface PollHistoryResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
+  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  sentDocumentIds: string[];
+  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  touchedThreadIds: string[];
   /** User who owns the credential. */
   userId: string;
 }
@@ -474,6 +498,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       fullResync: true,
       insertedDocumentIds: recent.insertedDocumentIds,
       triageDocumentIds: recent.triageDocumentIds,
+      sentDocumentIds: recent.sentDocumentIds,
+      touchedThreadIds: recent.touchedThreadIds,
       userId: cred.userId,
     };
   }
@@ -531,6 +557,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         fullResync: true,
         insertedDocumentIds: recent.insertedDocumentIds,
         triageDocumentIds: recent.triageDocumentIds,
+        sentDocumentIds: recent.sentDocumentIds,
+        touchedThreadIds: recent.touchedThreadIds,
         userId: cred.userId,
       };
     }
@@ -545,6 +573,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   let embedFailures = 0;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   for (const id of messageIds) {
     try {
@@ -553,7 +583,9 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
         try {
           const embed = await embedDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
@@ -595,6 +627,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     fullResync: false,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
   };
 }
@@ -632,6 +666,10 @@ export interface PollRecentResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
+  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  sentDocumentIds: string[];
+  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  touchedThreadIds: string[];
   userId: string;
 }
 
@@ -701,6 +739,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
@@ -709,7 +749,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
       } else if (result.outcome === "ignored") {
         // Self-authored mail (issue #211) — dropped, never a document.
         ignored++;
@@ -759,7 +801,180 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Thread reconciliation against live Gmail (issue #279)
+// ---------------------------------------------------------------------------
+
+export interface ReconcileGmailThreadsArgs {
+  credentialId: string;
+  userId: string;
+  /** Threads that received a fresh insert this run (`*.touchedThreadIds`). */
+  threadIds: string[];
+}
+
+export interface ReconcileGmailThreadsResult {
+  threadsChecked: number;
+  threadsReconciled: number;
+  docsDeleted: number;
+  triageRepointed: number;
+}
+
+const RECONCILE_CONCURRENCY = 4;
+
+/**
+ * Converge a thread's `documents` to the live Gmail message set (issue #279).
+ *
+ * Gmail reassigns/merges message ids around send/draft transitions, so an id
+ * captured at ingest can go dead (404). Left alone, a thread accumulates a tail
+ * of dead `documents` rows, and `email_triage.document_id` (a soft pointer, no
+ * FK) can land on one — which is exactly what breaks the relabel (#277).
+ *
+ * Reconcile-on-ingest fires precisely when ids reshuffle (a new message joins
+ * the thread). For each touched thread with >1 stored doc (a single-doc thread
+ * has no live sibling to converge to), we fetch the live message-id set and:
+ *   1. Repoint `email_triage.document_id` off any dead doc to the newest live
+ *      doc FIRST — never dangle the pointer, since briefing `gather` inner-joins
+ *      on it (a NULL/missing pointer silently drops the thread from briefings).
+ *   2. Delete the dead `documents` rows (cascades to chunks + memory junctions).
+ *
+ * Safety: we only prune when the live fetch SUCCEEDS and returns a non-empty
+ * set — a thrown error (whole-thread 404, transient) or an empty set skips that
+ * thread rather than mass-deleting. If a thread has no live doc in our DB to
+ * repoint to, we keep the one dead doc the triage row points at so the soft
+ * pointer still resolves to a real row.
+ *
+ * Best-effort: per-thread failures are logged and swallowed. Run it OFF the
+ * tag-latency path (the caller fans it out alongside triage emission, not
+ * before it).
+ */
+export async function reconcileGmailThreads(
+  args: ReconcileGmailThreadsArgs,
+): Promise<ReconcileGmailThreadsResult> {
+  const distinct = Array.from(new Set(args.threadIds.filter(Boolean)));
+  const empty: ReconcileGmailThreadsResult = {
+    threadsChecked: distinct.length,
+    threadsReconciled: 0,
+    docsDeleted: 0,
+    triageRepointed: 0,
+  };
+  if (distinct.length === 0) return empty;
+
+  // Local pre-filter: only multi-doc threads can carry a dead tail worth
+  // converging. One Gmail call per remaining thread, so this gate keeps a bulk
+  // ingest (mostly single-message threads) from fanning out N threads.get's.
+  const counts = await db()
+    .select({ threadId: documents.sourceThreadId, n: sql<number>`count(*)::int` })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail"),
+        inArray(documents.sourceThreadId, distinct),
+      ),
+    )
+    .groupBy(documents.sourceThreadId);
+  const multi = counts
+    .filter((c) => c.n > 1)
+    .map((c) => c.threadId)
+    .filter((t): t is string => Boolean(t));
+  if (multi.length === 0) return empty;
+
+  const accessToken = await getFreshAccessToken(args.credentialId);
+  let threadsReconciled = 0;
+  let docsDeleted = 0;
+  let triageRepointed = 0;
+
+  await mapConcurrent(multi, RECONCILE_CONCURRENCY, async (threadId) => {
+    try {
+      // A successful, non-empty live fetch is the precondition for any delete.
+      const live = await getThreadMessageLabels({ accessToken, threadId });
+      const liveIds = new Set(live.map((m) => m.id));
+      if (liveIds.size === 0) return;
+
+      const stored = await db()
+        .select({
+          id: documents.id,
+          sourceId: documents.sourceId,
+          authoredAt: documents.authoredAt,
+        })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.userId, args.userId),
+            eq(documents.source, "gmail"),
+            eq(documents.sourceThreadId, threadId),
+          ),
+        );
+
+      const dead = stored.filter((s) => !liveIds.has(s.sourceId));
+      if (dead.length === 0) return;
+      const deadIds = new Set(dead.map((d) => d.id));
+
+      // Newest live doc by authoredAt (nulls last) — a safe interim repoint
+      // target; the next classify cycle re-points to whatever it classifies.
+      const repointTarget =
+        stored
+          .filter((s) => liveIds.has(s.sourceId))
+          .sort(
+            (a, b) =>
+              (b.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY) -
+              (a.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY),
+          )[0] ?? null;
+
+      const triageRow = await db()
+        .select({ documentId: emailTriage.documentId })
+        .from(emailTriage)
+        .where(
+          and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
+        )
+        .limit(1);
+      const pointedDocId = triageRow[0]?.documentId ?? null;
+
+      let deadToDelete = dead;
+      if (pointedDocId && deadIds.has(pointedDocId)) {
+        if (repointTarget) {
+          await db()
+            .update(emailTriage)
+            .set({ documentId: repointTarget.id })
+            .where(
+              and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
+            );
+          triageRepointed++;
+        } else {
+          // No live doc to repoint to — keep the pointed dead row so the
+          // briefing inner-join still resolves; prune only the rest.
+          deadToDelete = dead.filter((d) => d.id !== pointedDocId);
+        }
+      }
+
+      if (deadToDelete.length > 0) {
+        await db()
+          .delete(documents)
+          .where(
+            inArray(
+              documents.id,
+              deadToDelete.map((d) => d.id),
+            ),
+          );
+        docsDeleted += deadToDelete.length;
+      }
+      threadsReconciled++;
+    } catch (err) {
+      console.warn(`[gmail.reconcile] thread=${threadId} skipped:`, toMessage(err));
+    }
+  });
+
+  return {
+    threadsChecked: distinct.length,
+    threadsReconciled,
+    docsDeleted,
+    triageRepointed,
   };
 }
 

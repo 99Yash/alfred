@@ -61,6 +61,8 @@ export type {
   PollHistoryResult,
   PollRecentArgs,
   PollRecentResult,
+  ReconcileGmailThreadsArgs,
+  ReconcileGmailThreadsResult,
 } from "./ingestor";
 export {
   findCredentialsNeedingPoll,
@@ -68,6 +70,7 @@ export {
   listGoogleCredentials,
   pollGmailHistory,
   pollGmailRecent,
+  reconcileGmailThreads,
 } from "./ingestor";
 export type {
   AlfredLabelMap,

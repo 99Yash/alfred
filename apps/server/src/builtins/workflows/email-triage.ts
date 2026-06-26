@@ -398,8 +398,11 @@ export const emailTriageWorkflow: Workflow<State> = {
         // Best-effort: a prior write must never fail the label, which is the
         // contract. NEW-PATH ONLY: `incrementSenderPrior` is a non-idempotent
         // histogram bump, so a reuse re-attempt must not double-count — only
-        // the originating classification teaches it.
-        if (!reusedExistingRow && written) {
+        // the originating classification teaches it. The outbound-reply re-eval
+        // (issue #282, `reason: "reply"`) re-classifies the same inbound doc to
+        // refresh the thread tag after the user replies; it is NOT a fresh
+        // observation, so it must not re-bump the sender prior either.
+        if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
           const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
           const senderKey = senderPriorWriteKeyFor({
             senderContext,
