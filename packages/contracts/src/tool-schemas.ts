@@ -350,7 +350,11 @@ export const gmailReadMessageInput = z
       .string()
       .min(1)
       .optional()
-      .describe("Provider-native Gmail message id. Use only when no Alfred document id is known."),
+      .describe(
+        "Provider-native Gmail message id — pass the `messageId` returned by gmail.search here. " +
+          "Read fetches it live from Gmail when the message isn't ingested, so this works on fresh " +
+          "search results; prefer documentId only when you already have an Alfred document id.",
+      ),
   })
   .strict()
   .refine((value) => Boolean(value.documentId || value.messageId), {

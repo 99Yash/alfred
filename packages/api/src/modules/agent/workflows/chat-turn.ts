@@ -1097,7 +1097,18 @@ const chatTurnStep: Step<ChatRunState> = {
         stream.finishReason,
         stream.response,
       ]);
-      const nextTranscript = [...transcript, ...(response.messages as AgentTranscriptMessage[])];
+      // Our tools are execute-less: the `dispatch-tools` step is the SOLE author
+      // of tool results (see `toolResultMessage`). The SDK normally emits only
+      // `tool-call` parts here — but when the model hands a tool schema-invalid
+      // input, it synthesizes its own `role: "tool"` result message for that
+      // call. Keeping it would duplicate the dispatcher's result for the same
+      // `toolCallId`; Anthropic then 400s ("each tool_use must have a single
+      // result"), where Gemini silently tolerated the dup. Drop any SDK tool
+      // message and let the dispatcher own results.
+      const assistantMessages = (response.messages as AgentTranscriptMessage[]).filter(
+        (m) => m.role !== "tool",
+      );
+      const nextTranscript = [...transcript, ...assistantMessages];
       const outcome = classifyStreamFinish({ toolCalls, finishReason });
 
       if (outcome.kind === "tool-calls") {
