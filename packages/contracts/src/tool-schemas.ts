@@ -350,12 +350,29 @@ export const gmailReadMessageInput = z
       .string()
       .min(1)
       .optional()
-      .describe("Provider-native Gmail message id. Use only when no Alfred document id is known."),
+      .describe(
+        "Provider-native Gmail message id — pass the `messageId` returned by gmail.search here. " +
+          "Read fetches it live from Gmail when the message isn't ingested, so this works on fresh " +
+          "search results; prefer documentId only when you already have an Alfred document id.",
+      ),
+    id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Deprecated alias for `messageId`, kept so older calls (or replayed transcripts) that pass " +
+          "`id` still resolve. Prefer `messageId`.",
+      ),
   })
   .strict()
-  .refine((value) => Boolean(value.documentId || value.messageId), {
+  .refine((value) => Boolean(value.documentId || value.messageId || value.id), {
     message: "documentId or messageId is required",
-  });
+  })
+  // Fold the legacy `id` alias into `messageId` so consumers read one field.
+  .transform((value) => ({
+    documentId: value.documentId,
+    messageId: value.messageId ?? value.id,
+  }));
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
