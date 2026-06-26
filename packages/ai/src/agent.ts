@@ -357,12 +357,16 @@ function buildSystem(
  * boss turns were measured re-processing 4.7k → 53k input tokens with only the
  * 4.4k prefix cached, because that history balloons as tool results accumulate.
  *
- * The transcript is append-only and byte-stable, so a single breakpoint on the
+ * The transcript is append-only and byte-stable, so a breakpoint on the
  * **last message** makes Anthropic cache-write the whole prefix this turn and
  * cache-*read* the longest matching prefix next turn (everything except the
- * newly-appended messages), writing only the delta. That keeps us at 3 of the
- * provider's {@link https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching 4-breakpoint cap}
- * (system + last tool + last message).
+ * newly-appended messages), writing only the delta. When a turn ends in a large
+ * tool-result burst, the prior cached prefix may be too far behind the last
+ * message for Anthropic's breakpoint lookback; in that shape we also mark the
+ * message immediately before the assistant tool-call turn, giving the provider
+ * an exact cache-read boundary before writing the new full prefix. That keeps
+ * us within the provider's {@link https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching 4-breakpoint cap}
+ * (system + last tool + up to two transcript messages).
  *
  * No-op when caching is disabled (non-Anthropic models / tests) or the
  * transcript is empty (first turn). Never mutates the caller's transcript —
@@ -377,8 +381,25 @@ export function decorateTranscript(
   if (!cacheTtl || transcript.length === 0) return transcript;
   const out = transcript.slice();
   const lastIndex = out.length - 1;
+  const toolBurstBoundaryIndex = previousToolBurstBoundaryIndex(out);
+  if (toolBurstBoundaryIndex !== null) {
+    out[toolBurstBoundaryIndex] = withMessageCacheControl(out[toolBurstBoundaryIndex]!, cacheTtl);
+  }
   out[lastIndex] = withMessageCacheControl(out[lastIndex]!, cacheTtl);
   return out;
+}
+
+function previousToolBurstBoundaryIndex(transcript: Transcript): number | null {
+  let firstTrailingToolIndex = transcript.length;
+  while (firstTrailingToolIndex > 0 && transcript[firstTrailingToolIndex - 1]?.role === "tool") {
+    firstTrailingToolIndex--;
+  }
+  if (firstTrailingToolIndex === transcript.length) return null;
+
+  const assistantIndex = firstTrailingToolIndex - 1;
+  if (assistantIndex < 1 || transcript[assistantIndex]?.role !== "assistant") return null;
+
+  return assistantIndex - 1;
 }
 
 function withMessageCacheControl(message: ModelMessage, ttl: "5m" | "1h"): ModelMessage {

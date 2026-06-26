@@ -5,14 +5,20 @@ import { decorateTranscript, type Transcript } from "../src/agent.js";
 
 /**
  * Pins the transcript cache breakpoint (#223). The boss re-sends the full
- * message history uncached every turn; this puts one Anthropic cacheControl
- * breakpoint on the last message so the prefix caches incrementally. The pure
- * transform is pinned here; the end-to-end cache *effect* is proven live by
- * src/scripts/probe-transcript-cache.ts.
+ * message history uncached every turn; this puts an Anthropic cacheControl
+ * breakpoint on the last message so the prefix caches incrementally. Tool-heavy
+ * turns also keep an exact cache-read boundary before the assistant tool-call
+ * message so a large fan-out does not outrun Anthropic's breakpoint lookback.
+ * The pure transform is pinned here; the end-to-end cache *effect* is proven
+ * live by src/scripts/probe-transcript-cache.ts.
  */
 
 function anthropicCache(m: ModelMessage): unknown {
   return (m.providerOptions?.anthropic as { cacheControl?: unknown } | undefined)?.cacheControl;
+}
+
+function cachedIndexes(messages: ModelMessage[]): number[] {
+  return messages.flatMap((message, index) => (anthropicCache(message) ? [index] : []));
 }
 
 const sample = (): Transcript => [
@@ -73,7 +79,7 @@ describe("decorateTranscript", () => {
     });
   });
 
-  test("moving the breakpoint forward as the transcript grows (incremental caching)", () => {
+  test("moves the breakpoint forward as ordinary transcript history grows", () => {
     // Turn N breaks at index 2; turn N+1 (two more messages) breaks at index 4.
     // The earlier messages stay clean, so the prior prefix is a cache read.
     const turnN = decorateTranscript(sample(), "1h");
@@ -81,11 +87,29 @@ describe("decorateTranscript", () => {
 
     const grown: Transcript = [
       ...sample(),
-      { role: "assistant", content: "tool call" },
-      { role: "tool", content: [] as never },
+      { role: "assistant", content: "final answer" },
+      { role: "user", content: "next question" },
     ];
     const turnNplus1 = decorateTranscript(grown, "1h");
     assert.equal(anthropicCache(turnNplus1[2]!), undefined); // old breakpoint gone
     assert.notEqual(anthropicCache(turnNplus1[4]!), undefined); // moved to new end
+  });
+
+  test("keeps a previous-turn boundary for large trailing tool-result bursts", () => {
+    const toolResults = Array.from({ length: 32 }, (_, i) => ({
+      role: "tool" as const,
+      content: [{ type: "tool-result", toolCallId: `call_${i}`, toolName: "search", result: `r${i}` }],
+    }));
+    const grown: Transcript = [
+      ...sample(),
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "call_0", toolName: "search", input: {} }] },
+      ...toolResults,
+    ] as Transcript;
+
+    const out = decorateTranscript(grown, "1h");
+    assert.deepEqual(cachedIndexes(out), [2, grown.length - 1]);
+    assert.deepEqual(anthropicCache(out[2]!), { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(anthropicCache(out[grown.length - 1]!), { type: "ephemeral", ttl: "1h" });
+    assert.equal(anthropicCache(out[3]!), undefined);
   });
 });

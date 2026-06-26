@@ -72,21 +72,40 @@ describe("isBlockedIp", () => {
     "169.254.169.254", // cloud metadata
     "100.64.0.1", // CGNAT
     "0.0.0.0",
+    "192.0.0.1", // IETF protocol assignments
+    "192.0.2.1", // documentation
+    "192.31.196.1", // AS112
+    "192.52.193.1", // AMT
+    "192.88.99.1", // deprecated 6to4 relay anycast
+    "192.175.48.1", // AS112
+    "198.18.0.1", // benchmarking
+    "198.19.255.255", // benchmarking
+    "198.51.100.1", // documentation
+    "203.0.113.1", // documentation
+    "240.0.0.1", // reserved
+    "255.255.255.255", // broadcast
     "::1",
     "::",
+    "::7f00:1", // IPv4-compatible loopback (hex)
+    "::127.0.0.1", // IPv4-compatible loopback (dotted)
     "fc00::1",
     "fd12:3456::1",
     "fe80::1",
     "fec0::1",
     "ff00::1",
     "ff02::1",
+    "64:ff9b:1::1",
+    "100::1",
+    "2001:2::1",
     "2001:db8::1",
     "2002:7f00:1::", // 6to4 embedding 127.0.0.1
+    "3fff::1",
     "64:ff9b::7f00:1", // NAT64 embedding 127.0.0.1
     "239.0.0.1", // multicast
     "::ffff:127.0.0.1", // IPv4-mapped loopback (dotted)
     "::ffff:7f00:1", // IPv4-mapped loopback (hex)
     "::ffff:169.254.169.254", // IPv4-mapped metadata
+    "::ffff:198.18.0.1", // IPv4-mapped benchmarking range
   ]) {
     test(`blocks ${ip}`, () => assert.equal(isBlockedIp(ip), true));
   }
@@ -104,7 +123,10 @@ describe("isBlockedHost", () => {
     "printer.local",
     "127.0.0.1",
     "192.168.0.1",
+    "198.18.0.1",
+    "203.0.113.1",
     "[::1]",
+    "[::7f00:1]",
     "[::ffff:127.0.0.1]",
   ]) {
     test(`blocks ${host}`, () => assert.equal(isBlockedHost(host), true));

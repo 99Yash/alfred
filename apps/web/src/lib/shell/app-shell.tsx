@@ -307,7 +307,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "j" && e.metaKey && !isEditableTarget(e.target)) {
+      if (
+        e.key.toLowerCase() === "j" &&
+        e.metaKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !isEditableTarget(e.target)
+      ) {
         e.preventDefault();
         void navigate({ to: "/chat" });
       }
