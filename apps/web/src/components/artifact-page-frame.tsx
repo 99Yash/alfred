@@ -1,18 +1,29 @@
+import type { ArtifactFormat } from "@alfred/contracts";
 import { useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
 
-const PAGE_WIDTH = 816;
-const PAGE_HEIGHT = 1056;
+// Page geometry per artifact format. `pdf` is portrait US-Letter (816×1056 =
+// 8.5×11 at 96dpi); `slides` is a 1280×720 16:9 deck page. The iframe renders
+// at this fixed logical size and is scaled to the measured container width, so
+// page HTML can be authored against a stable canvas regardless of panel width.
+const PAGE_GEOMETRY: Record<ArtifactFormat, { width: number; height: number; aspect: string }> = {
+  pdf: { width: 816, height: 1056, aspect: "aspect-[8.5/11]" },
+  slides: { width: 1280, height: 720, aspect: "aspect-video" },
+};
 
 export function ArtifactPageFrame({
   html,
   title,
   className,
+  format = "pdf",
 }: {
   html: string;
   title: string;
   className?: string;
+  /** Drives page geometry/aspect. Defaults to `pdf` (portrait US-Letter). */
+  format?: ArtifactFormat;
 }) {
+  const { width: pageWidth, height: pageHeight, aspect } = PAGE_GEOMETRY[format];
   // `width` is undefined until the frame has been measured. The iframe falls
   // back to scale 1 in that single pre-measurement frame; ResizeObserver fires
   // synchronously on attach, so the unscaled frame is rarely visible.
@@ -31,15 +42,12 @@ export function ArtifactPageFrame({
     return () => observer.disconnect();
   }, []);
 
-  const scale = width !== undefined ? width / PAGE_WIDTH : 1;
+  const scale = width !== undefined ? width / pageWidth : 1;
 
   return (
     <div
       ref={frameRef}
-      className={cn(
-        "relative aspect-[8.5/11] overflow-hidden rounded-lg bg-white shadow-2xl",
-        className,
-      )}
+      className={cn("relative overflow-hidden rounded-lg bg-white shadow-2xl", aspect, className)}
     >
       <iframe
         title={title}
@@ -47,8 +55,8 @@ export function ArtifactPageFrame({
         sandbox=""
         className="pointer-events-none absolute left-0 top-0 border-0 bg-white"
         style={{
-          width: PAGE_WIDTH,
-          height: PAGE_HEIGHT,
+          width: pageWidth,
+          height: pageHeight,
           transform: `scale(${scale})`,
           transformOrigin: "top left",
         }}
