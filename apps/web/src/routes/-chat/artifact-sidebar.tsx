@@ -22,6 +22,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
@@ -419,9 +420,20 @@ function ArtifactFullscreen({
     return () => window.removeEventListener("keydown", handler);
   }, [go]);
 
+  // Lock background scroll while presenting.
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
   const current = pages[safeIndex];
 
-  return (
+  // Portal to `document.body`: the inline panel's `<aside>` carries a transform
+  // (`animate-artifact-panel`), which would otherwise make this `fixed inset-0`
+  // overlay resolve against the aside's box instead of the viewport.
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-black/90 backdrop-blur-sm">
       <div className="flex h-12 shrink-0 items-center justify-between px-4 text-white/80">
         <span className="truncate text-sm">{artifact.title}</span>
@@ -448,7 +460,8 @@ function ArtifactFullscreen({
         </div>
         <NavButton side="right" disabled={safeIndex >= pages.length - 1} onClick={() => go(1)} />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
