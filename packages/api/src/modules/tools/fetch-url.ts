@@ -809,7 +809,10 @@ export async function runFetchUrl(
 
   const { finalUrl, status, contentType, contentLength } = raw;
 
-  if (status < 200 || status >= 400) {
+  // A 3xx reaching here already passed safeRequest's redirect-follow, so it had
+  // no Location — not a usable page. Treat anything outside 2xx as an error
+  // rather than returning a blank body (#286 review).
+  if (status < 200 || status >= 300) {
     await disposeBody(raw.body);
     return {
       ok: false,
@@ -850,6 +853,9 @@ export async function runFetchUrl(
   try {
     ({ bytes, overflow } = await readBounded(raw.body, MAX_FETCH_BYTES));
   } catch (err) {
+    // A mid-decode error (e.g. corrupt gzip) bypasses readBounded's own
+    // destroy(), so free the socket here or it leaks (#286 review).
+    await disposeBody(raw.body);
     const why = err instanceof Error ? err.message : String(err);
     return {
       ok: false,

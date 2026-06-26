@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { calendarListEventsInput } from "@alfred/contracts";
+import { z } from "zod";
 import { resolveCalendarListWindow } from "../../src/modules/tools/calendar";
 
 const NOW = new Date("2026-06-07T05:00:00.000Z");
@@ -171,5 +172,30 @@ describe("calendarListEventsInput window-key synonyms", () => {
   test("still accepts the canonical window verbatim", () => {
     const r = calendarListEventsInput.safeParse({ window: "today" });
     assert.equal(r.success, true);
+  });
+
+  // Value-driven promotion is only safe while the window values are disjoint
+  // from every other field's value space (see promoteWindowSynonym's comment):
+  // if a future enum field gained a value like "today", a legitimate call would
+  // be silently renamed to `window`. Assert that invariant structurally off the
+  // advertised JSON Schema so adding an overlapping enum fails CI here, not in
+  // production (#286 review).
+  test("no other declared field's enum overlaps the window value space", () => {
+    const json = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
+      properties?: Record<string, { enum?: unknown[] }>;
+    };
+    const props = json.properties ?? {};
+    const windowValues = new Set(props.window?.enum ?? []);
+    assert.ok(windowValues.size > 0, "window enum should be advertised");
+    for (const [key, schema] of Object.entries(props)) {
+      if (key === "window" || !Array.isArray(schema.enum)) continue;
+      for (const value of schema.enum) {
+        assert.ok(
+          !windowValues.has(value),
+          `field "${key}" enum value ${JSON.stringify(value)} collides with a window value; ` +
+            `promoteWindowSynonym would silently rename it to window`,
+        );
+      }
+    }
   });
 });

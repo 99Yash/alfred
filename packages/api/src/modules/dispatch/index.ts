@@ -650,6 +650,9 @@ function integrationActionSuggestion(
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(input)) {
       return null;
     }
+    // No tools to point at — recovering would loop the boss through a
+    // load_integration that yields nothing callable (#286 review).
+    if (INTEGRATION_ACTIONS[input].length === 0) return null;
     return {
       integration: input,
       toolName: null,
