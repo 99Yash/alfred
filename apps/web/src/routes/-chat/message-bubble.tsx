@@ -110,6 +110,17 @@ const TABLE_DELIMITER = /^\s*\|?[\s:|-]*-[\s:|-]*$/;
  * are left untouched.
  */
 function hideIncompleteTableTail(text: string): string {
+  // Cheap bail-out before splitting the whole (growing) text on every streamed
+  // token: we only ever hold back a trailing table header, whose last non-blank
+  // line contains a pipe. Scan back over trailing whitespace to that line — if
+  // it has no `|`, nothing is held back, so skip the O(n) split (keeps streaming
+  // linear instead of O(n²)).
+  let last = text.length - 1;
+  while (last >= 0 && /\s/.test(text[last]!)) last--;
+  if (last < 0) return text; // all blank
+  const lastLineStart = text.lastIndexOf("\n", last) + 1;
+  if (!text.slice(lastLineStart, last + 1).includes("|")) return text;
+
   const lines = text.split("\n");
   // Ignore trailing blank lines: a header that just gained its newline
   // (`| a | b |\n`) is still a header-only fragment, not a finished block.

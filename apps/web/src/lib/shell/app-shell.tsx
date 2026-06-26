@@ -276,39 +276,34 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [mustRedirectToLogin, pathname, searchStr, navigate]);
 
-  // Global ⌘K / Ctrl+K toggles the command palette while authenticated.
+  // Global navigation chords while authenticated: ⌘/Ctrl+K toggles the command
+  // palette, ⌘J starts a new chat (⌘N is browser-reserved, so we use ⌘J).
   const authed = !isPending && !!session?.user && !chromeless;
   const togglePaletteEvent = useEffectEvent(() => setPaletteOpen((o) => !o));
+  const newChatEvent = useEffectEvent(() => void navigate({ to: "/chat" }));
   useEffect(() => {
     if (!authed) return;
     const onKey = (e: KeyboardEvent) => {
-      // No isEditableTarget guard: ⌘/Ctrl+K is a navigation chord with no
+      // No isEditableTarget guard: these are navigation chords with no
       // text-editing meaning, and the composer (the dominant focus surface) is
-      // contenteditable — guarding would dead-key it there (#286 review).
+      // contenteditable — guarding would dead-key them there (#286 review).
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         togglePaletteEvent();
+      } else if (
+        e.key.toLowerCase() === "j" &&
+        e.metaKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.shiftKey
+      ) {
+        e.preventDefault();
+        newChatEvent();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [authed]);
-
-  // Global ⌘J starts a new chat. (⌘N is browser-reserved and can't be
-  // intercepted, so we use a non-reserved combo.)
-  useEffect(() => {
-    if (!authed) return;
-    const onKey = (e: KeyboardEvent) => {
-      // No isEditableTarget guard, same reasoning as ⌘K above: ⌘J is a
-      // navigation chord and must fire from the contenteditable composer.
-      if (e.key.toLowerCase() === "j" && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
-        e.preventDefault();
-        void navigate({ to: "/chat" });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [authed, navigate]);
 
   const ctx = useMemo<RightRailContextValue>(
     () => ({ setContent: setRightRailNode }),

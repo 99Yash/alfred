@@ -111,7 +111,7 @@ export interface TurnArgs<CTX> {
   abortSignal?: AbortSignal;
   /**
    * Streaming circuit-breaker (`streamTurn` only). The SDK aborts the call if
-   * it stalls past these bounds. Defaults to {@link DEFAULT_STREAM_TIMEOUT}.
+   * it stalls past these bounds. Defaults to {@link DEFAULT_TURN_STREAM_TIMEOUT}.
    */
   streamTimeout?: { totalMs?: number; stepMs?: number; chunkMs?: number };
 }
@@ -122,7 +122,7 @@ export interface TurnArgs<CTX> {
  * generation), with a 3-minute total ceiling as a hard backstop. Without this
  * a hung stream holds the workflow step open indefinitely.
  */
-const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
+const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
 
 /**
  * Discriminated result of a single turn. The executor consumes `kind`:
@@ -241,7 +241,7 @@ export class AlfredAgent<CTX = unknown> {
         temperature: this.s.temperature,
         providerOptions: this.s.providerOptions as Record<string, never> | undefined,
         abortSignal: args.abortSignal,
-        timeout: args.streamTimeout ?? DEFAULT_STREAM_TIMEOUT,
+        timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT,
       },
       attribution,
     );

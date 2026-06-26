@@ -76,4 +76,7 @@ async function main() {
   process.exit(diff.identical ? 0 : 1);
 }
 
-void main();
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

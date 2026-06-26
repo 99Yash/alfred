@@ -291,7 +291,15 @@ export function decodeEntities(input: string): string {
         body[1] === "x" || body[1] === "X"
           ? Number.parseInt(body.slice(2), 16)
           : Number.parseInt(body.slice(1), 10);
-      if (Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff) {
+      // Reject the surrogate range (0xD800–0xDFFF): `&#xD800;` would otherwise
+      // decode to a lone surrogate, leaving invalid UTF-16 for downstream code
+      // to trip over rather than relying on the boundary sanitizer to scrub it.
+      if (
+        Number.isFinite(codePoint) &&
+        codePoint > 0 &&
+        codePoint <= 0x10ffff &&
+        !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
         try {
           return String.fromCodePoint(codePoint);
         } catch {
@@ -322,6 +330,10 @@ export function htmlToText(html: string): string {
     /<(script|style|head|noscript|svg|template|iframe|object|embed|canvas)\b[^>]*>[\s\S]*?<\/\1>/gi,
     " ",
   );
+  // The pair above needs a closing tag; a content-free element left unclosed
+  // (truncated mid-stream or malformed) would otherwise leak its body as text.
+  // Any such opening tag still here is unterminated — strip it to end of input.
+  s = s.replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*$/gi, " ");
 
   // 3. List items → "- " bullets; line breaks → newlines.
   s = s.replace(/<br\s*\/?>/gi, "\n");
@@ -404,7 +416,7 @@ function sniffBinaryType(bytes: Buffer): string | null {
   if (has(0x00, 0x00, 0x01, 0x00)) return "image/x-icon";
 
   // Catch-all: a NUL byte anywhere in the bounded body means it isn't UTF-8 text.
-  for (const b of bytes) if (b === 0) return "application/octet-stream";
+  if (bytes.includes(0)) return "application/octet-stream";
 
   return null;
 }
@@ -717,8 +729,20 @@ export async function safeRequest(
     const location = headerValue(res.headers.location);
     if (res.statusCode >= 300 && res.statusCode < 400 && location) {
       await disposeBody(res.body); // free the socket before the next hop
+      const next = new URL(location, parsed);
       redirectChain.push(parsed.toString());
-      url = new URL(location, parsed).toString();
+      // Refuse a redirect that drops TLS — don't silently follow an
+      // https → http downgrade into a tamperable plaintext hop.
+      if (parsed.protocol === "https:" && next.protocol === "http:") {
+        const e = new FetchError(
+          "blocked_host",
+          "Refused a redirect that downgrades HTTPS to HTTP.",
+          next.toString(),
+        );
+        e.redirects = [...redirectChain];
+        throw e;
+      }
+      url = next.toString();
       continue;
     }
 
@@ -768,7 +792,9 @@ async function readBounded(
     if (total > maxBytes) {
       const destroy = (body as { destroy?: () => void }).destroy;
       if (typeof destroy === "function") destroy.call(body);
-      return { bytes: Buffer.concat(chunks), overflow: true };
+      // The caller discards the bytes on overflow (returns `too_large`), so
+      // skip the wasted Buffer.concat of everything read so far.
+      return { bytes: Buffer.alloc(0), overflow: true };
     }
     chunks.push(buf);
   }

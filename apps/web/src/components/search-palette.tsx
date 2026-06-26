@@ -61,6 +61,8 @@ interface CommandItem {
   onRun?: () => void;
   /** Free-form keywords to match in addition to the label. */
   keywords?: string;
+  /** Global shortcut for this command, shown as a trailing hint when not selected. */
+  kbd?: string;
 }
 
 const COMMANDS: ReadonlyArray<CommandItem> = [
@@ -72,6 +74,7 @@ const COMMANDS: ReadonlyArray<CommandItem> = [
     icon: SquarePen,
     to: "/chat",
     keywords: "compose ask alfred",
+    kbd: "⌘J",
   },
   {
     id: "integrations",
@@ -434,7 +437,11 @@ function PaletteRow({
           <span className="block text-[11px] text-app-fg-2 truncate">{item.hint}</span>
         ) : null}
       </span>
-      {active ? <CornerDownLeft size={12} aria-hidden className="shrink-0 text-app-fg-2" /> : null}
+      {active ? (
+        <CornerDownLeft size={12} aria-hidden className="shrink-0 text-app-fg-2" />
+      ) : item.kbd ? (
+        <FootKbd>{item.kbd}</FootKbd>
+      ) : null}
     </button>
   );
 }
