@@ -94,7 +94,13 @@ export async function runBriefingAgent(
       stopWhen: stepCountIs(MAX_STEPS),
     },
     {
-      kind: "llm",
+      // `briefing` is the cost bucket (ADR-0041), not the call shape — this is
+      // an LLM generation, but its spend rolls up apart from per-run LLM cost,
+      // matching `composeBriefing`. Langfuse tags split the dimensions back out
+      // (`call_kind:llm` + `cost_kind:briefing`), so shape filtering still
+      // catches it (#226 review).
+      kind: "briefing",
+      role: "briefing",
       userId: args.userId,
       runId: args.runId,
       stepId: args.stepId,

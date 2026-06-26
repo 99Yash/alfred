@@ -114,6 +114,7 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
       maxOutputTokens: 2_000,
     },
     {
+      role: "memory_extraction",
       userId: args.userId,
       runId: args.runId,
       stepId: args.stepId,

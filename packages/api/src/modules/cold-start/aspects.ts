@@ -136,6 +136,7 @@ async function runAspect(args: {
     },
     {
       kind: "llm",
+      role: "cold_start",
       userId: args.signals.userId,
       runId: args.runId,
       stepId,

@@ -126,6 +126,7 @@ export async function extractColdStartFacts(
       maxOutputTokens: 4_000,
     },
     {
+      role: "cold_start",
       userId: args.signals.userId,
       runId: args.runId,
       stepId: args.stepId,

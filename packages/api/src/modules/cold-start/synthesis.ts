@@ -95,6 +95,7 @@ export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promis
     },
     {
       kind: "llm",
+      role: "cold_start",
       userId: args.signals.userId,
       runId: args.runId,
       stepId: args.stepId,
