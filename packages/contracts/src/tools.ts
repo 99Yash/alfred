@@ -40,6 +40,9 @@ export const INTEGRATION_ACTIONS = {
     "resolve_todo",
     "suggest_todo",
     "web_search",
+    "create_artifact",
+    "append_artifact_page",
+    "update_artifact",
   ],
   gmail: ["search", "read_message", "send_draft"],
   calendar: ["list_events", "create_event"],
@@ -217,6 +220,21 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Searching the web",
     done: "Searched the web",
     title: "search the web",
+  },
+  "system.create_artifact": {
+    running: "Creating an artifact",
+    done: "Created an artifact",
+    title: "create an artifact",
+  },
+  "system.append_artifact_page": {
+    running: "Adding a page",
+    done: "Added a page",
+    title: "add an artifact page",
+  },
+  "system.update_artifact": {
+    running: "Updating an artifact",
+    done: "Updated an artifact",
+    title: "update an artifact",
   },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },

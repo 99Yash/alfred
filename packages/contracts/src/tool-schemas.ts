@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./artifacts.js";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search.js";
 import { todoSourceSchema } from "./todos.js";
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
@@ -844,6 +845,95 @@ export const suggestTodoInput = z
   })
   .strict();
 
+/* ── artifacts (ADR-0075) ─────────────────────────────────────────────── */
+
+/**
+ * The kinds the boss can actually author. `spreadsheet` is reserved in the
+ * artifact type union but has no authoring tool or renderer in v1, so it is
+ * excluded here — derived from {@link artifactKindSchema} so it can't drift
+ * from the source enum.
+ */
+const authorableArtifactKindSchema = artifactKindSchema.exclude(["spreadsheet"]);
+
+export const createArtifactInput = z
+  .object({
+    title: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Short human title for the artifact, shown in the sidebar header and the chat card.",
+      ),
+    kind: authorableArtifactKindSchema.describe(
+      "`document` for long-form prose (markdown), or `pages` for an ordered deck/PDF of full-bleed HTML pages.",
+    ),
+    format: artifactFormatSchema
+      .optional()
+      .describe(
+        "Required when kind is `pages`: `slides` (16:9 deck) or `pdf` (portrait letter). Omit for `document`.",
+      ),
+    markdown: z
+      .string()
+      .max(500_000)
+      .optional()
+      .describe(
+        "Initial markdown body for a `document`. Author the whole document here in one call — content is not token-streamed. Invalid for `pages` (add pages with append_artifact_page).",
+      ),
+  })
+  .strict()
+  .refine((v) => (v.kind === "pages" ? v.format !== undefined : v.format === undefined), {
+    message: "format is required for kind 'pages' and must be omitted for 'document'",
+    path: ["format"],
+  })
+  .refine((v) => !(v.kind === "pages" && v.markdown !== undefined), {
+    message: "markdown is only valid for kind 'document'; use append_artifact_page for pages",
+    path: ["markdown"],
+  });
+
+export const appendArtifactPageInput = z
+  .object({
+    artifactId: z
+      .string()
+      .min(1)
+      .describe("The artifactId returned by create_artifact. Must be a `pages` artifact."),
+    title: z
+      .string()
+      .max(200)
+      .describe("Short page/slide title, shown on the thumbnail and chrome."),
+    html: z
+      .string()
+      .max(200_000)
+      .describe(
+        "Self-contained HTML for the page body — inline all CSS/fonts, no external refs. Rendered in a sandboxed iframe. One call appends one page to the end; call again for each subsequent page.",
+      ),
+  })
+  .strict();
+
+export const updateArtifactInput = z
+  .object({
+    artifactId: z.string().min(1).describe("The artifactId to revise."),
+    title: z.string().min(1).max(200).optional().describe("New title (rename only)."),
+    markdown: z
+      .string()
+      .max(500_000)
+      .optional()
+      .describe("Full replacement markdown for a `document` artifact."),
+    pages: z
+      .array(artifactPageSchema)
+      .max(100)
+      .optional()
+      .describe(
+        "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
+      ),
+  })
+  .strict()
+  .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
+    message: "provide at least one of title, markdown, or pages",
+  })
+  .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
+    message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
+  });
+
 /**
  * Every tool whose input shape lives here, keyed by `ToolName`. The dispatcher
  * resolves the schema from the owning module (which re-exports these); this
@@ -894,4 +984,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
+  "system.create_artifact": createArtifactInput,
+  "system.append_artifact_page": appendArtifactPageInput,
+  "system.update_artifact": updateArtifactInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
