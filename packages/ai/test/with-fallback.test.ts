@@ -44,7 +44,11 @@ function okResult(text: string): GenResult {
   };
 }
 
-function apiError(statusCode: number, message = `mock ${statusCode}`, responseBody?: string): APICallError {
+function apiError(
+  statusCode: number,
+  message = `mock ${statusCode}`,
+  responseBody?: string,
+): APICallError {
   return new APICallError({
     message,
     url: "https://mock.invalid/v1",
@@ -129,7 +133,10 @@ describe("withFallback", () => {
     apiError(
       400,
       "Request failed",
-      JSON.stringify({ type: "error", error: { type: "billing_error", message: "usage limit reached" } }),
+      JSON.stringify({
+        type: "error",
+        error: { type: "billing_error", message: "usage limit reached" },
+      }),
     ),
   ];
   for (const [i, err] of quotaErrors.entries()) {
