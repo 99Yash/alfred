@@ -34,7 +34,58 @@ import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storag
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
+export const FULL_RESYNC_REPLY_REEVAL_SENT_DOC_LIMIT = 25;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
+
+type GmailInsertJobKind = "gmail.ingest_recent" | "gmail.poll_recent" | "gmail.poll_history";
+type GmailMessageEventReason = Parameters<typeof emitGmailMessageEvents>[2];
+
+export interface GmailPostInsertSideEffectPlan {
+  triageReason: Extract<GmailMessageEventReason, "webhook" | "ingest"> | null;
+  triageDocumentIds: string[];
+  reconcileThreadIds: string[];
+  replyReevalSentDocumentIds: string[];
+  skippedReplyReevalSentDocs: number;
+}
+
+export function planGmailPostInsertSideEffects(args: {
+  jobKind: GmailInsertJobKind;
+  triageInsertedDocs?: boolean;
+  fullResync?: boolean;
+  triageDocumentIds: readonly string[];
+  sentDocumentIds: readonly string[];
+  touchedThreadIds: readonly string[];
+}): GmailPostInsertSideEffectPlan {
+  const triageReason =
+    args.jobKind === "gmail.poll_recent"
+      ? "webhook"
+      : args.jobKind === "gmail.poll_history" && !args.fullResync
+        ? "ingest"
+        : args.jobKind === "gmail.ingest_recent" && args.triageInsertedDocs
+          ? "ingest"
+          : null;
+
+  const allowReplyReeval =
+    args.jobKind === "gmail.poll_recent" ||
+    (args.jobKind === "gmail.poll_history" && !args.fullResync) ||
+    (args.jobKind === "gmail.ingest_recent" && args.triageInsertedDocs === true);
+
+  const replyLimit =
+    args.jobKind === "gmail.poll_history" && args.fullResync
+      ? FULL_RESYNC_REPLY_REEVAL_SENT_DOC_LIMIT
+      : allowReplyReeval
+        ? args.sentDocumentIds.length
+        : 0;
+  const replyReevalSentDocumentIds = args.sentDocumentIds.slice(0, replyLimit);
+
+  return {
+    triageReason,
+    triageDocumentIds: triageReason ? [...args.triageDocumentIds] : [],
+    reconcileThreadIds: [...args.touchedThreadIds],
+    replyReevalSentDocumentIds,
+    skippedReplyReevalSentDocs: args.sentDocumentIds.length - replyReevalSentDocumentIds.length,
+  };
+}
 
 export type IngestionJobData =
   | {
@@ -217,25 +268,25 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // large bulk seed doesn't pay the latencies in series. Triage fans
         // over `triageDocumentIds` only — sent mail is ingested + embedded
         // (inline in the ingestor) but never triaged/labeled (ADR-0051 #7).
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          triageInsertedDocs: data.triageInsertedDocs,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           async () => {
-            if (data.triageInsertedDocs) {
-              await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
-              // Reply re-eval emits forced triage runs, so it rides the same
-              // gate — a bulk backlog re-ingest (triageInsertedDocs=false)
-              // must not fan a forced re-classify per historical sent reply.
-              await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
             }
           },
           async () => {
-            await reconcileThreadsBestEffort(
-              data.credentialId,
-              result.userId,
-              result.touchedThreadIds,
-            );
-            if (data.triageInsertedDocs) {
-              await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
-            }
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -263,19 +314,26 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // each function swallows its own errors. Fan them out so the
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           // Triage non-sent inserts only; embed ALL inserts (sent mail is
           // embedded for chat recall but never triaged — ADR-0051 #7).
           async () => {
-            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook");
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
+            }
           },
           async () => {
-            await reconcileThreadsBestEffort(
-              data.credentialId,
-              result.userId,
-              result.touchedThreadIds,
-            );
-            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await embedRealtimeInserts(result.insertedDocumentIds);
@@ -299,19 +357,30 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // covers the steady state; anything it misses (bursts > maxMessages,
       // a webhook lost in flight, a >5min outage) shows up here as a
       // `messagesAdded` history entry. We still fan triage so a missed
-      // realtime ingestion doesn't go untagged.
-      if (!result.fullResync && result.insertedDocumentIds.length) {
+      // realtime ingestion doesn't go untagged. Full-resync fallbacks skip
+      // ordinary triage fan-out to avoid back-catalog LLM burn, but they still
+      // run bounded thread repairs so the resync can heal sent-reply and dead-id
+      // drift instead of preserving it for the next webhook.
+      if (result.insertedDocumentIds.length) {
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          fullResync: result.fullResync,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           async () => {
-            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
+            }
           },
           async () => {
-            await reconcileThreadsBestEffort(
-              data.credentialId,
-              result.userId,
-              result.touchedThreadIds,
-            );
-            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -496,6 +565,21 @@ async function emitGmailMessageEvents(
   });
 }
 
+async function runGmailRepairSideEffects(
+  credentialId: string,
+  userId: string,
+  plan: GmailPostInsertSideEffectPlan,
+): Promise<void> {
+  await reconcileThreadsBestEffort(credentialId, userId, plan.reconcileThreadIds);
+  await reEvaluateRepliedThreads(userId, plan.replyReevalSentDocumentIds);
+  if (plan.skippedReplyReevalSentDocs > 0) {
+    console.warn(
+      `[ingestion:worker] reply re-eval skipped sentDocs=${plan.skippedReplyReevalSentDocs} ` +
+        `credential=${credentialId}`,
+    );
+  }
+}
+
 /**
  * Re-evaluate a thread's triage tag when the user sends an outbound reply
  * (issue #282). Sent mail is ingested + embedded but deliberately never
@@ -512,10 +596,7 @@ async function emitGmailMessageEvents(
  *
  * Best-effort: failures are logged, never bubbled into the ingest result.
  */
-async function reEvaluateRepliedThreads(
-  userId: string,
-  sentDocumentIds: string[],
-): Promise<void> {
+async function reEvaluateRepliedThreads(userId: string, sentDocumentIds: string[]): Promise<void> {
   if (!sentDocumentIds.length) return;
   try {
     const sentDocs = await db()
@@ -562,14 +643,14 @@ async function reEvaluateRepliedThreads(
           payload: { documentId: inboundId, reason: "reply", force: true },
         });
       } catch (err) {
-        console.warn(
-          `[ingestion:worker] reply re-eval failed thread=${threadId}:`,
-          toMessage(err),
-        );
+        console.warn(`[ingestion:worker] reply re-eval failed thread=${threadId}:`, toMessage(err));
       }
     });
   } catch (err) {
-    console.warn(`[ingestion:worker] reEvaluateRepliedThreads failed user=${userId}:`, toMessage(err));
+    console.warn(
+      `[ingestion:worker] reEvaluateRepliedThreads failed user=${userId}:`,
+      toMessage(err),
+    );
   }
 }
 
@@ -604,7 +685,10 @@ async function reconcileThreadsBestEffort(
       }
     });
   } catch (err) {
-    console.warn(`[ingestion:worker] reconcileThreads failed credential=${credentialId}:`, toMessage(err));
+    console.warn(
+      `[ingestion:worker] reconcileThreads failed credential=${credentialId}:`,
+      toMessage(err),
+    );
   }
 }
 
