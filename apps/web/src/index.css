@@ -1045,9 +1045,41 @@
     animation: artifact-panel-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  /* Fullscreen "present" entrance: the scrim fades while the page stage zooms
+   * up from slightly small + low, so expanding an artifact reads as a
+   * deliberate lift rather than a hard cut. */
+  @keyframes artifact-fullscreen-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes artifact-fullscreen-content-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .animate-artifact-fullscreen {
+    animation: artifact-fullscreen-in 0.2s ease-out both;
+  }
+  .animate-artifact-fullscreen-content {
+    animation: artifact-fullscreen-content-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* Start a touch after the scrim so the stage rises onto a settled backdrop. */
+    animation-delay: 0.04s;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-rail-head,
     .animate-artifact-panel,
+    .animate-artifact-fullscreen,
+    .animate-artifact-fullscreen-content,
     .animate-sidebar-reveal,
     .animate-settings-panel-in,
     .animate-carousel-progress,

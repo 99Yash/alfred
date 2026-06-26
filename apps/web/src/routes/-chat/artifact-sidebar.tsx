@@ -434,7 +434,7 @@ function ArtifactFullscreen({
   // (`animate-artifact-panel`), which would otherwise make this `fixed inset-0`
   // overlay resolve against the aside's box instead of the viewport.
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex flex-col bg-black/90 backdrop-blur-sm">
+    <div className="animate-artifact-fullscreen fixed inset-0 z-[60] flex flex-col bg-black/90 backdrop-blur-sm">
       <div className="flex h-12 shrink-0 items-center justify-between px-4 text-white/80">
         <span className="truncate text-sm">{artifact.title}</span>
         <div className="flex items-center gap-3">
@@ -448,7 +448,12 @@ function ArtifactFullscreen({
       </div>
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-12 pb-8">
         <NavButton side="left" disabled={safeIndex === 0} onClick={() => go(-1)} />
-        <div className={cn("w-full", format === "slides" ? "max-w-[1100px]" : "max-w-[760px]")}>
+        <div
+          className={cn(
+            "animate-artifact-fullscreen-content w-full",
+            format === "slides" ? "max-w-[1100px]" : "max-w-[760px]",
+          )}
+        >
           {current ? (
             <ArtifactPageFrame
               html={current.html}
