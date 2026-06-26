@@ -79,12 +79,43 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
       toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
     },
-    // Full completion text — only sent to Langfuse when capture is on
-    // (gated in metering/langfuse.ts). Covers both the text path and the
-    // structured-object path (which serializes its JSON into `.text`).
-    output: result.text,
+    // Completion — only sent to Langfuse when capture is on (gated in
+    // metering/langfuse.ts). Folds the turn's tool calls in alongside the text:
+    // on a tool-call turn the model often emits no prose, so `.text` alone would
+    // drop the one thing a trajectory replay needs — what the model decided to
+    // call (see captureOutput).
+    output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
     ...servedFromResponse(result.response),
   };
+}
+
+/**
+ * The captured generation output. `result.text` alone is lossy: on a turn that
+ * ends in tool calls the model frequently emits no assistant prose, so the
+ * trace would record `null`/empty and lose the turn's actual decision. The
+ * executed calls do surface later as their own tool spans (#214), but a call
+ * that's staged / HIL-gated / rejected never executes and thus never spans — so
+ * the model's *decision* is only reliably recoverable here, on the generation.
+ *
+ * Returns the bare string for a plain final turn or the structured-object path
+ * (no tool calls, `.text` carries the JSON) so existing renders and ad-hoc
+ * trace I/O mirroring are unchanged; only a tool-call turn gets the object
+ * shape with `{ toolName, toolCallId, input }` per proposed call.
+ */
+export function captureOutput(args: {
+  text: string;
+  toolCalls?: readonly { toolName: string; toolCallId: string; input: unknown }[];
+}): unknown {
+  const { text, toolCalls } = args;
+  if (toolCalls && toolCalls.length > 0) {
+    const calls = toolCalls.map((c) => ({
+      toolName: c.toolName,
+      toolCallId: c.toolCallId,
+      input: c.input,
+    }));
+    return text ? { text, toolCalls: calls } : { toolCalls: calls };
+  }
+  return text;
 }
 
 /**
@@ -276,7 +307,9 @@ export function meteredStreamText(
             toolCallCount: event.toolCalls?.length,
             stepCount: event.steps?.length,
           },
-          output: event.text,
+          // Same fold as the non-streaming path: a streamed tool-call turn emits
+          // no prose, so capture the proposed calls or the replay loses them.
+          output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
           ...servedFromResponse(event.response),
         });
         callerOnFinish?.(event);
@@ -325,7 +358,9 @@ function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
   if (steps.length === 0) return undefined;
   let inputTokens = 0;
   let outputTokens = 0;
-  let cachedInputTokens = 0;
+  // Leave undefined when no step reported cache info, matching the
+  // non-abort path (`usageFromSdk`) instead of asserting a false `0`.
+  let cachedInputTokens: number | undefined;
   let sawUsage = false;
   for (const step of steps) {
     const usage = usageFromSdk(step.usage);
@@ -333,7 +368,9 @@ function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
     sawUsage = true;
     inputTokens += usage.inputTokens ?? 0;
     outputTokens += usage.outputTokens ?? 0;
-    cachedInputTokens += usage.cachedInputTokens ?? 0;
+    if (usage.cachedInputTokens != null) {
+      cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
+    }
   }
   if (!sawUsage) return undefined;
   return { inputTokens, outputTokens, cachedInputTokens };
@@ -347,11 +384,17 @@ export async function meteredEmbed(
   const meta: MeteredMeta = { ...attribution, kind: "embedding", ...ids };
   // `embed` has no `timeout` param, only `abortSignal` — inject a timeout
   // signal so a hung embedding call can't wedge a worker step forever, same
-  // backstop the text wrappers get via `timeout`.
-  const callArgs: EmbedArgs =
-    args.abortSignal !== undefined
-      ? args
-      : { ...args, abortSignal: AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS) };
+  // backstop the text wrappers get via `timeout`. Compose (not replace) any
+  // caller signal so a stop button still works AND the timeout still fires
+  // even if the caller's signal never does (#286 review).
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS);
+  const callArgs: EmbedArgs = {
+    ...args,
+    abortSignal:
+      args.abortSignal !== undefined
+        ? AbortSignal.any([args.abortSignal, timeoutSignal])
+        : timeoutSignal,
+  };
   return metered(meta, () => embed(callArgs), extractEmbedUsage);
 }
 

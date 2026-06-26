@@ -40,6 +40,7 @@ export const INTEGRATION_ACTIONS = {
     "resolve_todo",
     "suggest_todo",
     "web_search",
+    "fetch_url",
   ],
   gmail: ["search", "read_message", "send_draft"],
   calendar: ["list_events", "create_event"],
@@ -217,6 +218,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Searching the web",
     done: "Searched the web",
     title: "search the web",
+  },
+  "system.fetch_url": {
+    running: "Reading a web page",
+    done: "Read a web page",
+    title: "read a web page",
   },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
