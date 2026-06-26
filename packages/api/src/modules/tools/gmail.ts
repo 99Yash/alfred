@@ -15,6 +15,9 @@ import {
   extractMessageContent,
   getFreshAccessToken,
   getMessage,
+  GMAIL_MODIFY_SCOPE,
+  GMAIL_READONLY_SCOPE,
+  GMAIL_SEND_SCOPE,
   listCredentials,
   listMessages,
   requireScopes,
@@ -32,15 +35,45 @@ function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
-async function pickGoogleCredentialId(userId: string): Promise<string> {
+/** Scopes that grant Gmail read access — either readonly or the broader modify. */
+const GMAIL_READ_SCOPES = [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE] as const;
+
+/**
+ * Pick the Google credential to make a Gmail call through.
+ *
+ * A user can connect several Google accounts, and any one credential may be
+ * Calendar/Drive-only (no Gmail scope). "First active" therefore risks a 403
+ * (credential without Gmail access) or reading the wrong mailbox. Filter to
+ * active credentials that actually grant one of `gmailScopes` and take the
+ * first match — readonly/modify for reads, `gmail.send` for sends.
+ *
+ * Single-account is the norm for Alfred, so we don't disambiguate across
+ * multiple Gmail-capable accounts here (the tool surface doesn't thread an
+ * explicit accountId yet — that's a future refinement); the first
+ * scope-satisfying credential wins.
+ */
+async function pickGmailCredentialId(
+  userId: string,
+  gmailScopes: readonly string[],
+): Promise<string> {
   const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
+  const active = creds.filter((c) => c.status === "active");
+  if (active.length === 0) {
     throw new Error(
       `[gmail.tools] user ${userId} has no active google credential — reconnect in settings`,
     );
   }
-  return active.id;
+  const scoped = active.find((c) => {
+    const granted = new Set(c.scopes);
+    return gmailScopes.some((s) => granted.has(s));
+  });
+  if (!scoped) {
+    throw new Error(
+      `[gmail.tools] user ${userId} has ${active.length} active google credential(s) but none grant ` +
+        `Gmail access — reconnect with Gmail enabled`,
+    );
+  }
+  return scoped.id;
 }
 
 export const gmailTools: readonly RegisteredTool[] = [
@@ -54,7 +87,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       "subject metadata when the message has been ingested (documentId may be null for fresh results).",
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
-      const credentialId = await pickGoogleCredentialId(ctx.userId);
+      const credentialId = await pickGmailCredentialId(ctx.userId, GMAIL_READ_SCOPES);
       const accessToken = await getFreshAccessToken(credentialId);
       const result = await listMessages({
         accessToken,
@@ -161,7 +194,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       // the search→read flow actually completes. A `documentId` that misses is
       // a genuine not_found (it's our own id; there's nothing live to fetch).
       if (input.messageId) {
-        const credentialId = await pickGoogleCredentialId(ctx.userId);
+        const credentialId = await pickGmailCredentialId(ctx.userId, GMAIL_READ_SCOPES);
         const accessToken = await getFreshAccessToken(credentialId);
         const message = await getMessage({ accessToken, id: input.messageId, format: "full" });
         const extracted = extractMessageContent(message);
@@ -200,7 +233,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       // on the proposed message. Requires the `gmail.send` scope on the
       // credential; pre-check so the staging records a re-consent failure
       // before making the Gmail send request.
-      const credentialId = await pickGoogleCredentialId(ctx.userId);
+      const credentialId = await pickGmailCredentialId(ctx.userId, [GMAIL_SEND_SCOPE]);
       await requireScopes(credentialId, ["reply_draft"]);
       const accessToken = await getFreshAccessToken(credentialId);
       const sent = await sendMessage({

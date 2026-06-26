@@ -739,7 +739,10 @@ async function executeToolWithSpan(
     span.success(result);
     return result;
   } catch (err) {
-    span.error(toMessage(err));
+    // Strip NUL-byte poison before the span records the message (the span
+    // itself also redacts secrets + bounds length — see `startToolSpan`).
+    // Mirrors the `execute_error` DB-write sanitization below.
+    span.error(sanitizeErrorMessage(toMessage(err)));
     throw err;
   }
 }

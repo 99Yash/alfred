@@ -592,6 +592,29 @@ function toolResultMessage(
   };
 }
 
+/**
+ * Is `message` an SDK-synthesized tool-result dup we should drop from history?
+ *
+ * The SDK only emits a `role: "tool"` message when the model hands a tool
+ * schema-invalid input (our tools are execute-less, so the dispatcher otherwise
+ * owns every result). Such a synthesized message carries `tool-result` parts
+ * for the very calls the model just made — all in `stepCallIds`. We return true
+ * only when every part targets one of those ids, so a hypothetical
+ * provider/SDK-executed result for some other call id is preserved rather than
+ * silently discarded.
+ */
+function isSynthesizedToolDup(
+  message: AgentTranscriptMessage,
+  stepCallIds: ReadonlySet<string>,
+): boolean {
+  if (message.role !== "tool") return false;
+  if (!Array.isArray(message.content) || message.content.length === 0) return false;
+  return message.content.every((part) => {
+    const id = isRecord(part) ? part.toolCallId : undefined;
+    return typeof id === "string" && stepCallIds.has(id);
+  });
+}
+
 function dispatchResultToToolOutput(
   result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
@@ -1103,10 +1126,17 @@ const chatTurnStep: Step<ChatRunState> = {
       // input, it synthesizes its own `role: "tool"` result message for that
       // call. Keeping it would duplicate the dispatcher's result for the same
       // `toolCallId`; Anthropic then 400s ("each tool_use must have a single
-      // result"), where Gemini silently tolerated the dup. Drop any SDK tool
-      // message and let the dispatcher own results.
+      // result"), where Gemini silently tolerated the dup.
+      //
+      // Drop only the synthesized dups — tool messages whose results all target
+      // a call THIS step just produced (the dispatcher will author those). A
+      // `role: "tool"` message referencing some other call id would be an
+      // SDK/provider-executed result outside our dispatch path; preserve it
+      // rather than silently dropping it (today there are none, but a future
+      // provider-side tool shouldn't lose its result to this filter).
+      const stepCallIds = new Set(toolCalls.map((c) => c.toolCallId));
       const assistantMessages = (response.messages as AgentTranscriptMessage[]).filter(
-        (m) => m.role !== "tool",
+        (m) => !isSynthesizedToolDup(m, stepCallIds),
       );
       const nextTranscript = [...transcript, ...assistantMessages];
       const outcome = classifyStreamFinish({ toolCalls, finishReason });

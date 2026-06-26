@@ -34,7 +34,6 @@
     "@alfred/config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "^19.0.0",
-    "ai": "catalog:",
     "tsdown": "catalog:",
     "tsx": "^4.19.2",
     "typescript": "catalog:"
