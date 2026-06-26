@@ -50,6 +50,7 @@ import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { enrichInvalidInputMessage } from "./invalid-input";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
@@ -228,7 +229,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       result: {
         status: "invalid_input",
         toolName,
-        message: parsed.error.message,
+        message: enrichInvalidInputMessage(
+          parsed.error.message,
+          tool.inputSchema,
+          parsed.error.issues,
+        ),
         issues: parsed.error.issues,
       },
     };
@@ -598,11 +603,15 @@ export function undeclaredToolMessage(
       : suggestion.inputWasQualified
         ? `Use '${suggestion.toolName}' instead.`
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
+  const loadHint =
+    suggestion.toolName === null
+      ? `Call system.load_integration with slug '${suggestion.integration}' first.`
+      : `Call system.load_integration with slug '${suggestion.integration}' first if that integration is not active,`;
   return [
     `Tool '${toolName}' is not declared.`,
     validActions,
     retry,
-    `Call system.load_integration with slug '${suggestion.integration}' first if that integration is not active,`,
+    loadHint,
     suggestion.toolName === null ? null : `then retry '${suggestion.toolName}'.`,
     "Do not ask the user just to load an integration.",
   ]
@@ -630,6 +639,23 @@ function integrationActionSuggestion(
     const closest = closestAction(action, actions);
     const toolName = closest ? toolNameForAction(integration, closest) : null;
     return { integration, toolName, validActions: actions, inputWasQualified: true };
+  }
+
+  // A bare integration slug (`calendar`) — the boss mistook the integration for
+  // a single tool and called it with an `action` arg. We can't recover the
+  // intended action from the tool name alone (it lived in the rejected args),
+  // so enumerate the integration's tools and point at load_integration; the
+  // model picks the right `integration.action` on retry.
+  if (isIntegrationSlug(input) && input !== "system") {
+    if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(input)) {
+      return null;
+    }
+    return {
+      integration: input,
+      toolName: null,
+      validActions: INTEGRATION_ACTIONS[input],
+      inputWasQualified: false,
+    };
   }
 
   const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
