@@ -823,6 +823,8 @@ export interface ReconcileGmailThreadsResult {
   threadsReconciled: number;
   docsDeleted: number;
   triageRepointed: number;
+  /** Threads whose triage row was repointed and should have its Gmail label reconciled. */
+  repointedThreadIds: string[];
 }
 
 const RECONCILE_CONCURRENCY = 4;
@@ -862,8 +864,16 @@ export async function reconcileGmailThreads(
     threadsReconciled: 0,
     docsDeleted: 0,
     triageRepointed: 0,
+    repointedThreadIds: [],
   };
   if (distinct.length === 0) return empty;
+
+  const cred = await loadCredentialOrThrow(args.credentialId);
+  if (cred.userId !== args.userId) {
+    throw new Error(
+      `[gmail.reconcile] credential=${args.credentialId} belongs to user=${cred.userId}, not user=${args.userId}`,
+    );
+  }
 
   // Local pre-filter: only multi-doc threads can carry a dead tail worth
   // converging. One Gmail call per remaining thread, so this gate keeps a bulk
@@ -875,6 +885,7 @@ export async function reconcileGmailThreads(
       and(
         eq(documents.userId, args.userId),
         eq(documents.source, "gmail"),
+        eq(documents.accountId, cred.accountId),
         inArray(documents.sourceThreadId, distinct),
       ),
     )
@@ -889,6 +900,7 @@ export async function reconcileGmailThreads(
   let threadsReconciled = 0;
   let docsDeleted = 0;
   let triageRepointed = 0;
+  const repointedThreadIds: string[] = [];
 
   await mapConcurrent(multi, RECONCILE_CONCURRENCY, async (threadId) => {
     try {
@@ -897,72 +909,98 @@ export async function reconcileGmailThreads(
       const liveIds = new Set(live.map((m) => m.id));
       if (liveIds.size === 0) return;
 
-      const stored = await db()
-        .select({
-          id: documents.id,
-          sourceId: documents.sourceId,
-          authoredAt: documents.authoredAt,
-        })
-        .from(documents)
-        .where(
-          and(
-            eq(documents.userId, args.userId),
-            eq(documents.source, "gmail"),
-            eq(documents.sourceThreadId, threadId),
-          ),
+      const outcome = await db().transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${triageThreadLockKey(args.userId, threadId)}))`,
         );
 
-      const dead = stored.filter((s) => !liveIds.has(s.sourceId));
-      if (dead.length === 0) return;
-      const deadIds = new Set(dead.map((d) => d.id));
-
-      // Newest live doc by authoredAt (nulls last) — a safe interim repoint
-      // target; the next classify cycle re-points to whatever it classifies.
-      const repointTarget =
-        stored
-          .filter((s) => liveIds.has(s.sourceId))
-          .sort(
-            (a, b) =>
-              (b.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY) -
-              (a.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY),
-          )[0] ?? null;
-
-      const triageRow = await db()
-        .select({ documentId: emailTriage.documentId })
-        .from(emailTriage)
-        .where(
-          and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
-        )
-        .limit(1);
-      const pointedDocId = triageRow[0]?.documentId ?? null;
-
-      let deadToDelete = dead;
-      if (pointedDocId && deadIds.has(pointedDocId)) {
-        if (repointTarget) {
-          await db()
-            .update(emailTriage)
-            .set({ documentId: repointTarget.id })
-            .where(
-              and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
-            );
-          triageRepointed++;
-        } else {
-          // No live doc to repoint to — keep the pointed dead row so the
-          // briefing inner-join still resolves; prune only the rest.
-          deadToDelete = dead.filter((d) => d.id !== pointedDocId);
-        }
-      }
-
-      if (deadToDelete.length > 0) {
-        await db()
-          .delete(documents)
+        const stored = await tx
+          .select({
+            id: documents.id,
+            sourceId: documents.sourceId,
+            authoredAt: documents.authoredAt,
+          })
+          .from(documents)
           .where(
-            inArray(
-              documents.id,
-              deadToDelete.map((d) => d.id),
+            and(
+              eq(documents.userId, args.userId),
+              eq(documents.source, "gmail"),
+              eq(documents.accountId, cred.accountId),
+              eq(documents.sourceThreadId, threadId),
             ),
           );
-        docsDeleted += deadToDelete.length;
+
+        const dead = stored.filter((s) => !liveIds.has(s.sourceId));
+        if (dead.length === 0) return { reconciled: false, docsDeleted: 0, repointed: false };
+        const deadIds = new Set(dead.map((d) => d.id));
+
+        // Newest live doc by authoredAt (nulls last) — a safe interim repoint
+        // target; the next classify cycle re-points to whatever it classifies.
+        const repointTarget =
+          stored
+            .filter((s) => liveIds.has(s.sourceId))
+            .sort(
+              (a, b) =>
+                (b.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY) -
+                (a.authoredAt?.getTime() ?? Number.NEGATIVE_INFINITY),
+            )[0] ?? null;
+
+        const triageRow = await tx
+          .select({ documentId: emailTriage.documentId })
+          .from(emailTriage)
+          .where(
+            and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
+          )
+          .limit(1);
+        const pointedDocId = triageRow[0]?.documentId ?? null;
+
+        let deadToDelete = dead;
+        let repointed = false;
+        if (pointedDocId && deadIds.has(pointedDocId)) {
+          if (repointTarget) {
+            await tx
+              .update(emailTriage)
+              .set({
+                documentId: repointTarget.id,
+                // A different document target means the old Gmail write is no
+                // longer evidence for this row. Clear it so the classify skip
+                // guard cannot mistake a fresh target for an already-applied tag.
+                appliedLabelId: null,
+                rowVersion: sql`${emailTriage.rowVersion} + 1`,
+                updatedAt: new Date(),
+              })
+              .where(
+                and(eq(emailTriage.userId, args.userId), eq(emailTriage.sourceThreadId, threadId)),
+              );
+            repointed = true;
+          } else {
+            // No live doc to repoint to — keep the pointed dead row so the
+            // briefing inner-join still resolves; prune only the rest.
+            deadToDelete = dead.filter((d) => d.id !== pointedDocId);
+          }
+        }
+
+        if (deadToDelete.length > 0) {
+          await tx.delete(documents).where(
+            and(
+              eq(documents.userId, args.userId),
+              eq(documents.source, "gmail"),
+              eq(documents.accountId, cred.accountId),
+              inArray(
+                documents.id,
+                deadToDelete.map((d) => d.id),
+              ),
+            ),
+          );
+        }
+        return { reconciled: true, docsDeleted: deadToDelete.length, repointed };
+      });
+
+      if (!outcome.reconciled) return;
+      docsDeleted += outcome.docsDeleted;
+      if (outcome.repointed) {
+        triageRepointed++;
+        repointedThreadIds.push(threadId);
       }
       threadsReconciled++;
     } catch (err) {
@@ -975,7 +1013,14 @@ export async function reconcileGmailThreads(
     threadsReconciled,
     docsDeleted,
     triageRepointed,
+    repointedThreadIds,
   };
+}
+
+function triageThreadLockKey(userId: string, sourceThreadId: string): string {
+  // Must match @alfred/api's triage/store.ts lock key; importing api here
+  // would create a package cycle.
+  return `triage:thread:${userId}:${sourceThreadId}`;
 }
 
 /** Drop refs whose Gmail id already maps to a `documents` row for this user. */

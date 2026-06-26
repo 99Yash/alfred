@@ -18,7 +18,7 @@ import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
 import { gmailSentSql } from "../triage/sent-mail";
-import { reconcileThreadLabel } from "../triage/tags";
+import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 
 /**
@@ -233,6 +233,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
               result.userId,
               result.touchedThreadIds,
             );
+            if (data.triageInsertedDocs) {
+              await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
+            }
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -267,14 +270,12 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook");
           },
           async () => {
-            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
-          },
-          async () => {
             await reconcileThreadsBestEffort(
               data.credentialId,
               result.userId,
               result.touchedThreadIds,
             );
+            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
           },
           async () => {
             await embedRealtimeInserts(result.insertedDocumentIds);
@@ -305,14 +306,12 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
           },
           async () => {
-            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
-          },
-          async () => {
             await reconcileThreadsBestEffort(
               data.credentialId,
               result.userId,
               result.touchedThreadIds,
             );
+            await reEvaluateRepliedThreads(result.userId, result.sentDocumentIds);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -594,6 +593,16 @@ async function reconcileThreadsBestEffort(
           `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
       );
     }
+    await mapConcurrent(result.repointedThreadIds, REALTIME_EMIT_CONCURRENCY, async (threadId) => {
+      try {
+        await enqueueTriageRelabel(userId, threadId);
+      } catch (err) {
+        console.warn(
+          `[ingestion:worker] reconcile relabel enqueue failed thread=${threadId}:`,
+          toMessage(err),
+        );
+      }
+    });
   } catch (err) {
     console.warn(`[ingestion:worker] reconcileThreads failed credential=${credentialId}:`, toMessage(err));
   }
