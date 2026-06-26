@@ -22,6 +22,20 @@ const MARKDOWN_CLASSES = cn(
   "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
   "[&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold",
   "[&_strong]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3",
+  // Tables — GFM tables (remark-gfm). The browser default renders these as
+  // borderless, padding-less text columns ("#289" collides with the next
+  // cell). Dress them as a real data table: the table is its own horizontal
+  // scroller (display:block + w-fit) so a wide table scrolls inside the bubble
+  // instead of blowing it open, with clean horizontal dividers — a stronger
+  // rule under the header, hairlines between rows — rather than a heavy full
+  // grid. Padded cells, top-aligned, tabular figures so numeric columns line up.
+  "[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto",
+  "[&_table]:border-collapse [&_table]:text-[13px] [&_table]:tabular-nums",
+  "[&_thead_th]:border-b [&_thead_th]:border-app-fg-a3",
+  "[&_th]:whitespace-nowrap [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-app-fg-4",
+  "[&_td]:px-3 [&_td]:py-1.5 [&_td]:text-left [&_td]:align-top",
+  "[&_tbody_tr]:border-b [&_tbody_tr]:border-app-fg-a1 [&_tbody_tr:last-child]:border-b-0",
+  "[&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-app-bg-2/60",
 );
 
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
@@ -81,15 +95,53 @@ const STREAMING_COMPONENTS: Components = {
   li: ({ children }) => <li>{animateWords(children)}</li>,
 };
 
+/** A delimiter row (`|---|:--:|`), possibly still being typed mid-stream. */
+const TABLE_DELIMITER = /^\s*\|?[\s:|-]*-[\s:|-]*$/;
+
+/**
+ * Hide an incomplete trailing GFM table while streaming. remark-gfm doesn't
+ * recognize a table until its delimiter row (`|---|---|`) is fully typed, so a
+ * header that has arrived ahead of it briefly renders as literal `| a | b |`
+ * pipe text — and the half-typed dashes too — before snapping into a table.
+ * We withhold that trailing fragment until the first data row begins, so the
+ * table appears already-formed and then fills in row by row (the rows after the
+ * delimiter stream in fine on their own). Only the *trailing* block is touched,
+ * and only while streaming; a completed table and prose containing a stray `|`
+ * are left untouched.
+ */
+function hideIncompleteTableTail(text: string): string {
+  const lines = text.split("\n");
+  // Ignore trailing blank lines: a header that just gained its newline
+  // (`| a | b |\n`) is still a header-only fragment, not a finished block.
+  let end = lines.length - 1;
+  while (end >= 0 && lines[end]?.trim() === "") end--;
+  if (end < 0) return text;
+  // Walk back over the trailing run of pipe lines.
+  let start = end + 1;
+  for (let i = end; i >= 0; i--) {
+    if (lines[i]?.includes("|")) start = i;
+    else break;
+  }
+  if (start > end) return text; // no trailing pipe lines
+  const block = lines.slice(start, end + 1);
+  // A real table header starts the line with a pipe; a stray inline `|` in
+  // prose (e.g. "a | b") does not, so we leave that alone.
+  if (!/^\s*\|/.test(block[0] ?? "")) return text;
+  const dataRowStarted = block.length > 2 && TABLE_DELIMITER.test(block[1] ?? "");
+  if (dataRowStarted) return text; // valid table — render it and stream its rows
+  return lines.slice(0, start).join("\n"); // hold back the header / partial delimiter
+}
+
 /** Assistant markdown body, with a blinking caret + per-word reveal while streaming. */
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
+  const body = streaming ? hideIncompleteTableTail(text) : text;
   return (
     <div className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}>
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         components={streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS}
       >
-        {text}
+        {body}
       </ReactMarkdown>
       {streaming ? (
         <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-chat-caret bg-app-fg-3 align-middle" />
