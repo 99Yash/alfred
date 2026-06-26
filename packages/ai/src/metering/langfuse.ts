@@ -2,7 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
 import type { CallKind, CallUsage, MeteredMeta } from "./types";
-import { toMessage } from "@alfred/contracts";
+import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
 
 /**
  * Lazy-init Langfuse client. We construct it once per process when the
@@ -148,6 +148,109 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
         generation?.end({ level: "ERROR", statusMessage: message });
       } catch (err) {
         console.warn("[langfuse] span error end failed:", toMessage(err));
+      }
+    },
+  };
+}
+
+/**
+ * A tool call to open a span for under the run trace (#214). Tool calls
+ * execute in the dispatcher *after* the LLM generation that proposed them,
+ * so without this they appear in no trace at all — the run tree shows the
+ * boss's generations but none of the work they triggered.
+ */
+export interface ToolSpanInput {
+  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  runId: string;
+  toolName: string;
+  /** Model-supplied id for the call; deduplicates a call across re-attempts. */
+  toolCallId: string;
+  userId?: string;
+  /** `boss` or a named sub-agent — surfaced in span metadata. */
+  caller?: string;
+  /** Executor step that owns the dispatch — audit only. */
+  stepId?: string;
+  /** Tool arguments. Only attached when `LANGFUSE_CAPTURE_IO` is on (PII). */
+  input?: unknown;
+  startedAt: Date;
+}
+
+export interface ToolSpanCloser {
+  /** Tool returned; `output` is attached only when I/O capture is on. */
+  success(output?: unknown): void;
+  error(message: string): void;
+}
+
+/**
+ * Open a Langfuse span for a single tool execution, nested under the run
+ * trace (#214). Mirrors `startLangfuseSpan`'s contract: a no-op closer when
+ * keys are absent, and every SDK call swallowed so tracing can't break the
+ * dispatch path.
+ *
+ * Tool I/O (args + result) can carry PII, so it rides the same
+ * `LANGFUSE_CAPTURE_IO` gate as generation I/O — off by default, the span
+ * still records name/timing/metadata.
+ */
+export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
+  const client = getClient();
+  if (!client) {
+    return {
+      success() {
+        /* no-op when keys missing */
+      },
+      error() {
+        /* no-op */
+      },
+    };
+  }
+
+  const captureIo = shouldCaptureIo();
+  let span: ReturnType<Langfuse["span"]> | null = null;
+  try {
+    // The boss LLM turn that proposed this call already upserted the
+    // `run:<runId>` trace (chat's generation step precedes tool dispatch), so
+    // the span nests under an existing trace. Upsert defensively by id anyway —
+    // it's a merge keyed on id, so it never clobbers the trace's name/tags —
+    // so a tool that somehow runs before any generation in the run still gets a
+    // trace rather than an orphaned (and thus dropped) observation.
+    client.trace({ id: args.runId });
+    span = client.span({
+      traceId: args.runId,
+      name: `tool:${args.toolName}`,
+      startTime: args.startedAt,
+      input: captureIo ? args.input : undefined,
+      metadata: {
+        kind: "tool",
+        toolName: args.toolName,
+        toolCallId: args.toolCallId,
+        caller: args.caller,
+        userId: args.userId,
+        runId: args.runId,
+        stepId: args.stepId,
+      },
+    });
+  } catch (err) {
+    console.warn("[langfuse] tool span start failed:", toMessage(err));
+  }
+
+  return {
+    success(output) {
+      try {
+        span?.end({ output: captureIo ? output : undefined });
+      } catch (err) {
+        console.warn("[langfuse] tool span end failed:", toMessage(err));
+      }
+    },
+    error(message) {
+      try {
+        // A tool error can carry user content, response fragments, or secrets
+        // from an integration. `statusMessage` is recorded even with I/O capture
+        // off, so redact + bound here (the funnel) so no raw error reaches
+        // Langfuse regardless of the caller. `summarizeBody` strips secrets and
+        // caps length; `sanitizeErrorMessage` strips NUL-byte poison.
+        span?.end({ level: "ERROR", statusMessage: summarizeBody(sanitizeErrorMessage(message)) });
+      } catch (err) {
+        console.warn("[langfuse] tool span error end failed:", toMessage(err));
       }
     },
   };
