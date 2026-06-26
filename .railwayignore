@@ -1,12 +1,5 @@
-# Heavyweight local artifacts not needed in prod builds.
-# Exception: apps/web imports references/dimension-dev/artifact-html/**/*.html?raw
-# at build time (see apps/web/src/lib/artifact-pages.ts), so that subtree must
-# ship. Re-include it via gitignore-style negation — parents have to be
-# re-included too for the leaf negation to take effect.
+# Heavyweight local-only reference snapshots — not needed in prod builds.
 references/*
-!references/dimension-dev
-references/dimension-dev/*
-!references/dimension-dev/artifact-html
 .warden/
 .tmp/
 *.log

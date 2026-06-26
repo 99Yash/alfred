@@ -2,7 +2,7 @@
  * Dimension-grammar IconButton primitive.
  *
  * Square `rounded-lg` (8px), 28px or 32px. Quiet ghost styling by default.
- * Press is a snap `scale-[0.96]`. See dimension-design-reference §2.2.
+ * Press is a snap `scale-[0.96]`.
  */
 
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";

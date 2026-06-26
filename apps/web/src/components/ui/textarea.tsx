@@ -6,8 +6,6 @@
  *                "Background" + "Prompt" fields. min-h / max-h, resize-none.
  *   - `inline` — fully transparent. Used inside chrome that owns its own
  *                outline (composer). No padding, no border, no ring.
- *
- * Recipe pulled from dimension-design-reference-2026-05-18.md §2.4.
  */
 
 import type { Ref, TextareaHTMLAttributes } from "react";
