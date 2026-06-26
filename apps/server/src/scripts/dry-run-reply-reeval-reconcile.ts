@@ -19,7 +19,7 @@
  * With no args it auto-scans a bounded sample; pass explicit thread ids to
  * target known cases (e.g. 19ef44b6b5a0183b — the #282 Tania thread).
  */
-import { isSentGmailMetadata } from "@alfred/api";
+import { isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
