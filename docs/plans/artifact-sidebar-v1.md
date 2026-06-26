@@ -154,14 +154,33 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 - **Verify:** `/run` skill — author an artifact in live chat, see it render; resize,
   fullscreen, reload (renders from synced row).
 
-### Phase 4 — generating state + edit-in-chat + polish
-1. Auto-open `generating` state off the `chat.tool` `started` event for
-   `system.create_artifact`; pages stream in per poke.
-2. "Suggest an edit" affordance → composer prefill → boss `update_artifact` →
-   re-render.
-3. Animations (enter/resize), error/empty states, a11y (focus trap in drawer, Escape).
-4. Decide token-level streaming (the deferred fork) — only if the page-granular UX
-   feels insufficient in practice.
+### Phase 4 — generating state + edit-in-chat + polish ⏳ _built, live verify pending_
+1. **Auto-open generating state.** ✅ Implemented by binding to the **synced row**,
+   not the `chat.tool` `started` event: the started event only carries the title
+   (the artifact id is minted server-side), whereas the synced `artifacts` row
+   carries the real `id` + `runId`. `ChatShell` watches `useThreadArtifacts` and,
+   while a run is live (`activeRunId`), auto-opens the newest row with
+   `runId === activeRunId`. `useArtifactPanel.autoOpen` fires once per id, so a
+   manual close stays closed and reloading a finished thread never springs the
+   panel open. Pages still stream in per poke (PagesBody reacts to `useArtifact`).
+2. **"Suggest an edit".** ✅ Pencil button in the sidebar header (hidden while
+   `generating`) prefills the composer with an `Edit "<title>": ` scaffold via a
+   nonce'd `prefill` prop the `Composer` consumes (`insertText` + focus). On the
+   overlay (narrow) layout it closes the panel first so the user lands on the
+   composer. The boss then calls `update_artifact` and the row re-renders in place.
+3. **Polish.** ✅ Entrance animation (`animate-artifact-panel`, right-edge slide +
+   fade, reduced-motion-guarded) on both inline and overlay asides. Error / empty /
+   generating states + Escape (close overlay / exit fullscreen) already shipped in
+   Phase 3. _Remaining nicety: a true focus trap inside the overlay drawer._
+4. **Token-level streaming (deferred fork).** Not built — v1 stays page-granular.
+   Revisit only if page-level updates feel insufficient in live use (would need a
+   `chat.artifact-delta` SSE kind + ephemeral preview buffer; the synced-row store
+   leaves the seam). **Owner call still open.**
+
+- **Verify:** `/run` — author an artifact in live chat, confirm it auto-opens in the
+  generating state, pages stream in, "Suggest an edit" prefills the composer and an
+  `update_artifact` re-renders in place. Static checks (`check-types` 13/13,
+  `check:web-boundaries`, oxlint, oxfmt) are green.
 
 ---
 
