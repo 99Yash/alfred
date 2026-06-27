@@ -10,9 +10,11 @@ import type { SenderSuppressionMatch } from "../memory/standing-instructions";
 
 /**
  * Flattened observation summary + classify audit for a single classification
- * decision (ADR-0051; formalized as a durable decision trace by ADR-0077,
+ * decision (ADR-0051; durable decision-trace PR-A of #219,
  * `kind = "triage.classification"`). Enough to debug a bad tag without the raw
- * email body. Persisted via `ctx.trace` into `agent_decision_traces`.
+ * email body. Persisted into `agent_decision_traces` through the normal
+ * `ctx.trace` seam, with triage also inserting the same keyed row inside the
+ * canonical row transaction so a tag cannot commit without its trace.
  *
  * Lives in `@alfred/api` (not `@alfred/contracts`) because every field type it
  * composes — `Observations`, `ClassifyAudit`, `SenderContextResult` — is a
@@ -60,8 +62,8 @@ export interface SenderExtractionEvent {
 
 /**
  * Flatten the observation summary + classify audit into a single structured
- * record (`triage.classification`, ADR-0051 → ADR-0077). Enough to debug a bad
- * tag without the raw email body.
+ * record (`triage.classification`, ADR-0051 → #219 PR-A). Enough to debug a
+ * bad tag without the raw email body.
  */
 export function senderExtractionEvent(args: {
   senderContextResult: SenderContextResult;

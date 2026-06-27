@@ -192,7 +192,7 @@ export const pendingActions = pgTable(
 );
 
 /**
- * Durable, structured "why this decision" records (ADR-0077, closes #219).
+ * Durable, structured "why this decision" records (PR-A of #219).
  *
  * The motivating incidents (#210/#211/#212) were each found by a manual prod
  * SQL audit — self-ingestion ran ~9 days before a human noticed. The full
@@ -201,11 +201,14 @@ export const pendingActions = pgTable(
  * a first-class queryable row. This table is where it lands: one row per traced
  * decision, queryable where the audits already run.
  *
- * Kind-agnostic by design — the executor persists `(kind, decision_key, trace)`
+ * Kind-agnostic by design — the runtime persists `(kind, decision_key, trace)`
  * without inspecting the payload; the typed surface is `ctx.trace`, generic
- * over the `DecisionTraceRegistry` in `@alfred/api`. `trace` is plain `jsonb`
- * (matching the variable-shape `pending_actions.payload` /
- * `agent_run_context.value`, not the fixed-shape `transcript`).
+ * over the `DecisionTraceRegistry` in `@alfred/api`. Domain stores may also
+ * insert the same keyed trace inside a domain-row transaction when row+trace
+ * atomicity matters; the unique key makes the later executor insert a no-op.
+ * `trace` is plain `jsonb` (matching the variable-shape
+ * `pending_actions.payload` / `agent_run_context.value`, not the fixed-shape
+ * `transcript`).
  *
  * Forensic, not aggregate: drift metrics read the source-of-truth tables and
  * raise the flag; these rows explain it when an operator drills in. A retried

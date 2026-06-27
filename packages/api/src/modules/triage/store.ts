@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import {
   agentDecisionTraces,
+  agentRuns,
   documents,
   emailTriage,
   integrationCredentials,
@@ -121,7 +122,6 @@ export interface UpsertTriageArgs {
    * cannot leave a tag without its "why" record.
    */
   decisionTrace?: {
-    workflowSlug: string;
     stepId: string;
     attempt: number;
     kind: "triage.classification";
@@ -272,13 +272,39 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         `[triage] upsert skipped but no stored row for user=${args.userId} thread=${args.sourceThreadId}`,
       );
     }
-    if (args.decisionTrace && args.runId) {
+    if (args.decisionTrace) {
+      if (!args.runId) {
+        throw new Error("[triage] decision trace requires a run id");
+      }
+      const runRows = await tx
+        .select({
+          userId: agentRuns.userId,
+          workflowSlug: agentRuns.workflowSlug,
+          currentStep: agentRuns.currentStep,
+          attempt: agentRuns.attempt,
+        })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, args.runId))
+        .limit(1);
+      const run = runRows[0];
+      if (!run) {
+        throw new Error(`[triage] decision trace run not found: ${args.runId}`);
+      }
+      if (
+        run.userId !== args.userId ||
+        run.currentStep !== args.decisionTrace.stepId ||
+        run.attempt !== args.decisionTrace.attempt
+      ) {
+        throw new Error(
+          `[triage] decision trace run mismatch for run=${args.runId} user=${args.userId}`,
+        );
+      }
       await tx
         .insert(agentDecisionTraces)
         .values({
           runId: args.runId,
-          userId: args.userId,
-          workflowSlug: args.decisionTrace.workflowSlug,
+          userId: run.userId,
+          workflowSlug: run.workflowSlug,
           stepId: args.decisionTrace.stepId,
           attempt: args.decisionTrace.attempt,
           kind: args.decisionTrace.kind,

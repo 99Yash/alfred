@@ -462,7 +462,7 @@ async function commitStepSuccess(
       }
     }
 
-    // Durable decision traces (ADR-0077). Same poison-strip as every other
+    // Durable decision traces (#219 PR-A). Same poison-strip as every other
     // jsonb sink above; `(run_id, step_id, attempt, kind, decision_key)` is
     // unique, so a re-run within the same trace slot is a no-op.
     for (const t of traces) {

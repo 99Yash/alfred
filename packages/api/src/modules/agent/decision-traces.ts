@@ -17,7 +17,7 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
 }
 
 /**
- * Registry of durable decision-trace kinds (ADR-0077). Maps each trace `kind`
+ * Registry of durable decision-trace kinds (#219 PR-A). Maps each trace `kind`
  * to its structured payload type. `ctx.trace(kind, record)` is generic over
  * this map, so a producer cannot persist a record whose shape doesn't match the
  * kind it declares — shape drift fails the build instead of writing a malformed
@@ -26,7 +26,8 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
  * The executor and the `agent_decision_traces` table are kind-agnostic: they
  * persist `(kind, decisionKey, record-as-jsonb)` without inspecting the
  * payload. To add a producer, add an entry here and call `ctx.trace` from the
- * step.
+ * step. If a domain row must commit atomically with its trace, the domain store
+ * may write the same keyed trace before the executor's idempotent insert.
  *
  * triage is the first producer (ADR-0051 sender-extraction event); briefing /
  * memory-extraction / cold-start adopt incrementally by adding entries.
