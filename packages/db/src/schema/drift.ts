@@ -1,4 +1,13 @@
-import { bigserial, index, jsonb, pgTable, real, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  bigserial,
+  index,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -45,12 +54,20 @@ export const driftMetrics = pgTable(
      * this column is read by raw `railway ssh` drift queries.
      */
     windowLabel: text("window_label"),
+    /**
+     * Stable daily idempotency key for the scheduled health sweep. Retries for
+     * the same UTC capture day update nothing instead of duplicating trend rows.
+     */
+    captureKey: text("capture_key").notNull(),
     /** Numerator/denominator, sample ids, threshold, `breached:boolean`. */
     detail: jsonb("detail"),
     capturedAt: timestamp("captured_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
   },
-  (t) => [index("drift_metrics_user_metric_idx").on(t.userId, t.metric, t.capturedAt)],
+  (t) => [
+    index("drift_metrics_user_metric_idx").on(t.userId, t.metric, t.capturedAt),
+    uniqueIndex("drift_metrics_user_metric_capture_key_idx").on(t.userId, t.metric, t.captureKey),
+  ],
 );
 
 export type DriftMetric = typeof driftMetrics.$inferSelect;

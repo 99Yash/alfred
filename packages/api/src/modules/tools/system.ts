@@ -296,6 +296,11 @@ export const systemTools: readonly RegisteredTool[] = [
         userId: ctx.userId,
         factId: input.factId,
         reason: input.reason,
+        source: {
+          kind: "tool_call",
+          id: ctx.toolCallId,
+          meta: { runId: ctx.runId, stepId: ctx.stepId },
+        },
       });
     },
   }),

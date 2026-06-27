@@ -1,22 +1,24 @@
+import { createHash } from "node:crypto";
 import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
   hasSuppressionEffect,
   standingInstructionValueSchema,
+  type ObservationSource,
   type StandingInstructionValue,
   type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { rejectedInferences, userFacts } from "@alfred/db/schemas";
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { insertObservation } from "../user-model/observations";
 import {
   resolveTodosForGmailSender,
   type ResolveTodosForGmailSenderResult,
 } from "../todos/resolve";
-import { recallActiveByKey, type FactRow } from "./facts";
 import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";
 import { memorySourceSchema, type MemorySource } from "./types";
@@ -121,18 +123,33 @@ export async function rememberSenderSuppression(
     };
   }
 
-  const [row] = await db()
-    .insert(userFacts)
-    .values({
-      userId: parsed.userId,
-      key: STANDING_INSTRUCTION_KEY,
-      value: instruction,
-      confidence: 1,
-      status: "confirmed",
-      source,
-      validUntil: null,
-    })
-    .returning({ id: userFacts.id });
+  const row = await db().transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: parsed.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: instruction,
+        confidence: 1,
+        status: "confirmed",
+        source,
+        validUntil: null,
+      })
+      .returning({ id: userFacts.id });
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: parsed.userId,
+        operation: "remember",
+        factId: inserted.id,
+        instruction,
+        source,
+      },
+      tx,
+    );
+    return inserted;
+  });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
   emitReplicachePokes([parsed.userId]);
@@ -156,7 +173,11 @@ export async function listActiveSuppressionInstructions(
   userId: string,
   effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
-  const facts = await recallActiveByKey(userId, STANDING_INSTRUCTION_KEY, { limit: 200 });
+  const facts = await db()
+    .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+    .from(userFacts)
+    .where(activeStandingInstructionsWhere(userId))
+    .orderBy(desc(userFacts.validFrom));
   return facts
     .map(instructionFromFact)
     .filter((instruction): instruction is ActiveSuppressionInstruction => {
@@ -183,6 +204,9 @@ export async function findActiveSenderSuppression(
 // never destructively edit or delete what the user told Alfred to remember.
 // "Delete" here is a soft reject (the row is marked `rejected`, never hard
 // deleted); "edit" supersedes the old row with a new one (reversible chain).
+// Each successful mutation also appends a `user_standing_instruction`
+// observation in the same transaction so ADR-0067's observation log can replay
+// this surface even while `user_facts` remains the live projection.
 
 /** One active standing instruction, flattened for the model to reference by `factId`. */
 export interface StandingInstructionSummary {
@@ -258,6 +282,7 @@ export async function forgetStandingInstruction(args: {
   userId: string;
   factId: string;
   reason?: string | null;
+  source?: MemorySource;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
     const [old] = await tx
@@ -291,6 +316,18 @@ export async function forgetStandingInstruction(args: {
         reason: args.reason ?? null,
       })
       .onConflictDoNothing();
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: "forget",
+        factId: args.factId,
+        instruction: parsed.data,
+        reason: args.reason ?? null,
+        source: args.source,
+      },
+      tx,
+    );
 
     return parsed.data;
   });
@@ -360,7 +397,21 @@ export async function editStandingInstruction(
         supersedesId: parsed.factId,
       })
       .returning({ id: userFacts.id });
-    return inserted ?? null;
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: parsed.userId,
+        operation: "edit",
+        factId: inserted.id,
+        previousFactId: parsed.factId,
+        instruction: nextValue,
+        previousInstruction: existing.value,
+        source: parsed.source,
+      },
+      tx,
+    );
+    return inserted;
   });
   if (!edited) return { ok: false, status: "not_found" };
 
@@ -395,8 +446,11 @@ export function findSenderSuppression(
 }
 
 function activeStandingInstructionWhere(userId: string, factId: string) {
+  return and(eq(userFacts.id, factId), activeStandingInstructionsWhere(userId));
+}
+
+function activeStandingInstructionsWhere(userId: string) {
   return and(
-    eq(userFacts.id, factId),
     eq(userFacts.userId, userId),
     eq(userFacts.key, STANDING_INSTRUCTION_KEY),
     eq(userFacts.status, "confirmed"),
@@ -405,7 +459,11 @@ function activeStandingInstructionWhere(userId: string, factId: string) {
   );
 }
 
-function instructionFromFact(fact: FactRow): ActiveSuppressionInstruction | null {
+function instructionFromFact(fact: {
+  id: string;
+  value: unknown;
+  validFrom: Date;
+}): ActiveSuppressionInstruction | null {
   const parsed = standingInstructionValueSchema.safeParse(fact.value);
   if (!parsed.success) return null;
   return {
@@ -413,6 +471,58 @@ function instructionFromFact(fact: FactRow): ActiveSuppressionInstruction | null
     value: parsed.data,
     validFrom: fact.validFrom,
   };
+}
+
+type StandingInstructionObservationOperation = "remember" | "edit" | "forget";
+
+async function appendStandingInstructionObservation(
+  args: {
+    userId: string;
+    operation: StandingInstructionObservationOperation;
+    factId: string;
+    previousFactId?: string | null;
+    instruction: StandingInstructionValue;
+    previousInstruction?: StandingInstructionValue | null;
+    reason?: string | null;
+    source?: MemorySource;
+  },
+  tx: Parameters<typeof insertObservation>[1],
+): Promise<void> {
+  const source = args.source ?? { kind: "user" as const };
+  const payload = {
+    operation: args.operation,
+    factId: args.factId,
+    previousFactId: args.previousFactId ?? null,
+    instruction: args.instruction,
+    previousInstruction: args.previousInstruction ?? null,
+    reason: args.reason ?? null,
+    source,
+  };
+  const evidenceHash = hashJson(payload);
+
+  await insertObservation(
+    {
+      userId: args.userId,
+      source: observationSourceForMemorySource(source),
+      kind: "user_standing_instruction",
+      occurredAt: new Date(),
+      familyKey: `standing_instruction:${args.operation}:${args.factId}:${evidenceHash.slice(0, 32)}`,
+      evidenceHash,
+      subjectIdentity: { kind: "user" },
+      payload,
+      schemaVersion: 1,
+      reducerVersion: 1,
+    },
+    tx,
+  );
+}
+
+function observationSourceForMemorySource(source: MemorySource): ObservationSource {
+  return source.kind === "user" ? "user" : "alfred_chat";
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function normalizeOptionalLabel(value: string | null | undefined): string | null {

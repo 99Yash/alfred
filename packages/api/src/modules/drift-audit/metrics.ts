@@ -24,7 +24,10 @@ import { resolveUserTimezone } from "../user-timezone";
  */
 
 /** `urgent`/`action_needed` are the two demanding lanes whose over-tag is #210. */
-const ATTENTION_CATEGORIES = ["urgent", "action_needed"] as const satisfies readonly TriageCategory[];
+const ATTENTION_CATEGORIES = [
+  "urgent",
+  "action_needed",
+] as const satisfies readonly TriageCategory[];
 
 /** The ingestor drops self-mail (#211), so any self-doc means the drop regressed. */
 const SELF_INGESTION_THRESHOLD = 0;
@@ -104,8 +107,7 @@ export async function attentionShare7d(userId: string): Promise<MetricResult> {
   const rows = await db()
     .select({
       total: sql<number>`count(*)::int`,
-      attention:
-        sql<number>`count(*) filter (where ${inArray(emailTriage.category, ATTENTION_CATEGORIES)})::int`,
+      attention: sql<number>`count(*) filter (where ${inArray(emailTriage.category, ATTENTION_CATEGORIES)})::int`,
     })
     .from(emailTriage)
     .where(
@@ -176,6 +178,7 @@ export interface DriftHealthCheckResult {
   alertsSent: number;
 }
 
+type MetricEvaluator = (userId: string) => Promise<MetricResult | null>;
 type NotifyFn = (args: NotifyArgs) => Promise<NotifyResult>;
 
 export interface RunDriftHealthCheckOptions {
@@ -183,6 +186,8 @@ export interface RunDriftHealthCheckOptions {
   now?: Date;
   /** Test seam; production sends through Resend-backed notify(). */
   notifyFn?: NotifyFn;
+  /** Test seam; production evaluates the registered drift metrics. */
+  metricEvaluators?: readonly MetricEvaluator[];
   /** Test seam; production resolves the user's configured timezone. */
   timezone?: string;
 }
@@ -199,19 +204,34 @@ export async function runDriftHealthCheck(
   userId: string,
   options: RunDriftHealthCheckOptions = {},
 ): Promise<DriftHealthCheckResult> {
+  const now = options.now ?? new Date();
+  const captureKey = localDateInTimezone("UTC", now);
   const results: MetricResult[] = [];
-  const evaluators = [selfIngestionCount, attentionShare7d, todoDismissDoneRatio];
+  const metricFailures: string[] = [];
+  const evaluators = options.metricEvaluators ?? [
+    selfIngestionCount,
+    attentionShare7d,
+    todoDismissDoneRatio,
+  ];
   for (const evaluate of evaluators) {
     try {
       const result = await evaluate(userId);
       if (result) results.push(result);
     } catch (err) {
-      console.error(`[drift-audit] metric failed for user=${userId}: ${toMessage(err)}`);
+      const failure = `${evaluate.name || "anonymous_metric"}: ${toMessage(err)}`;
+      metricFailures.push(failure);
+      console.error(`[drift-audit] metric failed for user=${userId}: ${failure}`);
     }
   }
+  if (metricFailures.length > 0 && results.length === 0) {
+    throw new Error(
+      `[drift-audit] all metrics failed for user=${userId}: ${metricFailures.join("; ")}`,
+    );
+  }
 
-  // Persist all snapshots in one insert (the trend substrate). Best-effort:
-  // a write failure is logged, not thrown — the breach push below still runs.
+  // Persist all snapshots in one insert (the trend substrate). Best-effort, but
+  // idempotent by `(user, metric, captureKey)` so alert-send retries do not
+  // inflate the daily trend rows.
   if (results.length > 0) {
     try {
       await db()
@@ -222,16 +242,19 @@ export async function runDriftHealthCheck(
             metric: r.metric,
             value: r.value,
             windowLabel: r.windowLabel,
+            captureKey,
             detail: { ...r.detail, threshold: r.threshold, breached: r.breached },
           })),
-        );
+        )
+        .onConflictDoNothing({
+          target: [driftMetrics.userId, driftMetrics.metric, driftMetrics.captureKey],
+        });
     } catch (err) {
       console.error(`[drift-audit] snapshot insert failed for user=${userId}: ${toMessage(err)}`);
     }
   }
 
   const breached = results.filter((r) => r.breached);
-  const now = options.now ?? new Date();
   const timezone =
     breached.length > 0 ? (options.timezone ?? (await resolveUserTimezone(userId))) : "UTC";
   const today = localDateInTimezone(timezone, now);

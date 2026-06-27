@@ -4,6 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, documents, emailTriage, user } from "@alfred/db/schemas";
+import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "../../src/modules/agent/executor";
@@ -11,7 +12,15 @@ import { _resetRegistryForTests, registerWorkflow } from "../../src/modules/agen
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 import { upsertTriage, type SenderExtractionEvent } from "../../src/modules/triage";
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+function hasDatabaseUrl(): boolean {
+  try {
+    return Boolean(databaseEnv().DATABASE_URL);
+  } catch {
+    return false;
+  }
+}
+
+const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
 const ID_PREFIX = "test-triage-decision-trace-";
 const createdUserIds: string[] = [];
 
@@ -126,18 +135,16 @@ async function seedRunnableRun(args: {
   state: TestState;
 }): Promise<string> {
   const runId = `run_${randomUUID().slice(0, 12)}`;
-  await db()
-    .insert(agentRuns)
-    .values({
-      id: runId,
-      userId: args.userId,
-      workflowSlug: args.workflowSlug,
-      currentStep: "classify",
-      status: "runnable",
-      attempt: 0,
-      state: args.state,
-      lastCheckpointAt: new Date(),
-    });
+  await db().insert(agentRuns).values({
+    id: runId,
+    userId: args.userId,
+    workflowSlug: args.workflowSlug,
+    currentStep: "classify",
+    status: "runnable",
+    attempt: 0,
+    state: args.state,
+    lastCheckpointAt: new Date(),
+  });
   return runId;
 }
 
@@ -354,7 +361,9 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const tags = await db()
       .select({ sourceThreadId: emailTriage.sourceThreadId })
       .from(emailTriage)
-      .where(and(eq(emailTriage.userId, rowUserId), eq(emailTriage.sourceThreadId, sourceThreadId)));
+      .where(
+        and(eq(emailTriage.userId, rowUserId), eq(emailTriage.sourceThreadId, sourceThreadId)),
+      );
     assert.equal(tags.length, 0, "mismatched trace aborts the triage row transaction");
     assert.equal((await traceRows(runId)).length, 0, "no mismatched trace row is persisted");
   });

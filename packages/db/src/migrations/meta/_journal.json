@@ -498,6 +498,13 @@
       "when": 1782557963734,
       "tag": "0070_open_the_santerians",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1782569576027,
+      "tag": "0071_moaning_wasp",
+      "breakpoints": true
     }
   ]
 }

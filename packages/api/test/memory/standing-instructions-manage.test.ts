@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { SUPPRESSION_EFFECTS } from "@alfred/contracts";
+import {
+  STANDING_INSTRUCTION_KEY,
+  STANDING_INSTRUCTION_SCHEMA_VERSION,
+  SUPPRESSION_EFFECTS,
+  standingInstructionValueSchema,
+} from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { user, userFacts } from "@alfred/db/schemas";
+import { observations, user, userFacts } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, like } from "drizzle-orm";
 
@@ -49,6 +54,23 @@ async function remember(userId: string, email: string, label: string): Promise<s
   return result.factId;
 }
 
+function instructionValue(email: string, label: string) {
+  return standingInstructionValueSchema.parse({
+    schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION,
+    action: "suppress",
+    surface: "open_loop",
+    target: {
+      kind: "sender_email",
+      email,
+      label,
+      accountId: null,
+    },
+    effects: [...SUPPRESSION_EFFECTS],
+    directive: `Stop surfacing reminders and briefing items from ${label}.`,
+    phrasing: `stop surfacing ${label}`,
+  });
+}
+
 describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     await db()
@@ -74,6 +96,29 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(instructions[0]?.factId, factId);
     assert.equal(instructions[0]?.target.email, "noisy@example.com");
     assert.deepEqual([...instructions[0].effects].sort(), [...SUPPRESSION_EFFECTS].sort());
+  });
+
+  test("list returns every active instruction instead of truncating at an arbitrary cap", async () => {
+    const userId = await seedUser();
+    await db()
+      .insert(userFacts)
+      .values(
+        Array.from({ length: 201 }, (_, i) => ({
+          userId,
+          key: STANDING_INSTRUCTION_KEY,
+          value: instructionValue(`sender-${i}@example.com`, `Sender ${i}`),
+          confidence: 1,
+          status: "confirmed",
+          source: { kind: "user" },
+          validFrom: new Date(Date.UTC(2026, 0, 1, 0, i)),
+          validUntil: null,
+        })),
+      );
+
+    const instructions = await listStandingInstructions(userId);
+    assert.equal(instructions.length, 201);
+    assert.ok(instructions.some((i) => i.target.email === "sender-0@example.com"));
+    assert.ok(instructions.some((i) => i.target.email === "sender-200@example.com"));
   });
 
   test("forget soft-removes the instruction so it drops out of the active list", async () => {
@@ -143,6 +188,41 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(active[0]?.target.label, "New Label");
     // Target sender is unchanged by a reframe.
     assert.equal(active[0]?.target.email, "reframe@example.com");
+  });
+
+  test("management mutations append replayable standing-instruction observations", async () => {
+    const userId = await seedUser();
+    const factId = await remember(userId, "observed@example.com", "Observed Sender");
+
+    const edited = await editStandingInstruction({
+      userId,
+      factId,
+      directive: "Use observed wording.",
+    });
+    assert.equal(edited.ok, true);
+    if (!edited.ok || edited.status !== "edited") throw new Error("unreachable");
+
+    const forgotten = await forgetStandingInstruction({
+      userId,
+      factId: edited.factId,
+      reason: "user asked",
+    });
+    assert.equal(forgotten.ok, true);
+
+    const rows = await db()
+      .select({
+        source: observations.source,
+        kind: observations.kind,
+        payload: observations.payload,
+      })
+      .from(observations)
+      .where(eq(observations.userId, userId));
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((row) => row.kind === "user_standing_instruction"));
+    assert.ok(rows.every((row) => row.source === "user"));
+
+    const operations = rows.map((row) => (row.payload as { operation: string }).operation).sort();
+    assert.deepEqual(operations, ["edit", "forget", "remember"]);
   });
 
   test("edit refuses the stale fact id after it has been superseded", async () => {
