@@ -38,7 +38,6 @@
     "cmdk": "^1.1.1",
     "katex": "^0.16.47",
     "lucide-react": "catalog:",
-    "motion": "^12.42.0",
     "posthog-js": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

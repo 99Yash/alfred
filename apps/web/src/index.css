@@ -990,6 +990,40 @@
       transform: scale(1.08);
     }
   }
+  .tool-animated-icon {
+    flex-shrink: 0;
+    transform-origin: center;
+  }
+  .tool-animated-icon--running {
+    animation: tool-icon-running 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .group\/tools:hover .tool-animated-icon--hoverable {
+    animation: tool-icon-hover 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes tool-icon-running {
+    0%,
+    100% {
+      opacity: 0.75;
+      transform: scale(0.94) rotate(0deg);
+    }
+    45% {
+      opacity: 1;
+      transform: scale(1.08) rotate(4deg);
+    }
+    70% {
+      opacity: 0.95;
+      transform: scale(1) rotate(-3deg);
+    }
+  }
+  @keyframes tool-icon-hover {
+    0%,
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+    50% {
+      transform: scale(1.12) rotate(5deg);
+    }
+  }
 
   /* Right-rail header entrance. Each row of the weather hero (greeting,
    * temperature, caption, date) fades up in sequence via staggered
@@ -1095,8 +1129,11 @@
     .chat-think-mark,
     .chat-think-mark::before,
     .chat-node-glow::before,
+    .tool-animated-icon--running,
+    .tool-animated-icon--hoverable,
     .animate-chat-caret {
       animation: none !important;
+      transform: none !important;
     }
   }
 

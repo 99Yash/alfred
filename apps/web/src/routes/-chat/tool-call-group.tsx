@@ -83,12 +83,11 @@ function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
       glyphs.push({ kind: "brand", key: brand, brand });
       continue;
     }
-    const Icon = animatedToolIcon(tool.toolName);
-    if (Icon) {
-      const name = Icon.displayName ?? "icon";
-      if (seen.has(`icon:${name}`)) continue;
-      seen.add(`icon:${name}`);
-      glyphs.push({ kind: "icon", key: name, Icon });
+    const animatedIcon = animatedToolIcon(tool.toolName);
+    if (animatedIcon) {
+      if (seen.has(`icon:${animatedIcon.key}`)) continue;
+      seen.add(`icon:${animatedIcon.key}`);
+      glyphs.push({ kind: "icon", key: animatedIcon.key, Icon: animatedIcon.Icon });
     }
   }
   return glyphs;
@@ -321,7 +320,7 @@ function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
               i > 0 && "-ml-2",
             )}
           >
-            <glyph.Icon size={13} className="inline-flex" />
+            <glyph.Icon size={13} className="tool-animated-icon tool-animated-icon--hoverable" />
           </span>
         ),
       )}

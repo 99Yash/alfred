@@ -378,6 +378,31 @@ export async function loadTriageContext(
   };
 }
 
+export async function markGmailDocumentSent(args: {
+  userId: string;
+  documentId: string;
+  liveLabelIds: readonly string[];
+}): Promise<void> {
+  const labelIds = Array.from(new Set([...args.liveLabelIds, "SENT"]));
+  await db()
+    .update(documents)
+    .set({
+      metadata: sql`jsonb_set(
+        jsonb_set(coalesce(${documents.metadata}, '{}'::jsonb), '{isSent}', 'true'::jsonb, true),
+        '{labelIds}',
+        ${JSON.stringify(labelIds)}::jsonb,
+        true
+      )`,
+    })
+    .where(
+      and(
+        eq(documents.id, args.documentId),
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail"),
+      ),
+    );
+}
+
 function rowToTriage(row: EmailTriage): TriageRow {
   return {
     userId: row.userId,
