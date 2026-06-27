@@ -3,7 +3,7 @@ import type { TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { localDateInTimezone } from "../briefing/preferences";
 import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
 import { resolveUserTimezone } from "../user-timezone";
@@ -104,7 +104,8 @@ export async function attentionShare7d(userId: string): Promise<MetricResult> {
   const rows = await db()
     .select({
       total: sql<number>`count(*)::int`,
-      attention: sql<number>`count(*) filter (where ${emailTriage.category} in ('urgent', 'action_needed'))::int`,
+      attention:
+        sql<number>`count(*) filter (where ${inArray(emailTriage.category, ATTENTION_CATEGORIES)})::int`,
     })
     .from(emailTriage)
     .where(
