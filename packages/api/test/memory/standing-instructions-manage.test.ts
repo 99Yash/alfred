@@ -15,6 +15,7 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import {
+  STANDING_INSTRUCTION_LIST_LIMIT,
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
@@ -91,19 +92,22 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const factId = await remember(userId, "noisy@example.com", "Noisy Sender");
 
-    const instructions = await listStandingInstructions(userId);
+    const listed = await listStandingInstructions(userId);
+    const { instructions } = listed;
+    assert.equal(listed.totalActive, 1);
+    assert.equal(listed.truncated, false);
     assert.equal(instructions.length, 1);
     assert.equal(instructions[0]?.factId, factId);
     assert.equal(instructions[0]?.target.email, "noisy@example.com");
     assert.deepEqual([...instructions[0].effects].sort(), [...SUPPRESSION_EFFECTS].sort());
   });
 
-  test("list returns every active instruction instead of truncating at an arbitrary cap", async () => {
+  test("list caps model-facing instructions and reports truncation metadata", async () => {
     const userId = await seedUser();
     await db()
       .insert(userFacts)
       .values(
-        Array.from({ length: 201 }, (_, i) => ({
+        Array.from({ length: STANDING_INSTRUCTION_LIST_LIMIT + 101 }, (_, i) => ({
           userId,
           key: STANDING_INSTRUCTION_KEY,
           value: instructionValue(`sender-${i}@example.com`, `Sender ${i}`),
@@ -115,10 +119,13 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
         })),
       );
 
-    const instructions = await listStandingInstructions(userId);
-    assert.equal(instructions.length, 201);
-    assert.ok(instructions.some((i) => i.target.email === "sender-0@example.com"));
-    assert.ok(instructions.some((i) => i.target.email === "sender-200@example.com"));
+    const listed = await listStandingInstructions(userId);
+    assert.equal(listed.instructions.length, STANDING_INSTRUCTION_LIST_LIMIT);
+    assert.equal(listed.totalActive, STANDING_INSTRUCTION_LIST_LIMIT + 101);
+    assert.equal(listed.truncated, true);
+    assert.equal(listed.limit, STANDING_INSTRUCTION_LIST_LIMIT);
+    assert.ok(listed.instructions.some((i) => i.target.email === "sender-200@example.com"));
+    assert.ok(!listed.instructions.some((i) => i.target.email === "sender-0@example.com"));
   });
 
   test("forget soft-removes the instruction so it drops out of the active list", async () => {
@@ -130,7 +137,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     if (result.ok) assert.equal(result.status, "forgotten");
 
     const after = await listStandingInstructions(userId);
-    assert.equal(after.length, 0);
+    assert.equal(after.instructions.length, 0);
   });
 
   test("forget refuses an already-retired instruction id", async () => {
@@ -162,7 +169,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       status: "not_found",
     });
     // The real instruction is untouched.
-    assert.equal((await listStandingInstructions(owner)).length, 1);
+    assert.equal((await listStandingInstructions(owner)).instructions.length, 1);
   });
 
   test("edit supersedes the row, keeping exactly one active instruction with the new wording", async () => {
@@ -181,7 +188,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.notEqual(result.factId, factId);
     assert.equal(result.previousFactId, factId);
 
-    const active = await listStandingInstructions(userId);
+    const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, result.factId);
     assert.equal(active[0]?.directive, "Quietly ignore the reframed sender.");
@@ -246,7 +253,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       { ok: false, status: "not_found" },
     );
 
-    const active = await listStandingInstructions(userId);
+    const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, first.factId);
     assert.equal(active[0]?.directive, "Use this new wording.");

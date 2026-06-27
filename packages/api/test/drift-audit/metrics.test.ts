@@ -11,6 +11,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import {
   attentionShare7d,
+  type MetricResult,
   type RunDriftHealthCheckOptions,
   runDriftHealthCheck,
   selfIngestionCount,
@@ -221,6 +222,62 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
     const rows = await db().select().from(driftMetrics).where(eq(driftMetrics.userId, userId));
     assert.equal(rows.length, 3, "retryable alert failures must not duplicate daily snapshots");
     assert.equal(new Set(rows.map((r) => `${r.metric}:${r.captureKey}`)).size, 3);
+  });
+
+  test("runDriftHealthCheck treats partial metric evaluator failures as retryable", async () => {
+    const userId = await seedUser();
+    const passing = async (): Promise<MetricResult> => ({
+      metric: "attention_share_7d",
+      value: 0,
+      windowLabel: "7d",
+      threshold: 0.2,
+      breached: false,
+      detail: { total: 0, attention: 0 },
+      summary: "attention share is clean",
+    });
+    const failing = async () => {
+      throw new Error("database unavailable");
+    };
+
+    await assert.rejects(
+      runDriftHealthCheck(userId, {
+        metricEvaluators: [passing, failing],
+      }),
+      /metric evaluator failed.*database unavailable/,
+    );
+
+    const rows = await db().select().from(driftMetrics).where(eq(driftMetrics.userId, userId));
+    assert.equal(rows.length, 1, "successful metric snapshots still persist before retry");
+    assert.equal(rows[0]?.metric, "attention_share_7d");
+  });
+
+  test("runDriftHealthCheck escapes dynamic health alert HTML", async () => {
+    const userId = await seedUser();
+    let html = "";
+    const breaching = async (): Promise<MetricResult> => ({
+      metric: "attention_share_7d",
+      value: 1,
+      windowLabel: "7d",
+      threshold: 0.2,
+      breached: true,
+      detail: { sample: "<script>alert(1)</script>" },
+      summary: "summary with <img src=x onerror=alert(1)>",
+    });
+    const notifyFn: RunDriftHealthCheckOptions["notifyFn"] = async (args) => {
+      html = args.html;
+      return { status: "sent", emailSendId: "ems_test", providerMessageId: "resend_test" };
+    };
+
+    await runDriftHealthCheck(userId, {
+      metricEvaluators: [breaching],
+      notifyFn,
+      timezone: "UTC",
+    });
+
+    assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
+    assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert.equal(html.includes("<script>"), false);
+    assert.equal(html.includes("<img"), false);
   });
 
   test("runDriftHealthCheck fails loudly when every metric evaluator fails", async () => {

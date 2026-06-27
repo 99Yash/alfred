@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { listEmailsSinceWatermark } from "../../src/modules/briefing/read";
+import { listEmailsSinceWatermark, readEmailDocument } from "../../src/modules/briefing/read";
 import { rememberSenderSuppression } from "../../src/modules/memory/standing-instructions";
 import { closeRedis } from "../../src/queue/connection";
 
@@ -184,5 +184,32 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
 
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.documentId, keepDocId);
+  });
+
+  test("readEmailDocument refuses bodies from suppressed senders", async () => {
+    const userId = await seedUser();
+    const suppressedDocId = await seedEmail({
+      userId,
+      from: "Acme Coaching <no-reply@shapeshifter.so>",
+      subject: "Suppressed body",
+    });
+    const keepDocId = await seedEmail({
+      userId,
+      from: "Sakshi <sakshi@example.com>",
+      subject: "Readable body",
+    });
+
+    const remembered = await rememberSenderSuppression({
+      userId,
+      senderEmail: "no-reply@shapeshifter.so",
+      senderLabel: "Acme Coaching",
+    });
+    assert.equal(remembered.ok, true);
+
+    const suppressed = await readEmailDocument({ userId, documentId: suppressedDocId });
+    const readable = await readEmailDocument({ userId, documentId: keepDocId });
+
+    assert.equal(suppressed, null);
+    assert.equal(readable?.body, "fixture body");
   });
 });

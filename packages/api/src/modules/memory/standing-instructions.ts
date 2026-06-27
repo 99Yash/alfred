@@ -25,6 +25,8 @@ import { memorySourceSchema, type MemorySource } from "./types";
 
 export { normalizeSenderEmail } from "./sender-email";
 
+export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
+
 export interface ActiveSuppressionInstruction {
   factId: string;
   value: StandingInstructionValue;
@@ -218,6 +220,13 @@ export interface StandingInstructionSummary {
   validFrom: Date;
 }
 
+export interface StandingInstructionListResult {
+  instructions: StandingInstructionSummary[];
+  totalActive: number;
+  truncated: boolean;
+  limit: number;
+}
+
 export type ForgetStandingInstructionResult =
   | { ok: true; status: "forgotten"; factId: string; instruction: StandingInstructionValue }
   | { ok: false; status: "not_found" };
@@ -242,19 +251,31 @@ export const editStandingInstructionArgsSchema = z.object({
 });
 export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
 
-/** All currently-active standing instructions for the user, newest first. */
+/** Currently-active standing instructions for model management, newest first and capped. */
 export async function listStandingInstructions(
   userId: string,
-): Promise<StandingInstructionSummary[]> {
+): Promise<StandingInstructionListResult> {
   const instructions = await listActiveSuppressionInstructions(userId);
-  return instructions.map((instruction) => ({
+  const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
+  return {
+    instructions: capped.map(summarizeStandingInstruction),
+    totalActive: instructions.length,
+    truncated: instructions.length > capped.length,
+    limit: STANDING_INSTRUCTION_LIST_LIMIT,
+  };
+}
+
+function summarizeStandingInstruction(
+  instruction: ActiveSuppressionInstruction,
+): StandingInstructionSummary {
+  return {
     factId: instruction.factId,
     action: instruction.value.action,
     target: instruction.value.target,
     effects: instruction.value.effects,
     directive: instruction.value.directive,
     validFrom: instruction.validFrom,
-  }));
+  };
 }
 
 /**

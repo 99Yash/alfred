@@ -456,6 +456,7 @@ export const gmailSearchInput = withQueryAlias(
         .describe(
           `Cap on results returned to the model (Gmail allows up to 500; we cap at ${GMAIL_SEARCH_MAX_RESULTS}).`,
         ),
+      pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
     })
     .strict(),
 );
@@ -924,7 +925,8 @@ export const rememberInput = z
  * List the user's active standing instructions so the model can reference a
  * specific one (by `factId`) before changing or removing it, and detect when a
  * request is ambiguous (matches several) or conflicts with an existing one.
- * No arguments — the result is the full active set, already bounded.
+ * No arguments — the server returns a bounded newest-first page with
+ * `totalActive` / `truncated` metadata.
  */
 export const listInstructionsInput = z.object({}).strict();
 

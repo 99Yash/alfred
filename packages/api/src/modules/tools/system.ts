@@ -275,11 +275,11 @@ export const systemTools: readonly RegisteredTool[] = [
     description:
       "List the user's active standing instructions (each with its `factId`, target, effects, and " +
       "directive). Call this before forgetting or editing one so you target the right `factId`, and " +
-      "to check whether a new request duplicates or conflicts with an existing instruction.",
+      "to check whether a new request duplicates or conflicts with an existing instruction. The result " +
+      "is capped; if `truncated` is true and the target is unclear, ask the user to narrow it.",
     inputSchema: listInstructionsInput,
     execute: async (_input, ctx) => {
-      const instructions = await listStandingInstructions(ctx.userId);
-      return { instructions };
+      return await listStandingInstructions(ctx.userId);
     },
   }),
   liveTool({
