@@ -53,6 +53,13 @@ export function Conversation({
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  // Last observed scrollTop, so `onScroll` can tell a real user scroll-up (the
+  // value drops) from content growing under a pinned viewport (the value holds
+  // or rises). Without this, a streaming burst taller than the detach threshold
+  // — a reply paragraph, the tool trail expanding — lands between our
+  // programmatic scroll-to-bottom and the deferred scroll event, reads as "far
+  // from bottom", and wrongly detaches stick, stranding the live edge.
+  const lastScrollTopRef = useRef(0);
   // Body of the just-finished stream, so its copy button can lift the rendered
   // HTML before the durable copy syncs in and takes over (see below).
   const streamBodyRef = useRef<HTMLDivElement | null>(null);
@@ -101,15 +108,20 @@ export function Conversation({
     stickRef.current = true;
   }
 
-  // Detach the moment the user scrolls up; re-attach once they return to the
-  // bottom (within 80px). Programmatic scroll-to-bottom below also fires this,
-  // which simply re-confirms the attached state.
+  // Detach only on a genuine upward user scroll (scrollTop actually drops);
+  // re-attach once they return to the bottom (within 80px). Content growth never
+  // lowers scrollTop, so a fast streaming burst can't masquerade as a scroll-up
+  // and falsely detach. Programmatic scroll-to-bottom raises scrollTop, so it
+  // re-confirms the attached state rather than tripping the detach.
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    stickRef.current = atBottom;
-    setShowJump(!atBottom);
+    const scrolledUp = el.scrollTop < lastScrollTopRef.current - 1;
+    lastScrollTopRef.current = el.scrollTop;
+    if (atBottom) stickRef.current = true;
+    else if (scrolledUp) stickRef.current = false;
+    setShowJump(!stickRef.current);
   };
 
   // Jump back to the live edge and re-engage stick-to-bottom. Smooth so the
