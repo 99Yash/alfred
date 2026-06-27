@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
+import { animatedToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
 
 function asString(value: unknown): string | undefined {
@@ -50,6 +51,9 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
     detail,
   } = presentTool(tool);
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
+  // Brandless system tools (web_search, spawn_sub_agent, …) get an animated
+  // glyph in place of the flat wrench; brand-scoped tools keep their logo coin.
+  const AnimatedIcon = brand ? undefined : animatedToolIcon(tool.toolName);
   // Inline: always the human "what" (brief / integration). The "why" of a
   // failure goes in the expandable, cleaned up from the raw result JSON.
   const secondary = detail;
@@ -89,7 +93,11 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
               running && "chat-node-glow",
             )}
           >
-            <FallbackIcon size={13} />
+            {AnimatedIcon ? (
+              <RunningToolIcon icon={AnimatedIcon} running={running} size={13} />
+            ) : (
+              <FallbackIcon size={13} />
+            )}
           </span>
         )}
         <span
