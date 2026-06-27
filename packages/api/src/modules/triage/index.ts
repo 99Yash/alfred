@@ -33,6 +33,7 @@ export {
   getDocumentAuthoredAt,
   getTriage,
   loadTriageContext,
+  markGmailDocumentSent,
   setAppliedLabelId,
   triageThreadLockKey,
   upsertTriage,
@@ -47,6 +48,18 @@ export type {
 
 export { reconcileThreadLabel, enqueueTriageRelabel } from "./tags";
 export type { ReconcileResult, ReconcileThreadLabelArgs } from "./tags";
+export {
+  reconcileGmailThreads,
+  findNewestLiveInboundGmailDocuments,
+  planGmailThreadReconcile,
+} from "./gmail-reconcile";
+export type {
+  ReconcileGmailThreadsArgs,
+  ReconcileGmailThreadsResult,
+  ReconcileStoredGmailDoc,
+  GmailThreadReconcilePlan,
+  LiveInboundGmailDocument,
+} from "./gmail-reconcile";
 
 export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 export type { TriageWorkflowInput } from "./workflow-input";
