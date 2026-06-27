@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { agentDecisionTraces, agentRuns, emailTriage, user } from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, documents, emailTriage, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "../../src/modules/agent/executor";
@@ -141,6 +141,29 @@ async function seedRunnableRun(args: {
   return runId;
 }
 
+async function seedGmailDocument(args: {
+  userId: string;
+  sourceThreadId: string;
+  authoredAt: Date;
+}): Promise<string> {
+  const id = `doc_${randomUUID().slice(0, 12)}`;
+  await db()
+    .insert(documents)
+    .values({
+      id,
+      userId: args.userId,
+      source: "gmail",
+      sourceId: `msg_${randomUUID()}`,
+      sourceThreadId: args.sourceThreadId,
+      title: "Decision trace test message",
+      content: "fixture",
+      contentHash: `hash_${randomUUID()}`,
+      authoredAt: args.authoredAt,
+      metadata: {},
+    });
+  return id;
+}
+
 async function traceRows(runId: string) {
   return await db()
     .select({
@@ -228,6 +251,69 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       (rows[0]?.trace as SenderExtractionEvent | undefined)?.senderRelationship,
       "weak one-way",
     );
+  });
+
+  test("a recency-loser upsert does not write a stale decision trace", async () => {
+    const userId = await seedUser();
+    const workflowSlug = `${ID_PREFIX}recency-${randomUUID().slice(0, 8)}`;
+    const sourceThreadId = `thread_${randomUUID()}`;
+    const newerDocId = await seedGmailDocument({
+      userId,
+      sourceThreadId,
+      authoredAt: new Date("2026-06-27T10:00:00.000Z"),
+    });
+    const olderDocId = await seedGmailDocument({
+      userId,
+      sourceThreadId,
+      authoredAt: new Date("2026-06-27T09:00:00.000Z"),
+    });
+    const runId = await seedRunnableRun({
+      userId,
+      workflowSlug,
+      state: {
+        sourceThreadId,
+        documentId: olderDocId,
+        senderRelationship: "older message",
+      },
+    });
+
+    await db()
+      .insert(emailTriage)
+      .values({
+        userId,
+        sourceThreadId,
+        documentId: newerDocId,
+        category: "action_needed",
+        confidence: 0.9,
+        rationale: "newer message owns the row",
+        model: "test-model",
+        runId: `run_existing_${randomUUID().slice(0, 8)}`,
+        source: "auto",
+        classifiedAt: new Date("2026-06-27T10:01:00.000Z"),
+      });
+
+    const result = await upsertTriage({
+      userId,
+      sourceThreadId,
+      documentId: olderDocId,
+      category: "fyi",
+      confidence: 0.5,
+      rationale: "older message lost the race",
+      model: "test-model",
+      runId,
+      decisionTrace: {
+        stepId: "classify",
+        attempt: 0,
+        kind: "triage.classification",
+        trace: traceFixture("stale older message"),
+      },
+      authoredAt: new Date("2026-06-27T09:00:00.000Z"),
+    });
+
+    assert.equal(result.written, false, "older message must not become the canonical row");
+    assert.equal(result.row.documentId, newerDocId);
+    assert.equal(result.row.category, "action_needed");
+    assert.equal((await traceRows(runId)).length, 0, "recency loser writes no stale trace");
   });
 
   test("a mismatched run owner rolls back the row write and trace", async () => {

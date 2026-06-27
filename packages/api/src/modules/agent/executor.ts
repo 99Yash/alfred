@@ -465,19 +465,21 @@ async function commitStepSuccess(
     // Durable decision traces (#219 PR-A). Same poison-strip as every other
     // jsonb sink above; `(run_id, step_id, attempt, kind, decision_key)` is
     // unique, so a re-run within the same trace slot is a no-op.
-    for (const t of traces) {
+    if (traces.length > 0) {
       await tx
         .insert(agentDecisionTraces)
-        .values({
-          runId: run.id,
-          userId: run.userId,
-          workflowSlug: run.workflowSlug,
-          stepId,
-          attempt,
-          kind: t.kind,
-          decisionKey: t.decisionKey,
-          trace: sanitizeToolResult(t.record).value as object,
-        })
+        .values(
+          traces.map((t) => ({
+            runId: run.id,
+            userId: run.userId,
+            workflowSlug: run.workflowSlug,
+            stepId,
+            attempt,
+            kind: t.kind,
+            decisionKey: t.decisionKey,
+            trace: sanitizeToolResult(t.record).value as object,
+          })),
+        )
         .onConflictDoNothing();
     }
 

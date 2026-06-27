@@ -29,7 +29,7 @@ import type { Observations } from "./observations";
  *    forces `urgent` on the one unambiguous severity signal (exposed secret).
  *
  * `classifyEmail` owns the whole sequence and returns the final classification
- * plus an audit object for the `triage.sender_extraction` log. There is no boss
+ * plus an audit object for the `triage.classification` decision trace. There is no boss
  * `deepen` escalation (ADR-0051 superseded ADR-0042's classifier shape).
  *
  * The four added buckets are narrow seams against existing ones — `urgent` vs
@@ -40,8 +40,8 @@ import type { Observations } from "./observations";
 /**
  * Todo-worthiness rubric outcomes (ADR-0050 amendment 2026-06-06). Reports which
  * of the five ordered rubric tests (rule 16) decided the todo call: `proposed`
- * only when all pass, otherwise the FIRST test that failed. Logged to
- * `triage.sender_extraction` so the rubric is tuned from real misses (which
+ * only when all pass, otherwise the FIRST test that failed. Stored on the
+ * `triage.classification` decision trace so the rubric is tuned from real misses (which
  * dimension fails on which class of mail), not by appending example #N.
  *
  * Defined in `@alfred/contracts` (so the `email_triage` row can persist it
@@ -154,7 +154,7 @@ export interface TriageConflict {
   message: string;
 }
 
-/** Audit trail of the full classify sequence, logged to `triage.sender_extraction`. */
+/** Audit trail of the full classify sequence, stored in the `triage.classification` trace. */
 export interface ClassifyAudit {
   firstPass: TriageClassification;
   conflict: TriageConflict | null;

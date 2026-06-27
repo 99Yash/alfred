@@ -118,7 +118,7 @@ export type EffectiveAuthor = (typeof EFFECTIVE_AUTHOR)[number];
  * Bot slug allowlist. Each slug names a recognized automated sender whose
  * envelope or body-actor pattern the `extract-sender-context` step can
  * identify deterministically. Grow this list from observed
- * `triage.sender_extraction` log evidence, never speculation.
+ * `triage.classification` decision-trace evidence, never speculation.
  */
 export const BOT_SLUGS = [
   "coderabbit",

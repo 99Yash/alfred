@@ -6,7 +6,7 @@
  * `SenderContext` instead of having to re-parse `From:` headers in prose.
  *
  * Coverage policy: grow the bot allowlist and per-service body-actor
- * parsers from observed `triage.sender_extraction` log evidence (Phase 3e),
+ * parsers from observed `triage.classification` decision traces,
  * never speculation. v1 covers GitHub, Google Calendar, and Linear — the
  * three sources that hit ~80% of bot/human disambiguation in real inboxes.
  *

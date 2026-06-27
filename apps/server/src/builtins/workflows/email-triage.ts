@@ -362,8 +362,8 @@ export const emailTriageWorkflow: Workflow<State> = {
         } else {
           // Gather deterministic observations (ADR-0051 §4a) before the model
           // call. All reads are best-effort context; built before the try so
-          // they're available for the sender_extraction log on the fallback
-          // path too. Sender priors are read for bulk/service senders only
+          // they're available for the decision trace on the fallback path too.
+          // Sender priors are read for bulk/service senders only
           // (`senderKeyFor` returns null for humans); known-contact is the
           // human-sender mirror (skip for bots/services — priors cover them).
           observations = await gatherObservations({
