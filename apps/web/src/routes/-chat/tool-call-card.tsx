@@ -32,15 +32,20 @@ function failureReason(resultPreview: string | undefined): string | undefined {
  * own logo whenever the tool belongs to one, so the user can see at a glance
  * which service Alfred is touching.
  */
-export function ToolCallCard({ tool }: { tool: ToolCallView }) {
+export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
   const panelId = useId();
   const [open, setOpen] = useState(false);
+  // A run of identical calls collapsed into one row (see buildTrail); they
+  // share a tool name and status, so the first stands in for the label/glyph
+  // and the rest only add to the count and the stacked results below.
+  const tool = tools[0]!;
+  const count = tools.length;
   const running = tool.status === "started";
   const failed = tool.status === "failed";
   // ADR-0070: the result had non-text bytes stripped before storage, so the
   // preview may be incomplete — flag it instead of letting it look pristine.
-  const trimmed = !running && !failed && Boolean(tool.sanitized);
-  const expandable = !running && Boolean(tool.resultPreview);
+  const trimmed = !running && !failed && tools.some((t) => Boolean(t.sanitized));
+  const expandable = !running && tools.some((t) => Boolean(t.resultPreview));
 
   const {
     brand,
@@ -57,9 +62,6 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   // Inline: always the human "what" (brief / integration). The "why" of a
   // failure goes in the expandable, cleaned up from the raw result JSON.
   const secondary = detail;
-  const panelText = failed
-    ? (failureReason(tool.resultPreview) ?? tool.resultPreview)
-    : tool.resultPreview;
 
   return (
     <div className="animate-chat-in text-[13px]">
@@ -112,6 +114,17 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
         >
           {title}
         </span>
+        {count > 1 ? (
+          <span
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none tabular-nums",
+              failed ? "bg-app-red-2 text-app-red-4" : "bg-app-bg-2 text-app-fg-2",
+            )}
+            aria-label={`${count} times`}
+          >
+            {count}×
+          </span>
+        ) : null}
         {secondary ? (
           <span className="hidden min-w-0 max-w-[45%] truncate text-xs text-app-fg-3 sm:inline">
             {secondary}
@@ -148,14 +161,26 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
               Non-text bytes were stripped before storage; this result may be incomplete.
             </p>
           ) : null}
-          <pre
-            className={cn(
-              "overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
-              failed ? "text-app-red-4/90" : "text-app-fg-3",
-            )}
-          >
-            {panelText}
-          </pre>
+          {/* One block per collapsed call — a single call renders exactly as
+              before; a folded run stacks each call's result in arrival order. */}
+          {tools.map((t, i) => {
+            const text = failed
+              ? (failureReason(t.resultPreview) ?? t.resultPreview)
+              : t.resultPreview;
+            if (!text) return null;
+            return (
+              <pre
+                key={t.toolCallId}
+                className={cn(
+                  "overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
+                  failed ? "text-app-red-4/90" : "text-app-fg-3",
+                  i > 0 && "mt-1.5",
+                )}
+              >
+                {text}
+              </pre>
+            );
+          })}
         </div>
       ) : null}
     </div>

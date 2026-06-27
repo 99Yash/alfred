@@ -1,10 +1,26 @@
-import { Bell, Bot, Sparkles } from "lucide-react";
+import { Bell, Bot, Sparkles, Volume2 } from "lucide-react";
 import { useState } from "react";
-import { AppSwitch } from "~/components/ui/v2";
+import type { ChatSoundPreference } from "~/lib/chat/use-run-complete";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
+import { AppSegmented, type AppSegmentedItem, AppSwitch } from "~/components/ui/v2";
 import { SettingCard } from "./setting-card";
+
+const SOUND_ITEMS: ReadonlyArray<AppSegmentedItem<ChatSoundPreference>> = [
+  { value: "unfocused", label: "When away" },
+  { value: "always", label: "Always" },
+  { value: "mute", label: "Off" },
+];
 
 export function PreferencesSection() {
   const [productUpdates, setProductUpdates] = useState(true);
+  const [soundPref, setSoundPref] = useState<ChatSoundPreference>(() =>
+    getLocalStorageItem("alfred.chat.soundPreference"),
+  );
+
+  const onSoundPrefChange = (next: ChatSoundPreference) => {
+    setSoundPref(next);
+    setLocalStorageItem("alfred.chat.soundPreference", next);
+  };
 
   return (
     <>
@@ -19,6 +35,21 @@ export function PreferencesSection() {
           <span>Alfred (default)</span>
         </div>
       </SettingCard>
+
+      <SettingCard
+        title="Reply notifications"
+        description="Chime + a toast when Alfred finishes a reply. 'When away' only fires while this tab is in the background."
+        icon={Volume2}
+        tone="sky"
+        action={
+          <AppSegmented
+            label="When the reply chime plays"
+            value={soundPref}
+            onValueChange={onSoundPrefChange}
+            items={SOUND_ITEMS}
+          />
+        }
+      />
 
       <SettingCard
         title="Product updates"
