@@ -110,11 +110,9 @@ const poisonWorkflow: Workflow<TestState> = {
         });
         // Decision-trace sink (#219 PR-A) — same poison-strip path as the others.
         ctx.trace("triage.classification", traceFixture(`rel${NUL}poison`));
-        ctx.trace(
-          "triage.classification",
-          traceFixture(`secondary${LONE_SURROGATE}poison`),
-          { decisionKey: "secondary" },
-        );
+        ctx.trace("triage.classification", traceFixture(`secondary${LONE_SURROGATE}poison`), {
+          decisionKey: "secondary",
+        });
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
         ];

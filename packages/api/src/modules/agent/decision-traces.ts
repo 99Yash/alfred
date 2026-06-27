@@ -9,9 +9,7 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
   const clean = sanitizeErrorMessage(raw).trim();
   if (!clean) return DEFAULT_DECISION_TRACE_KEY;
   if (clean.length > MAX_DECISION_TRACE_KEY_LENGTH) {
-    throw new Error(
-      `[agent] decision trace key must be <= ${MAX_DECISION_TRACE_KEY_LENGTH} chars`,
-    );
+    throw new Error(`[agent] decision trace key must be <= ${MAX_DECISION_TRACE_KEY_LENGTH} chars`);
   }
   return clean;
 }

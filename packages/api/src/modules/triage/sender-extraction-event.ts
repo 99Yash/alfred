@@ -1,7 +1,4 @@
-import {
-  type AccountPersona,
-  type SenderContext,
-} from "@alfred/contracts";
+import { type AccountPersona, type SenderContext } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, TriageClassification } from "./classify";
 import type { Observations } from "./observations";
