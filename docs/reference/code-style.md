@@ -88,6 +88,18 @@ After a derive lands, drop now-orphaned imports — the literal often named a un
 - **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead.
 - **`process.env` is banned** — go through `serverEnv()` from `@alfred/env/server`.
 
+### Constants and configuration ownership
+
+Name non-obvious constants. Inline literals are fine for transparent arithmetic (`+ 1`, `* 1000`) and one-off formatting, but thresholds, caps, TTLs, retry counts, batch sizes, prompt budgets, and model/tool payload limits need a named constant with a short reason when the value is not self-evident.
+
+Put the constant at the narrowest stable owner:
+
+- **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on.
+- **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts.
+- **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant.
+
+Before moving a value into `@alfred/contracts`, confirm the web bundle is allowed to import every dependency it pulls in. Contracts must stay runtime-light and server-agnostic.
+
 ## 3. Backend (api / db / integrations)
 
 - **No N+1.** Use Drizzle relational queries (`with:`) or a join; don't loop queries. Paginate every list endpoint.

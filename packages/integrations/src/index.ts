@@ -1,6 +1,6 @@
-// One folder per provider (gmail, calendar, slack, linear, github, notion, etc.)
-// Each exports: oauthFlow, liveTools, ingestor, webhookHandler.
-// Google (Gmail + Calendar) lands in milestones 7/12; others arrive on demand.
+// One folder per live provider. Google covers Gmail, Calendar, Drive, Docs,
+// Sheets, and Slides; GitHub, Notion, Railway, and Vercel have their own
+// provider folders. Slack/Linear are catalog/design-only for now.
 export * as google from "./google/index";
 export * as github from "./github/index";
 export * as notion from "./notion/index";

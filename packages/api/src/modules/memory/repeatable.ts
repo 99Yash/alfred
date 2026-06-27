@@ -11,6 +11,9 @@ import { getMemoryQueue, type MemoryJobData } from "./queue";
  *                           write-then-embed path (extraction-run
  *                           summaries, end-of-thread distillations).
  *                           Mirrors the m7c `gmail.embed_sweep` pattern.
+ *   - memory.drift_health_check  every 24h — #219 PR-B drift/invariant
+ *                           sweep over the source-of-truth tables; writes
+ *                           drift_metrics snapshots + pushes on breach.
  *
  * Idempotent: `upsertJobScheduler` keys by id, so repeated boots don't
  * duplicate schedules.
@@ -44,6 +47,25 @@ export async function scheduleRepeatableMemoryJobs(): Promise<void> {
         backoff: { type: "exponential", delay: 30_000 },
         removeOnComplete: { count: 20, age: 24 * 60 * 60 },
         removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
+      },
+    },
+  );
+
+  // Drift / invariant health check (#219 PR-B) — every 24h. Reads the same
+  // source-of-truth tables the daily extraction sweeps, so it rides this queue
+  // instead of a dedicated worker. Writes drift_metrics snapshots + pushes a
+  // health_alert email per breached threshold.
+  await queue.upsertJobScheduler(
+    "memory.drift_health_check",
+    { every: 24 * 60 * 60 * 1000 },
+    {
+      name: "memory.drift_health_check",
+      data: { kind: "memory.drift_health_check" } satisfies MemoryJobData,
+      opts: {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 60_000 },
+        removeOnComplete: { count: 7, age: 30 * 24 * 60 * 60 },
+        removeOnFail: { count: 30, age: 90 * 24 * 60 * 60 },
       },
     },
   );

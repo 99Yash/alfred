@@ -16,6 +16,7 @@ import { user } from "./auth";
  * Idempotency-key conventions:
  *   `briefing:{userId}:{YYYY-MM-DD-in-user-tz}:{slot}` — slotted briefing
  *   `approval:{userId}:{runId}:{stepId}`               — HIL approval ping
+ *   `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}` — drift breach (≤1/metric/local day)
  *
  * `notification_preferences` (ADR-0020's per-kind channel routing) is
  * deliberately deferred. Every send today goes via email; once a second

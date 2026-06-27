@@ -1,7 +1,8 @@
 /**
- * Tool input schemas — the single source of truth for every tool's argument
- * shape. Defined here (in the web-safe contracts package) rather than next to
- * each server handler so that BOTH consumers can read them:
+ * Tool schemas — the single source of truth for every tool's cross-boundary
+ * argument shape, plus any result shape that has become a web/model-visible
+ * contract. Defined here (in the web-safe contracts package) rather than next
+ * to each server handler so that BOTH consumers can read them:
  *
  *   - the server dispatcher validates a proposed call with `.parse()` and
  *     infers the handler's input type via `z.infer`;
@@ -14,8 +15,8 @@
  * because its schema references sub-agent internals; the approval UI falls
  * back to a raw-JSON view for it, which is fine (it's a no_risk system tool).
  *
- * Keys of `TOOL_INPUT_SCHEMAS` are type-checked against `ToolName`, so they
- * can't drift from the real tool surface.
+ * Keys of `TOOL_INPUT_SCHEMAS` / `TOOL_OUTPUT_SCHEMAS` are type-checked
+ * against `ToolName`, so they can't drift from the real tool surface.
  *
  * Numeric arguments use `z.coerce.number()`, never a bare `z.number()`. LLMs
  * (Claude included) routinely serialize an integer argument as a string —
@@ -32,6 +33,12 @@ import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search.js";
 import { isRecord } from "./guards.js";
 import { todoSourceSchema } from "./todos.js";
+import {
+  GMAIL_SEARCH_DEFAULT_RESULTS,
+  GMAIL_SEARCH_MAX_RESULTS,
+  GMAIL_SEARCH_QUERY_MAX_CHARS,
+  GMAIL_SEARCH_SNIPPET_MAX_CHARS,
+} from "./tool-constants.js";
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
 
 /**
@@ -402,6 +409,28 @@ export const githubGetIssueInput = z
 
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
+export const gmailSearchHitSchema = z
+  .object({
+    messageId: z.string().min(1),
+    threadId: z.string().min(1),
+    documentId: z.string().min(1).nullable(),
+    from: z.string().nullable(),
+    subject: z.string().nullable(),
+    snippet: z.string().max(GMAIL_SEARCH_SNIPPET_MAX_CHARS).nullable(),
+    authoredAt: z.string().datetime().nullable(),
+    url: z.string().nullable(),
+  })
+  .strict();
+export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
+
+export const gmailSearchResultSchema = z
+  .object({
+    messages: z.array(gmailSearchHitSchema),
+    nextPageToken: z.string().nullable(),
+  })
+  .strict();
+export type GmailSearchResult = z.infer<typeof gmailSearchResultSchema>;
+
 export const gmailSearchInput = withQueryAlias(
   "q",
   z
@@ -409,7 +438,7 @@ export const gmailSearchInput = withQueryAlias(
       q: z
         .string()
         .min(1)
-        .max(500)
+        .max(GMAIL_SEARCH_QUERY_MAX_CHARS)
         .describe(
           "Gmail search query. Supports the full Gmail operator set (in:, from:, has:, …). " +
             "For recency, prefer Gmail's relative operators (newer_than:3d, older_than:1w) — Gmail " +
@@ -420,11 +449,14 @@ export const gmailSearchInput = withQueryAlias(
         .number()
         .int()
         .min(1)
-        .max(50)
-        .default(10)
+        .max(GMAIL_SEARCH_MAX_RESULTS)
+        .default(GMAIL_SEARCH_DEFAULT_RESULTS)
         // Result-count cap — cosmetic; fall back to the default rather than error.
-        .catch(10)
-        .describe("Cap on results returned to the model (Gmail allows up to 500; we cap at 50)."),
+        .catch(GMAIL_SEARCH_DEFAULT_RESULTS)
+        .describe(
+          `Cap on results returned to the model (Gmail allows up to 500; we cap at ${GMAIL_SEARCH_MAX_RESULTS}).`,
+        ),
+      pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
     })
     .strict(),
 );
@@ -889,6 +921,66 @@ export const rememberInput = z
   })
   .strict();
 
+/**
+ * List the user's active standing instructions so the model can reference a
+ * specific one (by `factId`) before changing or removing it, and detect when a
+ * request is ambiguous (matches several) or conflicts with an existing one.
+ * No arguments — the server returns a bounded newest-first page with
+ * `totalActive` / `truncated` metadata.
+ */
+export const listInstructionsInput = z.object({}).strict();
+
+/**
+ * Remove a standing instruction the user explicitly asked to drop. Targets one
+ * row by its `factId` (from `list_instructions`) so the model never deletes by
+ * a fuzzy guess. Non-destructive: the row is marked `rejected`, not hard
+ * deleted — reversible and auditable.
+ */
+export const forgetInstructionInput = z
+  .object({
+    factId: z
+      .string()
+      .min(1)
+      .max(100)
+      .describe("The `factId` of the instruction to remove, from `list_instructions`."),
+    reason: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe("Short note on why it's being removed (audit only)."),
+  })
+  .strict();
+
+/**
+ * Reframe an existing standing instruction — update its directive wording
+ * and/or display label without changing what it targets. Supersedes the old
+ * row with a new one (the old row is kept, linked, and reversible). To retarget
+ * a different sender, `forget_instruction` the wrong one and `remember` the
+ * right one instead.
+ */
+export const editInstructionInput = z
+  .object({
+    factId: z
+      .string()
+      .min(1)
+      .max(100)
+      .describe("The `factId` of the instruction to reframe, from `list_instructions`."),
+    directive: z
+      .string()
+      .trim()
+      .max(1_000)
+      .optional()
+      .describe("New resolved instruction sentence. Omit to leave unchanged."),
+    senderLabel: z
+      .string()
+      .trim()
+      .max(200)
+      .nullish()
+      .describe("New human display label for the sender. Omit to leave unchanged."),
+  })
+  .strict();
+
 export const resolveTodoInput = z
   .object({
     kind: z
@@ -1119,6 +1211,9 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,
   "system.remember": rememberInput,
+  "system.list_instructions": listInstructionsInput,
+  "system.forget_instruction": forgetInstructionInput,
+  "system.edit_instruction": editInstructionInput,
   "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,
@@ -1126,4 +1221,14 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
   "system.update_artifact": updateArtifactInput,
+} satisfies Partial<Record<ToolName, z.ZodType>>;
+
+/**
+ * Tool result schemas that are intentionally part of the cross-boundary
+ * contract. Most tool outputs are still free-form `execute_result` JSON; add
+ * entries here when web/model-visible consumers depend on a stable result
+ * shape.
+ */
+export const TOOL_OUTPUT_SCHEMAS = {
+  "gmail.search": gmailSearchResultSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;

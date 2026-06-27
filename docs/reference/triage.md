@@ -33,7 +33,7 @@ Sender/observation flow:
 - `gatherObservations` feeds the cheap classifier deterministic context: sender-prior histogram for bulk/service senders, account persona, thread state, known-contact flag for human senders, Gmail-native signals, and cheap content flags.
 - `detectConflict` may run one second cheap pass when the first output conflicts with a strong deterministic expectation: passive category despite a security flag, or important category from a strong-bulk sender with no supporting severity signal.
 - `applyOverrideFloor` forces `urgent` only on high-precision secret-exposure wording such as an API key/token/private key/password/secret being exposed, leaked, committed, compromised, found, or detected. CVEs, payment urgency, and generic auth vocabulary stay model-owned.
-- `triage.sender_extraction` logs sender context, observations, first/second pass categories, second-pass failure, floor match/force, and todo-rubric outcome so tuning happens from observed misses.
+- `agent_decision_traces` stores a `triage.classification` row with sender context, observations, first/second pass categories, second-pass failure, floor match/force, and todo-rubric outcome so tuning happens from observed misses in SQL rather than transient progress logs.
 - The dormant `deepen`/dossier hooks remain in code for future non-triage work, but triage v3 does not call them.
 
 Smokes:

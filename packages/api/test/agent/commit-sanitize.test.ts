@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { agentRuns, pendingActions, user } from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "../../src/modules/agent/executor";
@@ -14,6 +14,7 @@ import {
   registerWorkflow,
 } from "../../src/modules/agent/registry";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
+import type { SenderExtractionEvent } from "../../src/modules/triage";
 
 /**
  * DB-backed regression for the ADR-0070 §1.1/§1.3 executor-sink gap (PR review
@@ -41,6 +42,51 @@ interface TestState {
   marker: string;
 }
 
+function traceFixture(senderRelationship: string): SenderExtractionEvent {
+  return {
+    fromKind: "unknown",
+    bodyActor: null,
+    effectiveAuthor: "unknown",
+    botSlug: null,
+    parserHit: null,
+    senderAddress: null,
+    senderDomain: null,
+    persona: null,
+    senderPriorKey: null,
+    senderPriorCounts: {},
+    knownContact: false,
+    senderRelationship,
+    threadMessages: 1,
+    threadNewest: "received",
+    gmailImportant: false,
+    gmailCategories: [],
+    contentFlags: {
+      hasUnsubscribe: false,
+      hasCurrencyAmount: false,
+      hasSecurityKeyword: false,
+      hasCalendarInvite: false,
+      hasInvestorNotice: false,
+      hasPublicEventLanguage: false,
+    },
+    firstPassCategory: null,
+    firstPassConfidence: null,
+    conflict: null,
+    secondPassCategory: null,
+    secondPassFailure: null,
+    floorMatched: false,
+    floorForced: false,
+    finalCategory: "fyi",
+    finalConfidence: 0.5,
+    todoSuggested: false,
+    standingInstructionSuppressedTodo: false,
+    standingInstructionFactId: null,
+    standingInstructionEffect: null,
+    standingInstructionReadFailed: false,
+    todoOutcome: null,
+    todoNote: null,
+  };
+}
+
 /**
  * Two-step workflow whose every jsonb sink carries poison: `next` (state +
  * transcript + a staged action payload), then `done` (state + output +
@@ -61,6 +107,11 @@ const poisonWorkflow: Workflow<TestState> = {
           kind: "test.noop",
           payload: { body: `staged${NUL}payload`, nested: { x: `s${LONE_SURROGATE}` } },
           idempotencyKey: `${ctx.runId}:staged`,
+        });
+        // Decision-trace sink (#219 PR-A) — same poison-strip path as the others.
+        ctx.trace("triage.classification", traceFixture(`rel${NUL}poison`));
+        ctx.trace("triage.classification", traceFixture(`secondary${LONE_SURROGATE}poison`), {
+          decisionKey: "secondary",
         });
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
@@ -145,6 +196,41 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     const payload = staged[0]?.payload as { body: string; nested: { x: string } } | undefined;
     assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
     assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
+
+    // The decision trace is persisted on the `next` commit, keyed to the step,
+    // with its jsonb poison stripped (#219 PR-A).
+    const tr = await db()
+      .select({
+        userId: agentDecisionTraces.userId,
+        workflowSlug: agentDecisionTraces.workflowSlug,
+        stepId: agentDecisionTraces.stepId,
+        kind: agentDecisionTraces.kind,
+        decisionKey: agentDecisionTraces.decisionKey,
+        trace: agentDecisionTraces.trace,
+      })
+      .from(agentDecisionTraces)
+      .where(eq(agentDecisionTraces.runId, runId));
+    assert.equal(
+      tr.length,
+      2,
+      "two same-kind decision traces with distinct keys persist on the next commit",
+    );
+    const byKey = new Map(tr.map((row) => [row.decisionKey, row]));
+    const defaultTrace = byKey.get("default");
+    const secondaryTrace = byKey.get("secondary");
+    assert.equal(defaultTrace?.kind, "triage.classification", "trace kind discriminator persisted");
+    assert.equal(defaultTrace?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
+    assert.equal(defaultTrace?.stepId, "poison-next", "trace keyed to the emitting step");
+    assert.equal(
+      (defaultTrace?.trace as { senderRelationship: string }).senderRelationship,
+      "relpoison",
+      "NUL stripped from the trace jsonb",
+    );
+    assert.equal(
+      (secondaryTrace?.trace as { senderRelationship: string }).senderRelationship,
+      "secondarypoison",
+      "lone surrogate stripped from the keyed trace jsonb",
+    );
 
     // Step 2: `done` with poison in state, output, and transcript.
     const second = await runOnce(runId);

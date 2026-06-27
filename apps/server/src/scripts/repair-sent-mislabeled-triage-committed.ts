@@ -46,10 +46,7 @@
  */
 import { closeConnections, closeRedis, warmPool } from "@alfred/api";
 import { gmailSentSql, isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
-import {
-  loadTriageContext,
-  withTriageThreadLock,
-} from "@alfred/api/modules/triage/store";
+import { loadTriageContext, withTriageThreadLock } from "@alfred/api/modules/triage/store";
 import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -461,7 +458,9 @@ async function main() {
       }
 
       // ---- Case B: sent-only thread — strip label, delete the bogus row.
-      console.log(`  → CASE B: no inbound doc — strip Alfred label off sent msg + delete triage row`);
+      console.log(
+        `  → CASE B: no inbound doc — strip Alfred label off sent msg + delete triage row`,
+      );
       if (!COMMIT) continue;
       try {
         const result = await repairCaseB({

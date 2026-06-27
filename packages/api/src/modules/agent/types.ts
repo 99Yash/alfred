@@ -1,5 +1,6 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { db } from "@alfred/db";
+import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
 import {
   RUN_STATUSES,
   isTerminalStatus,
@@ -69,6 +70,25 @@ export interface StepContext<S> {
   stageAction(action: StagedAction): void;
   /** Emit a progress event (durable via the outbox) without finishing the step. */
   log(message: string): Promise<void>;
+  /**
+   * Persist a durable, structured decision record (#219 PR-A) into
+   * `agent_decision_traces`, committed atomically with this step's result.
+   * Generic over the {@link DecisionTraceRegistry}, so the `record` shape must
+   * match the declared `kind` — drift fails the build. `decisionKey` separates
+   * multiple decisions of the same kind in one step; duplicate kind/key pairs
+   * fail the step instead of being silently dropped. Executor-collected traces
+   * persist only on a successful commit (`next`/`done`/`interrupt`) and are
+   * dropped if the step throws. A domain store may additionally write the same
+   * keyed trace inside its own transaction when row+trace atomicity matters; the
+   * executor insert is idempotent for that slot.
+   * Unlike {@link log}, this is queryable substrate, not a transient progress
+   * event.
+   */
+  trace<K extends DecisionTraceKind>(
+    kind: K,
+    record: DecisionTraceFor<K>,
+    options?: DecisionTraceOptions,
+  ): void;
 }
 
 export interface Step<S> {

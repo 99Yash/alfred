@@ -10,7 +10,12 @@ import { toMessage } from "@alfred/contracts";
  * via its `kind` column. Adding a new kind: extend this union and pick
  * an idempotency-key convention (see `notifications.ts` schema doc).
  */
-export type NotificationKind = "briefing" | "evening_recap" | "approval" | "skill_documented";
+export type NotificationKind =
+  | "briefing"
+  | "evening_recap"
+  | "approval"
+  | "skill_documented"
+  | "health_alert";
 
 export interface NotifyArgs {
   userId: string;
@@ -40,22 +45,20 @@ export type NotifyResult =
   | { status: "failed"; emailSendId: string; error: string };
 
 /**
- * Send a transactional email through Resend with idempotency-keyed
- * delivery. Three phases:
+ * Send a transactional email through Resend with DB + provider idempotency.
+ * Three phases:
  *
- *   1. Insert `email_sends` row (`status='queued'`) with
- *      `onConflictDoNothing` on `(user_id, idempotency_key)`. A conflict
- *      means we've already attempted this send; we short-circuit with
- *      `status='duplicate'` instead of re-sending.
- *   2. POST to Resend.
+ *   1. Insert or reclaim an `email_sends` row (`status='queued'`) for
+ *      `(user_id, idempotency_key)`. A sent row short-circuits as duplicate;
+ *      queued/failed rows are retried.
+ *   2. POST to Resend with the same key as the provider `Idempotency-Key`.
  *   3. Update the row to `'sent'` (with provider id) or `'failed'`
  *      (with truncated error).
  *
  * The two-phase shape matters: a row exists before the network call,
- * so a crash between step 2 and step 3 leaves a `'queued'` row that an
- * operator can inspect rather than a silent loss. The idempotency key
- * means re-running the producer doesn't double-send — it returns
- * `'duplicate'` on the next attempt.
+ * so a crash between step 2 and step 3 leaves a `'queued'` row that can be
+ * retried. The provider idempotency key makes that retry safe across the
+ * "Resend accepted it, DB update did not land" window.
  */
 export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   const env = serverEnv();
@@ -111,17 +114,20 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   const resend = getResendClient();
 
   try {
-    const result = await resend.emails.send({
-      from: env.RESEND_FROM_EMAIL,
-      to: toAddress,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-      headers: {
-        "X-Alfred-Idempotency-Key": args.idempotencyKey,
-        "X-Alfred-Kind": args.kind,
+    const result = await resend.emails.send(
+      {
+        from: env.RESEND_FROM_EMAIL,
+        to: toAddress,
+        subject: args.subject,
+        html: args.html,
+        text: args.text,
+        headers: {
+          "X-Alfred-Idempotency-Key": args.idempotencyKey,
+          "X-Alfred-Kind": args.kind,
+        },
       },
-    });
+      { idempotencyKey: args.idempotencyKey },
+    );
     if (result.error) {
       throw new Error(`${result.error.name}: ${result.error.message}`);
     }
