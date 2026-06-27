@@ -13,18 +13,16 @@
  * NEW mis-pointings. This script repairs the rows already on file:
  *
  *   Case A — the thread has a live inbound doc:
- *     • repoint `email_triage.document_id` → newest inbound doc, clear
- *       `applied_label_id` (never let sent mail be the canonical/labeled doc).
- *     • run {@link reconcileThreadLabel} — the ONE canonical Gmail label-writer.
- *       It re-applies the row's category to the inbound message AND strips every
- *       thread sibling's Alfred label, which removes the erroneous label off the
- *       user's own sent message (Gmail unions labels across a thread, so the
- *       sibling-strip is exactly the un-label we need). No drift with runtime.
+ *     • under the triage thread lock, re-read the row to prove it still points at
+ *       the same sent doc; strip Alfred labels off that sent message first; apply
+ *       the row's category to the newest inbound doc; then repoint
+ *       `email_triage.document_id` and persist the applied label id.
  *
  *   Case B — the thread has NO inbound doc (a sent-only thread that should never
  *   have been triaged):
- *     • strip every Alfred label off the sent message directly (best-effort —
- *       Gmail may have reassigned the id; a 404 means the label is already gone).
+ *     • under the triage thread lock, strip every Alfred label off the sent
+ *       message directly. Only a structured Gmail 404 is treated as already-gone;
+ *       transient auth/rate-limit/5xx failures keep the row retryable.
  *     • delete the bogus `email_triage` row. Deleting (vs. dangling the pointer)
  *       respects the briefing inner-join trap: gather inner-joins triage→docs on
  *       `document_id`, so a null/dead pointer silently buries the thread; no row
@@ -48,16 +46,21 @@
  */
 import { closeConnections, closeRedis, warmPool } from "@alfred/api";
 import { gmailSentSql, isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
-import { reconcileThreadLabel } from "@alfred/api/modules/triage/tags";
-import { toMessage } from "@alfred/contracts";
+import {
+  loadTriageContext,
+  withTriageThreadLock,
+} from "@alfred/api/modules/triage/store";
+import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
+import type { TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
   ensureAlfredLabels,
+  getThreadMessageLabels,
   getFreshAccessToken,
   modifyMessageLabels,
 } from "@alfred/integrations/google";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -68,6 +71,33 @@ type DocRow = {
   accountId: string | null;
   metadata: Record<string, unknown>;
 };
+
+type GoogleCredentialRow = Pick<
+  typeof integrationCredentials.$inferSelect,
+  "id" | "userId" | "accountId"
+>;
+
+type CurrentMisPointedRow = {
+  category: string;
+  documentId: string | null;
+  pointedSourceId: string;
+  pointedAccountId: string | null;
+  pointedIsSent: boolean;
+};
+
+type RepairCaseAResult =
+  | {
+      kind: "repaired";
+      targetDocId: string;
+      appliedLabelId: string;
+      strippedOriginalSent: boolean;
+      strippedSiblingCount: number;
+    }
+  | { kind: "stale"; reason: string };
+
+type RepairCaseBResult =
+  | { kind: "deleted"; strippedOriginalSent: boolean }
+  | { kind: "stale"; reason: string };
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
   return (await db()
@@ -86,12 +116,224 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
         eq(documents.sourceThreadId, threadId),
       ),
     )
-    .orderBy(desc(documents.authoredAt))) as DocRow[];
+    .orderBy(sql`${documents.authoredAt} desc nulls last, ${documents.id} desc`)) as DocRow[];
 }
 
-/** Newest non-sent doc — mirrors the `NOT(gmailSentSql()) ORDER BY authoredAt DESC LIMIT 1` rule. */
+/** Newest non-sent doc — mirrors the runtime live-inbound nulls-last/id tie-breaker. */
 function newestInbound(docs: DocRow[]): DocRow | null {
   return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
+}
+
+async function loadCurrentMisPointedRow(
+  userId: string,
+  threadId: string,
+): Promise<CurrentMisPointedRow | null> {
+  const rows = await db()
+    .select({
+      category: emailTriage.category,
+      documentId: emailTriage.documentId,
+      pointedSourceId: documents.sourceId,
+      pointedAccountId: documents.accountId,
+      pointedIsSent: gmailSentSql(),
+    })
+    .from(emailTriage)
+    .innerJoin(documents, eq(emailTriage.documentId, documents.id))
+    .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, threadId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+function resolveGoogleCredentialId(
+  creds: readonly GoogleCredentialRow[],
+  accountId: string | null,
+): string {
+  if (accountId) {
+    const cred = creds.find((c) => c.accountId === accountId);
+    if (cred) return cred.id;
+    throw new Error(`no google credential for account=${accountId}`);
+  }
+  if (creds.length === 1) return creds[0]!.id;
+  throw new Error(
+    `cannot choose a google credential for null accountId; user has ${creds.length} credentials`,
+  );
+}
+
+function isGoneInGmail(err: unknown): boolean {
+  return isHttpError(err) && err.provider === "gmail" && err.status === 404;
+}
+
+async function stripAlfredLabelsFromMessage(args: {
+  accessToken: string;
+  messageId: string;
+  labelIds: readonly string[];
+  alfredLabelIds: ReadonlySet<string>;
+}): Promise<boolean> {
+  const removeLabelIds = args.labelIds.filter((labelId) => args.alfredLabelIds.has(labelId));
+  if (removeLabelIds.length === 0) return false;
+  try {
+    await modifyMessageLabels({
+      accessToken: args.accessToken,
+      messageId: args.messageId,
+      removeLabelIds,
+    });
+    return true;
+  } catch (err) {
+    if (isGoneInGmail(err)) return false;
+    throw err;
+  }
+}
+
+async function repairCaseA(args: {
+  userId: string;
+  threadId: string;
+  originalDocumentId: string;
+  originalSourceId: string;
+}): Promise<RepairCaseAResult> {
+  return withTriageThreadLock(args.userId, args.threadId, async () => {
+    const current = await loadCurrentMisPointedRow(args.userId, args.threadId);
+    if (!current) return { kind: "stale", reason: "triage row no longer resolves to a document" };
+    if (current.documentId !== args.originalDocumentId) {
+      return {
+        kind: "stale",
+        reason: `document changed from ${args.originalDocumentId} to ${current.documentId ?? "null"}`,
+      };
+    }
+    if (!current.pointedIsSent) {
+      return { kind: "stale", reason: "row no longer points at a SENT document" };
+    }
+    if (!isTriageCategory(current.category)) {
+      throw new Error(`unknown triage category ${current.category}`);
+    }
+
+    const docs = await loadThreadDocs(args.userId, args.threadId);
+    const inbound = newestInbound(docs);
+    if (!inbound) return { kind: "stale", reason: "no inbound document remains" };
+
+    const target = await loadTriageContext(inbound.id, args.userId);
+    if (!target) throw new Error(`inbound target document disappeared: ${inbound.id}`);
+    const category: TriageCategory = current.category;
+    const accessToken = await getFreshAccessToken(target.credentialId);
+    const labels = await ensureAlfredLabels(target.credentialId, { accessToken });
+    const targetLabelId = labels.byCategory[category];
+    const alfredLabelIds = new Set(labels.allIds);
+    const liveMessages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+    const targetLiveMessage = liveMessages.find((m) => m.id === target.document.sourceId);
+    if (!targetLiveMessage) {
+      throw new Error(`inbound target message is not live in Gmail: ${target.document.sourceId}`);
+    }
+
+    const originalLiveMessage = liveMessages.find((m) => m.id === args.originalSourceId);
+    const strippedOriginalSent = originalLiveMessage
+      ? await stripAlfredLabelsFromMessage({
+          accessToken,
+          messageId: originalLiveMessage.id,
+          labelIds: originalLiveMessage.labelIds,
+          alfredLabelIds,
+        })
+      : false;
+
+    const targetRemoveLabelIds = targetLiveMessage.labelIds.filter(
+      (labelId) => alfredLabelIds.has(labelId) && labelId !== targetLabelId,
+    );
+    await modifyMessageLabels({
+      accessToken,
+      messageId: target.document.sourceId,
+      addLabelIds: [targetLabelId],
+      removeLabelIds: targetRemoveLabelIds.length ? targetRemoveLabelIds : undefined,
+    });
+
+    let strippedSiblingCount = strippedOriginalSent ? 1 : 0;
+    for (const message of liveMessages) {
+      if (message.id === target.document.sourceId || message.id === args.originalSourceId) continue;
+      const stripped = await stripAlfredLabelsFromMessage({
+        accessToken,
+        messageId: message.id,
+        labelIds: message.labelIds,
+        alfredLabelIds,
+      });
+      if (stripped) strippedSiblingCount++;
+    }
+
+    const updated = await db()
+      .update(emailTriage)
+      .set({
+        documentId: inbound.id,
+        appliedLabelId: targetLabelId,
+        rowVersion: sql`${emailTriage.rowVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(emailTriage.userId, args.userId),
+          eq(emailTriage.sourceThreadId, args.threadId),
+          eq(emailTriage.documentId, args.originalDocumentId),
+        ),
+      )
+      .returning({ documentId: emailTriage.documentId });
+    if (updated.length === 0) {
+      throw new Error(`failed to repoint row after Gmail repair for thread=${args.threadId}`);
+    }
+
+    return {
+      kind: "repaired",
+      targetDocId: inbound.id,
+      appliedLabelId: targetLabelId,
+      strippedOriginalSent,
+      strippedSiblingCount,
+    };
+  });
+}
+
+async function repairCaseB(args: {
+  userId: string;
+  threadId: string;
+  originalDocumentId: string;
+  userCreds: readonly GoogleCredentialRow[];
+}): Promise<RepairCaseBResult> {
+  return withTriageThreadLock(args.userId, args.threadId, async () => {
+    const current = await loadCurrentMisPointedRow(args.userId, args.threadId);
+    if (!current) return { kind: "stale", reason: "triage row no longer resolves to a document" };
+    if (current.documentId !== args.originalDocumentId) {
+      return {
+        kind: "stale",
+        reason: `document changed from ${args.originalDocumentId} to ${current.documentId ?? "null"}`,
+      };
+    }
+    if (!current.pointedIsSent) {
+      return { kind: "stale", reason: "row no longer points at a SENT document" };
+    }
+
+    const credId = resolveGoogleCredentialId(args.userCreds, current.pointedAccountId);
+    const accessToken = await getFreshAccessToken(credId);
+    const labels = await ensureAlfredLabels(credId, { accessToken });
+    let strippedOriginalSent = false;
+    try {
+      await modifyMessageLabels({
+        accessToken,
+        messageId: current.pointedSourceId,
+        removeLabelIds: labels.allIds,
+      });
+      strippedOriginalSent = true;
+    } catch (err) {
+      if (!isGoneInGmail(err)) throw err;
+    }
+
+    const deleted = await db()
+      .delete(emailTriage)
+      .where(
+        and(
+          eq(emailTriage.userId, args.userId),
+          eq(emailTriage.sourceThreadId, args.threadId),
+          eq(emailTriage.documentId, args.originalDocumentId),
+        ),
+      )
+      .returning({ sourceThreadId: emailTriage.sourceThreadId });
+    if (deleted.length === 0) {
+      throw new Error(`failed to delete sent-only triage row for thread=${args.threadId}`);
+    }
+
+    return { kind: "deleted", strippedOriginalSent };
+  });
 }
 
 async function main() {
@@ -111,8 +353,12 @@ async function main() {
     console.log("no google credentials in this DB — nothing to repair");
     return;
   }
-  const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
-  const fallbackCredId = creds[0]!.id;
+  const credsByUser = new Map<string, GoogleCredentialRow[]>();
+  for (const cred of creds) {
+    const existing = credsByUser.get(cred.userId);
+    if (existing) existing.push(cred);
+    else credsByUser.set(cred.userId, [cred]);
+  }
   const userIds = [...new Set(creds.map((c) => c.userId))];
 
   let totalMisPointed = 0;
@@ -141,8 +387,14 @@ async function main() {
     if (misPointed.length === 0) continue;
     console.log(`\n=== user=${userId} — ${misPointed.length} mis-pointed row(s) ===`);
     totalMisPointed += misPointed.length;
+    const userCreds = credsByUser.get(userId) ?? [];
 
     for (const row of misPointed) {
+      if (!row.documentId) {
+        errors++;
+        console.warn(`     ! scan returned a row without document_id for thread=${row.threadId}`);
+        continue;
+      }
       const threadId = row.threadId;
       const docs = await loadThreadDocs(userId, threadId);
       const inbound = newestInbound(docs);
@@ -154,35 +406,28 @@ async function main() {
       );
 
       if (inbound) {
-        // ---- Case A: repoint to inbound + canonical relabel (strips sent label).
+        // ---- Case A: strip sent label + apply inbound label + repoint.
         console.log(
-          `  → CASE A: repoint → ${inbound.id} (inbound, authored ${inbound.authoredAt?.toISOString() ?? "?"}) + reconcile label`,
+          `  → CASE A: strip sent label, apply inbound label, repoint → ${inbound.id} (authored ${inbound.authoredAt?.toISOString() ?? "?"})`,
         );
         if (!COMMIT) continue;
         try {
-          await db()
-            .update(emailTriage)
-            .set({
-              documentId: inbound.id,
-              appliedLabelId: null,
-              rowVersion: sql`${emailTriage.rowVersion} + 1`,
-              updatedAt: new Date(),
-            })
-            .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, threadId)));
-          const result = await reconcileThreadLabel({ userId, sourceThreadId: threadId });
-          if (result.applied) {
+          const result = await repairCaseA({
+            userId,
+            threadId,
+            originalDocumentId: row.documentId,
+            originalSourceId: row.pointedSourceId,
+          });
+          if (result.kind === "repaired") {
             repaintedA++;
-            const strippedSent = result.strippedSiblings.some(
-              (s) => s.messageId === row.pointedSourceId,
-            );
-            if (strippedSent) labelsStripped++;
+            if (result.strippedOriginalSent) labelsStripped++;
             console.log(
-              `     PERSISTED — repointed; label=${result.appliedLabelId} applied to ${result.targetDocId}; ` +
-                `stripped ${result.strippedSiblings.length} sibling label(s)${strippedSent ? " (incl. the sent message)" : ""}`,
+              `     PERSISTED — label=${result.appliedLabelId} applied to ${result.targetDocId}; ` +
+                `stripped ${result.strippedSiblingCount} sibling label(s)` +
+                `${result.strippedOriginalSent ? " (incl. the sent message)" : " (sent label already gone)"}`,
             );
           } else {
-            console.log(`     repointed but relabel skipped: ${result.reason}`);
-            repaintedA++;
+            console.log(`     skipped stale row: ${result.reason}`);
           }
         } catch (err) {
           errors++;
@@ -195,30 +440,24 @@ async function main() {
       console.log(`  → CASE B: no inbound doc — strip Alfred label off sent msg + delete triage row`);
       if (!COMMIT) continue;
       try {
-        const credId =
-          (row.pointedAccountId && credByAccount.get(row.pointedAccountId)) ?? fallbackCredId;
-        const accessToken = await getFreshAccessToken(credId);
-        const labels = await ensureAlfredLabels(credId, { accessToken });
-        try {
-          await modifyMessageLabels({
-            accessToken,
-            messageId: row.pointedSourceId,
-            removeLabelIds: labels.allIds,
-          });
-          labelsStripped++;
-          console.log(`     stripped Alfred labels off sent msg ${row.pointedSourceId}`);
-        } catch (err) {
-          // Gmail reassigns message ids on send/merge — a 404 means the id is
-          // dead and the label is already gone with it. Proceed to delete the row.
-          console.warn(
-            `     label strip skipped (likely dead msg id ${row.pointedSourceId}): ${toMessage(err)}`,
-          );
+        const result = await repairCaseB({
+          userId,
+          threadId,
+          originalDocumentId: row.documentId,
+          userCreds,
+        });
+        if (result.kind === "deleted") {
+          if (result.strippedOriginalSent) {
+            labelsStripped++;
+            console.log(`     stripped Alfred labels off sent msg ${row.pointedSourceId}`);
+          } else {
+            console.log(`     sent msg ${row.pointedSourceId} already gone or unlabeled`);
+          }
+          deletedB++;
+          console.log(`     PERSISTED — deleted bogus triage row for thread ${threadId}`);
+        } else {
+          console.log(`     skipped stale row: ${result.reason}`);
         }
-        await db()
-          .delete(emailTriage)
-          .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, threadId)));
-        deletedB++;
-        console.log(`     PERSISTED — deleted bogus triage row for thread ${threadId}`);
       } catch (err) {
         errors++;
         console.warn(`     ! repair failed: ${toMessage(err)}`);
