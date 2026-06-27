@@ -5,6 +5,7 @@ import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
+import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
@@ -120,6 +121,15 @@ export function Conversation({
     setShowJump(false);
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
+
+  // The finish toast's "Open" action jumps back to the live edge — useful when
+  // the user had scrolled up before the away-reply landed.
+  const onScrollRequest = useEffectEvent(() => jumpToBottom());
+  useEffect(() => {
+    const handler = () => onScrollRequest();
+    window.addEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
+    return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
+  }, []);
 
   // Re-stick to the bottom whenever the feed grows. `stream` is a fresh
   // snapshot each drip tick while a turn is in flight, so this fires per frame
@@ -260,9 +270,10 @@ function prevUserTurn(
   for (let i = failedIndex - 1; i >= 0; i--) {
     const m = messages[i];
     if (!m || m.role !== "user") continue;
-    const readyIds = (attachmentsByMessage[m.id] ?? [])
-      .filter((a) => a.status === "ready")
-      .map((a) => a.id);
+    const readyIds = (attachmentsByMessage[m.id] ?? []).reduce<string[]>((ids, a) => {
+      if (a.status === "ready") ids.push(a.id);
+      return ids;
+    }, []);
     if (m.content.trim().length === 0 && readyIds.length === 0) continue;
     const text = m.content;
     return {

@@ -16,13 +16,78 @@
  *
  * Keys of `TOOL_INPUT_SCHEMAS` are type-checked against `ToolName`, so they
  * can't drift from the real tool surface.
+ *
+ * Numeric arguments use `z.coerce.number()`, never a bare `z.number()`. LLMs
+ * (Claude included) routinely serialize an integer argument as a string —
+ * dispatch traces show the boss emitting `pull_number: "305"` and retrying it
+ * verbatim until it gives up. Coercion accepts the stringified form while
+ * emitting the *identical* `{type:"integer"}` JSON schema to the model, so the
+ * surface the model is told about is unchanged — only the server gets more
+ * tolerant. Without it, required numeric ids hard-fail and cosmetic `.catch()`
+ * caps silently degrade to their default on a stringified value.
  */
 
 import { z } from "zod";
 import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./artifacts.js";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search.js";
+import { isRecord } from "./guards.js";
 import { todoSourceSchema } from "./todos.js";
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
+
+/**
+ * Search tools split on the query field name: `drive`/`gmail` use `q` (the
+ * Google API param) while `github`/`notion` use `query`. The boss pattern-
+ * matches across tools and routinely sends the off-name spelling — dispatch
+ * traces show `gmail.search({ query })` hard-failing on the missing `q`. Fold
+ * the alias into the canonical field before validation so either spelling
+ * parses. The model-facing JSON schema (and the approval UI, which both read
+ * `z.toJSONSchema(schema, { io: "input" })`) still advertise only the canonical
+ * field, so nothing about the surface the model is told about changes — only
+ * the server gets more tolerant. Applied to the `q`-named tools, which the
+ * model is likeliest to call with the more common `query`.
+ */
+function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema: S) {
+  const alias = canonical === "q" ? "query" : "q";
+  return z.preprocess((value) => {
+    if (isRecord(value) && typeof value[alias] === "string") {
+      const rest = { ...value };
+      if (!(canonical in rest)) rest[canonical] = rest[alias];
+      delete rest[alias];
+      return rest;
+    }
+    return value;
+  }, schema);
+}
+
+/**
+ * Treat an empty/whitespace-only string in the named optional fields as
+ * "omitted". LLMs routinely emit `query: ""` for an optional argument they
+ * intend to skip; a bare `.min(1).optional()` then hard-fails the empty string
+ * with `too_small` instead of taking the optional path — dispatch traces show
+ * `notion.search` bouncing on `query: ""`, then succeeding on the omit-retry
+ * one step later. Drop the blank field before validation so the optional branch
+ * takes over. Wrapped at the object level (like `withQueryAlias`) rather than on
+ * the field, so `z.toJSONSchema(schema, { io: "input" })` still reports the
+ * field as the optional string it is — a field-level `z.preprocess` would
+ * instead mark it `required`, telling the model the wrong contract. Only the
+ * server gets more tolerant; the surface the model is told about is unchanged.
+ * Use only for genuinely-optional fields — a required search box (gmail `q`,
+ * web_search `query`) should still reject the empty string rather than silently
+ * search for nothing.
+ */
+function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+  return z.preprocess((value) => {
+    if (!isRecord(value)) return value;
+    let next = value;
+    for (const field of fields) {
+      if (typeof next[field] === "string" && next[field].trim() === "") {
+        if (next === value) next = { ...value };
+        delete next[field];
+      }
+    }
+    return next;
+  }, schema);
+}
 
 /* ── calendar ─────────────────────────────────────────────────────────── */
 
@@ -59,7 +124,7 @@ const calendarListEventsObject = z
     // Result-count cap — cosmetic, never affects correctness. An out-of-range
     // value falls back to the default instead of bouncing a validation error
     // back to the model (same cosmetic behavior as github.search maxResults).
-    maxResults: z.number().int().min(1).max(50).default(10).catch(10),
+    maxResults: z.coerce.number().int().min(1).max(50).default(10).catch(10),
   })
   .strict()
   .refine(
@@ -145,26 +210,32 @@ export const docsGetDocumentInput = z
 
 const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
 
-export const driveSearchInput = z
-  .object({
-    q: z
-      .string()
-      .min(1)
-      .max(1000)
-      .optional()
-      .describe(
-        "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
-      ),
-    // Result-count cap — cosmetic; fall back to the default rather than error.
-    pageSize: z.number().int().min(1).max(100).default(25).catch(25),
-    pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
-    orderBy: z
-      .string()
-      .max(100)
-      .optional()
-      .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
-  })
-  .strict();
+export const driveSearchInput = withQueryAlias(
+  "q",
+  blankFieldToOmitted(
+    ["q"],
+    z
+      .object({
+        q: z
+          .string()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe(
+            "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
+          ),
+        // Result-count cap — cosmetic; fall back to the default rather than error.
+        pageSize: z.coerce.number().int().min(1).max(100).default(25).catch(25),
+        pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
+        orderBy: z
+          .string()
+          .max(100)
+          .optional()
+          .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
+      })
+      .strict(),
+  ),
+);
 
 export const driveGetFileInput = z.object({ fileId: driveFileId }).strict();
 
@@ -250,7 +321,7 @@ export const githubSearchInput = z
       .describe(
         "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
       ),
-    closedWithinDays: z
+    closedWithinDays: z.coerce
       .number()
       .int()
       .min(1)
@@ -259,7 +330,7 @@ export const githubSearchInput = z
       .describe(
         "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
       ),
-    createdWithinDays: z
+    createdWithinDays: z.coerce
       .number()
       .int()
       .min(1)
@@ -268,7 +339,7 @@ export const githubSearchInput = z
       .describe(
         "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
       ),
-    mergedWithinDays: z
+    mergedWithinDays: z.coerce
       .number()
       .int()
       .min(1)
@@ -288,7 +359,7 @@ export const githubSearchInput = z
           "do NOT invent qualifiers: GitHub silently ignores unknown ones (there is no merged-by:, " +
           "closed-by:, etc.) and returns an empty result.",
       ),
-    perPage: z
+    perPage: z.coerce
       .number()
       .int()
       .min(1)
@@ -317,7 +388,7 @@ export const githubGetPullRequestInput = z
     ...githubOwnerRepo,
     // Named to match GitHub's own REST path param (`/pulls/{pull_number}`) so
     // the model passes the field it already knows.
-    pull_number: z.number().int().min(1).describe("Pull request number."),
+    pull_number: z.coerce.number().int().min(1).describe("Pull request number."),
   })
   .strict();
 
@@ -325,35 +396,38 @@ export const githubGetIssueInput = z
   .object({
     ...githubOwnerRepo,
     // Matches GitHub's REST path param (`/issues/{issue_number}`).
-    issue_number: z.number().int().min(1).describe("Issue number."),
+    issue_number: z.coerce.number().int().min(1).describe("Issue number."),
   })
   .strict();
 
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
-export const gmailSearchInput = z
-  .object({
-    q: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe(
-        "Gmail search query. Supports the full Gmail operator set (in:, from:, has:, …). " +
-          "For recency, prefer Gmail's relative operators (newer_than:3d, older_than:1w) — Gmail " +
-          "resolves them server-side, so they're immune to timezone/date-math mistakes. Use absolute " +
-          "after:/before: dates only for a specific range, computed from the grounded date in the system prompt.",
-      ),
-    maxResults: z
-      .number()
-      .int()
-      .min(1)
-      .max(50)
-      .default(10)
-      // Result-count cap — cosmetic; fall back to the default rather than error.
-      .catch(10)
-      .describe("Cap on results returned to the model (Gmail allows up to 500; we cap at 50)."),
-  })
-  .strict();
+export const gmailSearchInput = withQueryAlias(
+  "q",
+  z
+    .object({
+      q: z
+        .string()
+        .min(1)
+        .max(500)
+        .describe(
+          "Gmail search query. Supports the full Gmail operator set (in:, from:, has:, …). " +
+            "For recency, prefer Gmail's relative operators (newer_than:3d, older_than:1w) — Gmail " +
+            "resolves them server-side, so they're immune to timezone/date-math mistakes. Use absolute " +
+            "after:/before: dates only for a specific range, computed from the grounded date in the system prompt.",
+        ),
+      maxResults: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .default(10)
+        // Result-count cap — cosmetic; fall back to the default rather than error.
+        .catch(10)
+        .describe("Cap on results returned to the model (Gmail allows up to 500; we cap at 50)."),
+    })
+    .strict(),
+);
 
 export const gmailSendDraftInput = z
   .object({
@@ -528,23 +602,26 @@ export const slidesAddSlideInput = z
 
 /* ── notion ───────────────────────────────────────────────────────────── */
 
-export const notionSearchInput = z
-  .object({
-    query: z
-      .string()
-      .min(1)
-      .max(500)
-      .optional()
-      .describe(
-        "Text to search across the workspace's shared pages and databases. Omit to list recently-edited items.",
-      ),
-    filter: z
-      .enum(["page", "database", "all"])
-      .default("all")
-      .describe("Restrict results to pages, databases, or both."),
-    pageSize: z.number().int().min(1).max(50).default(10).catch(10),
-  })
-  .strict();
+export const notionSearchInput = blankFieldToOmitted(
+  ["query"],
+  z
+    .object({
+      query: z
+        .string()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(
+          "Text to search across the workspace's shared pages and databases. Omit to list recently-edited items.",
+        ),
+      filter: z
+        .enum(["page", "database", "all"])
+        .default("all")
+        .describe("Restrict results to pages, databases, or both."),
+      pageSize: z.coerce.number().int().min(1).max(50).default(10).catch(10),
+    })
+    .strict(),
+);
 
 export const notionGetPageInput = z
   .object({
@@ -610,7 +687,7 @@ export const railwayListDeploymentsInput = z
       .max(200)
       .optional()
       .describe("Optional environment id (e.g. production) to narrow deployments."),
-    limit: z.number().int().min(1).max(20).default(5).catch(5),
+    limit: z.coerce.number().int().min(1).max(20).default(5).catch(5),
   })
   .strict();
 
@@ -618,7 +695,7 @@ export const railwayGetLogsInput = z
   .object({
     credentialId: railwayCredentialId,
     deploymentId: z.string().min(1).max(200).describe("Railway deployment id to read logs for."),
-    limit: z.number().int().min(1).max(500).default(100).catch(100),
+    limit: z.coerce.number().int().min(1).max(500).default(100).catch(100),
   })
   .strict();
 
@@ -665,7 +742,7 @@ export const railwayRedeployInput = z
 
 export const vercelListProjectsInput = z
   .object({
-    limit: z.number().int().min(1).max(50).default(20).catch(20),
+    limit: z.coerce.number().int().min(1).max(50).default(20).catch(20),
   })
   .strict();
 
@@ -677,7 +754,7 @@ export const vercelListDeploymentsInput = z
       .max(200)
       .optional()
       .describe("Optional Vercel project id or name to scope deployments to."),
-    limit: z.number().int().min(1).max(20).default(10).catch(10),
+    limit: z.coerce.number().int().min(1).max(20).default(10).catch(10),
   })
   .strict();
 
@@ -724,44 +801,47 @@ export const promoteScratchInput = z
   })
   .strict();
 
-export const readUserContextInput = z
-  .object({
-    query: z
-      .string()
-      .trim()
-      .min(1)
-      .max(500)
-      .optional()
-      .describe(
-        "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
-      ),
-    include: z
-      .array(
-        z.enum([
-          "profile",
-          "integrations",
-          "facts",
-          "preferences",
-          "entities",
-          "relationships",
-          "recent_memory",
-        ]),
-      )
-      .max(7)
-      .optional()
-      .describe(
-        "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
-      ),
-    subjectEmail: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .email()
-      .max(320)
-      .optional()
-      .describe("Optional person/contact email to focus on."),
-  })
-  .strict();
+export const readUserContextInput = blankFieldToOmitted(
+  ["query"],
+  z
+    .object({
+      query: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(
+          "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
+        ),
+      include: z
+        .array(
+          z.enum([
+            "profile",
+            "integrations",
+            "facts",
+            "preferences",
+            "entities",
+            "relationships",
+            "recent_memory",
+          ]),
+        )
+        .max(7)
+        .optional()
+        .describe(
+          "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
+        ),
+      subjectEmail: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .email()
+        .max(320)
+        .optional()
+        .describe("Optional person/contact email to focus on."),
+    })
+    .strict(),
+);
 
 export const rememberInput = z
   .object({

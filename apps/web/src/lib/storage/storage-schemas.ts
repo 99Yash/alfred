@@ -40,6 +40,14 @@ export const LOCAL_STORAGE_SCHEMAS = {
   /** When the run-complete chime plays (see `lib/chat/use-run-complete`). */
   "alfred.chat.soundPreference": z.enum(["always", "unfocused", "mute"]).default("unfocused"),
   /**
+   * Has the user seen the one-time "Alfred can notify you when a reply lands"
+   * card? Shown once on the first finished turn, then never again (see
+   * `lib/chat/use-run-complete`).
+   */
+  "alfred.chat.notifyOnboarded": z
+    .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
+    .default(false),
+  /**
    * Last weather snapshot, cached across reloads so the rail paints without a
    * fetch (see `hooks/use-weather`). `fetchedAt` is epoch-ms; the default's `0`
    * reads as already-stale, so an empty cache resolves to "no snapshot".
