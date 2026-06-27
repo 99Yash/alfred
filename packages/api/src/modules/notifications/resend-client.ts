@@ -18,3 +18,7 @@ export function getResendClient(): Resend {
   _client = new Resend(serverEnv().RESEND_API_KEY);
   return _client;
 }
+
+export function _setResendClientForTests(client: Resend | undefined): void {
+  _client = client;
+}

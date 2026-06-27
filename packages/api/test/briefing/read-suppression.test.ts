@@ -140,4 +140,49 @@ describe("briefing read-side standing-instruction suppression (DB-backed)", { sk
     assert.equal(limited.length, 1);
     assert.equal(limited[0]?.documentId, keepDocId);
   });
+
+  test("suppressed newest rows do not under-fill a limited email window", async () => {
+    const userId = await seedUser();
+    const keepDocId = await seedEmail({
+      userId,
+      from: "Sakshi <sakshi@example.com>",
+      subject: "The real ask behind the noisy sender",
+      ingestedAt: new Date("2026-06-27T09:00:00.000Z"),
+    });
+    await seedEmail({
+      userId,
+      from: "Acme Coaching <no-reply@shapeshifter.so>",
+      subject: "Noisy nudge 1",
+      ingestedAt: new Date("2026-06-27T09:01:00.000Z"),
+    });
+    await seedEmail({
+      userId,
+      from: "Acme Coaching <no-reply@shapeshifter.so>",
+      subject: "Noisy nudge 2",
+      ingestedAt: new Date("2026-06-27T09:02:00.000Z"),
+    });
+    await seedEmail({
+      userId,
+      from: "Acme Coaching <no-reply@shapeshifter.so>",
+      subject: "Noisy nudge 3",
+      ingestedAt: new Date("2026-06-27T09:03:00.000Z"),
+    });
+
+    const remembered = await rememberSenderSuppression({
+      userId,
+      senderEmail: "no-reply@shapeshifter.so",
+      senderLabel: "Acme Coaching",
+    });
+    assert.equal(remembered.ok, true);
+
+    const rows = await listEmailsSinceWatermark({
+      userId,
+      sinceIngestedAt: null,
+      untilIngestedAt: new Date("2026-06-27T10:00:00.000Z"),
+      limit: 1,
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.documentId, keepDocId);
+  });
 });

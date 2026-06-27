@@ -36,9 +36,8 @@ import {
 
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
-/** Metadata-only over-fetch cushion so sender suppression does not under-fill the requested window. */
-const EMAIL_LIST_SUPPRESSION_FETCH_MULTIPLIER = 2;
-const EMAIL_LIST_SUPPRESSION_FETCH_MAX = 200;
+/** Metadata-only page size while skipping standing-instruction-suppressed senders. */
+const EMAIL_LIST_SUPPRESSION_PAGE_SIZE = 200;
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
 /**
  * Lookback for the "already surfaced" continuation signal. 16h spans both
@@ -110,14 +109,23 @@ interface ListEmailsSinceArgs {
   limit?: number;
 }
 
+interface EmailListRow {
+  documentId: string;
+  subject: string | null;
+  authoredAt: Date | null;
+  ingestedAt: Date;
+  sourceThreadId: string | null;
+  accountId: string | null;
+  metadata: unknown;
+  contentLength: number;
+  triageCategory: string | null;
+  triageRationale: string | null;
+}
+
 export async function listEmailsSinceWatermark(
   args: ListEmailsSinceArgs,
 ): Promise<EmailListItem[]> {
   const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
-  const fetchLimit = Math.max(
-    limit,
-    Math.min(limit * EMAIL_LIST_SUPPRESSION_FETCH_MULTIPLIER, EMAIL_LIST_SUPPRESSION_FETCH_MAX),
-  );
 
   const conditions = [
     eq(documents.userId, args.userId),
@@ -128,8 +136,25 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const [allRows, surfacedThreadIds, suppressionInstructions] = await Promise.all([
-    db()
+  const [surfacedThreadIds, suppressionInstructions] = await Promise.all([
+    // Anchor the lookback on the run's frozen "until" instant so the signal is
+    // deterministic with the rest of the window, not wall-clock at map time.
+    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
+    // Standing instructions that exclude a sender from briefing priority. The
+    // briefing AGENT composes from THIS list, so the suppression must be applied
+    // here too — `gather` filters its own deterministic payload, but the prose
+    // is written off `list_emails_since`, and without this a suppressed sender
+    // (e.g. one the user just told Alfred to stop surfacing) leaks straight back
+    // into the headline.
+    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
+  ]);
+
+  const rows: EmailListRow[] = [];
+  const hasSuppression = suppressionInstructions.length > 0;
+  const pageSize = hasSuppression ? Math.max(limit, EMAIL_LIST_SUPPRESSION_PAGE_SIZE) : limit;
+  let offset = 0;
+  while (rows.length < limit) {
+    const page = await db()
       .select({
         documentId: documents.id,
         subject: documents.title,
@@ -151,34 +176,32 @@ export async function listEmailsSinceWatermark(
         ),
       )
       .where(and(...conditions))
-      .orderBy(desc(documents.ingestedAt))
-      .limit(fetchLimit),
-    // Anchor the lookback on the run's frozen "until" instant so the signal is
-    // deterministic with the rest of the window, not wall-clock at map time.
-    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
-    // Standing instructions that exclude a sender from briefing priority. The
-    // briefing AGENT composes from THIS list, so the suppression must be applied
-    // here too — `gather` filters its own deterministic payload, but the prose
-    // is written off `list_emails_since`, and without this a suppressed sender
-    // (e.g. one the user just told Alfred to stop surfacing) leaks straight back
-    // into the headline.
-    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
-  ]);
+      .orderBy(desc(documents.ingestedAt), desc(documents.id))
+      .limit(pageSize)
+      .offset(offset);
 
-  // Drop suppressed senders before scoring so they neither surface nor skew the
-  // cross-row recurrence signal. Mirrors the same filter in `gather`.
-  const rows = (
-    suppressionInstructions.length > 0
-      ? allRows.filter((r) => {
-          const from = toRecord(r.metadata).from;
-          return !findSenderSuppression(suppressionInstructions, {
-            senderEmail: typeof from === "string" ? from : null,
-            accountId: r.accountId,
-            effect: "exclude_briefing_priority",
-          });
-        })
-      : allRows
-  ).slice(0, limit);
+    if (page.length === 0) break;
+    offset += page.length;
+
+    // Drop suppressed senders before scoring so they neither surface nor skew
+    // the cross-row recurrence signal. Mirrors the same filter in `gather`.
+    for (const row of page) {
+      if (hasSuppression) {
+        const from = toRecord(row.metadata).from;
+        const suppressed = findSenderSuppression(suppressionInstructions, {
+          senderEmail: typeof from === "string" ? from : null,
+          accountId: row.accountId,
+          effect: "exclude_briefing_priority",
+        });
+        if (suppressed) continue;
+      }
+
+      rows.push(row);
+      if (rows.length >= limit) break;
+    }
+
+    if (!hasSuppression || page.length < pageSize) break;
+  }
 
   const metas = rows.map((r) => toRecord(r.metadata));
   const senders = metas.map((meta) => (typeof meta.from === "string" ? meta.from : null));

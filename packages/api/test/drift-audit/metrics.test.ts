@@ -5,6 +5,7 @@ import { after, describe, test } from "node:test";
 import { parseEmailAddress } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos, user } from "@alfred/db/schemas";
+import { databaseEnv } from "@alfred/env/database";
 import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
@@ -16,7 +17,15 @@ import {
   todoDismissDoneRatio,
 } from "../../src/modules/drift-audit/metrics";
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+function hasDatabaseUrl(): boolean {
+  try {
+    return Boolean(databaseEnv().DATABASE_URL);
+  } catch {
+    return false;
+  }
+}
+
+const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
 const ID_PREFIX = "test-drift-audit-";
 const createdUserIds: string[] = [];
 
@@ -204,8 +213,30 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
       runDriftHealthCheck(userId, { notifyFn, timezone: "UTC" }),
       /health_alert send failed.*resend unavailable/,
     );
+    await assert.rejects(
+      runDriftHealthCheck(userId, { notifyFn, timezone: "UTC" }),
+      /health_alert send failed.*resend unavailable/,
+    );
 
     const rows = await db().select().from(driftMetrics).where(eq(driftMetrics.userId, userId));
-    assert.equal(rows.length, 3, "snapshots still persist before the retryable alert failure");
+    assert.equal(rows.length, 3, "retryable alert failures must not duplicate daily snapshots");
+    assert.equal(new Set(rows.map((r) => `${r.metric}:${r.captureKey}`)).size, 3);
+  });
+
+  test("runDriftHealthCheck fails loudly when every metric evaluator fails", async () => {
+    const userId = await seedUser();
+    const failing = async () => {
+      throw new Error("database unavailable");
+    };
+
+    await assert.rejects(
+      runDriftHealthCheck(userId, {
+        metricEvaluators: [failing, failing, failing],
+      }),
+      /all metrics failed.*database unavailable/,
+    );
+
+    const rows = await db().select().from(driftMetrics).where(eq(driftMetrics.userId, userId));
+    assert.equal(rows.length, 0);
   });
 });
