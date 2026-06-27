@@ -197,20 +197,21 @@ export const pendingActions = pgTable(
  * The motivating incidents (#210/#211/#212) were each found by a manual prod
  * SQL audit — self-ingestion ran ~9 days before a human noticed. The full
  * structured context that explains a triage tag already exists, but it was
- * `JSON.stringify`'d into a transient `agent.progress` event, never persisted.
- * This table is where it lands: one row per traced decision, queryable where
- * the audits already run.
+ * `JSON.stringify`'d into an untyped `agent.progress` event payload instead of
+ * a first-class queryable row. This table is where it lands: one row per traced
+ * decision, queryable where the audits already run.
  *
- * Kind-agnostic by design — the executor persists `(kind, trace)` without
- * inspecting the payload; the typed surface is `ctx.trace`, generic over the
- * `DecisionTraceRegistry` in `@alfred/api`. `trace` is plain `jsonb` (matching
- * the variable-shape `pending_actions.payload` / `agent_run_context.value`,
- * not the fixed-shape `transcript`).
+ * Kind-agnostic by design — the executor persists `(kind, decision_key, trace)`
+ * without inspecting the payload; the typed surface is `ctx.trace`, generic
+ * over the `DecisionTraceRegistry` in `@alfred/api`. `trace` is plain `jsonb`
+ * (matching the variable-shape `pending_actions.payload` /
+ * `agent_run_context.value`, not the fixed-shape `transcript`).
  *
  * Forensic, not aggregate: drift metrics read the source-of-truth tables and
  * raise the flag; these rows explain it when an operator drills in. A retried
- * attempt writes distinct rows (the `attempt` is part of the unique key), so a
- * re-run within the same attempt is `onConflictDoNothing`. No retention
+ * attempt writes distinct rows (the `attempt` is part of the unique key), while
+ * `decision_key` separates multiple decisions of the same kind inside one step.
+ * A re-run within the same trace slot is `onConflictDoNothing`. No retention
  * machinery v1 (volume ~3k rows/mo; CASCADE cleans up on run/user delete) —
  * revisit if volume grows.
  */
@@ -231,13 +232,21 @@ export const agentDecisionTraces = pgTable(
     attempt: integer("attempt").notNull(),
     /** Registry discriminator, e.g. `triage.classification`. */
     kind: text("kind").notNull(),
+    /** Stable per-step discriminator for multiple traces of the same kind. */
+    decisionKey: text("decision_key").notNull(),
     /** The structured record (typed per-kind at the `ctx.trace` producer). */
     trace: jsonb("trace").notNull(),
     decidedAt: timestamp("decided_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("agent_decision_traces_idem_idx").on(t.runId, t.stepId, t.attempt, t.kind),
+    uniqueIndex("agent_decision_traces_idem_idx").on(
+      t.runId,
+      t.stepId,
+      t.attempt,
+      t.kind,
+      t.decisionKey,
+    ),
     index("agent_decision_traces_user_kind_idx").on(t.userId, t.kind, t.decidedAt),
     index("agent_decision_traces_workflow_kind_idx").on(t.workflowSlug, t.kind, t.decidedAt),
   ],

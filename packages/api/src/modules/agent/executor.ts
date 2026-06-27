@@ -5,7 +5,7 @@ import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alf
 import { runStatusSchema } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import type { DecisionTraceRecord } from "./decision-traces";
+import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
 import {
   isTerminalStatus,
@@ -131,6 +131,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   //    deferred via `stageAction` and committed atomically below.
   const staged: StagedAction[] = [];
   const traces: DecisionTraceRecord[] = [];
+  const seenTraceKeys = new Set<string>();
   const ctx: StepContext<unknown> = {
     runId: run.id,
     userId: run.userId,
@@ -148,8 +149,16 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
         payload: { runId: run.id, step: stepId, message },
       });
     },
-    trace(kind, record) {
-      traces.push({ kind, record } as DecisionTraceRecord);
+    trace(kind, record, options) {
+      const decisionKey = normalizeDecisionTraceKey(options?.decisionKey);
+      const slot = `${kind}\u0000${decisionKey}`;
+      if (seenTraceKeys.has(slot)) {
+        throw new Error(
+          `[agent] duplicate decision trace kind=${kind} decisionKey=${decisionKey} in step=${stepId}`,
+        );
+      }
+      seenTraceKeys.add(slot);
+      traces.push({ kind, decisionKey, record } as DecisionTraceRecord);
     },
   };
 
@@ -454,8 +463,8 @@ async function commitStepSuccess(
     }
 
     // Durable decision traces (ADR-0077). Same poison-strip as every other
-    // jsonb sink above; `(run_id, step_id, attempt, kind)` is unique, so a
-    // re-run within the same attempt is a no-op (`onConflictDoNothing`).
+    // jsonb sink above; `(run_id, step_id, attempt, kind, decision_key)` is
+    // unique, so a re-run within the same trace slot is a no-op.
     for (const t of traces) {
       await tx
         .insert(agentDecisionTraces)
@@ -466,6 +475,7 @@ async function commitStepSuccess(
           stepId,
           attempt,
           kind: t.kind,
+          decisionKey: t.decisionKey,
           trace: sanitizeToolResult(t.record).value as object,
         })
         .onConflictDoNothing();

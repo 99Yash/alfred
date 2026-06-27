@@ -66,6 +66,11 @@ const poisonWorkflow: Workflow<TestState> = {
         // The cast keeps this focused on the persistence mechanism; TS guards the
         // SenderExtractionEvent shape at the real triage producer, not here.
         ctx.trace("triage.classification", { senderRelationship: `rel${NUL}poison` } as never);
+        ctx.trace(
+          "triage.classification",
+          { senderRelationship: `secondary${LONE_SURROGATE}poison` } as never,
+          { decisionKey: "secondary" },
+        );
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
         ];
@@ -158,18 +163,31 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
         workflowSlug: agentDecisionTraces.workflowSlug,
         stepId: agentDecisionTraces.stepId,
         kind: agentDecisionTraces.kind,
+        decisionKey: agentDecisionTraces.decisionKey,
         trace: agentDecisionTraces.trace,
       })
       .from(agentDecisionTraces)
       .where(eq(agentDecisionTraces.runId, runId));
-    assert.equal(tr.length, 1, "exactly one decision trace persisted on the next commit");
-    assert.equal(tr[0]?.kind, "triage.classification", "trace kind discriminator persisted");
-    assert.equal(tr[0]?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
-    assert.equal(tr[0]?.stepId, "poison-next", "trace keyed to the emitting step");
     assert.equal(
-      (tr[0]?.trace as { senderRelationship: string }).senderRelationship,
+      tr.length,
+      2,
+      "two same-kind decision traces with distinct keys persist on the next commit",
+    );
+    const byKey = new Map(tr.map((row) => [row.decisionKey, row]));
+    const defaultTrace = byKey.get("default");
+    const secondaryTrace = byKey.get("secondary");
+    assert.equal(defaultTrace?.kind, "triage.classification", "trace kind discriminator persisted");
+    assert.equal(defaultTrace?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
+    assert.equal(defaultTrace?.stepId, "poison-next", "trace keyed to the emitting step");
+    assert.equal(
+      (defaultTrace?.trace as { senderRelationship: string }).senderRelationship,
       "relpoison",
       "NUL stripped from the trace jsonb",
+    );
+    assert.equal(
+      (secondaryTrace?.trace as { senderRelationship: string }).senderRelationship,
+      "secondarypoison",
+      "lone surrogate stripped from the keyed trace jsonb",
     );
 
     // Step 2: `done` with poison in state, output, and transcript.

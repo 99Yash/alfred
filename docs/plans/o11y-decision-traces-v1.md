@@ -14,8 +14,9 @@ the system raised. Self-ingestion (#211) ran ~9 days before a human noticed. Two
    assembles deterministic context (persona, sender prior, relationship prose, thread
    state, content flags) + audit (first pass, conflict kind, second pass, override floor)
    + final category/confidence + todo outcome + standing-instruction suppression. But it's
-   `JSON.stringify`'d into `ctx.log()`, which publishes a **transient `agent.progress`
-   event** (`executor.ts:142`) — not persisted, not queryable.
+   `JSON.stringify`'d into `ctx.log()`, which publishes an untyped `agent.progress`
+   payload (`executor.ts:142`) — durable as an outbox event, but not a first-class
+   queryable decision record.
 2. **No drift/invariant metrics.** Nothing pushes "self-ingestion regressed" or
    "urgent+action_needed is 26% of inbox." Drift is discovered by audit, not raised.
 
@@ -55,12 +56,14 @@ Joins the `agent_*` family. One row per traced decision.
 | `stepId` | text | |
 | `attempt` | integer | a retried attempt = distinct rows (forensics) |
 | `kind` | text | discriminator, e.g. `triage.classification` |
+| `decisionKey` | text | stable per-step discriminator; default `default` for one decision of a kind |
 | `trace` | jsonb `$type<DecisionTraceEnvelope>` | the structured record (precise per-kind type at the producer/reader) |
 | `decidedAt` | timestamp defaultNow | |
 | `...lifecycle_dates` | | |
 
-- **Unique** `(run_id, step_id, attempt, kind)` → re-running an attempt is
-  `onConflictDoNothing` (idempotent, mirrors `pending_actions`).
+- **Unique** `(run_id, step_id, attempt, kind, decision_key)` → re-running a trace slot is
+  `onConflictDoNothing` (idempotent, mirrors `pending_actions`), while multiple same-kind
+  decisions in one step must use distinct keys instead of silently clobbering.
 - **Index** `(user_id, kind, decided_at)` and `(workflow_slug, kind, decided_at)` for drift slices.
 - No retention machinery v1 (volume ~3k rows/mo; CASCADE cleans up on run/user delete).
   Note as a revisit-if-volume-grows seam.
@@ -91,13 +94,14 @@ imports `@alfred/contracts` — but **contracts cannot import api**. `SenderExtr
 ### The seam (`ctx.trace`)
 
 - `packages/api/src/modules/agent/types.ts` — add to `StepContext`:
-  `trace(kind: string, record: unknown): void` (docstring: durable structured decision
-  record, persisted with the step commit).
+  `trace(kind: string, record: unknown, { decisionKey? }): void` (docstring: durable
+  structured decision record, persisted with the step commit).
 - `executor.ts` — collect into a `traces: TraceRecord[]` array (parallel to `staged`),
   push in the ctx method; in `commitStepSuccess`, insert all traces in the same tx,
   sanitized via the ADR-0070 `sanitizeToolResult` path, `onConflictDoNothing`. Persist on
-  success commit only (`next`/`done`/`interrupt`); failure path drops them (acceptable v1 —
-  triage emits its trace immediately before returning `next`).
+  success commit only (`next`/`done`/`interrupt`); failure path drops them. Triage also writes
+  its classification trace inside the `upsertTriage` row transaction, so a crash after the
+  canonical tag write cannot leave the row without its forensic trace.
 
 ### Producer: triage (v1)
 
