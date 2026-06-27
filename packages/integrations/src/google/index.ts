@@ -65,9 +65,11 @@ export type {
 export {
   findCredentialsNeedingPoll,
   ingestRecentGmail,
+  isSelfAuthored,
   listGoogleCredentials,
   pollGmailHistory,
   pollGmailRecent,
+  selfSenderEmail,
 } from "./ingestor";
 export type {
   AlfredLabelMap,

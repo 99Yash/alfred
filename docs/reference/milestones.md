@@ -18,4 +18,4 @@ Current as of 2026-06-27. The original milestone plan is in [`docs/plans/scaffol
 | 12 — Skills + user-authored workflows | Shipped | Authoring surface, workflow CRUD/sync, cron/manual dispatch, settings toggle. User-authored execution gap was closed by m13. |
 | 13 — Boss + sub-agent orchestration | Shipped | Tool registry, dispatch gates, `AlfredAgent` bridge, sub-agent spawning/join wake, action staging/HIL, event/on-signal dispatch. |
 | 14 — MCP client | Deferred | Preview/catalog copy exists, but no backend MCP client/tool import path is implemented. |
-| 15 — Observability polish | Partial | Sentry, PostHog, Langfuse, served-model metering, tool spans, and decision traces exist. Remaining work is productized trace/drift surfaces rather than basic instrumentation. |
+| 15 — Observability polish | Partial | Sentry, PostHog, Langfuse, served-model metering, tool spans, decision traces, and scheduled drift/invariant metrics (self-ingestion, attention share, todo dismiss:done) with breach alerts (#219) exist. Remaining work is productized trace/drift surfaces rather than basic instrumentation. |
