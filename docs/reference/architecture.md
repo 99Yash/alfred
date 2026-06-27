@@ -17,6 +17,7 @@ packages/
 ├── schemas/         # Browser-safe shared Zod schemas + inferred types
 ├── sync/            # Replicache keys, schemas, and client mutators
 ├── integrations/    # Per-provider integration code (Gmail, Calendar, GitHub, ...)
+├── mailer/          # React Email templates + render helpers for Resend sends
 └── ingestion/       # Shared chunker/embedder/dedup helpers
 ```
 
@@ -34,7 +35,7 @@ Path alias `~/` maps to `src/` in both apps.
 
 **API → DB:** `db()` from `@alfred/db` returns the shared pg pool singleton. Call it inside handlers and workers; do not call it at module init time.
 
-**Server bootstrap:** `apps/server/src/index.ts` awaits `warmPool()` and `initEventBridge()` before binding the port. Graceful shutdown drains Redis then the DB pool on SIGTERM/SIGINT.
+**Server bootstrap:** `apps/server/src/index.ts` warms the DB pool, verifies metering model metadata, starts the outbox/SSE bridge, starts the Replicache poke bridge, registers built-in workflows/tools, starts BullMQ workers, schedules repeatable jobs, then binds the port. Graceful shutdown stops workers before draining Redis and the DB pool on SIGTERM/SIGINT.
 
 ## Package boundaries
 
@@ -56,14 +57,26 @@ Forbidden in `apps/web`:
 
 `pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
 
+## Integration status
+
+Live backends today:
+
+- Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides.
+- GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
+- Notion OAuth.
+- Railway token connect.
+- Vercel OAuth.
+
+Catalog/design-only today: Slack and Linear. The web catalog can render those providers, but there are no backend routes or tools for them yet.
+
 ## Environment variables
 
 Validated by `serverEnv()` from `@alfred/env/server`. Calling it with missing vars throws a clear error listing what's missing.
 
-Key vars for local dev should be pre-filled in `apps/server/.env`. Some vars are optional and safe to leave blank locally.
+`apps/server` loads `apps/server/.env`; `apps/web` loads browser-safe `VITE_*` keys from `apps/web/.env`. The root `.env.example` is the combined reference template.
 
 Do not use `process.env` directly in app code — always go through `serverEnv()`.
 
-When adding a new env var: update `packages/env/src/server.ts`, `apps/server/.env`, `.env.example`, and this doc.
+When adding a new server env var: update `packages/env/src/server.ts`, `.env.example`, and this doc. When adding a browser env var, update `apps/web/src/vite-env.d.ts`, `.env.example`, and the web code that reads `import.meta.env`.
 
 `ENTITY_ID_NAMESPACE` (ADR-0067) deserves a callout: it is the HMAC namespace for content-addressed stable entity IDs. Optional during P0 (no projection writes IDs yet), but the P1 projection must fail closed if it is absent, and it must be backed up like an auth secret — changing it remints every stable entity ID on replay, dangling every external reference to those IDs.
