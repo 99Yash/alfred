@@ -1,6 +1,6 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { db } from "@alfred/db";
-import type { DecisionTraceFor, DecisionTraceKind } from "./decision-traces";
+import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
 import {
   RUN_STATUSES,
   isTerminalStatus,
@@ -74,12 +74,18 @@ export interface StepContext<S> {
    * Persist a durable, structured decision record (ADR-0077) into
    * `agent_decision_traces`, committed atomically with this step's result.
    * Generic over the {@link DecisionTraceRegistry}, so the `record` shape must
-   * match the declared `kind` — drift fails the build. Persisted only on a
+   * match the declared `kind` — drift fails the build. `decisionKey` separates
+   * multiple decisions of the same kind in one step; duplicate kind/key pairs
+   * fail the step instead of being silently dropped. Persisted only on a
    * successful commit (`next`/`done`/`interrupt`); dropped if the step throws.
    * Unlike {@link log}, this is queryable substrate, not a transient progress
    * event.
    */
-  trace<K extends DecisionTraceKind>(kind: K, record: DecisionTraceFor<K>): void;
+  trace<K extends DecisionTraceKind>(
+    kind: K,
+    record: DecisionTraceFor<K>,
+    options?: DecisionTraceOptions,
+  ): void;
 }
 
 export interface Step<S> {

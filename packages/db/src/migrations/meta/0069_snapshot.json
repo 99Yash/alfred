@@ -428,6 +428,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "decision_key": {
+          "name": "decision_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "trace": {
           "name": "trace",
           "type": "jsonb",
@@ -480,6 +486,12 @@
             },
             {
               "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "decision_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
