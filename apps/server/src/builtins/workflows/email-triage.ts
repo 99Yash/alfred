@@ -175,6 +175,28 @@ export const emailTriageWorkflow: Workflow<State> = {
           };
         }
 
+        // Sent-doc guard (ADR-0051 #7, defense-in-depth — issue #306). The
+        // user's own outbound mail must never be the pointed/labeled doc. The
+        // upstream fan-out (`triageDocumentIds`) already excludes sent docs,
+        // but it partitions on `isSent` frozen at ingest from
+        // `labelIds.includes("SENT")` — a doc ingested in the brief window
+        // before Gmail attaches the `SENT` label (`onConflictDoNothing` never
+        // refreshes it) slips that exclusion and would be classified, pointed
+        // at, and labeled on the user's own message. Re-deriving sent-ness here
+        // with `isSentGmailMetadata` (the flag OR the `SENT` label) at
+        // classify time closes that timing gap: a sent doc never reaches
+        // classify/upsert/label.
+        if (isSentGmailMetadata(ctxData.document.metadata)) {
+          await ctx.log(
+            `classify: doc=${ctx.state.documentId} is the user's own sent mail — skipping (ADR-0051 #7)`,
+          );
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { skipped: true, reason: "sent-document" },
+          };
+        }
+
         const senderContextResult = extractSenderContext({
           fromHeader: metadataString(ctxData.document.metadata, "from"),
           subject: ctxData.document.title,
