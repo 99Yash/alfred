@@ -13,6 +13,7 @@ import {
   isKnownContact,
   isSentGmailMetadata,
   loadTriageContext,
+  markGmailDocumentSent,
   publishEvent,
   reconcileThreadLabel,
   resolveFeatureFlags,
@@ -29,16 +30,23 @@ import {
   type Observations,
   type SenderContextResult,
   type TriageClassification,
+  type TriageDocumentContext,
   type Workflow,
 } from "@alfred/api";
 import {
+  isHttpError,
   senderContextSchema,
   toStringArray,
   type AccountPersona,
   type SenderContext,
   toMessage,
 } from "@alfred/contracts";
-import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
+import {
+  getFreshAccessToken,
+  getMessage,
+  TRIAGE_CATEGORIES,
+  type TriageCategory,
+} from "@alfred/integrations/google";
 import { z } from "zod";
 
 /**
@@ -172,6 +180,40 @@ export const emailTriageWorkflow: Workflow<State> = {
             kind: "done",
             state: ctx.state,
             output: { skipped: true, reason: "missing-thread-id" },
+          };
+        }
+
+        // Sent-doc guard (ADR-0051 #7, defense-in-depth — issue #306). The
+        // upstream fan-out excludes docs whose stored metadata already carries
+        // `SENT`, but Gmail can attach that label after our first insert. When
+        // the stored row is still ambiguous, verify the live minimal Gmail
+        // message before allowing classify.
+        const sentStatus = await sentDocumentStatusAtClassifyTime(ctxData);
+        if (sentStatus.kind === "missing") {
+          await ctx.log(
+            `classify: doc=${ctx.state.documentId} source message missing in Gmail — skipping`,
+          );
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { skipped: true, reason: "source-message-not-found" },
+          };
+        }
+        if (sentStatus.kind === "sent") {
+          if (sentStatus.source === "live") {
+            await markGmailDocumentSent({
+              userId: ctx.userId,
+              documentId: ctx.state.documentId,
+              liveLabelIds: sentStatus.labelIds,
+            });
+          }
+          await ctx.log(
+            `classify: doc=${ctx.state.documentId} is the user's own sent mail (${sentStatus.source}) — skipping (ADR-0051 #7)`,
+          );
+          return {
+            kind: "done",
+            state: ctx.state,
+            output: { skipped: true, reason: "sent-document" },
           };
         }
 
@@ -398,8 +440,11 @@ export const emailTriageWorkflow: Workflow<State> = {
         // Best-effort: a prior write must never fail the label, which is the
         // contract. NEW-PATH ONLY: `incrementSenderPrior` is a non-idempotent
         // histogram bump, so a reuse re-attempt must not double-count — only
-        // the originating classification teaches it.
-        if (!reusedExistingRow && written) {
+        // the originating classification teaches it. The outbound-reply re-eval
+        // (issue #282, `reason: "reply"`) re-classifies the same inbound doc to
+        // refresh the thread tag after the user replies; it is NOT a fresh
+        // observation, so it must not re-bump the sender prior either.
+        if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
           const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
           const senderKey = senderPriorWriteKeyFor({
             senderContext,
@@ -613,6 +658,34 @@ export const emailTriageWorkflow: Workflow<State> = {
 function metadataString(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+type SentDocumentStatus =
+  | { kind: "not-sent" }
+  | { kind: "missing" }
+  | { kind: "sent"; source: "stored" }
+  | { kind: "sent"; source: "live"; labelIds: readonly string[] };
+
+async function sentDocumentStatusAtClassifyTime(
+  ctxData: TriageDocumentContext,
+): Promise<SentDocumentStatus> {
+  if (isSentGmailMetadata(ctxData.document.metadata)) return { kind: "sent", source: "stored" };
+
+  try {
+    const accessToken = await getFreshAccessToken(ctxData.credentialId);
+    const message = await getMessage({
+      accessToken,
+      id: ctxData.document.sourceId,
+      format: "minimal",
+    });
+    const labelIds = message.labelIds ?? [];
+    return isSentGmailMetadata({ labelIds })
+      ? { kind: "sent", source: "live", labelIds }
+      : { kind: "not-sent" };
+  } catch (err) {
+    if (isHttpError(err) && err.status === 404) return { kind: "missing" };
+    throw err;
+  }
 }
 
 /**

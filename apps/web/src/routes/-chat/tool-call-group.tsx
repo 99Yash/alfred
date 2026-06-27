@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
+import { animatedToolIcon, type AnimatedIcon } from "./animated-tool-icons";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
@@ -57,18 +58,39 @@ function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[])
   return items;
 }
 
-/** Distinct integration glyphs touched across the run, in first-seen order. */
-function runBrands(tools: ToolCallView[]): IntegrationBrand[] {
-  const brands: IntegrationBrand[] = [];
-  const seenBrands = new Set<IntegrationBrand>();
+/** Max coins stacked in the summary cluster before we stop adding more. */
+const MAX_GLYPHS = 3;
+
+/** One coin in the run summary: an integration brand tile, or a system mark. */
+type RunGlyph =
+  | { kind: "brand"; key: string; brand: IntegrationBrand }
+  | { kind: "icon"; key: string; Icon: AnimatedIcon };
+
+/**
+ * The distinct glyphs a finished run touched, in first-seen order: an
+ * integration's brand coin where the tool has one, otherwise the system tool's
+ * own animated mark (web_search → chrome, …). Deduped so repeated calls collapse
+ * to a single coin and a Gmail-read-then-web-search run reads as gmail + chrome.
+ */
+function runGlyphs(tools: ToolCallView[]): RunGlyph[] {
+  const glyphs: RunGlyph[] = [];
+  const seen = new Set<string>();
   for (const tool of tools) {
     const { brand } = presentTool(tool);
-    if (brand && !seenBrands.has(brand)) {
-      seenBrands.add(brand);
-      brands.push(brand);
+    if (brand) {
+      if (seen.has(`brand:${brand}`)) continue;
+      seen.add(`brand:${brand}`);
+      glyphs.push({ kind: "brand", key: brand, brand });
+      continue;
+    }
+    const animatedIcon = animatedToolIcon(tool.toolName);
+    if (animatedIcon) {
+      if (seen.has(`icon:${animatedIcon.key}`)) continue;
+      seen.add(`icon:${animatedIcon.key}`);
+      glyphs.push({ kind: "icon", key: animatedIcon.key, Icon: animatedIcon.Icon });
     }
   }
-  return brands;
+  return glyphs;
 }
 
 /**
@@ -167,7 +189,7 @@ export function ToolCallGroup({
   const last = tools[tools.length - 1]!;
   const runningLabel = last.status === "started" ? presentTool(last).running : "Working on it";
   const anyFailed = tools.some((t) => t.status === "failed");
-  const brands = runBrands(tools);
+  const glyphs = runGlyphs(tools);
 
   return (
     <Accordion.Root
@@ -195,7 +217,7 @@ export function ToolCallGroup({
                 />
               </span>
             ) : (
-              <BrandCluster brands={brands} />
+              <RunGlyphCluster glyphs={glyphs} />
             )}
             <span
               className={cn(
@@ -260,9 +282,13 @@ function NarrationRow({ text }: { text: string }) {
   );
 }
 
-/** Overlapping integration app-icon coins for the services a run touched (max 3). */
-function BrandCluster({ brands }: { brands: IntegrationBrand[] }) {
-  if (brands.length === 0) {
+/**
+ * Overlapping coins for the glyphs a run touched (max 3) — integration app-icon
+ * tiles and/or system marks, in the order the run first hit them. A run with no
+ * mappable glyph (only unmapped system plumbing) falls back to a lone wrench.
+ */
+function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
+  if (glyphs.length === 0) {
     return (
       <span
         aria-hidden
@@ -272,18 +298,32 @@ function BrandCluster({ brands }: { brands: IntegrationBrand[] }) {
       </span>
     );
   }
+  // ring matches the page background so overlapping coins read as a clean stack
+  // rather than a smudge.
   return (
     <span aria-hidden className="flex shrink-0 items-center">
-      {brands.slice(0, 3).map((brand, i) => (
-        // ring matches the page background so overlapping tiles read as a
-        // clean stack rather than a smudge.
-        <IntegrationIcon
-          key={brand}
-          brand={brand}
-          size="xs"
-          className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
-        />
-      ))}
+      {glyphs.slice(0, MAX_GLYPHS).map((glyph, i) =>
+        glyph.kind === "brand" ? (
+          <IntegrationIcon
+            key={glyph.key}
+            brand={glyph.brand}
+            size="xs"
+            className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
+          />
+        ) : (
+          // System tool with no brand — its animated mark on a neutral coin,
+          // sized to match the brand tiles. Static here; plays on row hover.
+          <span
+            key={glyph.key}
+            className={cn(
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)] ring-2 ring-app-background",
+              i > 0 && "-ml-2",
+            )}
+          >
+            <glyph.Icon size={13} className="tool-animated-icon tool-animated-icon--hoverable" />
+          </span>
+        ),
+      )}
     </span>
   );
 }

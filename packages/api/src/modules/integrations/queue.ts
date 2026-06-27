@@ -11,12 +11,17 @@ import {
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
-import { chatAttachments } from "@alfred/db/schemas";
-import { inArray } from "drizzle-orm";
+import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
+import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
-import { reconcileThreadLabel } from "../triage/tags";
+import {
+  findNewestLiveInboundGmailDocuments,
+  reconcileGmailThreads,
+  type LiveInboundGmailDocument,
+} from "../triage/gmail-reconcile";
+import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 
 /**
@@ -32,7 +37,72 @@ import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storag
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
+export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;
+const REPLY_REEVAL_QUERY_CHUNK_SIZE = 1000;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
+
+type GmailInsertJobKind = "gmail.ingest_recent" | "gmail.poll_recent" | "gmail.poll_history";
+type GmailMessageEventReason = Parameters<typeof emitGmailMessageEvents>[2];
+
+interface ReplyReevalRequest {
+  threadId: string;
+  eventId: string;
+  sentAuthoredAt: Date | null;
+}
+
+type ReplyReevalTarget = LiveInboundGmailDocument & { eventId: string };
+
+export interface GmailPostInsertSideEffectPlan {
+  triageReason: Extract<GmailMessageEventReason, "webhook" | "ingest"> | null;
+  triageDocumentIds: string[];
+  reconcileThreadIds: string[];
+  replyReevalSentDocumentIds: string[];
+  replyReevalThreadLimit: number | null;
+  skippedReplyReevalSentDocs: number;
+  protectedDocumentIds: string[];
+}
+
+export function planGmailPostInsertSideEffects(args: {
+  jobKind: GmailInsertJobKind;
+  triageInsertedDocs?: boolean;
+  fullResync?: boolean;
+  triageDocumentIds: readonly string[];
+  sentDocumentIds: readonly string[];
+  touchedThreadIds: readonly string[];
+}): GmailPostInsertSideEffectPlan {
+  const triageReason =
+    args.jobKind === "gmail.poll_recent"
+      ? "webhook"
+      : args.jobKind === "gmail.poll_history" && !args.fullResync
+        ? "ingest"
+        : args.jobKind === "gmail.ingest_recent" && args.triageInsertedDocs
+          ? "ingest"
+          : null;
+
+  const allowReplyReeval =
+    args.jobKind === "gmail.poll_recent" ||
+    (args.jobKind === "gmail.poll_history" && !args.fullResync) ||
+    (args.jobKind === "gmail.ingest_recent" && args.triageInsertedDocs === true);
+
+  const allowFullResyncReplyReeval = args.jobKind === "gmail.poll_history" && args.fullResync;
+  const replyReevalSentDocumentIds =
+    allowReplyReeval || allowFullResyncReplyReeval ? [...args.sentDocumentIds] : [];
+  const protectedDocumentIds = Array.from(
+    new Set([...args.triageDocumentIds, ...args.sentDocumentIds]),
+  );
+
+  return {
+    triageReason,
+    triageDocumentIds: triageReason ? [...args.triageDocumentIds] : [],
+    reconcileThreadIds: [...args.touchedThreadIds],
+    replyReevalSentDocumentIds,
+    replyReevalThreadLimit: allowFullResyncReplyReeval
+      ? FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT
+      : null,
+    skippedReplyReevalSentDocs: args.sentDocumentIds.length - replyReevalSentDocumentIds.length,
+    protectedDocumentIds,
+  };
+}
 
 export type IngestionJobData =
   | {
@@ -215,11 +285,25 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // large bulk seed doesn't pay the latencies in series. Triage fans
         // over `triageDocumentIds` only — sent mail is ingested + embedded
         // (inline in the ingestor) but never triaged/labeled (ADR-0051 #7).
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          triageInsertedDocs: data.triageInsertedDocs,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           async () => {
-            if (data.triageInsertedDocs) {
-              await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
             }
+          },
+          async () => {
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -247,11 +331,26 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // each function swallows its own errors. Fan them out so the
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           // Triage non-sent inserts only; embed ALL inserts (sent mail is
           // embedded for chat recall but never triaged — ADR-0051 #7).
           async () => {
-            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "webhook");
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
+            }
+          },
+          async () => {
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await embedRealtimeInserts(result.insertedDocumentIds);
@@ -275,11 +374,30 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // covers the steady state; anything it misses (bursts > maxMessages,
       // a webhook lost in flight, a >5min outage) shows up here as a
       // `messagesAdded` history entry. We still fan triage so a missed
-      // realtime ingestion doesn't go untagged.
-      if (!result.fullResync && result.insertedDocumentIds.length) {
+      // realtime ingestion doesn't go untagged. Full-resync fallbacks skip
+      // ordinary triage fan-out to avoid back-catalog LLM burn, but they still
+      // run bounded thread repairs so the resync can heal sent-reply and dead-id
+      // drift instead of preserving it for the next webhook.
+      if (result.insertedDocumentIds.length) {
+        const plan = planGmailPostInsertSideEffects({
+          jobKind: data.kind,
+          fullResync: result.fullResync,
+          triageDocumentIds: result.triageDocumentIds,
+          sentDocumentIds: result.sentDocumentIds,
+          touchedThreadIds: result.touchedThreadIds,
+        });
         await runTaskGroup([
           async () => {
-            await emitGmailMessageEvents(result.userId, result.triageDocumentIds, "ingest");
+            if (plan.triageReason) {
+              await emitGmailMessageEvents(
+                result.userId,
+                plan.triageDocumentIds,
+                plan.triageReason,
+              );
+            }
+          },
+          async () => {
+            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -462,6 +580,252 @@ async function emitGmailMessageEvents(
       );
     }
   });
+}
+
+async function runGmailRepairSideEffects(
+  credentialId: string,
+  userId: string,
+  plan: GmailPostInsertSideEffectPlan,
+): Promise<void> {
+  const allReplyReevalRequests = await resolveReplyReevalRequests(
+    userId,
+    plan.replyReevalSentDocumentIds,
+  );
+  const replyReevalRequests =
+    plan.replyReevalThreadLimit == null
+      ? allReplyReevalRequests
+      : allReplyReevalRequests.slice(0, plan.replyReevalThreadLimit);
+  await reconcileThreadsBestEffort(
+    credentialId,
+    userId,
+    plan.reconcileThreadIds,
+    plan.protectedDocumentIds,
+  );
+  const replyReevalTargets = await findNewestLiveInboundGmailDocuments({
+    credentialId,
+    userId,
+    threadIds: replyReevalRequests.map((request) => request.threadId),
+  }).catch((err: unknown) => {
+    console.warn(
+      `[ingestion:worker] live inbound resolve failed credential=${credentialId}:`,
+      toMessage(err),
+    );
+    return [];
+  });
+  const eventIdByThread = new Map(
+    replyReevalRequests.map((request) => [request.threadId, request.eventId]),
+  );
+  await reEvaluateRepliedThreads(
+    userId,
+    replyReevalTargets
+      .map((target): ReplyReevalTarget | null => {
+        const eventId = eventIdByThread.get(target.threadId);
+        return eventId ? { ...target, eventId } : null;
+      })
+      .filter((target): target is ReplyReevalTarget => target !== null),
+  );
+  if (plan.skippedReplyReevalSentDocs > 0) {
+    console.warn(
+      `[ingestion:worker] reply re-eval skipped sentDocs=${plan.skippedReplyReevalSentDocs} ` +
+        `credential=${credentialId}`,
+    );
+  }
+  const skippedReplyReevalThreads = allReplyReevalRequests.length - replyReevalRequests.length;
+  if (skippedReplyReevalThreads > 0) {
+    console.warn(
+      `[ingestion:worker] reply re-eval skipped threads=${skippedReplyReevalThreads} ` +
+        `credential=${credentialId}`,
+    );
+  }
+}
+
+/**
+ * Re-evaluate a thread's triage tag when the user sends an outbound reply
+ * (issue #282). Sent mail is ingested + embedded but deliberately never
+ * triaged/labeled and never a sender prior (ADR-0051 #7) — so the kept
+ * "re-evaluate on reply" contract only ever fired on INBOUND replies, freezing
+ * the tag until the counterparty sent again.
+ *
+ * We preserve both ADR-0051 #7 guardrails by NOT triaging the sent doc: instead
+ * we re-key the received-only classify on the thread's newest INBOUND doc and
+ * pass `force` so the already-tagged skip guard re-classifies. `getThreadState`
+ * folds the outbound reply in (`lastUserReplyAt` / `recentMessages`), and the
+ * workflow skips the sender-prior bump for `reason: "reply"`. A reply means it
+ * matters — we re-eval on every outbound reply regardless of current tag.
+ *
+ * Best-effort: failures are logged, never bubbled into the ingest result.
+ */
+async function resolveReplyReevalRequests(
+  userId: string,
+  sentDocumentIds: string[],
+): Promise<ReplyReevalRequest[]> {
+  if (!sentDocumentIds.length) return [];
+  try {
+    const sentDocs: Array<{
+      id: string;
+      threadId: string | null;
+      authoredAt: Date | null;
+    }> = [];
+    for (const documentIdChunk of chunkArray(sentDocumentIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
+      sentDocs.push(
+        ...(await db()
+          .select({
+            id: documents.id,
+            threadId: documents.sourceThreadId,
+            authoredAt: documents.authoredAt,
+          })
+          .from(documents)
+          .where(
+            and(
+              eq(documents.userId, userId),
+              eq(documents.source, "gmail"),
+              inArray(documents.id, documentIdChunk),
+            ),
+          )),
+      );
+    }
+    const byThread = new Map<string, ReplyReevalRequest>();
+    for (const doc of sentDocs) {
+      if (!doc.threadId) continue;
+      const existing = byThread.get(doc.threadId);
+      const docIsNewer =
+        !existing ||
+        compareNullableDatesDesc(doc.authoredAt, existing.sentAuthoredAt) < 0 ||
+        (compareNullableDatesDesc(doc.authoredAt, existing.sentAuthoredAt) === 0 &&
+          doc.id.localeCompare(existing.eventId) > 0);
+      if (docIsNewer) {
+        byThread.set(doc.threadId, {
+          threadId: doc.threadId,
+          eventId: doc.id,
+          sentAuthoredAt: doc.authoredAt,
+        });
+      }
+    }
+    const threadIds = Array.from(byThread.keys());
+    if (!threadIds.length) return [];
+
+    // Only threads we already triage. A brand-new outbound-first thread has no
+    // triage row to refresh and no inbound doc to key the received-only
+    // classify on.
+    const triagedThreadIds = new Set<string>();
+    for (const threadIdChunk of chunkArray(threadIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
+      const triaged = await db()
+        .select({ threadId: emailTriage.sourceThreadId })
+        .from(emailTriage)
+        .where(
+          and(eq(emailTriage.userId, userId), inArray(emailTriage.sourceThreadId, threadIdChunk)),
+        );
+      for (const row of triaged) {
+        triagedThreadIds.add(row.threadId);
+      }
+    }
+    return Array.from(byThread.values())
+      .filter((request) => triagedThreadIds.has(request.threadId))
+      .sort(
+        (a, b) =>
+          compareNullableDatesDesc(a.sentAuthoredAt, b.sentAuthoredAt) ||
+          b.eventId.localeCompare(a.eventId),
+      );
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] resolveReplyReevalRequests failed user=${userId}:`,
+      toMessage(err),
+    );
+    return [];
+  }
+}
+
+async function reEvaluateRepliedThreads(
+  userId: string,
+  targets: ReplyReevalTarget[],
+): Promise<void> {
+  if (!targets.length) return;
+  try {
+    await mapConcurrent(
+      targets,
+      REALTIME_EMIT_CONCURRENCY,
+      async ({ threadId, documentId, eventId }) => {
+        try {
+          await emitEvent({
+            userId,
+            source: "gmail",
+            type: "message_received",
+            eventId,
+            payload: { documentId, reason: "reply", force: true },
+          });
+        } catch (err) {
+          console.warn(
+            `[ingestion:worker] reply re-eval failed thread=${threadId}:`,
+            toMessage(err),
+          );
+        }
+      },
+    );
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] reEvaluateRepliedThreads failed user=${userId}:`,
+      toMessage(err),
+    );
+  }
+}
+
+/**
+ * Converge a run's touched threads to the live Gmail message set (issue #279),
+ * pruning the tail of dead/superseded `source_id`s. Best-effort and fanned out
+ * OFF the tag-latency path so its threads.get calls never delay triage.
+ */
+async function reconcileThreadsBestEffort(
+  credentialId: string,
+  userId: string,
+  threadIds: string[],
+  protectedDocumentIds: string[],
+): Promise<void> {
+  if (!threadIds.length) return;
+  try {
+    const result = await reconcileGmailThreads({
+      credentialId,
+      userId,
+      threadIds,
+      protectedDocumentIds,
+    });
+    if (result.docsDeleted > 0 || result.triageRepointed > 0) {
+      console.log(
+        `[ingestion:worker] gmail.reconcile credential=${credentialId} ` +
+          `threadsChecked=${result.threadsChecked} reconciled=${result.threadsReconciled} ` +
+          `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
+      );
+    }
+    await mapConcurrent(result.repointedThreadIds, REALTIME_EMIT_CONCURRENCY, async (threadId) => {
+      try {
+        await enqueueTriageRelabel(userId, threadId);
+      } catch (err) {
+        console.warn(
+          `[ingestion:worker] reconcile relabel enqueue failed thread=${threadId}:`,
+          toMessage(err),
+        );
+      }
+    });
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] reconcileThreads failed credential=${credentialId}:`,
+      toMessage(err),
+    );
+  }
+}
+
+function compareNullableDatesDesc(a: Date | null, b: Date | null): number {
+  const timeDiff =
+    (b?.getTime() ?? Number.NEGATIVE_INFINITY) - (a?.getTime() ?? Number.NEGATIVE_INFINITY);
+  if (timeDiff !== 0) return timeDiff;
+  return 0;
+}
+
+function chunkArray<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
 }
 
 /**

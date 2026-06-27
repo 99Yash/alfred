@@ -246,19 +246,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, autoApprovePending, setDefaultMode]);
 
-  // Follow-up suggestions for the last completed reply. The first one becomes
-  // the composer's ghost text (Tab to accept); the rest render as chips in the
-  // transcript — same content stream, two affordances, no duplication.
+  // Follow-up suggestions for the last completed reply. We commit to a single
+  // affordance per reply to avoid the split-brain of a ghosted prompt competing
+  // with chips: exactly one suggestion → composer ghost text (Tab to accept);
+  // two or more → all render as equal-weight chips, no ghost.
   const followUps = useMemo(
     () => (showStream ? [] : buildFollowUpSuggestions(messages)),
     [messages, showStream],
   );
-  const chipFollowUps = useMemo(() => followUps.slice(1), [followUps]);
+  const chipFollowUps = useMemo(() => (followUps.length >= 2 ? followUps : []), [followUps]);
   const lastMessageId = messages.length > 0 ? (messages[messages.length - 1]?.id ?? null) : null;
   // Ghost dismissal is per-reply: accepting or Escaping hides it until the
   // next assistant message produces a fresh suggestion.
   const [ghostDismissedFor, setGhostDismissedFor] = useState<string | null>(null);
-  const ghostSuggestion = followUps[0];
+  const ghostSuggestion = followUps.length === 1 ? followUps[0] : undefined;
   const ghostText =
     ghostSuggestion && ghostDismissedFor !== lastMessageId ? ghostSuggestion.text : undefined;
   const onGhostDone = useCallback(() => setGhostDismissedFor(lastMessageId), [lastMessageId]);

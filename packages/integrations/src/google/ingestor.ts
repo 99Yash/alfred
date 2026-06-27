@@ -56,6 +56,19 @@ export interface IngestRecentResult {
    * Embed/index over `insertedDocumentIds`; fan triage over this.
    */
   triageDocumentIds: string[];
+  /**
+   * Inserted documents carrying Gmail's `SENT` label (the user's own outbound
+   * mail). Never triaged/labeled (ADR-0051 #7), but the caller uses these to
+   * re-evaluate the thread tag on an outbound reply (issue #282) — keying the
+   * received-only classify on the thread's newest inbound doc.
+   */
+  sentDocumentIds: string[];
+  /**
+   * Distinct Gmail thread ids that received a freshly-inserted message this
+   * run. The caller reconciles these threads' `documents` against the live
+   * Gmail thread so dead/superseded message ids don't accumulate (issue #279).
+   */
+  touchedThreadIds: string[];
   /** User who owns the credential — handy for downstream fanout (triage, indexing). */
   userId: string;
 }
@@ -93,6 +106,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let highWaterHistoryId: string | null = null;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   for (const ref of refs) {
     try {
@@ -101,7 +116,9 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
         // Embed inline. Failures don't bubble — the doc row is still
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
@@ -149,6 +166,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     highWaterHistoryId,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
   };
 }
@@ -431,6 +450,10 @@ export interface PollHistoryResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
+  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  sentDocumentIds: string[];
+  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  touchedThreadIds: string[];
   /** User who owns the credential. */
   userId: string;
 }
@@ -474,6 +497,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       fullResync: true,
       insertedDocumentIds: recent.insertedDocumentIds,
       triageDocumentIds: recent.triageDocumentIds,
+      sentDocumentIds: recent.sentDocumentIds,
+      touchedThreadIds: recent.touchedThreadIds,
       userId: cred.userId,
     };
   }
@@ -531,6 +556,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         fullResync: true,
         insertedDocumentIds: recent.insertedDocumentIds,
         triageDocumentIds: recent.triageDocumentIds,
+        sentDocumentIds: recent.sentDocumentIds,
+        touchedThreadIds: recent.touchedThreadIds,
         userId: cred.userId,
       };
     }
@@ -545,6 +572,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   let embedFailures = 0;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   for (const id of messageIds) {
     try {
@@ -553,7 +582,9 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
         try {
           const embed = await embedDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
@@ -595,6 +626,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     fullResync: false,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
   };
 }
@@ -632,6 +665,10 @@ export interface PollRecentResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
+  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  sentDocumentIds: string[];
+  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  touchedThreadIds: string[];
   userId: string;
 }
 
@@ -701,6 +738,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
+  const sentDocumentIds: string[] = [];
+  const touchedThreadIds = new Set<string>();
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
@@ -709,7 +748,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
-        if (!result.isSent) triageDocumentIds.push(result.documentId);
+        if (result.isSent) sentDocumentIds.push(result.documentId);
+        else triageDocumentIds.push(result.documentId);
+        if (message.threadId) touchedThreadIds.add(message.threadId);
       } else if (result.outcome === "ignored") {
         // Self-authored mail (issue #211) — dropped, never a document.
         ignored++;
@@ -759,6 +800,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
     triageDocumentIds,
+    sentDocumentIds,
+    touchedThreadIds: Array.from(touchedThreadIds),
     userId: cred.userId,
   };
 }
