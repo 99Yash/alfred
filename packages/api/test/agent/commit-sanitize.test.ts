@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { agentRuns, pendingActions, user } from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "../../src/modules/agent/executor";
@@ -62,6 +62,10 @@ const poisonWorkflow: Workflow<TestState> = {
           payload: { body: `staged${NUL}payload`, nested: { x: `s${LONE_SURROGATE}` } },
           idempotencyKey: `${ctx.runId}:staged`,
         });
+        // Decision-trace sink (ADR-0077) — same poison-strip path as the others.
+        // The cast keeps this focused on the persistence mechanism; TS guards the
+        // SenderExtractionEvent shape at the real triage producer, not here.
+        ctx.trace("triage.classification", { senderRelationship: `rel${NUL}poison` } as never);
         const transcript: AgentTranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
         ];
@@ -145,6 +149,28 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     const payload = staged[0]?.payload as { body: string; nested: { x: string } } | undefined;
     assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
     assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
+
+    // The decision trace is persisted on the `next` commit, keyed to the step,
+    // with its jsonb poison stripped (ADR-0077).
+    const tr = await db()
+      .select({
+        userId: agentDecisionTraces.userId,
+        workflowSlug: agentDecisionTraces.workflowSlug,
+        stepId: agentDecisionTraces.stepId,
+        kind: agentDecisionTraces.kind,
+        trace: agentDecisionTraces.trace,
+      })
+      .from(agentDecisionTraces)
+      .where(eq(agentDecisionTraces.runId, runId));
+    assert.equal(tr.length, 1, "exactly one decision trace persisted on the next commit");
+    assert.equal(tr[0]?.kind, "triage.classification", "trace kind discriminator persisted");
+    assert.equal(tr[0]?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
+    assert.equal(tr[0]?.stepId, "poison-next", "trace keyed to the emitting step");
+    assert.equal(
+      (tr[0]?.trace as { senderRelationship: string }).senderRelationship,
+      "relpoison",
+      "NUL stripped from the trace jsonb",
+    );
 
     // Step 2: `done` with poison in state, output, and transcript.
     const second = await runOnce(runId);

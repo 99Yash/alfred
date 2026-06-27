@@ -71,6 +71,7 @@ function baseCtx(state: ChatRunState): StepContext<ChatRunState> {
     transcript: [],
     stageAction: () => {},
     log: async () => {},
+    trace: () => {},
   };
 }
 

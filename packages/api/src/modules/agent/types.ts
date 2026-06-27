@@ -1,5 +1,6 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { db } from "@alfred/db";
+import type { DecisionTraceFor, DecisionTraceKind } from "./decision-traces";
 import {
   RUN_STATUSES,
   isTerminalStatus,
@@ -69,6 +70,16 @@ export interface StepContext<S> {
   stageAction(action: StagedAction): void;
   /** Emit a progress event (durable via the outbox) without finishing the step. */
   log(message: string): Promise<void>;
+  /**
+   * Persist a durable, structured decision record (ADR-0077) into
+   * `agent_decision_traces`, committed atomically with this step's result.
+   * Generic over the {@link DecisionTraceRegistry}, so the `record` shape must
+   * match the declared `kind` — drift fails the build. Persisted only on a
+   * successful commit (`next`/`done`/`interrupt`); dropped if the step throws.
+   * Unlike {@link log}, this is queryable substrate, not a transient progress
+   * event.
+   */
+  trace<K extends DecisionTraceKind>(kind: K, record: DecisionTraceFor<K>): void;
 }
 
 export interface Step<S> {
