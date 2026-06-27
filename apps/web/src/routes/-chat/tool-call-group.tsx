@@ -23,13 +23,21 @@ const EMPTY_NARRATION: readonly TrailNarration[] = [];
 
 type TrailItem =
   | { kind: "narration"; key: string; text: string }
-  | { kind: "tool"; key: string; tool: ToolCallView };
+  // One row per *run* of identical calls: a `gmail.search` and a follow-up
+  // `gmail.search` collapse into one card with a `2×` badge, so a turn that
+  // pages the same source a few times doesn't read as N near-identical rows.
+  // Grouped on (toolName, status) so a failure never hides under a success's
+  // count — a fail then a retry-success stay two distinct rows.
+  | { kind: "tool"; key: string; tools: ToolCallView[] };
 
 /**
  * Weave the model's narration lines and its tool calls into one ordered trail.
  * Both carry a `segmentIndex`: segment N's narration precedes the tools the
  * model called in step N. Within a segment, the narration line comes first,
  * then its tools in arrival order — mirroring how the turn actually streamed.
+ * Consecutive calls to the same tool with the same status fold into one row
+ * (carrying every call) so repeated reads collapse to a single badged card;
+ * narration or a different tool/status between them breaks the run.
  */
 function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[]): TrailItem[] {
   const toolsBySegment = new Map<number, ToolCallView[]>();
@@ -52,7 +60,18 @@ function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[])
       items.push({ kind: "narration", key: `narration-${seg}`, text });
     }
     for (const tool of toolsBySegment.get(seg) ?? []) {
-      items.push({ kind: "tool", key: tool.toolCallId, tool });
+      const prev = items[items.length - 1];
+      const head = prev?.kind === "tool" ? prev.tools[0] : undefined;
+      if (
+        prev?.kind === "tool" &&
+        head &&
+        head.toolName === tool.toolName &&
+        head.status === tool.status
+      ) {
+        prev.tools.push(tool);
+      } else {
+        items.push({ kind: "tool", key: tool.toolCallId, tools: [tool] });
+      }
     }
   }
   return items;
@@ -183,7 +202,7 @@ export function ToolCallGroup({
   }, [tools, narration, active]);
 
   if (tools.length === 0) return null;
-  if (tools.length === 1 && narration.length === 0) return <ToolCallCard tool={tools[0]!} />;
+  if (tools.length === 1 && narration.length === 0) return <ToolCallCard tools={[tools[0]!]} />;
 
   const trail = buildTrail(tools, narration);
   const last = tools[tools.length - 1]!;
@@ -253,7 +272,7 @@ export function ToolCallGroup({
           >
             {trail.map((item) =>
               item.kind === "tool" ? (
-                <ToolCallCard key={item.key} tool={item.tool} />
+                <ToolCallCard key={item.key} tools={item.tools} />
               ) : (
                 <NarrationRow key={item.key} text={item.text} />
               ),
