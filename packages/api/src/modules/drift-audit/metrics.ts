@@ -223,12 +223,6 @@ export async function runDriftHealthCheck(
       console.error(`[drift-audit] metric failed for user=${userId}: ${failure}`);
     }
   }
-  if (metricFailures.length > 0 && results.length === 0) {
-    throw new Error(
-      `[drift-audit] all metrics failed for user=${userId}: ${metricFailures.join("; ")}`,
-    );
-  }
-
   // Persist all snapshots in one insert (the trend substrate). Best-effort, but
   // idempotent by `(user, metric, captureKey)` so alert-send retries do not
   // inflate the daily trend rows.
@@ -288,9 +282,17 @@ export async function runDriftHealthCheck(
   console.log(
     `[drift-audit] user=${userId} metrics=${results.length} breached=${breached.length} alertsSent=${alertsSent}`,
   );
+  const healthCheckFailures: string[] = [];
+  if (metricFailures.length > 0) {
+    const prefix = results.length === 0 ? "all metrics failed" : "metric evaluator failed";
+    healthCheckFailures.push(`${prefix}: ${metricFailures.join("; ")}`);
+  }
   if (alertFailures.length > 0) {
+    healthCheckFailures.push(`health_alert send failed: ${alertFailures.join("; ")}`);
+  }
+  if (healthCheckFailures.length > 0) {
     throw new Error(
-      `[drift-audit] health_alert send failed for user=${userId}: ${alertFailures.join("; ")}`,
+      `[drift-audit] health check failed for user=${userId}: ${healthCheckFailures.join("; ")}`,
     );
   }
   return { userId, metrics: results, breached, alertsSent };
@@ -304,9 +306,35 @@ function composeHealthAlertEmail(result: MetricResult): {
 } {
   const subject = `[Alfred health] ${result.metric} drift`;
   const detailLines = Object.entries(result.detail)
-    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v) ?? String(v)}`)
     .join("\n");
   const text = `${result.summary}\n\nthreshold: ${result.threshold}\nvalue: ${result.value}\n\n${detailLines}`;
-  const html = `<p><strong>${result.metric}</strong> breached.</p><p>${result.summary}</p><pre>threshold: ${result.threshold}\nvalue: ${result.value}\n\n${detailLines}</pre>`;
+  const htmlDetailLines = Object.entries(result.detail)
+    .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(JSON.stringify(v) ?? String(v))}`)
+    .join("\n");
+  const html =
+    `<p><strong>${escapeHtml(result.metric)}</strong> breached.</p>` +
+    `<p>${escapeHtml(result.summary)}</p>` +
+    `<pre>threshold: ${escapeHtml(result.threshold)}\n` +
+    `value: ${escapeHtml(result.value)}\n\n${htmlDetailLines}</pre>`;
   return { subject, html, text };
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
 }

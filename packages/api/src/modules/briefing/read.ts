@@ -351,15 +351,33 @@ export async function readEmailDocument(args: {
       subject: documents.title,
       authoredAt: documents.authoredAt,
       content: documents.content,
+      accountId: documents.accountId,
       metadata: documents.metadata,
     })
     .from(documents)
-    .where(and(eq(documents.id, args.documentId), eq(documents.userId, args.userId)))
+    .where(
+      and(
+        eq(documents.id, args.documentId),
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail"),
+      ),
+    )
     .limit(1);
 
   const row = rows[0];
   if (!row) return null;
   const meta = toRecord(row.metadata);
+  const suppressionInstructions = await listActiveSuppressionInstructions(
+    args.userId,
+    "exclude_briefing_priority",
+  );
+  const suppressed = findSenderSuppression(suppressionInstructions, {
+    senderEmail: typeof meta.from === "string" ? meta.from : null,
+    accountId: row.accountId,
+    effect: "exclude_briefing_priority",
+  });
+  if (suppressed) return null;
+
   const full = row.content ?? "";
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;
   return {

@@ -120,6 +120,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         accessToken,
         q: input.q,
         maxResults: input.maxResults,
+        pageToken: input.pageToken,
       });
       const messageIds = result.messages.map((m) => m.id).filter((id) => id.length > 0);
       const cachedRows =
