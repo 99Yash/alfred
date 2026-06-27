@@ -124,21 +124,28 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
       return { candidates: candidates.length, succeeded, failed };
     }
     case "memory.drift_health_check": {
-      // Single-user today; the per-user fan-out carries us forward. Each user's
-      // check is best-effort — one failing user never sinks the others.
+      // Single-user today; the per-user fan-out carries us forward. Sweep every
+      // user, but rethrow after the loop if any check failed so BullMQ retries a
+      // dropped health_alert push.
       const users = await db().select({ id: userTable.id }).from(userTable);
       let checked = 0;
       let breached = 0;
+      const failures: string[] = [];
       for (const u of users) {
         try {
           const result = await runDriftHealthCheck(u.id);
           checked++;
           breached += result.breached.length;
         } catch (err) {
-          console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, toMessage(err));
+          const message = toMessage(err);
+          failures.push(`${u.id}: ${message}`);
+          console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, message);
         }
       }
       console.log(`[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`);
+      if (failures.length > 0) {
+        throw new Error(`[memory:worker] drift_health_check failures: ${failures.join("; ")}`);
+      }
       return { checked, breached };
     }
     default: {
