@@ -1,17 +1,21 @@
 # Milestone status
 
-- 1 — Scaffold
-- 2 — Auth + first Railway deploy
-- 3 — Replicache MVP
-- 4 — Realtime stack (outbox → Redis → SSE)
-- 5 — Durable agent runtime
-- 6 — Cost metering
-- 7 — Gmail integration end-to-end (7a OAuth+raw ingest, 7b embeddings+search, 7c poll+webhook code; push-notification webhook now active in production, with the 5-min poll sweep as fallback)
-- 8 — Memory primitives
-- 9 — Email triage workflow (9a schema + Gmail label plumbing, 9b classifier + workflow, 9c trigger from poll_history, 9d smoke-triage)
-- 10 — Morning briefing workflow (10-pre per-feature scope sets + requireScopes; 10a email_sends + notify(); 10b morning-briefing workflow; 10c hourly briefing.tick + tz resolution; 10d smoke-briefing). Inbox-only at v1; calendar deferred.
-- 11 — Cold-start research at signup (11a research call on `getSubAgentModel()` driving a web-search tool + cheap-tier extraction on `getCheapModel()`, both wired through `meteredGenerateText`; 11b `packages/api/src/modules/cold-start/` — signal collector, research call, cheap-tier extractor, dedup; 11c `cold-start-research` builtin workflow with steps `gather-signals` → `research` → `extract-facts` → `persist`; 11d trigger from `google-routes.ts` `/callback` gated by `hasPriorColdStartRun` so a re-connect doesn't re-run; 11e `smoke-cold-start.ts`). Signals are extensible per-integration — Google contributes `accountEmail` today; future GitHub/etc. integrations plug into `collectColdStartSignals` without workflow change. v1 trigger fires from the OAuth callback because Google is currently the only integration that contributes signals beyond the user row; revisit once another integration lands.
-- 12 — Skills + user-authored workflows: authoring surface + trigger dispatch only; execution deferred to m13 per ADR-0017 + ADR-0027. Brief-only authoring (no DAG editor), `cron` + `manual` triggers live, `event`/`on_signal` UI-disabled until m13. The planned failed-run execution stub was scoped out before ship; pre-m13 user-authored dispatches threw on registry miss before inserting an `agent_runs` row. See [`CONTEXT.md`](../../CONTEXT.md) for the locked m12 scope and ADR-0027 for the trigger-dispatch design.
-- 13 — Boss + sub-agent orchestration. Fills m12's user-authored execution gap. Builds the tool registry + tool dispatcher + `system.load_integration` + `AlfredAgent`→runtime bridge + sub-agent spawning + `event`/`on_signal` dispatchers all in one pass (ADRs 0016, 0026, 0040).
-- 14 — MCP client
-- 15 — Observability
+Current as of 2026-06-27. The original milestone plan is in [`docs/plans/scaffolding-plan.md`](../plans/scaffolding-plan.md); ADR implementation details live in [`decisions.md`](../../decisions.md).
+
+| Milestone | Status | Notes |
+|---|---|---|
+| 1 — Scaffold | Shipped | pnpm/Turbo monorepo, `@alfred/*` packages, server/web apps, `/health`. |
+| 2 — Auth + first Railway deploy | Shipped | Current auth path is Better Auth Google OAuth + one-email allowlist. Email OTP/passkey are not live sign-in methods. |
+| 3 — Replicache MVP | Shipped | Push/pull/CVR/poke and multi-device sync path are in place. |
+| 4 — Realtime stack | Shipped | Postgres outbox, Redis Pub/Sub, SSE replay, and Replicache poke bridge. |
+| 5 — Durable agent runtime | Shipped | `agent_runs`, step checkpointing, BullMQ workers, resume/idempotency pattern. |
+| 6 — Cost metering | Shipped | `metered()` wrappers, `api_call_log`, `model_prices`, Langfuse export. |
+| 7 — Gmail integration end-to-end | Shipped | Google OAuth, Gmail ingest, embeddings/search, labels, webhook + polling fallback. |
+| 8 — Memory primitives | Shipped | Facts, memory chunks, style profiles, extraction/correction primitives. |
+| 9 — Email triage workflow | Shipped, evolving | Triage has moved beyond the original m9 classifier into sender context, todo suggestions, and durable decision traces. See [`triage.md`](./triage.md). |
+| 10 — Morning briefing workflow | Shipped, evolving | Briefing now uses the open-loop model with email/calendar/activity contributors. See [`briefing.md`](./briefing.md). |
+| 11 — Cold-start research | Shipped v2 | One lifetime-once onboarding run; current path uses the agent harness over grounded Gemini web search, not the stranded Perplexity-only path. See [`cold-start.md`](./cold-start.md). |
+| 12 — Skills + user-authored workflows | Shipped | Authoring surface, workflow CRUD/sync, cron/manual dispatch, settings toggle. User-authored execution gap was closed by m13. |
+| 13 — Boss + sub-agent orchestration | Shipped | Tool registry, dispatch gates, `AlfredAgent` bridge, sub-agent spawning/join wake, action staging/HIL, event/on-signal dispatch. |
+| 14 — MCP client | Deferred | Preview/catalog copy exists, but no backend MCP client/tool import path is implemented. |
+| 15 — Observability polish | Partial | Sentry, PostHog, Langfuse, served-model metering, tool spans, and decision traces exist. Remaining work is productized trace/drift surfaces rather than basic instrumentation. |
