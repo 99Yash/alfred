@@ -222,7 +222,7 @@ type PersistMessageResult =
  * `@alfred/mailer`. Lazily resolved + cached for the process.
  */
 let _selfSenderEmail: string | null | undefined;
-function selfSenderEmail(): string | null {
+export function selfSenderEmail(): string | null {
   if (_selfSenderEmail === undefined) {
     _selfSenderEmail = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
   }
@@ -238,7 +238,7 @@ function selfSenderEmail(): string | null {
  * amplifying loop (issue #211). Self-mail carries no signal Alfred didn't
  * itself author, so we drop it before it becomes a `documents` row.
  */
-function isSelfAuthored(from: string | null): boolean {
+export function isSelfAuthored(from: string | null): boolean {
   const self = selfSenderEmail();
   return self !== null && parseEmailAddress(from) === self;
 }

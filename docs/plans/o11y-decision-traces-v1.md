@@ -1,6 +1,6 @@
 # Observability: background-workflow decision traces + drift metrics (#219)
 
-**Status:** PR-A implemented (decision traces, 2026-06-27); PR-B pending (drift metrics). Completes the decision-trace half of #219. Recommends a future ADR when the full #219 substrate lands.
+**Status:** PR-A implemented (decision traces, 2026-06-27); PR-B implemented (drift metrics, 2026-06-27). Completes #219. Recommends a future ADR when the full #219 substrate lands.
 **Deps:** #214 (tool spans, done), #215 (I/O capture, done), #226 (trace envelope, done).
 **Sibling:** the user-model epic #218 — this is the measurability substrate it tunes against.
 
@@ -163,9 +163,11 @@ than standing up a 9th worker:
    inlining a fourth copy.
 2. **`attention_share_7d`** (acceptance, required) — `count(category IN
    (urgent, action_needed) in 7d) / count(all classified in 7d)`. Uses the existing
-   `email_triage_user_category_idx`. **Threshold: > 0.20 → breach** (#210 cited 26%).
-3. **`todo_dismiss_done_ratio`** (cheap add) — `dismissed:done` over 7d
-   (`todos.status` + `completed_at`). Issue cites 41:1. Informational; high threshold.
+   `email_triage_user_category_idx`. **Threshold: total ≥ 10 and share > 0.20 → breach**
+   (#210 cited 26%).
+3. **`todo_dismiss_done_ratio`** (cheap add) — Alfred-authored `dismissed:done` over 7d
+   (`todos.created_by='agent'`, `todos.status` + `completed_at`). Issue cites 41:1.
+   Informational; high threshold.
 4. **Briefing-loop resurface count** — *deferred to v1.1*: `previouslySurfaced` is a
    computed gather flag, not a column, and tangled with #283 dedup. Log the deferral.
 
@@ -175,10 +177,30 @@ than standing up a 9th worker:
   `health_alert` (and document its key convention in the `notifications` schema doc) —
   `notify()` won't type-check otherwise.
 - On any breach, `notify()` a `health_alert` email to the operator, idempotency-keyed
-  `health_alert:{userId}:{metric}:{YYYY-MM-DD}` (≤1 alert/metric/day). Normal runs silent.
+  `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}` (≤1 alert/metric/local day).
+  A failed send is retryable; normal runs are silent.
 - Thresholds are module constants (single-user); noted as tunable.
 - Folding a health line into the briefing's unused `auditSummary` field is a deferred
   nicety — keeps drift-audit decoupled from briefing compose for v1.
+
+### Implementation notes (PR-B, as built)
+
+- `drift_metrics.value` is `real`; `detail` jsonb carries `{ threshold, breached, ... }`
+  alongside the per-metric numerator/denominator. Migration `0070`.
+- `self_ingestion_count` is windowed to `7d` on `documents.created_at` (ingestion
+  time, so a regression shows regardless of the email's own date) — `window_label`
+  is `7d`, not null. The shared `selfSenderEmail()` now lives in
+  `@alfred/integrations/google` (exported from `ingestor.ts`), reused by the
+  ingestion guard, the backfill script, and this metric — no fourth copy.
+- `todo_dismiss_done_ratio` filters to `created_by='agent'`, windows `done` on
+  `completed_at` and `dismissed` on `updated_at` (no dedicated dismissed timestamp);
+  `done === 0` falls back to the raw dismissed count so the ratio never divides by zero.
+  Informational, high bar.
+- `runDriftHealthCheck` is best-effort per metric and per snapshot write — a single
+  failing query never sinks the sweep — and pushes one `health_alert` email per
+  breached metric, idempotency-keyed
+  `health_alert:{userId}:{metric}:{YYYY-MM-DD-in-user-tz}`. Failed alert sends are
+  rethrown so BullMQ retries the push instead of silently losing the breach.
 
 ## Phasing
 

@@ -4,6 +4,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
+import { runDriftHealthCheck } from "../drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
 import { toMessage } from "@alfred/contracts";
 
@@ -21,7 +22,14 @@ export type MemoryJobData =
   /** Direct trigger (manual ad-hoc invocation) — single-user fan-out. */
   | { kind: "memory.extract.run"; userId: string }
   /** Repeatable: backfill embeddings for memory_chunks written without one. */
-  | { kind: "memory.embed_sweep" };
+  | { kind: "memory.embed_sweep" }
+  /**
+   * Repeatable: drift / invariant health check (#219 PR-B). Folded into this
+   * queue rather than a 9th worker — it sweeps the same `documents`/`email_triage`
+   * data the daily extraction already reads, so a dedicated worker would buy ~$0
+   * of Railway compute while costing persistent Redis connections.
+   */
+  | { kind: "memory.drift_health_check" };
 
 let _queue: Queue<MemoryJobData> | undefined;
 let _worker: Worker<MemoryJobData> | undefined;
@@ -114,6 +122,24 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
         `[memory:worker] memory.embed_sweep candidates=${candidates.length} succeeded=${succeeded} failed=${failed}`,
       );
       return { candidates: candidates.length, succeeded, failed };
+    }
+    case "memory.drift_health_check": {
+      // Single-user today; the per-user fan-out carries us forward. Each user's
+      // check is best-effort — one failing user never sinks the others.
+      const users = await db().select({ id: userTable.id }).from(userTable);
+      let checked = 0;
+      let breached = 0;
+      for (const u of users) {
+        try {
+          const result = await runDriftHealthCheck(u.id);
+          checked++;
+          breached += result.breached.length;
+        } catch (err) {
+          console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, toMessage(err));
+        }
+      }
+      console.log(`[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`);
+      return { checked, breached };
     }
     default: {
       const _exhaustive: never = data;

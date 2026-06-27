@@ -45,6 +45,7 @@ import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { documents, emailTriage, user as userTable } from "@alfred/db/schemas";
+import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 /**
@@ -63,18 +64,6 @@ function parseTargetEmails(): string[] {
 const TARGET_EMAILS = parseTargetEmails();
 
 const COMMIT = process.argv.includes("--commit");
-
-/** Bare `local@domain` from `RESEND_FROM_EMAIL` — the SSOT for Alfred's identity.
- *  Address parsing is shared with the ingestion guard via
- *  `parseEmailAddress` (@alfred/contracts), so the candidate→exact match here
- *  retires exactly the set the runtime filter now drops. */
-function selfSenderEmail(): string {
-  const addr = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
-  if (!addr) {
-    throw new Error(`RESEND_FROM_EMAIL has no parseable address: ${serverEnv().RESEND_FROM_EMAIL}`);
-  }
-  return addr;
-}
 
 async function processUser(u: { userId: string; email: string }, selfAddr: string): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
@@ -182,7 +171,12 @@ async function processUser(u: { userId: string; email: string }, selfAddr: strin
 
 async function main() {
   await warmPool();
+  // Shared with the ingestion guard via `@alfred/integrations/google`, so the
+  // candidate→exact match here retires exactly the set the runtime filter drops.
   const selfAddr = selfSenderEmail();
+  if (!selfAddr) {
+    throw new Error(`RESEND_FROM_EMAIL has no parseable address: ${serverEnv().RESEND_FROM_EMAIL}`);
+  }
   console.log(
     `# Self-mail retirement — mode=${COMMIT ? "COMMIT" : "DRY"} | self=${selfAddr} | targets=${TARGET_EMAILS.join(", ")}`,
   );
