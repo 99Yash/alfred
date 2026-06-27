@@ -1,12 +1,14 @@
 import { db } from "@alfred/db";
 import {
+  agentDecisionTraces,
+  agentRuns,
   documents,
   emailTriage,
   integrationCredentials,
   user,
   type EmailTriage,
 } from "@alfred/db/schemas";
-import { toRecord } from "@alfred/contracts";
+import { sanitizeToolResult, toRecord } from "@alfred/contracts";
 import type {
   AccountPersona,
   SignificanceBand,
@@ -16,6 +18,11 @@ import type {
 } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
+import { normalizeDecisionTraceKey } from "../agent/decision-traces";
+import type { SenderExtractionEvent } from "./sender-extraction-event";
+
+type TriageDbRoot = ReturnType<typeof db>;
+type TriageDbTransaction = Parameters<Parameters<TriageDbRoot["transaction"]>[0]>[0];
 
 /**
  * Persistence helpers for the thread-keyed triage table. The workflow owns
@@ -46,21 +53,22 @@ export function triageThreadLockKey(userId: string, sourceThreadId: string): str
 /**
  * Run `fn` while holding the per-thread advisory lock. Transaction-scoped
  * (`pg_advisory_xact_lock`), released on commit/rollback — concurrent runs for
- * the same thread block here and execute one at a time. `fn` does its own DB +
- * Gmail IO on the pooled `db()` (a separate connection); the open transaction
- * only parks the lock. At single-user scale (worker concurrency 4, pool max 10)
- * holding the lock across the handful of Gmail round-trips is well within the
- * connection budget.
+ * the same thread block here and execute one at a time. DB-only callers can use
+ * the transaction handle to make their writes atomic with each other; callers
+ * that also do Gmail IO may ignore the handle and keep their existing pooled DB
+ * calls while this transaction only parks the lock. At single-user scale
+ * (worker concurrency 4, pool max 10) holding the lock across the handful of
+ * Gmail round-trips is well within the connection budget.
  */
 export async function withTriageThreadLock<T>(
   userId: string,
   sourceThreadId: string,
-  fn: () => Promise<T>,
+  fn: (tx: TriageDbTransaction) => Promise<T>,
 ): Promise<T> {
   const key = triageThreadLockKey(userId, sourceThreadId);
   return db().transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
-    return fn();
+    return fn(tx);
   });
 }
 
@@ -109,6 +117,18 @@ export interface UpsertTriageArgs {
    */
   senderSignificanceBand?: SignificanceBand | null;
   /**
+   * Durable forensic trace for this classifier decision. Written in the same
+   * transaction as the canonical triage row so a worker crash after row write
+   * cannot leave a tag without its "why" record.
+   */
+  decisionTrace?: {
+    stepId: string;
+    attempt: number;
+    kind: "triage.classification";
+    decisionKey?: string;
+    trace: SenderExtractionEvent;
+  };
+  /**
    * Authored timestamp of the message this classification is for. Drives the
    * recency guard: a run for an OLDER message in the thread must not clobber a
    * classification already written for a NEWER one. Concurrent first-touch runs
@@ -145,8 +165,8 @@ export interface UpsertTriageResult {
  * across a category/document change.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriageResult> {
-  return withTriageThreadLock(args.userId, args.sourceThreadId, async () => {
-    const existingRows = await db()
+  return withTriageThreadLock(args.userId, args.sourceThreadId, async (tx) => {
+    const existingRows = await tx
       .select()
       .from(emailTriage)
       .where(
@@ -172,7 +192,17 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
     if (args.authoredAt) {
       const existingDocId = existing?.documentId;
       if (existingDocId && existingDocId !== args.documentId) {
-        const priorAuthoredAt = await getDocumentAuthoredAt(args.userId, existingDocId);
+        const priorRows = await tx
+          .select({ authoredAt: documents.authoredAt })
+          .from(documents)
+          .where(
+            and(
+              eq(documents.id, existingDocId),
+              eq(documents.userId, args.userId),
+              eq(documents.source, "gmail"),
+            ),
+          );
+        const priorAuthoredAt = priorRows[0]?.authoredAt ?? null;
         if (priorAuthoredAt && priorAuthoredAt.getTime() > args.authoredAt.getTime()) {
           return { row: rowToTriage(existing), written: false };
         }
@@ -198,7 +228,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       updatedAt: now,
     };
 
-    const result = await db()
+    const result = await tx
       .insert(emailTriage)
       .values({
         userId: args.userId,
@@ -226,11 +256,62 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       .returning();
     const row = result[0];
     if (!row) {
-      const stored = await getTriage(args.userId, args.sourceThreadId);
+      const storedRows = await tx
+        .select()
+        .from(emailTriage)
+        .where(
+          and(
+            eq(emailTriage.userId, args.userId),
+            eq(emailTriage.sourceThreadId, args.sourceThreadId),
+          ),
+        )
+        .limit(1);
+      const stored = storedRows[0] ? rowToTriage(storedRows[0]) : null;
       if (stored) return { row: stored, written: false };
       throw new Error(
         `[triage] upsert skipped but no stored row for user=${args.userId} thread=${args.sourceThreadId}`,
       );
+    }
+    if (args.decisionTrace) {
+      if (!args.runId) {
+        throw new Error("[triage] decision trace requires a run id");
+      }
+      const runRows = await tx
+        .select({
+          userId: agentRuns.userId,
+          workflowSlug: agentRuns.workflowSlug,
+          currentStep: agentRuns.currentStep,
+          attempt: agentRuns.attempt,
+        })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, args.runId))
+        .limit(1);
+      const run = runRows[0];
+      if (!run) {
+        throw new Error(`[triage] decision trace run not found: ${args.runId}`);
+      }
+      if (
+        run.userId !== args.userId ||
+        run.currentStep !== args.decisionTrace.stepId ||
+        run.attempt !== args.decisionTrace.attempt
+      ) {
+        throw new Error(
+          `[triage] decision trace run mismatch for run=${args.runId} user=${args.userId}`,
+        );
+      }
+      await tx
+        .insert(agentDecisionTraces)
+        .values({
+          runId: args.runId,
+          userId: run.userId,
+          workflowSlug: run.workflowSlug,
+          stepId: args.decisionTrace.stepId,
+          attempt: args.decisionTrace.attempt,
+          kind: args.decisionTrace.kind,
+          decisionKey: normalizeDecisionTraceKey(args.decisionTrace.decisionKey),
+          trace: sanitizeToolResult(args.decisionTrace.trace).value as object,
+        })
+        .onConflictDoNothing();
     }
     return { row: rowToTriage(row), written: true };
   });

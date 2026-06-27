@@ -1,7 +1,10 @@
 import {
   appendArtifactPageInput,
   createArtifactInput,
+  editInstructionInput,
+  forgetInstructionInput,
   isLoadableIntegrationSlug,
+  listInstructionsInput,
   loadIntegrationInput,
   promoteScratchInput,
   readScratchInput,
@@ -28,7 +31,12 @@ import {
 } from "../agent/sub-agents";
 import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
-import { rememberSenderSuppression } from "../memory/standing-instructions";
+import {
+  editStandingInstruction,
+  forgetStandingInstruction,
+  listStandingInstructions,
+  rememberSenderSuppression,
+} from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
@@ -256,6 +264,65 @@ export const systemTools: readonly RegisteredTool[] = [
             runId: ctx.runId,
             stepId: ctx.stepId,
           },
+        },
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "list_instructions",
+    riskTier: "no_risk",
+    description:
+      "List the user's active standing instructions (each with its `factId`, target, effects, and " +
+      "directive). Call this before forgetting or editing one so you target the right `factId`, and " +
+      "to check whether a new request duplicates or conflicts with an existing instruction. The result " +
+      "is capped; if `truncated` is true and the target is unclear, ask the user to narrow it.",
+    inputSchema: listInstructionsInput,
+    execute: async (_input, ctx) => {
+      return await listStandingInstructions(ctx.userId);
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "forget_instruction",
+    riskTier: "no_risk",
+    description:
+      "Remove a standing instruction the user explicitly asked you to drop, by its `factId` (from " +
+      "list_instructions). Non-destructive — the instruction is retired, not erased. If you're not " +
+      "sure which instruction the user means, list them and ask rather than guessing.",
+    inputSchema: forgetInstructionInput,
+    execute: async (input, ctx) => {
+      return await forgetStandingInstruction({
+        userId: ctx.userId,
+        factId: input.factId,
+        reason: input.reason,
+        source: {
+          kind: "tool_call",
+          id: ctx.toolCallId,
+          meta: { runId: ctx.runId, stepId: ctx.stepId },
+        },
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "edit_instruction",
+    riskTier: "no_risk",
+    description:
+      "Reframe an existing standing instruction's wording or display label, by its `factId` (from " +
+      "list_instructions), without changing what it targets. To point an instruction at a different " +
+      "sender, forget the wrong one and remember the right one instead.",
+    inputSchema: editInstructionInput,
+    execute: async (input, ctx) => {
+      return await editStandingInstruction({
+        userId: ctx.userId,
+        factId: input.factId,
+        directive: input.directive,
+        senderLabel: input.senderLabel,
+        source: {
+          kind: "tool_call",
+          id: ctx.toolCallId,
+          meta: { runId: ctx.runId, stepId: ctx.stepId },
         },
       });
     },

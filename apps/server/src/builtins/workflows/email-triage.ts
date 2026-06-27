@@ -19,6 +19,7 @@ import {
   resolveFeatureFlags,
   resolveSenderRelationship,
   resolveTodoSuggestion,
+  senderExtractionEvent,
   todoSuppressionReason,
   senderKeyFor,
   senderPriorWriteKeyFor,
@@ -28,7 +29,6 @@ import {
   upsertTriage,
   type ClassifyAudit,
   type Observations,
-  type SenderContextResult,
   type TriageClassification,
   type TriageDocumentContext,
   type Workflow,
@@ -296,6 +296,40 @@ export const emailTriageWorkflow: Workflow<State> = {
         // Gates the post-classification side effects (hoisted below the if/else
         // so they run on BOTH paths — see #157).
         let written = false;
+        let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
+        let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
+        let standingSuppressionReadFailed = false;
+        let standingSuppressionReadError: string | null = null;
+        const resolveTodoAndStandingSuppression = async () => {
+          const nextTodoSuggestion = resolveTodoSuggestion(
+            classification,
+            ctxData.document.authoredAt,
+          );
+          let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> =
+            null;
+          let nextStandingSuppressionReadFailed = false;
+          let nextStandingSuppressionReadError: string | null = null;
+          if (nextTodoSuggestion) {
+            try {
+              nextStandingSuppression = await findActiveSenderSuppression(ctx.userId, {
+                senderEmail:
+                  senderContextResult.senderAddress ??
+                  metadataString(ctxData.document.metadata, "from"),
+                accountId: ctxData.document.accountId,
+                effect: "block_todo_suggestion",
+              });
+            } catch (err) {
+              nextStandingSuppressionReadFailed = true;
+              nextStandingSuppressionReadError = toMessage(err);
+            }
+          }
+          return {
+            todoSuggestion: nextTodoSuggestion,
+            standingSuppression: nextStandingSuppression,
+            standingSuppressionReadFailed: nextStandingSuppressionReadFailed,
+            standingSuppressionReadError: nextStandingSuppressionReadError,
+          };
+        };
         const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
         if (reusedExistingRow && existing) {
           classification = {
@@ -318,12 +352,18 @@ export const emailTriageWorkflow: Workflow<State> = {
           // (stale-lease reclaim re-enters classify with the same runId), which
           // would otherwise permanently drop the classifier-minted todo (#157).
           written = true;
+          ({
+            todoSuggestion,
+            standingSuppression,
+            standingSuppressionReadFailed,
+            standingSuppressionReadError,
+          } = await resolveTodoAndStandingSuppression());
           await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
         } else {
           // Gather deterministic observations (ADR-0051 §4a) before the model
           // call. All reads are best-effort context; built before the try so
-          // they're available for the sender_extraction log on the fallback
-          // path too. Sender priors are read for bulk/service senders only
+          // they're available for the decision trace on the fallback path too.
+          // Sender priors are read for bulk/service senders only
           // (`senderKeyFor` returns null for humans); known-contact is the
           // human-sender mirror (skip for bots/services — priors cover them).
           observations = await gatherObservations({
@@ -360,8 +400,8 @@ export const emailTriageWorkflow: Workflow<State> = {
             // LLM parse / network failure → default category. Better to
             // ship a low-confidence label than block the message entirely.
             // Persist the exception text in `rationale` so the row itself
-            // tells us why classification fell through — ctx.log only goes
-            // to a transient event stream. `model="fallback"` is non-learnable
+            // tells us why classification fell through — progress events are not
+            // the queryable triage record. `model="fallback"` is non-learnable
             // (senderPriorWriteKeyFor skips it).
             const errMsg = toMessage(err);
             await ctx.log(`classify failed; falling through to default: ${errMsg}`);
@@ -382,11 +422,38 @@ export const emailTriageWorkflow: Workflow<State> = {
             senderContextResult.senderAddress,
           ).catch(() => null);
 
+          // Resolve the todo/suppression fields before the row write so the
+          // durable trace persisted with the row contains the same suppression
+          // facts the side-effect branch below consumes. Logging any read
+          // failure is deferred until after the row+trace transaction commits.
+          ({
+            todoSuggestion,
+            standingSuppression,
+            standingSuppressionReadFailed,
+            standingSuppressionReadError,
+          } = await resolveTodoAndStandingSuppression());
+
+          const decisionTrace =
+            observations == null
+              ? null
+              : senderExtractionEvent({
+                  senderContextResult,
+                  observations,
+                  audit,
+                  classification,
+                  todoSuggested: Boolean(todoSuggestion),
+                  standingSuppression,
+                  standingSuppressionReadFailed,
+                });
+
           // Recency-guarded, advisory-locked upsert. `written` is false when a
           // concurrent run for a strictly-newer message already owns the row —
           // this run lost the race, so it skips the side effects below (they'd
-          // emit signals for a tag that isn't canonical). The apply-label step
-          // converges on the row's canonical message regardless.
+          // emit signals for a tag that isn't canonical). If this run does win,
+          // the decision trace is written in the same transaction as the row so
+          // a crash after the row write cannot leave a tag without its "why".
+          // The apply-label step converges on the row's canonical message
+          // regardless.
           const upserted = await upsertTriage({
             userId: ctx.userId,
             sourceThreadId,
@@ -401,9 +468,20 @@ export const emailTriageWorkflow: Workflow<State> = {
             todoSuggestion: classification.todoSuggestion ?? null,
             todoDecision: classification.todoDecision ?? null,
             senderSignificanceBand: senderSignificance?.band ?? null,
+            decisionTrace: decisionTrace
+              ? {
+                  stepId: "classify",
+                  attempt: ctx.attempt,
+                  kind: "triage.classification",
+                  trace: decisionTrace,
+                }
+              : undefined,
             authoredAt: ctxData.document.authoredAt,
           });
           written = upserted.written;
+          if (written && decisionTrace) {
+            ctx.trace("triage.classification", decisionTrace);
+          }
         }
 
         // Post-classification side effects, hoisted out of the new-classification
@@ -429,6 +507,12 @@ export const emailTriageWorkflow: Workflow<State> = {
           } catch (err) {
             await ctx.log(`inbox.updated publish failed: ${toMessage(err)}`);
           }
+        }
+
+        if (standingSuppressionReadError) {
+          await ctx.log(
+            `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${standingSuppressionReadError}`,
+          );
         }
 
         // Sender-prior histogram write-back (ADR-0051 #2, Phase 2). Learns
@@ -477,29 +561,9 @@ export const emailTriageWorkflow: Workflow<State> = {
         // duplicates, and a failed suggestion is non-fatal — the label + row
         // are the contract. On the reuse path `classification` is reconstructed
         // from the stored row, which carries the same `todoSuggestion`.
-        // Pass the email's send time so relative deadlines ("due tomorrow")
-        // resolve to an absolute date instead of going stale on the rail.
-        const todoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
-        let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
-        let standingSuppressionReadFailed = false;
-        if (todoSuggestion) {
-          try {
-            standingSuppression = await findActiveSenderSuppression(ctx.userId, {
-              senderEmail:
-                senderContextResult.senderAddress ??
-                metadataString(ctxData.document.metadata, "from"),
-              accountId: ctxData.document.accountId,
-              effect: "block_todo_suggestion",
-            });
-          } catch (err) {
-            standingSuppressionReadFailed = true;
-            await ctx.log(
-              `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(
-                err,
-              )}`,
-            );
-          }
-        }
+        // `todoSuggestion` was resolved before the row write, using the email's
+        // send time so relative deadlines ("due tomorrow") resolve to an
+        // absolute date instead of going stale on the rail.
         // Structural disqualifier (the cheap model won't reliably self-apply it):
         // a GitHub PR-review thread with nothing live at stake, or Alfred's own
         // HIL approval mail, mints no rail todo even when the model proposed one.
@@ -545,26 +609,6 @@ export const emailTriageWorkflow: Workflow<State> = {
           } catch (err) {
             await ctx.log(`suggest_todo failed (non-fatal): ${toMessage(err)}`);
           }
-        }
-
-        // Emit only on the new-classification path (the reuse branch has no
-        // observations/audit to report). Logs the observation summary + the
-        // classify audit (first pass, conflict, second pass, floor) so a bad
-        // tag is debuggable without reading the raw email body.
-        if (!reusedExistingRow && observations) {
-          await ctx.log(
-            `triage.sender_extraction ${JSON.stringify(
-              senderExtractionEvent({
-                senderContextResult,
-                observations,
-                audit,
-                classification,
-                todoSuggested: Boolean(todoSuggestion),
-                standingSuppression,
-                standingSuppressionReadFailed,
-              }),
-            )}`,
-          );
         }
 
         await ctx.log(
@@ -757,107 +801,4 @@ async function gatherObservations(args: {
     labelIds,
     signalText,
   });
-}
-
-/**
- * Structured `triage.sender_extraction` log payload. Explicitly typed (not
- * `Record<string, unknown>`) so a field rename or shape drift — this object is
- * JSON-stringified and parsed by downstream tooling — fails the build instead
- * of compiling silently. Field types are derived from the source types so they
- * stay in lockstep.
- */
-interface SenderExtractionEvent {
-  fromKind: SenderContext["fromKind"];
-  bodyActor: SenderContext["bodyActor"] | null;
-  effectiveAuthor: SenderContext["effectiveAuthor"];
-  botSlug: string | null;
-  parserHit: SenderContextResult["parserHit"];
-  senderAddress: SenderContextResult["senderAddress"];
-  senderDomain: SenderContextResult["senderDomain"];
-  persona: AccountPersona | null;
-  senderPriorKey: string | null;
-  senderPriorCounts: Record<string, number>;
-  knownContact: boolean;
-  /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
-  senderRelationship: string | null;
-  threadMessages: number;
-  threadNewest: Observations["thread"]["newestDirection"];
-  gmailImportant: boolean;
-  gmailCategories: string[];
-  contentFlags: Observations["content"];
-  firstPassCategory: TriageCategory | null;
-  firstPassConfidence: number | null;
-  conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
-  secondPassCategory: TriageCategory | null;
-  secondPassFailure: string | null;
-  floorMatched: boolean;
-  floorForced: boolean;
-  finalCategory: TriageCategory;
-  finalConfidence: number;
-  todoSuggested: boolean;
-  standingInstructionSuppressedTodo: boolean;
-  standingInstructionFactId: string | null;
-  standingInstructionEffect: string | null;
-  standingInstructionReadFailed: boolean;
-  /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
-  todoOutcome: string | null;
-  todoNote: string | null;
-}
-
-/**
- * Flatten the observation summary + classify audit into a single structured log
- * line (`triage.sender_extraction`, ADR-0051 — Phase 5 will formalize the
- * event). Enough to debug a bad tag without the raw email body.
- */
-function senderExtractionEvent(args: {
-  senderContextResult: SenderContextResult;
-  observations: Observations;
-  audit: ClassifyAudit | null;
-  classification: TriageClassification;
-  todoSuggested: boolean;
-  standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>>;
-  standingSuppressionReadFailed: boolean;
-}): SenderExtractionEvent {
-  const { context } = args.senderContextResult;
-  const obs = args.observations;
-  const audit = args.audit;
-  return {
-    // sender
-    fromKind: context.fromKind,
-    bodyActor: context.bodyActor ?? null,
-    effectiveAuthor: context.effectiveAuthor,
-    botSlug: context.botSlug ?? null,
-    parserHit: args.senderContextResult.parserHit,
-    senderAddress: args.senderContextResult.senderAddress,
-    senderDomain: args.senderContextResult.senderDomain,
-    // observations
-    persona: obs.persona,
-    senderPriorKey: obs.senderPrior.key,
-    senderPriorCounts: obs.senderPrior.categoryCounts,
-    knownContact: obs.knownContact,
-    senderRelationship: obs.senderRelationship,
-    threadMessages: obs.thread.messageCount,
-    threadNewest: obs.thread.newestDirection,
-    gmailImportant: obs.gmail.important,
-    gmailCategories: obs.gmail.categories,
-    contentFlags: obs.content,
-    // classify audit (null on the fallback/default path)
-    firstPassCategory: audit?.firstPass.category ?? null,
-    firstPassConfidence: audit?.firstPass.confidence ?? null,
-    conflict: audit?.conflict?.kind ?? null,
-    secondPassCategory: audit?.secondPass?.category ?? null,
-    secondPassFailure: audit?.secondPassFailure?.message ?? null,
-    floorMatched: audit?.floorMatched ?? false,
-    floorForced: audit?.floorForced ?? false,
-    // final outcome
-    finalCategory: args.classification.category,
-    finalConfidence: args.classification.confidence,
-    todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
-    standingInstructionFactId: args.standingSuppression?.factId ?? null,
-    standingInstructionEffect: args.standingSuppression?.effect ?? null,
-    standingInstructionReadFailed: args.standingSuppressionReadFailed,
-    todoOutcome: args.classification.todoDecision?.outcome ?? null,
-    todoNote: args.classification.todoDecision?.note ?? null,
-  };
 }

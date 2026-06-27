@@ -1,10 +1,11 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { sanitizeErrorMessage, sanitizeToolResult } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import { agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
 import {
   isTerminalStatus,
@@ -129,6 +130,8 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   // 4) Run the step body outside the commit transaction. Side effects are
   //    deferred via `stageAction` and committed atomically below.
   const staged: StagedAction[] = [];
+  const traces: DecisionTraceRecord[] = [];
+  const seenTraceKeys = new Set<string>();
   const ctx: StepContext<unknown> = {
     runId: run.id,
     userId: run.userId,
@@ -146,6 +149,17 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
         payload: { runId: run.id, step: stepId, message },
       });
     },
+    trace(kind, record, options) {
+      const decisionKey = normalizeDecisionTraceKey(options?.decisionKey);
+      const slot = `${kind}\u0000${decisionKey}`;
+      if (seenTraceKeys.has(slot)) {
+        throw new Error(
+          `[agent] duplicate decision trace kind=${kind} decisionKey=${decisionKey} in step=${stepId}`,
+        );
+      }
+      seenTraceKeys.add(slot);
+      traces.push({ kind, decisionKey, record } as DecisionTraceRecord);
+    },
   };
 
   let result: StepResult<unknown>;
@@ -157,8 +171,9 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
     return { kind: "failed", runId: run.id, error };
   }
 
-  // 5) Commit success in one tx: step row, run row, staged actions, lifecycle event.
-  return await commitStepSuccess(run, stepId, attempt, result, staged);
+  // 5) Commit success in one tx: step row, run row, staged actions, decision
+  //    traces, lifecycle event.
+  return await commitStepSuccess(run, stepId, attempt, result, staged, traces);
 }
 
 /**
@@ -383,6 +398,7 @@ async function commitStepSuccess(
   attempt: number,
   result: StepResult<unknown>,
   staged: StagedAction[],
+  traces: DecisionTraceRecord[],
 ): Promise<RunOutcome> {
   // ADR-0070 §1.1/1.3: every jsonb sink this commit writes — `agent_runs.state`,
   // `agent_runs.transcript`, the step/run `output`, each staged action payload,
@@ -444,6 +460,27 @@ async function commitStepSuccess(
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
       }
+    }
+
+    // Durable decision traces (#219 PR-A). Same poison-strip as every other
+    // jsonb sink above; `(run_id, step_id, attempt, kind, decision_key)` is
+    // unique, so a re-run within the same trace slot is a no-op.
+    if (traces.length > 0) {
+      await tx
+        .insert(agentDecisionTraces)
+        .values(
+          traces.map((t) => ({
+            runId: run.id,
+            userId: run.userId,
+            workflowSlug: run.workflowSlug,
+            stepId,
+            attempt,
+            kind: t.kind,
+            decisionKey: t.decisionKey,
+            trace: sanitizeToolResult(t.record).value as object,
+          })),
+        )
+        .onConflictDoNothing();
     }
 
     if (result.kind === "next") {

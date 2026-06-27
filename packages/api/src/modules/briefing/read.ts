@@ -15,6 +15,10 @@ import { db } from "@alfred/db";
 import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { getSenderSignificanceBatch } from "../memory/significance";
+import {
+  findSenderSuppression,
+  listActiveSuppressionInstructions,
+} from "../memory/standing-instructions";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -32,6 +36,8 @@ import { getSenderSignificanceBatch } from "../memory/significance";
 
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
+/** Metadata-only page size while skipping standing-instruction-suppressed senders. */
+const EMAIL_LIST_SUPPRESSION_PAGE_SIZE = 200;
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
 /**
  * Lookback for the "already surfaced" continuation signal. 16h spans both
@@ -103,6 +109,19 @@ interface ListEmailsSinceArgs {
   limit?: number;
 }
 
+interface EmailListRow {
+  documentId: string;
+  subject: string | null;
+  authoredAt: Date | null;
+  ingestedAt: Date;
+  sourceThreadId: string | null;
+  accountId: string | null;
+  metadata: unknown;
+  contentLength: number;
+  triageCategory: string | null;
+  triageRationale: string | null;
+}
+
 export async function listEmailsSinceWatermark(
   args: ListEmailsSinceArgs,
 ): Promise<EmailListItem[]> {
@@ -117,14 +136,32 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const [rows, surfacedThreadIds] = await Promise.all([
-    db()
+  const [surfacedThreadIds, suppressionInstructions] = await Promise.all([
+    // Anchor the lookback on the run's frozen "until" instant so the signal is
+    // deterministic with the rest of the window, not wall-clock at map time.
+    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
+    // Standing instructions that exclude a sender from briefing priority. The
+    // briefing AGENT composes from THIS list, so the suppression must be applied
+    // here too — `gather` filters its own deterministic payload, but the prose
+    // is written off `list_emails_since`, and without this a suppressed sender
+    // (e.g. one the user just told Alfred to stop surfacing) leaks straight back
+    // into the headline.
+    listActiveSuppressionInstructions(args.userId, "exclude_briefing_priority"),
+  ]);
+
+  const rows: EmailListRow[] = [];
+  const hasSuppression = suppressionInstructions.length > 0;
+  const pageSize = hasSuppression ? Math.max(limit, EMAIL_LIST_SUPPRESSION_PAGE_SIZE) : limit;
+  let offset = 0;
+  while (rows.length < limit) {
+    const page = await db()
       .select({
         documentId: documents.id,
         subject: documents.title,
         authoredAt: documents.authoredAt,
         ingestedAt: documents.ingestedAt,
         sourceThreadId: documents.sourceThreadId,
+        accountId: documents.accountId,
         metadata: documents.metadata,
         contentLength: sql<number>`length(${documents.content})`,
         triageCategory: emailTriage.category,
@@ -139,12 +176,32 @@ export async function listEmailsSinceWatermark(
         ),
       )
       .where(and(...conditions))
-      .orderBy(desc(documents.ingestedAt))
-      .limit(limit),
-    // Anchor the lookback on the run's frozen "until" instant so the signal is
-    // deterministic with the rest of the window, not wall-clock at map time.
-    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
-  ]);
+      .orderBy(desc(documents.ingestedAt), desc(documents.id))
+      .limit(pageSize)
+      .offset(offset);
+
+    if (page.length === 0) break;
+    offset += page.length;
+
+    // Drop suppressed senders before scoring so they neither surface nor skew
+    // the cross-row recurrence signal. Mirrors the same filter in `gather`.
+    for (const row of page) {
+      if (hasSuppression) {
+        const from = toRecord(row.metadata).from;
+        const suppressed = findSenderSuppression(suppressionInstructions, {
+          senderEmail: typeof from === "string" ? from : null,
+          accountId: row.accountId,
+          effect: "exclude_briefing_priority",
+        });
+        if (suppressed) continue;
+      }
+
+      rows.push(row);
+      if (rows.length >= limit) break;
+    }
+
+    if (!hasSuppression || page.length < pageSize) break;
+  }
 
   const metas = rows.map((r) => toRecord(r.metadata));
   const senders = metas.map((meta) => (typeof meta.from === "string" ? meta.from : null));
@@ -294,15 +351,33 @@ export async function readEmailDocument(args: {
       subject: documents.title,
       authoredAt: documents.authoredAt,
       content: documents.content,
+      accountId: documents.accountId,
       metadata: documents.metadata,
     })
     .from(documents)
-    .where(and(eq(documents.id, args.documentId), eq(documents.userId, args.userId)))
+    .where(
+      and(
+        eq(documents.id, args.documentId),
+        eq(documents.userId, args.userId),
+        eq(documents.source, "gmail"),
+      ),
+    )
     .limit(1);
 
   const row = rows[0];
   if (!row) return null;
   const meta = toRecord(row.metadata);
+  const suppressionInstructions = await listActiveSuppressionInstructions(
+    args.userId,
+    "exclude_briefing_priority",
+  );
+  const suppressed = findSenderSuppression(suppressionInstructions, {
+    senderEmail: typeof meta.from === "string" ? meta.from : null,
+    accountId: row.accountId,
+    effect: "exclude_briefing_priority",
+  });
+  if (suppressed) return null;
+
   const full = row.content ?? "";
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;
   return {

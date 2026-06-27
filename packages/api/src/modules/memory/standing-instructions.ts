@@ -1,25 +1,31 @@
+import { createHash } from "node:crypto";
 import {
   STANDING_INSTRUCTION_KEY,
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
   hasSuppressionEffect,
   standingInstructionValueSchema,
+  type ObservationSource,
   type StandingInstructionValue,
   type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { userFacts } from "@alfred/db/schemas";
+import { rejectedInferences, userFacts } from "@alfred/db/schemas";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { insertObservation } from "../user-model/observations";
 import {
   resolveTodosForGmailSender,
   type ResolveTodosForGmailSenderResult,
 } from "../todos/resolve";
-import { recallActiveByKey, type FactRow } from "./facts";
 import { normalizeSenderEmail } from "./sender-email";
+import { valueSignature } from "./signature";
 import { memorySourceSchema, type MemorySource } from "./types";
 
 export { normalizeSenderEmail } from "./sender-email";
+
+export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
 export interface ActiveSuppressionInstruction {
   factId: string;
@@ -119,19 +125,33 @@ export async function rememberSenderSuppression(
     };
   }
 
-  const [row] = await db()
-    .insert(userFacts)
-    .values({
-      userId: parsed.userId,
-      key: STANDING_INSTRUCTION_KEY,
-      value: instruction,
-      confidence: 1,
-      status: "confirmed",
-      source,
-      validFrom: new Date(),
-      validUntil: null,
-    })
-    .returning({ id: userFacts.id });
+  const row = await db().transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: parsed.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: instruction,
+        confidence: 1,
+        status: "confirmed",
+        source,
+        validUntil: null,
+      })
+      .returning({ id: userFacts.id });
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: parsed.userId,
+        operation: "remember",
+        factId: inserted.id,
+        instruction,
+        source,
+      },
+      tx,
+    );
+    return inserted;
+  });
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
   emitReplicachePokes([parsed.userId]);
@@ -155,7 +175,11 @@ export async function listActiveSuppressionInstructions(
   userId: string,
   effect?: SuppressionEffect,
 ): Promise<ActiveSuppressionInstruction[]> {
-  const facts = await recallActiveByKey(userId, STANDING_INSTRUCTION_KEY, { limit: 200 });
+  const facts = await db()
+    .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+    .from(userFacts)
+    .where(activeStandingInstructionsWhere(userId))
+    .orderBy(desc(userFacts.validFrom));
   return facts
     .map(instructionFromFact)
     .filter((instruction): instruction is ActiveSuppressionInstruction => {
@@ -171,6 +195,255 @@ export async function findActiveSenderSuppression(
 ): Promise<SenderSuppressionMatch | null> {
   const instructions = await listActiveSuppressionInstructions(userId, lookup.effect);
   return findSenderSuppression(instructions, lookup);
+}
+
+// ─── Management (user-driven: list / forget / edit) ─────────────────────────
+//
+// These are the chat-surface operations that let the user reshape Alfred's
+// durable instructions in conversation. They are deliberately NOT reachable
+// from background inference: extraction/triage call the fact layer's
+// propose/supersede paths directly and never these — so a passive workflow can
+// never destructively edit or delete what the user told Alfred to remember.
+// "Delete" here is a soft reject (the row is marked `rejected`, never hard
+// deleted); "edit" supersedes the old row with a new one (reversible chain).
+// Each successful mutation also appends a `user_standing_instruction`
+// observation in the same transaction so ADR-0067's observation log can replay
+// this surface even while `user_facts` remains the live projection.
+
+/** One active standing instruction, flattened for the model to reference by `factId`. */
+export interface StandingInstructionSummary {
+  factId: string;
+  action: StandingInstructionValue["action"];
+  target: StandingInstructionValue["target"];
+  effects: StandingInstructionValue["effects"];
+  directive: string;
+  validFrom: Date;
+}
+
+export interface StandingInstructionListResult {
+  instructions: StandingInstructionSummary[];
+  totalActive: number;
+  truncated: boolean;
+  limit: number;
+}
+
+export type ForgetStandingInstructionResult =
+  | { ok: true; status: "forgotten"; factId: string; instruction: StandingInstructionValue }
+  | { ok: false; status: "not_found" };
+
+export type EditStandingInstructionResult =
+  | {
+      ok: true;
+      status: "edited";
+      factId: string;
+      previousFactId: string;
+      instruction: StandingInstructionValue;
+    }
+  | { ok: true; status: "unchanged"; factId: string; instruction: StandingInstructionValue }
+  | { ok: false; status: "not_found" };
+
+export const editStandingInstructionArgsSchema = z.object({
+  userId: z.string().min(1),
+  factId: z.string().min(1),
+  directive: z.string().nullish(),
+  senderLabel: z.string().nullish(),
+  source: memorySourceSchema.optional(),
+});
+export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
+
+/** Currently-active standing instructions for model management, newest first and capped. */
+export async function listStandingInstructions(
+  userId: string,
+): Promise<StandingInstructionListResult> {
+  const instructions = await listActiveSuppressionInstructions(userId);
+  const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
+  return {
+    instructions: capped.map(summarizeStandingInstruction),
+    totalActive: instructions.length,
+    truncated: instructions.length > capped.length,
+    limit: STANDING_INSTRUCTION_LIST_LIMIT,
+  };
+}
+
+function summarizeStandingInstruction(
+  instruction: ActiveSuppressionInstruction,
+): StandingInstructionSummary {
+  return {
+    factId: instruction.factId,
+    action: instruction.value.action,
+    target: instruction.value.target,
+    effects: instruction.value.effects,
+    directive: instruction.value.directive,
+    validFrom: instruction.validFrom,
+  };
+}
+
+/**
+ * Active lookup by id. Returns null when the id is unknown, belongs to another
+ * user, points at a non-instruction fact, or is already retired — so the
+ * management tools only ever touch the current standing instruction the model
+ * saw in `list_instructions`, never an arbitrary/stale `user_facts` row.
+ */
+async function loadOwnedStandingInstruction(
+  userId: string,
+  factId: string,
+): Promise<{ value: StandingInstructionValue } | null> {
+  const [row] = await db()
+    .select({ value: userFacts.value })
+    .from(userFacts)
+    .where(activeStandingInstructionWhere(userId, factId))
+    .limit(1);
+  if (!row) return null;
+  const parsed = standingInstructionValueSchema.safeParse(row.value);
+  return parsed.success ? { value: parsed.data } : null;
+}
+
+/** Soft-remove a standing instruction the user explicitly asked to drop. */
+export async function forgetStandingInstruction(args: {
+  userId: string;
+  factId: string;
+  reason?: string | null;
+  source?: MemorySource;
+}): Promise<ForgetStandingInstructionResult> {
+  const forgotten = await db().transaction(async (tx) => {
+    const [old] = await tx
+      .select({ value: userFacts.value })
+      .from(userFacts)
+      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .limit(1);
+    if (!old) return null;
+
+    const parsed = standingInstructionValueSchema.safeParse(old.value);
+    if (!parsed.success) return null;
+
+    const [row] = await tx
+      .update(userFacts)
+      .set({
+        status: "rejected",
+        validUntil: sql`now()`,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .returning({ id: userFacts.id });
+    if (!row) return null;
+
+    await tx
+      .insert(rejectedInferences)
+      .values({
+        userId: args.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        valueSignature: valueSignature(parsed.data),
+        proposedFactId: args.factId,
+        reason: args.reason ?? null,
+      })
+      .onConflictDoNothing();
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: "forget",
+        factId: args.factId,
+        instruction: parsed.data,
+        reason: args.reason ?? null,
+        source: args.source,
+      },
+      tx,
+    );
+
+    return parsed.data;
+  });
+  if (!forgotten) return { ok: false, status: "not_found" };
+
+  emitReplicachePokes([args.userId]);
+  return { ok: true, status: "forgotten", factId: args.factId, instruction: forgotten };
+}
+
+/** Reframe an instruction's directive/label, superseding the old row with a new one. */
+export async function editStandingInstruction(
+  args: EditStandingInstructionArgs,
+): Promise<EditStandingInstructionResult> {
+  const parsed = editStandingInstructionArgsSchema.parse(args);
+  const existing = await loadOwnedStandingInstruction(parsed.userId, parsed.factId);
+  if (!existing) return { ok: false, status: "not_found" };
+
+  const nextDirective = normalizeOptionalLabel(parsed.directive);
+  // `phrasing` is verbatim user provenance — a reframe of the directive never
+  // rewrites it. The label is editable, including clearing it (null).
+  const nextLabel =
+    parsed.senderLabel === undefined
+      ? existing.value.target.label
+      : normalizeOptionalLabel(parsed.senderLabel);
+
+  const nextValue = standingInstructionValueSchema.parse({
+    ...existing.value,
+    directive: nextDirective ?? existing.value.directive,
+    target: { ...existing.value.target, label: nextLabel },
+  });
+
+  if (
+    nextValue.directive === existing.value.directive &&
+    nextValue.target.label === existing.value.target.label
+  ) {
+    return {
+      ok: true,
+      status: "unchanged",
+      factId: parsed.factId,
+      instruction: existing.value,
+    };
+  }
+
+  const edited = await db().transaction(async (tx) => {
+    const [row] = await tx
+      .update(userFacts)
+      .set({
+        status: "edited",
+        validUntil: sql`now()`,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(activeStandingInstructionWhere(parsed.userId, parsed.factId))
+      .returning({ id: userFacts.id });
+    if (!row) return null;
+
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: parsed.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value: nextValue,
+        confidence: 1,
+        status: "confirmed",
+        source: parsed.source ?? { kind: "user" },
+        validFrom: sql`now()`,
+        validUntil: null,
+        supersedesId: parsed.factId,
+      })
+      .returning({ id: userFacts.id });
+    if (!inserted) return null;
+
+    await appendStandingInstructionObservation(
+      {
+        userId: parsed.userId,
+        operation: "edit",
+        factId: inserted.id,
+        previousFactId: parsed.factId,
+        instruction: nextValue,
+        previousInstruction: existing.value,
+        source: parsed.source,
+      },
+      tx,
+    );
+    return inserted;
+  });
+  if (!edited) return { ok: false, status: "not_found" };
+
+  emitReplicachePokes([parsed.userId]);
+  return {
+    ok: true,
+    status: "edited",
+    factId: edited.id,
+    previousFactId: parsed.factId,
+    instruction: nextValue,
+  };
 }
 
 export function findSenderSuppression(
@@ -193,7 +466,25 @@ export function findSenderSuppression(
   return null;
 }
 
-function instructionFromFact(fact: FactRow): ActiveSuppressionInstruction | null {
+function activeStandingInstructionWhere(userId: string, factId: string) {
+  return and(eq(userFacts.id, factId), activeStandingInstructionsWhere(userId));
+}
+
+function activeStandingInstructionsWhere(userId: string) {
+  return and(
+    eq(userFacts.userId, userId),
+    eq(userFacts.key, STANDING_INSTRUCTION_KEY),
+    eq(userFacts.status, "confirmed"),
+    lte(userFacts.validFrom, sql`now()`),
+    or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
+  );
+}
+
+function instructionFromFact(fact: {
+  id: string;
+  value: unknown;
+  validFrom: Date;
+}): ActiveSuppressionInstruction | null {
   const parsed = standingInstructionValueSchema.safeParse(fact.value);
   if (!parsed.success) return null;
   return {
@@ -201,6 +492,58 @@ function instructionFromFact(fact: FactRow): ActiveSuppressionInstruction | null
     value: parsed.data,
     validFrom: fact.validFrom,
   };
+}
+
+type StandingInstructionObservationOperation = "remember" | "edit" | "forget";
+
+async function appendStandingInstructionObservation(
+  args: {
+    userId: string;
+    operation: StandingInstructionObservationOperation;
+    factId: string;
+    previousFactId?: string | null;
+    instruction: StandingInstructionValue;
+    previousInstruction?: StandingInstructionValue | null;
+    reason?: string | null;
+    source?: MemorySource;
+  },
+  tx: Parameters<typeof insertObservation>[1],
+): Promise<void> {
+  const source = args.source ?? { kind: "user" as const };
+  const payload = {
+    operation: args.operation,
+    factId: args.factId,
+    previousFactId: args.previousFactId ?? null,
+    instruction: args.instruction,
+    previousInstruction: args.previousInstruction ?? null,
+    reason: args.reason ?? null,
+    source,
+  };
+  const evidenceHash = hashJson(payload);
+
+  await insertObservation(
+    {
+      userId: args.userId,
+      source: observationSourceForMemorySource(source),
+      kind: "user_standing_instruction",
+      occurredAt: new Date(),
+      familyKey: `standing_instruction:${args.operation}:${args.factId}:${evidenceHash.slice(0, 32)}`,
+      evidenceHash,
+      subjectIdentity: { kind: "user" },
+      payload,
+      schemaVersion: 1,
+      reducerVersion: 1,
+    },
+    tx,
+  );
+}
+
+function observationSourceForMemorySource(source: MemorySource): ObservationSource {
+  return source.kind === "user" ? "user" : "alfred_chat";
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function normalizeOptionalLabel(value: string | null | undefined): string | null {

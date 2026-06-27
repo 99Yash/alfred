@@ -176,7 +176,7 @@ export interface AssembleObservationsArgs {
 
 /**
  * Assemble the full observation object. Pure and order-stable so it can be
- * snapshot-tested and diffed in the `triage.sender_extraction` log.
+ * snapshot-tested and diffed in the `triage.classification` decision trace.
  */
 export function assembleObservations(args: AssembleObservationsArgs): Observations {
   return {

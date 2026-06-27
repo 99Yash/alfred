@@ -109,11 +109,16 @@ const CASES: Case[] = [
   // --- seeded from real dev-DB chat tasks ---
   { input: "what's on my calendar tomorrow?", expected: "calendar.list_events", home: "calendar" },
   {
-    input: "how many lines of code did PR #305 in 99Yash/alfred change? give me additions and deletions",
+    input:
+      "how many lines of code did PR #305 in 99Yash/alfred change? give me additions and deletions",
     expected: "github.get_pull_request",
     home: "github",
   },
-  { input: "what PRs were merged on github in the last 30 hours?", expected: "github.search", home: "github" },
+  {
+    input: "what PRs were merged on github in the last 30 hours?",
+    expected: "github.search",
+    home: "github",
+  },
   { input: "list my open github issues", expected: "github.search", home: "github" },
   {
     input: "search the web for today's top AI news and give me one headline",
@@ -126,10 +131,18 @@ const CASES: Case[] = [
     home: null,
   },
   // --- cross-integration confusables (where a bloated menu should bite) ---
-  { input: "what meetings do I have on Friday?", expected: "calendar.list_events", home: "calendar" },
+  {
+    input: "what meetings do I have on Friday?",
+    expected: "calendar.list_events",
+    home: "calendar",
+  },
   { input: "search my email for the invoice from Stripe", expected: "gmail.search", home: "gmail" },
   { input: "search my notion for the launch checklist", expected: "notion.search", home: "notion" },
-  { input: "find the Q3 budget spreadsheet in my drive", expected: "drive.search_files", home: "drive" },
+  {
+    input: "find the Q3 budget spreadsheet in my drive",
+    expected: "drive.search_files",
+    home: "drive",
+  },
   // NOTE: list_deployments/redeploy need a projectId first, so the correct
   // first move is list_projects — expectations target that, not the action that
   // can only run after an id lookup (avoids a false "miss" unrelated to bloat).

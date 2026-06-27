@@ -8,10 +8,19 @@
  * off on the proposed message. Requires the `gmail.send` scope.
  */
 
-import { gmailReadMessageInput, gmailSearchInput, gmailSendDraftInput } from "@alfred/contracts";
+import {
+  GMAIL_SEARCH_SNIPPET_MAX_CHARS,
+  getPath,
+  gmailReadMessageInput,
+  gmailSearchInput,
+  gmailSearchResultSchema,
+  gmailSendDraftInput,
+  isNonEmptyString,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import {
+  type ExtractedMessage,
   extractMessageContent,
   getFreshAccessToken,
   getMessage,
@@ -76,15 +85,33 @@ async function pickGmailCredentialId(
   return scoped.id;
 }
 
+/** Read a string field out of a `documents.metadata` jsonb blob; null when absent/non-string. */
+function metaString(metadata: unknown, key: string): string | null {
+  const value = getPath(metadata, key);
+  return isNonEmptyString(value) ? value : null;
+}
+
+/** Collapse whitespace and cap length so a search hit's preview stays a glanceable one-liner. */
+function truncateSnippet(text: string | null): string | null {
+  if (!text) return null;
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (!collapsed) return null;
+  return collapsed.length > GMAIL_SEARCH_SNIPPET_MAX_CHARS
+    ? `${collapsed.slice(0, GMAIL_SEARCH_SNIPPET_MAX_CHARS - 1)}…`
+    : collapsed;
+}
+
 export const gmailTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "gmail",
     action: "search",
     riskTier: "no_risk",
     description:
-      "Search Gmail messages using Gmail query operators. Returns each hit's `messageId` " +
-      "(pass it straight to gmail.read_message), its `threadId`, and a `documentId` plus cached " +
-      "subject metadata when the message has been ingested (documentId may be null for fresh results).",
+      "Search Gmail messages using Gmail query operators. Each hit carries the headers needed to " +
+      "identify it without a follow-up read: `from` (sender), `subject`, `snippet`, `authoredAt`, " +
+      "plus `messageId`/`threadId` (pass `messageId` straight to gmail.read_message) and a " +
+      "`documentId` when the message has been ingested. Use `from`/`subject` to pick the right hit — " +
+      "don't infer a sender from the query.",
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const credentialId = await pickGmailCredentialId(ctx.userId, GMAIL_READ_SCOPES);
@@ -93,6 +120,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         accessToken,
         q: input.q,
         maxResults: input.maxResults,
+        pageToken: input.pageToken,
       });
       const messageIds = result.messages.map((m) => m.id).filter((id) => id.length > 0);
       const cachedRows =
@@ -104,6 +132,7 @@ export const gmailTools: readonly RegisteredTool[] = [
                 title: documents.title,
                 authoredAt: documents.authoredAt,
                 url: documents.url,
+                metadata: documents.metadata,
               })
               .from(documents)
               .where(
@@ -119,20 +148,48 @@ export const gmailTools: readonly RegisteredTool[] = [
           .filter((row) => row.sourceId !== null)
           .map((row) => [row.sourceId!, row] as const),
       );
-      return {
+
+      // Gmail's `messages.list` returns only id + threadId per hit — no sender,
+      // subject, or date. For ingested messages we backfill those from the
+      // local `documents` cache for free (no extra API call). For fresh hits
+      // not yet ingested, the cache misses and the model would otherwise get a
+      // bare id with no way to tell which hit is which — so it picks blind or
+      // gives up. Fetch the headers live (metadata format = headers + snippet,
+      // no body) for just the uncached ids so every hit is identifiable. Best
+      // effort and bounded by the `gmail.search` contract's maxResults cap; a
+      // failed fetch leaves nulls rather than failing the search.
+      const uncachedIds = messageIds.filter((id) => !cachedBySourceId.has(id));
+      const liveBySourceId = new Map<string, ExtractedMessage>();
+      if (uncachedIds.length > 0) {
+        const settled = await Promise.allSettled(
+          uncachedIds.map((id) => getMessage({ accessToken, id, format: "metadata" })),
+        );
+        for (const outcome of settled) {
+          if (outcome.status === "fulfilled") {
+            liveBySourceId.set(outcome.value.id, extractMessageContent(outcome.value));
+          }
+        }
+      }
+
+      return gmailSearchResultSchema.parse({
         messages: result.messages.map((m) => {
           const cached = cachedBySourceId.get(m.id);
+          const live = liveBySourceId.get(m.id);
+          const fromMeta = cached ? metaString(cached.metadata, "from") : null;
+          const snippetMeta = cached ? metaString(cached.metadata, "snippet") : null;
           return {
             messageId: m.id,
             threadId: m.threadId,
             documentId: cached?.id ?? null,
-            subject: cached?.title ?? null,
-            authoredAt: cached?.authoredAt?.toISOString() ?? null,
+            from: fromMeta ?? live?.from ?? null,
+            subject: cached?.title ?? live?.subject ?? null,
+            snippet: truncateSnippet(snippetMeta ?? live?.body ?? null),
+            authoredAt: (cached?.authoredAt ?? live?.date)?.toISOString() ?? null,
             url: cached?.url ?? null,
           };
         }),
         nextPageToken: result.nextPageToken ?? null,
-      };
+      });
     },
   }),
   liveTool({
