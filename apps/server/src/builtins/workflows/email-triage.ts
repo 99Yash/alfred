@@ -470,7 +470,6 @@ export const emailTriageWorkflow: Workflow<State> = {
             senderSignificanceBand: senderSignificance?.band ?? null,
             decisionTrace: decisionTrace
               ? {
-                  workflowSlug: TRIAGE_WORKFLOW_SLUG,
                   stepId: "classify",
                   attempt: ctx.attempt,
                   kind: "triage.classification",

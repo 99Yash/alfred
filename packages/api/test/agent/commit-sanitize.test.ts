@@ -14,6 +14,7 @@ import {
   registerWorkflow,
 } from "../../src/modules/agent/registry";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
+import type { SenderExtractionEvent } from "../../src/modules/triage";
 
 /**
  * DB-backed regression for the ADR-0070 §1.1/§1.3 executor-sink gap (PR review
@@ -41,6 +42,51 @@ interface TestState {
   marker: string;
 }
 
+function traceFixture(senderRelationship: string): SenderExtractionEvent {
+  return {
+    fromKind: "unknown",
+    bodyActor: null,
+    effectiveAuthor: "unknown",
+    botSlug: null,
+    parserHit: null,
+    senderAddress: null,
+    senderDomain: null,
+    persona: null,
+    senderPriorKey: null,
+    senderPriorCounts: {},
+    knownContact: false,
+    senderRelationship,
+    threadMessages: 1,
+    threadNewest: "received",
+    gmailImportant: false,
+    gmailCategories: [],
+    contentFlags: {
+      hasUnsubscribe: false,
+      hasCurrencyAmount: false,
+      hasSecurityKeyword: false,
+      hasCalendarInvite: false,
+      hasInvestorNotice: false,
+      hasPublicEventLanguage: false,
+    },
+    firstPassCategory: null,
+    firstPassConfidence: null,
+    conflict: null,
+    secondPassCategory: null,
+    secondPassFailure: null,
+    floorMatched: false,
+    floorForced: false,
+    finalCategory: "fyi",
+    finalConfidence: 0.5,
+    todoSuggested: false,
+    standingInstructionSuppressedTodo: false,
+    standingInstructionFactId: null,
+    standingInstructionEffect: null,
+    standingInstructionReadFailed: false,
+    todoOutcome: null,
+    todoNote: null,
+  };
+}
+
 /**
  * Two-step workflow whose every jsonb sink carries poison: `next` (state +
  * transcript + a staged action payload), then `done` (state + output +
@@ -62,13 +108,11 @@ const poisonWorkflow: Workflow<TestState> = {
           payload: { body: `staged${NUL}payload`, nested: { x: `s${LONE_SURROGATE}` } },
           idempotencyKey: `${ctx.runId}:staged`,
         });
-        // Decision-trace sink (ADR-0077) — same poison-strip path as the others.
-        // The cast keeps this focused on the persistence mechanism; TS guards the
-        // SenderExtractionEvent shape at the real triage producer, not here.
-        ctx.trace("triage.classification", { senderRelationship: `rel${NUL}poison` } as never);
+        // Decision-trace sink (#219 PR-A) — same poison-strip path as the others.
+        ctx.trace("triage.classification", traceFixture(`rel${NUL}poison`));
         ctx.trace(
           "triage.classification",
-          { senderRelationship: `secondary${LONE_SURROGATE}poison` } as never,
+          traceFixture(`secondary${LONE_SURROGATE}poison`),
           { decisionKey: "secondary" },
         );
         const transcript: AgentTranscriptMessage[] = [
@@ -156,7 +200,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
 
     // The decision trace is persisted on the `next` commit, keyed to the step,
-    // with its jsonb poison stripped (ADR-0077).
+    // with its jsonb poison stripped (#219 PR-A).
     const tr = await db()
       .select({
         userId: agentDecisionTraces.userId,
