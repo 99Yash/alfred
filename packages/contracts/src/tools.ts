@@ -37,6 +37,9 @@ export const INTEGRATION_ACTIONS = {
     "write_scratch",
     "promote",
     "remember",
+    "list_instructions",
+    "forget_instruction",
+    "edit_instruction",
     "resolve_todo",
     "suggest_todo",
     "web_search",
@@ -206,6 +209,21 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Remembering an instruction",
     done: "Remembered an instruction",
     title: "remember an instruction",
+  },
+  "system.list_instructions": {
+    running: "Reviewing your standing instructions",
+    done: "Reviewed your standing instructions",
+    title: "review standing instructions",
+  },
+  "system.forget_instruction": {
+    running: "Removing a standing instruction",
+    done: "Removed a standing instruction",
+    title: "remove a standing instruction",
+  },
+  "system.edit_instruction": {
+    running: "Updating a standing instruction",
+    done: "Updated a standing instruction",
+    title: "update a standing instruction",
   },
   "system.resolve_todo": {
     running: "Resolving a to-do",
