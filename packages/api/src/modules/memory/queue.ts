@@ -142,7 +142,9 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, message);
         }
       }
-      console.log(`[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`);
+      console.log(
+        `[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`,
+      );
       if (failures.length > 0) {
         throw new Error(`[memory:worker] drift_health_check failures: ${failures.join("; ")}`);
       }
