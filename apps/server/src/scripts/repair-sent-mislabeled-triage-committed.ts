@@ -124,6 +124,21 @@ function newestInbound(docs: DocRow[]): DocRow | null {
   return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
 }
 
+function newestLiveInbound(
+  docs: DocRow[],
+  liveSourceIds: ReadonlySet<string>,
+  accountId: string | null,
+): DocRow | null {
+  return (
+    docs.find(
+      (d) =>
+        liveSourceIds.has(d.sourceId) &&
+        !isSentGmailMetadata(d.metadata) &&
+        (accountId === null || d.accountId === accountId),
+    ) ?? null
+  );
+}
+
 async function loadCurrentMisPointedRow(
   userId: string,
   threadId: string,
@@ -188,6 +203,7 @@ async function repairCaseA(args: {
   threadId: string;
   originalDocumentId: string;
   originalSourceId: string;
+  userCreds: readonly GoogleCredentialRow[];
 }): Promise<RepairCaseAResult> {
   return withTriageThreadLock(args.userId, args.threadId, async () => {
     const current = await loadCurrentMisPointedRow(args.userId, args.threadId);
@@ -206,21 +222,28 @@ async function repairCaseA(args: {
     }
 
     const docs = await loadThreadDocs(args.userId, args.threadId);
-    const inbound = newestInbound(docs);
-    if (!inbound) return { kind: "stale", reason: "no inbound document remains" };
+    const category: TriageCategory = current.category;
+    const credId = resolveGoogleCredentialId(args.userCreds, current.pointedAccountId);
+    const accessToken = await getFreshAccessToken(credId);
+    const liveMessages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+    const liveSourceIds = new Set(liveMessages.map((m) => m.id));
+    const inbound = newestLiveInbound(docs, liveSourceIds, current.pointedAccountId);
+    if (!inbound) return { kind: "stale", reason: "no live inbound document remains" };
 
     const target = await loadTriageContext(inbound.id, args.userId);
     if (!target) throw new Error(`inbound target document disappeared: ${inbound.id}`);
-    const category: TriageCategory = current.category;
-    const accessToken = await getFreshAccessToken(target.credentialId);
-    const labels = await ensureAlfredLabels(target.credentialId, { accessToken });
-    const targetLabelId = labels.byCategory[category];
-    const alfredLabelIds = new Set(labels.allIds);
-    const liveMessages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+    if (target.credentialId !== credId) {
+      throw new Error(
+        `live inbound target credential mismatch: pointed=${credId} target=${target.credentialId}`,
+      );
+    }
     const targetLiveMessage = liveMessages.find((m) => m.id === target.document.sourceId);
     if (!targetLiveMessage) {
       throw new Error(`inbound target message is not live in Gmail: ${target.document.sourceId}`);
     }
+    const labels = await ensureAlfredLabels(target.credentialId, { accessToken });
+    const targetLabelId = labels.byCategory[category];
+    const alfredLabelIds = new Set(labels.allIds);
 
     const originalLiveMessage = liveMessages.find((m) => m.id === args.originalSourceId);
     const strippedOriginalSent = originalLiveMessage
@@ -417,6 +440,7 @@ async function main() {
             threadId,
             originalDocumentId: row.documentId,
             originalSourceId: row.pointedSourceId,
+            userCreds,
           });
           if (result.kind === "repaired") {
             repaintedA++;
