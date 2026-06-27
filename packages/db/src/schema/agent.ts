@@ -192,6 +192,58 @@ export const pendingActions = pgTable(
 );
 
 /**
+ * Durable, structured "why this decision" records (ADR-0077, closes #219).
+ *
+ * The motivating incidents (#210/#211/#212) were each found by a manual prod
+ * SQL audit — self-ingestion ran ~9 days before a human noticed. The full
+ * structured context that explains a triage tag already exists, but it was
+ * `JSON.stringify`'d into a transient `agent.progress` event, never persisted.
+ * This table is where it lands: one row per traced decision, queryable where
+ * the audits already run.
+ *
+ * Kind-agnostic by design — the executor persists `(kind, trace)` without
+ * inspecting the payload; the typed surface is `ctx.trace`, generic over the
+ * `DecisionTraceRegistry` in `@alfred/api`. `trace` is plain `jsonb` (matching
+ * the variable-shape `pending_actions.payload` / `agent_run_context.value`,
+ * not the fixed-shape `transcript`).
+ *
+ * Forensic, not aggregate: drift metrics read the source-of-truth tables and
+ * raise the flag; these rows explain it when an operator drills in. A retried
+ * attempt writes distinct rows (the `attempt` is part of the unique key), so a
+ * re-run within the same attempt is `onConflictDoNothing`. No retention
+ * machinery v1 (volume ~3k rows/mo; CASCADE cleans up on run/user delete) —
+ * revisit if volume grows.
+ */
+export const agentDecisionTraces = pgTable(
+  "agent_decision_traces",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    /** Denormalized from the run for user-scoped drift slices without a join. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Denormalized from the run to filter traces by workflow. */
+    workflowSlug: text("workflow_slug").notNull(),
+    stepId: text("step_id").notNull(),
+    attempt: integer("attempt").notNull(),
+    /** Registry discriminator, e.g. `triage.classification`. */
+    kind: text("kind").notNull(),
+    /** The structured record (typed per-kind at the `ctx.trace` producer). */
+    trace: jsonb("trace").notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).defaultNow().notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("agent_decision_traces_idem_idx").on(t.runId, t.stepId, t.attempt, t.kind),
+    index("agent_decision_traces_user_kind_idx").on(t.userId, t.kind, t.decidedAt),
+    index("agent_decision_traces_workflow_kind_idx").on(t.workflowSlug, t.kind, t.decidedAt),
+  ],
+);
+
+/**
  * Boss/sub-agent shared state per ADR-0016 namespaced scratchpad.
  * Schema-only at m5 — boss/sub-agent topology lands in m13. Including
  * the table now keeps a future migration small and lets steps read/write
@@ -223,3 +275,4 @@ export type AgentRun = typeof agentRuns.$inferSelect;
 export type AgentStep = typeof agentSteps.$inferSelect;
 export type PendingAction = typeof pendingActions.$inferSelect;
 export type AgentRunContextRow = typeof agentRunContext.$inferSelect;
+export type AgentDecisionTrace = typeof agentDecisionTraces.$inferSelect;

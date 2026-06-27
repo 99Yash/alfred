@@ -484,6 +484,13 @@
       "when": 1782468862115,
       "tag": "0068_lyrical_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1782543332004,
+      "tag": "0069_panoramic_luminals",
+      "breakpoints": true
     }
   ]
 }

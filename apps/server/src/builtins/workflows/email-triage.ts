@@ -19,6 +19,7 @@ import {
   resolveFeatureFlags,
   resolveSenderRelationship,
   resolveTodoSuggestion,
+  senderExtractionEvent,
   todoSuppressionReason,
   senderKeyFor,
   senderPriorWriteKeyFor,
@@ -28,7 +29,6 @@ import {
   upsertTriage,
   type ClassifyAudit,
   type Observations,
-  type SenderContextResult,
   type TriageClassification,
   type TriageDocumentContext,
   type Workflow,
@@ -548,22 +548,23 @@ export const emailTriageWorkflow: Workflow<State> = {
         }
 
         // Emit only on the new-classification path (the reuse branch has no
-        // observations/audit to report). Logs the observation summary + the
-        // classify audit (first pass, conflict, second pass, floor) so a bad
-        // tag is debuggable without reading the raw email body.
+        // observations/audit to report). Persists the observation summary + the
+        // classify audit (first pass, conflict, second pass, floor) as a durable
+        // decision trace (ADR-0077) so a bad tag is debuggable from a prod SQL
+        // audit without the raw email body — replacing the transient
+        // `agent.progress` log that bled this record into nowhere queryable.
         if (!reusedExistingRow && observations) {
-          await ctx.log(
-            `triage.sender_extraction ${JSON.stringify(
-              senderExtractionEvent({
-                senderContextResult,
-                observations,
-                audit,
-                classification,
-                todoSuggested: Boolean(todoSuggestion),
-                standingSuppression,
-                standingSuppressionReadFailed,
-              }),
-            )}`,
+          ctx.trace(
+            "triage.classification",
+            senderExtractionEvent({
+              senderContextResult,
+              observations,
+              audit,
+              classification,
+              todoSuggested: Boolean(todoSuggestion),
+              standingSuppression,
+              standingSuppressionReadFailed,
+            }),
           );
         }
 
@@ -759,105 +760,3 @@ async function gatherObservations(args: {
   });
 }
 
-/**
- * Structured `triage.sender_extraction` log payload. Explicitly typed (not
- * `Record<string, unknown>`) so a field rename or shape drift — this object is
- * JSON-stringified and parsed by downstream tooling — fails the build instead
- * of compiling silently. Field types are derived from the source types so they
- * stay in lockstep.
- */
-interface SenderExtractionEvent {
-  fromKind: SenderContext["fromKind"];
-  bodyActor: SenderContext["bodyActor"] | null;
-  effectiveAuthor: SenderContext["effectiveAuthor"];
-  botSlug: string | null;
-  parserHit: SenderContextResult["parserHit"];
-  senderAddress: SenderContextResult["senderAddress"];
-  senderDomain: SenderContextResult["senderDomain"];
-  persona: AccountPersona | null;
-  senderPriorKey: string | null;
-  senderPriorCounts: Record<string, number>;
-  knownContact: boolean;
-  /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
-  senderRelationship: string | null;
-  threadMessages: number;
-  threadNewest: Observations["thread"]["newestDirection"];
-  gmailImportant: boolean;
-  gmailCategories: string[];
-  contentFlags: Observations["content"];
-  firstPassCategory: TriageCategory | null;
-  firstPassConfidence: number | null;
-  conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
-  secondPassCategory: TriageCategory | null;
-  secondPassFailure: string | null;
-  floorMatched: boolean;
-  floorForced: boolean;
-  finalCategory: TriageCategory;
-  finalConfidence: number;
-  todoSuggested: boolean;
-  standingInstructionSuppressedTodo: boolean;
-  standingInstructionFactId: string | null;
-  standingInstructionEffect: string | null;
-  standingInstructionReadFailed: boolean;
-  /** Which rubric test decided the todo call (rule 16); null on producers that don't emit it. */
-  todoOutcome: string | null;
-  todoNote: string | null;
-}
-
-/**
- * Flatten the observation summary + classify audit into a single structured log
- * line (`triage.sender_extraction`, ADR-0051 — Phase 5 will formalize the
- * event). Enough to debug a bad tag without the raw email body.
- */
-function senderExtractionEvent(args: {
-  senderContextResult: SenderContextResult;
-  observations: Observations;
-  audit: ClassifyAudit | null;
-  classification: TriageClassification;
-  todoSuggested: boolean;
-  standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>>;
-  standingSuppressionReadFailed: boolean;
-}): SenderExtractionEvent {
-  const { context } = args.senderContextResult;
-  const obs = args.observations;
-  const audit = args.audit;
-  return {
-    // sender
-    fromKind: context.fromKind,
-    bodyActor: context.bodyActor ?? null,
-    effectiveAuthor: context.effectiveAuthor,
-    botSlug: context.botSlug ?? null,
-    parserHit: args.senderContextResult.parserHit,
-    senderAddress: args.senderContextResult.senderAddress,
-    senderDomain: args.senderContextResult.senderDomain,
-    // observations
-    persona: obs.persona,
-    senderPriorKey: obs.senderPrior.key,
-    senderPriorCounts: obs.senderPrior.categoryCounts,
-    knownContact: obs.knownContact,
-    senderRelationship: obs.senderRelationship,
-    threadMessages: obs.thread.messageCount,
-    threadNewest: obs.thread.newestDirection,
-    gmailImportant: obs.gmail.important,
-    gmailCategories: obs.gmail.categories,
-    contentFlags: obs.content,
-    // classify audit (null on the fallback/default path)
-    firstPassCategory: audit?.firstPass.category ?? null,
-    firstPassConfidence: audit?.firstPass.confidence ?? null,
-    conflict: audit?.conflict?.kind ?? null,
-    secondPassCategory: audit?.secondPass?.category ?? null,
-    secondPassFailure: audit?.secondPassFailure?.message ?? null,
-    floorMatched: audit?.floorMatched ?? false,
-    floorForced: audit?.floorForced ?? false,
-    // final outcome
-    finalCategory: args.classification.category,
-    finalConfidence: args.classification.confidence,
-    todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
-    standingInstructionFactId: args.standingSuppression?.factId ?? null,
-    standingInstructionEffect: args.standingSuppression?.effect ?? null,
-    standingInstructionReadFailed: args.standingSuppressionReadFailed,
-    todoOutcome: args.classification.todoDecision?.outcome ?? null,
-    todoNote: args.classification.todoDecision?.note ?? null,
-  };
-}

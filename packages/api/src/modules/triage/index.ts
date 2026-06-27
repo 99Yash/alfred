@@ -93,3 +93,6 @@ export type {
   ContentFlags,
   AssembleObservationsArgs,
 } from "./observations";
+
+export { senderExtractionEvent } from "./sender-extraction-event";
+export type { SenderExtractionEvent } from "./sender-extraction-event";
