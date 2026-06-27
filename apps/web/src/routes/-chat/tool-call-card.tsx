@@ -53,7 +53,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
   // Brandless system tools (web_search, spawn_sub_agent, …) get an animated
   // glyph in place of the flat wrench; brand-scoped tools keep their logo coin.
-  const AnimatedIcon = brand ? undefined : animatedToolIcon(tool.toolName);
+  const animatedIcon = brand ? undefined : animatedToolIcon(tool.toolName);
   // Inline: always the human "what" (brief / integration). The "why" of a
   // failure goes in the expandable, cleaned up from the raw result JSON.
   const secondary = detail;
@@ -93,8 +93,8 @@ export function ToolCallCard({ tool }: { tool: ToolCallView }) {
               running && "chat-node-glow",
             )}
           >
-            {AnimatedIcon ? (
-              <RunningToolIcon icon={AnimatedIcon} running={running} size={13} />
+            {animatedIcon ? (
+              <RunningToolIcon icon={animatedIcon.Icon} running={running} size={13} />
             ) : (
               <FallbackIcon size={13} />
             )}

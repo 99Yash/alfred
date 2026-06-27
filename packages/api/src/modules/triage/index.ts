@@ -33,6 +33,7 @@ export {
   getDocumentAuthoredAt,
   getTriage,
   loadTriageContext,
+  markGmailDocumentSent,
   setAppliedLabelId,
   triageThreadLockKey,
   upsertTriage,
