@@ -9,7 +9,7 @@ export function SidebarNav({
   onChange: (id: SectionId) => void;
 }) {
   return (
-    <aside aria-label="Settings sections" className="md:sticky md:top-16 self-start">
+    <aside aria-label="Settings sections" className="self-start md:sticky md:top-16">
       <nav className="flex flex-col gap-0.5">
         {SECTIONS.map((s) => (
           <SidebarRow

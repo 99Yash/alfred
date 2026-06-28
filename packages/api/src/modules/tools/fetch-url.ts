@@ -608,12 +608,15 @@ const CREDENTIAL_SEGMENT_STEMS = new Set(["token", "secret", "signature", "sig",
  */
 function segmentParamName(decoded: string): string[] {
   const boundary = "\u0000";
-  return decoded
-    .replace(/([a-z0-9])([A-Z])/g, `$1${boundary}$2`) // lower→Upper camelCase boundary
-    .replace(/([A-Z]+)([A-Z][a-z])/g, `$1${boundary}$2`) // ACRONYMWord boundary (URLToken)
-    .split(/[\u0000\W_]+/)
-    .map((segment) => segment.toLowerCase())
-    .filter((segment) => segment.length > 0);
+  return (
+    decoded
+      .replace(/([a-z0-9])([A-Z])/g, `$1${boundary}$2`) // lower→Upper camelCase boundary
+      .replace(/([A-Z]+)([A-Z][a-z])/g, `$1${boundary}$2`) // ACRONYMWord boundary (URLToken)
+      // oxlint-disable-next-line no-control-regex -- the U+0000 boundary marker inserted just above
+      .split(/[\u0000\W_]+/)
+      .map((segment) => segment.toLowerCase())
+      .filter((segment) => segment.length > 0)
+  );
 }
 
 /**

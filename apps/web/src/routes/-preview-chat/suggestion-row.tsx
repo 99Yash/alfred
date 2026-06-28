@@ -20,8 +20,8 @@ export function SuggestionRow({
   return (
     <div
       className={cn(
-        "group relative flex items-start gap-1 rounded-xl px-2 py-2 -mx-0.5",
-        "hover:bg-white/[0.07] transition-colors",
+        "group relative -mx-0.5 flex items-start gap-1 rounded-xl p-2",
+        "transition-colors hover:bg-white/[0.07]",
       )}
     >
       <button
@@ -34,7 +34,7 @@ export function SuggestionRow({
           onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined
         }
         className={cn(
-          "flex min-w-0 flex-1 items-start gap-1.5 rounded-md text-left app-press",
+          "app-press flex min-w-0 flex-1 items-start gap-1.5 rounded-md text-left",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
       >
@@ -43,7 +43,7 @@ export function SuggestionRow({
               if it wraps past two lines, so nothing is unreadably clipped. */}
           <span
             title={label}
-            className="block line-clamp-2 text-[12.5px] leading-5 font-medium text-white [text-wrap:pretty]"
+            className="line-clamp-2 block text-[12.5px] leading-5 font-medium [text-wrap:pretty] text-white"
           >
             {label}
           </span>
@@ -65,13 +65,13 @@ export function SuggestionRow({
             <Plus
               size={14}
               aria-hidden
-              className="text-white/55 group-hover:text-white transition-colors"
+              className="text-white/55 transition-colors group-hover:text-white"
             />
           ) : (
             <ChevronRight
               size={13}
               aria-hidden
-              className="text-white/55 group-hover:text-white/80 transition-colors"
+              className="text-white/55 transition-colors group-hover:text-white/80"
             />
           )}
         </span>
@@ -82,9 +82,9 @@ export function SuggestionRow({
           onClick={onDismiss}
           aria-label={`Dismiss suggestion: ${label}`}
           className={cn(
-            "shrink-0 inline-flex size-6 items-center justify-center rounded-md app-press",
-            "text-white/45 hover:bg-white/10 hover:text-white transition-[color,background-color,opacity]",
-            "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100",
+            "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-md",
+            "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
+            "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
         >

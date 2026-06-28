@@ -40,7 +40,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
           className={cn(
             "fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]",
             "transition-opacity duration-200",
-            open ? "opacity-100" : "opacity-0 pointer-events-none",
+            open ? "opacity-100" : "pointer-events-none opacity-0",
           )}
         />
         <aside
@@ -65,14 +65,14 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
     <aside
       aria-label="Today"
       className={cn(
-        "shrink-0 h-full",
+        "h-full shrink-0",
         "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "transition-[width,margin] duration-200 ease-out overflow-hidden",
-        open ? "w-[340px]" : "w-0 -ml-1.5 pointer-events-none",
+        "overflow-hidden transition-[width,margin] duration-200 ease-out",
+        open ? "w-[340px]" : "pointer-events-none -ml-1.5 w-0",
       )}
     >
-      <div className="relative h-full w-[340px] flex flex-col">
+      <div className="relative flex h-full w-[340px] flex-col">
         <RailContent tab={tab} onTabChange={setTab} data={data} />
       </div>
     </aside>

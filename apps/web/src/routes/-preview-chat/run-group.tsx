@@ -42,8 +42,8 @@ export function RunGroup({
       </button>
 
       {open ? (
-        <div className="relative ml-[7px] mt-1.5 pl-5 pb-1">
-          <span aria-hidden className="absolute left-0 top-1.5 bottom-2.5 w-px bg-app-bg-3" />
+        <div className="relative mt-1.5 ml-[7px] pb-1 pl-5">
+          <span aria-hidden className="absolute top-1.5 bottom-2.5 left-0 w-px bg-app-bg-3" />
           <div className="space-y-1.5">{children}</div>
         </div>
       ) : null}

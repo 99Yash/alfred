@@ -44,7 +44,7 @@ export function DetailHeader({
   connected: boolean;
 }) {
   return (
-    <header className="flex items-start justify-between gap-4 app-card-in">
+    <header className="app-card-in flex items-start justify-between gap-4">
       <div className="flex min-w-0 items-start gap-3">
         <IntegrationIcon
           brand={provider.brand}
@@ -53,7 +53,7 @@ export function DetailHeader({
           title={provider.name}
         />
         <div className="min-w-0 pt-0.5">
-          <h1 className="text-base font-medium text-app-fg-4 tracking-tight">{provider.name}</h1>
+          <h1 className="text-base font-medium tracking-tight text-app-fg-4">{provider.name}</h1>
           <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">{provider.description}</p>
         </div>
       </div>

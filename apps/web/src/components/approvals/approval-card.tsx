@@ -74,7 +74,7 @@ export function ApprovalCard({
         <ToolIcon integration={staging.integration} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h2 className="text-pretty text-[15px] font-medium leading-snug text-app-fg-4">
+            <h2 className="text-[15px] leading-snug font-medium text-pretty text-app-fg-4">
               {title}
             </h2>
             <RiskPill riskTier={staging.riskTier} />
@@ -103,7 +103,7 @@ export function ApprovalCard({
               {toolChipLabel(staging.toolName)}
             </span>
             {staging.brief ? (
-              <p className="line-clamp-1 min-w-0 flex-1 text-[12px] italic text-app-fg-2">
+              <p className="line-clamp-1 min-w-0 flex-1 text-[12px] text-app-fg-2 italic">
                 “{staging.brief}”
               </p>
             ) : null}

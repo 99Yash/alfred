@@ -14,10 +14,10 @@ export function MemoryCard({ body }: { body: string }) {
            * vertical density. Each list item gets a tiny purple
            * sparkle accent via list-style: none + ::marker fallback,
            * which we draw inline via a custom renderer below. */
-          "[&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:m-0 [&_ul]:p-0 [&_ul]:list-none",
+          "[&_ul]:m-0 [&_ul]:flex [&_ul]:list-none [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:p-0",
           "[&_li]:flex [&_li]:items-start [&_li]:gap-2.5",
-          "[&_strong]:text-app-fg-4 [&_strong]:font-medium",
-          "[&_em]:text-app-fg-3 [&_em]:not-italic [&_em]:font-mono [&_em]:text-[12.5px] [&_em]:rounded [&_em]:bg-app-bg-2 [&_em]:px-1 [&_em]:py-px",
+          "[&_strong]:font-medium [&_strong]:text-app-fg-4",
+          "[&_em]:rounded [&_em]:bg-app-bg-2 [&_em]:px-1 [&_em]:py-px [&_em]:font-mono [&_em]:text-[12.5px] [&_em]:text-app-fg-3 [&_em]:not-italic",
           "[&_p]:m-0",
         )}
       >

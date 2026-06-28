@@ -53,7 +53,7 @@ export function HeroPreview({ provider }: { provider: IntegrationProvider }) {
     <div
       aria-hidden
       className={cn(
-        "relative h-[200px] w-full overflow-hidden rounded-3xl app-card-in",
+        "app-card-in relative h-[200px] w-full overflow-hidden rounded-3xl",
         "bg-app-bg-2",
       )}
       style={{ animationDelay: "60ms" }}

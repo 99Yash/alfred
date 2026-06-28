@@ -196,8 +196,8 @@ export function TiptapComposer({
         "aria-label": "Message",
         class: cn(
           "tiptap tiptap-minimum-input composer-editor",
-          "outline-none whitespace-pre-wrap break-words",
-          "min-h-[64px] max-h-64 overflow-y-auto px-3 pt-2 pb-1.5",
+          "break-words whitespace-pre-wrap outline-none",
+          "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
           "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
           "caret-app-purple-3",
           className ?? "",
@@ -290,7 +290,7 @@ export function TiptapComposer({
           aria-hidden
           className={cn(
             // Same first-line position as the placeholder overlay below.
-            "pointer-events-none absolute left-3 top-2 right-3",
+            "pointer-events-none absolute top-2 right-3 left-3",
             "flex items-center gap-1.5",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
             "animate-chat-in",
@@ -299,8 +299,8 @@ export function TiptapComposer({
           <span className="min-w-0 truncate">{ghostText}</span>
           <kbd
             className={cn(
-              "shrink-0 inline-flex items-center justify-center h-[18px] px-1.5 rounded-md",
-              "text-[10.5px] leading-none font-medium font-sans",
+              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-md px-1.5",
+              "font-sans text-[10.5px] leading-none font-medium",
               "bg-app-bg-a2 text-app-fg-2",
             )}
           >
@@ -316,13 +316,13 @@ export function TiptapComposer({
             // Match the editor's first-line position (px-3 pt-2 from
             // composer-editor) so the overlay sits exactly where the cursor
             // starts. text-app-fg-2 keeps it readable in both themes.
-            "pointer-events-none absolute left-3 top-2",
+            "pointer-events-none absolute top-2 left-3",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
             // Stardust transition — fades + slides + blurs out as the editor
             // fills. Spring-ish ease for a soft landing.
             "transition-[opacity,filter,transform] duration-300 ease-out",
-            "data-[visible=true]:opacity-100 data-[visible=true]:blur-0 data-[visible=true]:translate-x-0",
-            "data-[visible=false]:opacity-0 data-[visible=false]:blur-sm data-[visible=false]:translate-x-7",
+            "data-[visible=true]:blur-0 data-[visible=true]:translate-x-0 data-[visible=true]:opacity-100",
+            "data-[visible=false]:translate-x-7 data-[visible=false]:opacity-0 data-[visible=false]:blur-sm",
           )}
         >
           {placeholder}
@@ -353,11 +353,11 @@ function MentionChipNodeView({ node }: NodeViewProps) {
         // glyph rather than a saturated bg. Hairline inset ring defines the
         // edge without weight.
         "inline-flex items-center gap-[3px] align-baseline",
-        "px-1.5 py-px mx-[1px] rounded-[6px]",
-        "bg-app-bg-a2 text-app-fg-4 font-medium",
-        "ring-1 ring-inset ring-app-fg-a1/20",
+        "mx-[1px] rounded-[6px] px-1.5 py-px",
+        "bg-app-bg-a2 font-medium text-app-fg-4",
+        "ring-1 ring-app-fg-a1/20 ring-inset",
         "text-[0.92em] leading-[1.35]",
-        "select-none cursor-default",
+        "cursor-default select-none",
       )}
     >
       <span aria-hidden className="inline-flex shrink-0 items-center">

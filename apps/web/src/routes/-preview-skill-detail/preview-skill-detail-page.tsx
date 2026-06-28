@@ -42,7 +42,7 @@ export function PreviewSkillDetailPage() {
 
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-[28px] leading-[34px] font-medium tracking-tight text-app-fg-4">
               {skill.name}
             </h1>

@@ -36,20 +36,20 @@ export function AccessNotice({ className }: { className?: string }) {
             </span>
 
             <div className="flex flex-col gap-3">
-              <h3 className="text-balance text-[18px] font-semibold leading-[1.3] tracking-[-0.02em] text-white sm:text-[20px]">
+              <h3 className="text-[18px] leading-[1.3] font-semibold tracking-[-0.02em] text-balance text-white sm:text-[20px]">
                 Real access. Honest about the badge.
               </h3>
 
-              <p className="text-pretty text-[14.5px] leading-[1.6] text-neutral-400 sm:text-[15px]">
+              <p className="text-[14.5px] leading-[1.6] text-pretty text-neutral-400 sm:text-[15px]">
                 To work across your inbox, Alfred reads your email through the same restricted Gmail
                 scopes Google reserves for serious products. The verified badge for those scopes
                 takes a CASA security audit, billed{" "}
-                <em className="not-italic text-neutral-300">every single year</em>. Hard to justify
+                <em className="text-neutral-300 not-italic">every single year</em>. Hard to justify
                 for a project of one. So Google greets you with an “unverified app” screen on the
                 way in. The access is real. Only the badge is missing.
               </p>
 
-              <p className="text-pretty text-[14.5px] leading-[1.6] text-neutral-400 sm:text-[15px]">
+              <p className="text-[14.5px] leading-[1.6] text-pretty text-neutral-400 sm:text-[15px]">
                 Two ways in. Email me for a seat on the allowlist. Or skip the wait; Alfred is open
                 source. Clone it, bring your own keys, or roll your own.
               </p>

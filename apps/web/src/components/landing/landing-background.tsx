@@ -43,7 +43,7 @@ export function LandingBackground({
       {/* Soft top vignette so the announcement bar reads cleanly */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 bg-gradient-to-b from-black/60 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 bg-linear-to-b from-black/60 to-transparent"
       />
       {children}
     </div>

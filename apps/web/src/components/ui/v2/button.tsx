@@ -65,18 +65,18 @@ const VARIANT: Record<AppButtonVariant, string> = {
     "hover:shadow-[var(--app-button-primary-shadow-hover)]",
     "active:brightness-[0.96]",
     "disabled:cursor-not-allowed disabled:opacity-[0.85]",
-    "disabled:hover:brightness-100 disabled:hover:shadow-[var(--app-button-primary-shadow)]",
+    "disabled:hover:shadow-[var(--app-button-primary-shadow)] disabled:hover:brightness-100",
   ),
   white: cn(
     "bg-app-fg-4 text-app-bg-1",
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.10)]",
     "hover:brightness-[1.05] active:brightness-[0.95]",
-    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "disabled:cursor-not-allowed disabled:opacity-50",
   ),
   ghost: cn(
     "bg-transparent text-app-fg-4",
     "hover:bg-app-bg-a2",
-    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "disabled:cursor-not-allowed disabled:opacity-50",
   ),
   destructive: cn(
     "bg-app-red-4 text-white",
@@ -84,7 +84,7 @@ const VARIANT: Record<AppButtonVariant, string> = {
     "hover:brightness-[1.05]",
     "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_rgba(255,47,0,0.42)]",
     "active:brightness-[0.96]",
-    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "disabled:cursor-not-allowed disabled:opacity-50",
   ),
 };
 
@@ -108,7 +108,7 @@ export function AppButton({
       disabled={disabled || loading}
       data-loading={loading || undefined}
       className={cn(
-        "relative inline-flex items-center justify-center isolate",
+        "relative isolate inline-flex items-center justify-center",
         "font-medium whitespace-nowrap select-none",
         /* Hover fill/glow tweens at 300ms; transform keeps 150ms so the
          * app-press scale still feels snappy. Durations are positional —

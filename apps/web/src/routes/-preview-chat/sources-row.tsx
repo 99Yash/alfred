@@ -32,7 +32,7 @@ function SourcePill(props: SourceItem) {
   const { label, count } = props;
   if (props.integration) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg h-6 px-2 text-[11px] font-medium bg-app-bg-2 text-app-fg-4">
+      <span className="inline-flex h-6 items-center gap-1.5 rounded-lg bg-app-bg-2 px-2 text-[11px] font-medium text-app-fg-4">
         <IntegrationGlyph brand={props.integration} size={12} />
         {label}
         <span className="text-app-fg-2 tabular-nums">{count}</span>
@@ -43,7 +43,7 @@ function SourcePill(props: SourceItem) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg h-6 px-2 text-[11px] font-medium",
+        "inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium",
         TOOL_TONE[props.tone],
       )}
     >

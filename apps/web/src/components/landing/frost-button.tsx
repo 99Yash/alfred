@@ -49,14 +49,14 @@ export function FrostButton({
         // project inverts Tailwind's gray scale (gray-950 maps to near-white),
         // so the text color is a literal hex value, not a token utility.
         cn(
-          "bg-white bg-gradient-to-b from-[#eee] to-[#eee]",
+          "bg-white bg-linear-to-b from-[#eee] to-[#eee]",
           "text-[#0c0c0c]",
           "hover:to-[#eee]/70 active:to-[#eee]/90",
           "after:bg-white/[0.05] hover:after:opacity-50",
         )
       : // Dark-glass — Alfred default. Translucent dark fill + white text.
         cn(
-          "bg-gradient-to-b from-white/[0.14] to-white/[0.06]",
+          "bg-linear-to-b from-white/[0.14] to-white/[0.06]",
           "text-white",
           "hover:from-white/[0.20] hover:to-white/[0.10]",
           "active:from-white/[0.10] active:to-white/[0.04]",
@@ -79,10 +79,10 @@ export function FrostButton({
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
       className={cn(
-        "frost-border press-scale select-none isolate inline-flex items-center justify-center",
+        "frost-border press-scale isolate inline-flex items-center justify-center select-none",
         "rounded-full font-medium backdrop-blur-md",
         // after-overlay — soft hover wash
-        "after:content-[''] after:absolute after:inset-0 after:rounded-[inherit]",
+        "after:absolute after:inset-0 after:rounded-[inherit] after:content-['']",
         "after:pointer-events-none after:opacity-0 after:transition-opacity after:duration-200",
         "active:after:opacity-0",
         "disabled:cursor-not-allowed disabled:brightness-[0.85] disabled:after:opacity-0",
@@ -98,7 +98,7 @@ export function FrostButton({
         aria-hidden
         className={cn(
           "pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]",
-          "before:content-[''] before:absolute before:inset-0 before:rounded-[inherit]",
+          "before:absolute before:inset-0 before:rounded-[inherit] before:content-['']",
           tone === "light"
             ? "before:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.6),rgba(255,255,255,0)_50%)]"
             : "before:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),rgba(255,255,255,0)_55%)]",

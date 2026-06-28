@@ -19,7 +19,7 @@ export function TopAnnouncement({
   return (
     <div
       className={cn(
-        "fixed inset-x-0 z-50 top-3 sm:top-5 mx-auto w-fit max-w-[92vw] sm:max-w-none",
+        "fixed inset-x-0 top-3 z-50 mx-auto w-fit max-w-[92vw] sm:top-5 sm:max-w-none",
         "pointer-events-none",
         className,
       )}
@@ -27,13 +27,13 @@ export function TopAnnouncement({
       <a
         href={href}
         className={cn(
-          "pointer-events-auto group relative flex items-center gap-2 sm:gap-2.5",
-          "rounded-full px-3 py-1.5 sm:px-3.5 text-[12px] sm:text-[12.5px]",
+          "group pointer-events-auto relative flex items-center gap-2 sm:gap-2.5",
+          "rounded-full px-3 py-1.5 text-[12px] sm:px-3.5 sm:text-[12.5px]",
           "text-white/85 hover:text-white",
           // blur layer as :before so it doesn't fight transitions on text
           "before:absolute before:inset-0 before:-z-10 before:rounded-full",
           "before:bg-black/30 before:backdrop-blur-md hover:before:bg-black/40",
-          "ring-1 ring-inset ring-white/10 hover:ring-white/20",
+          "ring-1 ring-white/10 ring-inset hover:ring-white/20",
           "transition-all duration-200",
         )}
       >

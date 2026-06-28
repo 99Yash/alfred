@@ -444,6 +444,7 @@ export interface SendMessageResult {
  */
 function encodeHeaderValue(value: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ASCII range test
+  // oxlint-disable-next-line no-control-regex -- ASCII range test, not a control-char match
   if (/^[\x00-\x7F]*$/.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }

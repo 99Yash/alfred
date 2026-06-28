@@ -42,9 +42,9 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
       to="/library/$artifact"
       params={{ artifact: artifact.id }}
       className={cn(
-        "group block overflow-hidden rounded-2xl bg-app-bg-1 app-card-in",
+        "group app-card-in block overflow-hidden rounded-2xl bg-app-bg-1",
         "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
-        "transition-shadow app-press",
+        "app-press transition-shadow",
         "hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.08)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
@@ -65,10 +65,10 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
               "bg-app-bg-1",
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-app-fg-2">
+            <p className="text-[10px] font-semibold tracking-[0.16em] text-app-fg-2 uppercase">
               {artifact.pages[0]?.kicker}
             </p>
-            <p className="mt-3 text-lg font-semibold leading-5 text-app-fg-4">
+            <p className="mt-3 text-lg leading-5 font-semibold text-app-fg-4">
               {artifact.pages[0]?.title}
             </p>
             <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-app-fg-3">

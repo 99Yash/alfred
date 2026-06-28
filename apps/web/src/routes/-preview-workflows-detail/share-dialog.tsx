@@ -31,7 +31,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
       open
       aria-modal="true"
       aria-label="Share workflow"
-      className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-start justify-center border-0 bg-transparent p-0 pt-[14vh] app-fade-in"
+      className="app-fade-in fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-start justify-center border-0 bg-transparent p-0 pt-[14vh]"
     >
       <button
         type="button"
@@ -52,7 +52,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
           </p>
         </div>
         <div className="px-6 pb-6">
-          <div className="rounded-2xl bg-app-bg-2/60 shadow-[0_0_0_1px_rgba(0,0,0,0.05)] p-4">
+          <div className="rounded-2xl bg-app-bg-2/60 p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
             <div className="flex items-center gap-3">
               <WorkflowIcon tone="purple">
                 <Share2 size={16} />

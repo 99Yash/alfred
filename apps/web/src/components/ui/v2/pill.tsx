@@ -59,7 +59,7 @@ export function AppPill({
       type={type ?? "button"}
       className={cn(
         "inline-flex items-center justify-center gap-1.5",
-        "h-8 px-2.5 text-sm font-medium rounded-lg whitespace-nowrap",
+        "h-8 rounded-lg px-2.5 text-sm font-medium whitespace-nowrap",
         "transition-[box-shadow,background-color,transform]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
         "app-press",
@@ -68,7 +68,7 @@ export function AppPill({
       )}
       {...rest}
     >
-      {leading ? <span className="inline-flex shrink-0 size-4">{leading}</span> : null}
+      {leading ? <span className="inline-flex size-4 shrink-0">{leading}</span> : null}
       <span>{children}</span>
       {chevron ? <ChevronUpDown /> : null}
     </button>

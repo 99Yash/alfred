@@ -31,7 +31,7 @@ export function Capabilities({ provider }: { provider: IntegrationProvider }) {
   const tierCounts = useIntegrationTierCounts(integrationSlugForProvider(provider.id));
 
   return (
-    <section className="space-y-3 app-card-in" style={{ animationDelay: "300ms" }}>
+    <section className="app-card-in space-y-3" style={{ animationDelay: "300ms" }}>
       <div className="flex items-baseline justify-between gap-3">
         <SectionHeading>Capabilities</SectionHeading>
         {tierCounts ? (

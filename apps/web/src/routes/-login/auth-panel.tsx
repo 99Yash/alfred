@@ -37,14 +37,14 @@ export function AuthPanel({ redirect }: { redirect?: string }) {
   return (
     <div className="flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-[360px] space-y-7">
-        <div className="text-center space-y-2.5">
+        <div className="space-y-2.5 text-center">
           <img
             src="/images/logo/alfred-logo.svg"
             alt="Alfred"
             aria-hidden
-            className="inline-block size-9 rounded-2xl mb-1 shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+            className="mb-1 inline-block size-9 rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
           />
-          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-app-fg-4 leading-tight">
+          <h1 className="text-[22px] leading-tight font-medium tracking-[-0.04em] text-app-fg-4">
             Sign in to Alfred
           </h1>
           <p className="text-sm text-app-fg-2">One private workspace for the work around you.</p>
@@ -63,7 +63,7 @@ export function AuthPanel({ redirect }: { redirect?: string }) {
         </AppButton>
 
         {error ? (
-          <p role="alert" className="text-xs text-app-red-4 text-center">
+          <p role="alert" className="text-center text-xs text-app-red-4">
             {error}
           </p>
         ) : null}

@@ -40,7 +40,7 @@ export function PreviewWorkflowDetailPage() {
             {loading ? "Loading workflow…" : "Workflow not found"}
           </p>
           {!loading ? (
-            <p className="max-w-md text-xs text-app-fg-3 leading-5">
+            <p className="max-w-md text-xs leading-5 text-app-fg-3">
               No workflow with this slug is synced to this device.
             </p>
           ) : null}
@@ -84,7 +84,7 @@ export function PreviewWorkflowDetailPage() {
             className={cn(
               "inline-flex items-center gap-2 rounded-full bg-app-bg-1",
               "shadow-[0_0_0_1px_rgba(0,0,0,0.05)]",
-              "h-8 px-3 text-sm text-app-fg-4 cursor-pointer select-none",
+              "h-8 cursor-pointer px-3 text-sm text-app-fg-4 select-none",
               "transition-colors hover:bg-app-bg-a1",
             )}
           >

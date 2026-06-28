@@ -48,7 +48,7 @@ export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number 
         className={cn(
           "group relative flex items-center gap-3 rounded-2xl bg-app-bg-1 p-4",
           "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
-          "transition-shadow app-press",
+          "app-press transition-shadow",
           "hover:shadow-[0_2px_4px_rgba(0,0,0,0.07),0_0_0_1px_rgba(0,0,0,0.08)]",
         )}
       >
@@ -70,7 +70,7 @@ export function SkillRow({ skill, index }: { skill: PreviewSkill; index: number 
           </div>
           <p className="mt-0.5 line-clamp-1 text-xs text-app-fg-3">{skill.description}</p>
         </div>
-        <div className="hidden sm:flex shrink-0 flex-col items-end gap-1.5">
+        <div className="hidden shrink-0 flex-col items-end gap-1.5 sm:flex">
           {skill.status === "active" ? (
             <AppPill tone="green">Active</AppPill>
           ) : (

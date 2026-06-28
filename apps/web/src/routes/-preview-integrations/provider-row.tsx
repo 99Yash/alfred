@@ -20,7 +20,7 @@ export function ProviderRow({ provider, index }: { provider: IntegrationProvider
 
   const cardClassName = cn(
     "app-card-in flex items-center gap-3 px-3 py-2.5 text-sm",
-    isSoon && "opacity-60 cursor-not-allowed",
+    isSoon && "cursor-not-allowed opacity-60",
   );
 
   if (isSoon) {
@@ -42,9 +42,9 @@ export function ProviderRow({ provider, index }: { provider: IntegrationProvider
       params={{ provider: provider.id }}
       className={cn(
         cardClassName,
-        "rounded-2xl bg-app-bg-1 overflow-hidden",
+        "overflow-hidden rounded-2xl bg-app-bg-1",
         "shadow-[var(--app-shadow-elevated)]",
-        "transition-shadow app-press",
+        "app-press transition-shadow",
         "hover:shadow-[var(--app-shadow-elevated-hover)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}

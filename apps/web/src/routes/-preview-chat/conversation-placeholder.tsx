@@ -11,7 +11,7 @@ export function ConversationPlaceholder({ entry }: { entry: ThreadEntry | undefi
     return <EmptyConversation />;
   }
   return (
-    <div className="space-y-8 app-card-in">
+    <div className="app-card-in space-y-8">
       <UserTurn text={entry.preview} />
       <AssistantTurn />
       <UserTurn text="Skip the calendar bit — just the email summary, ranked by who's waiting on me." />
@@ -22,10 +22,10 @@ export function ConversationPlaceholder({ entry }: { entry: ThreadEntry | undefi
 
 function EmptyConversation() {
   return (
-    <div className="flex flex-col items-center justify-center text-center pt-24 app-card-in">
+    <div className="app-card-in flex flex-col items-center justify-center pt-24 text-center">
       <span
         aria-hidden
-        className="size-12 rounded-full inline-flex items-center justify-center bg-app-purple-1 text-app-purple-4 mb-3"
+        className="mb-3 inline-flex size-12 items-center justify-center rounded-full bg-app-purple-1 text-app-purple-4"
       >
         <Sparkles size={18} />
       </span>
@@ -57,11 +57,11 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
     <div className="flex gap-3">
       <span
         aria-hidden
-        className="mt-0.5 size-7 shrink-0 rounded-full bg-app-purple-1 text-app-purple-4 inline-flex items-center justify-center"
+        className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-app-purple-1 text-app-purple-4"
       >
         <Sparkles size={13} />
       </span>
-      <div className="flex-1 min-w-0 space-y-4 text-sm text-app-fg-3 leading-relaxed">
+      <div className="min-w-0 flex-1 space-y-4 text-sm leading-relaxed text-app-fg-3">
         {followUp ? (
           <>
             <RunGroup title="Sorted inbox by who's waiting" itemCount={5}>
@@ -86,7 +86,7 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
               <ToolRow integration="gmail" label="Tagged 3 as Reply today" done />
             </RunGroup>
             <p>
-              <span className="text-app-fg-4 font-medium">Three to answer.</span> Maya's vesting
+              <span className="font-medium text-app-fg-4">Three to answer.</span> Maya's vesting
               question (waiting 2 days), the Sycamore investor recap (their ask is on the cliff
               date), and a vendor renewal from Linear.
             </p>
@@ -130,9 +130,9 @@ function AssistantTurn({ followUp = false }: { followUp?: boolean }) {
             </RunGroup>
             <p>
               Here's your morning. You have{" "}
-              <span className="text-app-fg-4 font-medium">8 unread</span> threads, three of which
+              <span className="font-medium text-app-fg-4">8 unread</span> threads, three of which
               need a reply today. Calendar starts at{" "}
-              <span className="text-app-fg-4 font-medium">10:00</span> with the eng sync.
+              <span className="font-medium text-app-fg-4">10:00</span> with the eng sync.
             </p>
             <SourcesRow
               items={[

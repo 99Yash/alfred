@@ -48,12 +48,12 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
   return (
     <div
       className={cn(
-        "flex-1 min-w-0 overflow-y-auto scroll-stable transition-opacity",
-        dimmed && "pointer-events-none select-none opacity-35",
+        "scroll-stable min-w-0 flex-1 overflow-y-auto transition-opacity",
+        dimmed && "pointer-events-none opacity-35 select-none",
       )}
     >
-      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <header className="space-y-3 text-center app-card-in">
+      <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <header className="app-card-in space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-app-fg-4">
             Library
           </h1>
@@ -61,7 +61,7 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
         </header>
 
         <div
-          className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between app-card-in"
+          className="app-card-in mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
           style={{ animationDelay: "100ms" }}
         >
           <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export function PreviewLibraryPage({ dimmed = false }: { dimmed?: boolean }) {
             <Search
               size={14}
               aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-fg-2"
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-app-fg-2"
             />
             <AppInput
               placeholder="Search artifacts"

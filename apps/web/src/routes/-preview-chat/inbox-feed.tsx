@@ -164,7 +164,7 @@ export function InboxFeed({
         }}
       />
 
-      <div className="px-1 flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 px-1">
         <button
           type="button"
           onClick={() => {
@@ -173,8 +173,8 @@ export function InboxFeed({
           }}
           aria-pressed={unreadOnly}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5",
-            "text-[10.5px] uppercase tracking-tight font-medium transition-colors",
+            "-mx-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5",
+            "text-[10.5px] font-medium tracking-tight uppercase transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
             unreadOnly
               ? "bg-app-purple-4/20 text-app-purple-4"
@@ -209,9 +209,9 @@ export function InboxFeed({
               disabled={visibleUnreadIds.length === 0 || markReadPending}
               onClick={() => onMarkRead(visibleUnreadIds)}
               className={cn(
-                "text-[11px] text-white/65 hover:text-white transition-colors",
-                "outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded",
-                "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-white/65",
+                "text-[11px] text-white/65 transition-colors hover:text-white",
+                "rounded outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/65",
               )}
             >
               Mark all read
@@ -226,7 +226,7 @@ export function InboxFeed({
         // "No matches" empty state, which would otherwise flash for one
         // render window and read as a filter result instead of in-flight
         // pagination.
-        <div className="px-2 py-6 flex items-center justify-center">
+        <div className="flex items-center justify-center px-2 py-6">
           <Loader2 size={14} className="animate-spin text-white/70" aria-hidden />
         </div>
       ) : filtered.length === 0 ? (
@@ -275,7 +275,7 @@ function Pagination({
       <PaginationButton label="Previous page" onClick={onPrev} disabled={prevDisabled}>
         <ChevronLeft size={12} />
       </PaginationButton>
-      <span className="text-[10.5px] tabular-nums text-white/70 px-1 min-w-[28px] text-center inline-flex items-center justify-center gap-1">
+      <span className="inline-flex min-w-[28px] items-center justify-center gap-1 px-1 text-center text-[10.5px] text-white/70 tabular-nums">
         {isLoading ? (
           <Loader2 size={10} className="animate-spin text-white/70" aria-hidden />
         ) : null}
@@ -306,10 +306,10 @@ function PaginationButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "size-6 inline-flex items-center justify-center rounded-md",
-        "transition-colors app-press",
+        "inline-flex size-6 items-center justify-center rounded-md",
+        "app-press transition-colors",
         "text-white/70 hover:bg-white/10 hover:text-white",
-        "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-white/70",
+        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/70",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
       )}
     >
@@ -322,17 +322,17 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 px-2 py-1.5 -mx-0.5 rounded-lg",
+        "-mx-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5",
         // White-alpha treatment so the field reads against the rail's
         // video surface. Brighter ring at rest, near-white on focus —
         // the app-purple-2 ring is too dim to register on the cloudy
         // backdrop.
-        "bg-white/[0.06] ring-1 ring-inset ring-white/15",
+        "bg-white/[0.06] ring-1 ring-white/15 ring-inset",
         "focus-within:bg-white/[0.10] focus-within:ring-white/45",
         "transition-[background-color,box-shadow]",
       )}
     >
-      <Search size={12} className="text-white/55 shrink-0" />
+      <Search size={12} className="shrink-0 text-white/55" />
       <input
         type="text"
         value={value}
@@ -340,7 +340,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         placeholder="Filter inbox"
         aria-label="Filter inbox"
         className={cn(
-          "flex-1 min-w-0 bg-transparent text-[12px] leading-5 text-white placeholder:text-white/55",
+          "min-w-0 flex-1 bg-transparent text-[12px] leading-5 text-white placeholder:text-white/55",
           "outline-none",
         )}
       />
@@ -349,7 +349,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear filter"
-          className="text-white/55 hover:text-white transition-colors shrink-0"
+          className="shrink-0 text-white/55 transition-colors hover:text-white"
         >
           <X size={12} />
         </button>
@@ -372,12 +372,12 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
   // the honest category chip is untouched (this never re-tags).
   const muted = item.attentionBand === "muted";
   const sharedClass = cn(
-    "group relative w-full text-left rounded-xl px-2 py-2 -mx-0.5",
+    "group relative -mx-0.5 w-full rounded-xl p-2 text-left",
     "flex items-start gap-2.5",
     muted && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
     interactive
       ? cn(
-          "hover:bg-white/[0.07] transition-[background-color,opacity] app-press",
+          "app-press transition-[background-color,opacity] hover:bg-white/[0.07]",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )
       : "cursor-default",
@@ -392,7 +392,7 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
       <span
         aria-hidden
         className={cn(
-          "absolute left-0 top-2 bottom-2 w-[2px] rounded-full transition-colors",
+          "absolute top-2 bottom-2 left-0 w-[2px] rounded-full transition-colors",
           item.unread ? "bg-app-purple-4" : "bg-transparent",
         )}
       />
@@ -409,7 +409,7 @@ function InboxRow({ item, onOpen }: { item: InboxItem; onOpen?: (documentId: str
           >
             {item.sender}
           </span>
-          <span className="ml-auto shrink-0 inline-flex items-center gap-1.5">
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
             {item.category ? (
               <CategoryChip category={item.category} source={item.categorySource} />
             ) : null}
@@ -461,8 +461,8 @@ function SenderAvatar({ item }: { item: InboxItem }) {
       <span
         aria-hidden
         className={cn(
-          "mt-0.5 size-7 shrink-0 rounded-full inline-flex items-center justify-center",
-          "bg-white/10 ring-1 ring-inset ring-white/15",
+          "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
+          "bg-white/10 ring-1 ring-white/15 ring-inset",
         )}
       >
         <IntegrationGlyph brand={item.senderBrand} size={16} />
@@ -477,8 +477,8 @@ function SenderAvatar({ item }: { item: InboxItem }) {
       <span
         aria-hidden
         className={cn(
-          "relative mt-0.5 size-7 shrink-0 rounded-full inline-flex items-center justify-center",
-          "text-[11px] font-semibold tabular-nums overflow-hidden",
+          "relative mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
+          "overflow-hidden text-[11px] font-semibold tabular-nums",
           TOOL_TONE[item.tone],
         )}
       >
@@ -492,7 +492,7 @@ function SenderAvatar({ item }: { item: InboxItem }) {
           decoding="async"
           className={cn(
             "relative z-10 size-4 rounded-[3px]",
-            "bg-white/85 dark:bg-white/90 p-[1px]",
+            "bg-white/85 p-[1px] dark:bg-white/90",
           )}
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -505,7 +505,7 @@ function SenderAvatar({ item }: { item: InboxItem }) {
     <span
       aria-hidden
       className={cn(
-        "mt-0.5 size-7 shrink-0 rounded-full inline-flex items-center justify-center",
+        "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
         "text-[11px] font-semibold tabular-nums",
         TOOL_TONE[item.tone],
       )}
@@ -533,9 +533,9 @@ function CategoryChip({
   onChange?: (category: TriageCategory) => void;
 }) {
   const chipClass = cn(
-    "inline-flex items-center rounded-md px-1.5 h-4",
-    "text-[10px] font-medium uppercase tracking-tight whitespace-nowrap",
-    source === "user" && "gap-1 ring-1 ring-inset ring-current/25",
+    "inline-flex h-4 items-center rounded-md px-1.5",
+    "text-[10px] font-medium tracking-tight whitespace-nowrap uppercase",
+    source === "user" && "gap-1 ring-1 ring-current/25 ring-inset",
     CATEGORY_CHIP[category],
   );
   const contents = (
@@ -590,7 +590,7 @@ function CategoryChip({
               key={option}
               onSelect={() => onChange(option)}
               className={cn(
-                "flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2",
+                "flex h-8 cursor-default items-center gap-2 rounded-md px-2 select-none",
                 "text-[12px] outline-none data-[highlighted]:bg-white/10",
               )}
             >
@@ -680,12 +680,12 @@ function InboxDetailPane({
           type="button"
           onClick={onClose}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5",
+            "-mx-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1",
             // Fixed white-alpha, NOT theme tokens — the reader sits on the
             // rail's weather video, which is dark in both themes. Theme
             // tokens flip to near-black ink in light mode and vanish.
-            "text-[11px] uppercase tracking-tight font-medium text-white/65",
-            "transition-colors hover:text-white hover:bg-white/10",
+            "text-[11px] font-medium tracking-tight text-white/65 uppercase",
+            "transition-colors hover:bg-white/10 hover:text-white",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
           )}
         >
@@ -701,7 +701,7 @@ function InboxDetailPane({
               "inline-flex items-center gap-1 text-[11px] text-white/65",
               "transition-colors hover:text-white",
               "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-              "rounded-md px-1.5 py-1 -mx-1.5",
+              "-mx-1.5 rounded-md px-1.5 py-1",
             )}
           >
             Open in Gmail
@@ -711,7 +711,7 @@ function InboxDetailPane({
       </div>
 
       {isLoading ? (
-        <div className="px-2 py-8 flex items-center justify-center">
+        <div className="flex items-center justify-center px-2 py-8">
           <Loader2 size={16} className="animate-spin text-white/70" aria-hidden />
         </div>
       ) : isError || !data ? (
@@ -721,10 +721,10 @@ function InboxDetailPane({
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium text-white break-words">
+            <h3 className="text-[14px] leading-5 font-medium break-words text-white">
               {data.subject || "(no subject)"}
             </h3>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
               {displayedCategory ? (
                 <CategoryChip
                   category={displayedCategory}
@@ -732,14 +732,14 @@ function InboxDetailPane({
                   onChange={changeCategory}
                 />
               ) : null}
-              <span className="text-[11px] tabular-nums text-white/60">
+              <span className="text-[11px] text-white/60 tabular-nums">
                 {data.messages.length} message
                 {data.messages.length === 1 ? "" : "s"}
               </span>
             </div>
           </header>
           {data.messages.length === 0 ? (
-            <p className="text-[12px] text-white/60 px-1">(no messages)</p>
+            <p className="px-1 text-[12px] text-white/60">(no messages)</p>
           ) : (
             <ol className="space-y-2.5">
               {data.messages.map((m, i) => (
@@ -817,7 +817,7 @@ function ThreadMessageCard({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-xl",
+          "flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left",
           "transition-colors hover:bg-white/[0.06]",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -830,16 +830,16 @@ function ThreadMessageCard({
               {message.senderDisplay}
             </span>
             {message.authoredAtRelative ? (
-              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-white/55">
+              <span className="ml-auto shrink-0 text-[11px] text-white/55 tabular-nums">
                 {message.authoredAtRelative}
               </span>
             ) : null}
           </span>
           {!open && summary ? (
-            <span className="block truncate text-[11.5px] text-white/60 mt-0.5">{summary}</span>
+            <span className="mt-0.5 block truncate text-[11.5px] text-white/60">{summary}</span>
           ) : null}
           {open && message.senderEmail ? (
-            <span className="block truncate text-[11px] text-white/55 mt-0.5">
+            <span className="mt-0.5 block truncate text-[11px] text-white/55">
               {message.senderEmail}
             </span>
           ) : null}
@@ -847,12 +847,12 @@ function ThreadMessageCard({
       </button>
 
       {open ? (
-        <div className="px-2.5 pb-2.5 space-y-2">
+        <div className="space-y-2 px-2.5 pb-2.5">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
           {/* Body well — fixed dark glass, not `bg-app-bg-1` (white in light
            * mode, which washed the reader out to gray-on-gray over the
            * video). The Original iframe stays opaque white inside it. */}
-          <div className="rounded-lg bg-black/25 ring-1 ring-white/10 overflow-hidden">
+          <div className="overflow-hidden rounded-lg bg-black/25 ring-1 ring-white/10">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
@@ -864,7 +864,7 @@ function ThreadMessageCard({
                 </MarkdownRenderer>
               </div>
             ) : (
-              <p className="px-3 py-2.5 text-[12px] italic text-white/55">(empty body)</p>
+              <p className="px-3 py-2.5 text-[12px] text-white/55 italic">(empty body)</p>
             )}
           </div>
           {message.attachments.length > 0 ? (
@@ -889,7 +889,7 @@ function buildSnippet(snippet: string | null, body: string): string {
   const firstLine = body
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l.length > 0 && !l.startsWith('>') && !/^on .+wrote:/i.test(l));
+    .find((l) => l.length > 0 && !l.startsWith(">") && !/^on .+wrote:/i.test(l));
   return (firstLine ?? "").slice(0, 140);
 }
 
@@ -901,7 +901,7 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-black/25 ring-1 ring-white/15 p-0.5 text-[10.5px] uppercase tracking-tight font-medium">
+    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-black/25 p-0.5 text-[10.5px] font-medium tracking-tight uppercase ring-1 ring-white/15">
       <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
@@ -928,7 +928,7 @@ function ToggleButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded px-1.5 py-0.5 transition-colors app-press",
+        "app-press rounded px-1.5 py-0.5 transition-colors",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         active ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white/85",
       )}
@@ -1042,7 +1042,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
             type="button"
             onClick={() => setShowRemoteMedia(true)}
             className={cn(
-              "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium app-press",
+              "app-press shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium",
               "text-black/70 ring-1 ring-black/15 hover:bg-black/[0.06]",
               "outline-none focus-visible:ring-2 focus-visible:ring-black/40",
             )}
@@ -1081,7 +1081,7 @@ function SenderInitialAvatar({ name }: { name: string }) {
     <span
       aria-hidden
       className={cn(
-        "mt-0.5 size-6 shrink-0 rounded-full inline-flex items-center justify-center",
+        "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full",
         "text-[10.5px] font-semibold",
         tone,
       )}
@@ -1127,7 +1127,7 @@ function AttachmentStrip({
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
         <Paperclip size={11} className="text-white/60" aria-hidden />
-        <span className="text-[10.5px] uppercase tracking-tight font-medium text-white/60">
+        <span className="text-[10.5px] font-medium tracking-tight text-white/60 uppercase">
           {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -1147,7 +1147,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
       <span
         aria-hidden
         className={cn(
-          "shrink-0 inline-flex items-center justify-center",
+          "inline-flex shrink-0 items-center justify-center",
           "size-8 rounded-md",
           tone,
         )}
@@ -1165,7 +1165,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
               <span aria-hidden className="mx-1 opacity-60">
                 ·
               </span>
-              <span className="uppercase tracking-tight">
+              <span className="tracking-tight uppercase">
                 {extensionFor(attachment.filename, attachment.mimeType)}
               </span>
             </>
@@ -1177,7 +1177,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
   );
   const shared = cn(
     "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
-    "ring-1 ring-white/15 bg-white/[0.07]",
+    "bg-white/[0.07] ring-1 ring-white/15",
     href
       ? cn(
           "transition-colors hover:bg-white/[0.10] hover:ring-white/25",
