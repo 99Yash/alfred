@@ -45,6 +45,16 @@ export interface UserContext {
   profile: {
     name: string;
     email: string;
+    currentCompany: unknown | null;
+    currentRole: unknown | null;
+    currentWork: unknown | null;
+    currentLocation: unknown | null;
+    bioSummary: unknown | null;
+    identityFacts: Array<{
+      key: string;
+      value: unknown;
+      confidence: number;
+    }>;
   } | null;
   activeIntegrations: Array<{
     provider: string;
@@ -102,6 +112,7 @@ const IDENTITY_FACT_KEYS = [
   "home_city",
   "home_country",
 ] as const;
+type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
 const ENTITY_LIMIT = 50;
 const RELATION_LIMIT = 80;
 const MEMORY_LIMIT = 6;
@@ -117,6 +128,11 @@ type EntityRow = {
   metadata: unknown;
 };
 
+type FactContextRow = Pick<
+  typeof userFacts.$inferSelect,
+  "id" | "key" | "value" | "confidence" | "updatedAt" | "createdAt"
+>;
+
 const ENTITY_COLUMNS = {
   id: entities.id,
   kind: entities.kind,
@@ -124,6 +140,19 @@ const ENTITY_COLUMNS = {
   aliases: entities.aliases,
   metadata: entities.metadata,
 } as const;
+
+const FACT_COLUMNS = {
+  id: userFacts.id,
+  key: userFacts.key,
+  value: userFacts.value,
+  confidence: userFacts.confidence,
+  updatedAt: userFacts.updatedAt,
+  createdAt: userFacts.createdAt,
+} as const;
+
+const identityKeyRank = new Map<IdentityFactKey, number>(
+  IDENTITY_FACT_KEYS.map((key, index) => [key, index]),
+);
 
 /** `metadata.significance.score` as a sortable float — NULL (unscored) sorts last. */
 const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->> 'score')::float8`;
@@ -139,6 +168,22 @@ function queryTokens(query: string | undefined): string[] {
         .filter((t) => t.length >= 3),
     ),
   ).slice(0, 6);
+}
+
+function isIdentityFactKey(key: string): key is IdentityFactKey {
+  return identityKeyRank.has(key as IdentityFactKey);
+}
+
+function identityValue(rows: FactContextRow[], key: IdentityFactKey): unknown | null {
+  return rows.find((row) => row.key === key)?.value ?? null;
+}
+
+function sortIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
+  return [...rows].sort((a, b) => {
+    const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
+    const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
+    return rankA - rankB;
+  });
 }
 
 /**
@@ -163,7 +208,7 @@ export async function readUserContext(
     profileRows,
     integrationRows,
     rankedFactRows,
-    identityFactRows,
+    identityFactRowsRaw,
     prefRows,
     rankedEntityRows,
     memoryRows,
@@ -191,12 +236,7 @@ export async function readUserContext(
     wants("facts")
       ? db()
           .select({
-            id: userFacts.id,
-            key: userFacts.key,
-            value: userFacts.value,
-            confidence: userFacts.confidence,
-            updatedAt: userFacts.updatedAt,
-            createdAt: userFacts.createdAt,
+            ...FACT_COLUMNS,
           })
           .from(userFacts)
           .where(
@@ -212,31 +252,27 @@ export async function readUserContext(
           .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
           .limit(FACT_LIMIT)
       : Promise.resolve([]),
-    // The canonical identity facts, fetched unconditionally of the cap, so they
-    // are guaranteed into the merged slice even when the ranked top-N is full of
-    // higher-or-equal-confidence transactional noise (issue #329).
-    wants("facts")
-      ? db()
-          .select({
-            id: userFacts.id,
-            key: userFacts.key,
-            value: userFacts.value,
-            confidence: userFacts.confidence,
-            updatedAt: userFacts.updatedAt,
-            createdAt: userFacts.createdAt,
-          })
-          .from(userFacts)
-          .where(
-            and(
-              eq(userFacts.userId, userId),
-              eq(userFacts.status, "confirmed"),
-              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
-              inArray(userFacts.key, [...IDENTITY_FACT_KEYS]),
-            ),
-          )
-          .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
-          .limit(IDENTITY_FACT_KEYS.length)
-      : Promise.resolve([]),
+    // One best row per canonical identity key. This query is intentionally not
+    // gated on `facts`: `profile` must be identity-complete even when a model
+    // narrows the tool call to include only profile/integrations (issue #329).
+    db()
+      .selectDistinctOn([userFacts.key], FACT_COLUMNS)
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.userId, userId),
+          eq(userFacts.status, "confirmed"),
+          or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+          inArray(userFacts.key, [...IDENTITY_FACT_KEYS]),
+        ),
+      )
+      .orderBy(
+        userFacts.key,
+        desc(userFacts.confidence),
+        desc(userFacts.updatedAt),
+        desc(userFacts.createdAt),
+        desc(userFacts.id),
+      ),
     wants("preferences")
       ? db()
           .select({ key: userPreferences.key, value: userPreferences.value })
@@ -269,6 +305,8 @@ export async function readUserContext(
       : Promise.resolve([]),
   ]);
 
+  const identityFactRows = sortIdentityFacts(identityFactRowsRaw);
+
   // Guarantee the focused contact/query matches survive the ranked cap: fetch
   // them directly and merge ahead of the ranked slice (deduped by id).
   const focusRows =
@@ -291,13 +329,15 @@ export async function readUserContext(
   // Identity facts first so they survive the cap; the confidence-ranked rest
   // fills the remainder up to FACT_LIMIT, deduped by id (an identity fact also
   // present in the ranked slice is counted once).
-  const mergedFacts: Array<(typeof rankedFactRows)[number]> = [];
+  const mergedFacts: FactContextRow[] = [];
   const seenFactIds = new Set<string>();
-  for (const row of [...identityFactRows, ...rankedFactRows]) {
-    if (mergedFacts.length >= FACT_LIMIT) break;
-    if (seenFactIds.has(row.id)) continue;
-    seenFactIds.add(row.id);
-    mergedFacts.push(row);
+  if (wants("facts")) {
+    for (const row of [...identityFactRows, ...rankedFactRows]) {
+      if (mergedFacts.length >= FACT_LIMIT) break;
+      if (seenFactIds.has(row.id)) continue;
+      seenFactIds.add(row.id);
+      mergedFacts.push(row);
+    }
   }
 
   const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
@@ -325,7 +365,21 @@ export async function readUserContext(
           .limit(RELATION_LIMIT)
       : [];
 
-  const profile = profileRows[0] ?? null;
+  const profile = profileRows[0]
+    ? {
+        ...profileRows[0],
+        currentCompany: identityValue(identityFactRows, "current_company"),
+        currentRole: identityValue(identityFactRows, "current_role"),
+        currentWork: identityValue(identityFactRows, "current_work"),
+        currentLocation: identityValue(identityFactRows, "current_location"),
+        bioSummary: identityValue(identityFactRows, "bio_summary"),
+        identityFacts: identityFactRows.map((row) => ({
+          key: row.key,
+          value: row.value,
+          confidence: row.confidence,
+        })),
+      }
+    : null;
   return {
     profile,
     activeIntegrations: integrationRows.map((row) => ({

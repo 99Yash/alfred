@@ -190,6 +190,49 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     assert.equal(ctx.confirmedFacts.length, 30, "merged fact slice stays bounded at FACT_LIMIT");
   });
 
+  test("surfaces identity in profile even when facts are omitted (issue #329)", async () => {
+    const userId = await seedUser();
+    await seedFacts(userId, [
+      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10 },
+      { key: "current_work", value: "building Alfred", confidence: 1.0, ageMinutes: 9 },
+      { key: "bio_summary", value: "Yash works on Alfred at Oliv AI", confidence: 1.0, ageMinutes: 8 },
+    ]);
+
+    const ctx = await readUserContext(userId, { include: ["profile", "integrations"] });
+
+    assert.equal(ctx.confirmedFacts.length, 0, "facts section stays omitted when not requested");
+    assert.equal(ctx.profile?.currentCompany, "Oliv AI");
+    assert.equal(ctx.profile?.currentWork, "building Alfred");
+    assert.equal(ctx.profile?.bioSummary, "Yash works on Alfred at Oliv AI");
+  });
+
+  test("identity guarantee chooses one best row per identity key before merging", async () => {
+    const userId = await seedUser();
+    const duplicateCities: SeedFact[] = Array.from({ length: 30 }, (_, i) => ({
+      key: "home_city",
+      value: `third-party-city-${i}`,
+      confidence: 1.0,
+      ageMinutes: i + 1,
+    }));
+    await seedFacts(userId, [
+      ...duplicateCities,
+      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
+    ]);
+
+    const ctx = await readUserContext(userId);
+
+    assert.equal(ctx.profile?.currentCompany, "Oliv AI");
+    assert.equal(
+      ctx.profile?.identityFacts.filter((fact) => fact.key === "home_city").length,
+      1,
+      "duplicate identity-key rows must not saturate the profile identity slice",
+    );
+    assert.ok(
+      ctx.confirmedFacts.some((fact) => fact.key === "current_company"),
+      "per-key identity rescue must include current_company despite duplicate identity noise",
+    );
+  });
+
   test("orders confirmed facts by confidence before recency", async () => {
     const userId = await seedUser();
     await seedFacts(userId, [
