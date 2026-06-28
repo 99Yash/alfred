@@ -1,13 +1,14 @@
 # Per-model capability map — v1 (#313)
 
 > **Status: BUILT (2026-06-28).** ADR-0078 recorded in `decisions.md`. Shipped:
-> `MODEL_CAPABILITIES`/`EFFORT_LEVELS` in `models.ts`; `PROVIDER_DISPATCH` +
+> `MODEL_CAPABILITIES`/known-provider `EFFORT_LEVELS` in `models.ts`; `PROVIDER_DISPATCH` +
 > `clampEffort` + `CHAT_TIERS` in `provider.ts` (tier branch deleted, wire-identical
 > output asserted); `withToolNameShim` rename applied per-policy to Anthropic **and**
 > Google; `sync-prices` captures `reasoning_options`+`temperature`; `verify-capabilities`
 > audit script. Tests: `test/provider-capabilities.test.ts` (clamp + wire-identical
-> invariants). Deferred per "Scope (out)": runtime DB-derivation, schema-sanitized
-> structured output, `temperature` plumbing, the OpenAI dispatch entry (stubbed).
+> invariants) and `test/tool-name-shim.test.ts` (strictest shimmed provider name cap).
+> Deferred per "Scope (out)": runtime DB-derivation, schema-sanitized structured
+> output, `temperature` plumbing, and mapping an OpenAI language model into chat.
 >
 > **Verified live (2026-06-28):** `db:sync-prices` re-synced (94 rows; capability-aware
 > change-detection landed the new metadata), `verify-capabilities` → ✅ all 6 models
@@ -80,8 +81,8 @@ models.dev is neither home — it is the **audit oracle** that proves the code-r
 ### Per-model axis — extend the registry (`models.ts`)
 
 ```ts
-/** Effort tiers Alfred may request. Anthropic's superset; clamp per model. */
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** Effort labels providers may accept, weakest→strongest; clamp per model. */
+export const EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 export interface ModelCapabilities {
@@ -169,7 +170,7 @@ Rename `withAnthropicToolNames` → `withToolNameShim` (the encode/decode is alr
 - **DB-derived-at-runtime capabilities** — rejected (opencode keeps it in code; provider layer is sync + hot-path; models.dev has gaps). models.dev stays an audit oracle.
 - **Structured-output-via-schema-sanitization** (opencode's `schema()` approach) — the cheap tier's `same-provider` pin is lower-risk and already shipped; revisit only if a cross-provider structured path is needed.
 - **`temperature` plumbing** — the capability is recorded but Alfred sends no temperature today; wire it only when a model that needs it lands.
-- **OpenAI dispatch entry** — stub the profile shape; fill it the first time OpenAI is dispatched for generateText (transcription already meters through it but isn't a language-model dispatch).
+- **OpenAI chat mapping** — the provider profile/factory exists, but no OpenAI language model is in `MODEL_REGISTRY` or `CHAT_TIERS` yet (transcription already meters through OpenAI but isn't a language-model dispatch).
 - **#249 model-router** — consumes this (`reasoningOptions(model, routerEffort)`), not built here.
 
 ## Implementation order

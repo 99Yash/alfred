@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { INTEGRATION_ACTIONS, type IntegrationSlug } from "@alfred/contracts";
+import { getShimmedToolNameMaxLen } from "../src/provider";
 import { decodeToolName, encodeToolName } from "../src/tool-name-shim";
 
 /**
@@ -42,11 +43,16 @@ describe("tool-name-shim registry invariants", () => {
     }
   });
 
-  test("encoded names match Anthropic's pattern ^[a-zA-Z0-9_-]{1,128}$", () => {
-    const pattern = /^[a-zA-Z0-9_-]{1,128}$/;
+  test("encoded names match the strictest shimmed provider name policy", () => {
+    const pattern = /^[a-zA-Z0-9_-]+$/;
+    const maxLen = getShimmedToolNameMaxLen();
     for (const name of ALL_TOOL_NAMES) {
       const encoded = encodeToolName(name);
-      assert.match(encoded, pattern, `${name} → ${encoded} must satisfy Anthropic's name pattern`);
+      assert.match(encoded, pattern, `${name} → ${encoded} must use provider-safe characters`);
+      assert.ok(
+        encoded.length <= maxLen,
+        `${name} → ${encoded} must fit shimmed provider max length ${maxLen}`,
+      );
     }
   });
 });

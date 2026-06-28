@@ -1,5 +1,6 @@
 import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import { openai, type OpenAIChatLanguageModelOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
 import { APICallError, type LanguageModel, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
@@ -14,6 +15,8 @@ import {
   MODEL_CAPABILITIES,
   type ModelId,
   type ModelIdFor,
+  isModelIdForProvider,
+  MODEL_REGISTRY,
   type ProviderId,
 } from "./models";
 import { withToolNameShim } from "./tool-name-shim";
@@ -25,10 +28,19 @@ export type { ChatModelTier };
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
-type ChatProviderOptions = Record<string, Record<string, unknown>> & {
-  anthropic: AnthropicChatProviderOptions;
-  google: GoogleChatProviderOptions;
+type OpenAIChatProviderOptions = Pick<OpenAIChatLanguageModelOptions, "reasoningEffort">;
+type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
+type ChatProviderOptions = Record<string, Record<string, unknown>>;
+type ToolNameProviderPolicy = {
+  readonly toolNameShim: boolean;
+  readonly toolNameMaxLen: number;
 };
+
+export const TOOL_NAME_PROVIDER_POLICIES = {
+  anthropic: { toolNameShim: true, toolNameMaxLen: 128 },
+  google: { toolNameShim: true, toolNameMaxLen: 64 },
+  openai: { toolNameShim: true, toolNameMaxLen: 64 },
+} as const satisfies Record<ProviderId, ToolNameProviderPolicy>;
 
 /**
  * Per-provider request mechanics (ADR-0078) — the structural quirks that live on
@@ -49,7 +61,7 @@ interface ProviderDispatch {
    * `.` and caps at 64).
    */
   readonly toolNameShim: boolean;
-  /** Max tool-name length the provider accepts (Anthropic 128, OpenAI 64). Recorded for the audit; not enforced at runtime (our names are short). */
+  /** Max tool-name length the provider accepts; pinned by the tool-name registry invariant test. */
   readonly toolNameMaxLen: number;
   /**
    * Whether a cross-provider degrade is safe for *structured* `generateObject`
@@ -82,10 +94,13 @@ export function clampEffort(desired: EffortLevel, allowed: readonly EffortLevel[
   );
 }
 
+function isAnthropicEffortLevel(value: EffortLevel): value is AnthropicEffortLevel {
+  return value !== "none" && value !== "minimal";
+}
+
 const PROVIDER_DISPATCH = {
   anthropic: {
-    toolNameShim: true,
-    toolNameMaxLen: 128,
+    ...TOOL_NAME_PROVIDER_POLICIES.anthropic,
     structuredOutputFallback: "cross-provider",
     reasoningOptions(modelId: ModelId, effort: EffortLevel): AnthropicChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
@@ -93,15 +108,20 @@ const PROVIDER_DISPATCH = {
       // `effort` — they're Sonnet-4.6+/Opus-only. Any model with no effort param
       // gets the light, fast interactive default.
       if (effortValues.length === 0) return {};
+      const clampedEffort = clampEffort(effort, effortValues);
+      if (!isAnthropicEffortLevel(clampedEffort)) {
+        throw new Error(
+          `${modelId} declares Anthropic-incompatible effort value "${clampedEffort}"`,
+        );
+      }
       return {
         thinking: { type: "adaptive", display: "summarized" },
-        effort: clampEffort(effort, effortValues),
+        effort: clampedEffort,
       };
     },
   },
   google: {
-    toolNameShim: true,
-    toolNameMaxLen: 64,
+    ...TOOL_NAME_PROVIDER_POLICIES.google,
     structuredOutputFallback: "same-provider",
     // `includeThoughts` surfaces the thought summary (not the raw chain);
     // `thinkingBudget: -1` lets the model size its own thinking. Budget/toggle
@@ -111,20 +131,31 @@ const PROVIDER_DISPATCH = {
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
   },
-  // Stub: no OpenAI *language* model is dispatched today (transcription meters
-  // through OpenAI but isn't a chat/boss dispatch). Fill `reasoningOptions` with
-  // `{ openai: { reasoningEffort: clampEffort(effort, effortValues) } }` the first
-  // time an OpenAI model lands in MODEL_REGISTRY. `toolNameMaxLen: 64` is OpenAI's
-  // cap (vs Anthropic's 128) — already correct for the audit.
+  // No OpenAI *language* model is dispatched today (transcription meters through
+  // OpenAI but isn't a chat/boss dispatch), but the profile is complete so the
+  // first OpenAI model added to MODEL_REGISTRY gets the same provider-axis path.
   openai: {
-    toolNameShim: true,
-    toolNameMaxLen: 64,
+    ...TOOL_NAME_PROVIDER_POLICIES.openai,
     structuredOutputFallback: "same-provider",
-    reasoningOptions(_modelId: ModelId, _effort: EffortLevel): Record<string, unknown> {
-      return {};
+    reasoningOptions(modelId: ModelId, effort: EffortLevel): OpenAIChatProviderOptions {
+      const { effortValues } = MODEL_CAPABILITIES[modelId];
+      if (effortValues.length === 0) return {};
+      const reasoningEffort = clampEffort(effort, effortValues);
+      if (reasoningEffort === "max") {
+        throw new Error(`${modelId} declares OpenAI-incompatible effort value "max"`);
+      }
+      return { reasoningEffort };
     },
   },
 } as const satisfies Record<ProviderId, ProviderDispatch>;
+
+export function getShimmedToolNameMaxLen(): number {
+  return Math.min(
+    ...Object.values(PROVIDER_DISPATCH)
+      .filter((profile) => profile.toolNameShim)
+      .map((profile) => profile.toolNameMaxLen),
+  );
+}
 
 // Provider factories constrained to ids that actually exist in MODEL_REGISTRY
 // for that provider. Routing every `anthropic(...)`/`google(...)` literal
@@ -139,6 +170,40 @@ const anthropicModel = (id: ModelIdFor<"anthropic">) =>
   PROVIDER_DISPATCH.anthropic.toolNameShim ? withToolNameShim(anthropic(id)) : anthropic(id);
 const googleModel = (id: ModelIdFor<"google">) =>
   PROVIDER_DISPATCH.google.toolNameShim ? withToolNameShim(google(id)) : google(id);
+const openaiModel = (id: ModelIdFor<"openai">) =>
+  PROVIDER_DISPATCH.openai.toolNameShim ? withToolNameShim(openai(id)) : openai(id);
+
+function assertModelProvider<P extends ProviderId>(
+  id: ModelId,
+  provider: P,
+): asserts id is ModelIdFor<P> {
+  if (!isModelIdForProvider(id, provider)) {
+    throw new Error(`${id} is registered to ${MODEL_REGISTRY[id]}, not ${provider}`);
+  }
+}
+
+function providerForModel(id: ModelId): ProviderId {
+  return MODEL_REGISTRY[id];
+}
+
+function modelForId(id: ModelId): LanguageModelV3 {
+  const provider = providerForModel(id);
+  switch (provider) {
+    case "anthropic":
+      assertModelProvider(id, "anthropic");
+      return anthropicModel(id);
+    case "google":
+      assertModelProvider(id, "google");
+      return googleModel(id);
+    case "openai":
+      assertModelProvider(id, "openai");
+      return openaiModel(id);
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
+    }
+  }
+}
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -249,12 +314,12 @@ const CHAT_TIERS = {
   deep: { primary: "claude-opus-4-8", fallback: "gemini-2.5-pro", effort: "high" },
 } as const satisfies Record<
   ChatModelTier,
-  { primary: ModelIdFor<"anthropic">; fallback: ModelIdFor<"google">; effort: EffortLevel }
+  { primary: ModelId; fallback: ModelId; effort: EffortLevel }
 >;
 
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
   const { primary, fallback } = CHAT_TIERS[tier];
-  return withFallback(anthropicModel(primary), googleModel(fallback));
+  return withFallback(modelForId(primary), modelForId(fallback));
 }
 
 /**
@@ -273,10 +338,19 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  */
 export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
   const { primary, fallback, effort } = CHAT_TIERS[tier];
-  return {
-    anthropic: PROVIDER_DISPATCH.anthropic.reasoningOptions(primary, effort),
-    google: PROVIDER_DISPATCH.google.reasoningOptions(fallback, effort),
-  };
+  const options: ChatProviderOptions = {};
+  for (const modelId of [primary, fallback]) {
+    const provider = MODEL_REGISTRY[modelId];
+    const next = PROVIDER_DISPATCH[provider].reasoningOptions(modelId, effort);
+    const prev = options[provider];
+    if (prev && JSON.stringify(prev) !== JSON.stringify(next)) {
+      throw new Error(
+        `${tier} maps multiple ${provider} chat models with incompatible provider options`,
+      );
+    }
+    options[provider] = next;
+  }
+  return options;
 }
 
 /**
