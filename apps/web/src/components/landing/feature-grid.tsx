@@ -46,13 +46,13 @@ export function FeatureGrid({ className }: { className?: string }) {
           </span>
           <h2
             className={cn(
-              "mx-auto mt-5 max-w-2xl text-balance font-semibold leading-[1.06] tracking-[-0.045em] text-white",
+              "mx-auto mt-5 max-w-2xl leading-[1.06] font-semibold tracking-[-0.045em] text-balance text-white",
               "text-[32px] sm:text-[40px] lg:text-[44px]",
             )}
           >
             Everything Alfred handles for you.
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-balance text-[15px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[17px]">
+          <p className="mx-auto mt-4 max-w-xl text-[15px] leading-[1.5] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[17px]">
             One assistant, across every tool you already use. Nothing important slips by.
           </p>
         </div>
@@ -195,7 +195,7 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
           <Icon className={cn("size-4", tone.text)} strokeWidth={2} />
         </span>
         <p className={cn("text-[13px] font-semibold tracking-tight", tone.text)}>{card.eyebrow}</p>
-        <h3 className="max-w-[22ch] text-balance text-[22px] font-semibold leading-[1.18] tracking-[-0.035em] text-white sm:text-[24px]">
+        <h3 className="max-w-[22ch] text-[22px] leading-[1.18] font-semibold tracking-[-0.035em] text-balance text-white sm:text-[24px]">
           {card.title}
         </h3>
         <p className="max-w-[36ch] text-[14.5px] leading-[1.55] tracking-[-0.012em] text-neutral-400">
@@ -275,10 +275,10 @@ function BriefingPillMockup() {
   return (
     <div className="space-y-2 rounded-xl border border-neutral-800/80 bg-neutral-900/60 p-4">
       <div className="flex items-center gap-2">
-        <span className="text-[11.5px] font-medium uppercase tracking-[0.16em] text-neutral-500">
+        <span className="text-[11.5px] font-medium tracking-[0.16em] text-neutral-500 uppercase">
           Mumbai · 24°
         </span>
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10.5px] font-medium text-emerald-300 ring-1 ring-inset ring-emerald-400/20">
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10.5px] font-medium text-emerald-300 ring-1 ring-emerald-400/20 ring-inset">
           <span className="relative grid size-1.5 place-items-center" aria-hidden>
             <span className="fg-ping absolute inset-0 rounded-full bg-emerald-300" />
             <span className="relative size-1.5 rounded-full bg-emerald-300" />
@@ -290,7 +290,7 @@ function BriefingPillMockup() {
         Good morning. You have <MiniPill tone="indigo">4 meetings</MiniPill> but a free{" "}
         <MiniPill tone="peach">afternoon</MiniPill>.
       </p>
-      <div className="h-px w-full bg-gradient-to-r from-neutral-700 via-neutral-800 to-transparent" />
+      <div className="h-px w-full bg-linear-to-r from-neutral-700 via-neutral-800 to-transparent" />
       <p className="flex items-center gap-2 text-[12.5px] text-neutral-400">
         <CornerDownRight className="size-3" strokeWidth={2} />
         Marcus flagged the checkout bug in #Eng.
@@ -303,10 +303,10 @@ function MeetingPrepMockupCard() {
   return (
     <div className="space-y-3 rounded-xl border border-neutral-800/80 bg-neutral-900/60 p-4">
       <div className="flex items-center gap-2">
-        <span className="text-[11.5px] font-medium uppercase tracking-[0.16em] text-neutral-500">
+        <span className="text-[11.5px] font-medium tracking-[0.16em] text-neutral-500 uppercase">
           Design sync · 3:00 PM
         </span>
-        <span className="fg-tick ml-auto inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-300 ring-1 ring-inset ring-amber-400/20">
+        <span className="fg-tick ml-auto inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-300 ring-1 ring-amber-400/20 ring-inset">
           In 8 min
         </span>
       </div>
@@ -408,7 +408,7 @@ function ChatBubbleMockup() {
               refunded.
             </div>
           </div>
-          <p className="fg-msg-in ml-8 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-neutral-500">
+          <p className="fg-msg-in ml-8 inline-flex items-center gap-1.5 text-[10.5px] tracking-[0.14em] text-neutral-500 uppercase">
             <MessagesSquare className="size-3" strokeWidth={2} />
             iMessage · Slack · Web · CLI
           </p>
@@ -466,7 +466,7 @@ function MiniChip({
     <span
       className={cn(
         "inline-flex items-center rounded-md px-1.5 py-0.5",
-        "text-[10px] font-semibold uppercase tracking-[0.1em]",
+        "text-[10px] font-semibold tracking-[0.1em] uppercase",
         "ring-1 ring-inset",
         MINI_CHIP_STYLES[kind],
         className,

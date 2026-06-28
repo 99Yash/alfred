@@ -246,16 +246,16 @@ function ApprovalStep({
       aria-label="Approval required"
       className={cn("app-frost-overlay animate-chat-in overflow-hidden rounded-2xl")}
     >
-      <div className="flex items-start gap-3 px-3 py-3 sm:px-4">
+      <div className="flex items-start gap-3 p-3 sm:px-4">
         <ToolIcon integration={staging.integration} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="min-w-0 truncate text-[15px] font-medium leading-6 text-app-fg-4">
+            <p className="min-w-0 truncate text-[15px] leading-6 font-medium text-app-fg-4">
               {title}
             </p>
             <RiskPill riskTier={staging.riskTier} />
           </div>
-          <p className="mt-1 max-w-[42rem] text-pretty text-[12px] leading-5 text-app-fg-3">
+          <p className="mt-1 max-w-[42rem] text-[12px] leading-5 text-pretty text-app-fg-3">
             {policy}
           </p>
         </div>
@@ -268,7 +268,7 @@ function ApprovalStep({
             >
               <ChevronLeft size={14} />
             </StepButton>
-            <span className="min-w-10 text-center text-[12px] tabular-nums text-app-fg-3">
+            <span className="min-w-10 text-center text-[12px] text-app-fg-3 tabular-nums">
               {step}/{total}
             </span>
             <StepButton

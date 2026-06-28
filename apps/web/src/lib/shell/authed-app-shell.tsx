@@ -93,10 +93,10 @@ export default function AuthedAppShell({
           mode={sidebarMode}
           onCollapse={() => setSidebarOpen(false)}
         />
-        <main className="flex flex-1 min-w-0 relative gap-1.5">
+        <main className="relative flex min-w-0 flex-1 gap-1.5">
           <div
             className={cn(
-              "relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden",
+              "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
               "rounded-2xl bg-app-bg-1",
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}

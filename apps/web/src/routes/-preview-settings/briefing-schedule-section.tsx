@@ -45,7 +45,7 @@ export function BriefingScheduleSection() {
 
   return (
     <AppCard padded={false}>
-      <div className="p-5 pb-2 space-y-1">
+      <div className="space-y-1 p-5 pb-2">
         <p className="text-sm font-medium text-app-fg-4">Briefing schedule</p>
         <p className="text-xs text-app-fg-3">
           When your morning briefing and evening recap arrive.
@@ -172,7 +172,7 @@ function ScheduleRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
         <span className={`grid size-8 shrink-0 place-items-center rounded-xl ${tint}`} aria-hidden>
           <Icon size={14} />
         </span>

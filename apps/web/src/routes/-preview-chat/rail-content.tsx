@@ -82,7 +82,7 @@ export function RailContent({
          * second quiet caption. Each row fades up in sequence on entrance
          * (delays climb down the block) so the header reads as one settling
          * gesture rather than four rows snapping in at once. */}
-        <div className="px-4 pt-5 pb-5">
+        <div className="px-4 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="animate-rail-head min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight text-white/75 mix-blend-plus-lighter">
               {greeting(now)}
@@ -94,8 +94,8 @@ export function RailContent({
                 aria-label="Close panel"
                 onClick={onClose}
                 className={cn(
-                  "size-7 shrink-0 inline-flex items-center justify-center rounded-lg",
-                  "text-white/70 hover:bg-white/[0.07] hover:text-white transition-colors app-press",
+                  "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
+                  "app-press text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white",
                   "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}
               >
@@ -126,7 +126,7 @@ export function RailContent({
          * so the scrollable height always tracks the visible feed. */}
         <div
           ref={feedScrollRef}
-          className="relative flex-1 min-h-0 overflow-y-auto scroll-stable px-3 pb-3"
+          className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-3 pb-3"
         >
           {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
            * feed to the rail's width — otherwise the grid auto-sizes to its

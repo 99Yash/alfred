@@ -201,7 +201,7 @@ export function ToolCallGroup({
             aria-controls={contentId}
             className={cn(
               "group/tools -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px]",
-              "transition-colors duration-150 hover:bg-app-bg-a2 outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
+              "transition-colors duration-150 outline-none hover:bg-app-bg-a2 focus-visible:ring-2 focus-visible:ring-app-fg-2",
             )}
           >
             {active ? (
@@ -240,13 +240,13 @@ export function ToolCallGroup({
         </Accordion.Header>
         <Accordion.Content
           id={contentId}
-          className="overflow-hidden data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down"
+          className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden"
         >
           {/* The trail flows inline in the conversation feed — no capped height
            * or nested scrollbar. The feed's own stick-to-bottom keeps the
            * model's current step in view as the trail grows, so a long agentic
            * run reads as one continuous timeline rather than a cramped box. */}
-          <div className="ml-3 mt-1.5 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
+          <div className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
             {trail.map((item) =>
               item.kind === "tool" ? (
                 <ToolCallCard key={item.key} tools={item.tools} />

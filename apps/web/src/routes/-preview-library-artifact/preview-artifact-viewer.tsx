@@ -29,7 +29,7 @@ export function PreviewArtifactViewer() {
         open
         aria-modal="true"
         aria-label="Artifact not found"
-        className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-center justify-center border-0 bg-transparent p-0 app-fade-in"
+        className="app-fade-in fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-center justify-center border-0 bg-transparent p-0"
       >
         <button
           type="button"
@@ -60,7 +60,7 @@ export function PreviewArtifactViewer() {
       open
       aria-modal="true"
       aria-label={artifact.title}
-      className="fixed inset-0 z-[60] m-0 flex max-h-none max-w-none flex-col border-0 bg-transparent p-0 app-fade-in"
+      className="app-fade-in fixed inset-0 z-[60] m-0 flex max-h-none max-w-none flex-col border-0 bg-transparent p-0"
     >
       <button
         type="button"
@@ -105,7 +105,7 @@ export function PreviewArtifactViewer() {
         </div>
       </header>
 
-      <main className="relative min-h-0 flex-1 overflow-y-auto scroll-stable px-4 py-8">
+      <main className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-4 py-8">
         <div className="mx-auto flex w-full max-w-[460px] flex-col gap-8">
           {artifact.pages.map((page, index) => (
             <section key={`${page.title}-${index}`} aria-label={`Page ${index + 1}`}>
@@ -124,10 +124,10 @@ export function PreviewArtifactViewer() {
                     "shadow-[0_8px_24px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)]",
                   )}
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-app-fg-2">
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-app-fg-2 uppercase">
                     {page.kicker}
                   </p>
-                  <h2 className="mt-6 text-3xl font-semibold leading-tight text-app-fg-4">
+                  <h2 className="mt-6 text-3xl leading-tight font-semibold text-app-fg-4">
                     {page.title}
                   </h2>
                   <p className="mt-6 text-[15px] leading-7 text-app-fg-3">{page.body}</p>
@@ -138,7 +138,7 @@ export function PreviewArtifactViewer() {
         </div>
       </main>
 
-      <div className="pointer-events-none absolute bottom-4 right-5 text-[11.5px] text-app-fg-2">
+      <div className="pointer-events-none absolute right-5 bottom-4 text-[11.5px] text-app-fg-2">
         Esc to exit
       </div>
     </dialog>

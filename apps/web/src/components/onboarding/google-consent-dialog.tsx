@@ -36,7 +36,7 @@ export function GoogleConsentDialog({
         title="Connect Google Workspace"
         description="Two quick things before Google takes over the next two screens."
       >
-        <div className="px-6 pb-6 pt-1">
+        <div className="px-6 pt-1 pb-6">
           <div className="mb-5 flex items-center gap-2">
             <IntegrationIcon brand="gmail" size="sm" />
             <IntegrationIcon brand="google_calendar" size="sm" />

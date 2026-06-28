@@ -27,7 +27,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
   return (
     <AppCard className="space-y-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-tight text-app-fg-2">
+        <h2 className="text-sm font-medium tracking-tight text-app-fg-2 uppercase">
           {slotLabel(slot)}
         </h2>
         {status === "suppressed" ? (
@@ -41,7 +41,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
           gather={gather}
           // Lead prose: brighten body ink to fg-4 so it reads as the hero
           // paragraph. Headings/strong already land on fg-4 via the tone.
-          className="text-pretty [&_p]:text-app-fg-4 [&_li]:text-app-fg-4"
+          className="text-pretty [&_li]:text-app-fg-4 [&_p]:text-app-fg-4"
         />
       ) : (
         <p className="text-sm text-app-fg-3">
@@ -56,12 +56,12 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
           <div className="space-y-4 pt-3">
             {sections.map((section) => (
               <div key={section.source} className="space-y-1">
-                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
+                <p className="flex items-center gap-1.5 text-xs font-medium tracking-tight text-app-fg-2 uppercase">
                   <SourceIcon source={section.source} />
                   {section.label}
                 </p>
                 <BriefingProse markdown={section.body} gather={gather} className="text-pretty" />
-                {section.why ? <p className="text-xs italic text-app-fg-2">{section.why}</p> : null}
+                {section.why ? <p className="text-xs text-app-fg-2 italic">{section.why}</p> : null}
               </div>
             ))}
           </div>
@@ -73,7 +73,7 @@ export function BriefingSlot({ briefing }: { briefing: SyncedBriefing }) {
           <div className="space-y-4 pt-3">
             {panels.map((panel) => (
               <div key={panel.source} className="space-y-1.5">
-                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-tight text-app-fg-2">
+                <p className="flex items-center gap-1.5 text-xs font-medium tracking-tight text-app-fg-2 uppercase">
                   <SourceIcon source={panel.source} />
                   {panel.label}
                 </p>
@@ -146,7 +146,7 @@ function Disclosure({ summary, children }: { summary: string; children: React.Re
         className={cn(
           "flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-app-fg-3",
           "transition-colors hover:text-app-fg-4",
-          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background rounded",
+          "rounded outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           "[&::-webkit-details-marker]:hidden",
         )}
       >

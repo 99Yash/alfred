@@ -26,7 +26,7 @@ export function SourcesStrip({ sources }: { sources: Source[] }) {
           style={{ animationDelay: `${i * 40}ms`, animationFillMode: "backwards" }}
           className={cn(
             "animate-chat-in group/source inline-flex items-center gap-1.5",
-            "rounded-lg border border-app-bg-3/50 bg-app-bg-a1 py-1 pl-1.5 pr-2",
+            "rounded-lg border border-app-bg-3/50 bg-app-bg-a1 py-1 pr-2 pl-1.5",
             "text-xs text-app-fg-3 no-underline",
             "transition-[background-color,color,translate,box-shadow] duration-150",
             "hover:-translate-y-px hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-sm",
@@ -34,7 +34,7 @@ export function SourcesStrip({ sources }: { sources: Source[] }) {
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-3",
           )}
         >
-          <span className="grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px] ring-1 ring-inset ring-white/10">
+          <span className="grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px] ring-1 ring-white/10 ring-inset">
             <img
               src={faviconFor(source.faviconDomain)}
               alt=""

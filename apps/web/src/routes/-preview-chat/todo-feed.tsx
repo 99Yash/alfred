@@ -61,7 +61,7 @@ export function TodoFeed({
 
       <div className={done.length ? "pt-1" : undefined}>
         {done.length ? (
-          <div className="px-2 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
+          <div className="px-2 pb-1.5 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
             Done
           </div>
         ) : null}
@@ -78,7 +78,7 @@ export function TodoFeed({
 
       <div className={suggestions.length ? "pt-3" : undefined}>
         {suggestions.length ? (
-          <div className="px-1 pb-1.5 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
+          <div className="px-1 pb-1.5 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
             Suggestions
           </div>
         ) : null}
@@ -110,8 +110,8 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
         onClick={onToggle}
         aria-pressed={todo.done ?? false}
         className={cn(
-          "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-white/[0.07] transition-colors app-press",
+          "group -mx-0.5 w-full rounded-xl p-2 text-left",
+          "app-press transition-colors hover:bg-white/[0.07]",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -119,11 +119,11 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 size-4 shrink-0 rounded-md inline-flex items-center justify-center",
+            "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-md",
             "border transition-colors",
             todo.done
-              ? "bg-app-purple-4 border-app-purple-4 text-white"
-              : "border-white/25 group-hover:border-white/50 bg-transparent",
+              ? "border-app-purple-4 bg-app-purple-4 text-white"
+              : "border-white/25 bg-transparent group-hover:border-white/50",
           )}
         >
           {todo.done ? <Check size={10} strokeWidth={3} /> : null}

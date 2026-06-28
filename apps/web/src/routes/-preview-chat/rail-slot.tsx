@@ -24,10 +24,10 @@ export function RailSlot({ active, children }: { active: boolean; children: Reac
       // crossfade layers are fully neutralized while faded out.
       inert={!active}
       className={cn(
-        "[grid-area:1/1] transition-[opacity,transform,filter] duration-300 ease-out",
+        "transition-[opacity,transform,filter] duration-300 ease-out [grid-area:1/1]",
         active
-          ? "opacity-100 z-10"
-          : "absolute inset-0 overflow-hidden opacity-0 pointer-events-none blur-[2px]",
+          ? "z-10 opacity-100"
+          : "pointer-events-none absolute inset-0 overflow-hidden opacity-0 blur-[2px]",
       )}
       style={{
         transform: active ? "translateY(0) scale(1)" : "translateY(8px) scale(0.985)",

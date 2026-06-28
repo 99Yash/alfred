@@ -23,7 +23,7 @@ export function LegalPage({
       {/* `<main>` gives these chromeless public pages their required primary
        * landmark (the authed shell supplies one for app routes; chromeless
        * routes must bring their own). */}
-      <main className="relative mx-auto w-full max-w-3xl px-5 pb-24 pt-16 sm:px-8 sm:pt-24">
+      <main className="relative mx-auto w-full max-w-3xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
         <a
           href="/"
           className={cn(
@@ -40,7 +40,7 @@ export function LegalPage({
           <span className="text-[15px] font-semibold text-white">Alfred</span>
         </header>
 
-        <h1 className="mt-8 text-balance text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+        <h1 className="mt-8 text-3xl font-semibold tracking-[-0.03em] text-balance text-white sm:text-4xl">
           {title}
         </h1>
         <p className="mt-3 text-[13.5px] text-neutral-400">Effective {effectiveDate}</p>

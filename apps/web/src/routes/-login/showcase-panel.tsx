@@ -4,7 +4,7 @@ import { BriefRow } from "./brief-row";
 
 export function ShowcasePanel() {
   return (
-    <div className="hidden lg:flex relative items-center justify-center overflow-hidden border-l border-app-bg-a1">
+    <div className="relative hidden items-center justify-center overflow-hidden border-l border-app-bg-a1 lg:flex">
       {/* Quiet ambient wash — pulls the purple accent across the right half */}
       <div
         aria-hidden
@@ -15,9 +15,9 @@ export function ShowcasePanel() {
         }}
       />
 
-      <div className="relative z-10 max-w-[420px] px-10 py-12 space-y-7">
+      <div className="relative z-10 max-w-[420px] space-y-7 px-10 py-12">
         <div className="space-y-2">
-          <h2 className="text-[26px] font-medium tracking-[-0.04em] text-app-fg-4 leading-[1.15]">
+          <h2 className="text-[26px] leading-[1.15] font-medium tracking-[-0.04em] text-app-fg-4">
             Your workday
             <br />
             pulled into focus.
@@ -41,19 +41,19 @@ export function ShowcasePanel() {
           />
           <div
             className={cn(
-              "relative rounded-2xl bg-app-bg-1 p-5 space-y-4",
+              "relative space-y-4 rounded-2xl bg-app-bg-1 p-5",
               "shadow-[0_1px_1px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.10)]",
             )}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-[0.08em] text-app-fg-2">
+              <span className="text-[11px] tracking-[0.08em] text-app-fg-2 uppercase">
                 Friday morning · 8:02
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-app-purple-1 px-2 py-0.5 text-[10px] font-medium text-app-purple-4">
                 <Sparkles size={10} /> Brief
               </span>
             </div>
-            <p className="text-[13px] text-app-fg-4 leading-relaxed">
+            <p className="text-[13px] leading-relaxed text-app-fg-4">
               <span className="font-medium">Three things</span> need you today. Pulled from your
               inbox, repos, and calendar.
             </p>

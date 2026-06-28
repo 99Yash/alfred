@@ -31,7 +31,7 @@ export function Switch({ className, ref, ...rest }: SwitchProps) {
         /* focus */
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
         /* disabled */
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...rest}
@@ -41,7 +41,7 @@ export function Switch({ className, ref, ...rest }: SwitchProps) {
           "pointer-events-none block size-5 rounded-full bg-white",
           "shadow-[0_1px_2px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.4)]",
           "transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
-          "data-[state=unchecked]:translate-x-0.5 data-[state=checked]:translate-x-[22px]",
+          "data-[state=checked]:translate-x-[22px] data-[state=unchecked]:translate-x-0.5",
         )}
       />
     </SwitchPrimitive.Root>

@@ -39,7 +39,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
       )}
     >
       <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] px-2.5 py-1">
-        <span className="font-mono text-[10.5px] lowercase tracking-wide text-white/45">
+        <span className="font-mono text-[10.5px] tracking-wide text-white/45 lowercase">
           {language || "text"}
         </span>
         <button
@@ -51,7 +51,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
             "grid size-6 place-items-center rounded-md",
             "text-white/55 transition-colors",
             "hover:bg-white/10 hover:text-white/90",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30",
+            "focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:outline-none",
           )}
         >
           <span className="relative grid size-3.5 place-items-center">

@@ -58,10 +58,10 @@ export function DialogContent({
       <RadixDialog.Content
         ref={ref}
         className={cn(
-          "fixed left-1/2 top-1/2 z-[101]",
+          "fixed top-1/2 left-1/2 z-[101]",
           "-translate-x-1/2 -translate-y-1/2",
           "w-[calc(100vw-2rem)] max-w-lg",
-          "rounded-3xl frost-popover",
+          "frost-popover rounded-3xl",
           "overflow-hidden",
           "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
           "data-[state=closed]:animate-[dialog-content-out_140ms_cubic-bezier(0.2,0,0,1)]",
@@ -78,7 +78,7 @@ export function DialogContent({
             </RadixDialog.Description>
           </>
         ) : (
-          <div className="px-6 pt-5 pb-3 space-y-1">
+          <div className="space-y-1 px-6 pt-5 pb-3">
             <RadixDialog.Title className="text-base font-medium text-gray-1000">
               {title}
             </RadixDialog.Title>

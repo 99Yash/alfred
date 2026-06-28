@@ -149,11 +149,11 @@ export function ApprovalsPage() {
   const windowed = filtered.slice(0, visible);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
         <header className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-balance text-[36px] leading-[42px] font-medium tracking-[-0.04em] text-app-fg-4">
+            <h1 className="text-[36px] leading-[42px] font-medium tracking-[-0.04em] text-balance text-app-fg-4">
               Approvals
             </h1>
             <p className="mt-2 text-sm text-app-fg-3">
@@ -212,7 +212,7 @@ export function ApprovalsPage() {
                 onClick={clearFilters}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-app-fg-3",
-                  "transition-colors hover:text-app-fg-4 hover:bg-app-bg-a2",
+                  "transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
                   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
                 )}
               >

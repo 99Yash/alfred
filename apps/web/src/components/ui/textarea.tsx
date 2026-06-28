@@ -19,19 +19,19 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 }
 
 const CARD = cn(
-  "block w-full text-sm rounded-lg px-3 py-2 resize-none",
+  "block w-full resize-none rounded-lg px-3 py-2 text-sm",
   "bg-[rgb(var(--gray-50)/0.5)] hover:bg-[rgb(var(--gray-50)/0.8)] focus:bg-[rgb(var(--gray-50))]",
   "border border-gray-100 hover:border-gray-200 focus:border-gray-300",
   "text-gray-950 placeholder:text-gray-800",
   "outline-none focus:outline-none",
   "transition-[background-color,border-color] duration-200",
-  "disabled:opacity-50 disabled:cursor-not-allowed",
+  "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
 const INLINE = cn(
-  "block w-full bg-transparent border-0 p-0 resize-none",
+  "block w-full resize-none border-0 bg-transparent p-0",
   "text-gray-950 placeholder:text-gray-800",
-  "outline-none focus-visible:outline-none focus-visible:ring-0",
+  "outline-none focus-visible:ring-0 focus-visible:outline-none",
 );
 
 export function Textarea({ className, variant = "card", rows, ref, ...rest }: TextareaProps) {

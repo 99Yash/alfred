@@ -133,8 +133,8 @@ export function AppDateTimePicker({
           disabled={disabled}
           className={cn(
             "flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-sm",
-            "bg-app-bg-1 text-app-fg-4 app-elevated app-press",
-            "outline-none transition-shadow",
+            "app-elevated app-press bg-app-bg-1 text-app-fg-4",
+            "transition-shadow outline-none",
             "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             "data-[state=open]:ring-2 data-[state=open]:ring-app-purple-2 data-[state=open]:ring-offset-4 data-[state=open]:ring-offset-app-background",
             "disabled:cursor-not-allowed disabled:opacity-60",
@@ -156,8 +156,8 @@ export function AppDateTimePicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 w-76 rounded-2xl p-3 my-1",
-            "outline-none app-fade-in",
+            "app app-frost-overlay z-50 my-1 w-76 rounded-2xl p-3",
+            "app-fade-in outline-none",
           )}
         >
           {/* Month header */}
@@ -214,7 +214,7 @@ export function AppDateTimePicker({
                           onClick={() => commitDay(day)}
                           onKeyDown={(event) => handleDayKeyDown(event, index)}
                           className={cn(
-                            "grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums outline-none transition-colors",
+                            "grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums transition-colors outline-none",
                             "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
                             isSelected
                               ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
@@ -314,7 +314,7 @@ function NavButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "grid size-7 place-items-center rounded-lg text-app-fg-3 outline-none transition-colors",
+        "grid size-7 place-items-center rounded-lg text-app-fg-3 transition-colors outline-none",
         "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-1",
       )}
     >

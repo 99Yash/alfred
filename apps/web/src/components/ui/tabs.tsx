@@ -92,14 +92,14 @@ function listClassName(variant: TabsVariant, className?: string): string {
 function triggerClassName(variant: TabsVariant): string {
   const base = cn(
     "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
-    "disabled:opacity-50 disabled:cursor-not-allowed",
+    "disabled:cursor-not-allowed disabled:opacity-50",
     "transition-[background-color,color,box-shadow,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
   );
 
   if (variant === "segmented") {
     return cn(
       base,
-      "h-9 min-w-14 rounded-[14px] px-3 grid place-items-center gap-1.5 text-sm font-medium",
+      "grid h-9 min-w-14 place-items-center gap-1.5 rounded-[14px] px-3 text-sm font-medium",
       "active:scale-[0.96]",
       "text-gray-800 hover:text-gray-900",
       "data-[state=active]:bg-white/[0.12] data-[state=active]:text-gray-1000",
@@ -110,7 +110,7 @@ function triggerClassName(variant: TabsVariant): string {
   if (variant === "pill") {
     return cn(
       base,
-      "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium",
+      "inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium",
       "active:scale-[0.97]",
       "text-gray-800 hover:text-gray-900",
       "data-[state=active]:bg-white/90 data-[state=active]:text-gray-50",
@@ -119,7 +119,7 @@ function triggerClassName(variant: TabsVariant): string {
 
   return cn(
     base,
-    "relative inline-flex items-center gap-1.5 px-2 pb-1.5 pt-1 text-sm font-medium",
+    "relative inline-flex items-center gap-1.5 px-2 pt-1 pb-1.5 text-sm font-medium",
     "active:scale-[0.98]",
     "text-gray-800 hover:text-gray-900",
     "data-[state=active]:heading-display-lavender",

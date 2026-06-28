@@ -34,7 +34,7 @@ export function CitationLink({ href, children }: CitationLinkProps) {
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-3",
           )}
         >
-          <span className="grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[3px] ring-1 ring-inset ring-white/10">
+          <span className="grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[3px] ring-1 ring-white/10 ring-inset">
             <img
               src={faviconFor(domain)}
               alt=""

@@ -73,7 +73,7 @@ export function ModelTierPicker({
           title="Choose how hard Alfred thinks"
           className={cn(
             "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
-            "text-app-fg-3 transition-colors app-press outline-none",
+            "app-press text-app-fg-3 transition-colors outline-none",
             "hover:bg-app-bg-a2 hover:text-app-fg-4",
             "data-[state=open]:bg-app-bg-a2 data-[state=open]:text-app-fg-4",
             "disabled:cursor-not-allowed disabled:opacity-50",
@@ -97,7 +97,7 @@ export function ModelTierPicker({
           data-app-theme={dataTheme}
           className={cn(
             "app app-frost-overlay z-50 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl p-1.5",
-            "outline-none app-fade-in",
+            "app-fade-in outline-none",
           )}
         >
           {TIER_OPTIONS.map((option) => {
@@ -111,7 +111,7 @@ export function ModelTierPicker({
                 aria-selected={checked}
                 onClick={() => onChange(option.value)}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-xl px-2 py-2 text-left outline-none transition-colors",
+                  "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                   "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                 )}
               >

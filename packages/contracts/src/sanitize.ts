@@ -26,6 +26,7 @@
 // low surrogate, or a low surrogate (DC00–DFFF) not preceded by a high one.
 // Well-formed surrogate *pairs* (real astral characters, e.g. emoji) are left
 // intact — only unpaired halves are stripped.
+// oxlint-disable-next-line no-control-regex -- matching U+0000 is the purpose of this sanitizer
 const POISON_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 /** Strip poison code units from a single string, reporting how many were removed. */

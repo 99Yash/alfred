@@ -26,16 +26,16 @@ export function AppCard({ className, padded = true, interactive, ref, ...rest }:
     <div
       ref={ref}
       className={cn(
-        "w-full bg-app-bg-1 rounded-2xl overflow-hidden",
+        "w-full overflow-hidden rounded-2xl bg-app-bg-1",
         /* Theme-aware hairline + drop — the hardcoded black stack was
          * invisible in dark mode (black-on-#0a0a0a). */
         "shadow-[var(--app-shadow-elevated)]",
         padded && "p-5",
         interactive &&
           cn(
-            "transition-shadow cursor-pointer",
+            "cursor-pointer transition-shadow",
             "hover:shadow-[var(--app-shadow-elevated-hover)]",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background focus-visible:outline-none",
           ),
         className,
       )}

@@ -14,9 +14,9 @@ export function ComposerDock({
 }) {
   const canSend = value.trim().length > 0;
   return (
-    <div className="shrink-0 pb-5 pt-1">
+    <div className="shrink-0 pt-1 pb-5">
       <div className="mx-auto w-full max-w-3xl px-6">
-        <div className={cn("rounded-3xl bg-app-bg-1 p-2 app-elevated")}>
+        <div className={cn("app-elevated rounded-3xl bg-app-bg-1 p-2")}>
           <textarea
             aria-label="Ask Alfred"
             value={value}
@@ -51,7 +51,7 @@ export function ComposerDock({
                 disabled={!canSend}
                 aria-label="Send message"
                 className={cn(
-                  "size-8 inline-flex items-center justify-center rounded-lg",
+                  "inline-flex size-8 items-center justify-center rounded-lg",
                   "app-press transition-[box-shadow,transform,filter]",
                   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
                   canSend
@@ -61,7 +61,7 @@ export function ComposerDock({
                         "shadow-[var(--app-button-primary-shadow)]",
                         "hover:brightness-[1.06]",
                       )
-                    : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+                    : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
                 )}
               >
                 <ArrowUp size={15} strokeWidth={2.25} />
@@ -83,8 +83,8 @@ function ComposerIcon({ label, children }: { label: string; children: ReactNode 
       type="button"
       aria-label={label}
       className={cn(
-        "size-8 inline-flex items-center justify-center rounded-lg",
-        "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
+        "inline-flex size-8 items-center justify-center rounded-lg",
+        "app-press text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >

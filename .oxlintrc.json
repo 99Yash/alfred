@@ -1,8 +1,16 @@
 {
   "plugins": null,
+  "jsPlugins": ["oxlint-tailwindcss"],
   "categories": {},
-  "rules": {},
+  "rules": {
+    "tailwindcss/enforce-sort-order": "warn",
+    "tailwindcss/enforce-shorthand": "warn",
+    "tailwindcss/no-deprecated-classes": "warn"
+  },
   "settings": {
+    "tailwindcss": {
+      "entryPoint": "apps/web/src/index.css"
+    },
     "jsx-a11y": {
       "polymorphicPropName": null,
       "components": {},

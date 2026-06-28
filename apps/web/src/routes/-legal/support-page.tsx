@@ -11,7 +11,7 @@ export function SupportPage() {
       {/* `<main>` gives this chromeless public page its required primary
        * landmark (the authed shell supplies one for app routes; chromeless
        * routes must bring their own). */}
-      <main className="relative mx-auto w-full max-w-3xl px-5 pb-24 pt-16 sm:px-8 sm:pt-24">
+      <main className="relative mx-auto w-full max-w-3xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
         <a
           href="/"
           className={cn(
@@ -28,7 +28,7 @@ export function SupportPage() {
           <span className="text-[15px] font-semibold text-white">Alfred</span>
         </header>
 
-        <h1 className="mt-8 text-balance text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+        <h1 className="mt-8 text-3xl font-semibold tracking-[-0.03em] text-balance text-white sm:text-4xl">
           Support
         </h1>
         <p className="mt-3 text-[13.5px] text-neutral-400">We&rsquo;re here to help.</p>

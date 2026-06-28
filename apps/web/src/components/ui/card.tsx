@@ -26,7 +26,7 @@ export function Card({ className, interactive, ref, ...rest }: CardProps) {
         interactive &&
           cn(
             "hover:bg-[#181818] focus-visible:bg-[#181818]",
-            "outline-none focus-visible:outline-none cursor-pointer",
+            "cursor-pointer outline-none focus-visible:outline-none",
           ),
         className,
       )}

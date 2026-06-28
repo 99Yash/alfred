@@ -13,7 +13,7 @@ export function FeaturesSection() {
   return (
     <>
       <AppCard padded={false}>
-        <div className="p-5 pb-2 space-y-1">
+        <div className="space-y-1 p-5 pb-2">
           <p className="text-sm font-medium text-app-fg-4">Background agents</p>
           <p className="text-xs text-app-fg-3">
             Enable or disable the agents that run on your behalf.

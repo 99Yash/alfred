@@ -268,9 +268,9 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
         // Override UA defaults: dialog ships with its own border, padding,
         // max-width/height and centered positioning — we want a full-bleed
         // overlay so the backdrop button covers the viewport.
-        "fixed inset-0 z-[60] m-0 max-w-none max-h-none w-full h-full",
-        "bg-transparent text-inherit border-0 p-0",
-        "flex items-start justify-center pt-[12vh] app-fade-in",
+        "fixed inset-0 z-[60] m-0 size-full max-h-none max-w-none",
+        "border-0 bg-transparent p-0 text-inherit",
+        "app-fade-in flex items-start justify-center pt-[12vh]",
       )}
     >
       <button
@@ -282,14 +282,14 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
       <div
         className={cn(
-          "relative w-full max-w-[640px] mx-4",
+          "relative mx-4 w-full max-w-[640px]",
           "rounded-2xl bg-app-bg-1 ring-1 ring-app-bg-3/80",
           "shadow-[0_30px_80px_rgba(0,0,0,0.32)]",
           "overflow-hidden",
         )}
       >
-        <div className="flex items-center gap-2.5 px-4 h-12 border-b border-app-bg-3/60">
-          <Search size={16} strokeWidth={1.75} className="text-app-fg-2 shrink-0" aria-hidden />
+        <div className="flex h-12 items-center gap-2.5 border-b border-app-bg-3/60 px-4">
+          <Search size={16} strokeWidth={1.75} className="shrink-0 text-app-fg-2" aria-hidden />
           <input
             ref={inputRef}
             value={query}
@@ -300,16 +300,16 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
             onKeyDown={onKeyDown}
             placeholder="Search chats and actions…"
             className={cn(
-              "flex-1 min-w-0 bg-transparent text-sm text-app-fg-4 placeholder:text-app-fg-2",
+              "min-w-0 flex-1 bg-transparent text-sm text-app-fg-4 placeholder:text-app-fg-2",
               "outline-none focus-visible:outline-none",
             )}
             aria-label="Search query"
           />
           <kbd
             className={cn(
-              "shrink-0 inline-flex items-center justify-center h-[18px] px-1.5 rounded-md",
+              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-md px-1.5",
               "text-[10.5px] font-medium tabular-nums",
-              "bg-app-bg-a2 text-app-fg-2 font-sans",
+              "bg-app-bg-a2 font-sans text-app-fg-2",
             )}
           >
             ESC
@@ -356,7 +356,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
         <div
           className={cn(
-            "flex items-center justify-between gap-3 px-4 h-10",
+            "flex h-10 items-center justify-between gap-3 px-4",
             "border-t border-app-bg-3/60 bg-app-bg-1/60",
           )}
         >
@@ -385,7 +385,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="pt-1">
-      <div className="px-3 pt-2 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
+      <div className="px-3 pt-2 pb-1 text-[10.5px] font-medium tracking-tight text-app-fg-2 uppercase">
         {label}
       </div>
       <div className="space-y-0.5 px-1.5">{children}</div>
@@ -413,7 +413,7 @@ function PaletteRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
       className={cn(
-        "group w-full flex items-center gap-3 rounded-xl h-10 px-2.5",
+        "group flex h-10 w-full items-center gap-3 rounded-xl px-2.5",
         "transition-colors",
         "outline-none",
         active
@@ -424,17 +424,17 @@ function PaletteRow({
       <span
         aria-hidden
         className={cn(
-          "size-7 shrink-0 inline-flex items-center justify-center rounded-lg",
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
           "bg-app-bg-2 text-app-fg-3",
           active && "bg-app-purple-1 text-app-purple-4",
         )}
       >
         <Icon size={14} strokeWidth={1.75} />
       </span>
-      <span className="flex-1 min-w-0 text-left">
-        <span className="block text-sm font-medium text-app-fg-4 truncate">{item.label}</span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-sm font-medium text-app-fg-4">{item.label}</span>
         {item.hint ? (
-          <span className="block text-[11px] text-app-fg-2 truncate">{item.hint}</span>
+          <span className="block truncate text-[11px] text-app-fg-2">{item.hint}</span>
         ) : null}
       </span>
       {active ? (
@@ -450,9 +450,9 @@ function FootKbd({ children }: { children: ReactNode }) {
   return (
     <kbd
       className={cn(
-        "inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded",
+        "inline-flex h-4 min-w-[16px] items-center justify-center rounded px-1",
         "text-[10px] leading-none font-medium tabular-nums",
-        "bg-app-bg-a2 text-app-fg-3 font-sans",
+        "bg-app-bg-a2 font-sans text-app-fg-3",
       )}
     >
       {children}
