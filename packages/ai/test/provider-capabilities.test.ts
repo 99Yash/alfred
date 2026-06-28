@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { EFFORT_LEVELS, type EffortLevel, MODEL_CAPABILITIES, type ModelId } from "../src/models";
+import {
+  EFFORT_LEVELS,
+  type EffortLevel,
+  MODEL_CAPABILITIES,
+  type ModelId,
+  MODEL_REGISTRY,
+} from "../src/models";
 import { clampEffort, getChatProviderOptions } from "../src/provider";
 
 /**
@@ -40,6 +46,20 @@ describe("provider capability dispatch", () => {
         indices,
         [...indices].sort((a, b) => a - b),
         `${id} effortValues must be weakest→strongest`,
+      );
+    }
+  });
+
+  test("Google registry entries stay budget-based until the dispatch maps effort labels", () => {
+    for (const [id, provider] of Object.entries(MODEL_REGISTRY) as [
+      ModelId,
+      (typeof MODEL_REGISTRY)[ModelId],
+    ][]) {
+      if (provider !== "google") continue;
+      assert.deepEqual(
+        MODEL_CAPABILITIES[id].effortValues,
+        [],
+        `${id} has Google effort values; update provider.ts to map them to the Google SDK option shape before registering it`,
       );
     }
   });

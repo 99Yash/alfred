@@ -20,6 +20,7 @@
  */
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import {
   EFFORT_LEVELS,
   type EffortLevel,
@@ -38,6 +39,26 @@ interface SnapshotCapabilities {
   reasoningOptions?: ReasoningOption[] | null;
   temperature?: boolean | null;
 }
+
+const reasoningOptionSchema = z
+  .object({
+    type: z.string(),
+    values: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+const snapshotCapabilitiesSchema = z
+  .object({
+    reasoningOptions: z.array(reasoningOptionSchema).nullable().optional(),
+    temperature: z.boolean().nullable().optional(),
+  })
+  .passthrough();
+
+const snapshotMetadataSchema = z
+  .object({
+    capabilities: snapshotCapabilitiesSchema.optional(),
+  })
+  .passthrough();
 
 const knownEffortLevels: ReadonlySet<string> = new Set(EFFORT_LEVELS);
 
@@ -72,7 +93,60 @@ function sameEfforts(a: readonly EffortLevel[], b: readonly EffortLevel[]): bool
 }
 
 interface PriceRow {
-  metadata: { capabilities?: SnapshotCapabilities } | null;
+  metadata: unknown;
+}
+
+type SnapshotResult =
+  | { kind: "ok"; snapshot: SnapshotCapabilities }
+  | { kind: "missing"; message: string }
+  | { kind: "malformed"; message: string };
+
+function missingSnapshotMessage(modelId: ModelId): string {
+  return `${modelId}: no synced capability snapshot (run \`pnpm --filter @alfred/db db:sync-prices\`)`;
+}
+
+function readSnapshot(modelId: ModelId, metadata: unknown): SnapshotResult {
+  if (metadata == null) {
+    return { kind: "missing", message: missingSnapshotMessage(modelId) };
+  }
+
+  const parsed = snapshotMetadataSchema.safeParse(metadata);
+  if (!parsed.success) {
+    return {
+      kind: "malformed",
+      message: `${modelId}.metadata: malformed capability snapshot: ${z.prettifyError(parsed.error)}`,
+    };
+  }
+
+  const snapshot = parsed.data.capabilities;
+  if (!snapshot || snapshot.reasoningOptions === undefined) {
+    return { kind: "missing", message: missingSnapshotMessage(modelId) };
+  }
+  return { kind: "ok", snapshot };
+}
+
+function directErrorMessage(err: unknown): string | undefined {
+  if (err instanceof Error && err.message) return err.message;
+  return typeof err === "string" ? err : undefined;
+}
+
+function aggregateErrorMessages(err: unknown): string[] {
+  if (!(err instanceof Error) || !("errors" in err)) return [];
+  const errors = err.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.flatMap((nested) => {
+    const message = directErrorMessage(nested);
+    return message ? [message] : [];
+  });
+}
+
+function errorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = "cause" in err ? err.cause : undefined;
+  const aggregateMessages = aggregateErrorMessages(cause);
+  const causeMessage =
+    aggregateMessages.length > 0 ? aggregateMessages.join("; ") : directErrorMessage(cause);
+  return causeMessage ? `${err.message}; cause: ${causeMessage}` : err.message;
 }
 
 async function main() {
@@ -89,13 +163,16 @@ async function main() {
       LIMIT 1
     `);
     const row = rowsFromExecute<PriceRow>(result)[0];
-    const snapshot = row?.metadata?.capabilities;
-    if (!snapshot || snapshot.reasoningOptions === undefined) {
-      missing.push(
-        `${modelId}: no synced capability snapshot (run \`pnpm --filter @alfred/db db:sync-prices\`)`,
-      );
+    const parsed = readSnapshot(modelId, row?.metadata ?? null);
+    if (parsed.kind === "missing") {
+      missing.push(parsed.message);
       continue;
     }
+    if (parsed.kind === "malformed") {
+      drift.push(parsed.message);
+      continue;
+    }
+    const { snapshot } = parsed;
 
     const code = MODEL_CAPABILITIES[modelId];
     const oracleEfforts = expectedEffortValues(snapshot.reasoningOptions);
@@ -140,8 +217,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[verify-capabilities] FAIL:", message);
+    console.error("[verify-capabilities] FAIL:", errorMessage(err));
     process.exitCode = 1;
   })
   .finally(() => closeConnections().catch(() => {}));

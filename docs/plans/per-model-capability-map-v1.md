@@ -9,6 +9,10 @@
 > invariants) and `test/tool-name-shim.test.ts` (strictest shimmed provider name cap).
 > Deferred per "Scope (out)": runtime DB-derivation, schema-sanitized structured
 > output, `temperature` plumbing, and mapping an OpenAI language model into chat.
+> Review hardening: OpenAI remains only a metering/transcription provider until
+> an OpenAI chat model exists in `MODEL_REGISTRY`; Google dispatch fails loudly if
+> an effort-bearing Google model is registered before its SDK mapping is added;
+> `verify-capabilities` parses DB metadata as untrusted JSON.
 >
 > **Verified live (2026-06-28):** `db:sync-prices` re-synced (94 rows; capability-aware
 > change-detection landed the new metadata), `verify-capabilities` → ✅ all 6 models
@@ -72,7 +76,7 @@ What we deliberately **do not** borrow: opencode's `variants()` is ~600 lines of
 **Two axes, two homes:**
 
 - **Per-model facts** → `MODEL_REGISTRY` in `packages/ai/src/models.ts` (already the closed enumeration of the 6 models). Add only what the data proved matters: the **effort vocabulary** (`[]` encodes "no effort param" — which for Haiku 4.5 *is* ADR-0077's empty-block) and `temperature` support (future-proofing; not sent today).
-- **Per-provider mechanics** → a small `PROVIDER_DISPATCH` profile in `provider.ts`: the reasoning-block builder, the tool-name shim policy, and the structured-output fallback policy. Three entries (`anthropic`, `google`, and an `openai` stub the moment it's needed).
+- **Per-provider mechanics** → a small `PROVIDER_DISPATCH` profile in `provider.ts`: the reasoning-block builder and the tool-name shim policy. It is keyed by `ModelProviderId` (providers that actually have language models in `MODEL_REGISTRY`), while `ProviderId` remains the broader metering enum that also includes OpenAI transcription.
 
 models.dev is neither home — it is the **audit oracle** that proves the code-resident effort vocabularies still match reality.
 
@@ -121,15 +125,12 @@ interface ProviderDispatch {
    * tier→model remap can't reintroduce an unsupported param.
    */
   reasoningOptions(modelId: ModelId, effort: EffortLevel): Record<string, unknown>;
-  /** Cross-provider degrade is unsafe for structured generateObject (Anthropic Output.object). */
-  readonly structuredOutputFallback: "same-provider" | "cross-provider";
 }
 
 const PROVIDER_DISPATCH = {
   anthropic: {
     toolNameShim: true,
     toolNameMaxLen: 128,
-    structuredOutputFallback: "cross-provider", // generateText path; cheap tier overrides
     reasoningOptions(modelId, effort) {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       if (effortValues.length === 0) return {}; // Haiku 4.5 — empty block (ADR-0077)
@@ -139,13 +140,11 @@ const PROVIDER_DISPATCH = {
   google: {
     toolNameShim: true, // fixes the latent bare-name bug when Google is primary
     toolNameMaxLen: 64,
-    structuredOutputFallback: "same-provider", // ADR — cheap tier stays on Google
     reasoningOptions() {
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
   },
-  // openai: { … reasoningEffort: clamp(effort, effortValues) … }  // stub when first dispatched
-} as const satisfies Record<ProviderId, ProviderDispatch>;
+} as const satisfies Record<ModelProviderId, ProviderDispatch>;
 
 /** Snap a desired effort to the nearest value the model actually accepts. Never emits an unsupported tier. */
 function clamp(desired: EffortLevel, allowed: readonly EffortLevel[]): EffortLevel { /* nearest by index */ }
@@ -170,7 +169,7 @@ Rename `withAnthropicToolNames` → `withToolNameShim` (the encode/decode is alr
 - **DB-derived-at-runtime capabilities** — rejected (opencode keeps it in code; provider layer is sync + hot-path; models.dev has gaps). models.dev stays an audit oracle.
 - **Structured-output-via-schema-sanitization** (opencode's `schema()` approach) — the cheap tier's `same-provider` pin is lower-risk and already shipped; revisit only if a cross-provider structured path is needed.
 - **`temperature` plumbing** — the capability is recorded but Alfred sends no temperature today; wire it only when a model that needs it lands.
-- **OpenAI chat mapping** — the provider profile/factory exists, but no OpenAI language model is in `MODEL_REGISTRY` or `CHAT_TIERS` yet (transcription already meters through OpenAI but isn't a language-model dispatch).
+- **OpenAI chat mapping** — no OpenAI language model is in `MODEL_REGISTRY` or `CHAT_TIERS` yet (transcription already meters through OpenAI but isn't a language-model dispatch), so there is no OpenAI dispatch profile/factory until the first OpenAI chat model is added.
 - **#249 model-router** — consumes this (`reasoningOptions(model, routerEffort)`), not built here.
 
 ## Implementation order
