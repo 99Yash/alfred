@@ -82,6 +82,26 @@ export interface UserContext {
 
 const FACT_LIMIT = 30;
 const PREF_LIMIT = 50;
+/**
+ * Canonical identity keys that answer "who am I / where do I work?". These are
+ * GUARANTEED into the bounded fact slice ahead of the recency/confidence-ranked
+ * rest, so a flood of transactional per-email facts can never evict the user's
+ * authoritative identity (issue #329). Kept deliberately tight — this is the
+ * profile spine, not the broader preference allow-list the #331 purge uses.
+ */
+const IDENTITY_FACT_KEYS = [
+  "current_company",
+  "current_work",
+  "current_role",
+  "bio_summary",
+  "first_name",
+  "last_name",
+  "full_name",
+  "user_nickname",
+  "current_location",
+  "home_city",
+  "home_country",
+] as const;
 const ENTITY_LIMIT = 50;
 const RELATION_LIMIT = 80;
 const MEMORY_LIMIT = 6;
@@ -139,79 +159,115 @@ export async function readUserContext(
   const subjectEmail = options.subjectEmail?.trim().toLowerCase() || undefined;
   const tokens = queryTokens(options.query);
 
-  const [profileRows, integrationRows, factRows, prefRows, rankedEntityRows, memoryRows] =
-    await Promise.all([
-      db()
-        .select({ name: user.name, email: user.email })
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1),
-      wants("integrations")
-        ? db()
-            .select({
-              provider: integrationCredentials.provider,
-              accountLabel: integrationCredentials.accountLabel,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, userId),
-                eq(integrationCredentials.status, "active"),
-              ),
-            )
-            .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel))
-        : Promise.resolve([]),
-      wants("facts")
-        ? db()
-            .select({
-              key: userFacts.key,
-              value: userFacts.value,
-              confidence: userFacts.confidence,
-              updatedAt: userFacts.updatedAt,
-              createdAt: userFacts.createdAt,
-            })
-            .from(userFacts)
-            .where(
-              and(
-                eq(userFacts.userId, userId),
-                eq(userFacts.status, "confirmed"),
-                or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
-              ),
-            )
-            .orderBy(desc(userFacts.updatedAt), desc(userFacts.createdAt))
-            .limit(FACT_LIMIT)
-        : Promise.resolve([]),
-      wants("preferences")
-        ? db()
-            .select({ key: userPreferences.key, value: userPreferences.value })
-            .from(userPreferences)
-            .where(eq(userPreferences.userId, userId))
-            .orderBy(asc(userPreferences.key))
-            .limit(PREF_LIMIT)
-        : Promise.resolve([]),
-      // Entities are needed whenever the caller wants entities OR relationships
-      // (relation endpoints resolve to entity names from this set).
-      wants("entities") || wants("relationships")
-        ? db()
-            .select(ENTITY_COLUMNS)
-            .from(entities)
-            .where(eq(entities.userId, userId))
-            .orderBy(
-              sql`${significanceScore} desc nulls last`,
-              asc(entities.kind),
-              asc(entities.canonicalName),
-            )
-            .limit(ENTITY_LIMIT)
-        : Promise.resolve([] as EntityRow[]),
-      wants("recent_memory")
-        ? db()
-            .select({ kind: memoryChunks.kind, content: memoryChunks.content })
-            .from(memoryChunks)
-            .where(eq(memoryChunks.userId, userId))
-            .orderBy(desc(memoryChunks.createdAt))
-            .limit(MEMORY_LIMIT)
-        : Promise.resolve([]),
-    ]);
+  const [
+    profileRows,
+    integrationRows,
+    rankedFactRows,
+    identityFactRows,
+    prefRows,
+    rankedEntityRows,
+    memoryRows,
+  ] = await Promise.all([
+    db()
+      .select({ name: user.name, email: user.email })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1),
+    wants("integrations")
+      ? db()
+          .select({
+            provider: integrationCredentials.provider,
+            accountLabel: integrationCredentials.accountLabel,
+          })
+          .from(integrationCredentials)
+          .where(
+            and(
+              eq(integrationCredentials.userId, userId),
+              eq(integrationCredentials.status, "active"),
+            ),
+          )
+          .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel))
+      : Promise.resolve([]),
+    wants("facts")
+      ? db()
+          .select({
+            id: userFacts.id,
+            key: userFacts.key,
+            value: userFacts.value,
+            confidence: userFacts.confidence,
+            updatedAt: userFacts.updatedAt,
+            createdAt: userFacts.createdAt,
+          })
+          .from(userFacts)
+          .where(
+            and(
+              eq(userFacts.userId, userId),
+              eq(userFacts.status, "confirmed"),
+              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+            ),
+          )
+          // Confidence first, then recency — the authoritative identity facts
+          // (source=user, c=1.0) outrank transactional per-email noise (c≈0.95)
+          // instead of being buried by it (issue #329).
+          .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
+          .limit(FACT_LIMIT)
+      : Promise.resolve([]),
+    // The canonical identity facts, fetched unconditionally of the cap, so they
+    // are guaranteed into the merged slice even when the ranked top-N is full of
+    // higher-or-equal-confidence transactional noise (issue #329).
+    wants("facts")
+      ? db()
+          .select({
+            id: userFacts.id,
+            key: userFacts.key,
+            value: userFacts.value,
+            confidence: userFacts.confidence,
+            updatedAt: userFacts.updatedAt,
+            createdAt: userFacts.createdAt,
+          })
+          .from(userFacts)
+          .where(
+            and(
+              eq(userFacts.userId, userId),
+              eq(userFacts.status, "confirmed"),
+              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+              inArray(userFacts.key, [...IDENTITY_FACT_KEYS]),
+            ),
+          )
+          .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
+          .limit(IDENTITY_FACT_KEYS.length)
+      : Promise.resolve([]),
+    wants("preferences")
+      ? db()
+          .select({ key: userPreferences.key, value: userPreferences.value })
+          .from(userPreferences)
+          .where(eq(userPreferences.userId, userId))
+          .orderBy(asc(userPreferences.key))
+          .limit(PREF_LIMIT)
+      : Promise.resolve([]),
+    // Entities are needed whenever the caller wants entities OR relationships
+    // (relation endpoints resolve to entity names from this set).
+    wants("entities") || wants("relationships")
+      ? db()
+          .select(ENTITY_COLUMNS)
+          .from(entities)
+          .where(eq(entities.userId, userId))
+          .orderBy(
+            sql`${significanceScore} desc nulls last`,
+            asc(entities.kind),
+            asc(entities.canonicalName),
+          )
+          .limit(ENTITY_LIMIT)
+      : Promise.resolve([] as EntityRow[]),
+    wants("recent_memory")
+      ? db()
+          .select({ kind: memoryChunks.kind, content: memoryChunks.content })
+          .from(memoryChunks)
+          .where(eq(memoryChunks.userId, userId))
+          .orderBy(desc(memoryChunks.createdAt))
+          .limit(MEMORY_LIMIT)
+      : Promise.resolve([]),
+  ]);
 
   // Guarantee the focused contact/query matches survive the ranked cap: fetch
   // them directly and merge ahead of the ranked slice (deduped by id).
@@ -230,6 +286,18 @@ export async function readUserContext(
     if (seenIds.has(row.id)) continue;
     seenIds.add(row.id);
     mergedEntities.push(row);
+  }
+
+  // Identity facts first so they survive the cap; the confidence-ranked rest
+  // fills the remainder up to FACT_LIMIT, deduped by id (an identity fact also
+  // present in the ranked slice is counted once).
+  const mergedFacts: Array<(typeof rankedFactRows)[number]> = [];
+  const seenFactIds = new Set<string>();
+  for (const row of [...identityFactRows, ...rankedFactRows]) {
+    if (mergedFacts.length >= FACT_LIMIT) break;
+    if (seenFactIds.has(row.id)) continue;
+    seenFactIds.add(row.id);
+    mergedFacts.push(row);
   }
 
   const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
@@ -264,7 +332,7 @@ export async function readUserContext(
       provider: row.provider,
       accountLabel: row.accountLabel,
     })),
-    confirmedFacts: factRows.map((row) => ({
+    confirmedFacts: mergedFacts.map((row) => ({
       key: row.key,
       value: row.value,
       confidence: row.confidence,

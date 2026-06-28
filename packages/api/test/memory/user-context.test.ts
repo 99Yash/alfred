@@ -3,20 +3,22 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { entities, user } from "@alfred/db/schemas";
+import { entities, user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { readUserContext } from "../../src/modules/memory/user-context";
 
 /**
- * DB-backed integration test for the two behaviors the PR review flagged on
- * `readUserContext`:
+ * DB-backed integration test for `readUserContext`'s bounded-slice behaviors:
  *   1. entities are ranked by the significance scalar (ADR-0057), NOT
  *      alphabetically, with unscored rows last — so the bounded slice keeps
  *      who-matters;
  *   2. a `subjectEmail` / `query` focus pulls a low-significance contact in
  *      even when it falls below the ranked cap, so a targeted lookup never
- *      silently misses its subject.
+ *      silently misses its subject;
+ *   3. confirmed facts rank by confidence before recency, and canonical
+ *      identity facts are guaranteed into the slice so transactional per-email
+ *      noise can never evict the user's authoritative identity (issue #329).
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
  * migrated schema (the local dev DB). Skipped otherwise so the pure-function
@@ -60,6 +62,35 @@ async function seedEntities(userId: string, specs: SeedEntity[]): Promise<void> 
         aliases: spec.aliases ?? [],
         metadata: spec.score === null ? {} : { significance: { score: spec.score } },
       })),
+    );
+}
+
+interface SeedFact {
+  key: string;
+  value: unknown;
+  confidence: number;
+  /** Lower = older. Drives recency ordering within the same confidence. */
+  ageMinutes: number;
+}
+
+async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
+  const base = Date.now();
+  await db()
+    .insert(userFacts)
+    .values(
+      specs.map((spec) => {
+        const ts = new Date(base - spec.ageMinutes * 60_000);
+        return {
+          userId,
+          key: spec.key,
+          value: spec.value,
+          confidence: spec.confidence,
+          status: "confirmed" as const,
+          source: { kind: "document" as const },
+          createdAt: ts,
+          updatedAt: ts,
+        };
+      }),
     );
 }
 
@@ -130,5 +161,49 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     // A free-text query that hits the name does too.
     const byQuery = await readUserContext(userId, { query: "subject person" });
     assert.equal(hasSubject(byQuery), true, "a name-matching query must guarantee inclusion");
+  });
+
+  test("guarantees canonical identity facts survive a flood of recent noise (issue #329)", async () => {
+    const userId = await seedUser();
+    // Fill the ENTIRE fact cap (FACT_LIMIT = 30) with the most-recent, top-
+    // confidence transactional noise, so identity is BOTH less recent AND no
+    // more confident than every row competing for the slice — the worst case
+    // that recency-only ordering (the bug) and confidence-only ordering both
+    // fail to rescue. Only the identity whitelist can.
+    const noise: SeedFact[] = Array.from({ length: 30 }, (_, i) => ({
+      key: `txn_field_${String(i).padStart(2, "0")}`,
+      value: `noise-${i}`,
+      confidence: 1.0,
+      ageMinutes: i + 1, // all newer than the identity fact below
+    }));
+    await seedFacts(userId, [
+      ...noise,
+      // Authoritative identity, older and same confidence → ranks ~#31 by
+      // recency and would be evicted from the bounded slice without the guard.
+      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
+    ]);
+
+    const ctx = await readUserContext(userId);
+    const company = ctx.confirmedFacts.find((f) => f.key === "current_company");
+    assert.ok(company, "current_company must survive the cap even when buried by recent noise");
+    assert.equal(company.value, "Oliv AI");
+    assert.equal(ctx.confirmedFacts.length, 30, "merged fact slice stays bounded at FACT_LIMIT");
+  });
+
+  test("orders confirmed facts by confidence before recency", async () => {
+    const userId = await seedUser();
+    await seedFacts(userId, [
+      // Recent but low confidence — must NOT outrank the older, high-confidence fact.
+      { key: "rumor", value: "maybe", confidence: 0.86, ageMinutes: 1 },
+      { key: "settled", value: "yes", confidence: 0.99, ageMinutes: 500 },
+    ]);
+
+    const ctx = await readUserContext(userId);
+    const keys = ctx.confirmedFacts.map((f) => f.key);
+    assert.deepEqual(
+      keys,
+      ["settled", "rumor"],
+      "higher-confidence fact ranks first despite being older",
+    );
   });
 });
