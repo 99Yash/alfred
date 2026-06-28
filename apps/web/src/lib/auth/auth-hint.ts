@@ -13,9 +13,9 @@
  * This is a UX hint, never a security boundary — a wrong guess only costs a
  * one-frame flash or a brief blank, and the next resolved session corrects it.
  */
-import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
+import { getLocalStorageItem, LOCAL_STORAGE_SCHEMAS, setLocalStorageItem } from "~/lib/storage/storage";
 
-const KEY = "alfred.maybe-authed";
+const KEY = "alfred.maybe-authed" satisfies keyof typeof LOCAL_STORAGE_SCHEMAS;
 
 export function readAuthHint(): boolean {
   // SSR / private mode resolves to the schema default (`false`), i.e. "show the
