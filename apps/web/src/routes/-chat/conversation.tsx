@@ -151,6 +151,11 @@ export function Conversation({
     const el = scrollRef.current;
     if (!el || !stickRef.current) return;
     el.scrollTop = el.scrollHeight;
+    // Some browsers coalesce programmatic scroll events during rapid streaming.
+    // Keep the direction detector in sync with the write above so the next real
+    // user scroll is compared against the actual pinned position, not an older
+    // event sample.
+    lastScrollTopRef.current = el.scrollTop;
   }, [messages, stream]);
 
   const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
