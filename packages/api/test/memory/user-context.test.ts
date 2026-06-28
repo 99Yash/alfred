@@ -71,7 +71,7 @@ interface SeedFact {
   confidence: number;
   /** Lower = older. Drives recency ordering within the same confidence. */
   ageMinutes: number;
-  source?: { kind: "document" | "user" | "cold_start" | "agent" };
+      source?: { kind: "document" | "user" | "cold_start" | "agent"; meta?: Record<string, unknown> };
 }
 
 async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
@@ -273,6 +273,30 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       ctx.confirmedFacts.some((fact) => fact.key === "employer"),
       "per-key identity rescue must include employer despite newer document noise",
     );
+  });
+
+  test("profile accepts document identity only when the workflow marked authorship", async () => {
+    const userId = await seedUser();
+    await seedFacts(userId, [
+      {
+        key: "location",
+        value: "Wrong City",
+        confidence: 1.0,
+        ageMinutes: 1,
+        source: { kind: "document" },
+      },
+      {
+        key: "location",
+        value: "Bengaluru",
+        confidence: 0.95,
+        ageMinutes: 20,
+        source: { kind: "document", meta: { documentAuthoredByUser: true } },
+      },
+    ]);
+
+    const ctx = await readUserContext(userId, { include: ["profile"] });
+
+    assert.equal(ctx.profile?.currentLocation, "Bengaluru");
   });
 
   test("orders confirmed facts by confidence before recency", async () => {

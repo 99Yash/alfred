@@ -238,6 +238,9 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           let docProposed = 0;
           let docBlocked = 0;
           for (const p of proposals) {
+            let key = p.key;
+            let value: unknown = p.value;
+            let sourceMeta: Record<string, unknown> = { rationale: p.rationale };
             // Per-document write gate (#330): the contextual authorship check
             // `proposeFact` can't do. Manual mode bypasses it (test fixtures);
             // `proposeFact` still backstops canonicalization + the document
@@ -260,13 +263,28 @@ export const memoryExtractionWorkflow: Workflow<State> = {
                 );
                 continue;
               }
+              key = gate.key;
+              value = gate.value;
+              sourceMeta = {
+                ...sourceMeta,
+                ...gate.meta,
+                ...(gate.authorship?.authoredByUser
+                  ? {
+                      documentAuthoredByUser: true,
+                      authorship: {
+                        source: gate.authorship.source,
+                        method: gate.authorship.proof.method,
+                      },
+                    }
+                  : {}),
+              };
             }
             const result = await proposeFact({
               userId: ctx.userId,
-              key: p.key,
-              value: p.value,
+              key,
+              value,
               confidence: p.confidence,
-              source: { kind: "document", id: doc.id, meta: { rationale: p.rationale } },
+              source: { kind: "document", id: doc.id, meta: sourceMeta },
             });
             if (result) docProposed++;
             else docBlocked++;
