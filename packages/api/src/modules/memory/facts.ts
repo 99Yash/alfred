@@ -1,10 +1,23 @@
-import { clamp01 } from "@alfred/contracts";
+import { canonicalizeFactKey, clamp01 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
-import { and, asc, desc, eq, getTableColumns, gt, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "../../events/publish";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { classifyDocumentFactKey, isSingleValuedKey, validateFactValueForKey } from "./fact-policy";
 import { valueSignature } from "./signature";
 import {
   AUTO_CONFIRM_THRESHOLD,
@@ -86,36 +99,6 @@ function requireRow<T>(row: T | undefined, op: string): T {
   return row;
 }
 
-/**
- * Keys that describe a *source document* (an email, a PR, a newsletter) rather
- * than the user. The document extractor occasionally harvests these despite the
- * prompt; persisting them as durable `user_facts` is what let `readUserContext`
- * surface an email's subject/sender/id — and feed the chat boss enough
- * per-message debris to invent a wrong identity. Reject at the persistence
- * boundary so the extraction prompt and the store can't drift.
- *
- * This only fires for `source.kind === "document"` (see `proposeFact`): the
- * filter exists for the per-document extraction path, where these keys are
- * always metadata noise. Other callers (`learn-skill`, `cold-start research`)
- * deliberately produce user facts that may legitimately key on `email_*`
- * (e.g. an email preference) or `author` (a writing-style preference), so the
- * filter must not reach them. This guards document-metadata only; mis-sourced-
- * but-real keys like `company`/`job_title` are handled by the prompt (don't
- * harvest from job postings), not here — we can't tell a genuine
- * `company = <employer>` from a harvested one by key name alone.
- */
-function isDocumentMetadataKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return (
-    k.startsWith("email_") ||
-    k.startsWith("pull_request") ||
-    k.startsWith("github_pull_request") ||
-    k.endsWith("_message_id") ||
-    k === "author" ||
-    k === "author_name"
-  );
-}
-
 function rowToFact(r: UserFact): FactRow {
   return {
     ...r,
@@ -133,70 +116,139 @@ function rowToFact(r: UserFact): FactRow {
  * `confirmed`; lower stays `proposed` and waits for the correction-loop
  * UX (ADR-0019).
  *
- * Two idempotency guards:
+ * The unbypassable persistence backstop for the memory-capture gate (#330,
+ * ADR-0079). In order:
  *
- *  1. **Rejection-aware.** Skip if `rejected_inferences` holds the same
+ *  0. **Canonicalize the key (all sources).** `current_company`/`company` →
+ *     `employer`, `name` → `full_name`, etc., BEFORE dedup/conflict — so an
+ *     alias never forks a fact and the conflict check compares like with like.
+ *     A `wasAlias` mapping records `originalKey` in `source.meta` for provenance.
+ *     A key that fails canonicalization (`unknown_key`) is rejected ONLY for
+ *     `source.kind === "document"` (the polluted path); other sources persist
+ *     it as-is with a `fact_key_unknown_non_document` trace (visible drift, no
+ *     breakage to user/cold_start/tool_call/agent).
+ *  1. **Document write policy (`document` only).** Reject `not_writable`
+ *     (`pref:*`, `phone_number`, junk) and bad value shapes. Authorship
+ *     ("is this doc by the user?") is NOT here — `proposeFact` lacks document
+ *     metadata by design; the workflow gate (`memory-extraction.ts`) owns it.
+ *  2. **Rejection-aware.** Skip if `rejected_inferences` holds the same
  *     `(key, value-signature)` — the user already said no.
- *  2. **Active-dup guard.** Skip if there's already an active row
- *     (proposed *or* confirmed, within the validity window) with the
- *     same `(key, value-signature)`. Re-extraction over the same doc
- *     shouldn't pile up duplicates; the existing row already represents
- *     the claim. A future iteration can promote a stale `proposed` to
- *     `confirmed` when evidence accumulates — out of scope here.
+ *  3. **Active-dup guard.** Skip if an active row (proposed *or* confirmed)
+ *     with the same `(key, value-signature)` already exists.
+ *  4. **Single-valued conflict (source-agnostic).** For `SINGLE_VALUED_KEYS`,
+ *     an incoming value differing from an active *authoritative* (confirmed)
+ *     value supersedes immediately when `source.kind === "user"`, but is held
+ *     as `proposed` with NO `memory.fact_learned` event for autonomous sources
+ *     (document/cold_start/tool_call/agent/chunk). Deterministic code can't tell
+ *     "the user moved" from "a contact's value leaked" — both arrive at 0.95 —
+ *     so the safe direction is to surface, not silently overwrite the truth.
  */
 export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null> {
   const parsed = proposeFactArgsSchema.parse(args);
+  const isDocument = parsed.source.kind === "document";
+
+  // (0) Canonicalize the key onto the one ontology before any dedup/conflict.
+  const canon = canonicalizeFactKey(parsed.key);
+  if (!canon.ok) {
+    // Unknown key: reject from the polluted document path; for trusted/curated
+    // sources persist as-is with a drift trace (don't silently break them).
+    if (isDocument) return null;
+    console.warn(
+      `[memory.facts] fact_key_unknown_non_document: persisting unknown key as-is ` +
+        `(source=${parsed.source.kind}, key=${JSON.stringify(parsed.key)})`,
+    );
+  }
+  const key = canon.ok ? canon.key : parsed.key;
+  const source: MemorySource =
+    canon.ok && canon.wasAlias
+      ? { ...parsed.source, meta: { ...parsed.source.meta, originalKey: canon.originalKey } }
+      : parsed.source;
+
+  // (1) Document write policy — only the per-document path is allow-listed.
+  if (isDocument && canon.ok) {
+    if (classifyDocumentFactKey(key) === "not_writable") return null;
+    if (!validateFactValueForKey(key, parsed.value).ok) return null;
+  }
+
   const sig = valueSignature(parsed.value);
 
-  // (0) Drop document-metadata keys from the per-document extraction path —
-  // these describe the source email/PR, not the user, and never belong in
-  // `user_facts`. Scoped to `source.kind === "document"` so user-fact callers
-  // (learn-skill, cold-start) keep legitimate `email_*`/`author` keys (see
-  // `isDocumentMetadataKey`).
-  if (parsed.source.kind === "document" && isDocumentMetadataKey(parsed.key)) return null;
-
-  // (1) Bypass if already rejected.
+  // (2) Bypass if already rejected.
   const [rejectedHit] = await db()
     .select({ id: rejectedInferences.id })
     .from(rejectedInferences)
     .where(
       and(
         eq(rejectedInferences.userId, parsed.userId),
-        eq(rejectedInferences.key, parsed.key),
+        eq(rejectedInferences.key, key),
         eq(rejectedInferences.valueSignature, sig),
       ),
     )
     .limit(1);
   if (rejectedHit) return null;
 
-  // (2) Bypass if an active row with the same value already exists.
-  const active = await recallActiveByKey(parsed.userId, parsed.key, {
-    includeProposed: true,
-  });
+  // (3) Bypass if an active row with the same value already exists.
+  const active = await recallActiveByKey(parsed.userId, key, { includeProposed: true });
   if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
-  const status: FactStatus = parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
+  const confidenceStatus: FactStatus =
+    parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
+
+  // (4) Single-valued conflict: an active *authoritative* (confirmed) value that
+  // differs from the incoming one. `recallActiveByKey` defaults to confirmed-only,
+  // which is exactly the authoritative set (edited rows are inactive once
+  // superseded). User edits are authoritative → supersede; autonomous sources →
+  // hold as `proposed`, no event, so the pile-up caps at one confirmed + N proposed.
+  let conflictRows: FactRow[] = [];
+  if (isSingleValuedKey(key)) {
+    const confirmed = active.filter((r) => r.status === "confirmed");
+    conflictRows = confirmed.filter((r) => valueSignature(r.value) !== sig);
+  }
+  const userDriven = parsed.source.kind === "user";
+  const heldByConflict = conflictRows.length > 0 && !userDriven;
+  const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
 
   const fact = await db().transaction(async (tx) => {
+    // User-authoritative conflict: retire the prior active confirmed value(s)
+    // before inserting the replacement, linking the chain via `supersedes_id`.
+    if (conflictRows.length > 0 && userDriven) {
+      await tx
+        .update(userFacts)
+        .set({
+          status: "superseded",
+          validUntil: parsed.validFrom ?? new Date(),
+          rowVersion: sql`${userFacts.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(userFacts.userId, parsed.userId),
+            inArray(
+              userFacts.id,
+              conflictRows.map((r) => r.id),
+            ),
+          ),
+        );
+    }
+
     const [row] = await tx
       .insert(userFacts)
       .values({
         userId: parsed.userId,
-        key: parsed.key,
+        key,
         value: parsed.value,
         confidence: parsed.confidence,
         status,
-        source: parsed.source,
+        source,
         validFrom: parsed.validFrom,
         validUntil: parsed.validUntil ?? null,
+        supersedesId: userDriven ? (conflictRows[0]?.id ?? null) : null,
       })
       .returning();
     const inserted = rowToFact(requireRow(row, "proposeFact"));
 
     // Auto-confirm fires a soft-notification event in the same tx so the
     // outbox row commits atomically with the fact (no phantom toasts on
-    // rollback). User-facing confirms via push handler emit nothing —
-    // the Memory page UI already has its own affordance.
+    // rollback). A conflict held as `proposed` is NOT a confirm, so it emits
+    // nothing — the user adjudicates the contradiction from the Memory page.
     if (status === "confirmed") {
       await publishEvent({
         tx,
