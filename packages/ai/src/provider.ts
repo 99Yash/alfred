@@ -8,24 +8,20 @@ import { APICallError, type LanguageModel, type ToolSet } from "ai";
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV3 } from "ai-retry";
 import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
-import type { ModelIdFor } from "./models";
-import { withAnthropicToolNames } from "./tool-name-shim";
+import {
+  type EffortLevel,
+  EFFORT_LEVELS,
+  MODEL_CAPABILITIES,
+  type ModelId,
+  type ModelIdFor,
+  type ProviderId,
+} from "./models";
+import { withToolNameShim } from "./tool-name-shim";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
 // of truth shared with the web bundle, which can't import `@alfred/ai`).
 export type { ChatModelTier };
-
-// Provider factories constrained to ids that actually exist in MODEL_REGISTRY
-// for that provider. Routing every `anthropic(...)`/`google(...)` literal
-// through these makes registry drift (a typo, or an id the registry never
-// listed) a compile error rather than a silent cost-attribution miss.
-// Every Anthropic model is wrapped in the tool-name boundary shim so our dotted
-// `integration.action` tool names survive Anthropic's pattern-validated API
-// (which rejects the `.`); see `withAnthropicToolNames`. The shim is a no-op on
-// tool-less calls, so routing the whole factory through it is safe and uniform.
-const anthropicModel = (id: ModelIdFor<"anthropic">) => withAnthropicToolNames(anthropic(id));
-const googleModel = (id: ModelIdFor<"google">) => google(id);
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
@@ -33,6 +29,116 @@ type ChatProviderOptions = Record<string, Record<string, unknown>> & {
   anthropic: AnthropicChatProviderOptions;
   google: GoogleChatProviderOptions;
 };
+
+/**
+ * Per-provider request mechanics (ADR-0078) — the structural quirks that live on
+ * the provider/SDK-adapter axis, not the per-model axis (that's `MODEL_CAPABILITIES`
+ * in `models.ts`). This is the one place a tier→model remap routes through, so it
+ * can't reintroduce an unsupported reasoning param or a tool-name 400.
+ *
+ * Keyed by `ProviderId`. Conceptually the key is the *SDK adapter* (the same
+ * Claude model has different option shapes across `@ai-sdk/anthropic`,
+ * `@ai-sdk/amazon-bedrock`, `@ai-sdk/google-vertex/anthropic`); Alfred is 1:1
+ * provider↔adapter today, so provider-keying is correct now — a future
+ * Bedrock/Vertex adapter would need its own entry.
+ */
+interface ProviderDispatch {
+  /**
+   * Apply the `.`↔`__` tool-name shim at this provider's edge. `true` for all
+   * three today (Anthropic rejects `.`, Google strips the prefix, OpenAI rejects
+   * `.` and caps at 64).
+   */
+  readonly toolNameShim: boolean;
+  /** Max tool-name length the provider accepts (Anthropic 128, OpenAI 64). Recorded for the audit; not enforced at runtime (our names are short). */
+  readonly toolNameMaxLen: number;
+  /**
+   * Whether a cross-provider degrade is safe for *structured* `generateObject`
+   * output. `same-provider` because Anthropic's `Output.object` handles our
+   * nested/optional schemas poorly (see `getCheapModel`); recorded for the
+   * structured paths, the `withFallback` for `generateText` is separate.
+   */
+  readonly structuredOutputFallback: "same-provider" | "cross-provider";
+  /**
+   * Build the AI-SDK reasoning/thinking block for `modelId` at the requested
+   * `effort`. Owns the block SHAPE; reads the model's `effortValues` and clamps,
+   * so a model with no effort param (`effortValues: []`) gets a light/empty block
+   * instead of an unsupported param. Return type is per-provider (covariant under
+   * the `satisfies` below) so the call sites keep the SDK-typed block.
+   */
+  reasoningOptions(modelId: ModelId, effort: EffortLevel): Record<string, unknown>;
+}
+
+/**
+ * Snap a requested effort to the nearest value `allowed` actually contains, by
+ * position in {@link EFFORT_LEVELS}. Callers gate on `allowed.length > 0`, so the
+ * reduce always has a seed; it never emits a tier the model would 400 on.
+ */
+export function clampEffort(desired: EffortLevel, allowed: readonly EffortLevel[]): EffortLevel {
+  const target = EFFORT_LEVELS.indexOf(desired);
+  return allowed.reduce((best, cur) =>
+    Math.abs(EFFORT_LEVELS.indexOf(cur) - target) < Math.abs(EFFORT_LEVELS.indexOf(best) - target)
+      ? cur
+      : best,
+  );
+}
+
+const PROVIDER_DISPATCH = {
+  anthropic: {
+    toolNameShim: true,
+    toolNameMaxLen: 128,
+    structuredOutputFallback: "cross-provider",
+    reasoningOptions(modelId: ModelId, effort: EffortLevel): AnthropicChatProviderOptions {
+      const { effortValues } = MODEL_CAPABILITIES[modelId];
+      // Empty block: Haiku 4.5 (ADR-0077) hard-400s on BOTH adaptive thinking and
+      // `effort` — they're Sonnet-4.6+/Opus-only. Any model with no effort param
+      // gets the light, fast interactive default.
+      if (effortValues.length === 0) return {};
+      return {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: clampEffort(effort, effortValues),
+      };
+    },
+  },
+  google: {
+    toolNameShim: true,
+    toolNameMaxLen: 64,
+    structuredOutputFallback: "same-provider",
+    // `includeThoughts` surfaces the thought summary (not the raw chain);
+    // `thinkingBudget: -1` lets the model size its own thinking. Budget/toggle
+    // based, so the `modelId`/`effort` args are ignored — kept for the uniform
+    // dispatch signature.
+    reasoningOptions(_modelId: ModelId, _effort: EffortLevel): GoogleChatProviderOptions {
+      return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
+    },
+  },
+  // Stub: no OpenAI *language* model is dispatched today (transcription meters
+  // through OpenAI but isn't a chat/boss dispatch). Fill `reasoningOptions` with
+  // `{ openai: { reasoningEffort: clampEffort(effort, effortValues) } }` the first
+  // time an OpenAI model lands in MODEL_REGISTRY. `toolNameMaxLen: 64` is OpenAI's
+  // cap (vs Anthropic's 128) — already correct for the audit.
+  openai: {
+    toolNameShim: true,
+    toolNameMaxLen: 64,
+    structuredOutputFallback: "same-provider",
+    reasoningOptions(_modelId: ModelId, _effort: EffortLevel): Record<string, unknown> {
+      return {};
+    },
+  },
+} as const satisfies Record<ProviderId, ProviderDispatch>;
+
+// Provider factories constrained to ids that actually exist in MODEL_REGISTRY
+// for that provider. Routing every `anthropic(...)`/`google(...)` literal
+// through these makes registry drift (a typo, or an id the registry never
+// listed) a compile error rather than a silent cost-attribution miss.
+// Each is wrapped in the tool-name boundary shim per `PROVIDER_DISPATCH`'s
+// `toolNameShim` policy so our dotted `integration.action` tool names survive a
+// provider that can't carry the `.` (Anthropic rejects it; Google strips the
+// prefix). The shim is a no-op on tool-less calls, so routing the whole factory
+// through it is safe and uniform.
+const anthropicModel = (id: ModelIdFor<"anthropic">) =>
+  PROVIDER_DISPATCH.anthropic.toolNameShim ? withToolNameShim(anthropic(id)) : anthropic(id);
+const googleModel = (id: ModelIdFor<"google">) =>
+  PROVIDER_DISPATCH.google.toolNameShim ? withToolNameShim(google(id)) : google(id);
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
@@ -114,61 +220,62 @@ export function googleSearchGroundingTools(): ToolSet {
 }
 
 /**
- * Map an interactive-chat tier to its model (ADR-0077).
+ * The interactive-chat tier table (ADR-0077): the product mapping of a tier to its
+ * primary model, its cross-provider fallback, and the effort it requests. This is
+ * the *only* place a tier's model is named — `getChatModel` and
+ * `getChatProviderOptions` both read it, so the model and its reasoning block can
+ * never drift (the #313 seam: a remap here flows into the dispatch automatically).
+ *
  *   - `standard` (the Auto tier) → Claude Haiku 4.5 — the everyday conversational
  *     driver. Adopted 2026-06-28 over Sonnet 4.6 after a browser-replay
  *     adjudication: at ~3× lower cost Haiku held tool-use + judgment quality, keeps
  *     the #223 prompt cache (same provider → same tokenizer, no re-warm), and needs
  *     no tool-name shim. Its one gap — under-acting on implicit agentic lookups
  *     (asking instead of searching) — was closed by the search-before-ask prompt
- *     hardening (#312) and is pinned by the sender-suppression eval.
+ *     hardening (#312) and is pinned by the sender-suppression eval. Haiku's
+ *     `effortValues: []` means the requested effort is ignored — it gets the empty
+ *     reasoning block (per ADR-0077), so the `effort` field below is moot until a
+ *     remap points `standard` at an effort-bearing model.
  *   - `deep` → Claude Opus 4.8 — reserved for hard, multi-step turns (and the model
- *     the boss-worker harness runs on when chat fans out). The heavy model stays
- *     scoped to Deep, where the cost buys real reasoning.
+ *     the boss-worker harness runs on when chat fans out). Asks for `effort: "high"`
+ *     for deliberate reasoning.
  *
  * Each tier degrades to Gemini 2.5 Pro on Anthropic failure (rate limit, overload,
  * spend cap) via `withFallback`, so a chat turn never hard-fails on a single
- * provider blip. The Anthropic-specific provider options (cacheControl, thinking)
- * are namespaced under `providerOptions.anthropic`, so Gemini ignores them when the
- * fallback serves.
+ * provider blip.
  */
+const CHAT_TIERS = {
+  standard: { primary: "claude-haiku-4-5-20251001", fallback: "gemini-2.5-pro", effort: "high" },
+  deep: { primary: "claude-opus-4-8", fallback: "gemini-2.5-pro", effort: "high" },
+} as const satisfies Record<
+  ChatModelTier,
+  { primary: ModelIdFor<"anthropic">; fallback: ModelIdFor<"google">; effort: EffortLevel }
+>;
+
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
-  return tier === "deep"
-    ? withFallback(anthropicModel("claude-opus-4-8"), googleModel("gemini-2.5-pro"))
-    : withFallback(anthropicModel("claude-haiku-4-5-20251001"), googleModel("gemini-2.5-pro"));
+  const { primary, fallback } = CHAT_TIERS[tier];
+  return withFallback(anthropicModel(primary), googleModel(fallback));
 }
 
 /**
- * Provider options that ask the chat model to emit its reasoning, so the
- * stream carries `reasoning-delta` parts the chat UI renders as a "Thinking…"
- * accordion. Namespaced per provider — the SDK passes only the block matching
- * the active model and ignores the rest, so this stays correct across the
- * Gemini⇆Anthropic swap in `getChatModel`.
+ * Build the chat model's reasoning block, namespaced per provider, so the stream
+ * carries `reasoning-delta` parts the chat UI renders as a "Thinking…" accordion.
+ * The SDK passes only the block matching the active model and ignores the rest, so
+ * emitting both keeps it correct across the Anthropic⇆Gemini `withFallback` swap.
  *
- *   - Gemini 2.5: `thinkingConfig.includeThoughts` surfaces the thought summary
- *     (not the raw chain); `thinkingBudget: -1` lets the model size its own
- *     thinking. Flash thinks by default, so this only toggles *visibility*.
- *   - Anthropic: adaptive thinking + `effort` are Sonnet-4.6+/Opus features. The
- *     `deep` tier (Opus 4.8) gets `thinking:{type:"adaptive"}` + `effort:"high"`
- *     for deliberate reasoning; `display:"summarized"` streams the thought summary
- *     to the accordion. The `standard` tier (Haiku 4.5) gets an EMPTY anthropic
- *     block: Haiku 4.5 hard-400s on BOTH adaptive thinking ("adaptive thinking is
- *     not supported on this model") AND `effort` — they're 4.6+/Opus-only. Because
- *     `withFallback` treats a 400 as switch-to-fallback, sending either to Haiku
- *     would silently drop every Auto turn onto Gemini (the #224 class of bug). An
- *     empty block keeps Haiku's fast, light-thinking interactive default.
- *
- * TODO(#313): this tier→capability branch hardcodes which model each tier resolves
- * to (Opus supports the thinking block, Haiku doesn't). Replace with a per-model
- * capability map so a future tier remap can't reintroduce an unsupported param.
+ * Each block is built by `PROVIDER_DISPATCH[provider].reasoningOptions`, reading
+ * the resolved model's `effortValues`. The deleted tier-branch (ADR-0077's #313
+ * seam) is now structural: `standard` resolves to Haiku, whose `effortValues: []`
+ * yields the empty anthropic block; `deep` resolves to Opus, which yields the
+ * adaptive block at clamped `effort`. Wire-identical to the old hardcoding today,
+ * but a future remap (e.g. `standard → sonnet-4-6`) produces the correct block
+ * automatically instead of a 400.
  */
 export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
+  const { primary, fallback, effort } = CHAT_TIERS[tier];
   return {
-    google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
-    anthropic:
-      tier === "deep"
-        ? { thinking: { type: "adaptive", display: "summarized" }, effort: "high" }
-        : {},
+    anthropic: PROVIDER_DISPATCH.anthropic.reasoningOptions(primary, effort),
+    google: PROVIDER_DISPATCH.google.reasoningOptions(fallback, effort),
   };
 }
 

@@ -21,12 +21,27 @@ const MODELS_DEV_URL = "https://models.dev/api.json";
 /** Providers we care about. Anything else from models.dev is ignored. */
 const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
 
+/**
+ * A single reasoning-control mechanism from models.dev. The catalog-wide universe
+ * is a closed 3-type set (`effort` | `budget_tokens` | `toggle`); `values` is
+ * present only on `effort` (the vocabulary the `verify-capabilities` audit diffs
+ * against `MODEL_CAPABILITIES.effortValues`).
+ */
+interface ModelsDevReasoningOption {
+  type: string;
+  values?: string[];
+  min?: number;
+  max?: number;
+}
+
 interface ModelsDevModel {
   id: string;
   cost?: { input?: number; output?: number; cache_read?: number };
   limit?: { context?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   reasoning?: boolean;
+  reasoning_options?: ModelsDevReasoningOption[];
+  temperature?: boolean;
   tool_call?: boolean;
 }
 
@@ -118,6 +133,13 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
           capabilities: {
             reasoning: m.reasoning ?? false,
             toolCall: m.tool_call ?? false,
+            // Captured for the `verify-capabilities` audit (ADR-0078): the per-
+            // model effort vocabulary + temperature support that `@alfred/ai`'s
+            // `MODEL_CAPABILITIES` hard-codes. models.dev is the *audit oracle*,
+            // not a runtime source — the audit diffs the snapshot against the
+            // code-resident values and fails on drift.
+            reasoningOptions: m.reasoning_options ?? null,
+            temperature: m.temperature ?? null,
           },
           limit: m.limit ?? null,
           modalities: m.modalities ?? null,
@@ -153,9 +175,31 @@ function pricesEqual(
   );
 }
 
+/**
+ * Compare the audited capability subset (effort vocabulary + temperature) the
+ * `verify-capabilities` script reads. Folded into change-detection so a
+ * capability shift inserts a fresh snapshot even when *price* is unchanged —
+ * otherwise the new metadata would never land on a price-stable model and the
+ * audit would perpetually see no snapshot. Deep-compared via JSON (the tracked
+ * fields are a small array + a boolean), order-sensitive (models.dev is stable).
+ */
+function capabilitiesEqual(
+  latestMetadata: unknown,
+  incoming: Record<string, unknown> | undefined,
+): boolean {
+  const pick = (meta: unknown) => {
+    const caps = (meta as { capabilities?: Record<string, unknown> } | null)?.capabilities;
+    return JSON.stringify({
+      reasoningOptions: caps?.reasoningOptions ?? null,
+      temperature: caps?.temperature ?? null,
+    });
+  };
+  return pick(latestMetadata) === pick(incoming);
+}
+
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
   const existing = await db().execute(sql`
-    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window
+    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window, metadata
     FROM model_prices
     WHERE provider = ${row.provider} AND model = ${row.model}
     ORDER BY valid_from DESC
@@ -167,20 +211,22 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     cached_input_per_mtok: string | null;
     per_call_usd: string | null;
     context_window: number | null;
+    metadata: unknown;
   }>(existing)[0];
 
   if (latest) {
-    const same = pricesEqual(
-      {
-        inputPerMtok: Number(latest.input_per_mtok),
-        outputPerMtok: Number(latest.output_per_mtok),
-        cachedInputPerMtok:
-          latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
-        perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
-        contextWindow: latest.context_window,
-      },
-      row,
-    );
+    const same =
+      pricesEqual(
+        {
+          inputPerMtok: Number(latest.input_per_mtok),
+          outputPerMtok: Number(latest.output_per_mtok),
+          cachedInputPerMtok:
+            latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
+          perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
+          contextWindow: latest.context_window,
+        },
+        row,
+      ) && capabilitiesEqual(latest.metadata, row.metadata);
     if (same) return "unchanged";
   }
 

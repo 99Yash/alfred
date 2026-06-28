@@ -67,6 +67,63 @@ export type ModelIdFor<P extends ProviderId> = {
   [K in ModelId]: (typeof MODEL_REGISTRY)[K] extends P ? K : never;
 }[ModelId];
 
+/**
+ * Effort tiers Alfred may *request* of a reasoning model — Anthropic's superset
+ * (`reasoning_options[].effort` in models.dev), weakest→strongest. The per-model
+ * `effortValues` below is a (possibly empty) subset of this, and
+ * `PROVIDER_DISPATCH.clamp` snaps a requested tier to the nearest value a given
+ * model actually accepts — so a tier remap can never emit an effort the model
+ * 400s on (the #224/#303 class of silent-fallback bug).
+ */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/**
+ * Per-model structural facts that the provider layer needs at request time and
+ * that a tier→model remap must not be able to get wrong. This is the *per-model*
+ * axis (ADR-0078); the *per-provider* mechanics (reasoning-block shape, tool-name
+ * shim policy) live in `PROVIDER_DISPATCH` in `provider.ts`.
+ *
+ * These mirror models.dev's `reasoning_options` / `temperature` for our six
+ * registered ids; the non-gating `verify-capabilities` audit asserts they still
+ * match the synced `model_prices` snapshot. models.dev is the *audit oracle*, not
+ * a runtime source of truth (it has gaps — e.g. `structured_output` is absent for
+ * every Anthropic model), so the values are code-resident.
+ */
+export interface ModelCapabilities {
+  /**
+   * Effort values the model accepts, weakest→strongest (a subset of
+   * {@link EFFORT_LEVELS}). `[]` means the model has **no** effort/adaptive
+   * reasoning param — the provider must send a light/empty reasoning block
+   * (Haiku 4.5 per ADR-0077; both Gemini tiers, which are budget-toggle based).
+   */
+  readonly effortValues: readonly EffortLevel[];
+  /**
+   * Model accepts a `temperature` param. `false` on Opus 4.7+/Fable (they 400 on
+   * any temperature). Recorded for future-proofing; Alfred sends no temperature
+   * today, so nothing reads this at runtime yet.
+   */
+  readonly temperature: boolean;
+}
+
+/**
+ * The closed capability map for the six registered ids. `as const satisfies
+ * Record<ModelId, …>` forces an entry for every model (a missing or unknown key
+ * is a compile error) while preserving the literal `effortValues` tuples so the
+ * provider dispatch can clamp against them.
+ */
+export const MODEL_CAPABILITIES = {
+  "claude-opus-4-8": {
+    effortValues: ["low", "medium", "high", "xhigh", "max"],
+    temperature: false,
+  },
+  "claude-sonnet-4-6": { effortValues: ["low", "medium", "high", "max"], temperature: true },
+  "claude-haiku-4-5-20251001": { effortValues: [], temperature: true }, // ADR-0077: empty block
+  "gemini-2.5-pro": { effortValues: [], temperature: true }, // budget-based; effort N/A
+  "gemini-2.5-flash": { effortValues: [], temperature: true },
+  "gemini-2.5-flash-lite": { effortValues: [], temperature: true },
+} as const satisfies Record<ModelId, ModelCapabilities>;
+
 /** `true` when `id` is a known registry model id (narrows to `ModelId`). */
 export function isModelId(id: string): id is ModelId {
   return modelIdSchema.safeParse(id).success;

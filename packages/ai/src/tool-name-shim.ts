@@ -4,24 +4,33 @@ import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModel as LanguageModelV3 } from "ai-retry";
 
 /**
- * Anthropic boundary shim for our dotted tool-name convention.
+ * Provider-boundary shim for our dotted tool-name convention.
  *
  * Alfred names every tool `integration.action` (`drive.search_files`,
- * `system.read_user_context`) — see `ToolName` in `@alfred/contracts`. But
- * Anthropic's API rejects tool names that don't match `^[a-zA-Z0-9_-]{1,128}$`:
- * **dots are illegal**. `@ai-sdk/anthropic` passes `tool.name` through verbatim
- * (no sanitization), so every tool-bearing call to a Claude model used to 400
- * (`tools.0.custom.name: String should match pattern …`). Because the chat/boss
- * models are `withFallback(sonnet, gemini)`, that 400 silently degraded every
- * turn to Gemini (the weaker agent that punts) — "standard = Sonnet" was fiction.
+ * `system.read_user_context`) — see `ToolName` in `@alfred/contracts`. But the
+ * provider SDKs can't carry that name verbatim:
+ *   - **Anthropic** rejects names that don't match `^[a-zA-Z0-9_-]{1,128}$` —
+ *     **dots are illegal**. `@ai-sdk/anthropic` passes `tool.name` through with no
+ *     sanitization, so every tool-bearing Claude call used to 400
+ *     (`tools.0.custom.name: String should match pattern …`). Because the
+ *     chat/boss models are `withFallback(claude, gemini)`, that 400 silently
+ *     degraded every turn to Gemini (the weaker agent that punts) — the model the
+ *     UI claimed to run was fiction.
+ *   - **Google** silently *strips* the `integration.` prefix, so the model emits
+ *     a bare `search` that no longer matches the registered `gmail.search` →
+ *     `unknown_tool` → an 18-loop punt (see
+ *     `.lessons/swap-chat-model-live-browser-replay.md`). Latent today because
+ *     Google is only ever a fallback; live the moment it's a primary.
  *
- * This middleware maps `.`↔`__` **only at the Anthropic provider edge**, leaving
- * the dotted convention intact everywhere else (the `ToolName` type, prompts,
- * the dispatch parser, `TOOL_LABELS`). On the way in it rewrites `.`→`__` in the
- * tools array, the tool choice, and any tool-call/result parts already in the
- * prompt (so the conversation history stays consistent with the tools array). On
- * the way out it maps the model's tool calls `__`→`.` so the rest of the stack
- * still sees the dotted names it expects.
+ * Which providers need the shim is a per-provider policy
+ * (`PROVIDER_DISPATCH[provider].toolNameShim` in `provider.ts`); the encode/decode
+ * itself is provider-agnostic. This middleware maps `.`↔`__` **only at the
+ * provider edge**, leaving the dotted convention intact everywhere else (the
+ * `ToolName` type, prompts, the dispatch parser, `TOOL_LABELS`). On the way in it
+ * rewrites `.`→`__` in the tools array, the tool choice, and any tool-call/result
+ * parts already in the prompt (so the conversation history stays consistent with
+ * the tools array). On the way out it maps the model's tool calls `__`→`.` so the
+ * rest of the stack still sees the dotted names it expects.
  *
  * The encoding is reversible because of two `ToolName` invariants: exactly one
  * `.` per name, and no `__` anywhere (integration slugs are single words, action
@@ -121,13 +130,14 @@ const toolNameShimMiddleware: LanguageModelMiddleware = {
 };
 
 /**
- * Wrap an Anthropic model so the dotted `integration.action` tool names survive
- * the round-trip through Anthropic's pattern-validated API. Apply to every
- * Anthropic model that carries tools (boss, sub-agent, chat); harmless on
- * tool-less calls (the middleware is a no-op when there are no tool names).
- * Provider/modelId are proxied unchanged, so cost attribution and the
- * served-model id (#216) still see `anthropic` / `claude-…`.
+ * Wrap a model so the dotted `integration.action` tool names survive the round
+ * trip through a provider that can't carry the `.` (Anthropic rejects it; Google
+ * strips the prefix). Applied per `PROVIDER_DISPATCH[provider].toolNameShim`, so
+ * the factory wraps every provider whose policy demands it (Anthropic + Google
+ * today). Harmless on tool-less calls (the middleware is a no-op when there are
+ * no tool names). Provider/modelId are proxied unchanged, so cost attribution and
+ * the served-model id (#216) still see the real `anthropic`/`google` + model id.
  */
-export function withAnthropicToolNames(model: LanguageModelV3): LanguageModelV3 {
+export function withToolNameShim(model: LanguageModelV3): LanguageModelV3 {
   return wrapLanguageModel({ model, middleware: toolNameShimMiddleware }) as LanguageModelV3;
 }
