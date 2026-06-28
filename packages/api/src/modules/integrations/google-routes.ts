@@ -30,7 +30,10 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from "./oauth-state";
-import { assertGmailPushOidcConfigured } from "./gmail-push-config";
+import {
+  assertGmailPushOidcConfigured,
+  isGmailPushOidcConfigError,
+} from "./gmail-push-config";
 
 /**
  * Google integration routes.
@@ -204,7 +207,14 @@ export const googleIntegrationRoutes = new Elysia({
           if (!owner[0]) throw new NotFoundError("Credential not found");
           const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
           if (!topic) throw new ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
-          assertGmailPushOidcConfigured();
+          try {
+            assertGmailPushOidcConfigured();
+          } catch (err) {
+            if (isGmailPushOidcConfigError(err)) {
+              throw new ServiceUnavailableError(toMessage(err));
+            }
+            throw err;
+          }
           const state = await installGmailWatch({ credentialId: params.id, topicName: topic });
           return { credentialId: params.id, watch: state };
         },
