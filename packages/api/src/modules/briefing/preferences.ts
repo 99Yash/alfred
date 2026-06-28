@@ -25,11 +25,7 @@ import { getPreference } from "../memory/preferences";
  * step.
  */
 
-export {
-  DEFAULT_BRIEFING_DELIVERY_HOUR,
-  DEFAULT_BRIEFING_EVENING_HOUR,
-  DEFAULT_BRIEFING_TIMEZONE,
-};
+export { DEFAULT_BRIEFING_DELIVERY_HOUR, DEFAULT_BRIEFING_EVENING_HOUR, DEFAULT_BRIEFING_TIMEZONE };
 
 export interface BriefingPreferences {
   timezone: string;
