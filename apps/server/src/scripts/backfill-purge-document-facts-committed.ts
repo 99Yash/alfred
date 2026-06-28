@@ -233,8 +233,14 @@ async function main() {
     .where(inArray(userTable.email, TARGET_EMAILS));
 
   const found = new Set(users.map((u) => u.email));
+  const missingEmails: string[] = [];
   for (const email of TARGET_EMAILS) {
-    if (!found.has(email)) console.log(`! no user row for ${email} — skipping`);
+    if (!found.has(email)) missingEmails.push(email);
+  }
+  if (missingEmails.length > 0) {
+    const message = `no user row for target email(s): ${missingEmails.join(", ")}`;
+    if (COMMIT) throw new Error(message);
+    console.log(`! ${message} — skipping`);
   }
 
   for (const u of users) await processUser(u);

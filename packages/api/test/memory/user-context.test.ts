@@ -243,6 +243,13 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
         source: { kind: "user" },
       },
       {
+        key: "current_role",
+        value: "Software Engineer",
+        confidence: 0.95,
+        ageMinutes: 20,
+        source: { kind: "user" },
+      },
+      {
         key: "current_company",
         value: "Oliv AI",
         confidence: 1.0,
@@ -254,14 +261,10 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const ctx = await readUserContext(userId);
 
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
-    assert.equal(
-      ctx.profile?.currentRole,
-      null,
-      "non-string identity values are not profile facts",
-    );
+    assert.equal(ctx.profile?.currentRole, "Software Engineer");
     assert.deepEqual(
       ctx.profile?.identityFacts.map((fact) => fact.key),
-      ["current_company"],
+      ["current_company", "current_role"],
     );
     assert.ok(
       ctx.confirmedFacts.some((fact) => fact.key === "current_company"),

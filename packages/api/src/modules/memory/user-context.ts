@@ -224,7 +224,7 @@ function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
   return { kind: "document" };
 }
 
-function sortIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
+function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
     const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
@@ -233,12 +233,13 @@ function sortIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
 }
 
 function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
-  return rows.filter((row): row is StringFactContextRow => {
+  const candidates = rows.filter((row): row is StringFactContextRow => {
     if (!profileIdentityFactKeys.has(row.key)) return false;
     if (typeof row.value !== "string" || !row.value.trim()) return false;
     const source = parseSource(row);
     return source.kind === "user" || source.kind === "cold_start" || source.kind === "agent";
   });
+  return bestIdentityFacts(candidates);
 }
 
 function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number {
@@ -252,8 +253,8 @@ function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number
   return b.id.localeCompare(a.id);
 }
 
-function bestIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
-  const byKey = new Map<IdentityFactKey, FactContextRow>();
+function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
+  const byKey = new Map<IdentityFactKey, T>();
   for (const row of rows) {
     if (!isIdentityFactKey(row.key)) continue;
     const existing = byKey.get(row.key);
@@ -378,7 +379,7 @@ export async function readUserContext(
   ]);
 
   const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
-  const profileIdentityRows = profileIdentityFacts(identityFactRows);
+  const profileIdentityRows = profileIdentityFacts(identityFactRowsRaw);
 
   // Guarantee the focused contact/query matches survive the ranked cap: fetch
   // them directly and merge ahead of the ranked slice (deduped by id).
