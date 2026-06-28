@@ -197,6 +197,49 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     const { sanitized } = sanitizeGithubSearchQuery({ type: "pr", query: "is:issue" });
     assert.equal(sanitized.type, "both");
   });
+
+  test("folds free-typed type:issue/type:pr into the structured type field and strips it", () => {
+    // #276: the `type:` qualifier was not folded, so with an unset structured
+    // `type` (defaulting to `pr`) the query became a contradictory
+    // `is:pr … type:issue` and GitHub returned the wrong count.
+    const issue = sanitizeGithubSearchQuery({ query: "type:issue" });
+    assert.equal(issue.sanitized.type, "issue");
+    assert.equal(issue.sanitized.query, undefined);
+    assert.ok(issue.stripped.some((s) => s.startsWith("type:")));
+
+    const pr = sanitizeGithubSearchQuery({ query: "type:pr" });
+    assert.equal(pr.sanitized.type, "pr");
+    assert.equal(pr.sanitized.query, undefined);
+  });
+
+  test("the live #276 query folds type: and state: and leaves only the repo scope", () => {
+    // Observed in prod (run_rpyg8jxp0x4o): "type:issue" leaked through while
+    // "state:open" folded, emitting `is:pr is:open … type:issue`.
+    const { sanitized } = sanitizeGithubSearchQuery({
+      query: "repo:99Yash/alfred type:issue state:open",
+    });
+    assert.equal(sanitized.type, "issue");
+    assert.equal(sanitized.state, "open");
+    assert.equal(sanitized.query, "repo:99Yash/alfred");
+    assert.equal(
+      buildGithubSearchQuery({ ...sanitized, state: sanitized.state ?? "all", perPage: 30 }, "UTC", NOW),
+      "is:issue is:open repo:99Yash/alfred",
+    );
+  });
+
+  test("an explicit type:'pr' plus free-typed type:issue widens to both", () => {
+    const { sanitized } = sanitizeGithubSearchQuery({ type: "pr", query: "type:issue" });
+    assert.equal(sanitized.type, "both");
+  });
+
+  test("a negated -type: qualifier is left verbatim (exclusion, not folded)", () => {
+    const { sanitized, stripped } = sanitizeGithubSearchQuery({
+      query: "-type:issue repo:99Yash/alfred",
+    });
+    assert.equal(sanitized.type, undefined);
+    assert.equal(sanitized.query, "-type:issue repo:99Yash/alfred");
+    assert.deepEqual(stripped, []);
+  });
 });
 
 describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
