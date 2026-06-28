@@ -237,7 +237,12 @@ function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
     if (!profileIdentityFactKeys.has(row.key)) return false;
     if (typeof row.value !== "string" || !row.value.trim()) return false;
     const source = parseSource(row);
-    return source.kind === "user" || source.kind === "cold_start" || source.kind === "agent";
+    return (
+      source.kind === "user" ||
+      source.kind === "cold_start" ||
+      source.kind === "agent" ||
+      (source.kind === "document" && source.meta?.documentAuthoredByUser === true)
+    );
   });
   return bestIdentityFacts(candidates);
 }

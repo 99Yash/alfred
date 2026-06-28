@@ -128,6 +128,12 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     assert.equal(r.authoredByUser && r.proof.method, "from_connected_account");
   });
 
+  test("gmail accountId bounds the acceptable self email", () => {
+    const r = authoredByUser(gmailDoc({ from: "Yash <yash@gmail.com>" }, "acc_work"), self);
+    assert.equal(r.authoredByUser, false);
+    assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
+  });
+
   test("gmail inbound From from a third party fails attribution (the bug)", () => {
     // A contact's signature-block email — the city-leak failure mode.
     const r = authoredByUser(gmailDoc({ from: "Sandro <sandro@maglione.dev>" }, "acc_work"), self);

@@ -12,7 +12,7 @@
  *     (`strong`/`moderate`/`weak`) — never recomputed here,
  *   - the reciprocity shape (two-way / outbound-only / one-way inbound),
  *   - same-org-domain (read straight from the stored significance components),
- *   - the user's own role from `user_facts` (`job_title`/`company`).
+ *   - the user's own role from `user_facts` (`job_title`/`employer`).
  *
  * A human sender with no graph row renders `no prior contact on record`, so the
  * rubric degrades to exactly today's intrinsic-only behavior (safe by
@@ -37,7 +37,7 @@ function factString(value: unknown): string | null {
 
 /**
  * The user's own role for the `you: …` clause — `"Founder, Acme"` from the
- * `job_title` + `company` facts. Job title leads; company follows when present.
+ * `job_title` + `employer` facts. Job title leads; employer follows when present.
  * Returns `null` when neither fact is known (the clause is then dropped).
  */
 async function loadUserRole(userId: string): Promise<string | null> {
@@ -49,12 +49,12 @@ async function loadUserRole(userId: string): Promise<string | null> {
         and(
           eq(userFacts.userId, userId),
           eq(userFacts.status, "confirmed"),
-          inArray(userFacts.key, ["job_title", "company"]),
+          inArray(userFacts.key, ["job_title", "employer", "company"]),
         ),
       );
     const byKey = new Map(rows.map((r) => [r.key, r.value]));
     const title = factString(byKey.get("job_title"));
-    const company = factString(byKey.get("company"));
+    const company = factString(byKey.get("employer")) ?? factString(byKey.get("company"));
     if (title && company) return `${title}, ${company}`;
     return title ?? company ?? null;
   } catch {

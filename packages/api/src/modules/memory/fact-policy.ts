@@ -290,10 +290,34 @@ function authoredByGmail(
     return { authoredByUser: false, source: "gmail", reason: "missing_author_identity" };
   }
 
-  // Match the parsed From against the connected-account email first, then the
-  // global self-email set (covers a doc with no resolvable accountId).
+  // If the document is tied to a concrete connected mailbox, that mailbox is the
+  // only acceptable From match. Falling back to every known self email here would
+  // let a personal-address message inside the work mailbox pass attribution.
+  if (accountEmail) {
+    if (fromEmail === accountEmail) {
+      return {
+        authoredByUser: true,
+        source: "gmail",
+        proof: {
+          source: "gmail",
+          method: "from_connected_account",
+          accountId,
+          accountEmail,
+          fromEmail,
+        },
+      };
+    }
+    return {
+      authoredByUser: false,
+      source: "gmail",
+      reason: "identity_mismatch",
+      observed: { kind: "email", value: fromEmail },
+    };
+  }
+
+  // No resolvable accountId (legacy rows / partial metadata): fall back to the
+  // global self-email set.
   const selfEmails = new Set<string>(self.emails.map((e) => e.toLowerCase()));
-  if (accountEmail) selfEmails.add(accountEmail);
   if (selfEmails.size === 0) {
     return {
       authoredByUser: false,
@@ -311,7 +335,7 @@ function authoredByGmail(
         method: "from_connected_account",
         accountId,
         // The matched self email IS the authoring mailbox.
-        accountEmail: accountEmail ?? fromEmail,
+        accountEmail: fromEmail,
         fromEmail,
       },
     };
