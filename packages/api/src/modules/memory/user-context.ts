@@ -101,23 +101,23 @@ const PREF_LIMIT = 50;
  * profile spine, not the broader preference allow-list the #331 purge uses.
  */
 const IDENTITY_FACT_KEYS = [
-  "current_company",
-  "current_work",
-  "current_role",
+  "employer",
+  "work_summary",
+  "job_title",
   "bio_summary",
   "first_name",
   "last_name",
   "full_name",
   "user_nickname",
-  "current_location",
+  "location",
 ] as const;
 type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
 const PROFILE_IDENTITY_FACT_KEYS = [
-  "current_company",
-  "current_work",
-  "current_role",
+  "employer",
+  "work_summary",
+  "job_title",
   "bio_summary",
-  "current_location",
+  "location",
 ] as const satisfies readonly IdentityFactKey[];
 const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
 const ENTITY_LIMIT = 50;
@@ -442,10 +442,13 @@ export async function readUserContext(
   const profile = profileRows[0]
     ? {
         ...profileRows[0],
-        currentCompany: stringIdentityValue(profileIdentityRows, "current_company"),
-        currentRole: stringIdentityValue(profileIdentityRows, "current_role"),
-        currentWork: stringIdentityValue(profileIdentityRows, "current_work"),
-        currentLocation: stringIdentityValue(profileIdentityRows, "current_location"),
+        // DTO field names stay stable for API consumers; they map from the
+        // canonical storage keys (#330 — `current_*` is a read DTO label, not a
+        // storage key). Currentness lives in status + validity windows.
+        currentCompany: stringIdentityValue(profileIdentityRows, "employer"),
+        currentRole: stringIdentityValue(profileIdentityRows, "job_title"),
+        currentWork: stringIdentityValue(profileIdentityRows, "work_summary"),
+        currentLocation: stringIdentityValue(profileIdentityRows, "location"),
         bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
         identityFacts: profileIdentityRows.map((row) => ({
           key: row.key,

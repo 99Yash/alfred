@@ -3,7 +3,9 @@ import {
   applyCorrespondenceIncrements,
   type ContactAggregate,
   extractFactsFromDocument,
+  gateDocumentFact,
   listFactsByStatus,
+  loadSelfIdentity,
   proposeFact,
   runSignificancePass,
   type FactProposal,
@@ -175,6 +177,15 @@ export const memoryExtractionWorkflow: Workflow<State> = {
               .limit(1)
           : [];
         const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
+
+        // Self-identity for the Tier-B authorship gate (#330, ADR-0079). Prefer
+        // the per-account Gmail/GitHub identities (`documents.accountId` →
+        // connected-account email/login) over the bare global `user.email`, so a
+        // work mailbox isn't matched against a personal address. Built once per
+        // run; only consulted in auto mode (manual proposals bypass the gate).
+        const selfIdentity = captureEnabled
+          ? await loadSelfIdentity(ctx.userId)
+          : { emails: selfEmail ? [selfEmail] : [] };
         const captureContacts = new Map<string, ContactAggregate>();
         // Docs whose headers we fold this run; stamped captured only after the
         // increments commit (see the post-loop transaction).
@@ -227,6 +238,29 @@ export const memoryExtractionWorkflow: Workflow<State> = {
           let docProposed = 0;
           let docBlocked = 0;
           for (const p of proposals) {
+            // Per-document write gate (#330): the contextual authorship check
+            // `proposeFact` can't do. Manual mode bypasses it (test fixtures);
+            // `proposeFact` still backstops canonicalization + the document
+            // allow-list either way.
+            if (ctx.state.mode === "auto") {
+              const gate = gateDocumentFact({
+                proposal: { key: p.key, value: p.value },
+                document: { source: doc.source, metadata: doc.metadata, accountId: doc.accountId },
+                selfIdentity,
+              });
+              if (!gate.ok) {
+                docBlocked++;
+                const authorshipReason =
+                  gate.authorship && !gate.authorship.authoredByUser
+                    ? ` authorship=${gate.authorship.reason}`
+                    : "";
+                await ctx.log(
+                  `memory-gate blocked doc=${doc.id} key=${JSON.stringify(p.key)} ` +
+                    `reason=${gate.reason}${authorshipReason}`,
+                );
+                continue;
+              }
+            }
             const result = await proposeFact({
               userId: ctx.userId,
               key: p.key,
@@ -388,6 +422,7 @@ async function loadDocument(docId: string, userId: string) {
       source: documents.source,
       authoredAt: documents.authoredAt,
       metadata: documents.metadata,
+      accountId: documents.accountId,
     })
     .from(documents)
     .where(and(eq(documents.id, docId), eq(documents.userId, userId)))

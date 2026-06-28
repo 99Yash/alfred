@@ -986,33 +986,162 @@ export interface FactTypeDef {
 }
 
 /**
- * Registered durable fact-types (D8). A `user_facts.key` must validate against
- * this at the app boundary. Transient document content (passcodes, alarm names,
- * incident timestamps) is NOT a fact-type — it stays in the document /
- * `memory_chunk`, never auto-confirmed as a fact (this is the fix for the 397
- * junk-drawer rows). `standing_instruction` is reserved and governed by
- * `standing-instructions.ts`, not folded as an ontology value here — so the
- * `user_facts.key` column gate is `isUserFactKey` (ontology ∪ the standing key),
- * NOT `isFactKey` (durable fact-types only). See `isUserFactKey` below.
+ * Registered durable fact-types (D8, #330). A `user_facts.key` must validate
+ * against this at the app boundary. This is the ONE canonical fact-key registry
+ * — `CANONICAL_FACT_KEYS` below is derived from it, not declared in parallel
+ * (the #330 "no second registry" rule). Transient document content (passcodes,
+ * alarm names, incident timestamps) is NOT a fact-type — it stays in the
+ * document / `memory_chunk`, never auto-confirmed as a fact. `standing_instruction`
+ * is reserved and governed by `standing-instructions.ts`, not folded as an
+ * ontology value here — so the `user_facts.key` column gate is `isUserFactKey`
+ * (ontology ∪ the standing key), NOT `isFactKey` (durable fact-types only).
+ *
+ * Keys are durable CONCEPTS, not read-DTO labels: currentness is represented by
+ * `status` + validity windows, so the storage key is `employer`, never
+ * `current_company` (the read API still exposes `currentCompany` by mapping from
+ * it — see `read_user_context`). Legacy / producer spellings
+ * (`current_company`, `company`, `name`, `personal_website`, …) are mapped onto
+ * these keys by `FACT_KEY_ALIASES` + `canonicalizeFactKey`, never stored as
+ * parallel truths.
  */
 export const FACT_ONTOLOGY = {
+  // identity
+  full_name: { subject: "any", description: "Full name." },
+  first_name: { subject: "any", description: "Given name." },
+  last_name: { subject: "any", description: "Family name." },
+  user_nickname: { subject: "user", description: "What the user likes to be called." },
+  bio_summary: { subject: "any", description: "Short biography / who they are (paragraph)." },
+  birthday: { subject: "any", description: "Date of birth (ISO date or month-day)." },
+  marital_status: { subject: "any", description: "Marital status (married, single, …)." },
+  spouse_name: { subject: "any", description: "Spouse / partner name." },
+  family_summary: { subject: "any", description: "Short summary of family (paragraph)." },
+  notable_relations: {
+    subject: "any",
+    description: "Public-figure relations and why they're notable (paragraph).",
+  },
+  // work
+  work_summary: { subject: "any", description: "What they do / current work (paragraph)." },
   employer: { subject: "any", description: "Organization the subject works for." },
   job_title: { subject: "any", description: "Role / title." },
   team: { subject: "any", description: "Team or org unit." },
   manager: { subject: "any", description: "Who the subject reports to (entity ref)." },
-  reports_to: { subject: "any", description: "Alias of manager for org-graph edges." },
-  owns: {
-    subject: "any",
-    description: "Ownership / responsibility domains (projects, repos, areas).",
-  },
-  github_username: { subject: "any", description: "GitHub login." },
+  // location
+  location: { subject: "any", description: "City / region they're based in." },
+  home_city: { subject: "any", description: "Home city." },
+  home_country: { subject: "any", description: "Home country." },
   timezone: { subject: "user", description: "IANA timezone." },
-  location: { subject: "any", description: "City / region." },
+  // online presence
+  personal_site: { subject: "any", description: "Personal website URL." },
+  github_username: { subject: "any", description: "GitHub login." },
+  twitter_handle: { subject: "any", description: "Twitter / X handle." },
+  linkedin_url: { subject: "any", description: "LinkedIn profile URL." },
 } as const satisfies Record<string, FactTypeDef>;
 export type FactKey = keyof typeof FACT_ONTOLOGY;
 
 export function isFactKey(key: string): key is FactKey {
   return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);
+}
+
+/**
+ * The exact canonical identity/profile fact keys — derived from the ONE
+ * registry (`FACT_ONTOLOGY`), never a parallel list. The order tracks the
+ * registry declaration order.
+ */
+export const CANONICAL_FACT_KEYS = Object.keys(FACT_ONTOLOGY) as readonly FactKey[];
+
+/**
+ * Open-ended fact-key prefixes (a key is `<prefix><suffix>`):
+ *   - `relationship:<email>` — the user's relationship to that person.
+ *   - `pref:<name>`          — a durable preference.
+ * The suffix is validated/normalized per-prefix by `canonicalizeFactKey`.
+ */
+export const RELATIONSHIP_FACT_PREFIX = "relationship:";
+export const PREF_FACT_PREFIX = "pref:";
+export const CANONICAL_FACT_PREFIXES = [RELATIONSHIP_FACT_PREFIX, PREF_FACT_PREFIX] as const;
+
+/**
+ * EXPLICIT legacy / producer key-spelling map → canonical key. This is a
+ * compatibility shim for the spellings actually observed in producers
+ * (`cold-start/extract.ts`, `extraction.ts`) and in live dev rows — NOT a
+ * fuzzy/semantic guesser and NOT a migration dumping ground. Near-misses that
+ * are NOT listed (`website`, `url`, `homepage`, `company_url`) stay rejected as
+ * `unknown_key`. Every target MUST be a real canonical key (the `satisfies`
+ * enforces it). Consumed by `canonicalizeFactKey` before any dedup/conflict
+ * check, for ALL sources (aliasing prevents `company`/`current_company`/
+ * `employer` coexisting as separate truths).
+ */
+export const FACT_KEY_ALIASES = {
+  current_company: "employer",
+  company: "employer",
+  company_name: "employer",
+  current_role: "job_title",
+  role: "job_title",
+  current_work: "work_summary",
+  current_location: "location",
+  name: "full_name",
+  personal_website: "personal_site",
+} as const satisfies Record<string, FactKey>;
+export type FactKeyAlias = keyof typeof FACT_KEY_ALIASES;
+
+export function isFactKeyAlias(key: string): key is FactKeyAlias {
+  return Object.prototype.hasOwnProperty.call(FACT_KEY_ALIASES, key);
+}
+
+/**
+ * The result of canonicalizing a raw fact key. A canonical key passes through
+ * (`wasAlias:false`); a listed alias or a re-normalized open key is mapped
+ * (`wasAlias:true`, carrying the original for provenance); anything unknown is
+ * rejected. This is a pure key-NAME canonicalizer — it never inspects the value
+ * and never makes a trust/source decision (that is `fact-policy.ts`).
+ */
+export type CanonicalizeFactKeyResult =
+  | { ok: true; key: string; wasAlias: false }
+  | { ok: true; key: string; wasAlias: true; originalKey: string }
+  | { ok: false; reason: "unknown_key" };
+
+/**
+ * Canonicalize a `user_facts` key onto the one ontology BEFORE dedup/conflict.
+ *
+ *  - Exact canonical key → passes through unchanged.
+ *  - Listed `FACT_KEY_ALIASES` spelling → mapped to its canonical key.
+ *  - `relationship:<email>` → email suffix trimmed + lowercased; an unparseable
+ *    (non-email) suffix is rejected (`relationship:github.com`, a display name).
+ *  - `pref:<name>` → suffix trimmed; an empty suffix is rejected.
+ *  - Anything else → `{ ok:false, reason:"unknown_key" }`.
+ *
+ * `wasAlias` is true exactly when the canonical key differs from the raw input
+ * (a spelling alias OR a re-normalized open key), so callers can record
+ * `originalKey` for drift provenance.
+ */
+export function canonicalizeFactKey(rawKey: string): CanonicalizeFactKeyResult {
+  const key = rawKey.trim();
+  if (isFactKey(key)) {
+    return key === rawKey
+      ? { ok: true, key, wasAlias: false }
+      : { ok: true, key, wasAlias: true, originalKey: rawKey };
+  }
+  if (isFactKeyAlias(key)) {
+    return { ok: true, key: FACT_KEY_ALIASES[key], wasAlias: true, originalKey: rawKey };
+  }
+  if (key.startsWith(RELATIONSHIP_FACT_PREFIX)) {
+    const email = key.slice(RELATIONSHIP_FACT_PREFIX.length).trim().toLowerCase();
+    if (!email || !identityValueMatchesKind("email", email)) {
+      return { ok: false, reason: "unknown_key" };
+    }
+    const canonical = `${RELATIONSHIP_FACT_PREFIX}${email}`;
+    return canonical === rawKey
+      ? { ok: true, key: canonical, wasAlias: false }
+      : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
+  }
+  if (key.startsWith(PREF_FACT_PREFIX)) {
+    const name = key.slice(PREF_FACT_PREFIX.length).trim();
+    if (!name) return { ok: false, reason: "unknown_key" };
+    const canonical = `${PREF_FACT_PREFIX}${name}`;
+    return canonical === rawKey
+      ? { ok: true, key: canonical, wasAlias: false }
+      : { ok: true, key: canonical, wasAlias: true, originalKey: rawKey };
+  }
+  return { ok: false, reason: "unknown_key" };
 }
 
 /**

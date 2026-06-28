@@ -20,7 +20,7 @@ import { z } from "zod";
 export const factProposalSchema = z.object({
   /**
    * Canonical key. Use snake-case. Examples:
-   *   `manager`, `company`, `birthday`, `home_city`,
+   *   `manager`, `employer`, `birthday`, `home_city`,
    *   `relationship:alice@oliv.ai`, `pref:tone`.
    */
   key: z.string().min(1).max(200),
@@ -59,12 +59,13 @@ The single test for every fact: "Is this a lasting truth about the USER as a per
 Rules:
 1. Be CONSERVATIVE. Only propose a fact if the document strongly and unambiguously supports it AND it passes the test above. When in doubt, skip. Most emails (newsletters, job alerts, recruiter outreach, receipts, automated notifications, statements) yield ZERO user facts — returning an empty array is the common, correct outcome.
 2. Cite evidence in 'rationale' — quote or paraphrase the specific clause that grounds the fact AND why it is about the user, not a third party.
-3. The user's OWN employment (\`company\`, \`job_title\`, \`team\`, \`manager\`) counts ONLY when the document is authored by or unambiguously about the user themselves — e.g. their own offer letter, their signature block, their own LinkedIn. A job posting, recruiter message, job-board digest, or newsletter that merely NAMES a company or role is about that posting, NOT the user — SKIP it. Never treat a company/title mentioned in an opportunity as the user's employer.
-4. NEVER store attributes of the source document or its sender as facts. No email subjects, bodies, senders, recipients, message ids, dates, thread ids; no PR/issue numbers; no newsletter author; no addresses, websites, or locations of a company named in the email. If a key would describe the message or a third party rather than the user, do not emit it.
-5. Use canonical snake_case keys describing the user. Examples:
-   - 'home_city', 'home_country', 'timezone'
-   - 'birthday', 'spouse_name'
-   - 'manager', 'reports_to' (the USER's own manager)
+3. The user's OWN employment (\`employer\`, \`job_title\`, \`team\`, \`manager\`) counts ONLY when the document is authored by or unambiguously about the user themselves — e.g. their own offer letter, their signature block, their own LinkedIn. A job posting, recruiter message, job-board digest, or newsletter that merely NAMES a company or role is about that posting, NOT the user — SKIP it. Never treat a company/title mentioned in an opportunity as the user's employer.
+4. NEVER store attributes of the source document or its sender as facts. No email subjects, bodies, senders, recipients, message ids, dates, thread ids; no PR/issue numbers; no newsletter author; no addresses, websites, or locations of a company named in the email. A contact's signature-block city/phone/site is THAT PERSON'S, never the user's. If a key would describe the message or a third party rather than the user, do not emit it.
+5. Use ONLY these canonical snake_case keys (anything else is dropped downstream):
+   - identity: 'full_name', 'first_name', 'last_name', 'user_nickname', 'bio_summary', 'birthday', 'marital_status', 'spouse_name', 'family_summary', 'notable_relations'
+   - work: 'employer' (the org the user works for), 'job_title', 'team', 'manager', 'work_summary'
+   - location: 'location', 'home_city', 'home_country', 'timezone'
+   - online: 'personal_site', 'github_username', 'twitter_handle', 'linkedin_url'
    - 'relationship:<email>' (value: { role, since? }) — the user's relationship to that person
 6. The 'value' must be the simplest correct shape: a string for atomic values, an object for structured ones. Prefer canonical forms (full names, ISO dates, lowercase emails).
 7. Confidence: 0.95+ for facts directly stated and authored by the user themselves; 0.7–0.9 for clearly implied; below 0.7 means SKIP — do not emit.
