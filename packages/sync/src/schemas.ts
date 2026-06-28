@@ -206,7 +206,7 @@ export type SyncedBriefing = z.infer<typeof syncedBriefingSchema>;
 
 /**
  * A todo row as the web sees it (ADR-0050). `dismissed` rows never reach the
- * client; `done` rows linger 7 days (the pull window enforces both). `executor`
+ * client; `done` rows linger 2 days (the pull window enforces both). `executor`
  * and `kind` are forward-compat — the rail ignores them in passive v1.
  */
 export const syncedTodoSchema = z.object({

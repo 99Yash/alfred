@@ -113,7 +113,7 @@ type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 /** Done todos linger this long in the sync window before falling out (ADR-0050). */
-const TODO_DONE_WINDOW_DAYS = 7;
+const TODO_DONE_WINDOW_DAYS = 2;
 /** Most-recent chat messages synced per user — bounds the Replicache pull. */
 const CHAT_MESSAGE_PULL_LIMIT = 500;
 /** Most-recent agent-produced artifacts synced per user (ADR-0075). */
