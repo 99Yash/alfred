@@ -336,6 +336,29 @@ export async function setAppliedLabelId(
 }
 
 /**
+ * Repoint a thread's triage row at the message that was actually labeled and
+ * record the applied label in one write. Used by the relabel path when the
+ * stored `document_id`'s Gmail message id has gone stale (404) and the label
+ * had to be re-resolved to a live message in the thread instead (#277) — both
+ * `document_id` and `applied_label_id` must then reflect that live message.
+ */
+export async function setTriageReconciledTarget(
+  userId: string,
+  sourceThreadId: string,
+  documentId: string,
+  appliedLabelId: string,
+): Promise<void> {
+  await db()
+    .update(emailTriage)
+    .set({
+      documentId,
+      appliedLabelId,
+      rowVersion: sql`${emailTriage.rowVersion} + 1`,
+    })
+    .where(and(eq(emailTriage.userId, userId), eq(emailTriage.sourceThreadId, sourceThreadId)));
+}
+
+/**
  * Authored timestamp of a single document, or null if the row is absent or
  * carries no `authored_at`. The triage already-tagged guard uses this to
  * decide whether an incoming message is genuinely newer than the one the
