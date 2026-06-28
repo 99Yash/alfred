@@ -351,6 +351,7 @@ export interface SanitizedGithubSearchQuery {
  *                            wins over the field default), drop from `query`.
  *  - `state:S` / `is:S`   → set `state` from `open`/`closed`/`merged`, drop.
  *  - `is:pr` / `is:issue` → set `type`, drop (owned by the `type` field now).
+ *  - `type:pr` / `type:issue` → set `type`, drop (GitHub's synonym for `is:`).
  *  - `created:`/`closed:`/`merged:` date window that **duplicates** a set
  *    *WithinDays field → drop the free-form one (the structured window wins).
  *    A date window with *no* corresponding field is a legitimate explicit
@@ -413,6 +414,24 @@ export function sanitizeGithubSearchQuery(
         toRemove.push(q);
       }
       // Other `is:` values (is:draft, is:queued, …) are valid extra filters; keep.
+      continue;
+    }
+    if (q.key === "type") {
+      // GitHub's free-form `type:pr`/`type:issue` is a synonym for `is:pr`/
+      // `is:issue`; fold it into the structured `type` field with the same
+      // precedence (unset → folded value; conflicting explicit type → `both`).
+      // Left unfolded, the unset `type` field defaults to `pr` while the
+      // `type:issue` token leaks through as inert text — a self-contradictory
+      // `is:pr … type:issue` query that returns the wrong count (#276).
+      const v = normalizeQualifierValue(q.value);
+      if (v === "pr") {
+        sanitized.type = sanitized.type === "issue" ? "both" : "pr";
+        toRemove.push(q);
+      } else if (v === "issue") {
+        sanitized.type = sanitized.type === "pr" ? "both" : "issue";
+        toRemove.push(q);
+      }
+      // Other `type:` values aren't ones the structured field expresses; keep.
       continue;
     }
     if (DATE_QUALIFIERS.has(q.key) && windowFieldSet[q.key] && isValidDateQualifierValue(q.value)) {
