@@ -23,6 +23,7 @@ import {
 } from "../triage/gmail-reconcile";
 import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
+import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -421,6 +422,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         );
         return { installed: false, reason: "no-topic" };
       }
+      assertGmailPushOidcConfigured();
       const state = await installGmailWatch({ credentialId: data.credentialId, topicName: topic });
       console.log(
         `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
@@ -439,6 +441,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         );
         return { renewed: 0, skipped: 0 };
       }
+      assertGmailPushOidcConfigured();
       const horizon = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const candidates = await findExpiringGmailWatches(horizon);
       let renewed = 0;

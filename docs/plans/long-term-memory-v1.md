@@ -2,6 +2,26 @@
 
 Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store) + **ADR-0059** (directional triage significance — un-defers D1, **reorders P3 + P4a ahead of vertical slice 1**, splits P4 into P4a/P4b, 2026-06-15 grill-with-docs) + **ADR-0060** (standing-instructions generalization — prose-first central store + deterministic-enforcement carve-out, 2026-06-17 grill-with-docs; build order under _Standing instructions — generalization build order_). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).
 
+## Build status (reconciled against code 2026-06-28)
+
+Most of the foundation shipped between 2026-06-11 and now (PR #128 memory base, #131 read surface, #545a9310 standing-instruction management + briefing suppression, #6d2820be search-before-ask sender resolution, P3/P4a 2026-06-16). The phase bodies below are the original design narrative; this ledger is the source of truth for what's left.
+
+| Item | State | Evidence / gap |
+|---|---|---|
+| **Vertical slice 1** (suppression loop) | 🟢 **Shipped** — close it | `system.remember`/`resolve_todo`/`list`/`forget`/`edit_instruction` (`tools/system.ts`), v1 `standing-instructions.ts`, suppression readers, briefing `gather`/`read` filter, honest chat copy, `sender-suppression-grounding.eval.ts`. **Caveat:** enforcement landed on chat-capture + briefing only — *not* the planned triage hard-veto (item 21). |
+| **P0** — date/tz grounding | 🟢 Shipped | `agent/grounding.ts`, `user-timezone.ts`, `date-grounding.eval.ts`; injected into both boss + chat prompts. |
+| P0 — recovery envelope + eager tool declaration | 🟡 Partial | `integrationActionSuggestion` lists the static action enum, not a live toolkit probe; eager connected-tool declaration + dispatch floor still deferred (chat lazy-loads). |
+| **P1** — `read_user_context` | 🟢 Shipped | Registered boss/chat/sub-agents (`tools/system.ts`); `readTriageUserContext` is the shared reader. |
+| **P2** — governance plumbing | 🔴 Mostly open | Only the standing-instruction write tools exist. **Absent:** `system.update_fact` + relationship-link tool, `rejected_inferences.cause` enum, persisted `rationale`, `notify()` tiering (debounce/digest), in-app memory changelog/review UI. |
+| **P3** — significance + directional triage | 🟢 Shipped | `memory/significance.ts` (`computeSignificance`/`runSignificancePass`), `triage/sender-relationship.ts`, 16b rubric rewrite, **16a founder/CEO carve-out deleted**. |
+| **P4a** — team-graph backfill | 🟢 Shipped | `memory/team-graph.ts`, `backfill-team-graph-committed.ts`, `memory/entity-metadata.ts`. |
+| P4b — onboarding seed + dossier | ⚪ Deferred (as planned) | Gated on unbuilt run-scoped autonomy override; `person_profiles` unbuilt. |
+| **P5** — chat→memory | 🟡 Partial | Boss does `system.remember` on *explicit* request only — no automatic durable-vs-run classifier; standing instructions read on-demand via the tool, **not** injected into ambient Run grounding. |
+| **SI-1→SI-6** (ADR-0060 v2 generalization) | 🔴 Open | Contract still `schemaVersion:1`, sender-suppression only. Unbuilt: schema v2 (`directive`/`target`/`enforcement`), `getRelevantInstructions(context)`, triage `force_category`/`force_todo` override layer + breadcrumb, prose-first compose application, `/settings` review panel, SI eval suite. (`list`/`forget`/`edit_instruction` tools cover a thin slice of SI-5 via chat, no UI.) |
+| P6 — decay/eval-lane/hybrid retrieval | ⚪ Deferred (as planned) | — |
+
+**What to close now:** Vertical slice 1, P0 (core grounding), P1, P3, P4a. **What's genuinely left:** the triage-side suppression veto (item 21, partly subsumed by P3 for cold senders), P2 governance plumbing, P5's auto-capture classifier + ambient injection, and the whole ADR-0060 v2 generalization (SI-1→SI-6). These are the remaining backlog — track under epic #218 / a fresh ADR-0060 build issue rather than this plan.
+
 ## Why this exists
 
 The trigger was a demo-killer: the boss asked "how many meetings in October 2026" and replied "which year?" — it had no date. Investigation found the boss is blind on **three** channels: no ambient date, no list of connected tools, and **no access to the user-memory substrate at all** (`system.read_user_context` was specced but never registered). Meanwhile the storage layer is mature and well-built — the problem is everything *around* it: the read surface, capture quality (prod `entities` = 0), lifecycle policy, and an organizing taxonomy.
