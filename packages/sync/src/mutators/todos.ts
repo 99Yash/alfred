@@ -121,7 +121,7 @@ export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArg
  * Mark an Alfred-suggested todo done in one action: `suggested → done`, stamp
  * `completedAt`. Provenance (`createdBy`, `sources`, `assist`) rides along
  * untouched, so the completed row carries the same context as any other done
- * todo. The done row syncs (within the 7-day window) and lands in *Done*.
+ * todo. The done row syncs (within the done-sync window) and lands in *Done*.
  */
 export async function todoCompleteSuggestionClient(
   tx: WriteTransaction,

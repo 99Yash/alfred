@@ -54,7 +54,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
 
 /**
  * Live view of the user's todos + Alfred's suggestions for the quick rail
- * (ADR-0050). `dismissed` rows never sync; `done` rows linger 7 days. Rows that
+ * (ADR-0050). `dismissed` rows never sync; `done` rows linger 2 days. Rows that
  * fail schema validation are dropped rather than crashing the rail.
  */
 export function useTodos(): TodosState {
