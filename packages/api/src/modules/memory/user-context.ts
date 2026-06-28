@@ -9,6 +9,7 @@ import {
   userPreferences,
 } from "@alfred/db/schemas";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { memorySourceSchema, type MemorySource } from "./types";
 
 /** The sections {@link readUserContext} can be narrowed to via `include`. */
 export type UserContextSection =
@@ -45,6 +46,16 @@ export interface UserContext {
   profile: {
     name: string;
     email: string;
+    currentCompany: string | null;
+    currentRole: string | null;
+    currentWork: string | null;
+    currentLocation: string | null;
+    bioSummary: string | null;
+    identityFacts: Array<{
+      key: string;
+      value: string;
+      confidence: number;
+    }>;
   } | null;
   activeIntegrations: Array<{
     provider: string;
@@ -82,6 +93,33 @@ export interface UserContext {
 
 const FACT_LIMIT = 30;
 const PREF_LIMIT = 50;
+/**
+ * Canonical identity keys that answer "who am I / where do I work?". These are
+ * GUARANTEED into the bounded fact slice ahead of the recency/confidence-ranked
+ * rest, so a flood of transactional per-email facts can never evict the user's
+ * authoritative identity (issue #329). Kept deliberately tight — this is the
+ * profile spine, not the broader preference allow-list the #331 purge uses.
+ */
+const IDENTITY_FACT_KEYS = [
+  "current_company",
+  "current_work",
+  "current_role",
+  "bio_summary",
+  "first_name",
+  "last_name",
+  "full_name",
+  "user_nickname",
+  "current_location",
+] as const;
+type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
+const PROFILE_IDENTITY_FACT_KEYS = [
+  "current_company",
+  "current_work",
+  "current_role",
+  "bio_summary",
+  "current_location",
+] as const satisfies readonly IdentityFactKey[];
+const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
 const ENTITY_LIMIT = 50;
 const RELATION_LIMIT = 80;
 const MEMORY_LIMIT = 6;
@@ -97,6 +135,12 @@ type EntityRow = {
   metadata: unknown;
 };
 
+type FactContextRow = Pick<
+  typeof userFacts.$inferSelect,
+  "id" | "key" | "value" | "confidence" | "source" | "updatedAt" | "createdAt"
+>;
+type StringFactContextRow = FactContextRow & { value: string };
+
 const ENTITY_COLUMNS = {
   id: entities.id,
   kind: entities.kind,
@@ -104,6 +148,20 @@ const ENTITY_COLUMNS = {
   aliases: entities.aliases,
   metadata: entities.metadata,
 } as const;
+
+const FACT_COLUMNS = {
+  id: userFacts.id,
+  key: userFacts.key,
+  value: userFacts.value,
+  confidence: userFacts.confidence,
+  source: userFacts.source,
+  updatedAt: userFacts.updatedAt,
+  createdAt: userFacts.createdAt,
+} as const;
+
+const identityKeyRank = new Map<IdentityFactKey, number>(
+  IDENTITY_FACT_KEYS.map((key, index) => [key, index]),
+);
 
 /** `metadata.significance.score` as a sortable float — NULL (unscored) sorts last. */
 const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->> 'score')::float8`;
@@ -119,6 +177,90 @@ function queryTokens(query: string | undefined): string[] {
         .filter((t) => t.length >= 3),
     ),
   ).slice(0, 6);
+}
+
+function isIdentityFactKey(key: string): key is IdentityFactKey {
+  return identityKeyRank.has(key as IdentityFactKey);
+}
+
+function identityValue(rows: FactContextRow[], key: IdentityFactKey): unknown | null {
+  return rows.find((row) => row.key === key)?.value ?? null;
+}
+
+function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
+  const value = identityValue(rows, key);
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function sourceRank(source: MemorySource): number {
+  switch (source.kind) {
+    case "user":
+      return 0;
+    case "cold_start":
+      return 1;
+    case "agent":
+      return 2;
+    case "document":
+    case "chunk":
+    case "tool_call":
+      return 3;
+    default: {
+      const _exhaustive: never = source.kind;
+      return _exhaustive;
+    }
+  }
+}
+
+function timestampMs(value: Date | null): number {
+  return value?.getTime() ?? Number.NEGATIVE_INFINITY;
+}
+
+function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
+  const parsed = memorySourceSchema.safeParse(row.source);
+  if (parsed.success) return parsed.data;
+  console.warn(
+    `[memory.user-context] ignoring invalid source for user_facts:${row.id}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+  );
+  return { kind: "document" };
+}
+
+function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
+    const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
+    return rankA - rankB;
+  });
+}
+
+function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
+  const candidates = rows.filter((row): row is StringFactContextRow => {
+    if (!profileIdentityFactKeys.has(row.key)) return false;
+    if (typeof row.value !== "string" || !row.value.trim()) return false;
+    const source = parseSource(row);
+    return source.kind === "user" || source.kind === "cold_start" || source.kind === "agent";
+  });
+  return bestIdentityFacts(candidates);
+}
+
+function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number {
+  const sourceDiff = sourceRank(parseSource(a)) - sourceRank(parseSource(b));
+  if (sourceDiff !== 0) return sourceDiff;
+  if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+  const updatedDiff = timestampMs(b.updatedAt) - timestampMs(a.updatedAt);
+  if (updatedDiff !== 0) return updatedDiff;
+  const createdDiff = timestampMs(b.createdAt) - timestampMs(a.createdAt);
+  if (createdDiff !== 0) return createdDiff;
+  return b.id.localeCompare(a.id);
+}
+
+function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
+  const byKey = new Map<IdentityFactKey, T>();
+  for (const row of rows) {
+    if (!isIdentityFactKey(row.key)) continue;
+    const existing = byKey.get(row.key);
+    if (!existing || compareIdentityCandidates(row, existing) < 0) byKey.set(row.key, row);
+  }
+  return sortIdentityFacts([...byKey.values()]);
 }
 
 /**
@@ -139,79 +281,105 @@ export async function readUserContext(
   const subjectEmail = options.subjectEmail?.trim().toLowerCase() || undefined;
   const tokens = queryTokens(options.query);
 
-  const [profileRows, integrationRows, factRows, prefRows, rankedEntityRows, memoryRows] =
-    await Promise.all([
-      db()
-        .select({ name: user.name, email: user.email })
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1),
-      wants("integrations")
-        ? db()
-            .select({
-              provider: integrationCredentials.provider,
-              accountLabel: integrationCredentials.accountLabel,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, userId),
-                eq(integrationCredentials.status, "active"),
-              ),
-            )
-            .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel))
-        : Promise.resolve([]),
-      wants("facts")
-        ? db()
-            .select({
-              key: userFacts.key,
-              value: userFacts.value,
-              confidence: userFacts.confidence,
-              updatedAt: userFacts.updatedAt,
-              createdAt: userFacts.createdAt,
-            })
-            .from(userFacts)
-            .where(
-              and(
-                eq(userFacts.userId, userId),
-                eq(userFacts.status, "confirmed"),
-                or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
-              ),
-            )
-            .orderBy(desc(userFacts.updatedAt), desc(userFacts.createdAt))
-            .limit(FACT_LIMIT)
-        : Promise.resolve([]),
-      wants("preferences")
-        ? db()
-            .select({ key: userPreferences.key, value: userPreferences.value })
-            .from(userPreferences)
-            .where(eq(userPreferences.userId, userId))
-            .orderBy(asc(userPreferences.key))
-            .limit(PREF_LIMIT)
-        : Promise.resolve([]),
-      // Entities are needed whenever the caller wants entities OR relationships
-      // (relation endpoints resolve to entity names from this set).
-      wants("entities") || wants("relationships")
-        ? db()
-            .select(ENTITY_COLUMNS)
-            .from(entities)
-            .where(eq(entities.userId, userId))
-            .orderBy(
-              sql`${significanceScore} desc nulls last`,
-              asc(entities.kind),
-              asc(entities.canonicalName),
-            )
-            .limit(ENTITY_LIMIT)
-        : Promise.resolve([] as EntityRow[]),
-      wants("recent_memory")
-        ? db()
-            .select({ kind: memoryChunks.kind, content: memoryChunks.content })
-            .from(memoryChunks)
-            .where(eq(memoryChunks.userId, userId))
-            .orderBy(desc(memoryChunks.createdAt))
-            .limit(MEMORY_LIMIT)
-        : Promise.resolve([]),
-    ]);
+  const [
+    profileRows,
+    integrationRows,
+    rankedFactRows,
+    identityFactRowsRaw,
+    prefRows,
+    rankedEntityRows,
+    memoryRows,
+  ] = await Promise.all([
+    db()
+      .select({ name: user.name, email: user.email })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1),
+    wants("integrations")
+      ? db()
+          .select({
+            provider: integrationCredentials.provider,
+            accountLabel: integrationCredentials.accountLabel,
+          })
+          .from(integrationCredentials)
+          .where(
+            and(
+              eq(integrationCredentials.userId, userId),
+              eq(integrationCredentials.status, "active"),
+            ),
+          )
+          .orderBy(asc(integrationCredentials.provider), asc(integrationCredentials.accountLabel))
+      : Promise.resolve([]),
+    wants("facts")
+      ? db()
+          .select({
+            ...FACT_COLUMNS,
+          })
+          .from(userFacts)
+          .where(
+            and(
+              eq(userFacts.userId, userId),
+              eq(userFacts.status, "confirmed"),
+              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+            ),
+          )
+          // Confidence first, then recency — the authoritative identity facts
+          // (source=user, c=1.0) outrank transactional per-email noise (c≈0.95)
+          // instead of being buried by it (issue #329).
+          .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
+          .limit(FACT_LIMIT)
+      : Promise.resolve([]),
+    // Candidate rows for canonical identity keys. This query is intentionally
+    // not gated on `facts`: `profile` must be identity-complete even when a
+    // model narrows the tool call to include only profile/integrations
+    // (issue #329). Selection happens in code so source provenance can outrank
+    // recency: user/cold-start/agent identity beats document extraction noise.
+    db()
+      .select(FACT_COLUMNS)
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.userId, userId),
+          eq(userFacts.status, "confirmed"),
+          or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
+          inArray(userFacts.key, [...IDENTITY_FACT_KEYS]),
+        ),
+      )
+      .orderBy(userFacts.key, desc(userFacts.confidence), desc(userFacts.updatedAt)),
+    wants("preferences")
+      ? db()
+          .select({ key: userPreferences.key, value: userPreferences.value })
+          .from(userPreferences)
+          .where(eq(userPreferences.userId, userId))
+          .orderBy(asc(userPreferences.key))
+          .limit(PREF_LIMIT)
+      : Promise.resolve([]),
+    // Entities are needed whenever the caller wants entities OR relationships
+    // (relation endpoints resolve to entity names from this set).
+    wants("entities") || wants("relationships")
+      ? db()
+          .select(ENTITY_COLUMNS)
+          .from(entities)
+          .where(eq(entities.userId, userId))
+          .orderBy(
+            sql`${significanceScore} desc nulls last`,
+            asc(entities.kind),
+            asc(entities.canonicalName),
+          )
+          .limit(ENTITY_LIMIT)
+      : Promise.resolve([] as EntityRow[]),
+    wants("recent_memory")
+      ? db()
+          .select({ kind: memoryChunks.kind, content: memoryChunks.content })
+          .from(memoryChunks)
+          .where(eq(memoryChunks.userId, userId))
+          .orderBy(desc(memoryChunks.createdAt))
+          .limit(MEMORY_LIMIT)
+      : Promise.resolve([]),
+  ]);
+
+  const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
+  const profileIdentityRows = profileIdentityFacts(identityFactRowsRaw);
 
   // Guarantee the focused contact/query matches survive the ranked cap: fetch
   // them directly and merge ahead of the ranked slice (deduped by id).
@@ -230,6 +398,20 @@ export async function readUserContext(
     if (seenIds.has(row.id)) continue;
     seenIds.add(row.id);
     mergedEntities.push(row);
+  }
+
+  // Identity facts first so they survive the cap; the confidence-ranked rest
+  // fills the remainder up to FACT_LIMIT, deduped by id (an identity fact also
+  // present in the ranked slice is counted once).
+  const mergedFacts: FactContextRow[] = [];
+  const seenFactIds = new Set<string>();
+  if (wants("facts")) {
+    for (const row of [...identityFactRows, ...rankedFactRows]) {
+      if (mergedFacts.length >= FACT_LIMIT) break;
+      if (seenFactIds.has(row.id)) continue;
+      seenFactIds.add(row.id);
+      mergedFacts.push(row);
+    }
   }
 
   const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
@@ -257,14 +439,28 @@ export async function readUserContext(
           .limit(RELATION_LIMIT)
       : [];
 
-  const profile = profileRows[0] ?? null;
+  const profile = profileRows[0]
+    ? {
+        ...profileRows[0],
+        currentCompany: stringIdentityValue(profileIdentityRows, "current_company"),
+        currentRole: stringIdentityValue(profileIdentityRows, "current_role"),
+        currentWork: stringIdentityValue(profileIdentityRows, "current_work"),
+        currentLocation: stringIdentityValue(profileIdentityRows, "current_location"),
+        bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
+        identityFacts: profileIdentityRows.map((row) => ({
+          key: row.key,
+          value: row.value,
+          confidence: row.confidence,
+        })),
+      }
+    : null;
   return {
     profile,
     activeIntegrations: integrationRows.map((row) => ({
       provider: row.provider,
       accountLabel: row.accountLabel,
     })),
-    confirmedFacts: factRows.map((row) => ({
+    confirmedFacts: mergedFacts.map((row) => ({
       key: row.key,
       value: row.value,
       confidence: row.confidence,
