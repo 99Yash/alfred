@@ -1,25 +1,18 @@
+import {
+  DEFAULT_BRIEFING_DELIVERY_HOUR,
+  DEFAULT_BRIEFING_EVENING_HOUR,
+  DEFAULT_BRIEFING_TIMEZONE,
+} from "@alfred/contracts/briefing-constants";
 import { IDB_KEY, syncedPreferenceSchema } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 
-/**
- * Defaults mirror the server fallback chain in
- * `@alfred/api` `modules/briefing/preferences.ts`
- * (`DEFAULT_BRIEFING_TIMEZONE` / `_DELIVERY_HOUR` / `_EVENING_HOUR`). They
- * can't be imported here — that package is server-only (Node deps) and the
- * web bundle boundary forbids it — so the constants are duplicated with this
- * note. Keep them in sync if the server defaults change.
- */
 const BRIEFING_PREF_KEYS = {
   timezone: "briefing.timezone",
   morningHour: "briefing.delivery_hour",
   eveningHour: "briefing.evening_hour",
 } as const;
-
-const DEFAULT_TIMEZONE = "UTC";
-const DEFAULT_MORNING_HOUR = 7;
-const DEFAULT_EVENING_HOUR = 18;
 
 export interface BriefingScheduleState {
   /** Effective IANA timezone (stored value, else the server default). */
@@ -103,9 +96,9 @@ export function useBriefingSchedule(): BriefingScheduleState {
   );
 
   return {
-    timezone: tzStored ?? DEFAULT_TIMEZONE,
-    morningHour: morningStored ?? DEFAULT_MORNING_HOUR,
-    eveningHour: eveningStored ?? DEFAULT_EVENING_HOUR,
+    timezone: tzStored ?? DEFAULT_BRIEFING_TIMEZONE,
+    morningHour: morningStored ?? DEFAULT_BRIEFING_DELIVERY_HOUR,
+    eveningHour: eveningStored ?? DEFAULT_BRIEFING_EVENING_HOUR,
     hasOverride,
     setTimezone: (tz) => setPref(BRIEFING_PREF_KEYS.timezone, tz),
     setMorningHour: (hour) => setPref(BRIEFING_PREF_KEYS.morningHour, hour),

@@ -12,11 +12,13 @@
  * Voyage isn't in models.dev — those rows come from a static fallback
  * below until they're added or we wire a Voyage-specific source.
  */
+import { isRecord } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
+const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
 
 /** Providers we care about. Anything else from models.dev is ignored. */
 const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
@@ -106,9 +108,15 @@ interface PriceRow {
 }
 
 async function fetchCatalog(): Promise<ModelsDevCatalog> {
-  const res = await fetch(MODELS_DEV_URL);
-  if (!res.ok) throw new Error(`models.dev fetch failed: ${res.status}`);
-  return (await res.json()) as ModelsDevCatalog;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
+    if (!res.ok) throw new Error(`models.dev fetch failed: ${res.status}`);
+    return (await res.json()) as ModelsDevCatalog;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
@@ -188,13 +196,25 @@ function capabilitiesEqual(
   incoming: Record<string, unknown> | undefined,
 ): boolean {
   const pick = (meta: unknown) => {
-    const caps = (meta as { capabilities?: Record<string, unknown> } | null)?.capabilities;
+    const metadata = isRecord(meta) ? meta : {};
+    const caps = isRecord(metadata.capabilities) ? metadata.capabilities : {};
     return JSON.stringify({
       reasoningOptions: caps?.reasoningOptions ?? null,
       temperature: caps?.temperature ?? null,
     });
   };
   return pick(latestMetadata) === pick(incoming);
+}
+
+function safeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function safeCauseMessage(err: unknown): string | undefined {
+  if (!(err instanceof Error) || !("cause" in err)) return undefined;
+  const cause = err.cause;
+  if (cause instanceof Error) return cause.message;
+  return typeof cause === "string" ? cause : undefined;
 }
 
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
@@ -265,9 +285,9 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[sync-prices] FAIL:", err);
-    if (err instanceof Error && "cause" in err)
-      console.error("[sync-prices] cause:", (err as { cause?: unknown }).cause);
+    console.error("[sync-prices] FAIL:", safeErrorMessage(err));
+    const cause = safeCauseMessage(err);
+    if (cause) console.error("[sync-prices] cause:", cause);
     process.exitCode = 1;
   })
   .finally(async () => {

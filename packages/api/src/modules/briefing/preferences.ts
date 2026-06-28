@@ -1,17 +1,19 @@
+import {
+  DEFAULT_BRIEFING_DELIVERY_HOUR,
+  DEFAULT_BRIEFING_EVENING_HOUR,
+  DEFAULT_BRIEFING_TIMEZONE,
+} from "@alfred/contracts/briefing-constants";
 import { getPreference } from "../memory/preferences";
 
 /**
  * Briefing time-of-day preferences live under three `user_preferences`
- * keys (called out canonically in `packages/db/src/schema/memory.ts`):
- *
- *   `briefing.timezone`       string IANA tz, e.g. "America/New_York"
- *   `briefing.delivery_hour`  integer 0–23 in that tz — morning slot
- *   `briefing.evening_hour`   integer 0–23 in that tz — evening slot
- *
- * The fallback chain is conservative on purpose:
+ * keys (called out canonically in `packages/db/src/schema/memory.ts`).
+ * The defaults are shared cross-boundary in
+ * `@alfred/contracts/briefing-constants`; the fallback chain here is
+ * conservative on purpose:
  *
  *   1. The pref row itself, if set to a valid value.
- *   2. UTC + 7am (morning) / 18 (evening) — documented v1 defaults; explicit
+ *   2. The shared v1 defaults (UTC + 7am morning / 18 evening) — explicit
  *      so a user with no pref row still gets daily emails at predictable
  *      times.
  *
@@ -23,9 +25,11 @@ import { getPreference } from "../memory/preferences";
  * step.
  */
 
-export const DEFAULT_BRIEFING_TIMEZONE = "UTC";
-export const DEFAULT_BRIEFING_DELIVERY_HOUR = 7;
-export const DEFAULT_BRIEFING_EVENING_HOUR = 18;
+export {
+  DEFAULT_BRIEFING_DELIVERY_HOUR,
+  DEFAULT_BRIEFING_EVENING_HOUR,
+  DEFAULT_BRIEFING_TIMEZONE,
+};
 
 export interface BriefingPreferences {
   timezone: string;

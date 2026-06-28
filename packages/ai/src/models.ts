@@ -68,14 +68,14 @@ export type ModelIdFor<P extends ProviderId> = {
 }[ModelId];
 
 /**
- * Effort tiers Alfred may *request* of a reasoning model — Anthropic's superset
- * (`reasoning_options[].effort` in models.dev), weakest→strongest. The per-model
- * `effortValues` below is a (possibly empty) subset of this, and
- * `PROVIDER_DISPATCH.clamp` snaps a requested tier to the nearest value a given
- * model actually accepts — so a tier remap can never emit an effort the model
- * 400s on (the #224/#303 class of silent-fallback bug).
+ * Effort labels providers may accept (`reasoning_options[].effort` in models.dev),
+ * weakest→strongest. This is a known-provider union, not Anthropic's vocabulary:
+ * OpenAI exposes `none`/`minimal`, Gemini 3 exposes `minimal`, and Anthropic
+ * exposes `xhigh`/`max`. The per-model `effortValues` below is the exact accepted
+ * subset for that model; `PROVIDER_DISPATCH.clamp` snaps a requested tier to the
+ * nearest value a given model actually accepts.
  */
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 /**
@@ -92,10 +92,11 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
  */
 export interface ModelCapabilities {
   /**
-   * Effort values the model accepts, weakest→strongest (a subset of
-   * {@link EFFORT_LEVELS}). `[]` means the model has **no** effort/adaptive
-   * reasoning param — the provider must send a light/empty reasoning block
-   * (Haiku 4.5 per ADR-0077; both Gemini tiers, which are budget-toggle based).
+   * Effort values the model accepts, weakest→strongest. `[]` means the model has
+   * **no** effort/adaptive reasoning param — the provider must send a light/empty
+   * reasoning block (Haiku 4.5 per ADR-0077; Gemini 2.5 models are budget/toggle
+   * based). The vocabulary is provider-specific; do not filter unknown values out
+   * of the audit, add them to {@link EFFORT_LEVELS} first.
    */
   readonly effortValues: readonly EffortLevel[];
   /**
@@ -127,6 +128,14 @@ export const MODEL_CAPABILITIES = {
 /** `true` when `id` is a known registry model id (narrows to `ModelId`). */
 export function isModelId(id: string): id is ModelId {
   return modelIdSchema.safeParse(id).success;
+}
+
+/** `true` when a registry model belongs to `provider` (narrows the model id). */
+export function isModelIdForProvider<P extends ProviderId>(
+  id: ModelId,
+  provider: P,
+): id is ModelIdFor<P> {
+  return MODEL_REGISTRY[id] === provider;
 }
 
 /**

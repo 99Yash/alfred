@@ -55,5 +55,10 @@ describe("provider capability dispatch", () => {
 
     // A model exposing only one tier always returns it.
     assert.equal(clampEffort("max", ["low"]), "low");
+
+    // Provider-specific vocabulary is represented, not silently dropped.
+    assert.equal(clampEffort("low", ["minimal", "low", "medium", "high"]), "low");
+    assert.equal(clampEffort("xhigh", ["minimal", "low", "medium", "high"]), "high");
+    assert.equal(clampEffort("low", ["none", "low", "medium", "high", "xhigh"]), "low");
   });
 });

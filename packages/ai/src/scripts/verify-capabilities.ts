@@ -39,21 +39,36 @@ interface SnapshotCapabilities {
   temperature?: boolean | null;
 }
 
-/**
- * Derive the expected `effortValues` from a snapshot's `reasoning_options`: the
- * `effort` mechanism's `values`, filtered to those Alfred models (i.e. anything in
- * {@link EFFORT_LEVELS}). No `effort` mechanism → `[]` (budget/toggle-only model).
- */
-function expectedEffortValues(options: ReasoningOption[] | null | undefined): EffortLevel[] {
-  const effort = (options ?? []).find((o) => o.type === "effort");
-  if (!effort?.values) return [];
-  const allowed = new Set<string>(EFFORT_LEVELS);
-  return effort.values.filter((v): v is EffortLevel => allowed.has(v));
+const knownEffortLevels: ReadonlySet<string> = new Set(EFFORT_LEVELS);
+
+function isEffortLevel(value: string): value is EffortLevel {
+  return knownEffortLevels.has(value);
 }
 
-/** Order-insensitive set equality over effort tiers. */
+/**
+ * Derive the expected `effortValues` from a snapshot's `reasoning_options`: the
+ * `effort` mechanism's `values`. Unknown provider values are returned as drift,
+ * never filtered out, because dropping `minimal`/`none` would green-light the
+ * exact vocabulary mismatch this audit exists to catch.
+ */
+function expectedEffortValues(options: ReasoningOption[] | null | undefined): {
+  values: EffortLevel[];
+  unknown: string[];
+} {
+  const effort = (options ?? []).find((o) => o.type === "effort");
+  if (!effort?.values) return { values: [], unknown: [] };
+  const values: EffortLevel[] = [];
+  const unknown: string[] = [];
+  for (const value of effort.values) {
+    if (isEffortLevel(value)) values.push(value);
+    else unknown.push(value);
+  }
+  return { values, unknown };
+}
+
+/** Order-sensitive equality over effort tiers; clamp relies on weakest→strongest ordering. */
 function sameEfforts(a: readonly EffortLevel[], b: readonly EffortLevel[]): boolean {
-  return a.length === b.length && [...a].sort().join() === [...b].sort().join();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 interface PriceRow {
@@ -84,9 +99,15 @@ async function main() {
 
     const code = MODEL_CAPABILITIES[modelId];
     const oracleEfforts = expectedEffortValues(snapshot.reasoningOptions);
-    if (!sameEfforts(code.effortValues, oracleEfforts)) {
+    if (oracleEfforts.unknown.length > 0) {
       drift.push(
-        `${modelId}.effortValues: code=[${code.effortValues.join(",")}] models.dev=[${oracleEfforts.join(",")}]`,
+        `${modelId}.effortValues: models.dev exposed unknown value(s) [${oracleEfforts.unknown.join(",")}] — add them to EFFORT_LEVELS before comparing`,
+      );
+      continue;
+    }
+    if (!sameEfforts(code.effortValues, oracleEfforts.values)) {
+      drift.push(
+        `${modelId}.effortValues: code=[${code.effortValues.join(",")}] models.dev=[${oracleEfforts.values.join(",")}]`,
       );
     }
     // models.dev may omit `temperature`; only assert when the oracle carries it.
@@ -119,7 +140,8 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[verify-capabilities] FAIL:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[verify-capabilities] FAIL:", message);
     process.exitCode = 1;
   })
   .finally(() => closeConnections().catch(() => {}));
