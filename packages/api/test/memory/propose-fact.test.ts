@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { proposeFact, recallActiveByKey } from "../../src/modules/memory/facts";
+import { confirmFact, proposeFact, recallActiveByKey } from "../../src/modules/memory/facts";
 
 /**
  * DB-backed integration test for `proposeFact`'s #330 capture invariants:
@@ -185,5 +185,38 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
     const recalled = await recallActiveByKey(userId, "employer");
     assert.equal(recalled.length, 1);
     assert.equal(recalled[0]?.value, "NewCo");
+  });
+
+  test("confirming a held single-valued conflict supersedes the prior confirmed value", async () => {
+    const userId = await seedUser();
+    const truth = await proposeFact({
+      userId,
+      key: "employer",
+      value: "Oliv AI",
+      confidence: 1,
+      source: { kind: "user" },
+    });
+    assert.equal(truth?.status, "confirmed");
+
+    const conflict = await proposeFact({
+      userId,
+      key: "employer",
+      value: "NewCo",
+      confidence: 0.99,
+      source: { kind: "document", id: "doc_claim" },
+    });
+    assert.equal(conflict?.status, "proposed");
+
+    const confirmedConflict = conflict ? await confirmFact(conflict.id, userId) : null;
+    assert.equal(confirmedConflict?.status, "confirmed");
+    assert.equal(confirmedConflict?.supersedesId, truth?.id);
+
+    const rows = await activeRows(userId, "employer");
+    const confirmed = rows.filter((r) => r.status === "confirmed");
+    const superseded = rows.filter((r) => r.status === "superseded");
+    assert.equal(confirmed.length, 1, "confirming a conflict must not leave two active truths");
+    assert.equal(confirmed[0]?.value, "NewCo");
+    assert.equal(superseded.length, 1);
+    assert.equal(superseded[0]?.value, "Oliv AI");
   });
 });

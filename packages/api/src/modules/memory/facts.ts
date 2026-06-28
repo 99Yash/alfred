@@ -172,42 +172,63 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
   const sig = valueSignature(parsed.value);
 
-  // (2) Bypass if already rejected.
-  const [rejectedHit] = await db()
-    .select({ id: rejectedInferences.id })
-    .from(rejectedInferences)
-    .where(
-      and(
-        eq(rejectedInferences.userId, parsed.userId),
-        eq(rejectedInferences.key, key),
-        eq(rejectedInferences.valueSignature, sig),
-      ),
-    )
-    .limit(1);
-  if (rejectedHit) return null;
-
-  // (3) Bypass if an active row with the same value already exists.
-  const active = await recallActiveByKey(parsed.userId, key, { includeProposed: true });
-  if (active.some((r) => valueSignature(r.value) === sig)) return null;
-
   const confidenceStatus: FactStatus =
     parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
 
-  // (4) Single-valued conflict: an active *authoritative* (confirmed) value that
-  // differs from the incoming one. `recallActiveByKey` defaults to confirmed-only,
-  // which is exactly the authoritative set (edited rows are inactive once
-  // superseded). User edits are authoritative → supersede; autonomous sources →
-  // hold as `proposed`, no event, so the pile-up caps at one confirmed + N proposed.
-  let conflictRows: FactRow[] = [];
-  if (isSingleValuedKey(key)) {
-    const confirmed = active.filter((r) => r.status === "confirmed");
-    conflictRows = confirmed.filter((r) => valueSignature(r.value) !== sig);
-  }
   const userDriven = parsed.source.kind === "user";
-  const heldByConflict = conflictRows.length > 0 && !userDriven;
-  const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
 
   const fact = await db().transaction(async (tx) => {
+    // Serialize the source-agnostic `(userId,key)` invariant across concurrent
+    // propose/confirm paths. Without this, two workers can both observe no active
+    // value and insert parallel confirmed rows for a single-valued key.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:${key}`}, 0))`,
+    );
+
+    // (2) Bypass if already rejected.
+    const [rejectedHit] = await tx
+      .select({ id: rejectedInferences.id })
+      .from(rejectedInferences)
+      .where(
+        and(
+          eq(rejectedInferences.userId, parsed.userId),
+          eq(rejectedInferences.key, key),
+          eq(rejectedInferences.valueSignature, sig),
+        ),
+      )
+      .limit(1);
+    if (rejectedHit) return null;
+
+    // (3) Bypass if an active row with the same value already exists.
+    const active = (
+      await tx
+        .select()
+        .from(userFacts)
+        .where(
+          and(
+            eq(userFacts.userId, parsed.userId),
+            eq(userFacts.key, key),
+            or(eq(userFacts.status, "confirmed"), eq(userFacts.status, "proposed")),
+            lte(userFacts.validFrom, sql`now()`),
+            or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
+          ),
+        )
+        .orderBy(desc(userFacts.validFrom))
+        .limit(50)
+    ).map(rowToFact);
+    if (active.some((r) => valueSignature(r.value) === sig)) return null;
+
+    // (4) Single-valued conflict: an active *authoritative* (confirmed) value that
+    // differs from the incoming one. User edits are authoritative → supersede;
+    // autonomous sources → hold as `proposed`, no event.
+    let conflictRows: FactRow[] = [];
+    if (isSingleValuedKey(key)) {
+      const confirmed = active.filter((r) => r.status === "confirmed");
+      conflictRows = confirmed.filter((r) => valueSignature(r.value) !== sig);
+    }
+    const heldByConflict = conflictRows.length > 0 && !userDriven;
+    const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
+
     // User-authoritative conflict: retire the prior active confirmed value(s)
     // before inserting the replacement, linking the chain via `supersedes_id`.
     if (conflictRows.length > 0 && userDriven) {
@@ -266,6 +287,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   });
 
   // Poke after commit so the client's pull lands the new row.
+  if (!fact) return null;
   emitReplicachePokes([parsed.userId]);
   return fact;
 }
@@ -290,16 +312,99 @@ function previewValue(value: unknown): string {
 
 /** Move a `proposed` row to `confirmed`. No-op if already confirmed. */
 export async function confirmFact(factId: string, userId: string): Promise<FactRow | null> {
-  const [row] = await db()
-    .update(userFacts)
-    .set({ status: "confirmed", rowVersion: sql`${userFacts.rowVersion} + 1` })
-    .where(
-      and(eq(userFacts.id, factId), eq(userFacts.userId, userId), eq(userFacts.status, "proposed")),
-    )
-    .returning();
-  if (!row) return null;
-  emitReplicachePokes([userId]);
-  return rowToFact(row);
+  const fact = await db().transaction(async (tx) => {
+    const [candidate] = await tx
+      .select()
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.id, factId),
+          eq(userFacts.userId, userId),
+          eq(userFacts.status, "proposed"),
+        ),
+      )
+      .limit(1);
+    if (!candidate) return null;
+
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${candidate.key}`}, 0))`,
+    );
+
+    const [old] = await tx
+      .select()
+      .from(userFacts)
+      .where(
+        and(
+          eq(userFacts.id, factId),
+          eq(userFacts.userId, userId),
+          eq(userFacts.status, "proposed"),
+        ),
+      )
+      .limit(1);
+    if (!old) return null;
+
+    const oldSig = valueSignature(old.value);
+    let conflictRows: FactRow[] = [];
+    if (isSingleValuedKey(old.key)) {
+      conflictRows = (
+        await tx
+          .select()
+          .from(userFacts)
+          .where(
+            and(
+              eq(userFacts.userId, userId),
+              eq(userFacts.key, old.key),
+              eq(userFacts.status, "confirmed"),
+              lte(userFacts.validFrom, sql`now()`),
+              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
+            ),
+          )
+          .orderBy(desc(userFacts.validFrom))
+          .limit(50)
+      )
+        .map(rowToFact)
+        .filter((r) => valueSignature(r.value) !== oldSig);
+    }
+
+    if (conflictRows.length > 0) {
+      await tx
+        .update(userFacts)
+        .set({
+          status: "superseded",
+          validUntil: new Date(),
+          rowVersion: sql`${userFacts.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(userFacts.userId, userId),
+            inArray(
+              userFacts.id,
+              conflictRows.map((r) => r.id),
+            ),
+          ),
+        );
+    }
+
+    const [row] = await tx
+      .update(userFacts)
+      .set({
+        status: "confirmed",
+        supersedesId: conflictRows[0]?.id ?? old.supersedesId,
+        rowVersion: sql`${userFacts.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(userFacts.id, old.id),
+          eq(userFacts.userId, userId),
+          eq(userFacts.status, "proposed"),
+        ),
+      )
+      .returning();
+    if (!row) return null;
+    return rowToFact(row);
+  });
+  if (fact) emitReplicachePokes([userId]);
+  return fact;
 }
 
 // ---------------------------------------------------------------------------

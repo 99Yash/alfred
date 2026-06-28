@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   authoredByUser,
   classifyDocumentFactKey,
+  gateDocumentFact,
   isSingleValuedKey,
   SINGLE_VALUED_KEYS,
   validateFactValueForKey,
@@ -115,6 +116,12 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
   });
 
+  test("gmail raw SENT label is authorship for legacy rows without metadata.isSent", () => {
+    const r = authoredByUser(gmailDoc({ labelIds: ["INBOX", "SENT"] }, "acc_work"), self);
+    assert.equal(r.authoredByUser, true);
+    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+  });
+
   test("gmail From == connected-account email is authorship", () => {
     const r = authoredByUser(gmailDoc({ from: "Yash <yash@gmail.com>" }, "acc_personal"), self);
     assert.equal(r.authoredByUser, true);
@@ -181,5 +188,32 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
       assert.equal(r.authoredByUser, false, `${source} should not be authored`);
       assert.equal(!r.authoredByUser && r.reason, "unsupported_source");
     }
+  });
+});
+
+describe("gateDocumentFact", () => {
+  const self: SelfIdentity = {
+    emails: ["yash@oliv.ai"],
+    gmailAccountEmailById: { acc_work: "yash@oliv.ai" },
+  };
+  const authoredDoc: AuthorshipDocument = {
+    source: "gmail",
+    metadata: { isSent: true },
+    accountId: "acc_work",
+  };
+
+  test("rejects invalid Tier-B value shapes at the workflow/purge gate", () => {
+    const r = gateDocumentFact({
+      proposal: { key: "employer", value: 42 },
+      document: authoredDoc,
+      selfIdentity: self,
+    });
+
+    assert.deepEqual(r, {
+      ok: false,
+      reason: "invalid_value",
+      originalKey: "employer",
+      canonicalKey: "employer",
+    });
   });
 });

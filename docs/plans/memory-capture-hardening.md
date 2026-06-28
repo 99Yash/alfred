@@ -139,7 +139,7 @@ A diagnostic wrapper, **not** the source of truth — `proposeFact` remains the 
 type DocumentFactGateResult =
   | { ok: true; key: string; value: unknown; meta?: Record<string, unknown>; authorship?: Authorship }
   | { ok: false;
-      reason: "unknown_key" | "not_document_writable" | "authorship_required" | "invalid_relationship_key";
+      reason: "unknown_key" | "not_document_writable" | "authorship_required" | "invalid_relationship_key" | "invalid_value";
       originalKey: string; canonicalKey?: string; authorship?: Authorship };
 ```
 
