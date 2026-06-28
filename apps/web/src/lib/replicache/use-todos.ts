@@ -18,10 +18,14 @@ export interface TodosState {
   completeTodo: (id: string) => Promise<void>;
   /** Uncheck the box (`done → open`). */
   reopenTodo: (id: string) => Promise<void>;
+  /** Mark a suggestion done directly (`suggested → done`). */
+  completeSuggestion: (id: string) => Promise<void>;
   /** Accept a suggestion (`suggested → open`). */
   promoteTodo: (id: string) => Promise<void>;
   /** Decline a suggestion or drop an open todo (terminal `dismissed`). */
   dismissTodo: (id: string) => Promise<void>;
+  /** Personally clear a completed todo from the rail (terminal `cleared`). */
+  clearTodo: (id: string) => Promise<void>;
   /** Edit a todo's name and/or description. */
   editTodo: (id: string, patch: { name?: string; description?: string | null }) => Promise<void>;
 }
@@ -31,6 +35,9 @@ const STATUS_RANK: Record<SyncedTodo["status"], number> = {
   done: 1,
   suggested: 2,
   dismissed: 3,
+  // `cleared` rows never sync to the client, so this rank is never exercised in
+  // practice — it exists only to satisfy the exhaustive status map.
+  cleared: 4,
 };
 
 function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
@@ -107,6 +114,14 @@ export function useTodos(): TodosState {
     [rep],
   );
 
+  const completeSuggestion = useCallback(
+    async (id: string): Promise<void> => {
+      if (!rep) return;
+      await rep.mutate.todoCompleteSuggestion({ id });
+    },
+    [rep],
+  );
+
   const promoteTodo = useCallback(
     async (id: string): Promise<void> => {
       if (!rep) return;
@@ -119,6 +134,14 @@ export function useTodos(): TodosState {
     async (id: string): Promise<void> => {
       if (!rep) return;
       await rep.mutate.todoDismiss({ id });
+    },
+    [rep],
+  );
+
+  const clearTodo = useCallback(
+    async (id: string): Promise<void> => {
+      if (!rep) return;
+      await rep.mutate.todoClear({ id });
     },
     [rep],
   );
@@ -148,8 +171,10 @@ export function useTodos(): TodosState {
     createTodo,
     completeTodo,
     reopenTodo,
+    completeSuggestion,
     promoteTodo,
     dismissTodo,
+    clearTodo,
     editTodo,
   };
 }
