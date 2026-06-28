@@ -14,7 +14,7 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
     <div
       aria-hidden
       className={cn(
-        "relative mt-8 h-[180px] w-full overflow-hidden rounded-3xl app-card-in",
+        "app-card-in relative mt-8 h-[180px] w-full overflow-hidden rounded-3xl",
         "bg-app-bg-2",
       )}
       style={{ animationDelay: "60ms" }}
@@ -40,7 +40,7 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
             "radial-gradient(120% 90% at 50% 110%, var(--app-purple-2) 0%, transparent 55%)",
         }}
       />
-      <div className="relative flex h-full items-center justify-center gap-6 group">
+      <div className="group relative flex h-full items-center justify-center gap-6">
         <HeroTile brand={picks[0]!} variant="side" rotate={-4} />
         <HeroTile brand={picks[1]!} variant="center" />
         <HeroTile brand={picks[2]!} variant="side" rotate={4} />

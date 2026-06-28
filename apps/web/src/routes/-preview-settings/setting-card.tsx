@@ -47,7 +47,7 @@ export function SettingCard({
           <span
             aria-hidden
             className={cn(
-              "grid size-8 shrink-0 place-items-center rounded-xl mt-0.5",
+              "mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl",
               CARD_TILE[tone],
             )}
           >

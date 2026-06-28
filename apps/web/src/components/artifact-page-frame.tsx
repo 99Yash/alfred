@@ -58,7 +58,7 @@ export function ArtifactPageFrame({
         title={title}
         srcDoc={html}
         sandbox=""
-        className="pointer-events-none absolute left-0 top-0 border-0 bg-white"
+        className="pointer-events-none absolute top-0 left-0 border-0 bg-white"
         style={{
           width: pageWidth,
           height: pageHeight,

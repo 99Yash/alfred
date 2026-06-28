@@ -25,12 +25,12 @@ export function ThoughtRow({
       >
         <span
           aria-hidden
-          className="size-6 shrink-0 inline-flex items-center justify-center rounded-md bg-app-bg-2 text-app-fg-3"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2 text-app-fg-3"
         >
           <Sparkles size={12} />
         </span>
         <span className="text-app-fg-3">
-          Thought for <span className="text-app-fg-4 font-medium">{duration}</span>
+          Thought for <span className="font-medium text-app-fg-4">{duration}</span>
         </span>
         <ChevronRight
           size={12}
@@ -42,7 +42,7 @@ export function ThoughtRow({
         />
       </button>
       {open ? (
-        <p className="ml-8 mt-1.5 max-w-[64ch] text-xs leading-5 text-app-fg-3">{children}</p>
+        <p className="mt-1.5 ml-8 max-w-[64ch] text-xs leading-5 text-app-fg-3">{children}</p>
       ) : null}
     </div>
   );

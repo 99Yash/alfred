@@ -41,7 +41,7 @@ export function WeatherHero() {
       className="animate-rail-head mt-3 [animation-delay:60ms]"
       aria-label={`${data.temperature} degrees ${data.unit} in ${data.city}, ${conditionLabel ?? data.condition}`}
     >
-      <div className="text-[34px] font-light leading-none tracking-tight tabular-nums text-white mix-blend-plus-lighter">
+      <div className="text-[34px] leading-none font-light tracking-tight text-white tabular-nums mix-blend-plus-lighter">
         {data.temperature}°
       </div>
       <div

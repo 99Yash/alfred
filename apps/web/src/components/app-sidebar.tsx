@@ -171,7 +171,7 @@ export function AppSidebar({
   );
 
   const sidebarBody = (
-    <div style={{ width: expandedWidth }} className="h-full flex flex-col">
+    <div style={{ width: expandedWidth }} className="flex h-full flex-col">
       {minimized ? (
         <RailContent
           path={path}
@@ -222,17 +222,17 @@ export function AppSidebar({
             className={cn(
               "fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]",
               "transition-opacity duration-200",
-              open ? "opacity-100" : "opacity-0 pointer-events-none",
+              open ? "opacity-100" : "pointer-events-none opacity-0",
             )}
           />
           <aside
             aria-label="Workspace navigation"
             aria-hidden={!open}
             className={cn(
-              "fixed top-0 left-0 bottom-0 z-50 max-w-[88vw]",
+              "fixed top-0 bottom-0 left-0 z-50 max-w-[88vw]",
               "border-r border-app-bg-3/60 bg-app-bg-1",
               "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
-              "transition-transform duration-200 ease-out overflow-hidden",
+              "overflow-hidden transition-transform duration-200 ease-out",
               open ? "translate-x-0" : "-translate-x-full",
             )}
           >
@@ -245,12 +245,12 @@ export function AppSidebar({
           aria-hidden={!open}
           style={{ width: asideWidth }}
           className={cn(
-            "relative shrink-0 h-full overflow-hidden",
+            "relative h-full shrink-0 overflow-hidden",
             "rounded-2xl bg-app-bg-1",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             "flex flex-col",
             !dragging && "transition-[width,opacity,margin] duration-200 ease-out",
-            open ? "opacity-100" : "opacity-0 -mr-1.5 pointer-events-none",
+            open ? "opacity-100" : "pointer-events-none -mr-1.5 opacity-0",
           )}
         >
           {sidebarBody}
@@ -262,9 +262,9 @@ export function AppSidebar({
               aria-label="Resize sidebar"
               onPointerDown={startResize}
               className={cn(
-                "absolute right-0 top-0 h-full w-1.5 z-10 m-0 border-0 cursor-col-resize",
-                "after:absolute after:right-0 after:top-0 after:h-full after:w-px",
-                "after:bg-transparent hover:after:bg-app-purple-2 after:transition-colors",
+                "absolute top-0 right-0 z-10 m-0 h-full w-1.5 cursor-col-resize border-0",
+                "after:absolute after:top-0 after:right-0 after:h-full after:w-px",
+                "after:bg-transparent after:transition-colors hover:after:bg-app-purple-2",
                 dragging && "after:bg-app-purple-3",
               )}
             />
@@ -329,13 +329,13 @@ function FullContent({
     <>
       {/* Slim chrome row — logo home link on the left, collapse/minimize arrow
           tucked into the corner. */}
-      <div className="px-2 pt-2.5 pb-1 flex items-center justify-between">
+      <div className="flex items-center justify-between px-2 pt-2.5 pb-1">
         <Link
           to="/chat"
           aria-label="Alfred — home"
           className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "hover:bg-app-bg-a2 transition-colors app-press",
+            "inline-flex size-8 items-center justify-center rounded-lg",
+            "app-press transition-colors hover:bg-app-bg-a2",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
@@ -346,8 +346,8 @@ function FullContent({
           aria-label={chevronMode === "overlay" ? "Hide sidebar" : "Minimize sidebar"}
           onClick={onChevron}
           className={cn(
-            "size-8 inline-flex items-center justify-center rounded-lg",
-            "text-app-fg-2 hover:bg-app-bg-a2 hover:text-app-fg-4 transition-colors app-press",
+            "inline-flex size-8 items-center justify-center rounded-lg",
+            "app-press text-app-fg-2 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
@@ -355,7 +355,7 @@ function FullContent({
         </button>
       </div>
 
-      <div className="px-2 pt-1 pb-2 space-y-0.5 animate-sidebar-reveal">
+      <div className="animate-sidebar-reveal space-y-0.5 px-2 pt-1 pb-2">
         <NavLink icon={SquarePen} label="New chat" to="/chat" kbd="⌘J" active={isChat} />
         <NavButton icon={Search} label="Search" kbd="⌘K" onClick={onOpenSearch} />
         <NavLink
@@ -394,7 +394,7 @@ function FullContent({
 
       <div className="animate-sidebar-reveal [animation-delay:55ms]">
         <SidebarHeading>Personal</SidebarHeading>
-        <div className="px-2 pb-2 space-y-0.5">
+        <div className="space-y-0.5 px-2 pb-2">
           <NavLink icon={Brain} label="Memory" to="/memory" active={path.startsWith("/memory")} />
           <NavLink
             icon={NotebookPen}
@@ -408,7 +408,7 @@ function FullContent({
       {threads ? (
         <nav
           aria-label="Chats"
-          className="flex-1 min-h-0 overflow-y-auto px-2 py-1 pb-4 scroll-stable sidebar-scroll-fade animate-sidebar-reveal [animation-delay:110ms] space-y-1"
+          className="scroll-stable sidebar-scroll-fade animate-sidebar-reveal min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-1 pb-4 [animation-delay:110ms]"
         >
           {GROUP_ORDER.map(({ key, label }) => (
             <ThreadGroupBlock
@@ -429,7 +429,7 @@ function FullContent({
           ))}
         </nav>
       ) : (
-        <div className="flex-1 min-h-0" />
+        <div className="min-h-0 flex-1" />
       )}
 
       <div className="mt-2.5">
@@ -457,7 +457,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
       {/* Logo slot doubles as the expand affordance: the logo home-link sits at
           rest, and hovering (or focusing) the slot cross-fades it to an expand
           toggle — so the rail spends no dedicated row on a collapse button. */}
-      <div className="px-2 pt-2.5 pb-2 flex justify-center">
+      <div className="flex justify-center px-2 pt-2.5 pb-2">
         <div className="group/logo relative size-9">
           <Link
             to="/chat"
@@ -477,9 +477,9 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
               onClick={onExpand}
               className={cn(
                 railIconClass(false),
-                "absolute inset-0 opacity-0 pointer-events-none transition-opacity duration-150",
-                "group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto",
-                "focus-visible:opacity-100 focus-visible:pointer-events-auto",
+                "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-150",
+                "group-hover/logo:pointer-events-auto group-hover/logo:opacity-100",
+                "focus-visible:pointer-events-auto focus-visible:opacity-100",
               )}
             >
               <PanelLeftOpen size={16} strokeWidth={1.75} aria-hidden />
@@ -488,7 +488,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 flex flex-col items-center gap-0.5">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-1">
         <RailLink icon={SquarePen} label="New chat" to="/chat" active={isChat} kbd="⌘J" />
         <RailButton icon={Search} label="Search" onClick={onOpenSearch} />
         <RailLink
@@ -528,7 +528,7 @@ function RailContent({ path, isChat, onOpenSearch, approvalsBadge, onExpand }: R
         <RailLink icon={NotebookPen} label="Notes" to="/notes" active={path.startsWith("/notes")} />
       </div>
 
-      <div className="p-2 border-t border-app-bg-3/60 flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-1 border-t border-app-bg-3/60 p-2">
         <RailLink
           icon={Settings}
           label="Settings"
@@ -552,13 +552,13 @@ function RailUserButton() {
         to="/settings"
         aria-label={`${label} — settings`}
         className={cn(
-          "size-9 inline-flex items-center justify-center rounded-xl shrink-0 app-press",
+          "app-press inline-flex size-9 shrink-0 items-center justify-center rounded-xl",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
         )}
       >
         <span
           aria-hidden
-          className="size-7 rounded-full bg-app-pink-4 text-white inline-flex items-center justify-center text-xs font-semibold"
+          className="inline-flex size-7 items-center justify-center rounded-full bg-app-pink-4 text-xs font-semibold text-white"
         >
           {initial}
         </span>
@@ -573,7 +573,7 @@ function RailUserButton() {
 
 function SidebarHeading({ children }: { children: ReactNode }) {
   return (
-    <div className="px-5 pt-3 pb-1 text-[10.5px] uppercase tracking-tight font-medium text-app-fg-2">
+    <div className="px-5 pt-3 pb-1 text-[10.5px] font-medium tracking-tight text-app-fg-2 uppercase">
       {children}
     </div>
   );
@@ -589,8 +589,8 @@ interface BaseNavProps {
 
 const navRowClass = (active = false) =>
   cn(
-    "group w-full text-left rounded-xl h-9 px-3 inline-flex items-center gap-2.5",
-    "transition-[background-color,color] duration-150 app-press",
+    "group inline-flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-left",
+    "app-press transition-[background-color,color] duration-150",
     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
     active
       ? "sidebar-tile text-app-fg-4"
@@ -609,11 +609,11 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
           active ? "text-app-fg-4" : "text-app-fg-2 group-hover:text-app-fg-4",
         )}
       />
-      <span className="flex-1 min-w-0 truncate text-sm font-medium">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
       {badge ? (
         <span
           className={cn(
-            "inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full",
+            "inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1",
             "text-[10.5px] font-medium tabular-nums",
             "bg-app-purple-1 text-app-purple-4",
           )}
@@ -655,9 +655,9 @@ function KbdHint({ children }: { children: ReactNode }) {
   return (
     <kbd
       className={cn(
-        "inline-flex items-center justify-center min-w-5 h-4.5 px-1 rounded-md",
+        "inline-flex h-4.5 min-w-5 items-center justify-center rounded-md px-1",
         "text-[10.5px] leading-none font-medium tabular-nums",
-        "bg-app-bg-a2 text-app-fg-3 font-sans",
+        "bg-app-bg-a2 font-sans text-app-fg-3",
       )}
     >
       {children}
@@ -671,8 +671,8 @@ function KbdHint({ children }: { children: ReactNode }) {
 
 const railIconClass = (active = false) =>
   cn(
-    "relative size-9 inline-flex items-center justify-center rounded-xl shrink-0",
-    "transition-[background-color,color] duration-150 app-press",
+    "relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl",
+    "app-press transition-[background-color,color] duration-150",
     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
     active
       ? "sidebar-tile text-app-fg-4"
@@ -728,7 +728,7 @@ function RailLink({
       >
         <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
-          <span className="absolute -top-0.5 -right-0.5 min-w-3.75 h-3.75 px-1 rounded-full bg-app-purple-4 text-white text-[9px] font-semibold inline-flex items-center justify-center tabular-nums">
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-white tabular-nums">
             {badge}
           </span>
         ) : null}
@@ -798,9 +798,9 @@ function ThreadGroupBlock({
         onClick={onToggle}
         aria-expanded={!collapsed}
         className={cn(
-          "group/heading w-full inline-flex items-center gap-1.5 rounded-lg px-3 pt-2 pb-1",
-          "text-[11px] uppercase tracking-tight font-medium text-app-fg-2",
-          "hover:text-app-fg-3 transition-colors",
+          "group/heading inline-flex w-full items-center gap-1.5 rounded-lg px-3 pt-2 pb-1",
+          "text-[11px] font-medium tracking-tight text-app-fg-2 uppercase",
+          "transition-colors hover:text-app-fg-3",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
         )}
       >
@@ -810,7 +810,7 @@ function ThreadGroupBlock({
           className={cn("shrink-0 transition-transform duration-150", collapsed && "-rotate-90")}
         />
         <span>{label}</span>
-        <span className="ml-auto tabular-nums text-app-fg-2/70">{entries.length}</span>
+        <span className="ml-auto text-app-fg-2/70 tabular-nums">{entries.length}</span>
       </button>
       {collapsed ? null : (
         <div className="flex flex-col gap-0.5">
@@ -873,8 +873,8 @@ function ThreadRow({
         params={{ threadId: entry.id }}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "w-full text-left rounded-xl h-9 pl-3 pr-2 inline-flex items-center gap-2",
-          "transition-[background-color,color] duration-150 app-press",
+          "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",
+          "app-press transition-[background-color,color] duration-150",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           active
             ? "sidebar-tile text-app-fg-4"
@@ -882,7 +882,7 @@ function ThreadRow({
         )}
       >
         {indicator}
-        <span className="flex-1 min-w-0 truncate text-sm font-medium">{entry.title}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.title}</span>
         {threadActions ? <span aria-hidden className="w-5 shrink-0" /> : null}
       </Link>
       {threadActions ? (
@@ -977,8 +977,8 @@ function ThreadRowMenu({
           type="button"
           aria-label="Chat actions"
           className={cn(
-            "absolute right-1.5 top-1/2 -translate-y-1/2 size-6 rounded-lg inline-flex items-center justify-center",
-            "text-app-fg-2 hover:bg-app-bg-3 hover:text-app-fg-4 transition-colors",
+            "absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-lg",
+            "text-app-fg-2 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             // Hidden until hover/focus/open, so the title has full width at rest.
             open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
@@ -1002,13 +1002,13 @@ function ThreadRowMenu({
 
 const menuSurfaceClass = cn(
   "app z-[200] min-w-[168px] rounded-xl p-1",
-  "bg-app-bg-1 border border-app-bg-3/70",
+  "border border-app-bg-3/70 bg-app-bg-1",
   "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
   "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
 );
 
 const menuItemClass = cn(
-  "flex items-center gap-2.5 h-8 px-2 rounded-lg text-sm font-medium cursor-default select-none",
+  "flex h-8 cursor-default items-center gap-2.5 rounded-lg px-2 text-sm font-medium select-none",
   "text-app-fg-3 outline-none",
   "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
 );
@@ -1058,7 +1058,7 @@ function ThreadMenuContent({
         <Item
           className={cn(
             menuItemClass,
-            "text-app-red-4 data-highlighted:text-app-red-4 data-highlighted:bg-app-red-1",
+            "text-app-red-4 data-highlighted:bg-app-red-1 data-highlighted:text-app-red-4",
           )}
           onSelect={onDelete}
         >
@@ -1089,7 +1089,7 @@ function DeleteThreadDialog({
           className="app max-w-sm"
           data-app-theme={resolved}
         >
-          <div className="flex justify-end gap-2 px-6 pb-5 pt-2">
+          <div className="flex justify-end gap-2 px-6 pt-2 pb-5">
             <AppButton variant="ghost" size="md" onClick={onCancel}>
               Cancel
             </AppButton>

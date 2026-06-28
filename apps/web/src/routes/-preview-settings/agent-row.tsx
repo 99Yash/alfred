@@ -23,7 +23,7 @@ export function AgentRow({
         disabled && "opacity-60",
       )}
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
         <span
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-xl",
@@ -37,12 +37,12 @@ export function AgentRow({
           <p className="flex items-center gap-2 text-sm font-medium text-app-fg-4">
             {agent.label}
             {comingSoon && (
-              <span className="rounded-full bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-fg-3">
+              <span className="rounded-full bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-app-fg-3 uppercase">
                 Coming soon
               </span>
             )}
           </p>
-          <p className="text-xs text-app-fg-3 truncate">{agent.helper}</p>
+          <p className="truncate text-xs text-app-fg-3">{agent.helper}</p>
         </div>
       </div>
       <AppSwitch

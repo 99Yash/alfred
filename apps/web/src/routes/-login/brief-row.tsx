@@ -14,8 +14,8 @@ export function BriefRow({
   return (
     <li className="flex items-start gap-2.5">
       <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />
-      <span className="text-app-fg-3 leading-snug">
-        <span className="text-app-fg-4 font-medium">{lead}</span>
+      <span className="leading-snug text-app-fg-3">
+        <span className="font-medium text-app-fg-4">{lead}</span>
         <span className="text-app-fg-2">: </span>
         {body}
       </span>

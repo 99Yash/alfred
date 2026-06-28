@@ -99,7 +99,7 @@ export function DimensionComposerIconButton({
       className={cn(
         "grid size-8 place-items-center rounded-full text-white/78",
         "transition-colors hover:bg-white/[0.055] hover:text-white",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
+        "focus-visible:ring-2 focus-visible:ring-purple-600/35 focus-visible:outline-none",
         "disabled:cursor-not-allowed disabled:opacity-45",
         className,
       )}
@@ -145,8 +145,8 @@ export function DimensionComposerContextMenu({
         <DimensionComposerIconButton label={label}>{children}</DimensionComposerIconButton>
       </DropdownMenuPrimitive.Trigger>
       <DimensionDropdownContent align="start">
-        <div className="px-2 pb-1 pt-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/35">
+        <div className="px-2 pt-1.5 pb-1">
+          <p className="text-[11px] font-medium tracking-[0.08em] text-white/35 uppercase">
             Add context
           </p>
         </div>
@@ -196,7 +196,7 @@ export function DimensionModelPicker({
             "text-[13px] font-normal text-white/86 backdrop-blur-sm",
             "shadow-[inset_0_0_4px_rgba(0,0,0,0.4)]",
             "transition-[filter] hover:brightness-110",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35",
+            "focus-visible:ring-2 focus-visible:ring-purple-600/35 focus-visible:outline-none",
             "data-[state=open]:brightness-110",
           )}
         >
@@ -218,8 +218,8 @@ export function DimensionModelPicker({
             "data-[state=closed]:hidden",
           )}
         >
-          <div className="px-2 pb-1 pt-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/35">
+          <div className="px-2 pt-1.5 pb-1">
+            <p className="text-[11px] font-medium tracking-[0.08em] text-white/35 uppercase">
               Model
             </p>
           </div>
@@ -231,7 +231,7 @@ export function DimensionModelPicker({
                 onClick={() => onSelect?.(option.id)}
                 className={cn(
                   "flex min-h-12 w-full items-center gap-2 rounded-[10px] px-2.5 py-2 text-left",
-                  "outline-none transition-colors hover:bg-white/[0.055]",
+                  "transition-colors outline-none hover:bg-white/[0.055]",
                   "focus-visible:bg-white/[0.07]",
                 )}
               >
@@ -285,7 +285,7 @@ function DimensionDropdownContent({
 function DimensionDropdownItem({ item }: { item: DimensionComposerMenuItem }) {
   const className = cn(
     "flex min-h-11 w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left",
-    "text-[13px] text-white/82 outline-none transition-colors",
+    "text-[13px] text-white/82 transition-colors outline-none",
     item.disabled
       ? "cursor-not-allowed opacity-42"
       : "cursor-default hover:bg-white/[0.055] focus:bg-white/[0.07]",

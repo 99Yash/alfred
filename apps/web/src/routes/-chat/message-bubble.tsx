@@ -16,12 +16,12 @@ import { ToolCallGroup } from "./tool-call-group";
 
 const MARKDOWN_CLASSES = cn(
   // Match the blog body rhythm: 24px between blocks, tight tracking, relaxed leading.
-  "[&>*+*]:mt-6 [&_p]:tracking-tight [&_p]:leading-relaxed",
+  "[&_p]:leading-relaxed [&_p]:tracking-tight [&>*+*]:mt-6",
   "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2",
-  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5",
+  "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
   "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
   "[&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold",
-  "[&_strong]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3",
+  "[&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3 [&_strong]:font-semibold",
   // Tables — GFM tables (remark-gfm). The browser default renders these as
   // borderless, padding-less text columns ("#289" collides with the next
   // cell). Dress them as a real data table: the table is its own horizontal
@@ -32,7 +32,7 @@ const MARKDOWN_CLASSES = cn(
   "[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto",
   "[&_table]:border-collapse [&_table]:text-[13px] [&_table]:tabular-nums",
   "[&_thead_th]:border-b [&_thead_th]:border-app-fg-a3",
-  "[&_th]:whitespace-nowrap [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-app-fg-4",
+  "[&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-app-fg-4",
   "[&_td]:px-3 [&_td]:py-1.5 [&_td]:text-left [&_td]:align-top",
   "[&_tbody_tr]:border-b [&_tbody_tr]:border-app-fg-a1 [&_tbody_tr:last-child]:border-b-0",
   "[&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-app-bg-2/60",
@@ -155,7 +155,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
         {body}
       </ReactMarkdown>
       {streaming ? (
-        <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-chat-caret bg-app-fg-3 align-middle" />
+        <span className="animate-chat-caret ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 bg-app-fg-3 align-middle" />
       ) : null}
     </div>
   );
@@ -263,7 +263,7 @@ export function MessageBubble({
           <MessageAttachments attachments={attachments} />
         ) : null}
         {message.content.length > 0 ? (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight text-app-fg-4">
+          <div className="max-w-[80%] rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
             {message.content}
           </div>
         ) : null}
@@ -394,7 +394,7 @@ export function CopyMessageButton({
         title={copied ? "Copied" : "Copy message"}
         className={cn(
           "inline-flex size-7 items-center justify-center rounded-lg",
-          "text-app-fg-2 hover:text-app-fg-4 hover:bg-app-bg-2",
+          "text-app-fg-2 hover:bg-app-bg-2 hover:text-app-fg-4",
           "transition-[background-color,color] duration-150",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
           "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",

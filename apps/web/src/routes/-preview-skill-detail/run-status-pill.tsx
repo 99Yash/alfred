@@ -19,7 +19,7 @@ export function RunStatusPill({ status }: { status: PreviewSkillRun["status"] })
   }
   return (
     <AppPill tone="amber">
-      <span aria-hidden className="size-1.5 rounded-full bg-app-amber-4 animate-pulse mr-1" />
+      <span aria-hidden className="mr-1 size-1.5 animate-pulse rounded-full bg-app-amber-4" />
       Running
     </AppPill>
   );

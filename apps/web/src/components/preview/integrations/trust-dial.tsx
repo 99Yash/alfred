@@ -5,8 +5,8 @@ export function TrustDial() {
     <svg
       aria-hidden
       className={cn(
-        "pointer-events-none absolute -right-3 top-1/2 size-28 -translate-y-1/2",
-        "opacity-90 text-app-purple-3",
+        "pointer-events-none absolute top-1/2 -right-3 size-28 -translate-y-1/2",
+        "text-app-purple-3 opacity-90",
       )}
       viewBox="0 0 96 96"
       fill="none"

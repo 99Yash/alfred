@@ -175,7 +175,7 @@ export function QuickAccessRail() {
           </div>
         </header>
 
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto scrollbar scroll-stable pb-1">
+        <div className="scrollbar scroll-stable mt-5 min-h-0 flex-1 overflow-y-auto pb-1">
           {mode === "tasks" ? (
             <TasksPanel
               todos={todos}
@@ -197,7 +197,7 @@ export function QuickAccessRail() {
           className={cn(
             "-mx-5 mt-auto flex h-[57px] items-center justify-between border-t border-white/5",
             "bg-black/[0.1] px-5 text-left text-base font-medium text-white",
-            "transition-colors hover:bg-black/[0.15] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/[0.22]",
+            "transition-colors hover:bg-black/[0.15] focus-visible:ring-2 focus-visible:ring-white/[0.22] focus-visible:outline-none",
           )}
         >
           Morning Briefing
@@ -257,7 +257,7 @@ function TasksPanel({
                 aria-pressed={done}
                 className={cn(
                   "flex min-h-9 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left",
-                  "text-sm text-white/90 outline-none transition-colors",
+                  "text-sm text-white/90 transition-colors outline-none",
                   "hover:bg-white/[0.05] focus-visible:bg-white/[0.06]",
                 )}
               >
@@ -317,7 +317,7 @@ function TasksPanel({
         <section className="mt-6">
           <div className="flex items-center gap-1.5">
             <ClipboardCheck size={11} className="text-white/60" />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-white/60 uppercase">
               Suggestions
             </p>
           </div>
@@ -329,8 +329,8 @@ function TasksPanel({
                   type="button"
                   onClick={() => onAcceptSuggestion(suggestion)}
                   className={cn(
-                    "group flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left",
-                    "text-white outline-none transition-colors hover:bg-white/[0.06]",
+                    "group flex w-full items-start gap-3 rounded-xl p-2 text-left",
+                    "text-white transition-colors outline-none hover:bg-white/[0.06]",
                     "focus-visible:ring-2 focus-visible:ring-white/22",
                   )}
                 >
@@ -367,11 +367,11 @@ function EmailsPanel({ emails }: { emails: ReadonlyArray<EmailDraft> }) {
       <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
         <button
           type="button"
-          className="px-2 py-0.5 text-sm text-white mix-blend-plus-lighter outline-none transition-colors hover:text-white/90"
+          className="px-2 py-0.5 text-sm text-white mix-blend-plus-lighter transition-colors outline-none hover:text-white/90"
         >
           All
         </button>
-        <span className="text-[11px] font-medium tabular text-white/60">
+        <span className="tabular text-[11px] font-medium text-white/60">
           {emails.length} drafts
         </span>
       </div>
@@ -381,14 +381,14 @@ function EmailsPanel({ emails }: { emails: ReadonlyArray<EmailDraft> }) {
             <button
               type="button"
               className={cn(
-                "group flex w-full flex-col gap-1 rounded-xl px-2 py-2 text-left",
-                "outline-none transition-colors hover:bg-white/[0.06]",
+                "group flex w-full flex-col gap-1 rounded-xl p-2 text-left",
+                "transition-colors outline-none hover:bg-white/[0.06]",
                 "focus-visible:ring-2 focus-visible:ring-white/[0.22]",
               )}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium text-white">{email.sender}</span>
-                <span className="shrink-0 text-[11px] tabular text-white/50">{email.time}</span>
+                <span className="tabular shrink-0 text-[11px] text-white/50">{email.time}</span>
               </div>
               <span className="line-clamp-1 text-[12.5px] text-white/80">{email.subject}</span>
               <span className="line-clamp-1 text-[11.5px] text-white/55">{email.preview}</span>
@@ -409,11 +409,11 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
       <div className="flex items-center justify-between gap-3 border-b border-white/20 pb-3">
         <button
           type="button"
-          className="px-2 py-0.5 text-sm text-white mix-blend-plus-lighter outline-none transition-colors hover:text-white/90"
+          className="px-2 py-0.5 text-sm text-white mix-blend-plus-lighter transition-colors outline-none hover:text-white/90"
         >
           Today
         </button>
-        <span className="text-[11px] font-medium tabular text-white/60">
+        <span className="tabular text-[11px] font-medium text-white/60">
           {meetings.length} scheduled
         </span>
       </div>
@@ -423,15 +423,15 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
             <button
               type="button"
               className={cn(
-                "group flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left",
-                "outline-none transition-colors hover:bg-white/[0.06]",
+                "group flex w-full items-start gap-3 rounded-xl p-2 text-left",
+                "transition-colors outline-none hover:bg-white/[0.06]",
                 "focus-visible:ring-2 focus-visible:ring-white/[0.22]",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg",
-                  "bg-white/[0.08] text-white/80 ring-1 ring-inset ring-white/10",
+                  "bg-white/[0.08] text-white/80 ring-1 ring-white/10 ring-inset",
                 )}
               >
                 {meeting.video ? <Video size={14} /> : <MapPin size={14} />}
@@ -439,7 +439,7 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-white">{meeting.title}</span>
-                  <span className="shrink-0 text-[11px] tabular text-white/55">{meeting.time}</span>
+                  <span className="tabular shrink-0 text-[11px] text-white/55">{meeting.time}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11.5px] text-white/55">
                   <span className="inline-flex items-center gap-1">

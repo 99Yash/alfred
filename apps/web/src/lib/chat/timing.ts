@@ -219,7 +219,7 @@ function timelineRows(turn: ChatTurnTiming): Array<Record<string, unknown>> {
       sinceSubmitMs: round(row.at - submitAt),
       sincePreviousMs: previous ? round(row.at - previous.at) : 0,
       at: row.iso,
-      ...(row.detail ?? {}),
+      ...row.detail,
     };
   });
 }

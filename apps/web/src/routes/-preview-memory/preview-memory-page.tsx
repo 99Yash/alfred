@@ -26,8 +26,8 @@ export function PreviewMemoryPage() {
   const rejectFact = (id: string) => setFacts((prev) => prev.filter((f) => f.id !== id));
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
         <header className="space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-app-fg-4">
             Memory
@@ -105,10 +105,10 @@ export function PreviewMemoryPage() {
                       key={fact.id}
                       className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-app-bg-a1"
                     >
-                      <code className="font-mono text-[12px] shrink-0 text-app-fg-3">
+                      <code className="shrink-0 font-mono text-[12px] text-app-fg-3">
                         {fact.key}
                       </code>
-                      <span className="font-mono text-[12px] flex-1 truncate text-app-fg-4">
+                      <span className="flex-1 truncate font-mono text-[12px] text-app-fg-4">
                         {fact.value}
                       </span>
                       <button

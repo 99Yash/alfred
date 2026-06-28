@@ -17,15 +17,15 @@ export function PreviewBriefingDetailPage() {
   const { slots, loading, error, retry } = useBriefing(date);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-10 sm:py-16">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
         <div className="space-y-6">
           <Link
             to="/briefings"
             className={cn(
               "inline-flex items-center gap-2 text-sm text-app-fg-3",
               "transition-colors hover:text-app-fg-4",
-              "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background rounded",
+              "rounded outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
             )}
           >
             <ArrowLeft size={14} />
@@ -45,7 +45,7 @@ export function PreviewBriefingDetailPage() {
               <button
                 type="button"
                 onClick={retry}
-                className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 outline-none transition-colors hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
+                className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
               >
                 Retry
               </button>

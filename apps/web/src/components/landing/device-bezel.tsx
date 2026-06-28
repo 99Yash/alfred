@@ -26,7 +26,7 @@ export function DeviceBezel({ children, className }: { children: ReactNode; clas
       <div
         className={cn(
           "rounded-[2.5rem] border border-neutral-800/80 p-3",
-          "bg-gradient-to-b from-neutral-900 to-neutral-900/50",
+          "bg-linear-to-b from-neutral-900 to-neutral-900/50",
         )}
       >
         <div className="overflow-hidden rounded-[2rem] border border-neutral-800/80">

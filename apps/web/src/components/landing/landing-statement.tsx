@@ -11,7 +11,7 @@ export function LandingStatement({ className }: { className?: string }) {
   return (
     <section className={cn("relative mx-auto max-w-3xl text-center", className)}>
       <FadeInOnScroll>
-        <p className="text-[12.5px] font-medium uppercase tracking-[0.18em] text-neutral-500">
+        <p className="text-[12.5px] font-medium tracking-[0.18em] text-neutral-500 uppercase">
           The end of context-switching
         </p>
       </FadeInOnScroll>
@@ -19,7 +19,7 @@ export function LandingStatement({ className }: { className?: string }) {
       <FadeInOnScroll delay={80}>
         <h2
           className={cn(
-            "mt-5 text-balance font-semibold text-white",
+            "mt-5 font-semibold text-balance text-white",
             "text-[34px] leading-[1.08] tracking-[-0.045em] sm:text-[44px] lg:text-5xl",
           )}
         >
@@ -29,7 +29,7 @@ export function LandingStatement({ className }: { className?: string }) {
       </FadeInOnScroll>
 
       <FadeInOnScroll delay={140}>
-        <p className="mx-auto mt-6 max-w-xl text-pretty text-[16px] font-medium leading-[1.6] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
+        <p className="mx-auto mt-6 max-w-xl text-[16px] leading-[1.6] font-medium tracking-[-0.018em] text-pretty text-neutral-400 sm:text-[18px]">
           Alfred tags your email, preps you for every meeting, and quietly takes on the busywork a
           great assistant would. Your attention stays on the work only you can do. No dozen tabs. No
           catching up.

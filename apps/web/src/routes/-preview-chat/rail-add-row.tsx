@@ -3,9 +3,9 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 
 const WRAPPER = cn(
-  "group w-full rounded-xl px-2 py-2 -mx-0.5",
-  "border border-dashed border-white/15 hover:border-white/35 focus-within:border-white/35",
-  "transition-colors flex items-center gap-2",
+  "group -mx-0.5 w-full rounded-xl p-2",
+  "border border-dashed border-white/15 focus-within:border-white/35 hover:border-white/35",
+  "flex items-center gap-2 transition-colors",
 );
 
 /**
@@ -34,9 +34,9 @@ export function RailAddRow({
         <Plus
           size={12}
           aria-hidden
-          className="text-white/60 group-hover:text-white transition-colors"
+          className="text-white/60 transition-colors group-hover:text-white"
         />
-        <span className="text-[12px] text-white/65 group-hover:text-white/90 transition-colors">
+        <span className="text-[12px] text-white/65 transition-colors group-hover:text-white/90">
           {placeholder}
         </span>
       </button>
@@ -55,7 +55,7 @@ export function RailAddRow({
       <Plus
         size={12}
         aria-hidden
-        className="shrink-0 text-white/60 group-focus-within:text-white transition-colors"
+        className="shrink-0 text-white/60 transition-colors group-focus-within:text-white"
       />
       <input
         type="text"

@@ -12,8 +12,8 @@ export function EmailRow({
   return (
     <div
       className={cn(
-        "h-[34px] rounded-lg bg-app-bg-2 px-2.5 flex items-center gap-2",
-        "shadow-[var(--app-shadow-elevated)] absolute inset-x-0",
+        "flex h-[34px] items-center gap-2 rounded-lg bg-app-bg-2 px-2.5",
+        "absolute inset-x-0 shadow-[var(--app-shadow-elevated)]",
         highlight && cn("bg-app-bg-1", accent),
         className,
       )}
@@ -30,7 +30,7 @@ export function EmailRow({
             highlight ? "bg-app-fg-3" : "bg-app-fg-2/40",
           )}
         />
-        <span className="block h-1 w-[40%] rounded-full bg-app-fg-2/25 mt-1" />
+        <span className="mt-1 block h-1 w-[40%] rounded-full bg-app-fg-2/25" />
       </span>
     </div>
   );

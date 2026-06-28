@@ -137,7 +137,7 @@ function Hero({
       <FadeInOnScroll delay={80}>
         <h1
           className={cn(
-            "mx-auto max-w-3xl text-balance font-semibold text-white",
+            "mx-auto max-w-3xl font-semibold text-balance text-white",
             "text-[44px] leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl",
           )}
         >
@@ -146,7 +146,7 @@ function Hero({
       </FadeInOnScroll>
 
       <FadeInOnScroll delay={140}>
-        <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
+        <p className="mx-auto max-w-2xl text-[16px] leading-[1.5] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[18px]">
           Alfred connects to your email
           <a
             href="#access"

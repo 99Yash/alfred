@@ -46,7 +46,7 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
             maxLength={8_000}
             disabled={learning}
             rows={6}
-            className="font-mono text-[12.5px] min-h-[140px]"
+            className="min-h-[140px] font-mono text-[12.5px]"
           />
           <div className="flex items-center justify-end gap-2 text-[11.5px] text-app-fg-3">
             <RotateCw size={11} className="text-app-fg-2" />
@@ -57,7 +57,7 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
               className={cn(
                 "transition-colors",
                 "hover:text-app-fg-4",
-                "disabled:text-app-fg-2 disabled:cursor-not-allowed",
+                "disabled:cursor-not-allowed disabled:text-app-fg-2",
               )}
             >
               {skill.memoryBody ? "Re-learn" : "Learn"}
@@ -78,7 +78,7 @@ export function LearnTab({ skill, initialPrompt }: { skill: PreviewSkill; initia
             "text-app-amber-4",
           )}
         >
-          <span className="size-2 rounded-full bg-app-amber-4 animate-pulse" aria-hidden />
+          <span className="size-2 animate-pulse rounded-full bg-app-amber-4" aria-hidden />
           <span className="font-medium">Learning…</span>
           <span className="opacity-80">distilling the prompt into memory.</span>
         </div>

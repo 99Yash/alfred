@@ -86,7 +86,7 @@ export function OnboardingFlow({
           <aside
             className={cn(
               "relative shrink-0 px-6 sm:px-10",
-              "lg:sticky lg:top-0 lg:max-h-[100dvh] lg:max-w-[32rem] lg:pl-10 lg:pr-12",
+              "lg:sticky lg:top-0 lg:max-h-[100dvh] lg:max-w-[32rem] lg:pr-12 lg:pl-10",
               "lg:border-r-[0.5px] lg:border-black/10",
               "pt-24 pb-12 lg:pt-20 lg:pb-10",
             )}
@@ -97,8 +97,8 @@ export function OnboardingFlow({
               </p>
               <h1
                 className={cn(
-                  "mt-4 max-w-[20rem] text-balance font-medium text-white sm:max-w-none",
-                  "text-4xl sm:text-5xl leading-[1.05] tracking-[-0.04em]",
+                  "mt-4 max-w-[20rem] font-medium text-balance text-white sm:max-w-none",
+                  "text-4xl leading-[1.05] tracking-[-0.04em] sm:text-5xl",
                 )}
               >
                 {active.headline}
@@ -162,7 +162,7 @@ export function OnboardingFlow({
                       <li key={s.id} className="w-full">
                         <div
                           className={cn(
-                            "group flex w-full select-none items-center justify-between rounded-[10px] p-2",
+                            "group flex w-full items-center justify-between rounded-[10px] p-2 select-none",
                             "text-[15px] transition-colors duration-200",
                             isActive
                               ? "bg-white/[0.05] text-white"
@@ -186,7 +186,7 @@ export function OnboardingFlow({
                             </span>
                             {s.pagerLabel}
                           </div>
-                          <span className="flex items-center gap-2 font-medium text-white/75 mix-blend-plus-lighter tabular">
+                          <span className="tabular flex items-center gap-2 font-medium text-white/75 mix-blend-plus-lighter">
                             {isDone ? (
                               <CheckCircle2 size={14} className="text-emerald-300" />
                             ) : null}
@@ -231,17 +231,17 @@ export function OnboardingFlow({
             <div className="sticky top-0 z-30">
               <div
                 aria-hidden
-                className="absolute inset-0 left-5 bg-gradient-to-b from-[#4867AF]/40 to-transparent"
+                className="absolute inset-0 left-5 bg-linear-to-b from-[#4867AF]/40 to-transparent"
               />
               <div className="relative ml-5 w-[calc(100%-20px)] pt-16">
-                <p className="pl-5 text-[12.5px] font-bold uppercase tracking-[0.18em] text-white/55 mix-blend-plus-lighter">
+                <p className="pl-5 text-[12.5px] font-bold tracking-[0.18em] text-white/55 uppercase mix-blend-plus-lighter">
                   Mumbai · {localTime} · {active.pagerLabel}
                 </p>
-                <div className="relative mt-4 h-px w-full bg-gradient-to-r from-white/[0.05] to-white/50">
-                  <div className="absolute -left-[4.5px] -top-[5px] z-40 grid size-2.5 place-items-center rounded-full bg-white/10">
+                <div className="relative mt-4 h-px w-full bg-linear-to-r from-white/[0.05] to-white/50">
+                  <div className="absolute -top-[5px] -left-[4.5px] z-40 grid size-2.5 place-items-center rounded-full bg-white/10">
                     <div className="size-1 rounded-full bg-white" />
                   </div>
-                  <div className="absolute -left-[14px] -top-[5px] z-40 grid h-2.5 items-center">
+                  <div className="absolute -top-[5px] -left-[14px] z-40 grid h-2.5 items-center">
                     <div className="h-px w-4 bg-white" />
                   </div>
                 </div>
@@ -250,9 +250,9 @@ export function OnboardingFlow({
 
             {/* Step content */}
             <div className="relative flex flex-col pl-5">
-              <div className="mx-auto flex w-full flex-col pl-10 pr-6 pt-4 pb-32 sm:pr-10">
+              <div className="mx-auto flex w-full flex-col pt-4 pr-6 pb-32 pl-10 sm:pr-10">
                 <div className="mb-6 flex flex-col gap-1.5">
-                  <h3 className="text-[34px] font-medium leading-tight tracking-[-0.04em] text-white sm:text-[36px]">
+                  <h3 className="text-[34px] leading-tight font-medium tracking-[-0.04em] text-white sm:text-[36px]">
                     {active.showcaseTitle}
                   </h3>
                   <p className="max-w-2xl pr-10 text-[15px] text-white/85">
@@ -398,21 +398,21 @@ const UNLOCK_FEATURES: ReadonlyArray<UnlockFeature> = [
 function UnlockShowcase() {
   return (
     <ShowcaseFrame>
-      <div className="px-7 pb-7 pt-7">
-        <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
+      <div className="p-7">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
           What you'll unlock
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
           Six things Alfred handles
           <br />
           the moment you connect.
         </h4>
       </div>
-      <div className="h-px w-full bg-gradient-to-r from-white/40 via-white/10 to-transparent" />
+      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {UNLOCK_FEATURES.map((f) => (
           <li key={f.key} className="morning-briefing-surface flex items-start gap-3 p-5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <f.icon size={17} strokeWidth={2} />
             </span>
             <div className="min-w-0">
@@ -519,17 +519,17 @@ function ConnectShowcase({
 }) {
   return (
     <ShowcaseFrame>
-      <div className="px-7 pb-6 pt-7">
-        <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
+      <div className="px-7 pt-7 pb-6">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
           Connect your tools
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
           Seven integrations.
           <br />
           One assistant.
         </h4>
       </div>
-      <div className="h-px w-full bg-gradient-to-r from-white/40 via-white/10 to-transparent" />
+      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {POPULAR_INTEGRATIONS.map((p) => {
           // GitHub connects live here; Google sub-features ride the Workspace
@@ -572,9 +572,9 @@ function ConnectPill({ onClick, label }: { onClick: () => void; label: string })
       aria-label={label}
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-3.5 py-1 text-[12px] font-medium",
-        "bg-white/15 text-white ring-1 ring-inset ring-white/25 backdrop-blur-sm",
+        "bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-sm ring-inset",
         "transition-colors duration-150 hover:bg-white hover:text-[#0c0c0c] focus-visible:bg-white focus-visible:text-[#0c0c0c]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none",
       )}
     >
       Connect
@@ -588,7 +588,7 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
       <span
         className={cn(
           "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium",
-          "bg-emerald-300/15 text-emerald-100 ring-1 ring-inset ring-emerald-300/30 backdrop-blur-sm",
+          "bg-emerald-300/15 text-emerald-100 ring-1 ring-emerald-300/30 backdrop-blur-sm ring-inset",
         )}
       >
         <CheckCircle2 size={12} className="text-emerald-300" />
@@ -599,8 +599,8 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-3 py-1 text-[11.5px] font-medium uppercase tracking-[0.1em]",
-        "bg-white/10 text-white/70 ring-1 ring-inset ring-white/15 backdrop-blur-sm",
+        "inline-flex shrink-0 items-center rounded-full px-3 py-1 text-[11.5px] font-medium tracking-[0.1em] uppercase",
+        "bg-white/10 text-white/70 ring-1 ring-white/15 backdrop-blur-sm ring-inset",
       )}
     >
       Soon
@@ -645,28 +645,28 @@ const INSTALL_TILES: ReadonlyArray<InstallTile> = [
 function FinishShowcase() {
   return (
     <ShowcaseFrame>
-      <div className="px-7 pb-6 pt-7">
-        <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-white/55">
+      <div className="px-7 pt-7 pb-6">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
           You're all set
         </p>
-        <h4 className="mt-2 text-[34px] font-medium leading-[1.08] tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
           Alfred is ready.
           <br />
           More surfaces coming soon.
         </h4>
       </div>
-      <div className="h-px w-full bg-gradient-to-r from-white/40 via-white/10 to-transparent" />
+      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-3">
         {INSTALL_TILES.map((tile) => (
           <li key={tile.key} className="morning-briefing-surface flex flex-col gap-3 p-5">
-            <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+            <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <tile.icon size={18} strokeWidth={2} />
             </span>
             <div>
               <p className="text-[14px] font-semibold text-white">{tile.title}</p>
               <p className="mt-0.5 text-[13px] text-white/80">{tile.body}</p>
             </div>
-            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em] text-white/70 ring-1 ring-inset ring-white/15">
+            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium tracking-[0.1em] text-white/70 uppercase ring-1 ring-white/15 ring-inset">
               Coming soon
             </span>
           </li>
@@ -683,7 +683,7 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
     <div
       className={cn(
         "relative isolate overflow-hidden rounded-[28px]",
-        "ring-1 ring-inset ring-white/12",
+        "ring-1 ring-white/12 ring-inset",
         "shadow-[0_30px_80px_-30px_rgba(15,30,55,0.55)]",
         "morning-briefing-surface",
       )}

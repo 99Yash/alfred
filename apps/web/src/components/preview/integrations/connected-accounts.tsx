@@ -25,11 +25,11 @@ export function ConnectedAccounts({
   const backend = PROVIDER_BACKEND[provider.id];
 
   return (
-    <section className="space-y-3 app-card-in" style={{ animationDelay: "120ms" }}>
+    <section className="app-card-in space-y-3" style={{ animationDelay: "120ms" }}>
       <SectionHeading>Connected</SectionHeading>
 
       <AppCard padded={false} className="overflow-hidden">
-        <div className="grid grid-cols-3 gap-4 px-4 pt-3 pb-2 border-b border-app-bg-3/60">
+        <div className="grid grid-cols-3 gap-4 border-b border-app-bg-3/60 px-4 pt-3 pb-2">
           <ColumnLabel>Account</ColumnLabel>
           <ColumnLabel>Date</ColumnLabel>
           <ColumnLabel>Status</ColumnLabel>
@@ -38,7 +38,7 @@ export function ConnectedAccounts({
         {connected && accounts.length > 0 ? (
           accounts.map((acct) => (
             <div key={acct.id} className="grid grid-cols-3 items-center gap-4 px-4 py-3">
-              <p className="min-w-0 truncate text-sm text-app-fg-4 font-medium">
+              <p className="min-w-0 truncate text-sm font-medium text-app-fg-4">
                 {acct.accountLabel}
               </p>
               <p className="text-sm text-app-fg-3 tabular-nums">

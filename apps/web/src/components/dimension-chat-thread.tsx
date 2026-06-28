@@ -170,7 +170,7 @@ export function DimensionChatThread({
 
       <div className="flex min-h-0 flex-1">
         <section className="relative flex min-w-0 flex-1 flex-col" aria-label="Chat thread">
-          <div className="minimal-scrollbar min-h-0 flex-1 overflow-y-auto scroll-stable px-3 pb-40 pt-4 sm:px-4">
+          <div className="minimal-scrollbar scroll-stable min-h-0 flex-1 overflow-y-auto px-3 pt-4 pb-40 sm:px-4">
             <div className="mx-auto max-w-5xl">
               <div className="space-y-4">
                 <UserBubble>
@@ -267,7 +267,7 @@ function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactP
         <button
           type="button"
           aria-label="Thread actions"
-          className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/40"
+          className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <Ellipsis size={16} />
         </button>
@@ -277,7 +277,7 @@ function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactP
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/40"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <Share2 size={14} />
           Share
@@ -285,7 +285,7 @@ function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactP
         <button
           type="button"
           aria-label={showArtifactPanel ? "Artifact panel open" : "Open artifact panel"}
-          className="grid size-8 place-items-center rounded-lg text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/40"
+          className="grid size-8 place-items-center rounded-lg text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <PanelRightOpen size={15} />
         </button>
@@ -534,7 +534,7 @@ function SearchAccordion({
           <h3>
             <AccordionPrimitive.Trigger
               className={cn(
-                "group/search flex min-h-5 w-full max-w-2xl items-center gap-1 text-left text-sm font-medium leading-5 text-gray-950 outline-none",
+                "group/search flex min-h-5 w-full max-w-2xl items-center gap-1 text-left text-sm leading-5 font-medium text-gray-950 outline-none",
                 "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
               )}
             >
@@ -551,12 +551,12 @@ function SearchAccordion({
           </h3>
         </AccordionPrimitive.Header>
 
-        <AccordionPrimitive.Content className="mt-1.5 max-h-[130px] max-w-2xl overflow-y-auto rounded-lg border border-gray-200 p-1 scrollbar">
+        <AccordionPrimitive.Content className="scrollbar mt-1.5 max-h-[130px] max-w-2xl overflow-y-auto rounded-lg border border-gray-200 p-1">
           {results.map((result) => (
             <a
               key={`${result.domain}-${result.title}`}
               href={result.href}
-              className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 outline-none transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:ring-1 focus-visible:ring-purple-600/40"
+              className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 transition-colors outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:ring-1 focus-visible:ring-purple-600/40"
             >
               <span className="flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-gray-900">
                 <img
@@ -567,7 +567,7 @@ function SearchAccordion({
                 />
                 <span className="truncate">{result.title}</span>
               </span>
-              <span className="shrink-0 text-[13px] font-light leading-4 text-gray-700">
+              <span className="shrink-0 text-[13px] leading-4 font-light text-gray-700">
                 {result.domain}
               </span>
             </a>
@@ -602,7 +602,7 @@ function Disclosure({
           <h3>
             <AccordionPrimitive.Trigger
               className={cn(
-                "group/disclosure flex min-h-5 items-center gap-1 text-left text-sm font-medium leading-5 outline-none transition-colors",
+                "group/disclosure flex min-h-5 items-center gap-1 text-left text-sm leading-5 font-medium transition-colors outline-none",
                 "focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-purple-600/35",
                 triggerClassName,
               )}
@@ -686,8 +686,8 @@ function AssistantProse({ compact = false }: { compact?: boolean }) {
   return (
     <div className="max-w-[900px] space-y-3 text-sm leading-[22px] text-gray-900">
       <section className="space-y-2">
-        <h2 className="text-[22px] font-semibold leading-7 text-gray-950">Interview Brief</h2>
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">The Company</h3>
+        <h2 className="text-[22px] leading-7 font-semibold text-gray-950">Interview Brief</h2>
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">The Company</h3>
         <p>
           The company is building an enterprise agent operating layer: infrastructure that lets
           organizations deploy, orchestrate, and govern AI agents safely. The founder profile and
@@ -698,7 +698,7 @@ function AssistantProse({ compact = false }: { compact?: boolean }) {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Where You Fit</h3>
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">Where You Fit</h3>
         <div className="max-w-[720px] overflow-hidden rounded-2xl border border-white/10 bg-[#1b1b1b]/50">
           <table aria-label="Profile fit comparison" className="w-full table-fixed text-[12.5px]">
             <tbody>
@@ -724,7 +724,7 @@ function AssistantProse({ compact = false }: { compact?: boolean }) {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Sharp Questions</h3>
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">Sharp Questions</h3>
         <p>
           Ask how they measure trust, where generated systems pass review, what memory architecture
           looks like across multiple agents, and what surface area the role would own in the first
@@ -739,7 +739,7 @@ function RichAssistantProse() {
   return (
     <div className="max-w-[900px] space-y-4 text-sm leading-[22px] text-gray-900">
       <section className="space-y-2">
-        <h2 className="text-[22px] font-semibold leading-7 text-gray-950">Interview Brief</h2>
+        <h2 className="text-[22px] leading-7 font-semibold text-gray-950">Interview Brief</h2>
         <p>
           The strongest signal is that Sycamore is treating AI agents as enterprise infrastructure:
           orchestration, trust boundaries, review loops, and memory become product primitives rather
@@ -748,7 +748,7 @@ function RichAssistantProse() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Prep Checklist</h3>
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">Prep Checklist</h3>
         <ul className="list-inside list-disc space-y-1 text-gray-900">
           <li>Connect their product thesis to reliability and auditability.</li>
           <li>Ask where agent actions require human review versus automatic execution.</li>
@@ -757,7 +757,7 @@ function RichAssistantProse() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">Role Fit Matrix</h3>
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">Role Fit Matrix</h3>
         <div className="max-w-[760px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/55">
           <table aria-label="Role fit matrix" className="w-full table-fixed text-[12.5px]">
             <tbody>
@@ -787,7 +787,7 @@ function RichAssistantProse() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[17px] font-semibold leading-6 text-gray-950">
+        <h3 className="text-[17px] leading-6 font-semibold text-gray-950">
           Code-Adjacent Question
         </h3>
         <p>Ask how they model tool execution policy. A good follow-up could sound like:</p>
@@ -805,7 +805,7 @@ function RichAssistantProse() {
 
 function Cell({ children, header }: { children: ReactNode; header?: boolean }) {
   const className =
-    "min-w-0 border-b border-r border-[#1d1d1d] px-3 py-2 text-left align-top text-gray-900";
+    "min-w-0 border-r border-b border-[#1d1d1d] px-3 py-2 text-left align-top text-gray-900";
   return header ? (
     <th scope="col" className={className}>
       <strong className="text-gray-950">{children}</strong>
@@ -819,7 +819,7 @@ function Citation({ domain, children }: { domain: string; children: ReactNode })
   return (
     <a
       href={`https://${domain}`}
-      className="inline-flex items-center gap-1 align-middle text-purple-600 outline-none transition-colors hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-purple-600/35"
+      className="inline-flex items-center gap-1 align-middle text-purple-600 transition-colors outline-none hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-purple-600/35"
     >
       <span className="relative inline-grid size-4 place-items-center overflow-hidden rounded">
         <img
@@ -896,7 +896,7 @@ function RelatedSuggestions({ onSelect }: { onSelect: (prompt: string) => void }
             key={suggestion}
             type="button"
             onClick={() => onSelect(suggestion)}
-            className="group/suggestion flex w-full items-center justify-between gap-4 py-3 pr-3 text-left outline-none transition-colors hover:bg-[#151515] focus-visible:bg-[#151515] focus-visible:ring-2 focus-visible:ring-purple-600/35"
+            className="group/suggestion flex w-full items-center justify-between gap-4 py-3 pr-3 text-left transition-colors outline-none hover:bg-[#151515] focus-visible:bg-[#151515] focus-visible:ring-2 focus-visible:ring-purple-600/35"
           >
             <span className="min-w-0 truncate text-sm text-gray-900 transition-colors group-hover/suggestion:text-gray-950">
               {suggestion}
@@ -1241,7 +1241,7 @@ function IconMini({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600/35"
+      className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/35 focus-visible:outline-none"
     >
       {children}
     </button>

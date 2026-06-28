@@ -40,10 +40,10 @@ export function IconButton({
       title={label}
       className={cn(
         "inline-grid place-items-center rounded-lg",
-        "text-gray-800 hover:text-gray-900 hover:bg-gray-100",
-        "active:scale-[0.96] transition-[transform,color,background-color] duration-150",
+        "text-gray-800 hover:bg-gray-100 hover:text-gray-900",
+        "transition-[transform,color,background-color] duration-150 active:scale-[0.96]",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
         SIZE[size],
         className,
       )}

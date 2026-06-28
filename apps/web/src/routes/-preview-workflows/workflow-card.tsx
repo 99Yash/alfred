@@ -39,7 +39,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
       params={{ workflow: workflow.id }}
       className={cn(
         "app-card-in app-hover-lift app-press",
-        "group flex min-h-[268px] flex-col rounded-2xl bg-app-bg-1 overflow-hidden",
+        "group flex min-h-[268px] flex-col overflow-hidden rounded-2xl bg-app-bg-1",
         "shadow-[var(--app-shadow-elevated)] hover:shadow-[var(--app-shadow-elevated-hover)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
@@ -60,7 +60,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
         {workflow.id === "cold-start-research" && <ResearchHero accent={tint.accent} />}
       </div>
 
-      <div className="flex flex-col flex-1 p-5 -mt-5 relative">
+      <div className="relative -mt-5 flex flex-1 flex-col p-5">
         <span
           className={cn(
             "grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-1 ring-1",
