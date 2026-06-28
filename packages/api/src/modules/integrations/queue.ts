@@ -507,9 +507,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         userId: data.userId,
         sourceThreadId: data.sourceThreadId,
       });
-      console.log(
-        `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=${result.applied}`,
-      );
+      if (result.applied) {
+        console.log(
+          `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=true label=${result.appliedLabelId}`,
+        );
+      } else {
+        // A non-applied relabel must NOT be silent — `applied_label_id` stays
+        // unset, so the thread looks untagged in Gmail. Surface the reason
+        // (#277: `target-unresolvable` is a dead message id with no live fallback).
+        console.error(
+          `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} NOT applied reason=${result.reason}`,
+        );
+      }
       return result;
     }
     case "media.cleanup": {
