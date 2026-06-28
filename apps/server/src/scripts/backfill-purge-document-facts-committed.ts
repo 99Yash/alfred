@@ -27,13 +27,14 @@
  * has no tsx / loose `@alfred/*` sources).
  *
  * SAFETY: dry by default — classifies and prints what it WOULD reject, writes
- * nothing. Pass `--commit` to apply. Idempotent (already-rejected rows are
- * inactive and won't re-match).
+ * nothing. Pass `--commit` to apply. Idempotent (already-rejected/non-current
+ * rows are inactive and won't re-match). `--commit` requires PURGE_FACTS_EMAILS
+ * explicitly so a prod shell typo cannot mutate the default account.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfill-purge-document-facts-committed.js
  *   # commit:
- *   node dist/scripts/backfill-purge-document-facts-committed.js --commit
+ *   PURGE_FACTS_EMAILS="yashgouravkar@gmail.com" node dist/scripts/backfill-purge-document-facts-committed.js --commit
  *   # other target / also purge relationship:* graph facts:
  *   PURGE_FACTS_EMAILS="a@x.com" node dist/scripts/backfill-purge-document-facts-committed.js --commit --include-relationships
  */
@@ -41,7 +42,7 @@ import { closeConnections, closeRedis, rejectFact, warmPool } from "@alfred/api"
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user as userTable, userFacts } from "@alfred/db/schemas";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 
 /**
  * Genuine durable user-identity / preference keys that may legitimately be
@@ -106,13 +107,18 @@ const IDENTITY_ALLOW_LIST = new Set<string>([
   "reddit_username",
 ]);
 
-const TARGET_EMAILS = (process.env.PURGE_FACTS_EMAILS ?? "yashgouravkar@gmail.com")
+const targetEmailsEnv = process.env.PURGE_FACTS_EMAILS;
+const COMMIT = process.argv.includes("--commit");
+const INCLUDE_RELATIONSHIPS = process.argv.includes("--include-relationships");
+
+if (COMMIT && !targetEmailsEnv?.trim()) {
+  throw new Error("PURGE_FACTS_EMAILS must be set explicitly when using --commit");
+}
+
+const TARGET_EMAILS = (targetEmailsEnv ?? "yashgouravkar@gmail.com")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-
-const COMMIT = process.argv.includes("--commit");
-const INCLUDE_RELATIONSHIPS = process.argv.includes("--include-relationships");
 
 /** A document-sourced fact is graph/relationship data, not identity noise. */
 function isRelationshipKey(key: string): boolean {
@@ -126,8 +132,9 @@ function preview(value: unknown): string {
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
+  const now = new Date();
 
-  // Active facts only. `source` is jsonb → already a parsed object from pg.
+  // Active/current facts only. `source` is jsonb → already a parsed object from pg.
   const rows = await db()
     .select({
       id: userFacts.id,
@@ -142,6 +149,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       and(
         eq(userFacts.userId, u.userId),
         inArray(userFacts.status, ["proposed", "confirmed"]),
+        or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
       ),
     );
 
