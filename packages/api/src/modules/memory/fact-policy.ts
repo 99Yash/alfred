@@ -32,6 +32,7 @@ import {
 } from "@alfred/contracts";
 import type { documents } from "@alfred/db/schemas";
 import { extractSenderContext } from "../triage/sender-context";
+import { isSentGmailMetadata } from "../triage/sent-mail";
 
 // ---------------------------------------------------------------------------
 // document write tiers
@@ -271,7 +272,7 @@ function authoredByGmail(
   const accountEmail =
     (accountId && self.gmailAccountEmailById?.[accountId]?.toLowerCase()) || null;
 
-  const isSent = isRecord(metadata) && metadata.isSent === true;
+  const isSent = isSentGmailMetadata(isRecord(metadata) ? metadata : null);
   const fromRaw = isRecord(metadata) && typeof metadata.from === "string" ? metadata.from : null;
   const fromEmail = fromRaw ? parseFromEmail(fromRaw) : null;
 
@@ -463,6 +464,7 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
 export type DocumentFactGateReject =
   | "unknown_key"
   | "invalid_relationship_key"
+  | "invalid_value"
   | "not_document_writable"
   | "authorship_required";
 
@@ -499,6 +501,8 @@ export interface DocumentFactGateInput {
  *  - unknown / bad relationship key → reject (`invalid_relationship_key` when the
  *    raw key was `relationship:*`, else `unknown_key`);
  *  - `not_writable` canonical key → `not_document_writable`;
+ *  - invalid value shape → `invalid_value` (or `invalid_relationship_key` for a
+ *    malformed relationship edge);
  *  - Tier B (identity/profile) key whose document is NOT authored by the user →
  *    `authorship_required` (carries the authorship evidence for the trace);
  *  - Tier A (`relationship:<email>`) is authorship-free → passes.
@@ -522,16 +526,14 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
     return { ok: false, reason: "not_document_writable", originalKey: proposal.key, canonicalKey };
   }
   if (!validateFactValueForKey(canonicalKey, proposal.value).ok) {
-    // A malformed relationship value is the one value-shape failure the gate
-    // owns a reason for; everything else is backstopped by `proposeFact`.
-    if (canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) {
-      return {
-        ok: false,
-        reason: "invalid_relationship_key",
-        originalKey: proposal.key,
-        canonicalKey,
-      };
-    }
+    return {
+      ok: false,
+      reason: canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)
+        ? "invalid_relationship_key"
+        : "invalid_value",
+      originalKey: proposal.key,
+      canonicalKey,
+    };
   }
 
   const meta = canon.wasAlias ? { originalKey: canon.originalKey } : undefined;
