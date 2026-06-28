@@ -1,6 +1,5 @@
 import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
-import { openai, type OpenAIChatLanguageModelOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
 import { APICallError, type LanguageModel, type ToolSet } from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
@@ -17,7 +16,7 @@ import {
   type ModelIdFor,
   isModelIdForProvider,
   MODEL_REGISTRY,
-  type ProviderId,
+  type ModelProviderId,
 } from "./models";
 import { withToolNameShim } from "./tool-name-shim";
 
@@ -28,7 +27,6 @@ export type { ChatModelTier };
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
-type OpenAIChatProviderOptions = Pick<OpenAIChatLanguageModelOptions, "reasoningEffort">;
 type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
 type ChatProviderOptions = Record<string, Record<string, unknown>>;
 type ToolNameProviderPolicy = {
@@ -39,8 +37,7 @@ type ToolNameProviderPolicy = {
 export const TOOL_NAME_PROVIDER_POLICIES = {
   anthropic: { toolNameShim: true, toolNameMaxLen: 128 },
   google: { toolNameShim: true, toolNameMaxLen: 64 },
-  openai: { toolNameShim: true, toolNameMaxLen: 64 },
-} as const satisfies Record<ProviderId, ToolNameProviderPolicy>;
+} as const satisfies Record<ModelProviderId, ToolNameProviderPolicy>;
 
 /**
  * Per-provider request mechanics (ADR-0078) — the structural quirks that live on
@@ -48,7 +45,7 @@ export const TOOL_NAME_PROVIDER_POLICIES = {
  * in `models.ts`). This is the one place a tier→model remap routes through, so it
  * can't reintroduce an unsupported reasoning param or a tool-name 400.
  *
- * Keyed by `ProviderId`. Conceptually the key is the *SDK adapter* (the same
+ * Keyed by `ModelProviderId`. Conceptually the key is the *SDK adapter* (the same
  * Claude model has different option shapes across `@ai-sdk/anthropic`,
  * `@ai-sdk/amazon-bedrock`, `@ai-sdk/google-vertex/anthropic`); Alfred is 1:1
  * provider↔adapter today, so provider-keying is correct now — a future
@@ -56,20 +53,13 @@ export const TOOL_NAME_PROVIDER_POLICIES = {
  */
 interface ProviderDispatch {
   /**
-   * Apply the `.`↔`__` tool-name shim at this provider's edge. `true` for all
-   * three today (Anthropic rejects `.`, Google strips the prefix, OpenAI rejects
-   * `.` and caps at 64).
+   * Apply the `.`↔`__` tool-name shim at this provider's edge. `true` for both
+   * dispatched language-model providers today (Anthropic rejects `.`, Google
+   * strips the prefix).
    */
   readonly toolNameShim: boolean;
   /** Max tool-name length the provider accepts; pinned by the tool-name registry invariant test. */
   readonly toolNameMaxLen: number;
-  /**
-   * Whether a cross-provider degrade is safe for *structured* `generateObject`
-   * output. `same-provider` because Anthropic's `Output.object` handles our
-   * nested/optional schemas poorly (see `getCheapModel`); recorded for the
-   * structured paths, the `withFallback` for `generateText` is separate.
-   */
-  readonly structuredOutputFallback: "same-provider" | "cross-provider";
   /**
    * Build the AI-SDK reasoning/thinking block for `modelId` at the requested
    * `effort`. Owns the block SHAPE; reads the model's `effortValues` and clamps,
@@ -101,7 +91,6 @@ function isAnthropicEffortLevel(value: EffortLevel): value is AnthropicEffortLev
 const PROVIDER_DISPATCH = {
   anthropic: {
     ...TOOL_NAME_PROVIDER_POLICIES.anthropic,
-    structuredOutputFallback: "cross-provider",
     reasoningOptions(modelId: ModelId, effort: EffortLevel): AnthropicChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       // Empty block: Haiku 4.5 (ADR-0077) hard-400s on BOTH adaptive thinking and
@@ -122,32 +111,23 @@ const PROVIDER_DISPATCH = {
   },
   google: {
     ...TOOL_NAME_PROVIDER_POLICIES.google,
-    structuredOutputFallback: "same-provider",
     // `includeThoughts` surfaces the thought summary (not the raw chain);
-    // `thinkingBudget: -1` lets the model size its own thinking. Budget/toggle
-    // based, so the `modelId`/`effort` args are ignored — kept for the uniform
-    // dispatch signature.
-    reasoningOptions(_modelId: ModelId, _effort: EffortLevel): GoogleChatProviderOptions {
+    // `thinkingBudget: -1` lets Gemini 2.5 size its own thinking. Current Google
+    // registry entries are budget/toggle based, so `effort` is intentionally not
+    // translated. If a future Google model exposes effort labels (e.g. Gemini 3),
+    // this must grow the SDK-specific mapping instead of silently sending the
+    // Gemini 2.5 budget block.
+    reasoningOptions(modelId: ModelId, _effort: EffortLevel): GoogleChatProviderOptions {
+      const { effortValues } = MODEL_CAPABILITIES[modelId];
+      if (effortValues.length > 0) {
+        throw new Error(
+          `${modelId} declares Google effort values [${effortValues.join(",")}], but the Google dispatch only supports budget-based thinkingConfig today`,
+        );
+      }
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
   },
-  // No OpenAI *language* model is dispatched today (transcription meters through
-  // OpenAI but isn't a chat/boss dispatch), but the profile is complete so the
-  // first OpenAI model added to MODEL_REGISTRY gets the same provider-axis path.
-  openai: {
-    ...TOOL_NAME_PROVIDER_POLICIES.openai,
-    structuredOutputFallback: "same-provider",
-    reasoningOptions(modelId: ModelId, effort: EffortLevel): OpenAIChatProviderOptions {
-      const { effortValues } = MODEL_CAPABILITIES[modelId];
-      if (effortValues.length === 0) return {};
-      const reasoningEffort = clampEffort(effort, effortValues);
-      if (reasoningEffort === "max") {
-        throw new Error(`${modelId} declares OpenAI-incompatible effort value "max"`);
-      }
-      return { reasoningEffort };
-    },
-  },
-} as const satisfies Record<ProviderId, ProviderDispatch>;
+} as const satisfies Record<ModelProviderId, ProviderDispatch>;
 
 export function getShimmedToolNameMaxLen(): number {
   return Math.min(
@@ -170,10 +150,8 @@ const anthropicModel = (id: ModelIdFor<"anthropic">) =>
   PROVIDER_DISPATCH.anthropic.toolNameShim ? withToolNameShim(anthropic(id)) : anthropic(id);
 const googleModel = (id: ModelIdFor<"google">) =>
   PROVIDER_DISPATCH.google.toolNameShim ? withToolNameShim(google(id)) : google(id);
-const openaiModel = (id: ModelIdFor<"openai">) =>
-  PROVIDER_DISPATCH.openai.toolNameShim ? withToolNameShim(openai(id)) : openai(id);
 
-function assertModelProvider<P extends ProviderId>(
+function assertModelProvider<P extends ModelProviderId>(
   id: ModelId,
   provider: P,
 ): asserts id is ModelIdFor<P> {
@@ -182,7 +160,7 @@ function assertModelProvider<P extends ProviderId>(
   }
 }
 
-function providerForModel(id: ModelId): ProviderId {
+function providerForModel(id: ModelId): ModelProviderId {
   return MODEL_REGISTRY[id];
 }
 
@@ -195,9 +173,6 @@ function modelForId(id: ModelId): LanguageModelV3 {
     case "google":
       assertModelProvider(id, "google");
       return googleModel(id);
-    case "openai":
-      assertModelProvider(id, "openai");
-      return openaiModel(id);
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -294,8 +269,8 @@ export function googleSearchGroundingTools(): ToolSet {
  *   - `standard` (the Auto tier) → Claude Haiku 4.5 — the everyday conversational
  *     driver. Adopted 2026-06-28 over Sonnet 4.6 after a browser-replay
  *     adjudication: at ~3× lower cost Haiku held tool-use + judgment quality, keeps
- *     the #223 prompt cache (same provider → same tokenizer, no re-warm), and needs
- *     no tool-name shim. Its one gap — under-acting on implicit agentic lookups
+ *     the #223 prompt cache (same provider → same tokenizer, no re-warm), and routes
+ *     through the same Anthropic tool-name shim. Its one gap — under-acting on implicit agentic lookups
  *     (asking instead of searching) — was closed by the search-before-ask prompt
  *     hardening (#312) and is pinned by the sender-suppression eval. Haiku's
  *     `effortValues: []` means the requested effort is ignored — it gets the empty

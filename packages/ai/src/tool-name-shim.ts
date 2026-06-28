@@ -67,7 +67,7 @@ function encodePromptMessage(message: PromptMessage): PromptMessage {
   return { ...message, content: message.content.map(encodeMessagePart) } as PromptMessage;
 }
 
-/** Map every tool name in the outgoing request `.`→`__` for Anthropic. */
+/** Map every tool name in the outgoing request `.`→`__` for shimmed providers. */
 function encodeParams(params: CallOptions): CallOptions {
   return {
     ...params,

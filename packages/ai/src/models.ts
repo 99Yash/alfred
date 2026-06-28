@@ -30,10 +30,6 @@ export const PROVIDER_IDS = ["anthropic", "google", "openai"] as const;
 export const providerIdSchema = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof providerIdSchema>;
 
-export interface ModelDescriptor {
-  provider: ProviderId;
-}
-
 /**
  * Model id → provider, keyed by id. This is the *only* per-model metadata that
  * must live in code: it's the compile-time constraint behind {@link ModelIdFor}
@@ -57,13 +53,20 @@ export const MODEL_REGISTRY = {
   "gemini-2.5-flash-lite": "google",
 } as const satisfies Record<ModelId, ProviderId>;
 
+/** Providers that currently have language models in {@link MODEL_REGISTRY}. */
+export type ModelProviderId = (typeof MODEL_REGISTRY)[ModelId];
+
+export interface ModelDescriptor {
+  provider: ModelProviderId;
+}
+
 /**
  * Registry ids for a given provider. Constrains the provider factories in
  * `provider.ts` so a typo'd or unregistered id (e.g. `anthropic("claude-opus-4-8")`
  * while the registry still said `4-7`) is a compile error, not a silent
  * cost-attribution miss.
  */
-export type ModelIdFor<P extends ProviderId> = {
+export type ModelIdFor<P extends ModelProviderId> = {
   [K in ModelId]: (typeof MODEL_REGISTRY)[K] extends P ? K : never;
 }[ModelId];
 
@@ -131,7 +134,7 @@ export function isModelId(id: string): id is ModelId {
 }
 
 /** `true` when a registry model belongs to `provider` (narrows the model id). */
-export function isModelIdForProvider<P extends ProviderId>(
+export function isModelIdForProvider<P extends ModelProviderId>(
   id: ModelId,
   provider: P,
 ): id is ModelIdFor<P> {
