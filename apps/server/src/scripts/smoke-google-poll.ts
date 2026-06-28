@@ -128,7 +128,7 @@ Pub/Sub setup (manual, one-time):
   4. Set in apps/server/.env:
        GOOGLE_PUBSUB_TOPIC=projects/<id>/topics/gmail-push
        GOOGLE_PUBSUB_AUDIENCE=<the-audience-from-step-3>
-       GOOGLE_PUBSUB_SERVICE_ACCOUNT=<service-account-email>  # optional
+       GOOGLE_PUBSUB_SERVICE_ACCOUNT=<service-account-email>
   5. Install the watch:
        curl -X POST -b cookies.txt http://localhost:3001/api/integrations/google/<credentialId>/watch
   6. Send yourself an email and watch the worker logs for
