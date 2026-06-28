@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
-import { findModelDescriptor } from "../models";
+import { findModelProvider } from "../models";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
@@ -27,11 +27,11 @@ function reconcileServed(
     return { provider: meta.provider, model: meta.model, responseMeta: extracted.responseMeta };
   }
   const responseMeta = { ...extracted.responseMeta, servedModelId: served };
-  const descriptor = findModelDescriptor(served);
-  if (!descriptor) {
+  const provider = findModelProvider(served);
+  if (!provider) {
     return { provider: meta.provider, model: meta.model, responseMeta };
   }
-  return { provider: descriptor.provider, model: served, responseMeta };
+  return { provider, model: served, responseMeta };
 }
 
 /**

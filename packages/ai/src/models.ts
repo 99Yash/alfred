@@ -56,10 +56,6 @@ export const MODEL_REGISTRY = {
 /** Providers that currently have language models in {@link MODEL_REGISTRY}. */
 export type ModelProviderId = (typeof MODEL_REGISTRY)[ModelId];
 
-export interface ModelDescriptor {
-  provider: ModelProviderId;
-}
-
 /**
  * Registry ids for a given provider. Constrains the provider factories in
  * `provider.ts` so a typo'd or unregistered id (e.g. `anthropic("claude-opus-4-8")`
@@ -142,12 +138,12 @@ export function isModelIdForProvider<P extends ModelProviderId>(
 }
 
 /**
- * Look up a registry entry by served/reported id. Returns `undefined` for ids
+ * Look up a registry provider by served/reported id. Returns `undefined` for ids
  * the registry doesn't track (provider dated aliases like `gemini-2.5-pro-002`,
  * transcription models).
  */
-export function findModelDescriptor(id: string): ModelDescriptor | undefined {
-  return isModelId(id) ? { provider: MODEL_REGISTRY[id] } : undefined;
+export function findModelProvider(id: string): ModelProviderId | undefined {
+  return isModelId(id) ? MODEL_REGISTRY[id] : undefined;
 }
 
 /**
