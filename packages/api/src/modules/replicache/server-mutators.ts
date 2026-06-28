@@ -27,7 +27,9 @@ import type {
   PolicySetIntegrationModeArgs,
   PrefDeleteArgs,
   PrefSetArgs,
+  TodoClearArgs,
   TodoCompleteArgs,
+  TodoCompleteSuggestionArgs,
   TodoCreateArgs,
   TodoDismissArgs,
   TodoEditArgs,
@@ -410,6 +412,28 @@ export const serverMutators = {
       .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "open")));
   },
 
+  /**
+   * Mark a suggestion done directly: `suggested → done`, stamp `completed_at`.
+   * Provenance (`created_by`, `sources`, `assist`) is left untouched, so the
+   * completed row keeps the suggestion's context. Guarded on `suggested`.
+   */
+  async todoCompleteSuggestion(
+    tx: DbTx,
+    args: TodoCompleteSuggestionArgs,
+    ctx: ServerMutatorCtx,
+  ): Promise<void> {
+    await tx
+      .update(todos)
+      .set({
+        status: "done",
+        completedAt: new Date(),
+        rowVersion: sql`${todos.rowVersion} + 1`,
+      })
+      .where(
+        and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "suggested")),
+      );
+  },
+
   /** Uncheck the box: `done → open`, clear `completed_at`. */
   async todoReopen(tx: DbTx, args: TodoReopenArgs, ctx: ServerMutatorCtx): Promise<void> {
     await tx
@@ -447,6 +471,19 @@ export const serverMutators = {
           inArray(todos.status, ["open", "suggested"]),
         ),
       );
+  },
+
+  /**
+   * Personally clear a completed todo → terminal `cleared`. The pull fetcher
+   * excludes `cleared` (like `dismissed`), so the next pull deletes the client
+   * row. Guarded on `done` so it can't drop a live todo; reopening stays a
+   * separate `done → open` transition.
+   */
+  async todoClear(tx: DbTx, args: TodoClearArgs, ctx: ServerMutatorCtx): Promise<void> {
+    await tx
+      .update(todos)
+      .set({ status: "cleared", rowVersion: sql`${todos.rowVersion} + 1` })
+      .where(and(eq(todos.id, args.id), eq(todos.userId, ctx.userId), eq(todos.status, "done")));
   },
 
   /** Edit a todo's name and/or description. */

@@ -19,11 +19,14 @@ import { z } from "zod";
  * `open` — a live todo (user-added, or a promoted suggestion).
  * `done` — completed (`completed_at` set; lingers 7 days in the sync window).
  * `dismissed` — declined/dropped (terminal; never synced to the client).
+ * `cleared` — a `done` todo the user personally removed from the rail before
+ *   the 7-day window expired (terminal; never synced to the client). Distinct
+ *   from `dismissed` so accept/dismiss vs done-then-clear stay measurable.
  *
  * Deliberately no `running`/`interrupted`/`needs_attention`/`error` at v1 —
  * those are the deferred agent-executable run-states.
  */
-export const TODO_STATUSES = ["suggested", "open", "done", "dismissed"] as const;
+export const TODO_STATUSES = ["suggested", "open", "done", "dismissed", "cleared"] as const;
 export type TodoStatus = (typeof TODO_STATUSES)[number];
 export const todoStatusSchema = z.enum(TODO_STATUSES);
 

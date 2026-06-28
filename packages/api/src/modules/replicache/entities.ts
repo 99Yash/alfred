@@ -387,9 +387,10 @@ const ENTITY_FETCHERS = {
       );
   },
 
-  // ADR-0050. `dismissed` rows never reach the client; `done` rows linger
-  // `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the DB).
-  // `suggested` + `open` always sync.
+  // ADR-0050. `dismissed` + `cleared` rows never reach the client; `done` rows
+  // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
+  // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
+  // user removed from the rail early — terminal, so excluded like `dismissed`.
   TODO: async (tx, userId) => {
     const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     const rows = await tx
@@ -398,7 +399,7 @@ const ENTITY_FETCHERS = {
       .where(
         and(
           eq(todos.userId, userId),
-          ne(todos.status, "dismissed"),
+          notInArray(todos.status, ["dismissed", "cleared"]),
           or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
         ),
       )

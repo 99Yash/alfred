@@ -38,6 +38,12 @@ export type TodoPromoteArgs = z.infer<typeof todoPromoteArgsSchema>;
 export const todoDismissArgsSchema = z.object({ id: todoId });
 export type TodoDismissArgs = z.infer<typeof todoDismissArgsSchema>;
 
+export const todoClearArgsSchema = z.object({ id: todoId });
+export type TodoClearArgs = z.infer<typeof todoClearArgsSchema>;
+
+export const todoCompleteSuggestionArgsSchema = z.object({ id: todoId });
+export type TodoCompleteSuggestionArgs = z.infer<typeof todoCompleteSuggestionArgsSchema>;
+
 export const todoEditArgsSchema = z
   .object({
     id: todoId,
@@ -112,6 +118,28 @@ export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArg
   });
 }
 
+/**
+ * Mark an Alfred-suggested todo done in one action: `suggested → done`, stamp
+ * `completedAt`. Provenance (`createdBy`, `sources`, `assist`) rides along
+ * untouched, so the completed row carries the same context as any other done
+ * todo. The done row syncs (within the 7-day window) and lands in *Done*.
+ */
+export async function todoCompleteSuggestionClient(
+  tx: WriteTransaction,
+  args: TodoCompleteSuggestionArgs,
+): Promise<void> {
+  const todo = await readTodo(tx, args.id);
+  if (!todo || todo.status !== "suggested") return;
+  const now = new Date().toISOString();
+  await writeTodo(tx, {
+    ...todo,
+    status: "done",
+    completedAt: now,
+    rowVersion: todo.rowVersion + 1,
+    updatedAt: now,
+  });
+}
+
 /** Accept a suggestion (`+`): `suggested → open`. `createdBy` is preserved. */
 export async function todoPromoteClient(
   tx: WriteTransaction,
@@ -140,6 +168,18 @@ export async function todoDismissClient(
   const key = IDB_KEY.TODO({ id: args.id });
   if (!(await tx.has(key))) return;
   await tx.del(key);
+}
+
+/**
+ * Personally clear a completed todo from the rail: `done → cleared`. Like
+ * `dismissed`, `cleared` rows never sync, so the optimistic patch deletes the
+ * local row; the server moves it to `status='cleared'` and the next pull
+ * confirms the deletion. Guarded on `done` so it can't drop a live todo.
+ */
+export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
+  const todo = await readTodo(tx, args.id);
+  if (!todo || todo.status !== "done") return;
+  await tx.del(IDB_KEY.TODO({ id: args.id }));
 }
 
 /** Edit a todo's name and/or description. */
