@@ -111,11 +111,11 @@ const serverEnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url(),
   /** Pub/Sub topic Gmail watch should publish to, e.g. `projects/<id>/topics/gmail-push`. */
-  GOOGLE_PUBSUB_TOPIC: z.string().optional(),
+  GOOGLE_PUBSUB_TOPIC: optionalSecret(),
   /** OIDC audience configured on the push subscription. Required in production. */
-  GOOGLE_PUBSUB_AUDIENCE: z.string().optional(),
-  /** Service-account email expected as the `email` claim in the OIDC token. Optional defense-in-depth. */
-  GOOGLE_PUBSUB_SERVICE_ACCOUNT: z.string().optional(),
+  GOOGLE_PUBSUB_AUDIENCE: optionalSecret(),
+  /** Service-account email expected as the `email` claim in the OIDC token. Required in production. */
+  GOOGLE_PUBSUB_SERVICE_ACCOUNT: optionalSecret(),
   /**
    * GitHub App credentials (ADR-0052). The App replaces the classic OAuth
    * App: identity comes from its user-to-server OAuth (CLIENT_ID/SECRET),
