@@ -124,6 +124,7 @@ Pub/Sub setup (manual, one-time):
        https://<your-public-server>/webhooks/gmail
      Configure OIDC auth: pick a service account, set audience to a
      value of your choosing (e.g. https://alfred.example.com/webhooks/gmail).
+     Production rejects push notifications when this audience is unset.
   4. Set in apps/server/.env:
        GOOGLE_PUBSUB_TOPIC=projects/<id>/topics/gmail-push
        GOOGLE_PUBSUB_AUDIENCE=<the-audience-from-step-3>

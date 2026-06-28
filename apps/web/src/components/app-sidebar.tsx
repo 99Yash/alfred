@@ -408,7 +408,7 @@ function FullContent({
       {threads ? (
         <nav
           aria-label="Chats"
-          className="flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-4 scroll-stable sidebar-scroll-fade animate-sidebar-reveal [animation-delay:110ms]"
+          className="flex-1 min-h-0 overflow-y-auto px-2 py-1 pb-4 scroll-stable sidebar-scroll-fade animate-sidebar-reveal [animation-delay:110ms] space-y-1"
         >
           {GROUP_ORDER.map(({ key, label }) => (
             <ThreadGroupBlock
@@ -613,7 +613,7 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
       {badge ? (
         <span
           className={cn(
-            "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full",
+            "inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full",
             "text-[10.5px] font-medium tabular-nums",
             "bg-app-purple-1 text-app-purple-4",
           )}
@@ -655,7 +655,7 @@ function KbdHint({ children }: { children: ReactNode }) {
   return (
     <kbd
       className={cn(
-        "inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-md",
+        "inline-flex items-center justify-center min-w-5 h-4.5 px-1 rounded-md",
         "text-[10.5px] leading-none font-medium tabular-nums",
         "bg-app-bg-a2 text-app-fg-3 font-sans",
       )}
@@ -728,7 +728,7 @@ function RailLink({
       >
         <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-app-purple-4 text-white text-[9px] font-semibold inline-flex items-center justify-center tabular-nums">
+          <span className="absolute -top-0.5 -right-0.5 min-w-3.75 h-3.75 px-1 rounded-full bg-app-purple-4 text-white text-[9px] font-semibold inline-flex items-center justify-center tabular-nums">
             {badge}
           </span>
         ) : null}
@@ -792,7 +792,7 @@ function ThreadGroupBlock({
   // user with threads in only one bucket (or none) doesn't see naked headings.
   if (entries.length === 0) return null;
   return (
-    <div className="mb-3">
+    <div className="mb-2.5">
       <button
         type="button"
         onClick={onToggle}
@@ -1058,7 +1058,7 @@ function ThreadMenuContent({
         <Item
           className={cn(
             menuItemClass,
-            "text-app-red-4 data-[highlighted]:text-app-red-4 data-[highlighted]:bg-app-red-1",
+            "text-app-red-4 data-highlighted:text-app-red-4 data-highlighted:bg-app-red-1",
           )}
           onSelect={onDelete}
         >
