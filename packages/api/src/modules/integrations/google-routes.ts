@@ -30,10 +30,7 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from "./oauth-state";
-import {
-  assertGmailPushOidcConfigured,
-  isGmailPushOidcConfigError,
-} from "./gmail-push-config";
+import { assertGmailPushOidcConfigured, isGmailPushOidcConfigError } from "./gmail-push-config";
 
 /**
  * Google integration routes.
