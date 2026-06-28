@@ -69,7 +69,7 @@ export const todos = pgTable(
       .$type<TodoSource[]>(),
     /** Soft pointer to the agent run that proposed this row (traceability). */
     agentRunId: text("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
-    /** Set when status flips to 'done'. Drives the 7-day done sync window. */
+    /** Set when status flips to 'done'. Drives the 2-day done sync window. */
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /** Forward-compat: manual drag-reorder. No interaction wired at v1. */
     position: integer("position"),

@@ -139,7 +139,9 @@ export function RailContent({
                 items={data.todos}
                 suggestions={data.todoSuggestions}
                 onToggleTodo={data.onToggleTodo}
+                onClearTodo={data.onClearTodo}
                 onCreateTodo={data.onCreateTodo}
+                onCompleteSuggestion={data.onCompleteSuggestion}
                 onPromoteSuggestion={data.onPromoteSuggestion}
                 onDismissSuggestion={data.onDismissSuggestion}
               />

@@ -1664,8 +1664,10 @@ function useRailData(): RailData {
     createTodo,
     completeTodo,
     reopenTodo,
+    completeSuggestion,
     promoteTodo,
     dismissTodo,
+    clearTodo,
   } = useTodos();
   const todoItems = useMemo(() => liveTodos.map(toRailTodoItem), [liveTodos]);
   // Dismissing a suggestion hides it immediately and only commits the
@@ -1687,7 +1689,12 @@ function useRailData(): RailData {
     (id: string, done: boolean) => void (done ? reopenTodo(id) : completeTodo(id)),
     [reopenTodo, completeTodo],
   );
+  const onClearTodo = useCallback((id: string) => void clearTodo(id), [clearTodo]);
   const onCreateTodo = useCallback((title: string) => void createTodo(title), [createTodo]);
+  const onCompleteSuggestion = useCallback(
+    (id: string) => void completeSuggestion(id),
+    [completeSuggestion],
+  );
   const onPromoteSuggestion = useCallback((id: string) => void promoteTodo(id), [promoteTodo]);
   const { tagsByThreadId, overrideTag } = useTriageTags();
 
@@ -1770,7 +1777,9 @@ function useRailData(): RailData {
       todos: todoItems,
       todoSuggestions,
       onToggleTodo,
+      onClearTodo,
       onCreateTodo,
+      onCompleteSuggestion,
       onPromoteSuggestion,
       onDismissSuggestion,
       inbox: inboxItems,
@@ -1799,7 +1808,9 @@ function useRailData(): RailData {
       todoItems,
       todoSuggestions,
       onToggleTodo,
+      onClearTodo,
       onCreateTodo,
+      onCompleteSuggestion,
       onPromoteSuggestion,
       onDismissSuggestion,
       inboxItems,

@@ -35,8 +35,12 @@ export interface RailData {
   todoSuggestions?: ReadonlyArray<SuggestionInput>;
   /** Check/uncheck a todo (ADR-0050). `done` is the row's current state. */
   onToggleTodo?: (id: string, done: boolean) => void;
+  /** Clear a completed todo from the rail (`done` to `cleared`). */
+  onClearTodo?: (id: string) => void;
   /** Add a user-authored todo from the rail's add row. */
   onCreateTodo?: (title: string) => void;
+  /** Mark a suggestion done directly (`suggested` to `done`). */
+  onCompleteSuggestion?: (id: string) => void;
   /** Accept a suggestion (`suggested` to `open`). */
   onPromoteSuggestion?: (id: string) => void;
   /** Decline a suggestion (`suggested` to `dismissed`). */

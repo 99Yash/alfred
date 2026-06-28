@@ -1,5 +1,5 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Calendar, Check, Mail } from "lucide-react";
+import { Calendar, Check, Mail, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { TodoItem } from "./helpers";
 import { RailAddRow } from "./rail-add-row";
@@ -18,7 +18,9 @@ export function TodoFeed({
   items,
   suggestions = EMPTY_SUGGESTIONS,
   onToggleTodo,
+  onClearTodo,
   onCreateTodo,
+  onCompleteSuggestion,
   onPromoteSuggestion,
   onDismissSuggestion,
 }: {
@@ -26,8 +28,12 @@ export function TodoFeed({
   suggestions?: ReadonlyArray<SuggestionInput>;
   /** Check/uncheck a todo. `done` is the row's current state. */
   onToggleTodo?: (id: string, done: boolean) => void;
+  /** Clear a completed todo from the rail (`done → cleared`); distinct from reopening. */
+  onClearTodo?: (id: string) => void;
   /** Add a user-authored todo. When absent, the add row is a static affordance. */
   onCreateTodo?: (title: string) => void;
+  /** Mark a suggestion done directly (`suggested → done`). */
+  onCompleteSuggestion?: (id: string) => void;
   /** Accept a suggestion (`suggested → open`). */
   onPromoteSuggestion?: (id: string) => void;
   /** Decline a suggestion (`suggested → dismissed`). */
@@ -71,6 +77,7 @@ export function TodoFeed({
               key={todo.id}
               todo={todo}
               onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
+              onClear={onClearTodo ? () => onClearTodo(todo.id) : undefined}
             />
           ))}
         </ul>
@@ -89,6 +96,9 @@ export function TodoFeed({
               label={s.label}
               detail={s.detail}
               onAccept={s.id && onPromoteSuggestion ? () => onPromoteSuggestion(s.id!) : undefined}
+              onComplete={
+                s.id && onCompleteSuggestion ? () => onCompleteSuggestion(s.id!) : undefined
+              }
               onDismiss={s.id && onDismissSuggestion ? () => onDismissSuggestion(s.id!) : undefined}
             />
           ))}
@@ -102,16 +112,29 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
   return <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>;
 }
 
-function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) {
+function TodoRow({
+  todo,
+  onToggle,
+  onClear,
+}: {
+  todo: TodoItem;
+  onToggle?: () => void;
+  /** Clear a completed todo (`done → cleared`). Distinct from unchecking it. */
+  onClear?: () => void;
+}) {
   return (
-    <li>
+    <li
+      className={cn(
+        "group relative -mx-0.5 flex items-start rounded-xl",
+        "transition-colors hover:bg-white/[0.07]",
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={todo.done ?? false}
         className={cn(
-          "group -mx-0.5 w-full rounded-xl p-2 text-left",
-          "app-press transition-colors hover:bg-white/[0.07]",
+          "app-press min-w-0 flex-1 rounded-xl p-2 text-left",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -150,6 +173,21 @@ function TodoRow({ todo, onToggle }: { todo: TodoItem; onToggle?: () => void }) 
           ) : null}
         </span>
       </button>
+      {onClear ? (
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label={`Clear completed to-do: ${todo.title}`}
+          className={cn(
+            "app-press my-1 mr-1 inline-flex size-6 shrink-0 items-center justify-center self-center rounded-md",
+            "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
+            "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          )}
+        >
+          <X size={12} aria-hidden />
+        </button>
+      ) : null}
     </li>
   );
 }

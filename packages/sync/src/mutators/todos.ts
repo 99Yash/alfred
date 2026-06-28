@@ -38,6 +38,12 @@ export type TodoPromoteArgs = z.infer<typeof todoPromoteArgsSchema>;
 export const todoDismissArgsSchema = z.object({ id: todoId });
 export type TodoDismissArgs = z.infer<typeof todoDismissArgsSchema>;
 
+export const todoClearArgsSchema = z.object({ id: todoId });
+export type TodoClearArgs = z.infer<typeof todoClearArgsSchema>;
+
+export const todoCompleteSuggestionArgsSchema = z.object({ id: todoId });
+export type TodoCompleteSuggestionArgs = z.infer<typeof todoCompleteSuggestionArgsSchema>;
+
 export const todoEditArgsSchema = z
   .object({
     id: todoId,
@@ -88,13 +94,14 @@ export async function todoCompleteClient(
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status === "done") return;
-  const now = new Date().toISOString();
+  // `updatedAt` is left to the server's `.$onUpdate()` — the optimistic row
+  // keeps the old value until the next pull rebases the canonical timestamp,
+  // and nothing client-side reads it. The same goes for the other transitions.
   await writeTodo(tx, {
     ...todo,
     status: "done",
-    completedAt: now,
+    completedAt: new Date().toISOString(),
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -102,13 +109,31 @@ export async function todoCompleteClient(
 export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     status: "open",
     completedAt: null,
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
+  });
+}
+
+/**
+ * Mark an Alfred-suggested todo done in one action: `suggested → done`, stamp
+ * `completedAt`. Provenance (`createdBy`, `sources`, `assist`) rides along
+ * untouched, so the completed row carries the same context as any other done
+ * todo. The done row syncs (within the done-sync window) and lands in *Done*.
+ */
+export async function todoCompleteSuggestionClient(
+  tx: WriteTransaction,
+  args: TodoCompleteSuggestionArgs,
+): Promise<void> {
+  const todo = await readTodo(tx, args.id);
+  if (!todo || todo.status !== "suggested") return;
+  await writeTodo(tx, {
+    ...todo,
+    status: "done",
+    completedAt: new Date().toISOString(),
+    rowVersion: todo.rowVersion + 1,
   });
 }
 
@@ -119,12 +144,10 @@ export async function todoPromoteClient(
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "suggested") return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     status: "open",
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -142,16 +165,26 @@ export async function todoDismissClient(
   await tx.del(key);
 }
 
+/**
+ * Personally clear a completed todo from the rail: `done → cleared`. Like
+ * `dismissed`, `cleared` rows never sync, so the optimistic patch deletes the
+ * local row; the server moves it to `status='cleared'` and the next pull
+ * confirms the deletion. Guarded on `done` so it can't drop a live todo.
+ */
+export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs): Promise<void> {
+  const todo = await readTodo(tx, args.id);
+  if (!todo || todo.status !== "done") return;
+  await tx.del(IDB_KEY.TODO({ id: args.id }));
+}
+
 /** Edit a todo's name and/or description. */
 export async function todoEditClient(tx: WriteTransaction, args: TodoEditArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo) return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     ...(args.name !== undefined ? { name: args.name } : {}),
     ...(args.description !== undefined ? { description: args.description } : {}),
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
