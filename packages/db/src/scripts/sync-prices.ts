@@ -12,14 +12,29 @@
  * Voyage isn't in models.dev — those rows come from a static fallback
  * below until they're added or we wire a Voyage-specific source.
  */
+import { httpErrorFromResponse, isRecord } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
+const MODELS_DEV_FETCH_TIMEOUT_MS = 30_000;
 
 /** Providers we care about. Anything else from models.dev is ignored. */
 const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
+
+/**
+ * A single reasoning-control mechanism from models.dev. The catalog-wide universe
+ * is a closed 3-type set (`effort` | `budget_tokens` | `toggle`); `values` is
+ * present only on `effort` (the vocabulary the `verify-capabilities` audit diffs
+ * against `MODEL_CAPABILITIES.effortValues`).
+ */
+interface ModelsDevReasoningOption {
+  type: string;
+  values?: string[];
+  min?: number;
+  max?: number;
+}
 
 interface ModelsDevModel {
   id: string;
@@ -27,6 +42,8 @@ interface ModelsDevModel {
   limit?: { context?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   reasoning?: boolean;
+  reasoning_options?: ModelsDevReasoningOption[];
+  temperature?: boolean;
   tool_call?: boolean;
 }
 
@@ -91,9 +108,15 @@ interface PriceRow {
 }
 
 async function fetchCatalog(): Promise<ModelsDevCatalog> {
-  const res = await fetch(MODELS_DEV_URL);
-  if (!res.ok) throw new Error(`models.dev fetch failed: ${res.status}`);
-  return (await res.json()) as ModelsDevCatalog;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
+    if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
+    return (await res.json()) as ModelsDevCatalog;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
@@ -118,6 +141,13 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
           capabilities: {
             reasoning: m.reasoning ?? false,
             toolCall: m.tool_call ?? false,
+            // Captured for the `verify-capabilities` audit (ADR-0078): the per-
+            // model effort vocabulary + temperature support that `@alfred/ai`'s
+            // `MODEL_CAPABILITIES` hard-codes. models.dev is the *audit oracle*,
+            // not a runtime source — the audit diffs the snapshot against the
+            // code-resident values and fails on drift.
+            reasoningOptions: m.reasoning_options ?? null,
+            temperature: m.temperature ?? null,
           },
           limit: m.limit ?? null,
           modalities: m.modalities ?? null,
@@ -153,9 +183,43 @@ function pricesEqual(
   );
 }
 
+/**
+ * Compare the audited capability subset (effort vocabulary + temperature) the
+ * `verify-capabilities` script reads. Folded into change-detection so a
+ * capability shift inserts a fresh snapshot even when *price* is unchanged —
+ * otherwise the new metadata would never land on a price-stable model and the
+ * audit would perpetually see no snapshot. Deep-compared via JSON (the tracked
+ * fields are a small array + a boolean), order-sensitive (models.dev is stable).
+ */
+function capabilitiesEqual(
+  latestMetadata: unknown,
+  incoming: Record<string, unknown> | undefined,
+): boolean {
+  const pick = (meta: unknown) => {
+    const metadata = isRecord(meta) ? meta : {};
+    const caps = isRecord(metadata.capabilities) ? metadata.capabilities : {};
+    return JSON.stringify({
+      reasoningOptions: caps?.reasoningOptions ?? null,
+      temperature: caps?.temperature ?? null,
+    });
+  };
+  return pick(latestMetadata) === pick(incoming);
+}
+
+function safeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function safeCauseMessage(err: unknown): string | undefined {
+  if (!(err instanceof Error) || !("cause" in err)) return undefined;
+  const cause = err.cause;
+  if (cause instanceof Error) return cause.message;
+  return typeof cause === "string" ? cause : undefined;
+}
+
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
   const existing = await db().execute(sql`
-    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window
+    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window, metadata
     FROM model_prices
     WHERE provider = ${row.provider} AND model = ${row.model}
     ORDER BY valid_from DESC
@@ -167,20 +231,22 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     cached_input_per_mtok: string | null;
     per_call_usd: string | null;
     context_window: number | null;
+    metadata: unknown;
   }>(existing)[0];
 
   if (latest) {
-    const same = pricesEqual(
-      {
-        inputPerMtok: Number(latest.input_per_mtok),
-        outputPerMtok: Number(latest.output_per_mtok),
-        cachedInputPerMtok:
-          latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
-        perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
-        contextWindow: latest.context_window,
-      },
-      row,
-    );
+    const same =
+      pricesEqual(
+        {
+          inputPerMtok: Number(latest.input_per_mtok),
+          outputPerMtok: Number(latest.output_per_mtok),
+          cachedInputPerMtok:
+            latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
+          perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
+          contextWindow: latest.context_window,
+        },
+        row,
+      ) && capabilitiesEqual(latest.metadata, row.metadata);
     if (same) return "unchanged";
   }
 
@@ -219,9 +285,9 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("[sync-prices] FAIL:", err);
-    if (err instanceof Error && "cause" in err)
-      console.error("[sync-prices] cause:", (err as { cause?: unknown }).cause);
+    console.error("[sync-prices] FAIL:", safeErrorMessage(err));
+    const cause = safeCauseMessage(err);
+    if (cause) console.error("[sync-prices] cause:", cause);
     process.exitCode = 1;
   })
   .finally(async () => {
