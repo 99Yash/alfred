@@ -41,6 +41,14 @@ interface MarkdownRendererProps {
   extraRemarkPlugins?: RemarkPlugins;
   /** Extra component overrides merged over the shared registry. */
   extraComponents?: Components;
+  /**
+   * How to handle markdown images. `render` (default) emits `<img>` as usual —
+   * correct for chat, briefings, and artifacts. `alt-text` emits the alt text
+   * in brackets and NEVER an `<img>`, so a `![](https://tracker)` pixel in a
+   * text/plain email body makes zero remote requests (#294). The inbox Reader
+   * passes `alt-text`; everywhere else keeps the default.
+   */
+  images?: "render" | "alt-text";
 }
 
 /** Theme-following colors for regular app surfaces. */
@@ -143,7 +151,20 @@ export function MarkdownRenderer({
   size = "compact",
   extraRemarkPlugins,
   extraComponents,
+  images = "render",
 }: MarkdownRendererProps) {
+  // In `alt-text` mode the `img` override wins over `extraComponents` — it is a
+  // privacy guarantee (#294), not a style default, so nothing may re-enable a
+  // remote `<img>`.
+  const components: Components = {
+    ...markdownComponents,
+    ...extraComponents,
+    ...(images === "alt-text"
+      ? {
+          img: ({ alt }) => (alt ? <span className="italic text-white/55">[{alt}]</span> : null),
+        }
+      : {}),
+  };
   return (
     <div
       className={cn(
@@ -208,9 +229,7 @@ export function MarkdownRenderer({
             ...(extraRemarkPlugins ?? []),
           ]}
           rehypePlugins={[rehypeKatex]}
-          components={
-            extraComponents ? { ...markdownComponents, ...extraComponents } : markdownComponents
-          }
+          components={components}
         >
           {children}
         </ReactMarkdown>

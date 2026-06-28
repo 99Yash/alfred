@@ -86,7 +86,14 @@ export interface FetchUrlError {
   url: string;
   finalUrl?: string;
   contentType?: string;
-  reason: "blocked_host" | "unsupported_content_type" | "too_large" | "http_error" | "fetch_failed";
+  reason:
+    | "blocked_host"
+    | "blocked_port"
+    | "credential_url"
+    | "unsupported_content_type"
+    | "too_large"
+    | "http_error"
+    | "fetch_failed";
   /** A plain-language explanation the boss can relay to the user. */
   message: string;
   /** Redirect hops taken before the failure, when any (see {@link FetchUrlOk.redirects}). */
@@ -552,6 +559,150 @@ function safeAgent(): Agent {
   return sharedAgent;
 }
 
+/* ── credential-bearing URLs (#293) ───────────────────────────────────── */
+
+/**
+ * Full param names that always carry a secret. Matched against the param's
+ * percent-decoded, lowercased name (`?Token=` and `?to%6Ben=` both normalize to
+ * `token`). `key` / `code` live here as exact-name-only blunt instruments: a bare
+ * `?key=`/`?code=` blocks, but `sort_key`/`country_code`/`promo_code` (where the
+ * stem is only a *fragment* of a larger word) pass — see {@link CREDENTIAL_SEGMENT_STEMS}.
+ */
+const CREDENTIAL_EXACT_NAMES = new Set([
+  "token",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "auth",
+  "authorization",
+  "signature",
+  "sig",
+  "x-amz-signature",
+  "x-goog-signature",
+  "jwt",
+  "secret",
+  "client_secret",
+  "api_key",
+  "apikey",
+  "key",
+  "code",
+]);
+
+/**
+ * Stems that block when they appear as a *whole segment* of a param name.
+ * `session-token`, `auth.code`, `X-Amz-Signature`, `accessToken` all split into a
+ * segment that hits this set; `monkey`, `keyword`, `authenticationMode` do not
+ * (their segments are `monkey` / `keyword` / `authentication`+`mode`). Narrower
+ * than {@link CREDENTIAL_EXACT_NAMES}: `key`/`code` are deliberately absent so
+ * compound `*_key`/`*_code` params survive.
+ */
+const CREDENTIAL_SEGMENT_STEMS = new Set(["token", "secret", "signature", "sig", "auth", "jwt"]);
+
+/**
+ * Split a param name into lowercase segments on non-alphanumeric boundaries
+ * *and* camelCase transitions (`accessToken` → `access`,`token`; `XMLToken` →
+ * `xml`,`token`). Segment-aware matching is what keeps `country_code` and
+ * `monkey` out of the credential net while still catching `session-token`.
+ * The broad separator is intentional: URLSearchParams decodes both `%20` and
+ * `+` to a space, so `access%20token` / `access+token` must split too.
+ */
+function segmentParamName(decoded: string): string[] {
+  const boundary = "\u0000";
+  return decoded
+    .replace(/([a-z0-9])([A-Z])/g, `$1${boundary}$2`) // lower→Upper camelCase boundary
+    .replace(/([A-Z]+)([A-Z][a-z])/g, `$1${boundary}$2`) // ACRONYMWord boundary (URLToken)
+    .split(/[\u0000\W_]+/)
+    .map((segment) => segment.toLowerCase())
+    .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Whether a single (already percent-decoded, as `URLSearchParams` yields) param
+ * name looks credential-bearing. Exact-name match first, then whole-segment stem
+ * match. Never a broad substring test — that's the whole point of the segmenter.
+ */
+function isCredentialParamName(decodedName: string): boolean {
+  if (CREDENTIAL_EXACT_NAMES.has(decodedName.toLowerCase())) return true;
+  return segmentParamName(decodedName).some((segment) => CREDENTIAL_SEGMENT_STEMS.has(segment));
+}
+
+/** True when any query param name on `u` is credential-bearing. */
+function hasCredentialQuery(u: URL): boolean {
+  for (const name of u.searchParams.keys()) {
+    if (isCredentialParamName(name)) return true;
+  }
+  return false;
+}
+
+/** Redact credential-bearing `key=value` pairs in a raw `a=b&c=d` segment. */
+function redactQuerySegment(segment: string): string {
+  return segment
+    .split("&")
+    .map((pair) => {
+      const eq = pair.indexOf("=");
+      if (eq < 0) return pair;
+      const rawName = pair.slice(0, eq);
+      let name: string;
+      try {
+        name = decodeURIComponent(rawName);
+      } catch {
+        name = rawName;
+      }
+      return isCredentialParamName(name) ? `${rawName}=[REDACTED]` : pair;
+    })
+    .join("&");
+}
+
+/**
+ * Redact credential-like values in URL userinfo plus **query and fragment** params
+ * to `[REDACTED]`, keeping scheme/host/path and every non-credential param
+ * verbatim. Pure string surgery (no `new URL` round-trip) so it can't throw on a
+ * malformed input and never re-encodes the parts it leaves alone. The fragment is
+ * covered too: an OAuth implicit-flow `#access_token=…` never reaches the wire but
+ * would still be a secret sitting in a persisted audit row.
+ */
+export function redactCredentialUrl(raw: string): string {
+  const hashIdx = raw.indexOf("#");
+  const fragment = hashIdx >= 0 ? raw.slice(hashIdx + 1) : null;
+  const beforeFragment = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+  const qIdx = beforeFragment.indexOf("?");
+  const query = qIdx >= 0 ? beforeFragment.slice(qIdx + 1) : null;
+  const base = redactUrlUserinfo(qIdx >= 0 ? beforeFragment.slice(0, qIdx) : beforeFragment);
+
+  let out = base;
+  if (query !== null) out += `?${redactQuerySegment(query)}`;
+  if (fragment !== null) out += `#${redactQuerySegment(fragment)}`;
+  return out;
+}
+
+/** Redact `user:pass@` without parsing/re-encoding the URL. */
+function redactUrlUserinfo(base: string): string {
+  const schemeIdx = base.indexOf("://");
+  if (schemeIdx < 0) return base;
+  const authorityStart = schemeIdx + 3;
+  const authorityEndRaw = base.slice(authorityStart).search(/[/?#]/);
+  const authorityEnd = authorityEndRaw >= 0 ? authorityStart + authorityEndRaw : base.length;
+  const authority = base.slice(authorityStart, authorityEnd);
+  const atIdx = authority.lastIndexOf("@");
+  if (atIdx < 0) return base;
+  return `${base.slice(0, authorityStart)}[REDACTED]@${authority.slice(atIdx + 1)}${base.slice(authorityEnd)}`;
+}
+
+/**
+ * #292: only the scheme's default web port is read. The WHATWG `URL` parser
+ * normalizes an explicit `:80`/`:443` that matches the scheme to `""`, so a bare
+ * `u.port` is already the default; any non-empty `u.port` is an explicit port and
+ * must match the scheme (an `http://h:443` / `https://h:80` mismatch is refused).
+ * Closes the SSRF surface where a non-default port reaches an internal service
+ * (admin panel, metadata sidecar) on an otherwise-public host.
+ */
+function hasAllowedDefaultPort(u: URL): boolean {
+  if (u.port === "") return true;
+  return (
+    (u.protocol === "http:" && u.port === "80") || (u.protocol === "https:" && u.port === "443")
+  );
+}
+
 /** Validate one hop's URL string-deep, before any socket is opened. */
 function validateUrl(raw: string): URL {
   let u: URL;
@@ -574,6 +725,20 @@ function validateUrl(raw: string): URL {
       "blocked_host",
       `'${u.hostname}' is a private or internal host and cannot be read.`,
       u.toString(),
+    );
+  }
+  if (!hasAllowedDefaultPort(u)) {
+    throw new FetchError(
+      "blocked_port",
+      `Only default web ports are read; port ${u.port} on '${u.hostname}' is not.`,
+      redactCredentialUrl(u.toString()),
+    );
+  }
+  if (hasCredentialQuery(u)) {
+    throw new FetchError(
+      "credential_url",
+      "URLs that carry credentials in the query string are not read.",
+      redactCredentialUrl(u.toString()),
     );
   }
   return u;
@@ -803,7 +968,40 @@ async function readBounded(
 
 /* ── orchestration ────────────────────────────────────────────────────── */
 
+/**
+ * Redact credential-bearing query/fragment values from every URL-shaped field of
+ * a result before it leaves the tool. The tool owns sensitivity (#293): because
+ * this happens inside `runFetchUrl`, `span.success(result)` in the dispatcher is
+ * auto-redacted, and the result that flows into the transcript/persisted row
+ * never carries a secret — even on the fragment path, which is fetched fine
+ * (fragments aren't sent to the server) but must not be stored verbatim.
+ */
+function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
+  const redirects = r.redirects?.map(redactCredentialUrl);
+  if (r.ok) {
+    return {
+      ...r,
+      url: redactCredentialUrl(r.url),
+      finalUrl: redactCredentialUrl(r.finalUrl),
+      ...(redirects ? { redirects } : {}),
+    };
+  }
+  return {
+    ...r,
+    url: redactCredentialUrl(r.url),
+    ...(r.finalUrl ? { finalUrl: redactCredentialUrl(r.finalUrl) } : {}),
+    ...(redirects ? { redirects } : {}),
+  };
+}
+
 export async function runFetchUrl(
+  args: FetchUrlArgs,
+  deps: { transport?: Transport } = {},
+): Promise<FetchUrlResult> {
+  return redactFetchResult(await runFetchUrlImpl(args, deps));
+}
+
+async function runFetchUrlImpl(
   args: FetchUrlArgs,
   deps: { transport?: Transport } = {},
 ): Promise<FetchUrlResult> {

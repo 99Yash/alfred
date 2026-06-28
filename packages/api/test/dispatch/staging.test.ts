@@ -46,6 +46,11 @@ const createdUserIds: string[] = [];
 // a test can prove a re-dispatch did NOT re-execute (count stays put).
 let executeCount = 0;
 
+// The raw URL the `fetch_url` double actually received in `execute`, so a test
+// can prove the dispatcher hands the tool the unredacted input even though the
+// persisted `proposed_input` is scrubbed (#293).
+let lastFetchUrlExecuteUrl: string | null = null;
+
 async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
@@ -103,6 +108,24 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           }
           return { ok: true, slug: input.slug, call: executeCount };
         },
+      }),
+    );
+    registerTool(
+      liveTool({
+        integration: "system",
+        action: "fetch_url",
+        riskTier: "no_risk",
+        description: "test double — echoes the raw url it received + redacts on persist",
+        inputSchema: z.object({ url: z.string() }),
+        execute: async (input) => {
+          lastFetchUrlExecuteUrl = input.url;
+          return { ok: true, url: input.url };
+        },
+        // Mirror the real fetch_url: scrub a credential query param to [REDACTED].
+        redactInput: (input) => ({
+          ...input,
+          url: input.url.replace(/([?&](?:code|access_token|token)=)[^&#]*/gi, "$1[REDACTED]"),
+        }),
       }),
     );
     registerTool(
@@ -206,6 +229,39 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
     assert.equal(rows[0]?.executeSanitized, true, "the verdict is persisted on the row");
+  });
+
+  test("#293 redacts proposed_input for an autonomous tool while execute sees the raw url", async () => {
+    const { userId, runId } = await seedUserAndRun();
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const rawUrl = "https://example.com/cb?code=topsecret42&page=2";
+
+    const result = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "system.fetch_url",
+      input: { url: rawUrl },
+      userId,
+      caller: "boss",
+    });
+
+    // execute() ran against the RAW url (idempotency + the in-tool credential
+    // block both depend on the real value).
+    assert.equal(result.kind, "executed");
+    assert.equal(lastFetchUrlExecuteUrl, rawUrl, "execute receives the unredacted url");
+
+    // ...but the persisted proposed_input is scrubbed (system tools are
+    // autonomous, so they always take the redact branch).
+    const rows = await db()
+      .select({ proposedInput: actionStagings.proposedInput })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+    const persisted = rows[0]?.proposedInput as { url?: string } | undefined;
+    assert.ok(persisted?.url, "proposed_input has a url");
+    assert.match(persisted.url, /code=\[REDACTED\]/);
+    assert.match(persisted.url, /page=2/, "non-credential params survive redaction");
+    assert.doesNotMatch(persisted.url, /topsecret42/, "the secret never reaches the persisted row");
   });
 
   test("a fresh toolCallId in the same run executes again", async () => {
