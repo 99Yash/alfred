@@ -358,6 +358,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // distinguishes a freshly-inserted row from an updated (conflict) one — the
   // standard Postgres upsert idiom — so the Replicache poke stays gated to
   // genuinely-new rows.
+  // #293: redact secrets from the persisted `proposed_input` — but ONLY for an
+  // autonomous call. A gated tool's `proposed_input` doubles as the
+  // approval-resume payload (the `approved` branch below re-executes from it when
+  // the user didn't edit), so redacting it would corrupt resume. fetch_url is
+  // autonomous, so it always takes the redacted branch; the guard is the seam for
+  // a future gated secret-bearing tool. The hash + execute always use raw `input`.
+  const proposedInputForRow =
+    !requiresApproval && tool.redactInput ? tool.redactInput(input) : input;
   const upserted = await db()
     .insert(actionStagings)
     .values({
@@ -368,7 +376,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       toolName,
       integration,
       riskTier,
-      proposedInput: input as object,
+      proposedInput: proposedInputForRow as object,
       proposedInputHash,
       requiresApproval,
       status: "pending",
@@ -769,7 +777,10 @@ async function executeToolWithSpan(
     userId: ctx.userId,
     caller: ctx.caller === "boss" ? "boss" : `sub:${ctx.caller.subId}`,
     stepId: ctx.stepId,
-    input,
+    // #293: the trace/span sink ALWAYS gets the redacted input — unlike
+    // `proposed_input`, a span is never a resume payload, so there's no gated
+    // exception. `execute` below still receives the raw `input`.
+    input: tool.redactInput ? tool.redactInput(input) : input,
     startedAt: new Date(),
   });
   try {

@@ -85,6 +85,16 @@ export interface LiveToolArgs<
    * Throwing is fine — the dispatcher catches and records the error.
    */
   execute: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<unknown>;
+  /**
+   * Optional: scrub secrets from the input *before it is persisted to a sink*
+   * (the Langfuse span/trace always; `action_stagings.proposed_input` when the
+   * call is autonomous). The tool owns what counts as sensitive; the dispatcher
+   * owns where the scrubbed value goes (#293). MUST be pure and return a value of
+   * the same shape — the hash and `execute` always see the raw input, so this
+   * never affects idempotency or behavior. `fetch_url` uses it to redact
+   * credential-bearing URL query/fragment values.
+   */
+  redactInput?: (input: z.infer<S>) => z.infer<S>;
 }
 
 export interface RegisteredTool {
@@ -95,6 +105,8 @@ export interface RegisteredTool {
   description: string;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
+  /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
+  redactInput?: (input: unknown) => unknown;
 }
 
 /**
@@ -120,6 +132,9 @@ export function liveTool<
       const parsed = args.inputSchema.parse(input);
       return args.execute(parsed, ctx);
     },
+    ...(args.redactInput
+      ? { redactInput: (input: unknown) => args.redactInput!(input as z.infer<S>) }
+      : {}),
   };
 }
 

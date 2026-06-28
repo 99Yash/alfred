@@ -857,7 +857,11 @@ function ThreadMessageCard({
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
               <div className="px-3 py-2.5">
-                <MarkdownRenderer tone="media">{message.body.trim()}</MarkdownRenderer>
+                {/* #294: alt-text only — a `![](https://tracker)` pixel in a
+                 * text/plain body must not make a remote request in Reader. */}
+                <MarkdownRenderer tone="media" images="alt-text">
+                  {message.body.trim()}
+                </MarkdownRenderer>
               </div>
             ) : (
               <p className="px-3 py-2.5 text-[12px] italic text-white/55">(empty body)</p>
@@ -885,7 +889,7 @@ function buildSnippet(snippet: string | null, body: string): string {
   const firstLine = body
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l.length > 0 && !/^>/.test(l) && !/^on .+wrote:/i.test(l));
+    .find((l) => l.length > 0 && !l.startsWith('>') && !/^on .+wrote:/i.test(l));
   return (firstLine ?? "").slice(0, 140);
 }
 
@@ -935,6 +939,32 @@ function ToggleButton({
 }
 
 /**
+ * Matches the strict CSP meta the server bakes into every Original body
+ * (`sanitizeEmailHtml`, #294). Swapped for {@link LOOSE_CSP_META} only when the
+ * user opts into remote media for that message.
+ */
+const CSP_META_RE = /<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i;
+
+/**
+ * The "Display remote media" variant: same strict policy, but `img-src` /
+ * `media-src` now allow http(s) so sender-hosted images and video load. Scripts,
+ * forms, frames, connect, and objects stay blocked — this only relaxes media.
+ */
+const LOOSE_CSP_META =
+  `<meta http-equiv="Content-Security-Policy" content="` +
+  `default-src 'none'; img-src http: https: data: cid:; media-src http: https:; font-src 'none'; ` +
+  `connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; ` +
+  `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
+
+const REMOTE_MEDIA_ATTR_RE =
+  /<(?:img|source|video|audio|track|image)\b[^>]*\s(?:src|srcset|poster|href|xlink:href)\s*=\s*(?:"[^"]*https?:\/\/|'[^']*https?:\/\/|[^\s>]*https?:\/\/)/i;
+const REMOTE_CSS_URL_RE = /url\(\s*(?:"https?:\/\/|'https?:\/\/|https?:\/\/)/i;
+
+export function hasRemoteEmailMedia(html: string): boolean {
+  return REMOTE_MEDIA_ATTR_RE.test(html) || REMOTE_CSS_URL_RE.test(html);
+}
+
+/**
  * Renders email HTML in a sandboxed iframe via `srcDoc`. DOMPurify already
  * scrubbed dangerous markup server-side; the sandbox is defense-in-depth.
  *
@@ -943,10 +973,23 @@ function ToggleButton({
  * (without `allow-same-origin` the srcdoc document gets an opaque origin
  * and the read is blocked), and it stays safe because no scripts can run
  * to exploit the same-origin access. Auto-sizes on `load` + `ResizeObserver`.
+ *
+ * Remote media (#294): the server's strict CSP means the Original view makes no
+ * sender-host requests on open — tracking pixels never fire. The user opts in
+ * per message via "Display remote media", which re-renders this frame with a
+ * looser `img-src`. State is local, so it resets every time the message
+ * collapses/re-expands.
  */
 function EmailHtmlFrame({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const [showRemoteMedia, setShowRemoteMedia] = useState(false);
+
+  // Only offer the toggle when there's a strict CSP to relax AND remote media
+  // to load; otherwise every plain Original body would show a false warning.
+  const canDisplayRemoteMedia = CSP_META_RE.test(html) && hasRemoteEmailMedia(html);
+  const srcDoc =
+    showRemoteMedia && canDisplayRemoteMedia ? html.replace(CSP_META_RE, LOOSE_CSP_META) : html;
 
   useLayoutEffect(() => {
     const frame = ref.current;
@@ -987,23 +1030,42 @@ function EmailHtmlFrame({ html }: { html: string }) {
       frame.removeEventListener("load", onLoad);
       observer?.disconnect();
     };
-  }, [html]);
+    // Re-measure when the rendered document changes (incl. the remote-media swap).
+  }, [srcDoc]);
 
   return (
-    <iframe
-      ref={ref}
-      title="Email body"
-      srcDoc={html}
-      // `allow-same-origin` without `allow-scripts` lets us measure
-      // `contentDocument` from the parent while still blocking JS execution
-      // inside the frame. `allow-popups` (and -to-escape-sandbox) lets the
-      // `<base target="_blank">` we injected open links in a new tab.
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      // referrerpolicy keeps clicked links from leaking the chat URL.
-      referrerPolicy="no-referrer"
-      className="block w-full bg-white"
-      style={{ height, border: 0, colorScheme: "light" }}
-    />
+    <div>
+      {canDisplayRemoteMedia && !showRemoteMedia ? (
+        <div className="flex items-center justify-between gap-2 border-b border-black/10 bg-black/[0.03] px-3 py-1.5">
+          <span className="text-[11px] text-black/55">Remote images are blocked.</span>
+          <button
+            type="button"
+            onClick={() => setShowRemoteMedia(true)}
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium app-press",
+              "text-black/70 ring-1 ring-black/15 hover:bg-black/[0.06]",
+              "outline-none focus-visible:ring-2 focus-visible:ring-black/40",
+            )}
+          >
+            Display remote media
+          </button>
+        </div>
+      ) : null}
+      <iframe
+        ref={ref}
+        title="Email body"
+        srcDoc={srcDoc}
+        // `allow-same-origin` without `allow-scripts` lets us measure
+        // `contentDocument` from the parent while still blocking JS execution
+        // inside the frame. `allow-popups` (and -to-escape-sandbox) lets the
+        // `<base target="_blank">` we injected open links in a new tab.
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        // referrerpolicy keeps clicked links from leaking the chat URL.
+        referrerPolicy="no-referrer"
+        className="block w-full bg-white"
+        style={{ height, border: 0, colorScheme: "light" }}
+      />
+    </div>
   );
 }
 
