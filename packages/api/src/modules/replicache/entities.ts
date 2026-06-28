@@ -113,7 +113,7 @@ type EntityFetcher = (tx: DbTx, userId: string) => Promise<EntityRow[]>;
 const RECENT_REJECTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const BRIEFING_PULL_WINDOW_DAYS = 30;
 /** Done todos linger this long in the sync window before falling out (ADR-0050). */
-const TODO_DONE_WINDOW_DAYS = 7;
+const TODO_DONE_WINDOW_DAYS = 2;
 /** Most-recent chat messages synced per user — bounds the Replicache pull. */
 const CHAT_MESSAGE_PULL_LIMIT = 500;
 /** Most-recent agent-produced artifacts synced per user (ADR-0075). */
@@ -387,9 +387,10 @@ const ENTITY_FETCHERS = {
       );
   },
 
-  // ADR-0050. `dismissed` rows never reach the client; `done` rows linger
-  // `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the DB).
-  // `suggested` + `open` always sync.
+  // ADR-0050. `dismissed` + `cleared` rows never reach the client; `done` rows
+  // linger `TODO_DONE_WINDOW_DAYS` then fall out of the pull window (not the
+  // DB). `suggested` + `open` always sync. `cleared` (#297) is a `done` the
+  // user removed from the rail early — terminal, so excluded like `dismissed`.
   TODO: async (tx, userId) => {
     const doneCutoff = new Date(Date.now() - TODO_DONE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     const rows = await tx
@@ -398,7 +399,7 @@ const ENTITY_FETCHERS = {
       .where(
         and(
           eq(todos.userId, userId),
-          ne(todos.status, "dismissed"),
+          notInArray(todos.status, ["dismissed", "cleared"]),
           or(ne(todos.status, "done"), gte(todos.completedAt, doneCutoff)),
         ),
       )
