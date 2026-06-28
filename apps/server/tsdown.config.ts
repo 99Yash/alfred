@@ -19,6 +19,7 @@ export default defineConfig({
     "./src/scripts/dry-run-reply-reeval-reconcile.ts",
     "./src/scripts/repair-sent-mislabeled-triage-committed.ts",
     "./src/scripts/backfill-purge-document-facts-committed.ts",
+    "./src/scripts/probe-chat-ttft.ts",
   ],
   format: "esm",
   outDir: "./dist",
