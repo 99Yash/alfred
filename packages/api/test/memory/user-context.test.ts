@@ -71,7 +71,7 @@ interface SeedFact {
   confidence: number;
   /** Lower = older. Drives recency ordering within the same confidence. */
   ageMinutes: number;
-  source?: { kind: "document" | "user" | "cold_start" | "agent" };
+      source?: { kind: "document" | "user" | "cold_start" | "agent"; meta?: Record<string, unknown> };
 }
 
 async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
@@ -181,12 +181,13 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       ...noise,
       // Authoritative identity, older and same confidence → ranks ~#31 by
       // recency and would be evicted from the bounded slice without the guard.
-      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
+      // Canonical storage key is `employer` (#330); `current_company` is a read DTO label.
+      { key: "employer", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
     ]);
 
     const ctx = await readUserContext(userId);
-    const company = ctx.confirmedFacts.find((f) => f.key === "current_company");
-    assert.ok(company, "current_company must survive the cap even when buried by recent noise");
+    const company = ctx.confirmedFacts.find((f) => f.key === "employer");
+    assert.ok(company, "employer must survive the cap even when buried by recent noise");
     assert.equal(company.value, "Oliv AI");
     assert.equal(ctx.confirmedFacts.length, 30, "merged fact slice stays bounded at FACT_LIMIT");
   });
@@ -195,14 +196,14 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     await seedFacts(userId, [
       {
-        key: "current_company",
+        key: "employer",
         value: "Oliv AI",
         confidence: 1.0,
         ageMinutes: 10,
         source: { kind: "user" },
       },
       {
-        key: "current_work",
+        key: "work_summary",
         value: "building Alfred",
         confidence: 1.0,
         ageMinutes: 9,
@@ -220,6 +221,8 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const ctx = await readUserContext(userId, { include: ["profile", "integrations"] });
 
     assert.equal(ctx.confirmedFacts.length, 0, "facts section stays omitted when not requested");
+    // Canonical storage keys (`employer`/`work_summary`) map to the stable DTO
+    // field names (`currentCompany`/`currentWork`) — #330 read-side convergence.
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
     assert.equal(ctx.profile?.currentWork, "building Alfred");
     assert.equal(ctx.profile?.bioSummary, "Yash works on Alfred at Oliv AI");
@@ -229,28 +232,28 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     await seedFacts(userId, [
       {
-        key: "current_company",
+        key: "employer",
         value: "AirBills",
         confidence: 1.0,
         ageMinutes: 1,
         source: { kind: "document" },
       },
       {
-        key: "current_role",
+        key: "job_title",
         value: { title: "not a string" },
         confidence: 1.0,
         ageMinutes: 1,
         source: { kind: "user" },
       },
       {
-        key: "current_role",
+        key: "job_title",
         value: "Software Engineer",
         confidence: 0.95,
         ageMinutes: 20,
         source: { kind: "user" },
       },
       {
-        key: "current_company",
+        key: "employer",
         value: "Oliv AI",
         confidence: 1.0,
         ageMinutes: 10_000,
@@ -264,12 +267,36 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     assert.equal(ctx.profile?.currentRole, "Software Engineer");
     assert.deepEqual(
       ctx.profile?.identityFacts.map((fact) => fact.key),
-      ["current_company", "current_role"],
+      ["employer", "job_title"],
     );
     assert.ok(
-      ctx.confirmedFacts.some((fact) => fact.key === "current_company"),
-      "per-key identity rescue must include current_company despite newer document noise",
+      ctx.confirmedFacts.some((fact) => fact.key === "employer"),
+      "per-key identity rescue must include employer despite newer document noise",
     );
+  });
+
+  test("profile accepts document identity only when the workflow marked authorship", async () => {
+    const userId = await seedUser();
+    await seedFacts(userId, [
+      {
+        key: "location",
+        value: "Wrong City",
+        confidence: 1.0,
+        ageMinutes: 1,
+        source: { kind: "document" },
+      },
+      {
+        key: "location",
+        value: "Bengaluru",
+        confidence: 0.95,
+        ageMinutes: 20,
+        source: { kind: "document", meta: { documentAuthoredByUser: true } },
+      },
+    ]);
+
+    const ctx = await readUserContext(userId, { include: ["profile"] });
+
+    assert.equal(ctx.profile?.currentLocation, "Bengaluru");
   });
 
   test("orders confirmed facts by confidence before recency", async () => {

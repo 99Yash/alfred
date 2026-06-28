@@ -30,9 +30,11 @@ import type { ColdStartSignals } from "./signals";
 
 export const coldStartProposalSchema = z.object({
   /**
-   * Canonical snake_case key. Allowed shapes for cold-start output:
-   *   Identity:      `name`, `bio_summary` (paragraph)
-   *   Work:          `company`, `job_title`, `team`, `location`,
+   * Canonical snake_case key. Allowed shapes for cold-start output (#330 — the
+   * one fact ontology; `name`→`full_name`, `company`→`employer` still map via
+   * `FACT_KEY_ALIASES` but prefer the canonical spelling):
+   *   Identity:      `full_name`, `bio_summary` (paragraph)
+   *   Work:          `employer`, `job_title`, `team`, `location`,
    *                  `home_city`, `home_country`
    *   Online:        `personal_site` (URL), `github_username`,
    *                  `twitter_handle`, `linkedin_url`
@@ -67,8 +69,8 @@ Rules:
 1. Be CONSERVATIVE. The research may have hedged ("tentative", "could not confirm") — respect those qualifiers and drop the proposal when the evidence is thin. False facts erode user trust.
 2. Cite evidence in 'rationale' — quote or paraphrase the specific clause from the research that grounds the fact.
 3. Use snake_case keys. Pick from this short canonical list when applicable; do not invent ad-hoc keys for things outside it:
-   Identity:  'name', 'bio_summary' (one short paragraph, ≤500 chars)
-   Work:      'company', 'job_title', 'team', 'location',
+   Identity:  'full_name', 'bio_summary' (one short paragraph, ≤500 chars)
+   Work:      'employer', 'job_title', 'team', 'location',
               'home_city', 'home_country'
    Online:    'personal_site' (URL), 'github_username', 'twitter_handle', 'linkedin_url'
    Personal:  'marital_status' (e.g. "married", "single", "partnered"),
