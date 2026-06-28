@@ -18,6 +18,7 @@ export default defineConfig({
     "./src/scripts/dry-run-triage-recategorize-committed.ts",
     "./src/scripts/dry-run-reply-reeval-reconcile.ts",
     "./src/scripts/repair-sent-mislabeled-triage-committed.ts",
+    "./src/scripts/backfill-purge-document-facts-committed.ts",
   ],
   format: "esm",
   outDir: "./dist",
