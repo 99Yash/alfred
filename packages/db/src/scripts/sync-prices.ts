@@ -12,7 +12,7 @@
  * Voyage isn't in models.dev — those rows come from a static fallback
  * below until they're added or we wire a Voyage-specific source.
  */
-import { isRecord } from "@alfred/contracts";
+import { httpErrorFromResponse, isRecord } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
@@ -112,7 +112,7 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
   const timeoutId = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
-    if (!res.ok) throw new Error(`models.dev fetch failed: ${res.status}`);
+    if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
     return (await res.json()) as ModelsDevCatalog;
   } finally {
     clearTimeout(timeoutId);
