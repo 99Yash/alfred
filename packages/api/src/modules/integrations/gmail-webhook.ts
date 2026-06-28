@@ -1,10 +1,10 @@
-import { findCredentialByEmail } from "@alfred/integrations/google";
+import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { findCredentialByEmail } from "@alfred/integrations/google";
 import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { UnauthorizedError } from "../../middleware/errors";
 import { getIngestionQueue } from "./queue";
-import { toMessage } from "@alfred/contracts";
 
 /**
  * Gmail push receiver.
@@ -56,24 +56,58 @@ interface OidcClaims extends JWTPayload {
   email_verified?: boolean;
 }
 
-async function verifyPubSubOidc(authHeader: string | null): Promise<OidcClaims> {
+interface PubSubOidcConfig {
+  nodeEnv: "development" | "production" | "test";
+  audience?: string;
+  expectedServiceAccount?: string;
+}
+
+type VerifyJwt = (token: string, audience: string) => Promise<OidcClaims>;
+
+function pubSubOidcConfigFromEnv(): PubSubOidcConfig {
   const env = serverEnv();
-  const audience = env.GOOGLE_PUBSUB_AUDIENCE;
+  return {
+    nodeEnv: env.NODE_ENV,
+    audience: env.GOOGLE_PUBSUB_AUDIENCE,
+    expectedServiceAccount: env.GOOGLE_PUBSUB_SERVICE_ACCOUNT,
+  };
+}
+
+function missingAudienceIsAllowed(config: PubSubOidcConfig): boolean {
+  return config.nodeEnv !== "production";
+}
+
+async function verifyGoogleOidcJwt(token: string, audience: string): Promise<OidcClaims> {
+  const { payload } = await jwtVerify<OidcClaims>(token, GOOGLE_OIDC_JWKS, {
+    issuer: GOOGLE_OIDC_ISSUERS,
+    audience,
+  });
+  return payload;
+}
+
+export async function verifyPubSubOidcForGmailWebhook(
+  authHeader: string | null,
+  options: {
+    config?: PubSubOidcConfig;
+    verifyJwt?: VerifyJwt;
+  } = {},
+): Promise<OidcClaims> {
+  const config = options.config ?? pubSubOidcConfigFromEnv();
+  const audience = config.audience;
   if (!audience) {
-    // OIDC verification disabled (e.g. local dev with ngrok where setting
-    // up an audience is fiddly). Caller must explicitly opt out by
-    // leaving the env var unset.
+    if (!missingAudienceIsAllowed(config)) {
+      throw new Error("GOOGLE_PUBSUB_AUDIENCE is required in production");
+    }
+    // OIDC verification is disabled only for local/test webhook exercises
+    // where setting up a signed Pub/Sub push token is unnecessary friction.
     return {};
   }
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     throw new Error("missing Authorization bearer token");
   }
   const token = authHeader.slice("Bearer ".length);
-  const { payload } = await jwtVerify<OidcClaims>(token, GOOGLE_OIDC_JWKS, {
-    issuer: GOOGLE_OIDC_ISSUERS,
-    audience,
-  });
-  const expectedSa = env.GOOGLE_PUBSUB_SERVICE_ACCOUNT;
+  const payload = await (options.verifyJwt ?? verifyGoogleOidcJwt)(token, audience);
+  const expectedSa = config.expectedServiceAccount;
   if (expectedSa && payload.email !== expectedSa) {
     throw new Error(`unexpected OIDC email: ${payload.email}`);
   }
@@ -96,7 +130,7 @@ export const gmailWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "
   "/gmail",
   async ({ body, headers }) => {
     try {
-      await verifyPubSubOidc(headers["authorization"] ?? null);
+      await verifyPubSubOidcForGmailWebhook(headers["authorization"] ?? null);
     } catch (err) {
       console.warn("[gmail-webhook] OIDC verification failed:", toMessage(err));
       // 401 → Pub/Sub will retry, but a misconfigured audience would
