@@ -1,6 +1,6 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
@@ -9,9 +9,6 @@ import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
 const ITEM = "tools";
-
-/** Slack (px) within which the trail counts as "at the bottom" for auto-pinning. */
-const NEAR_BOTTOM_PX = 24;
 
 /** A closed narration segment — the brief line the model wrote before a tool step. */
 export interface TrailNarration {
@@ -181,26 +178,6 @@ export function ToolCallGroup({
     setValue(active ? ITEM : "");
   }
 
-  // While the turn runs, the capped trail box would otherwise pin to the top and
-  // hide the newest step below the fold — keep it stuck to the bottom so the
-  // step the model is currently on stays in view as the trail grows. But only
-  // while the user is already at the bottom: if they scrolled up to read an
-  // earlier step, don't yank them back on every new tool/narration update.
-  const contentRef = useRef<HTMLDivElement>(null);
-  const pinnedToBottom = useRef(true);
-  const handleTrailScroll = () => {
-    const el = contentRef.current;
-    if (!el) return;
-    // A user scroll fires this; appending content does not — so this latches
-    // the user's intent and survives subsequent content growth.
-    pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
-  };
-  useEffect(() => {
-    if (!active) return;
-    const el = contentRef.current;
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [tools, narration, active]);
-
   if (tools.length === 0) return null;
   if (tools.length === 1 && narration.length === 0) return <ToolCallCard tools={[tools[0]!]} />;
 
@@ -265,11 +242,11 @@ export function ToolCallGroup({
           id={contentId}
           className="overflow-hidden data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down"
         >
-          <div
-            ref={contentRef}
-            onScroll={handleTrailScroll}
-            className="ml-3 mt-1.5 flex max-h-80 flex-col gap-1.5 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pl-3"
-          >
+          {/* The trail flows inline in the conversation feed — no capped height
+           * or nested scrollbar. The feed's own stick-to-bottom keeps the
+           * model's current step in view as the trail grows, so a long agentic
+           * run reads as one continuous timeline rather than a cramped box. */}
+          <div className="ml-3 mt-1.5 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
             {trail.map((item) =>
               item.kind === "tool" ? (
                 <ToolCallCard key={item.key} tools={item.tools} />

@@ -114,26 +114,28 @@ export function googleSearchGroundingTools(): ToolSet {
 }
 
 /**
- * Map an interactive-chat tier to its model (ADR pending; see docs/plans
- * streaming-chat). The chat agent runs on Anthropic by default and escalates
- * to Opus for demanding turns:
- *   - `standard` → Claude Sonnet 4.6 — the default conversational driver.
- *   - `deep`     → Claude Opus 4.8 — escalation for hard, multi-step turns
- *     (and the model the boss-worker harness runs on when chat fans out).
+ * Map an interactive-chat tier to its model (ADR-0077).
+ *   - `standard` (the Auto tier) → Claude Haiku 4.5 — the everyday conversational
+ *     driver. Adopted 2026-06-28 over Sonnet 4.6 after a browser-replay
+ *     adjudication: at ~3× lower cost Haiku held tool-use + judgment quality, keeps
+ *     the #223 prompt cache (same provider → same tokenizer, no re-warm), and needs
+ *     no tool-name shim. Its one gap — under-acting on implicit agentic lookups
+ *     (asking instead of searching) — was closed by the search-before-ask prompt
+ *     hardening (#312) and is pinned by the sender-suppression eval.
+ *   - `deep` → Claude Opus 4.8 — reserved for hard, multi-step turns (and the model
+ *     the boss-worker harness runs on when chat fans out). The heavy model stays
+ *     scoped to Deep, where the cost buys real reasoning.
  *
- * Each tier degrades to the corresponding Google tier on Anthropic failure
- * (rate limit, overload, spend cap) so a chat turn never hard-fails on a
- * single provider blip. Sonnet ↔ Gemini 2.5 Pro; Opus ↔ Gemini 2.5 Pro.
- *
- * Restored to the intended Anthropic mapping 2026-06-07 (mirrors
- * `getBossModel`) after the 2026-05-21 spend-cap swap to Google, with the
- * per-tier Google degradation (Sonnet ↔ 2.5 Pro, Opus ↔ 2.5 Pro) wired via
- * `withFallback` so a provider blip degrades instead of hard-failing the turn.
+ * Each tier degrades to Gemini 2.5 Pro on Anthropic failure (rate limit, overload,
+ * spend cap) via `withFallback`, so a chat turn never hard-fails on a single
+ * provider blip. The Anthropic-specific provider options (cacheControl, thinking)
+ * are namespaced under `providerOptions.anthropic`, so Gemini ignores them when the
+ * fallback serves.
  */
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
   return tier === "deep"
     ? withFallback(anthropicModel("claude-opus-4-8"), googleModel("gemini-2.5-pro"))
-    : withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
+    : withFallback(anthropicModel("claude-haiku-4-5-20251001"), googleModel("gemini-2.5-pro"));
 }
 
 /**
@@ -146,23 +148,27 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  *   - Gemini 2.5: `thinkingConfig.includeThoughts` surfaces the thought summary
  *     (not the raw chain); `thinkingBudget: -1` lets the model size its own
  *     thinking. Flash thinks by default, so this only toggles *visibility*.
- *   - Anthropic 4.6/4.8: **adaptive** thinking — the model sizes its own
- *     reasoning, capped by `effort`. The legacy `{ type: "enabled",
- *     budgetTokens }` API 400s on Opus 4.8 ("not supported for this model; use
- *     thinking.type.adaptive + output_config.effort"), and because
- *     `withFallback` treats a 400 as any-error → switch, every `deep` turn
- *     silently fell through to Gemini 2.5 Pro (#224). `display: "summarized"`
- *     keeps the thought summary streaming to the accordion. Effort tracks the
- *     tier: `deep` escalates to deliberate reasoning, `standard` stays light
- *     for a fast interactive first token.
+ *   - Anthropic: adaptive thinking + `effort` are Sonnet-4.6+/Opus features. The
+ *     `deep` tier (Opus 4.8) gets `thinking:{type:"adaptive"}` + `effort:"high"`
+ *     for deliberate reasoning; `display:"summarized"` streams the thought summary
+ *     to the accordion. The `standard` tier (Haiku 4.5) gets an EMPTY anthropic
+ *     block: Haiku 4.5 hard-400s on BOTH adaptive thinking ("adaptive thinking is
+ *     not supported on this model") AND `effort` — they're 4.6+/Opus-only. Because
+ *     `withFallback` treats a 400 as switch-to-fallback, sending either to Haiku
+ *     would silently drop every Auto turn onto Gemini (the #224 class of bug). An
+ *     empty block keeps Haiku's fast, light-thinking interactive default.
+ *
+ * TODO(#313): this tier→capability branch hardcodes which model each tier resolves
+ * to (Opus supports the thinking block, Haiku doesn't). Replace with a per-model
+ * capability map so a future tier remap can't reintroduce an unsupported param.
  */
 export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
   return {
     google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
-    anthropic: {
-      thinking: { type: "adaptive", display: "summarized" },
-      effort: tier === "deep" ? "high" : "low",
-    },
+    anthropic:
+      tier === "deep"
+        ? { thinking: { type: "adaptive", display: "summarized" }, effort: "high" }
+        : {},
   };
 }
 
