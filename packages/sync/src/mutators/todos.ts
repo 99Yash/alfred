@@ -94,13 +94,14 @@ export async function todoCompleteClient(
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status === "done") return;
-  const now = new Date().toISOString();
+  // `updatedAt` is left to the server's `.$onUpdate()` — the optimistic row
+  // keeps the old value until the next pull rebases the canonical timestamp,
+  // and nothing client-side reads it. The same goes for the other transitions.
   await writeTodo(tx, {
     ...todo,
     status: "done",
-    completedAt: now,
+    completedAt: new Date().toISOString(),
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -108,13 +109,11 @@ export async function todoCompleteClient(
 export async function todoReopenClient(tx: WriteTransaction, args: TodoReopenArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "done") return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     status: "open",
     completedAt: null,
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -130,13 +129,11 @@ export async function todoCompleteSuggestionClient(
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "suggested") return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     status: "done",
-    completedAt: now,
+    completedAt: new Date().toISOString(),
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -147,12 +144,10 @@ export async function todoPromoteClient(
 ): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo || todo.status !== "suggested") return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     status: "open",
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
 
@@ -186,12 +181,10 @@ export async function todoClearClient(tx: WriteTransaction, args: TodoClearArgs)
 export async function todoEditClient(tx: WriteTransaction, args: TodoEditArgs): Promise<void> {
   const todo = await readTodo(tx, args.id);
   if (!todo) return;
-  const now = new Date().toISOString();
   await writeTodo(tx, {
     ...todo,
     ...(args.name !== undefined ? { name: args.name } : {}),
     ...(args.description !== undefined ? { description: args.description } : {}),
     rowVersion: todo.rowVersion + 1,
-    updatedAt: now,
   });
 }
