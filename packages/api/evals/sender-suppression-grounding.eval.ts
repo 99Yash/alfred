@@ -1,8 +1,14 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
-import { gmailSearchInput, rememberInput, resolveTodoInput } from "@alfred/contracts";
+import { getChatModel, getChatProviderOptions } from "@alfred/ai";
+import {
+  gmailSearchInput,
+  gmailSearchResultSchema,
+  rememberInput,
+  resolveTodoInput,
+  type GmailSearchResult,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { generateText, tool } from "ai";
+import { generateText, stepCountIs, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
@@ -52,6 +58,29 @@ interface Case {
   input: string;
 }
 
+interface RememberCall {
+  senderEmail: string | null;
+  senderLabel: string | null;
+}
+
+interface ResolutionTaskOutput {
+  toolNames: string[];
+  remembered: RememberCall[];
+  resolvedTodos: RememberCall[];
+  text: string;
+}
+
+interface ResolutionInput {
+  prompt: string;
+  searchResult: GmailSearchResult;
+}
+
+interface ResolutionCase {
+  input: string;
+  searchResult: GmailSearchResult;
+  expectedRememberEmail: string | null;
+}
+
 // Each names the sender by DESCRIPTION, never an exact address — so the only
 // way to act correctly is to search Gmail to resolve it. A model that asks for
 // the address is the regression we're guarding against.
@@ -68,6 +97,7 @@ function runFirstCall(input: string) {
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
+    providerOptions: standardProviderOptions(),
     // Real tool surface, execute-less so the run halts on the first tool call
     // and we can inspect what the model reached for first.
     tools: {
@@ -93,6 +123,162 @@ function runFirstCall(input: string) {
       }),
     },
   });
+}
+
+const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
+  messages: [
+    {
+      messageId: "msg_clear_shape",
+      threadId: "thr_clear_shape",
+      documentId: "doc_clear_shape",
+      from: "ShapeShifter <no-reply@shapeshifter.so>",
+      subject: 'Acme onboarding milestone "Professional Networking" due tomorrow',
+      snippet: "Your Acme onboarding milestone is due tomorrow. Complete it in ShapeShifter.",
+      authoredAt: "2026-06-27T03:15:00.000Z",
+      url: "https://mail.google.com/mail/u/0/#all/thr_clear_shape",
+    },
+  ],
+  nextPageToken: null,
+});
+
+const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
+  messages: [
+    {
+      messageId: "msg_resend",
+      threadId: "thr_resend",
+      documentId: "doc_resend",
+      from: "Acme <onboarding@resend.dev>",
+      subject: "Welcome to Acme onboarding",
+      snippet: "Set up your Acme workspace and finish the onboarding checklist.",
+      authoredAt: "2026-06-26T09:00:00.000Z",
+      url: "https://mail.google.com/mail/u/0/#all/thr_resend",
+    },
+    {
+      messageId: "msg_shape",
+      threadId: "thr_shape",
+      documentId: "doc_shape",
+      from: "ShapeShifter <no-reply@shapeshifter.so>",
+      subject: 'Acme onboarding milestone "Professional Networking" due tomorrow',
+      snippet: "Your Acme onboarding milestone is due tomorrow. Complete it in ShapeShifter.",
+      authoredAt: "2026-06-27T03:15:00.000Z",
+      url: "https://mail.google.com/mail/u/0/#all/thr_shape",
+    },
+  ],
+  nextPageToken: null,
+});
+
+const WEAK_ONBOARDING_HIT = gmailSearchResultSchema.parse({
+  messages: [
+    {
+      messageId: "msg_weak",
+      threadId: "thr_weak",
+      documentId: "doc_weak",
+      from: "LinkedIn Job Alerts <jobs-noreply@linkedin.com>",
+      subject: "New jobs for product engineers",
+      snippet: "Here are jobs matching your profile. Apply before the end of the week.",
+      authoredAt: "2026-06-27T02:00:00.000Z",
+      url: "https://mail.google.com/mail/u/0/#all/thr_weak",
+    },
+  ],
+  nextPageToken: null,
+});
+
+const RESOLUTION_CASES: ResolutionCase[] = [
+  {
+    input: "the acme onboarding emails are noise, stop surfacing them as todos or in briefings",
+    searchResult: CLEAR_SHAPESHIFTER_HIT,
+    expectedRememberEmail: "no-reply@shapeshifter.so",
+  },
+  {
+    input: "the acme onboarding emails are noise, stop surfacing them as todos or in briefings",
+    searchResult: AMBIGUOUS_ONBOARDING_HITS,
+    expectedRememberEmail: null,
+  },
+  {
+    input: "the acme onboarding emails are noise, stop surfacing them as todos or in briefings",
+    searchResult: WEAK_ONBOARDING_HIT,
+    expectedRememberEmail: null,
+  },
+];
+
+function standardProviderOptions(): Record<string, never> {
+  // SAFETY: This mirrors `AlfredAgent`, which casts the project-level
+  // provider-options helper at the AI SDK boundary. The helper is intentionally
+  // looser so callers don't import provider-internal SDK types.
+  return getChatProviderOptions("standard") as unknown as Record<string, never>;
+}
+
+async function runResolutionScenario(
+  input: string,
+  searchResult: GmailSearchResult,
+): Promise<ResolutionTaskOutput> {
+  const remembered: RememberCall[] = [];
+  const resolvedTodos: RememberCall[] = [];
+  const result = await generateText({
+    model: getChatModel("standard"),
+    system: SYSTEM,
+    prompt: input,
+    temperature: 0,
+    timeout: { totalMs: EVAL_TIMEOUT_MS },
+    providerOptions: standardProviderOptions(),
+    stopWhen: stepCountIs(4),
+    tools: {
+      [SEARCH_TOOL]: tool({
+        description:
+          "Search Gmail messages using Gmail query operators. Each hit carries `from`, `subject`, " +
+          "`snippet`, `authoredAt`, `messageId`, `threadId`, and `documentId`. Use the hit metadata " +
+          "to determine whether one sender clearly matches the user's description; ask if hits are mixed.",
+        inputSchema: gmailSearchInput,
+        execute: async () => searchResult,
+      }),
+      [REMEMBER_TOOL]: tool({
+        description:
+          "Persist a resolved sender-level suppression standing instruction. Only call this when " +
+          "the Gmail search result clearly identifies one sender; ask the user instead on ambiguous hits.",
+        inputSchema: rememberInput,
+        execute: async (input) => {
+          remembered.push({
+            senderEmail: typeof input.senderEmail === "string" ? input.senderEmail : null,
+            senderLabel: typeof input.senderLabel === "string" ? input.senderLabel : null,
+          });
+          return {
+            ok: true,
+            status: "remembered",
+            factId: "fact_eval_sender",
+            instruction: {
+              target: { email: input.senderEmail ?? null, label: input.senderLabel ?? null },
+            },
+            resolvedTodos: { ok: true, status: "not_found", dismissedCount: 0 },
+          };
+        },
+      }),
+      [RESOLVE_TODO_TOOL]: tool({
+        description:
+          "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a " +
+          "sender suppression so current matching todos disappear instead of lingering.",
+        inputSchema: resolveTodoInput,
+        execute: async (input) => {
+          resolvedTodos.push({
+            senderEmail: typeof input.senderEmail === "string" ? input.senderEmail : null,
+            senderLabel: null,
+          });
+          return {
+            ok: true,
+            status: "not_found",
+            dismissedCount: 0,
+            todoIds: [],
+            matchedThreadIds: [],
+          };
+        },
+      }),
+    },
+  });
+  return {
+    toolNames: result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
+    remembered,
+    resolvedTodos,
+    text: result.text,
+  };
 }
 
 evalite<string, TaskOutput, null>("Agent sender-suppression grounding — search before ask", {
@@ -144,3 +330,62 @@ evalite<string, TaskOutput, null>("Agent sender-suppression grounding — search
     },
   ],
 });
+
+evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
+  "Agent sender-suppression grounding — persists only clear sender matches",
+  {
+    data: () =>
+      RESOLUTION_CASES.map((c) => ({
+        input: { prompt: c.input, searchResult: c.searchResult },
+        expected: c.expectedRememberEmail,
+      })),
+    task: async (input) => {
+      void serverEnv().ANTHROPIC_API_KEY;
+      const searchResult = gmailSearchResultSchema.parse(input.searchResult);
+      try {
+        return await runResolutionScenario(input.prompt, searchResult);
+      } catch (err) {
+        return {
+          toolNames: [],
+          remembered: [],
+          resolvedTodos: [],
+          text: `ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    },
+    scorers: [
+      {
+        name: "Searches Gmail before deciding",
+        scorer: ({ output }) => ({
+          score: output.toolNames[0] === SEARCH_TOOL ? 1 : 0,
+          metadata:
+            output.toolNames[0] === SEARCH_TOOL
+              ? `tool path: ${output.toolNames.join(" -> ")}`
+              : `did not start with search: ${output.toolNames.join(" -> ")} ${output.text.slice(0, 200)}`,
+        }),
+      },
+      {
+        name: "Remembers exactly one clear sender and no ambiguous sender",
+        scorer: ({ output, expected }) => {
+          if (expected === null) {
+            const ok = output.remembered.length === 0 && output.resolvedTodos.length === 0;
+            return {
+              score: ok ? 1 : 0,
+              metadata: ok
+                ? "no sender persisted or resolved from ambiguous/weak hits"
+                : `acted on ambiguous/weak hits: remembered=${JSON.stringify(output.remembered)} resolved=${JSON.stringify(output.resolvedTodos)}`,
+            };
+          }
+          const rememberedEmails = output.remembered.map((call) => call.senderEmail);
+          const ok = rememberedEmails.length === 1 && rememberedEmails[0] === expected;
+          return {
+            score: ok ? 1 : 0,
+            metadata: ok
+              ? `remembered ${expected}`
+              : `expected ${expected}; remembered=${JSON.stringify(output.remembered)}; text=${output.text.slice(0, 200)}`,
+          };
+        },
+      },
+    ],
+  },
+);

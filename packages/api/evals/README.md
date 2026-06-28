@@ -20,6 +20,9 @@ Env (loaded from `apps/server/.env`):
 - `github-grounding.eval.ts` — chat agent answers time-relative GitHub PR
   questions with structured `*WithinDays` fields instead of invented or
   colliding free-form GitHub search qualifiers.
+- `sender-suppression-grounding.eval.ts` — chat agent searches Gmail before
+  sender-suppression writes, and only persists a resolved sender when search
+  hits clearly identify one address.
 - `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
   mint decision, and an LLM-judge pass on rationale soundness.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.

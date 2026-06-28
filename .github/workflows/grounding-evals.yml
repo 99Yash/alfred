@@ -9,16 +9,17 @@
 # triage-classify suite. The grounding evals call the live chat model (Sonnet)
 # and score 0 — not skip — on a provider blip, so gating on their average would
 # redden PRs with no code defect (see the note in triage-eval.yml). Here we
-# surface the scores on a schedule + on demand instead; read them in the log.
+# surface the scores on a schedule + on demand instead; read them in the run
+# summary and the uploaded JSON artifacts.
 #
 # Triggers:
 #   - schedule: a nightly run so a behavioral regression (or a model/SDK drift)
 #     gets noticed within a day, decoupled from any single PR.
 #   - workflow_dispatch: run it by hand after touching a prompt or tool surface.
 #
-# Read the result in the job log's evalite summary table. To turn any single
-# suite into a hard gate later, copy triage-eval.yml's `--threshold` pattern
-# scoped to that suite by name — don't gate the whole glob.
+# Read the result in the job summary or the evalite JSON artifact. To turn any
+# single suite into a hard gate later, copy triage-eval.yml's `--threshold`
+# pattern scoped to that suite by name — don't gate the whole glob.
 #
 # Required repo secrets (same as triage-eval.yml):
 #   - ANTHROPIC_API_KEY             (the standard chat tier under test)
@@ -98,13 +99,51 @@ jobs:
 
       - name: Run grounding evals (reports scores; never fails the job)
         # `evalite run` takes a SINGLE path filter, so each suite is its own
-        # invocation. `--threshold 0` can never trip (scores are 0-100), so every
-        # suite runs and the job stays green — read the per-suite evalite table in
-        # this log for the scores. triage-classify is intentionally excluded: it
-        # has its own gated workflow (triage-eval.yml). To promote any single
-        # suite to a hard nightly signal later, raise its `--threshold`.
+        # invocation. The shell deliberately does not fail fast: provider blips
+        # and runner errors are reported as warnings and the later suites still
+        # run, preserving the "visibility, not gate" contract.
         run: |
-          pnpm --filter @alfred/api exec evalite run date-grounding --threshold 0
-          pnpm --filter @alfred/api exec evalite run calendar-grounding --threshold 0
-          pnpm --filter @alfred/api exec evalite run github-grounding --threshold 0
-          pnpm --filter @alfred/api exec evalite run sender-suppression-grounding --threshold 0
+          mkdir -p .eval-results
+          echo "## Grounding evals" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          run_suite() {
+            suite="$1"
+            output=".eval-results/${suite}.json"
+            set +e
+            pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
+            status="$?"
+            set -e
+
+            if [ "$status" -ne 0 ]; then
+              echo "::warning title=${suite} eval failed::evalite exited ${status}; see this step's log"
+              echo "- \`${suite}\`: failed to run (exit ${status}); see log." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            node - "$suite" "$output" <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const [suite, path] = process.argv.slice(2);
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(path, "utf8"));
+          const suites = report.suites ?? [];
+          const evalCount = suites.reduce((sum, s) => sum + (s.evals?.length ?? 0), 0);
+          const score =
+            suites.length === 0
+              ? "n/a"
+              : `${Math.round((suites.reduce((sum, s) => sum + (s.averageScore ?? 0), 0) / suites.length) * 100)}%`;
+          console.log(`- \`${suite}\`: ${score} across ${evalCount} evals`);
+          NODE
+          }
+
+          run_suite date-grounding
+          run_suite calendar-grounding
+          run_suite github-grounding
+          run_suite sender-suppression-grounding
+
+      - name: Upload eval JSON artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grounding-eval-results
+          path: .eval-results/*.json
+          if-no-files-found: ignore
