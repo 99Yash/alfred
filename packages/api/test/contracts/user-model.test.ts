@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  CANONICAL_FACT_KEYS,
+  canonicalizeFactKey,
   canonicalizeIdentityValue,
+  FACT_KEY_ALIASES,
   identityRefSchema,
   identityValueMatchesKind,
   IDENTITY_ANCHOR_TIER,
@@ -259,6 +262,90 @@ describe("user_facts key gates", () => {
     // that the P4 fold migrates/projects back, so the boundary must accept it.
     assert.equal(isUserFactKey(STANDING_INSTRUCTION_KEY), true);
     assert.equal(isUserFactKey("zoom_meeting_passcode"), false);
+  });
+});
+
+describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
+  test("passes an exact canonical key through unchanged (not an alias)", () => {
+    for (const key of ["employer", "job_title", "location", "full_name", "personal_site"]) {
+      assert.deepEqual(canonicalizeFactKey(key), { ok: true, key, wasAlias: false });
+    }
+    // CANONICAL_FACT_KEYS is derived from the one registry — every entry round-trips.
+    for (const key of CANONICAL_FACT_KEYS) {
+      const r = canonicalizeFactKey(key);
+      assert.equal(r.ok, true);
+      assert.equal(r.ok && r.key, key);
+    }
+  });
+
+  test("maps the listed legacy/producer spellings onto their canonical key", () => {
+    const cases: Array<[string, string]> = [
+      ["current_company", "employer"],
+      ["company", "employer"],
+      ["company_name", "employer"],
+      ["current_role", "job_title"],
+      ["role", "job_title"],
+      ["current_work", "work_summary"],
+      ["current_location", "location"],
+      ["name", "full_name"],
+      ["personal_website", "personal_site"],
+    ];
+    for (const [raw, canonical] of cases) {
+      assert.deepEqual(canonicalizeFactKey(raw), {
+        ok: true,
+        key: canonical,
+        wasAlias: true,
+        originalKey: raw,
+      });
+    }
+    // The alias map is exactly this set — no fuzzy guessing crept in.
+    assert.deepEqual(new Set(Object.keys(FACT_KEY_ALIASES)), new Set(cases.map(([raw]) => raw)));
+  });
+
+  test("rejects near-miss keys that are NOT explicit aliases", () => {
+    for (const key of [
+      "website",
+      "url",
+      "homepage",
+      "company_url",
+      "employer_name",
+      "zoom_passcode",
+    ]) {
+      assert.deepEqual(canonicalizeFactKey(key), { ok: false, reason: "unknown_key" });
+    }
+  });
+
+  test("normalizes relationship:<email> and rejects an unparseable suffix", () => {
+    assert.deepEqual(canonicalizeFactKey("relationship:alice@oliv.ai"), {
+      ok: true,
+      key: "relationship:alice@oliv.ai",
+      wasAlias: false,
+    });
+    // Mixed-case / padded email suffix is lowercased+trimmed → wasAlias true.
+    assert.deepEqual(canonicalizeFactKey("relationship:Alice@Oliv.AI"), {
+      ok: true,
+      key: "relationship:alice@oliv.ai",
+      wasAlias: true,
+      originalKey: "relationship:Alice@Oliv.AI",
+    });
+    // A non-email suffix (domain, bot label, display name, bare) is rejected.
+    for (const bad of [
+      "relationship:github.com",
+      "relationship:Alfred",
+      "relationship:Some Person",
+      "relationship:",
+    ]) {
+      assert.deepEqual(canonicalizeFactKey(bad), { ok: false, reason: "unknown_key" });
+    }
+  });
+
+  test("accepts pref:<name> (freeform suffix), rejects a bare pref:", () => {
+    assert.deepEqual(canonicalizeFactKey("pref:tone"), {
+      ok: true,
+      key: "pref:tone",
+      wasAlias: false,
+    });
+    assert.deepEqual(canonicalizeFactKey("pref:"), { ok: false, reason: "unknown_key" });
   });
 });
 
