@@ -40,7 +40,7 @@ import {
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
-import { runFetchUrl } from "./fetch-url";
+import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
@@ -400,6 +400,11 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input) => {
       return await runFetchUrl({ url: input.url });
     },
+    // #293: the tool owns sensitivity — scrub credential-bearing query/fragment
+    // values from the URL before the dispatcher persists it to a sink (span
+    // always; proposed_input when autonomous). The hash + execute still see the
+    // raw URL, so idempotency and the in-tool credential block are unaffected.
+    redactInput: (input) => ({ ...input, url: redactCredentialUrl(input.url) }),
   }),
   liveTool({
     integration: "system",

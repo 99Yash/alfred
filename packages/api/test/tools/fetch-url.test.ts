@@ -10,6 +10,7 @@ import {
   isBlockedIp,
   MAX_TEXT_CHARS,
   pinningLookup,
+  redactCredentialUrl,
   runFetchUrl,
   safeRequest,
   type DnsLookupAll,
@@ -214,8 +215,51 @@ describe("runFetchUrl (stubbed transport)", () => {
   test("rejects a URL that embeds credentials before any socket", async () => {
     const r = await runFetchUrl({ url: "https://user:pw@example.com/" });
     assert.equal(r.ok, false);
-    if (!r.ok) assert.equal(r.reason, "blocked_host");
+    if (!r.ok) {
+      assert.equal(r.reason, "blocked_host");
+      assert.doesNotMatch(JSON.stringify(r), /user:pw/);
+      assert.match(JSON.stringify(r), /\[REDACTED]@example\.com/);
+    }
   });
+
+  // #292 — non-default / scheme-mismatched ports are refused in validateUrl, so
+  // the real transport throws before any socket; no network to stub.
+  for (const url of [
+    "http://example.com:8080/admin",
+    "https://example.com:8443/",
+    "http://example.com:443/", // scheme/port mismatch
+    "https://example.com:80/", // scheme/port mismatch
+  ]) {
+    test(`#292 rejects non-default port ${url} before any socket`, async () => {
+      const r = await runFetchUrl({ url });
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.equal(r.reason, "blocked_port");
+    });
+  }
+
+  // #293 — credential-bearing query params are refused before any socket.
+  for (const url of [
+    "https://example.com/cb?code=abc123",
+    "https://example.com/?access_token=xyz",
+    "https://example.com/?session-token=zzz", // segment stem
+    "https://example.com/?X-Amz-Signature=deadbeef",
+    "https://example.com/?key=sk_live_42",
+    "https://example.com/?access%20token=spacesecret",
+    "https://example.com/?client+secret=plussecret",
+  ]) {
+    test(`#293 rejects credential URL ${url} before any socket`, async () => {
+      const r = await runFetchUrl({ url });
+      assert.equal(r.ok, false);
+      if (!r.ok) {
+        assert.equal(r.reason, "credential_url");
+        // The error's url/finalUrl must not echo the secret back.
+        assert.doesNotMatch(
+          JSON.stringify(r),
+          /abc123|sk_live_42|deadbeef|\bxyz\b|zzz|spacesecret|plussecret/,
+        );
+      }
+    });
+  }
 
   test("reads an HTML page into text + title", async () => {
     const r = await runFetchUrl(
@@ -427,6 +471,41 @@ describe("runFetchUrl (stubbed transport)", () => {
     if (!r.ok) assert.equal(r.reason, "too_large");
   });
 
+  test("#293 redacts a credential fragment on the OK path (fragment is fetched, not blocked)", async () => {
+    // A `#access_token=…` fragment is never sent to the server, so the fetch
+    // succeeds — but the persisted result must not echo the secret.
+    const r = await runFetchUrl(
+      { url: "https://example.com/page#access_token=secretfrag&state=ok" },
+      { transport: transportOf({ finalUrl: "https://example.com/page", body: "<p>hi</p>" }) },
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.url, /access_token=\[REDACTED\]/);
+      assert.match(r.url, /state=ok/); // non-credential params survive
+      assert.doesNotMatch(r.url, /secretfrag/);
+    }
+  });
+
+  test("#293 redacts credential params in finalUrl and the redirect chain", async () => {
+    const transport: Transport = async () => ({
+      finalUrl: "https://example.com/landing?token=finalsecret&page=2",
+      status: 200,
+      contentType: "text/html",
+      charset: null,
+      contentLength: null,
+      redirectChain: ["https://example.com/start?sig=hopsecret"],
+      body: streamOf("<p>ok</p>"),
+    });
+    const r = await runFetchUrl({ url: "https://example.com/start" }, { transport });
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.finalUrl, /token=\[REDACTED\]/);
+      assert.match(r.finalUrl, /page=2/);
+      assert.deepEqual(r.redirects, ["https://example.com/start?sig=[REDACTED]"]);
+      assert.doesNotMatch(JSON.stringify(r), /finalsecret|hopsecret/);
+    }
+  });
+
   test("truncates a body past the char cap and flags it", async () => {
     const r = await runFetchUrl(
       { url: "https://example.com/long.txt" },
@@ -442,6 +521,53 @@ describe("runFetchUrl (stubbed transport)", () => {
       assert.equal(r.truncated, true);
       assert.equal(r.chars, MAX_TEXT_CHARS);
     }
+  });
+});
+
+describe("redactCredentialUrl (#293 matcher + redaction)", () => {
+  // Credential-bearing params → value replaced, everything else verbatim.
+  for (const [input, expected] of [
+    ["https://h/cb?code=abc", "https://h/cb?code=[REDACTED]"],
+    ["https://h/?access_token=x&page=2", "https://h/?access_token=[REDACTED]&page=2"],
+    ["https://h/?session-token=x", "https://h/?session-token=[REDACTED]"], // segment stem
+    ["https://h/?auth.code=x", "https://h/?auth.code=[REDACTED]"], // segment stem
+    ["https://h/?accessToken=x", "https://h/?accessToken=[REDACTED]"], // camelCase segment
+    ["https://h/?X-Amz-Signature=x", "https://h/?X-Amz-Signature=[REDACTED]"],
+    ["https://h/?access%20token=x", "https://h/?access%20token=[REDACTED]"],
+    ["https://h/?client+secret=x", "https://h/?client+secret=[REDACTED]"],
+    ["https://h/?key=x", "https://h/?key=[REDACTED]"], // exact-name blunt instrument
+    ["https://h/p#access_token=x&state=ok", "https://h/p#access_token=[REDACTED]&state=ok"],
+    [
+      "https://user:pw@example.com/path?token=x",
+      "https://[REDACTED]@example.com/path?token=[REDACTED]",
+    ],
+  ] as const) {
+    test(`redacts ${input}`, () => assert.equal(redactCredentialUrl(input), expected));
+  }
+
+  // Ordinary / look-alike params must pass through untouched — the segmenter is
+  // what keeps these out of the credential net.
+  for (const url of [
+    "https://h/?country_code=US",
+    "https://h/?sort_key=name",
+    "https://h/?promo_code=SAVE10",
+    "https://h/?zipcode=94016",
+    "https://h/?keyword=monkey",
+    "https://h/?monkey=banana",
+    "https://h/?authenticationMode=oauth",
+    "https://h/?utm_source=newsletter&utm_medium=email",
+    "https://h/path/no/query",
+  ]) {
+    test(`leaves ${url} untouched`, () => assert.equal(redactCredentialUrl(url), url));
+  }
+
+  test("is idempotent (redacting an already-redacted url is a no-op)", () => {
+    const once = redactCredentialUrl("https://h/?token=secret&page=1");
+    assert.equal(redactCredentialUrl(once), once);
+  });
+
+  test("does not throw on a malformed url", () => {
+    assert.equal(redactCredentialUrl("not a url ?token=x"), "not a url ?token=[REDACTED]");
   });
 });
 
@@ -594,6 +720,43 @@ describe("safeRequest (manual redirect re-validation)", () => {
         e.reason === "blocked_host" &&
         Array.isArray(e.redirects) &&
         e.redirects.includes("https://innocuous.example/"),
+    );
+  });
+
+  test("#292 refuses a redirect to a non-default port (the hop, not just hop 0)", async () => {
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://innocuous.example/")
+        return res({ statusCode: 302, headers: { location: "https://innocuous.example:8443/" } });
+      throw new Error("must not fetch the non-default-port target");
+    };
+    await assert.rejects(
+      safeRequest("https://innocuous.example/", signal, requester),
+      (e) =>
+        e instanceof FetchError &&
+        e.reason === "blocked_port" &&
+        Array.isArray(e.redirects) &&
+        e.redirects.includes("https://innocuous.example/"),
+    );
+  });
+
+  test("#293 refuses a redirect target that adds a credential query param", async () => {
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://innocuous.example/")
+        return res({
+          statusCode: 302,
+          headers: { location: "https://innocuous.example/cb?access_token=leaked" },
+        });
+      throw new Error("must not fetch the credential target");
+    };
+    await assert.rejects(
+      safeRequest("https://innocuous.example/", signal, requester),
+      (e) =>
+        e instanceof FetchError &&
+        e.reason === "credential_url" &&
+        // The blocked redirect target carried into the error must be redacted.
+        typeof e.finalUrl === "string" &&
+        e.finalUrl.includes("access_token=[REDACTED]") &&
+        !e.finalUrl.includes("leaked"),
     );
   });
 
