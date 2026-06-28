@@ -21,7 +21,7 @@ export function AppThemeToggle({ className }: { className?: string }) {
       title={label}
       onClick={() => setMode(next)}
       className={cn(
-        "app-press inline-flex items-center justify-center size-8 rounded-lg",
+        "app-press inline-flex size-8 items-center justify-center rounded-lg",
         "bg-app-bg-1 text-app-fg-3 hover:text-app-fg-4",
         "shadow-[var(--app-shadow-elevated)] hover:shadow-[var(--app-shadow-elevated-hover)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",

@@ -97,7 +97,7 @@ export function WeatherVideoSurface({ condition, isDay, className }: WeatherVide
         aria-label="Decorative weather background"
         tabIndex={-1}
         className={cn(
-          "absolute inset-0 h-full w-full object-cover",
+          "absolute inset-0 size-full object-cover",
           "pointer-events-none select-none",
           "transition-opacity duration-1000 ease-in-out",
           // Always render the chosen video: the fallback (local-clock

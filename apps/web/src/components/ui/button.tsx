@@ -46,28 +46,28 @@ const SIZE: Record<ButtonSize, string> = {
 const VARIANT: Record<ButtonVariant, string> = {
   primary: cn(
     /* fill */
-    "bg-gradient-to-b from-[#5d44df] to-[#4f37cb]",
+    "bg-linear-to-b from-[#5d44df] to-[#4f37cb]",
     /* text */
     "text-white",
     /* hover/active — frost-border CSS handles the inset glow; this adds a
      * subtle brightness lift on hover for the gradient itself. */
     "hover:brightness-[1.05] active:brightness-[0.95]",
     /* disabled */
-    "disabled:brightness-75 disabled:text-[#e0e0e0]",
+    "disabled:text-[#e0e0e0] disabled:brightness-75",
     /* frost */
     "frost-border",
   ),
 
   white: cn(
-    "bg-gradient-to-b from-white/85 to-[#eeeeee]",
+    "bg-linear-to-b from-white/85 to-[#eeeeee]",
     "text-black",
     "hover:brightness-[1.02] active:brightness-[0.97]",
     "disabled:brightness-95 disabled:saturate-50",
-    "frost-border [--frost-strength:0.8] [--frost-border-strength:3]",
+    "frost-border [--frost-border-strength:3] [--frost-strength:0.8]",
   ),
 
   destructive: cn(
-    "bg-gradient-to-b from-[#dc2626] to-[#b91c1c]",
+    "bg-linear-to-b from-[#dc2626] to-[#b91c1c]",
     "text-white",
     "hover:brightness-[1.06] active:brightness-[0.95]",
     "disabled:brightness-75",
@@ -83,7 +83,7 @@ const VARIANT: Record<ButtonVariant, string> = {
 
   send: cn(
     /* gray→white disk used on the composer send button */
-    "bg-gradient-to-b from-[#a5a5a5] to-[#e3e3e3] from-[46%] to-[100%]",
+    "bg-linear-to-b from-[#a5a5a5] from-[46%] to-[#e3e3e3] to-[100%]",
     "text-black",
     "hover:brightness-[1.08] active:brightness-[1.04]",
     "disabled:opacity-50",
@@ -112,7 +112,7 @@ export function Button({
       data-loading={loading || undefined}
       className={cn(
         /* base — pill shape, font weight, transition, focus ring */
-        "relative inline-flex items-center justify-center isolate",
+        "relative isolate inline-flex items-center justify-center",
         "rounded-full font-medium whitespace-nowrap select-none",
         "transition-[filter,background-color,box-shadow] duration-200",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",

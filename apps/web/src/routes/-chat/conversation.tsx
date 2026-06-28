@@ -181,7 +181,7 @@ export function Conversation({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable"
+        className="scroll-stable min-h-0 flex-1 overflow-y-auto"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
           {messages.map((m, i) => {
@@ -319,7 +319,7 @@ function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () =>
         "inline-flex size-9 items-center justify-center rounded-full",
         "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
         "transition-[opacity,scale] duration-150 ease-out",
-        "hover:text-app-fg-4 hover:scale-105 active:scale-95",
+        "hover:scale-105 hover:text-app-fg-4 active:scale-95",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         show ? "opacity-100" : "pointer-events-none opacity-0 disabled:cursor-default",
@@ -423,7 +423,7 @@ function FollowUpSuggestions({
           onClick={() => onPick(suggestion.text)}
           className={cn(
             "group/chip inline-flex min-h-10 max-w-full items-center gap-2 rounded-full px-3.5 text-left",
-            "bg-app-bg-2/70 text-[13px] font-medium leading-snug text-app-fg-3",
+            "bg-app-bg-2/70 text-[13px] leading-snug font-medium text-app-fg-3",
             "shadow-[inset_0_0_0_1px_var(--app-fg-a1)]",
             "transition-[background-color,color,translate,box-shadow] duration-150 ease-out",
             "hover:-translate-y-px hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_0_0_1px_var(--app-fg-a2)]",
@@ -437,8 +437,8 @@ function FollowUpSuggestions({
           {i < 9 ? (
             <kbd
               className={cn(
-                "shrink-0 inline-flex items-center justify-center h-[17px] min-w-[17px] px-1 rounded-md",
-                "text-[10px] leading-none font-medium font-sans tabular-nums",
+                "inline-flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-md px-1",
+                "font-sans text-[10px] leading-none font-medium tabular-nums",
                 "bg-app-bg-a2 text-app-fg-2 transition-colors duration-150",
                 "group-hover/chip:bg-app-bg-3 group-hover/chip:text-app-fg-3",
               )}

@@ -39,7 +39,7 @@ export function TypeFilterPopover({
             "inline-flex h-9 items-center gap-2 rounded-xl px-3",
             "bg-app-bg-1 text-sm font-medium text-app-fg-4",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06)]",
-            "outline-none transition-colors hover:bg-app-bg-a1",
+            "transition-colors outline-none hover:bg-app-bg-a1",
             "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             "data-[state=open]:bg-app-bg-a1",
             "app-press",
@@ -59,10 +59,10 @@ export function TypeFilterPopover({
           className={cn(
             "z-50 w-[250px] rounded-2xl bg-app-bg-1 p-2",
             "shadow-[0_18px_48px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]",
-            "outline-none app-fade-in",
+            "app-fade-in outline-none",
           )}
         >
-          <div className="mb-1 px-2 pb-1 pt-1 text-[11px] uppercase tracking-tight text-app-fg-2">
+          <div className="mb-1 px-2 py-1 text-[11px] tracking-tight text-app-fg-2 uppercase">
             Filter types
           </div>
           <div aria-label="Artifact types" className="space-y-0.5">
@@ -77,7 +77,7 @@ export function TypeFilterPopover({
                   onClick={() => toggleType(type.value)}
                   className={cn(
                     "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm",
-                    "text-app-fg-3 outline-none transition-colors",
+                    "text-app-fg-3 transition-colors outline-none",
                     "hover:bg-app-bg-a1 hover:text-app-fg-4",
                     "focus-visible:bg-app-bg-a1 focus-visible:text-app-fg-4",
                   )}

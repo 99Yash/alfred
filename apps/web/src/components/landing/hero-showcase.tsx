@@ -184,7 +184,7 @@ function Slot({
         role="tabpanel"
         aria-labelledby={labelledBy}
         tabIndex={0}
-        className={cn(baseClassName, "opacity-100 z-10")}
+        className={cn(baseClassName, "z-10 opacity-100")}
         style={{ transform: "translateY(0) scale(1)" }}
       >
         {children}
@@ -197,7 +197,7 @@ function Slot({
       role="tabpanel"
       aria-labelledby={labelledBy}
       aria-hidden
-      className={cn(baseClassName, "opacity-0 pointer-events-none blur-[2px]")}
+      className={cn(baseClassName, "pointer-events-none opacity-0 blur-[2px]")}
       style={{ transform: "translateY(10px) scale(0.985)" }}
     >
       {children}

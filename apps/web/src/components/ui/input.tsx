@@ -26,7 +26,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 const BASE = cn(
   /* layout */
-  "block w-full h-9 text-sm",
+  "block h-9 w-full text-sm",
   /* fill ramp via state */
   "bg-[rgb(var(--gray-50)/0.5)] hover:bg-[rgb(var(--gray-50)/0.8)] focus:bg-[rgb(var(--gray-50))]",
   /* border step */
@@ -38,7 +38,7 @@ const BASE = cn(
   /* transitions */
   "transition-[background-color,border-color] duration-200",
   /* disabled */
-  "disabled:opacity-50 disabled:cursor-not-allowed",
+  "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
 const VARIANT: Record<InputVariant, string> = {

@@ -32,7 +32,7 @@ export function InputRenderer({ toolName, input }: { toolName: ToolName; input: 
     <div className="grid max-h-72 gap-x-4 gap-y-3 overflow-y-auto overscroll-contain rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)] sm:grid-cols-2">
       {visible.map((field) => (
         <div key={field.key} className={field.multiline ? "sm:col-span-2" : undefined}>
-          <p className="text-[11px] font-medium uppercase tracking-tight text-app-fg-2">
+          <p className="text-[11px] font-medium tracking-tight text-app-fg-2 uppercase">
             {field.label}
           </p>
           <div className="mt-1">
@@ -74,7 +74,7 @@ function FieldValue({ field, value }: { field: FieldSpec; value: unknown }) {
     case "number":
     case "integer":
       return (
-        <span className="text-xs leading-5 tabular-nums text-app-fg-4">
+        <span className="text-xs leading-5 text-app-fg-4 tabular-nums">
           {typeof value === "number" ? String(value) : stringValue(value)}
         </span>
       );
@@ -100,8 +100,8 @@ function FieldValue({ field, value }: { field: FieldSpec; value: unknown }) {
             field.multiline
               ? // No inner max-h — the panel container owns scrolling, so the
                 // body never produces a scrollbar-within-a-scrollbar.
-                "whitespace-pre-wrap break-words text-xs leading-5 text-app-fg-4"
-              : "break-words text-xs leading-5 text-app-fg-4"
+                "text-xs leading-5 break-words whitespace-pre-wrap text-app-fg-4"
+              : "text-xs leading-5 break-words text-app-fg-4"
           }
         >
           {text}

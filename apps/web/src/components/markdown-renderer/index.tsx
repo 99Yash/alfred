@@ -161,7 +161,7 @@ export function MarkdownRenderer({
     ...extraComponents,
     ...(images === "alt-text"
       ? {
-          img: ({ alt }) => (alt ? <span className="italic text-white/55">[{alt}]</span> : null),
+          img: ({ alt }) => (alt ? <span className="text-white/55 italic">[{alt}]</span> : null),
         }
       : {}),
   };
@@ -175,7 +175,7 @@ export function MarkdownRenderer({
         "[&_a]:underline [&_a]:underline-offset-2",
         "[&_a]:break-words",
         // Lists
-        "[&_ul]:list-disc [&_ol]:list-decimal",
+        "[&_ol]:list-decimal [&_ul]:list-disc",
         "[&_li]:pl-0.5",
         // Blockquote — typical "On X wrote:" reply chains land here once we
         // add the quote-detector. Until then this still tames the rare `>` line.
@@ -205,7 +205,7 @@ export function MarkdownRenderer({
         "[&_hr]:border-t",
         // Images — rare, and we don't proxy them so cors / privacy concerns
         // apply. Inline-cap so a runaway image can't blow up the rail width.
-        "[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded",
+        "[&_img]:h-auto [&_img]:max-w-full [&_img]:rounded",
         // Math — keep KaTeX display blocks inside the rail and let inline math
         // wrap with surrounding text rather than forcing a horizontal scroll.
         "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
@@ -214,7 +214,7 @@ export function MarkdownRenderer({
         // shrink us below content width (otherwise children with intrinsic
         // width like long URLs can blow the card open), and the wrap rules
         // catch anything that slipped past the per-tag selectors above.
-        "min-w-0 break-words [overflow-wrap:anywhere]",
+        "min-w-0 [overflow-wrap:anywhere] break-words",
         ...(tone === "media" ? MEDIA_TONE : SURFACE_TONE),
         className,
       )}

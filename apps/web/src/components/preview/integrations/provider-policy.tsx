@@ -36,7 +36,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
 
   if (error) {
     return (
-      <section className="space-y-3 app-card-in" style={{ animationDelay: "150ms" }}>
+      <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
         <SectionHeading>Approval policy</SectionHeading>
         <AppCard>
           <div
@@ -66,7 +66,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationProvider }) 
   }
 
   return (
-    <section className="space-y-3 app-card-in" style={{ animationDelay: "150ms" }}>
+    <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
       <SectionHeading>Approval policy</SectionHeading>
 
       <AppCard className="space-y-3">

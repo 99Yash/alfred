@@ -19,12 +19,12 @@ export function AppInput({ className, readOnly, ref, ...rest }: AppInputProps) {
       ref={ref}
       readOnly={readOnly}
       className={cn(
-        "w-full h-9 px-3 text-sm rounded-xl",
-        "outline-none transition-shadow",
+        "h-9 w-full rounded-xl px-3 text-sm",
+        "transition-shadow outline-none",
         "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
         "placeholder:text-app-fg-2",
         readOnly
-          ? "bg-app-bg-2 text-app-fg-3 cursor-default"
+          ? "cursor-default bg-app-bg-2 text-app-fg-3"
           : cn("bg-app-bg-1 text-app-fg-4", "app-elevated"),
         className,
       )}

@@ -41,7 +41,7 @@ export function ToolRow(props: ToolRowProps) {
       {props.integration ? (
         <span
           aria-hidden
-          className="size-6 shrink-0 inline-flex items-center justify-center rounded-md bg-app-bg-2"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
         >
           <IntegrationGlyph brand={props.integration} size={14} />
         </span>
@@ -49,20 +49,20 @@ export function ToolRow(props: ToolRowProps) {
         <span
           aria-hidden
           className={cn(
-            "size-6 shrink-0 inline-flex items-center justify-center rounded-md",
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-md",
             TOOL_TONE[props.tone],
           )}
         >
           <props.icon size={12} />
         </span>
       )}
-      <span className="min-w-0 truncate text-app-fg-4 font-medium">{label}</span>
+      <span className="min-w-0 truncate font-medium text-app-fg-4">{label}</span>
       {detail ? (
-        <span className="hidden sm:inline truncate text-xs text-app-fg-2 max-w-[28ch]">
+        <span className="hidden max-w-[28ch] truncate text-xs text-app-fg-2 sm:inline">
           {detail}
         </span>
       ) : null}
-      <span className="ml-auto flex items-center gap-1.5 shrink-0">
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {count ? <span className="text-xs text-app-fg-3 tabular-nums">{count}</span> : null}
         {done ? <CheckCircle2 size={13} aria-hidden className="text-app-green-4" /> : null}
       </span>

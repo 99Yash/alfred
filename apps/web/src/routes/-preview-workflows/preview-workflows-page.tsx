@@ -12,16 +12,16 @@ export function PreviewWorkflowsPage() {
   const authored = workflows.filter((w) => !w.isBuiltin);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <header className="text-center space-y-3 max-w-2xl mx-auto app-card-in">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <header className="app-card-in mx-auto max-w-2xl space-y-3 text-center">
           <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-app-fg-4">
             Workflows
           </h1>
           <p className="text-sm text-app-fg-3">
             Create scheduled or trigger-based work Alfred runs on its own.
           </p>
-          <div className="pt-3 flex justify-center">
+          <div className="flex justify-center pt-3">
             <AppButton
               variant="primary"
               size="lg"
@@ -35,7 +35,7 @@ export function PreviewWorkflowsPage() {
         </header>
 
         <section className="mt-12 space-y-3">
-          <h2 className="text-xs uppercase tracking-tight text-app-fg-2 font-medium px-1">
+          <h2 className="px-1 text-xs font-medium tracking-tight text-app-fg-2 uppercase">
             Built-ins
           </h2>
           {builtins.length > 0 ? (
@@ -52,7 +52,7 @@ export function PreviewWorkflowsPage() {
         </section>
 
         <section className="mt-12 space-y-3">
-          <h2 className="text-xs uppercase tracking-tight text-app-fg-2 font-medium px-1">
+          <h2 className="px-1 text-xs font-medium tracking-tight text-app-fg-2 uppercase">
             Your workflows
           </h2>
           {authored.length > 0 ? (
@@ -74,7 +74,7 @@ export function PreviewWorkflowsPage() {
                 <Sparkles size={16} />
               </span>
               <p className="text-sm font-medium text-app-fg-4">No workflows yet</p>
-              <p className="max-w-[28rem] text-xs text-app-fg-3 leading-5">
+              <p className="max-w-[28rem] text-xs leading-5 text-app-fg-3">
                 Author your own scheduled or event-driven flows from chat, then tune their trigger
                 and integrations here.
               </p>

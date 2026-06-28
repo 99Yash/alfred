@@ -35,8 +35,8 @@ export function PreviewBriefingsPage() {
   const days = groupByDate(briefings);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-10 sm:py-14">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
         <header className="space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-balance text-app-fg-4">
             Briefings
@@ -53,7 +53,7 @@ export function PreviewBriefingsPage() {
             <button
               type="button"
               onClick={retry}
-              className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 outline-none transition-colors hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
+              className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
             >
               Retry
             </button>
@@ -67,7 +67,7 @@ export function PreviewBriefingsPage() {
                     <Link
                       to="/briefings/$date"
                       params={{ date }}
-                      className="group flex items-center gap-4 px-5 py-4 outline-none transition-colors hover:bg-app-bg-a1 focus-visible:bg-app-bg-2"
+                      className="group flex items-center gap-4 px-5 py-4 transition-colors outline-none hover:bg-app-bg-a1 focus-visible:bg-app-bg-2"
                     >
                       <div className="min-w-0 flex-1 space-y-1.5">
                         <h2 className="text-sm font-medium text-app-fg-4">
@@ -76,7 +76,7 @@ export function PreviewBriefingsPage() {
                         <div className="space-y-1">
                           {slots.map((slot) => (
                             <div key={slot.id} className="flex items-baseline gap-2.5">
-                              <span className="w-[52px] shrink-0 text-[11px] font-medium uppercase tracking-tight text-app-fg-2">
+                              <span className="w-[52px] shrink-0 text-[11px] font-medium tracking-tight text-app-fg-2 uppercase">
                                 {slotLabel(slot.slot)}
                               </span>
                               <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-app-fg-3">

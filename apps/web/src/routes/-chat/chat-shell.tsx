@@ -354,7 +354,7 @@ function TopBar({
         "flex h-14 shrink-0 items-center justify-between gap-3 px-5",
       )}
     >
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         {!sidebarOpen ? (
           <IconButton label="Open sidebar" onClick={() => setSidebarOpen(true)}>
             <PanelLeft size={14} />
@@ -417,10 +417,10 @@ function EmptyHero({
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center">
-        <p className="text-[11px] uppercase tracking-tight font-medium text-app-fg-2">
+        <p className="text-[11px] font-medium tracking-tight text-app-fg-2 uppercase">
           {formatDate(now)}
         </p>
-        <h2 className="mt-3 text-3xl md:text-4xl font-medium tracking-[-0.04em] text-app-fg-4 text-center">
+        <h2 className="mt-3 text-center text-3xl font-medium tracking-[-0.04em] text-app-fg-4 md:text-4xl">
           {greeting(now)}
           {name ? <span className="text-app-fg-3">, {name}</span> : null}
         </h2>
@@ -500,7 +500,7 @@ function MentionPalette({
     <div
       ref={rootRef}
       className={cn(
-        "absolute bottom-full left-0 right-0 mb-2 z-20",
+        "absolute right-0 bottom-full left-0 z-20 mb-2",
         "app-elevated rounded-2xl bg-app-bg-1 p-1.5",
         "max-h-72 overflow-y-auto",
         // Subtle entry — slide up + fade. Tailwind's `animate-in` keyframes
@@ -511,7 +511,7 @@ function MentionPalette({
     >
       <p
         id={labelId}
-        className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-tight font-medium text-app-fg-2"
+        className="px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-tight text-app-fg-2 uppercase"
       >
         Mention a source
       </p>
@@ -535,7 +535,7 @@ function MentionPalette({
               onMouseEnter={() => onHover(i)}
               onClick={() => onPick(opt)}
               className={cn(
-                "w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
+                "flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
                 "transition-colors",
                 isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
                 "outline-none",
@@ -549,13 +549,13 @@ function MentionPalette({
                 ) : null}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium text-app-fg-4 truncate">
+                <span className="block truncate text-[13px] font-medium text-app-fg-4">
                   {opt.label}
                 </span>
-                <span className="block text-[11px] text-app-fg-2 truncate">{opt.subtitle}</span>
+                <span className="block truncate text-[11px] text-app-fg-2">{opt.subtitle}</span>
               </span>
               {isActive ? (
-                <span className="text-[10px] text-app-fg-2 tabular-nums px-1.5 py-0.5 rounded bg-app-bg-2">
+                <span className="rounded bg-app-bg-2 px-1.5 py-0.5 text-[10px] text-app-fg-2 tabular-nums">
                   ↵
                 </span>
               ) : null}
@@ -645,7 +645,7 @@ function ConnectToolsBar() {
                 <span
                   aria-hidden
                   className={cn(
-                    "absolute -bottom-0.5 -right-0.5 grid size-2.5 place-items-center",
+                    "absolute -right-0.5 -bottom-0.5 grid size-2.5 place-items-center",
                     "rounded-full bg-emerald-400 text-black",
                     "ring-2 ring-app-background",
                   )}
@@ -812,15 +812,15 @@ function Composer({
       ) : null}
       <div
         className={cn(
-          "app-elevated relative rounded-3xl p-2 overflow-hidden",
+          "app-elevated relative overflow-hidden rounded-3xl p-2",
           // Transparent surface — particles + the app-elevated hairline carry
           // the composer's visual identity now, no solid fill needed.
           // Light mode gets a stronger inset ring on top of app-elevated's 0.05
           // hairline so the edge reads against the white page; dark relies on
           // app-elevated's existing inset white ring.
-          theme === "light" && "ring-1 ring-inset ring-app-fg-a1/50",
+          theme === "light" && "ring-1 ring-app-fg-a1/50 ring-inset",
           "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
-          "focus-within:ring-offset-app-background transition-shadow",
+          "transition-shadow focus-within:ring-offset-app-background",
           disabled && "opacity-70",
           sending && "opacity-80",
         )}
@@ -1019,14 +1019,14 @@ function AttachmentChips({
           key={a.key}
           className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
         >
-          <img src={a.previewUrl} alt={a.file.name} className="h-full w-full object-cover" />
+          <img src={a.previewUrl} alt={a.file.name} className="size-full object-cover" />
           <button
             type="button"
             aria-label={`Remove ${a.file.name}`}
             disabled={disabled}
             onClick={() => onRemove(a.key)}
             className={cn(
-              "absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+              "absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
               disabled &&
                 "cursor-not-allowed opacity-0 group-hover:opacity-0 focus-visible:opacity-0",
             )}
@@ -1367,9 +1367,9 @@ function ComposerToolbar({
           />
         ) : null}
         {transcribing ? (
-          <span className="animate-chat-shimmer text-[11px] text-app-fg-3 pl-1">Transcribing…</span>
+          <span className="animate-chat-shimmer pl-1 text-[11px] text-app-fg-3">Transcribing…</span>
         ) : statusMessage ? (
-          <span className="text-[11px] text-app-red-4 pl-1">{statusMessage}</span>
+          <span className="pl-1 text-[11px] text-app-red-4">{statusMessage}</span>
         ) : null}
       </div>
 
@@ -1385,7 +1385,7 @@ function ComposerToolbar({
               onClick={onVoiceConfirm}
               aria-label="Use recording"
               className={cn(
-                "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
                 "app-press transition-[opacity,filter,transform]",
                 "hover:scale-[1.04] active:scale-[0.97]",
                 "text-(--app-accent-fg)",
@@ -1418,7 +1418,7 @@ function ComposerToolbar({
                   onClick={onStopGeneration}
                   aria-label="Stop generating"
                   className={cn(
-                    "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                    "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
                     "app-press transition-[opacity,filter,transform]",
                     "bg-app-red-4 text-white",
                     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
@@ -1445,9 +1445,9 @@ function ComposerToolbar({
                           : "Send"
                   }
                   className={cn(
-                    "size-9 shrink-0 inline-flex items-center justify-center rounded-full",
+                    "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
                     "app-press transition-[opacity,filter,transform]",
-                    "enabled:hover:scale-[1.04] active:scale-[0.97]",
+                    "active:scale-[0.97] enabled:hover:scale-[1.04]",
                     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
                     "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
                     canSend
@@ -1458,7 +1458,7 @@ function ComposerToolbar({
                           "hover:brightness-[1.06]",
                           "hover:shadow-(--app-button-primary-shadow-hover)",
                         )
-                      : "bg-app-bg-2 text-app-fg-2 cursor-not-allowed",
+                      : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
                   )}
                 >
                   <ArrowUp size={16} strokeWidth={2.25} />
@@ -1528,13 +1528,13 @@ function RecordingPanel({
   active: boolean;
 }) {
   return (
-    <div className="relative h-[64px] px-3 pt-2 pb-1.5 flex items-center gap-3">
-      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-tight font-medium text-app-fg-3 shrink-0">
+    <div className="relative flex h-[64px] items-center gap-3 px-3 pt-2 pb-1.5">
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium tracking-tight text-app-fg-3 uppercase">
         <span aria-hidden className="chat-rec-dot size-1.5 rounded-full bg-app-red-4" />
-        <span className="tabular-nums text-app-fg-4">{formatElapsed(elapsed)}</span>
+        <span className="text-app-fg-4 tabular-nums">{formatElapsed(elapsed)}</span>
         <span className="text-app-fg-2">Listening</span>
       </span>
-      <div className="flex-1 h-12">
+      <div className="h-12 flex-1">
         <MicWaveform levelsRef={levelsRef} active={active} />
       </div>
     </div>
@@ -1567,12 +1567,12 @@ function ComposerIcon({
       onClick={onClick}
       {...rest}
       className={cn(
-        "size-8 inline-flex items-center justify-center rounded-full",
-        "transition-colors app-press",
+        "inline-flex size-8 items-center justify-center rounded-full",
+        "app-press transition-colors",
         active
           ? "bg-app-purple-1 text-app-purple-4"
           : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-app-fg-3",
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-app-fg-3",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >

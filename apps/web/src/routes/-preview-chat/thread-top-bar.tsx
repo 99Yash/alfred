@@ -16,11 +16,11 @@ export function ThreadTopBar({
     <div
       className={cn(
         "app-frost-header sticky top-0 z-30",
-        "h-[58px] px-4 flex items-center justify-between gap-3",
+        "flex h-[58px] items-center justify-between gap-3 px-4",
       )}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <h1 className="text-sm font-medium tracking-tight text-app-fg-4 truncate max-w-[42ch]">
+      <div className="flex min-w-0 items-center gap-2">
+        <h1 className="max-w-[42ch] truncate text-sm font-medium tracking-tight text-app-fg-4">
           {title}
         </h1>
         <AppPill className="h-7 px-2 text-[12px]" tone="purple" variant="accent">

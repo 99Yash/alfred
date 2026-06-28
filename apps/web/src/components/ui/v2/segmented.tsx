@@ -55,13 +55,13 @@ export function AppSegmented<T extends string = string>({
       <TabsPrimitive.List
         aria-label={label}
         className={cn(
-          "inline-flex items-center gap-1 p-1 rounded-xl",
+          "inline-flex items-center gap-1 rounded-xl p-1",
           glass
             ? // The glass track always floats over the rail's dark weather
               // video, so its surface colors are theme-independent literals —
               // app-bg/app-fg tokens invert in light mode and would wash the
               // track (and its active chip) out to white-on-white.
-              "bg-white/[0.12] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_12px_rgba(0,0,0,0.18)]"
+              "bg-white/[0.12] shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150"
             : "bg-app-bg-2 ring-1 ring-app-bg-3",
           className,
         )}
@@ -72,7 +72,7 @@ export function AppSegmented<T extends string = string>({
             value={item.value}
             disabled={disabled || item.disabled}
             className={cn(
-              "inline-flex items-center gap-1.5 h-7 px-3 rounded-lg",
+              "inline-flex h-7 items-center gap-1.5 rounded-lg px-3",
               "text-xs font-medium whitespace-nowrap",
               "transition-all duration-150",
               "app-press",
@@ -87,7 +87,7 @@ export function AppSegmented<T extends string = string>({
                     "data-[state=active]:bg-[rgba(7,17,31,0.72)] data-[state=active]:text-white",
                     "data-[state=active]:ring-1 data-[state=active]:ring-white/10",
                     "data-[state=active]:shadow-[var(--app-shadow-elevated)]",
-                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-white/70",
+                    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/70",
                   )
                 : cn(
                     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg-2",
@@ -97,7 +97,7 @@ export function AppSegmented<T extends string = string>({
                     "data-[state=active]:bg-app-bg-1 data-[state=active]:text-app-fg-4",
                     "data-[state=active]:shadow-[var(--app-shadow-elevated)]",
                     /* disabled */
-                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-app-fg-3",
+                    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-app-fg-3",
                   ),
             )}
           >

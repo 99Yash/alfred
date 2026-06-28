@@ -136,9 +136,9 @@ export function callToast({
           </span>
         ) : null}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5">
-          <span className="text-balance text-[13px] font-medium leading-snug">{message}</span>
+          <span className="text-[13px] leading-snug font-medium text-balance">{message}</span>
           {description ? (
-            <span className="text-pretty text-[12px] leading-snug text-app-fg-3">
+            <span className="text-[12px] leading-snug text-pretty text-app-fg-3">
               {description}
             </span>
           ) : null}
@@ -154,7 +154,7 @@ export function callToast({
               "-my-0.5 shrink-0 self-center rounded-lg px-2.5 py-1 text-[12.5px] font-semibold",
               // A resting fill + hairline so the action reads as a button at a
               // glance, not hover-revealed text; it firms up on hover.
-              "bg-app-bg-a2 text-app-fg-4 ring-1 ring-inset ring-app-fg-a1/60",
+              "bg-app-bg-a2 text-app-fg-4 ring-1 ring-app-fg-a1/60 ring-inset",
               "transition-[background-color,box-shadow,transform] duration-150 hover:ring-app-fg-a1 active:scale-[0.96]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
             )}
@@ -169,7 +169,7 @@ export function callToast({
           aria-label="Dismiss"
           onClick={() => sonnerToast.dismiss(id)}
           className={cn(
-            "app-toast-close absolute right-0 top-0 grid size-5 -translate-y-1/3 translate-x-1/3 place-items-center rounded-full",
+            "app-toast-close absolute top-0 right-0 grid size-5 translate-x-1/3 -translate-y-1/3 place-items-center rounded-full",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
         >
@@ -214,7 +214,7 @@ function emojiToast({
         type="button"
         onClick={() => sonnerToast.dismiss(id)}
         className={cn(
-          "app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full min-w-60 max-w-xs items-center overflow-hidden rounded-2xl px-3 py-2.5 text-left",
+          "app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full max-w-xs min-w-60 items-center overflow-hidden rounded-2xl px-3 py-2.5 text-left",
           "transition-transform duration-150 active:scale-[0.98]",
         )}
         data-app-theme={appThemeAttr()}
@@ -227,9 +227,9 @@ function emojiToast({
             {emoji}
           </span>
         </span>
-        <span className="relative flex min-w-0 select-none items-center gap-2.5">
+        <span className="relative flex min-w-0 items-center gap-2.5 select-none">
           <span className="flex size-7 flex-none items-center justify-center text-xl">{emoji}</span>
-          <span className="truncate text-balance text-[13px] font-medium leading-snug text-app-fg-4">
+          <span className="truncate text-[13px] leading-snug font-medium text-balance text-app-fg-4">
             {label}
           </span>
         </span>

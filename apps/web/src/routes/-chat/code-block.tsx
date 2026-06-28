@@ -96,7 +96,7 @@ export function CodeBlock({ children }: ComponentPropsWithoutRef<"pre">) {
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-app-fg-a1/50 bg-[#0b0b0f]">
       <div className="flex items-center justify-between border-b border-app-fg-a1/40 px-3 py-1">
-        <span className="font-mono text-[11px] lowercase text-app-fg-3">{language ?? "text"}</span>
+        <span className="font-mono text-[11px] text-app-fg-3 lowercase">{language ?? "text"}</span>
         <CopyButton code={code} />
       </div>
       <SyntaxHighlighter

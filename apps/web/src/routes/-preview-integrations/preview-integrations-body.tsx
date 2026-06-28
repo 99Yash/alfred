@@ -43,9 +43,9 @@ export function PreviewIntegrationsBody() {
   }, [resolved]);
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <header className="text-center space-y-3 max-w-2xl mx-auto app-card-in">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <header className="app-card-in mx-auto max-w-2xl space-y-3 text-center">
           <h1 className="text-[36px] leading-[44px] font-medium tracking-tight text-app-fg-4">
             Integrations
           </h1>
@@ -56,17 +56,17 @@ export function PreviewIntegrationsBody() {
 
         <FeaturedHero brands={connectedBrands} />
 
-        <div className="flex justify-center mt-8 app-card-in" style={{ animationDelay: "120ms" }}>
+        <div className="app-card-in mt-8 flex justify-center" style={{ animationDelay: "120ms" }}>
           <div className="relative w-full max-w-[640px]">
             <Search
               size={14}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-app-fg-2 pointer-events-none hidden md:block"
+              className="pointer-events-none absolute top-1/2 left-4 hidden -translate-y-1/2 text-app-fg-2 md:block"
             />
             <AppInput
               placeholder="Search for integration"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full !h-[44px] !rounded-2xl !pl-10"
+              className="!h-[44px] w-full !rounded-2xl !pl-10"
               aria-label="Search integrations"
             />
           </div>

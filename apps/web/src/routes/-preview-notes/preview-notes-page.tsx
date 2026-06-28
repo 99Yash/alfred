@@ -77,7 +77,7 @@ export function PreviewNotesPage() {
             }}
             rows={2}
             placeholder="Type a note. Enter to save, Shift+Enter for a newline."
-            className="min-h-[64px] max-h-[40dvh] px-3 pt-3 pb-2 text-sm leading-6"
+            className="max-h-[40dvh] min-h-[64px] px-3 pt-3 pb-2 text-sm leading-6"
           />
 
           <div className="flex items-center justify-between gap-2 px-1 pb-1">
@@ -107,9 +107,9 @@ export function PreviewNotesPage() {
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-full transition-colors",
                   dictation.listening
-                    ? "text-app-red-4 bg-app-bg-2"
+                    ? "bg-app-bg-2 text-app-red-4"
                     : "text-app-fg-2 hover:text-app-fg-3",
-                  "disabled:opacity-40 disabled:cursor-not-allowed",
+                  "disabled:cursor-not-allowed disabled:opacity-40",
                 )}
               >
                 <Mic size={15} />
@@ -120,12 +120,12 @@ export function PreviewNotesPage() {
                 aria-label="Save note"
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-full",
-                  "text-[var(--app-accent-fg)] bg-[image:var(--app-cta-bg)]",
+                  "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)]",
                   "shadow-[var(--app-button-primary-shadow)]",
                   "transition-[opacity,filter,transform] active:scale-[0.96]",
                   hasContent
                     ? "hover:brightness-[1.06] active:brightness-[0.96]"
-                    : "opacity-50 cursor-not-allowed",
+                    : "cursor-not-allowed opacity-50",
                 )}
               >
                 <ArrowUp size={16} strokeWidth={2.25} />
@@ -159,7 +159,7 @@ export function PreviewNotesPage() {
               {notes.map((note) => (
                 <li key={note.id}>
                   <AppCard className="px-4 py-3">
-                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-app-fg-4">
+                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-app-fg-4">
                       {note.text}
                     </p>
                     <p className="mt-2 text-[11.5px] text-app-fg-2 tabular-nums">

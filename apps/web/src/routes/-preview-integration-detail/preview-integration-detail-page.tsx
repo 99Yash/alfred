@@ -15,8 +15,8 @@ export function PreviewIntegrationDetailPage() {
   const provider = resolved ?? catalogProvider;
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto scroll-stable">
-      <main className="mx-auto w-full max-w-[700px] px-4 sm:px-6 py-10 sm:py-14">
+    <div className="scroll-stable min-w-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-[700px] px-4 py-10 sm:px-6 sm:py-14">
         <BackLink />
         {provider ? <ProviderDetail provider={provider} /> : <NotFound />}
       </main>

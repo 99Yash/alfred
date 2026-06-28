@@ -125,8 +125,8 @@ export function AppSelect({
           }}
           className={cn(
             "flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-sm",
-            "bg-app-bg-1 text-app-fg-4 app-elevated app-press",
-            "outline-none transition-shadow",
+            "app-elevated app-press bg-app-bg-1 text-app-fg-4",
+            "transition-shadow outline-none",
             "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             "data-[state=open]:ring-2 data-[state=open]:ring-app-purple-2 data-[state=open]:ring-offset-4 data-[state=open]:ring-offset-app-background",
             "disabled:cursor-not-allowed disabled:opacity-60",
@@ -156,8 +156,8 @@ export function AppSelect({
           onKeyDown={handleListKeyDown}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 max-h-72 w-(--radix-popover-trigger-width) min-w-44 overflow-auto rounded-2xl p-1.5 my-1",
-            "outline-none app-fade-in",
+            "app app-frost-overlay z-50 my-1 max-h-72 w-(--radix-popover-trigger-width) min-w-44 overflow-auto rounded-2xl p-1.5",
+            "app-fade-in outline-none",
           )}
         >
           {rows.map((option, index) => (
@@ -201,7 +201,7 @@ function Row({
       tabIndex={-1}
       onClick={onSelect}
       className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm outline-none transition-colors",
+        "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm transition-colors outline-none",
         "hover:bg-app-bg-a1 hover:text-app-fg-4 focus-visible:bg-app-bg-a1 focus-visible:text-app-fg-4",
         checked ? "text-app-fg-4" : muted ? "text-app-fg-2" : "text-app-fg-3",
       )}

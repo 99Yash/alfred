@@ -221,13 +221,15 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     assert.equal(defaultTrace?.kind, "triage.classification", "trace kind discriminator persisted");
     assert.equal(defaultTrace?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
     assert.equal(defaultTrace?.stepId, "poison-next", "trace keyed to the emitting step");
+    assert.ok(defaultTrace, "default trace row exists");
+    assert.ok(secondaryTrace, "secondary trace row exists");
     assert.equal(
-      (defaultTrace?.trace as { senderRelationship: string }).senderRelationship,
+      (defaultTrace.trace as { senderRelationship: string }).senderRelationship,
       "relpoison",
       "NUL stripped from the trace jsonb",
     );
     assert.equal(
-      (secondaryTrace?.trace as { senderRelationship: string }).senderRelationship,
+      (secondaryTrace.trace as { senderRelationship: string }).senderRelationship,
       "secondarypoison",
       "lone surrogate stripped from the keyed trace jsonb",
     );
@@ -246,14 +248,11 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
     const row = rows[0];
-    assert.equal(row?.status, "completed", "the run reaches terminal success, never stuck running");
+    assert.ok(row, "the run row exists");
+    assert.equal(row.status, "completed", "the run reaches terminal success, never stuck running");
+    assert.equal((row.state as TestState).marker, "donestate", "NUL stripped from committed state");
     assert.equal(
-      (row?.state as TestState).marker,
-      "donestate",
-      "NUL stripped from committed state",
-    );
-    assert.equal(
-      (row?.output as { messageId: string }).messageId,
+      (row.output as { messageId: string }).messageId,
       "msgid",
       "NUL stripped from committed output",
     );

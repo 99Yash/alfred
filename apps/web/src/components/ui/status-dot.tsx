@@ -40,7 +40,7 @@ export function StatusDot({ tone = "emerald", size = "md", className, ...rest }:
   return (
     <span
       aria-hidden
-      className={cn("inline-block rounded-full shrink-0", TONE[tone], SIZE[size], className)}
+      className={cn("inline-block shrink-0 rounded-full", TONE[tone], SIZE[size], className)}
       {...rest}
     />
   );

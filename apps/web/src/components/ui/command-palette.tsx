@@ -70,15 +70,15 @@ export function CommandPalette({
             <CommandPrimitive.Input
               placeholder={placeholder}
               className={cn(
-                "flex-1 py-[18px] text-sm bg-transparent",
-                "border-none outline-none focus:outline-none focus:ring-0",
+                "flex-1 bg-transparent py-[18px] text-sm",
+                "border-none outline-none focus:ring-0 focus:outline-none",
                 "text-gray-1000 placeholder:text-gray-700",
               )}
             />
           </div>
 
           {/* Body — scrolling list */}
-          <CommandPrimitive.List className={cn("max-h-[400px] overflow-y-auto scrollbar", "p-2")}>
+          <CommandPrimitive.List className={cn("scrollbar max-h-[400px] overflow-y-auto", "p-2")}>
             <CommandPrimitive.Empty className="py-8 text-center text-[13px] text-gray-800">
               {emptyLabel}
             </CommandPrimitive.Empty>
@@ -108,7 +108,7 @@ export function Group({ heading, children }: GroupProps) {
       className={cn(
         "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1.5",
         "[&_[cmdk-group-heading]]:text-[10.5px] [&_[cmdk-group-heading]]:font-semibold",
-        "[&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider",
+        "[&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:uppercase",
         "[&_[cmdk-group-heading]]:text-gray-700",
         "[&:not(:first-child)]:mt-1",
       )}
@@ -154,11 +154,11 @@ export function Item({
       onSelect={onSelect}
       disabled={disabled}
       className={cn(
-        "group flex items-center gap-2.5 h-11 rounded-md px-2.5",
+        "group flex h-11 items-center gap-2.5 rounded-md px-2.5",
         "text-sm font-medium text-gray-900",
         "cursor-pointer select-none",
         "data-[selected=true]:bg-[rgb(var(--gray-50))] data-[selected=true]:text-gray-1000",
-        "data-[disabled=true]:opacity-40 data-[disabled=true]:cursor-not-allowed",
+        "data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-40",
         "transition-colors duration-150",
       )}
     >
@@ -194,7 +194,7 @@ export function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; lab
     { keys: "Esc", label: "Close" },
   ];
   return (
-    <div className="flex items-center justify-end gap-4 text-[11px] text-gray-700 tabular">
+    <div className="tabular flex items-center justify-end gap-4 text-[11px] text-gray-700">
       {items.map((h) => (
         <span key={h.label} className="inline-flex items-center gap-1.5">
           <Kbd>{h.keys}</Kbd>

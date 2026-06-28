@@ -13,9 +13,9 @@ export function Kbd({ className, children, ...rest }: HTMLAttributes<HTMLSpanEle
   return (
     <kbd
       className={cn(
-        "inline-flex items-center min-w-[18px] h-[18px] justify-center px-1 rounded-md",
+        "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-md px-1",
         "border border-white/10 bg-white/[0.04]",
-        "text-[11px] leading-none tabular text-white/60 font-sans",
+        "tabular font-sans text-[11px] leading-none text-white/60",
         className,
       )}
       {...rest}

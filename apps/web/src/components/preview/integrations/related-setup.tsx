@@ -9,7 +9,7 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
   if (related.length === 0) return null;
 
   return (
-    <section className="space-y-3 app-card-in" style={{ animationDelay: "240ms" }}>
+    <section className="app-card-in space-y-3" style={{ animationDelay: "240ms" }}>
       <div>
         <SectionHeading>Complete your Google setup</SectionHeading>
         <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">
@@ -24,7 +24,7 @@ export function RelatedSetup({ provider }: { provider: IntegrationProvider }) {
             params={{ provider: item.id }}
             className={cn(
               "app-card-in flex items-center gap-3 rounded-2xl bg-app-bg-1 px-3 py-2.5",
-              "shadow-[var(--app-shadow-elevated)] transition-shadow app-press",
+              "app-press shadow-[var(--app-shadow-elevated)] transition-shadow",
               "hover:shadow-[var(--app-shadow-elevated-hover)]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
             )}

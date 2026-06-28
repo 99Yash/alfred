@@ -40,7 +40,7 @@ export function MeetingsFeed({
     <div className="app-card-in space-y-2">
       {items.length ? (
         <>
-          <div className="px-1 text-[10.5px] uppercase tracking-tight font-medium text-white/55">
+          <div className="px-1 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
             Today · {items.length}
           </div>
           <ul className="space-y-1">
@@ -69,8 +69,8 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
       <button
         type="button"
         className={cn(
-          "group w-full text-left rounded-xl px-2 py-2 -mx-0.5",
-          "hover:bg-white/[0.07] transition-colors app-press",
+          "group -mx-0.5 w-full rounded-xl p-2 text-left",
+          "app-press transition-colors hover:bg-white/[0.07]",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -78,15 +78,15 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 inline-flex flex-col items-center justify-center shrink-0 rounded-md",
-            "h-10 w-10 leading-none",
+            "mt-0.5 inline-flex shrink-0 flex-col items-center justify-center rounded-md",
+            "size-10 leading-none",
             isNext
               ? "bg-app-amber-1 text-app-amber-4 ring-1 ring-app-amber-2"
               : "bg-white/10 text-white/70",
           )}
         >
           <span className="text-[11px] font-semibold tabular-nums">{meeting.time}</span>
-          <span className="mt-0.5 text-[9px] uppercase tracking-tight text-white/55">
+          <span className="mt-0.5 text-[9px] tracking-tight text-white/55 uppercase">
             {meeting.duration}
           </span>
         </span>
@@ -100,7 +100,7 @@ function MeetingRow({ meeting }: { meeting: MeetingItem }) {
                 aria-hidden
                 className={cn(
                   "shrink-0 rounded-full px-1.5 py-0.5",
-                  "text-[9.5px] uppercase tracking-tight font-medium",
+                  "text-[9.5px] font-medium tracking-tight uppercase",
                   "bg-app-amber-1 text-app-amber-4",
                 )}
               >

@@ -47,7 +47,7 @@ export function ShowcaseVideo({
   return (
     <video
       ref={ref}
-      className={cn("h-full w-full object-cover", className)}
+      className={cn("size-full object-cover", className)}
       style={{ objectPosition }}
       src={src}
       autoPlay

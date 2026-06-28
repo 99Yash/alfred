@@ -92,13 +92,13 @@ export function StyleguidePage() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#0a0a0a] text-gray-950">
-      <div className="mx-auto w-full max-w-5xl px-6 py-12 space-y-12">
+      <div className="mx-auto w-full max-w-5xl space-y-12 px-6 py-12">
         <header className="space-y-4">
           <p className="text-sm text-gray-800">Internal · Before / After preview</p>
           <h1 className="heading-display text-[40px] leading-[48px] font-medium tracking-tight">
             Alfred UI styleguide
           </h1>
-          <p className="text-sm text-gray-800 max-w-prose">
+          <p className="max-w-prose text-sm text-gray-800">
             Toggle between the new <strong className="text-white">App revamp</strong> landing
             grammar and the <strong className="text-white">Dimension</strong> primitives that still
             power the in-app surfaces. Both halves are kept side-by-side on purpose: Dimension
@@ -185,14 +185,14 @@ function HalfBanner({
     >
       <p
         className={cn(
-          "text-[11.5px] font-semibold uppercase tracking-[0.18em]",
+          "text-[11.5px] font-semibold tracking-[0.18em] uppercase",
           tone === "app" ? "text-indigo-300" : "text-gray-700",
         )}
       >
         {eyebrow}
       </p>
-      <h2 className="mt-1.5 text-2xl font-semibold text-white tracking-tight">{title}</h2>
-      <p className="mt-2 text-sm text-gray-800 max-w-prose">{body}</p>
+      <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">{title}</h2>
+      <p className="mt-2 max-w-prose text-sm text-gray-800">{body}</p>
     </div>
   );
 }
@@ -225,8 +225,8 @@ function Section({
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_1fr] items-center gap-4 py-3 border-t border-white/5 first:border-t-0">
-      <div className="text-[12.5px] text-gray-800 tabular">{label}</div>
+    <div className="grid grid-cols-[120px_1fr] items-center gap-4 border-t border-white/5 py-3 first:border-t-0">
+      <div className="tabular text-[12.5px] text-gray-800">{label}</div>
       <div className="flex flex-wrap items-center gap-3">{children}</div>
     </div>
   );
@@ -308,7 +308,7 @@ function Swatches<T extends string>({
 }) {
   return (
     <div className="space-y-2">
-      <div className="text-[12.5px] text-gray-800 tabular">{name}</div>
+      <div className="tabular text-[12.5px] text-gray-800">{name}</div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
         {stops.map((s) => (
           <div key={s} className="space-y-1">
@@ -316,7 +316,7 @@ function Swatches<T extends string>({
               className="h-12 rounded-md border border-white/5"
               style={{ backgroundColor: `rgb(var(--${scale}-${s}))` }}
             />
-            <div className="text-[11px] text-gray-800 tabular">{s}</div>
+            <div className="tabular text-[11px] text-gray-800">{s}</div>
           </div>
         ))}
       </div>
@@ -552,7 +552,7 @@ function SwitchSection() {
         <Switch defaultChecked disabled />
       </Row>
       <Row label="form row">
-        <div className="w-96 flex items-center justify-between rounded-2xl border border-white/5 px-3 py-2.5">
+        <div className="flex w-96 items-center justify-between rounded-2xl border border-white/5 px-3 py-2.5">
           <div className="space-y-0.5">
             <div className="text-sm text-gray-950">Auto-approve replies</div>
             <div className="text-[12.5px] text-gray-800">
@@ -571,7 +571,7 @@ function ControlledSwitchDemo() {
   return (
     <div className="flex items-center gap-3">
       <Switch checked={on} onCheckedChange={setOn} />
-      <span className="text-[12.5px] text-gray-800 tabular">checked = {on ? "true" : "false"}</span>
+      <span className="tabular text-[12.5px] text-gray-800">checked = {on ? "true" : "false"}</span>
     </div>
   );
 }
@@ -658,12 +658,12 @@ function CardSection() {
       <Row label="static">
         <Card className="max-w-md">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg frost-icon-tile grid place-items-center">
+            <div className="frost-icon-tile grid size-10 place-items-center rounded-lg">
               <Mail size={16} />
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-gray-1000">Gmail</div>
-              <div className="text-[12.5px] text-gray-800 truncate">
+              <div className="truncate text-[12.5px] text-gray-800">
                 Read inbox + draft replies on your behalf.
               </div>
             </div>
@@ -673,12 +673,12 @@ function CardSection() {
       <Row label="interactive">
         <Card interactive tabIndex={0} className="max-w-md">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg frost-icon-tile grid place-items-center">
+            <div className="frost-icon-tile grid size-10 place-items-center rounded-lg">
               <Bell size={16} />
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-gray-1000">Morning briefing</div>
-              <div className="text-[12.5px] text-gray-800 truncate">
+              <div className="truncate text-[12.5px] text-gray-800">
                 Daily summary of your inbox before 7am.
               </div>
             </div>
@@ -814,7 +814,7 @@ function StatusDotSection() {
         <StatusDot tone="muted" size="sm" />
       </Row>
       <Row label="in context">
-        <span className="inline-flex h-7 items-center gap-2 px-3 rounded-full frost-border bg-white/[0.04] text-[13px] text-gray-950">
+        <span className="frost-border inline-flex h-7 items-center gap-2 rounded-full bg-white/[0.04] px-3 text-[13px] text-gray-950">
           <StatusDot tone="emerald" />
           Auto
         </span>
@@ -835,13 +835,13 @@ function FrostBorderSection() {
       recipe="1px gradient hairline via ::before. Parameterized by --frost-strength + --frost-border-strength. Most-reused Dimension pattern."
     >
       <Row label="default">
-        <div className="frost-border h-10 px-4 rounded-full inline-flex items-center bg-[rgb(var(--purple-300))]">
+        <div className="frost-border inline-flex h-10 items-center rounded-full bg-[rgb(var(--purple-300))] px-4">
           strength 1 / 1
         </div>
       </Row>
       <Row label="strong">
         <div
-          className="frost-border h-10 px-4 rounded-full inline-flex items-center bg-white text-black"
+          className="frost-border inline-flex h-10 items-center rounded-full bg-white px-4 text-black"
           style={{
             // bumped variant — matches the Upgrade Plan white pill
             ["--frost-strength" as never]: "0.8",
@@ -853,7 +853,7 @@ function FrostBorderSection() {
       </Row>
       <Row label="subtle">
         <div
-          className="frost-border h-10 px-4 rounded-full inline-flex items-center bg-[rgb(var(--gray-50))] text-gray-950"
+          className="frost-border inline-flex h-10 items-center rounded-full bg-[rgb(var(--gray-50))] px-4 text-gray-950"
           style={{
             ["--frost-strength" as never]: "1",
             ["--frost-border-strength" as never]: "0.3",
@@ -863,7 +863,7 @@ function FrostBorderSection() {
         </div>
       </Row>
       <Row label="panel">
-        <div className="frost-border rounded-2xl p-4 bg-[rgb(28,28,28)]/50 backdrop-blur-sm text-sm text-gray-950 min-w-[220px]">
+        <div className="frost-border min-w-[220px] rounded-2xl bg-[rgb(28,28,28)]/50 p-4 text-sm text-gray-950 backdrop-blur-sm">
           Frost panel: used for code blocks and structured agent output. Holds a hairline plus an
           inset glow.
         </div>
@@ -892,7 +892,7 @@ function CommandPaletteSection() {
           <Kbd className="ml-2">⌘K</Kbd>
         </Button>
         {picked ? (
-          <span className="text-[12.5px] text-gray-800 tabular">
+          <span className="tabular text-[12.5px] text-gray-800">
             Last pick: <span className="text-gray-950">{picked}</span>
           </span>
         ) : null}
@@ -1015,9 +1015,9 @@ function TypographySection() {
         <h1 className="heading-display-lavender text-2xl font-medium">Learn (active tab)</h1>
       </Row>
       <Row label="body">
-        <p className="text-sm text-gray-950 max-w-prose">
+        <p className="max-w-prose text-sm text-gray-950">
           Body copy at 14/20.{" "}
-          <strong className="text-gray-1000 font-semibold">
+          <strong className="font-semibold text-gray-1000">
             Bold prose ramps to gray-1000 (white).
           </strong>{" "}
           Default body color is gray-950 (rgb 237,237,237).
@@ -1084,7 +1084,7 @@ function AppCanvas({
   height?: string;
 }) {
   return (
-    <LandingBackground className={cn("rounded-2xl overflow-hidden", height, className)}>
+    <LandingBackground className={cn("overflow-hidden rounded-2xl", height, className)}>
       <div className="p-6">{children}</div>
     </LandingBackground>
   );
@@ -1105,7 +1105,7 @@ function AppTokensSection() {
             className="h-16 w-24 rounded-lg border border-white/10"
             style={{ background: "#0a0a0a" }}
           />
-          <div className="text-[12.5px] text-gray-800 tabular">
+          <div className="tabular text-[12.5px] text-gray-800">
             #0a0a0a · faint 80px grid · top vignette
           </div>
         </div>
@@ -1123,7 +1123,7 @@ function AppTokensSection() {
         ].map((swatch) => (
           <div key={swatch.label} className="flex flex-col items-center gap-1">
             <div className={cn("h-10 w-12 rounded-md border border-white/10", swatch.className)} />
-            <div className="text-[11px] text-gray-800 tabular">{swatch.label}</div>
+            <div className="tabular text-[11px] text-gray-800">{swatch.label}</div>
           </div>
         ))}
       </Row>
@@ -1139,7 +1139,7 @@ function AppTokensSection() {
         ].map((swatch) => (
           <div key={swatch.label} className="flex flex-col items-center gap-1">
             <div className={cn("h-10 w-12 rounded-md border border-white/10", swatch.className)} />
-            <div className="text-[11px] text-gray-800 tabular">{swatch.label}</div>
+            <div className="tabular text-[11px] text-gray-800">{swatch.label}</div>
           </div>
         ))}
       </Row>
@@ -1170,17 +1170,17 @@ function AppHeroTypographySection() {
         <div className="space-y-5 text-center">
           <h1
             className={cn(
-              "mx-auto max-w-3xl text-balance font-semibold text-white",
+              "mx-auto max-w-3xl font-semibold text-balance text-white",
               "text-[44px] leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl",
             )}
           >
             The AI coworker that never sleeps.
           </h1>
-          <p className="mx-auto max-w-2xl text-balance text-[16px] font-medium leading-[1.5] tracking-[-0.018em] text-neutral-400 sm:text-[18px]">
+          <p className="mx-auto max-w-2xl text-[16px] leading-[1.5] font-medium tracking-[-0.018em] text-balance text-neutral-400 sm:text-[18px]">
             Alfred connects to your email, calendar, and tools to triage your inbox, brief you each
             morning, and prepare you for every meeting, quietly, in the background.
           </p>
-          <p className="text-[12.5px] font-medium uppercase tracking-[0.18em] text-neutral-500">
+          <p className="text-[12.5px] font-medium tracking-[0.18em] text-neutral-500 uppercase">
             Get Started
           </p>
         </div>
@@ -1340,11 +1340,11 @@ function TopAnnouncementSection() {
             type="button"
             className={cn(
               "group relative flex items-center gap-2 sm:gap-2.5",
-              "rounded-full px-3 py-1.5 sm:px-3.5 text-[12px] sm:text-[12.5px]",
+              "rounded-full px-3 py-1.5 text-[12px] sm:px-3.5 sm:text-[12.5px]",
               "text-white/85 hover:text-white",
               "before:absolute before:inset-0 before:-z-10 before:rounded-full",
               "before:bg-black/30 before:backdrop-blur-md hover:before:bg-black/40",
-              "ring-1 ring-inset ring-white/10 hover:ring-white/20",
+              "ring-1 ring-white/10 ring-inset hover:ring-white/20",
               "transition-all duration-200",
             )}
           >
@@ -1357,7 +1357,7 @@ function TopAnnouncementSection() {
               →
             </span>
           </button>
-          <p className="text-[11px] text-gray-700 tabular">
+          <p className="tabular text-[11px] text-gray-700">
             See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
             components/landing/top-announcement.tsx (production renders fixed at top:5).
           </p>
@@ -1384,9 +1384,9 @@ function FloatingPillNavSection() {
           <nav
             aria-label="Primary"
             className={cn(
-              "relative h-fit w-fit",
-              "rounded-full p-3 flex items-center justify-between gap-4",
-              "before:absolute before:left-0 before:top-0 before:-z-10",
+              "relative size-fit",
+              "flex items-center justify-between gap-4 rounded-full p-3",
+              "before:absolute before:top-0 before:left-0 before:-z-10",
               "before:size-full before:rounded-full",
               "before:bg-black/40 before:backdrop-blur-lg",
             )}
@@ -1403,13 +1403,13 @@ function FloatingPillNavSection() {
             <div className="flex items-center gap-0 text-sm text-white">
               <button
                 type="button"
-                className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+                className="rounded-full px-3.5 py-2 text-sm leading-[100%] font-medium text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Why Alfred
               </button>
               <button
                 type="button"
-                className="rounded-full px-3.5 py-2 text-sm font-medium leading-[100%] text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+                className="rounded-full px-3.5 py-2 text-sm leading-[100%] font-medium text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
               >
                 Pricing
               </button>
@@ -1467,13 +1467,13 @@ function AuroraGlowSection() {
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div className="relative h-48 rounded-2xl border border-white/10 bg-black/40">
             <AuroraGlow intensity="default" />
-            <div className="absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800 tabular">
+            <div className="tabular absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800">
               intensity="default"
             </div>
           </div>
           <div className="relative h-48 rounded-2xl border border-white/10 bg-black/40">
             <AuroraGlow intensity="subtle" />
-            <div className="absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800 tabular">
+            <div className="tabular absolute inset-x-0 bottom-3 text-center text-[12.5px] text-gray-800">
               intensity="subtle"
             </div>
           </div>
@@ -1603,7 +1603,7 @@ function FeatureCardDemo({
           <Sparkles className={cn("size-4", t.text)} strokeWidth={2} />
         </span>
         <p className={cn("text-[13px] font-semibold tracking-tight", t.text)}>{eyebrow}</p>
-        <h3 className="max-w-[22ch] text-balance text-[22px] font-semibold leading-[1.18] tracking-[-0.035em] text-white sm:text-[24px]">
+        <h3 className="max-w-[22ch] text-[22px] leading-[1.18] font-semibold tracking-[-0.035em] text-balance text-white sm:text-[24px]">
           {title}
         </h3>
         <p className="max-w-[36ch] text-[14.5px] leading-[1.55] tracking-[-0.012em] text-neutral-400">
@@ -1801,7 +1801,7 @@ function ThemePanes({
           data-app-theme={theme}
           className="app rounded-2xl p-5 shadow-[0_0_0_1px_var(--app-fg-a1)]"
         >
-          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-app-fg-2">
+          <p className="mb-4 text-[11px] font-semibold tracking-[0.16em] text-app-fg-2 uppercase">
             {theme}
           </p>
           {render(theme)}
@@ -1814,7 +1814,7 @@ function ThemePanes({
 function V2Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[88px_1fr] items-center gap-3">
-      <div className="text-[12px] tabular-nums text-app-fg-2">{label}</div>
+      <div className="text-[12px] text-app-fg-2 tabular-nums">{label}</div>
       <div className="flex flex-wrap items-center gap-2.5">{children}</div>
     </div>
   );

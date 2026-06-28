@@ -138,7 +138,7 @@ function EditableField({
       <label
         htmlFor={id}
         title={field.description}
-        className="text-[11px] font-medium uppercase tracking-tight text-app-fg-2"
+        className="text-[11px] font-medium tracking-tight text-app-fg-2 uppercase"
       >
         {field.label}
       </label>

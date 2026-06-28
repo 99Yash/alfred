@@ -141,8 +141,8 @@ export function TabPill<T extends string>({
           aria-hidden
           className={cn(
             "pointer-events-none absolute top-1 bottom-1 left-0 rounded-full",
-            "bg-gradient-to-br from-indigo-500/80 via-violet-500/70 to-fuchsia-500/55",
-            "ring-1 ring-inset ring-white/30",
+            "bg-linear-to-br from-indigo-500/80 via-violet-500/70 to-fuchsia-500/55",
+            "ring-1 ring-white/30 ring-inset",
             "shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_0_28px_-4px_rgba(139,92,246,0.7)]",
             "transition-[transform,width] duration-300 ease-out",
             "motion-reduce:transition-none",
@@ -170,8 +170,8 @@ export function TabPill<T extends string>({
             onClick={() => onChange(opt.value)}
             className={cn(
               "relative z-10 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5",
-              "text-[13px] font-medium leading-none transition-colors duration-200",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/60",
+              "text-[13px] leading-none font-medium transition-colors duration-200",
+              "focus-visible:ring-2 focus-visible:ring-violet-300/60 focus-visible:outline-none",
               isActive ? "text-white" : "text-neutral-400 hover:text-neutral-100",
             )}
           >

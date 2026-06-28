@@ -21,10 +21,10 @@ export function FloatingPillNav({
     <nav
       aria-label="Primary"
       className={cn(
-        "fixed inset-x-0 z-50 bottom-4 sm:bottom-8 mx-auto h-fit",
-        "w-full sm:w-fit max-w-[90vw] sm:max-w-none",
-        "rounded-full p-3 flex items-center justify-between gap-4",
-        "before:absolute before:left-0 before:top-0 before:-z-10",
+        "fixed inset-x-0 bottom-4 z-50 mx-auto h-fit sm:bottom-8",
+        "w-full max-w-[90vw] sm:w-fit sm:max-w-none",
+        "flex items-center justify-between gap-4 rounded-full p-3",
+        "before:absolute before:top-0 before:left-0 before:-z-10",
         "before:size-full before:rounded-full",
         "before:bg-black/40 before:backdrop-blur-lg",
         "transition-opacity duration-300",

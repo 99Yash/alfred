@@ -136,8 +136,8 @@ export function ArtifactSidebar({
       aria-label={artifact?.title ?? "Artifact"}
       style={{ width }}
       className={cn(
-        "relative shrink-0 h-full",
-        "rounded-2xl border border-app-bg-3/60 bg-app-bg-1 overflow-hidden",
+        "relative h-full shrink-0",
+        "overflow-hidden rounded-2xl border border-app-bg-3/60 bg-app-bg-1",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         "animate-artifact-panel",
       )}
@@ -486,7 +486,7 @@ function NavButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 grid size-10 place-items-center rounded-full",
+        "absolute top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full",
         "bg-white/10 text-white transition-colors hover:bg-white/20",
         "disabled:cursor-not-allowed disabled:opacity-30",
         side === "left" ? "left-3" : "right-3",
@@ -547,7 +547,7 @@ function ResizeHandle({
       aria-orientation="vertical"
       aria-label="Resize artifact panel"
       onPointerDown={onPointerDown}
-      className="group absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize"
+      className="group absolute top-0 bottom-0 left-0 z-10 w-1.5 cursor-col-resize"
     >
       <div className="absolute inset-y-0 left-0 w-px bg-app-bg-3/60 transition-colors group-hover:bg-app-fg-3" />
     </div>
@@ -604,7 +604,7 @@ function IconButton({
       title={label}
       onClick={onClick}
       className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-fg-3/40",
+        "grid size-7 shrink-0 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-app-fg-3/40 focus-visible:outline-none",
         tone === "dark"
           ? "text-white/70 hover:bg-white/10 hover:text-white"
           : "text-app-fg-4 hover:bg-app-bg-a2 hover:text-app-fg-1",

@@ -30,20 +30,20 @@ export function AppTextarea({
       rows={rows ?? (variant === "card" ? 4 : 1)}
       readOnly={readOnly}
       className={cn(
-        "block w-full text-sm rounded-2xl px-3.5 py-2.5 resize-none",
-        "outline-none transition-shadow",
+        "block w-full resize-none rounded-2xl px-3.5 py-2.5 text-sm",
+        "transition-shadow outline-none",
         "placeholder:text-app-fg-2",
         variant === "card"
           ? cn(
               "bg-app-bg-1 text-app-fg-4",
               "app-elevated",
               "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-              readOnly && "bg-app-bg-2 text-app-fg-3 cursor-default",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
+              readOnly && "cursor-default bg-app-bg-2 text-app-fg-3",
+              "disabled:cursor-not-allowed disabled:opacity-60",
             )
           : cn(
-              "bg-transparent text-app-fg-4 border-0 p-0",
-              "focus-visible:outline-none focus-visible:ring-0",
+              "border-0 bg-transparent p-0 text-app-fg-4",
+              "focus-visible:ring-0 focus-visible:outline-none",
             ),
         className,
       )}

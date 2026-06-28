@@ -117,7 +117,7 @@ export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
         {count > 1 ? (
           <span
             className={cn(
-              "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none tabular-nums",
+              "shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium tabular-nums",
               failed ? "bg-app-red-2 text-app-red-4" : "bg-app-bg-2 text-app-fg-2",
             )}
             aria-label={`${count} times`}
@@ -126,7 +126,7 @@ export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
           </span>
         ) : null}
         {secondary ? (
-          <span className="hidden min-w-0 max-w-[45%] truncate text-xs text-app-fg-3 sm:inline">
+          <span className="hidden max-w-[45%] min-w-0 truncate text-xs text-app-fg-3 sm:inline">
             {secondary}
           </span>
         ) : null}
@@ -154,7 +154,7 @@ export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
         </span>
       </button>
       {expandable && open ? (
-        <div id={panelId} className="animate-chat-in ml-8 mt-1.5">
+        <div id={panelId} className="animate-chat-in mt-1.5 ml-8">
           {trimmed ? (
             <p className="mb-1.5 flex items-center gap-1.5 text-[12px] text-app-fg-2">
               <Scissors size={12} aria-hidden />
@@ -172,7 +172,7 @@ export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
               <pre
                 key={t.toolCallId}
                 className={cn(
-                  "overflow-x-auto whitespace-pre-wrap border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed",
+                  "overflow-x-auto border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed whitespace-pre-wrap",
                   failed ? "text-app-red-4/90" : "text-app-fg-3",
                   i > 0 && "mt-1.5",
                 )}

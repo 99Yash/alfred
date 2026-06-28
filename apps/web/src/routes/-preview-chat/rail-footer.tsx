@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils";
 import type { RailBriefingSummary } from "./rail-data";
 
 const CTA_CLASS = cn(
-  "w-full inline-flex items-center justify-between gap-3 rounded-xl px-3 py-2",
+  "inline-flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2",
   "text-left",
   "text-[var(--app-accent-fg)]",
   "bg-[image:var(--app-cta-bg)]",
@@ -59,13 +59,13 @@ export function RailFooter({
     <>
       <span className="inline-flex min-w-0 items-center gap-2">
         <Sparkles size={13} aria-hidden className="shrink-0" />
-        <span className="min-w-0 flex flex-col">
-          <span className="text-[13px] font-medium leading-tight truncate">{title}</span>
-          <span className="text-[11px] leading-tight opacity-80 truncate">{secondary}</span>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-[13px] leading-tight font-medium">{title}</span>
+          <span className="truncate text-[11px] leading-tight opacity-80">{secondary}</span>
         </span>
       </span>
       {pending ? (
-        <Loader2 size={14} aria-hidden className="shrink-0 opacity-90 animate-spin" />
+        <Loader2 size={14} aria-hidden className="shrink-0 animate-spin opacity-90" />
       ) : (
         <ArrowRight size={14} aria-hidden className="shrink-0 opacity-90" />
       )}
@@ -73,7 +73,7 @@ export function RailFooter({
   );
 
   return (
-    <div className="shrink-0 p-3 border-t border-white/10">
+    <div className="shrink-0 border-t border-white/10 p-3">
       {latestBriefing ? (
         <Link
           to="/briefings/$date"
@@ -89,7 +89,7 @@ export function RailFooter({
           onClick={onGenerate}
           disabled={pending}
           aria-label={pending ? "Composing briefing" : "Generate today's briefing"}
-          className={cn(CTA_CLASS, pending && "opacity-80 cursor-default hover:brightness-100")}
+          className={cn(CTA_CLASS, pending && "cursor-default opacity-80 hover:brightness-100")}
         >
           {inner}
         </button>
