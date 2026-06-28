@@ -100,7 +100,7 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
       verifyPubSubOidcForGmailWebhook(null, {
         config: { nodeEnv: "production" },
       }),
-      /GOOGLE_PUBSUB_AUDIENCE is required in production/,
+      /GOOGLE_PUBSUB_AUDIENCE is required when Gmail push is enabled/,
     );
   });
 
@@ -111,7 +111,7 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
           nodeEnv: "production",
           audience: "https://alfred.example.com/webhooks/gmail",
         }),
-      /GOOGLE_PUBSUB_SERVICE_ACCOUNT is required in production/,
+      /GOOGLE_PUBSUB_SERVICE_ACCOUNT is required when Gmail push is enabled/,
     );
 
     await assert.rejects(
@@ -122,7 +122,19 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
         },
         verifyJwt: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
       }),
-      /GOOGLE_PUBSUB_SERVICE_ACCOUNT is required in production/,
+      /GOOGLE_PUBSUB_SERVICE_ACCOUNT is required when Gmail push is enabled/,
+    );
+  });
+
+  test("fails closed outside production when Gmail push is configured", async () => {
+    await assert.rejects(
+      verifyPubSubOidcForGmailWebhook(null, {
+        config: {
+          nodeEnv: "development",
+          pushTopic: "projects/example/topics/gmail-push",
+        },
+      }),
+      /GOOGLE_PUBSUB_AUDIENCE is required when Gmail push is enabled/,
     );
   });
 
