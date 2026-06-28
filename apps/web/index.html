@@ -89,8 +89,6 @@
       (React 19 does not dedupe metadata, so leaving these would double the tags
       for JS-running consumers). Keep these values in sync with `siteMeta()` in
       src/lib/page-meta.ts.
-      TODO: swap the og:image / twitter:image for a dedicated 1200x630 card
-      once the artwork lands (currently reuses the 512x512 app icon).
     -->
     <title data-seo-baseline>Alfred · The AI coworker that never sleeps.</title>
     <meta
@@ -115,7 +113,14 @@
     <meta
       data-seo-baseline
       property="og:image"
-      content="https://alfred.beauty/images/logo/icon-512.png"
+      content="https://alfred.beauty/images/og-card.png"
+    />
+    <meta data-seo-baseline property="og:image:width" content="1200" />
+    <meta data-seo-baseline property="og:image:height" content="630" />
+    <meta
+      data-seo-baseline
+      property="og:image:alt"
+      content="Alfred — The AI coworker that never sleeps."
     />
     <meta data-seo-baseline name="twitter:card" content="summary_large_image" />
     <meta
@@ -131,7 +136,7 @@
     <meta
       data-seo-baseline
       name="twitter:image"
-      content="https://alfred.beauty/images/logo/icon-512.png"
+      content="https://alfred.beauty/images/og-card.png"
     />
     <!-- Preload Open Runde so the brand font is discovered immediately rather
          than after the JS bundle parses index.css. Both weights render above

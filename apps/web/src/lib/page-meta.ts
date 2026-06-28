@@ -22,10 +22,10 @@ const SITE_DESCRIPTION =
 const SITE_URL = "https://alfred.beauty";
 
 /**
- * Absolute OG/Twitter card image. OG scrapers require an absolute URL.
- * TODO: swap for a dedicated 1200x630 card once the artwork lands.
+ * Absolute OG/Twitter card image — a dedicated 1200x630 social card
+ * (`summary_large_image`). OG scrapers require an absolute URL.
  */
-const SOCIAL_IMAGE = `${SITE_URL}/images/logo/icon-512.png`;
+const SOCIAL_IMAGE = `${SITE_URL}/images/og-card.png`;
 
 export interface PageMetaInput {
   /** Page-specific title segment, e.g. `"Settings"` → `"Settings · Alfred"`. */
@@ -105,6 +105,9 @@ export function siteMeta(): { meta: MetaTag[]; links: LinkTag[] } {
       { property: "og:site_name", content: SITE_NAME },
       { property: "og:type", content: "website" },
       { property: "og:image", content: SOCIAL_IMAGE },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { property: "og:image:alt", content: `${SITE_NAME} — ${SITE_TAGLINE}` },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:image", content: SOCIAL_IMAGE },
     ],
