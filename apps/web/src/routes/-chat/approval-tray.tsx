@@ -1,4 +1,5 @@
 import type { ToolRiskTier } from "@alfred/contracts";
+import { isLoadableIntegrationSlug } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
 import {
@@ -25,6 +26,8 @@ import { ToolIcon } from "~/components/approvals/tool-icon";
 import { AppButton, AppTextarea } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
+import { getIntegrationProvider } from "~/lib/integrations/integrations";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 
@@ -34,6 +37,7 @@ const ICON_PENCIL = <Pencil size={13} />;
 const ICON_BAN = <Ban size={13} />;
 const ICON_XCIRCLE = <XCircle size={13} />;
 const ICON_CHECK = <Check size={13} />;
+const ICON_SHIELD = <ShieldCheck size={13} />;
 
 export function ChatApprovalTray({
   runId,
@@ -126,6 +130,7 @@ function ApprovalStep({
   });
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const notifiedIdsRef = useRef<Set<string>>(new Set());
+  const { setIntegrationMode } = useActionPolicy();
 
   if (
     staging.id !== previousStagingRef.current.id ||
@@ -173,7 +178,7 @@ function ApprovalStep({
     });
   }, [preview, staging.id, title]);
 
-  const decide = async (decision: ApprovalDecision) => {
+  const decide = async (decision: ApprovalDecision, alwaysAllowName?: string) => {
     if (busy || decided) return;
     if (preview) return;
     setBusy(true);
@@ -191,14 +196,46 @@ function ApprovalStep({
       onDecision(decision.decision);
       const recorded = decision.decision === "approve" ? toast.success : toast.info;
       recorded({
-        message: decision.decision === "approve" ? "Approval recorded" : "Rejection recorded",
-        description: "Alfred is resuming the run.",
+        message: alwaysAllowName
+          ? `Always allowing ${alwaysAllowName}`
+          : decision.decision === "approve"
+            ? "Approval recorded"
+            : "Rejection recorded",
+        description: alwaysAllowName
+          ? `Alfred won't ask before ${alwaysAllowName} actions like this. Change it in Settings.`
+          : "Alfred is resuming the run.",
         position: "top-center",
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record decision");
       setBusy(false);
     }
+  };
+
+  // "Always allow" flips the whole integration to autonomy, then approves this
+  // call (the staged row's requiresApproval is frozen at dispatch, so the policy
+  // flip alone won't release it). Hidden on high-tier cards: high-tier actions
+  // confirm even under autonomy (the one-way floor), so the button would flip
+  // the policy yet keep prompting — misleading. System tools never gate and
+  // aren't loadable, so they're excluded too.
+  const canAlwaysAllow =
+    staging.riskTier !== "high" && isLoadableIntegrationSlug(staging.integration);
+  const integrationName = getIntegrationProvider(staging.integration)?.name ?? staging.integration;
+
+  const allowAlways = async () => {
+    if (busy || decided || preview) return;
+    if (!isLoadableIntegrationSlug(staging.integration)) return;
+    setError(null);
+    try {
+      await setIntegrationMode(staging.integration, "autonomy");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update policy");
+      return;
+    }
+    await decide(
+      edited ? { decision: "approve", editedInput: draftInput } : { decision: "approve" },
+      integrationName,
+    );
   };
 
   const approveLabel = approvalLabel(staging.riskTier, edited);
@@ -359,6 +396,17 @@ function ApprovalStep({
                 Reject
               </AppButton>
             )}
+            {canAlwaysAllow && !showReason ? (
+              <AppButton
+                variant="ghost"
+                size="sm"
+                leading={ICON_SHIELD}
+                disabled={busy}
+                onClick={allowAlways}
+              >
+                Always allow {integrationName}
+              </AppButton>
+            ) : null}
             <AppButton
               variant="primary"
               size="sm"
