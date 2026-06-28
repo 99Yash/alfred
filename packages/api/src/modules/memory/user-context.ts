@@ -9,6 +9,7 @@ import {
   userPreferences,
 } from "@alfred/db/schemas";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { memorySourceSchema, type MemorySource } from "./types";
 
 /** The sections {@link readUserContext} can be narrowed to via `include`. */
 export type UserContextSection =
@@ -45,14 +46,14 @@ export interface UserContext {
   profile: {
     name: string;
     email: string;
-    currentCompany: unknown | null;
-    currentRole: unknown | null;
-    currentWork: unknown | null;
-    currentLocation: unknown | null;
-    bioSummary: unknown | null;
+    currentCompany: string | null;
+    currentRole: string | null;
+    currentWork: string | null;
+    currentLocation: string | null;
+    bioSummary: string | null;
     identityFacts: Array<{
       key: string;
-      value: unknown;
+      value: string;
       confidence: number;
     }>;
   } | null;
@@ -109,10 +110,16 @@ const IDENTITY_FACT_KEYS = [
   "full_name",
   "user_nickname",
   "current_location",
-  "home_city",
-  "home_country",
 ] as const;
 type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
+const PROFILE_IDENTITY_FACT_KEYS = [
+  "current_company",
+  "current_work",
+  "current_role",
+  "bio_summary",
+  "current_location",
+] as const satisfies readonly IdentityFactKey[];
+const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
 const ENTITY_LIMIT = 50;
 const RELATION_LIMIT = 80;
 const MEMORY_LIMIT = 6;
@@ -130,8 +137,9 @@ type EntityRow = {
 
 type FactContextRow = Pick<
   typeof userFacts.$inferSelect,
-  "id" | "key" | "value" | "confidence" | "updatedAt" | "createdAt"
+  "id" | "key" | "value" | "confidence" | "source" | "updatedAt" | "createdAt"
 >;
+type StringFactContextRow = FactContextRow & { value: string };
 
 const ENTITY_COLUMNS = {
   id: entities.id,
@@ -146,6 +154,7 @@ const FACT_COLUMNS = {
   key: userFacts.key,
   value: userFacts.value,
   confidence: userFacts.confidence,
+  source: userFacts.source,
   updatedAt: userFacts.updatedAt,
   createdAt: userFacts.createdAt,
 } as const;
@@ -178,12 +187,79 @@ function identityValue(rows: FactContextRow[], key: IdentityFactKey): unknown | 
   return rows.find((row) => row.key === key)?.value ?? null;
 }
 
+function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
+  const value = identityValue(rows, key);
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function sourceRank(source: MemorySource): number {
+  switch (source.kind) {
+    case "user":
+      return 0;
+    case "cold_start":
+      return 1;
+    case "agent":
+      return 2;
+    case "document":
+    case "chunk":
+    case "tool_call":
+      return 3;
+    default: {
+      const _exhaustive: never = source.kind;
+      return _exhaustive;
+    }
+  }
+}
+
+function timestampMs(value: Date | null): number {
+  return value?.getTime() ?? Number.NEGATIVE_INFINITY;
+}
+
+function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
+  const parsed = memorySourceSchema.safeParse(row.source);
+  if (parsed.success) return parsed.data;
+  console.warn(
+    `[memory.user-context] ignoring invalid source for user_facts:${row.id}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+  );
+  return { kind: "document" };
+}
+
 function sortIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
   return [...rows].sort((a, b) => {
     const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
     const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
     return rankA - rankB;
   });
+}
+
+function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
+  return rows.filter((row): row is StringFactContextRow => {
+    if (!profileIdentityFactKeys.has(row.key)) return false;
+    if (typeof row.value !== "string" || !row.value.trim()) return false;
+    const source = parseSource(row);
+    return source.kind === "user" || source.kind === "cold_start" || source.kind === "agent";
+  });
+}
+
+function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number {
+  const sourceDiff = sourceRank(parseSource(a)) - sourceRank(parseSource(b));
+  if (sourceDiff !== 0) return sourceDiff;
+  if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+  const updatedDiff = timestampMs(b.updatedAt) - timestampMs(a.updatedAt);
+  if (updatedDiff !== 0) return updatedDiff;
+  const createdDiff = timestampMs(b.createdAt) - timestampMs(a.createdAt);
+  if (createdDiff !== 0) return createdDiff;
+  return b.id.localeCompare(a.id);
+}
+
+function bestIdentityFacts(rows: FactContextRow[]): FactContextRow[] {
+  const byKey = new Map<IdentityFactKey, FactContextRow>();
+  for (const row of rows) {
+    if (!isIdentityFactKey(row.key)) continue;
+    const existing = byKey.get(row.key);
+    if (!existing || compareIdentityCandidates(row, existing) < 0) byKey.set(row.key, row);
+  }
+  return sortIdentityFacts([...byKey.values()]);
 }
 
 /**
@@ -252,11 +328,13 @@ export async function readUserContext(
           .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
           .limit(FACT_LIMIT)
       : Promise.resolve([]),
-    // One best row per canonical identity key. This query is intentionally not
-    // gated on `facts`: `profile` must be identity-complete even when a model
-    // narrows the tool call to include only profile/integrations (issue #329).
+    // Candidate rows for canonical identity keys. This query is intentionally
+    // not gated on `facts`: `profile` must be identity-complete even when a
+    // model narrows the tool call to include only profile/integrations
+    // (issue #329). Selection happens in code so source provenance can outrank
+    // recency: user/cold-start/agent identity beats document extraction noise.
     db()
-      .selectDistinctOn([userFacts.key], FACT_COLUMNS)
+      .select(FACT_COLUMNS)
       .from(userFacts)
       .where(
         and(
@@ -266,13 +344,7 @@ export async function readUserContext(
           inArray(userFacts.key, [...IDENTITY_FACT_KEYS]),
         ),
       )
-      .orderBy(
-        userFacts.key,
-        desc(userFacts.confidence),
-        desc(userFacts.updatedAt),
-        desc(userFacts.createdAt),
-        desc(userFacts.id),
-      ),
+      .orderBy(userFacts.key, desc(userFacts.confidence), desc(userFacts.updatedAt)),
     wants("preferences")
       ? db()
           .select({ key: userPreferences.key, value: userPreferences.value })
@@ -305,7 +377,8 @@ export async function readUserContext(
       : Promise.resolve([]),
   ]);
 
-  const identityFactRows = sortIdentityFacts(identityFactRowsRaw);
+  const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
+  const profileIdentityRows = profileIdentityFacts(identityFactRows);
 
   // Guarantee the focused contact/query matches survive the ranked cap: fetch
   // them directly and merge ahead of the ranked slice (deduped by id).
@@ -368,12 +441,12 @@ export async function readUserContext(
   const profile = profileRows[0]
     ? {
         ...profileRows[0],
-        currentCompany: identityValue(identityFactRows, "current_company"),
-        currentRole: identityValue(identityFactRows, "current_role"),
-        currentWork: identityValue(identityFactRows, "current_work"),
-        currentLocation: identityValue(identityFactRows, "current_location"),
-        bioSummary: identityValue(identityFactRows, "bio_summary"),
-        identityFacts: identityFactRows.map((row) => ({
+        currentCompany: stringIdentityValue(profileIdentityRows, "current_company"),
+        currentRole: stringIdentityValue(profileIdentityRows, "current_role"),
+        currentWork: stringIdentityValue(profileIdentityRows, "current_work"),
+        currentLocation: stringIdentityValue(profileIdentityRows, "current_location"),
+        bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
+        identityFacts: profileIdentityRows.map((row) => ({
           key: row.key,
           value: row.value,
           confidence: row.confidence,
