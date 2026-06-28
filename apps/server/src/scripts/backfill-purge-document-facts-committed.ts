@@ -28,15 +28,15 @@
  *
  * SAFETY: dry by default — classifies and prints what it WOULD reject, writes
  * nothing. Pass `--commit` to apply. Idempotent (already-rejected/non-current
- * rows are inactive and won't re-match). `--commit` requires PURGE_FACTS_EMAILS
+ * rows are inactive and won't re-match). `--commit` requires `--emails=...`
  * explicitly so a prod shell typo cannot mutate the default account.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfill-purge-document-facts-committed.js
  *   # commit:
- *   PURGE_FACTS_EMAILS="yashgouravkar@gmail.com" node dist/scripts/backfill-purge-document-facts-committed.js --commit
+ *   node dist/scripts/backfill-purge-document-facts-committed.js --emails=yashgouravkar@gmail.com --commit
  *   # other target / also purge relationship:* graph facts:
- *   PURGE_FACTS_EMAILS="a@x.com" node dist/scripts/backfill-purge-document-facts-committed.js --commit --include-relationships
+ *   node dist/scripts/backfill-purge-document-facts-committed.js --emails=a@x.com --commit --include-relationships
  */
 import { closeConnections, closeRedis, rejectFact, warmPool } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
@@ -107,18 +107,23 @@ const IDENTITY_ALLOW_LIST = new Set<string>([
   "reddit_username",
 ]);
 
-const targetEmailsEnv = process.env.PURGE_FACTS_EMAILS;
 const COMMIT = process.argv.includes("--commit");
 const INCLUDE_RELATIONSHIPS = process.argv.includes("--include-relationships");
+const VERBOSE_VALUES = process.argv.includes("--verbose-values");
 
-if (COMMIT && !targetEmailsEnv?.trim()) {
-  throw new Error("PURGE_FACTS_EMAILS must be set explicitly when using --commit");
+function parseTargetEmails(): string[] {
+  const flag = process.argv.find((arg) => arg.startsWith("--emails="));
+  if (COMMIT && !flag) {
+    throw new Error("--emails=a@x.com must be set explicitly when using --commit");
+  }
+  const raw = flag ? flag.slice("--emails=".length) : "yashgouravkar@gmail.com";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
-const TARGET_EMAILS = (targetEmailsEnv ?? "yashgouravkar@gmail.com")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+const TARGET_EMAILS = parseTargetEmails();
 
 /** A document-sourced fact is graph/relationship data, not identity noise. */
 function isRelationshipKey(key: string): boolean {
@@ -127,7 +132,10 @@ function isRelationshipKey(key: string): boolean {
 
 function preview(value: unknown): string {
   const s = typeof value === "string" ? value : JSON.stringify(value);
-  return s.length > 48 ? `${s.slice(0, 47)}…` : s;
+  const masked = s
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[phone]");
+  return masked.length > 48 ? `${masked.slice(0, 47)}…` : masked;
 }
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
@@ -153,9 +161,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       ),
     );
 
-  const docRows = rows.filter(
-    (r) => (r.source as { kind?: string } | null)?.kind === "document",
-  );
+  const docRows = rows.filter((r) => (r.source as { kind?: string } | null)?.kind === "document");
 
   const keep: typeof docRows = [];
   const skipRel: typeof docRows = [];
@@ -177,16 +183,27 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
   for (const r of purge) byKey.set(r.key, (byKey.get(r.key) ?? 0) + 1);
   console.log(`\n  PURGE — ${byKey.size} distinct keys / ${purge.length} rows:`);
   for (const key of [...byKey.keys()].sort()) {
-    const sample = purge.find((r) => r.key === key)!;
     const n = byKey.get(key)!;
-    console.log(`    ${key}${n > 1 ? ` ×${n}` : ""} = ${preview(sample.value)}`);
+    const sample = VERBOSE_VALUES ? purge.find((r) => r.key === key) : undefined;
+    console.log(`    ${key}${n > 1 ? ` ×${n}` : ""}${sample ? ` = ${preview(sample.value)}` : ""}`);
   }
 
   console.log(`\n  KEEP (allow-listed identity/preference): ${keep.length} rows`);
-  for (const r of keep) console.log(`    ${r.key} = ${preview(r.value)} (c=${r.confidence})`);
+  const keepByKey = new Map<string, number>();
+  for (const r of keep) keepByKey.set(r.key, (keepByKey.get(r.key) ?? 0) + 1);
+  for (const key of [...keepByKey.keys()].sort()) {
+    const n = keepByKey.get(key)!;
+    const sample = VERBOSE_VALUES ? keep.find((r) => r.key === key) : undefined;
+    console.log(`    ${key}${n > 1 ? ` ×${n}` : ""}${sample ? ` = ${preview(sample.value)}` : ""}`);
+  }
+  if (!VERBOSE_VALUES && (purge.length > 0 || keep.length > 0)) {
+    console.log("    (values hidden; pass --verbose-values for masked local inspection)");
+  }
 
   if (!COMMIT) {
-    console.log(`\n  DRY — nothing written. Re-run with --commit to reject the ${purge.length} rows.`);
+    console.log(
+      `\n  DRY — nothing written. Re-run with --commit to reject the ${purge.length} rows.`,
+    );
     return;
   }
 
@@ -206,7 +223,8 @@ async function main() {
   await warmPool();
   console.log(
     `# Purge document-metadata user_facts — mode=${COMMIT ? "COMMIT" : "DRY"} | ` +
-      `relationships=${INCLUDE_RELATIONSHIPS ? "INCLUDED" : "skipped"} | targets=${TARGET_EMAILS.join(", ")}`,
+      `relationships=${INCLUDE_RELATIONSHIPS ? "INCLUDED" : "skipped"} | ` +
+      `values=${VERBOSE_VALUES ? "masked" : "hidden"} | targets=${TARGET_EMAILS.join(", ")}`,
   );
 
   const users = await db()

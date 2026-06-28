@@ -71,6 +71,7 @@ interface SeedFact {
   confidence: number;
   /** Lower = older. Drives recency ordering within the same confidence. */
   ageMinutes: number;
+  source?: { kind: "document" | "user" | "cold_start" | "agent" };
 }
 
 async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
@@ -86,7 +87,7 @@ async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
           value: spec.value,
           confidence: spec.confidence,
           status: "confirmed" as const,
-          source: { kind: "document" as const },
+          source: spec.source ?? { kind: "document" as const },
           createdAt: ts,
           updatedAt: ts,
         };
@@ -193,9 +194,27 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
   test("surfaces identity in profile even when facts are omitted (issue #329)", async () => {
     const userId = await seedUser();
     await seedFacts(userId, [
-      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10 },
-      { key: "current_work", value: "building Alfred", confidence: 1.0, ageMinutes: 9 },
-      { key: "bio_summary", value: "Yash works on Alfred at Oliv AI", confidence: 1.0, ageMinutes: 8 },
+      {
+        key: "current_company",
+        value: "Oliv AI",
+        confidence: 1.0,
+        ageMinutes: 10,
+        source: { kind: "user" },
+      },
+      {
+        key: "current_work",
+        value: "building Alfred",
+        confidence: 1.0,
+        ageMinutes: 9,
+        source: { kind: "user" },
+      },
+      {
+        key: "bio_summary",
+        value: "Yash works on Alfred at Oliv AI",
+        confidence: 1.0,
+        ageMinutes: 8,
+        source: { kind: "user" },
+      },
     ]);
 
     const ctx = await readUserContext(userId, { include: ["profile", "integrations"] });
@@ -206,30 +225,47 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     assert.equal(ctx.profile?.bioSummary, "Yash works on Alfred at Oliv AI");
   });
 
-  test("identity guarantee chooses one best row per identity key before merging", async () => {
+  test("profile identity prefers trusted user facts over newer document noise", async () => {
     const userId = await seedUser();
-    const duplicateCities: SeedFact[] = Array.from({ length: 30 }, (_, i) => ({
-      key: "home_city",
-      value: `third-party-city-${i}`,
-      confidence: 1.0,
-      ageMinutes: i + 1,
-    }));
     await seedFacts(userId, [
-      ...duplicateCities,
-      { key: "current_company", value: "Oliv AI", confidence: 1.0, ageMinutes: 10_000 },
+      {
+        key: "current_company",
+        value: "AirBills",
+        confidence: 1.0,
+        ageMinutes: 1,
+        source: { kind: "document" },
+      },
+      {
+        key: "current_role",
+        value: { title: "not a string" },
+        confidence: 1.0,
+        ageMinutes: 1,
+        source: { kind: "user" },
+      },
+      {
+        key: "current_company",
+        value: "Oliv AI",
+        confidence: 1.0,
+        ageMinutes: 10_000,
+        source: { kind: "user" },
+      },
     ]);
 
     const ctx = await readUserContext(userId);
 
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
     assert.equal(
-      ctx.profile?.identityFacts.filter((fact) => fact.key === "home_city").length,
-      1,
-      "duplicate identity-key rows must not saturate the profile identity slice",
+      ctx.profile?.currentRole,
+      null,
+      "non-string identity values are not profile facts",
+    );
+    assert.deepEqual(
+      ctx.profile?.identityFacts.map((fact) => fact.key),
+      ["current_company"],
     );
     assert.ok(
       ctx.confirmedFacts.some((fact) => fact.key === "current_company"),
-      "per-key identity rescue must include current_company despite duplicate identity noise",
+      "per-key identity rescue must include current_company despite newer document noise",
     );
   });
 
