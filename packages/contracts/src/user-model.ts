@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation.js";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
  */
 export const OBSERVATION_SOURCES = [
   "gmail",
+  "google_account",
   "google_calendar",
   "google_directory",
   "github",
@@ -65,6 +67,7 @@ export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>
   // fold-conflict precedence are different axes: a Directory-sourced FACT must
   // not silently beat a `user` correction, so it sits at the first-party rank.
   gmail: 2,
+  google_account: 2,
   google_calendar: 2,
   google_directory: 2,
   github: 2,
@@ -96,6 +99,12 @@ export const OBSERVATION_KINDS = [
   "user_confirmation",
   "user_rejection",
   "user_profile_edit",
+  // identity affiliation — a connected account asserting the user's org domain
+  // (ADR-0080 §4a). Subject is always `{ kind: "user" }`; the SOURCE is the
+  // integration that owns the account (NOT `user`), so an explicit user
+  // correction outranks it. Emitted by integration connect/sweep, not a reducer
+  // over inbound content.
+  "user_org_affiliation",
   "enrichment_fact",
 ] as const;
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
@@ -117,6 +126,11 @@ export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
  */
 export const OBSERVATION_KINDS_BY_SOURCE = {
   gmail: ["email_message"],
+  // `user_org_affiliation`: the connected Google account asserts the user's org
+  // domain (ADR-0080 §4a). This is account-level provenance, not a Gmail message
+  // reducer event; keeping it on `google_account` prevents the future connect-time
+  // emitter from pretending a generic Google credential came from Gmail.
+  google_account: ["user_org_affiliation"],
   google_calendar: ["calendar_meeting"],
   google_directory: [],
   github: ["github_pull_request", "github_review", "github_push"],
@@ -541,6 +555,39 @@ export type ObservationParticipants = z.infer<typeof observationParticipantsSche
 export const observationPayloadSchema = jsonObjectSchema;
 export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
 
+const canonicalDomainSchema = identityValueSchema
+  .refine((v) => v === canonicalizeIdentityValue("domain", v), {
+    error: "domain must be canonical (lowercased, no surrounding whitespace)",
+  })
+  .refine((v) => identityValueMatchesKind("domain", v), {
+    error: "domain must be a valid hostname",
+  });
+
+export const userOrgAffiliationPayloadSchema = z
+  .object({
+    accountId: z
+      .string()
+      .min(1)
+      .refine((v) => v === v.trim(), {
+        error: "accountId must not have leading or trailing whitespace",
+      }),
+    accountEmail: z
+      .string()
+      .refine((v) => v === canonicalizeIdentityValue("email", v), {
+        error: "accountEmail must be canonical (lowercased, no surrounding whitespace)",
+      })
+      .refine((v) => identityValueMatchesKind("email", v), {
+        error: "accountEmail must be a valid email address",
+      }),
+    orgDomain: canonicalDomainSchema,
+    verifiedHostedDomain: canonicalDomainSchema.nullable(),
+    domainClass: domainClassSchema,
+    status: z.enum(["connected", "disconnected"]),
+    evidence: z.string().min(1).optional(),
+  })
+  .strict();
+export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
+
 // ───────────────────────────────────────────────────────────────────────────
 // Observation write boundary (HARD P1 GATE)
 // ───────────────────────────────────────────────────────────────────────────
@@ -618,6 +665,48 @@ export const observationInsertSchema = z
   .refine(({ source, kind }) => isObservationKindForSource(source, kind), {
     error: "observation kind is not valid for its source",
     path: ["kind"],
+  })
+  .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
+    if (kind !== "user_org_affiliation") return;
+    const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", ...issue.path],
+          message: issue.message,
+        });
+      }
+      return;
+    }
+    if (subjectIdentity.kind !== "user") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["subjectIdentity"],
+        message: "user_org_affiliation observations must be about the user",
+      });
+    }
+    const expectedDomainClass = classifyEmailDomain({
+      email: parsed.data.accountEmail,
+      verifiedHostedDomain: parsed.data.verifiedHostedDomain,
+    });
+    if (expectedDomainClass !== parsed.data.domainClass) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payload", "domainClass"],
+        message: "domainClass must match accountEmail/verifiedHostedDomain classification",
+      });
+    }
+    if (
+      parsed.data.verifiedHostedDomain != null &&
+      parsed.data.verifiedHostedDomain !== parsed.data.orgDomain
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payload", "verifiedHostedDomain"],
+        message: "verifiedHostedDomain must match orgDomain when present",
+      });
+    }
   });
 /** Caller-facing input (pre-parse): defaulted fields are optional. */
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
