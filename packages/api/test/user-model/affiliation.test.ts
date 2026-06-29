@@ -71,10 +71,10 @@ async function seedGoogleCredential(args: {
   accountId: string;
   createdAt: Date;
   accountEmail?: string;
-  hostedDomain?: string;
+  hostedDomain?: string | null;
 }): Promise<string> {
   const accountEmail = args.accountEmail ?? "yash.k@oliv.ai";
-  const hostedDomain = args.hostedDomain ?? "oliv.ai";
+  const hostedDomain = args.hostedDomain === undefined ? "oliv.ai" : args.hostedDomain;
   const [row] = await db()
     .insert(integrationCredentials)
     .values({
@@ -86,7 +86,7 @@ async function seedGoogleCredential(args: {
       refreshToken: "refresh-token",
       expiresAt: new Date("2026-06-30T00:00:00.000Z"),
       scopes: [],
-      metadata: { googleHostedDomain: hostedDomain },
+      metadata: hostedDomain ? { googleHostedDomain: hostedDomain } : {},
       status: "active",
       createdAt: args.createdAt,
     })
@@ -418,5 +418,69 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
     assert.equal(newRows.length, 1);
     assert.equal((newRows[0]?.payload as { status?: string } | undefined)?.status, "connected");
     assert.equal(newRows[0]?.occurredAt.getTime(), changedAt.getTime());
+  });
+
+  test("same-family grounding change connects at change time instead of backdating to credential creation", async () => {
+    const userId = await seedUser();
+    const accountId = `google-sub-${randomUUID()}`;
+    const connectAt = new Date("2026-06-01T12:00:00.000Z");
+    const changedAt = new Date("2026-06-04T12:00:00.000Z");
+
+    const credentialId = await seedGoogleCredential({
+      userId,
+      accountId,
+      accountEmail: "owner@oliv.ai",
+      hostedDomain: null,
+      createdAt: connectAt,
+    });
+    const connected = await recordOrgAffiliationOnConnect(credentialId);
+    assert.equal(connected.status, "emitted");
+
+    const previousCredential: CredentialForAffiliation = {
+      userId,
+      accountId,
+      accountEmail: "owner@oliv.ai",
+      metadata: {},
+    };
+    await db()
+      .update(integrationCredentials)
+      .set({ metadata: { googleHostedDomain: "oliv.ai" } })
+      .where(eq(integrationCredentials.id, credentialId));
+
+    const changed = await recordOrgAffiliationOnCredentialUpsert({
+      credentialId,
+      previousCredential,
+      changedAt,
+    });
+    assert.equal(changed.disconnectedPrevious, undefined);
+    assert.equal(changed.connectedCurrent.status, "emitted");
+
+    const rows = await db()
+      .select({
+        occurredAt: observations.occurredAt,
+        supersedesObservationId: observations.supersedesObservationId,
+        payload: observations.payload,
+      })
+      .from(observations)
+      .where(
+        and(
+          eq(observations.userId, userId),
+          eq(observations.familyKey, `org_affiliation:${accountId}:oliv.ai`),
+        ),
+      )
+      .orderBy(asc(observations.occurredAt));
+
+    assert.equal(rows.length, 2);
+    assert.equal(
+      (rows[0]?.payload as { domainClass?: string } | undefined)?.domainClass,
+      "ambiguous_domain",
+    );
+    assert.equal(rows[0]?.occurredAt.getTime(), connectAt.getTime());
+    assert.equal(
+      (rows[1]?.payload as { domainClass?: string } | undefined)?.domainClass,
+      "corporate_domain",
+    );
+    assert.equal(rows[1]?.occurredAt.getTime(), changedAt.getTime());
+    assert.equal(rows[1]?.supersedesObservationId !== null, true);
   });
 });
