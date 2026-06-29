@@ -10,11 +10,10 @@ import type { StepContext } from "../../src/modules/agent/types";
 
 /**
  * Unit tests for the #346 honesty guard. The invariant: a turn whose mutating
- * tool calls net-failed cannot finalize while still claiming success — the guard
+ * tool calls failed cannot finalize while still claiming success — the guard
  * injects a corrective note and forces a regeneration, exactly once per failure
- * (so it can't loop). Reads and recovered (failed-then-succeeded) tools never
- * fire. The tool classifier and event bus are injected so no live registry or
- * Redis is needed.
+ * (so it can't loop). Reads never fire. The tool classifier and event bus are
+ * injected for most tests so no live registry or Redis is needed.
  */
 
 const RUN_ID = "run_1";
@@ -76,7 +75,7 @@ function recorder(readOnly: string[] = []): Recorder {
 }
 
 describe("guardUnreportedToolFailures", () => {
-  test("fires on a net-failed mutating call: regenerates with a corrective note", async () => {
+  test("fires on a failed mutating call: regenerates with a corrective note", async () => {
     const state = baseState({
       toolCallsLog: [
         { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
@@ -114,7 +113,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(delta.payload.segmentIndex, 1);
   });
 
-  test("does not fire when the same tool later succeeded (recovery)", async () => {
+  test("still fires when another call with the same tool name succeeded", async () => {
     const state = baseState({
       toolCallsLog: [
         { toolCallId: "tc_1", toolName: "sheets.update_values", status: "failed", segmentIndex: 0 },
@@ -128,7 +127,14 @@ describe("guardUnreportedToolFailures", () => {
     });
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
-    assert.equal(result, null);
+    assert.ok(result, "same tool name success is not proof that the failed side effect recovered");
+    assert.equal(result.kind, "next");
+    assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
+    const transcript = result.kind === "next" ? result.transcript : undefined;
+    assert.ok(transcript);
+    const note = String(transcript.at(-1)!.content);
+    assert.match(note, /sheets\.update_values/);
+    assert.match(note, /completed the user's goal another way/);
   });
 
   test("does not fire for a failed read (non-mutating) tool", async () => {
@@ -154,7 +160,43 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(result, null);
   });
 
-  test("fires on a partial failure: one mutation succeeded, another net-failed", async () => {
+  test("fires for an unknown write-shaped tool name", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "sheets.write_values", status: "failed", segmentIndex: 0 },
+      ],
+    });
+    const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      publish: async (event) => {
+        published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
+      },
+    });
+
+    assert.ok(result, "unknown write-like tools should still force honesty");
+    assert.equal(result.kind, "next");
+    assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
+    assert.equal(published.length, 1);
+  });
+
+  test("does not fire for an unknown read-shaped tool name", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        {
+          toolCallId: "tc_1",
+          toolName: "github.list_pull_requests",
+          status: "failed",
+          segmentIndex: 0,
+        },
+      ],
+    });
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      publish: async () => {},
+    });
+    assert.equal(result, null);
+  });
+
+  test("fires on a partial failure: one mutation succeeded, another failed", async () => {
     const state = baseState({
       toolCallsLog: [
         {
