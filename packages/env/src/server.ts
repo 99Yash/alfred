@@ -189,6 +189,21 @@ const serverEnvSchema = z.object({
     .string()
     .optional()
     .transform((s) => s === "true"),
+  /**
+   * Gate for Gmail *mailbox mutations* — triage label writes and watch
+   * install/renew/stop (#278). Dev and prod connect to the same real Gmail
+   * account; if a non-prod instance writes labels or (un)installs the watch it
+   * fights prod over the shared mailbox (each environment strips the other's
+   * Alfred labels). Tri-state: unset → default (on in `production`, off
+   * otherwise); `"true"`/`"false"` → explicit opt-in/out so a developer can
+   * deliberately enable writes locally. DB-only classify is unaffected — only
+   * the outbound Gmail mutations are gated. Resolve via
+   * {@link gmailMailboxWritesEnabled}; never branch on this field directly.
+   */
+  GMAIL_MAILBOX_WRITES_ENABLED: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -206,4 +221,17 @@ export function serverEnv(): ServerEnv {
   }
   _serverEnv = result.data;
   return _serverEnv;
+}
+
+/**
+ * Whether Alfred may mutate the connected Gmail mailbox — triage label writes
+ * and Gmail watch install/renew/stop (#278). The single decision point: an
+ * explicit `GMAIL_MAILBOX_WRITES_ENABLED` wins, otherwise it defaults to
+ * production-only so dev/test never fight prod over the shared real account.
+ * Callers at the Gmail-mutation boundaries (the triage relabel writer, the
+ * watch lifecycle) check this; nothing else should read the env field.
+ */
+export function gmailMailboxWritesEnabled(): boolean {
+  const env = serverEnv();
+  return env.GMAIL_MAILBOX_WRITES_ENABLED ?? env.NODE_ENV === "production";
 }

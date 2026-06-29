@@ -6,23 +6,23 @@ import {
 import { getPreference } from "../memory/preferences";
 
 /**
- * Briefing time-of-day preferences live under three `user_preferences`
- * keys (called out canonically in `packages/db/src/schema/memory.ts`).
- * The defaults are shared cross-boundary in
- * `@alfred/contracts/briefing-constants`; the fallback chain here is
- * conservative on purpose:
+ * Briefing time-of-day preferences live under `user_preferences` keys
+ * (called out canonically in `packages/db/src/schema/memory.ts`). The
+ * defaults are shared cross-boundary in `@alfred/contracts/briefing-constants`.
  *
- *   1. The pref row itself, if set to a valid value.
- *   2. The shared v1 defaults (UTC + 7am morning / 18 evening) — explicit
- *      so a user with no pref row still gets daily emails at predictable
- *      times.
+ * Timezone resolution (#229): the canonical zone key is `timezone` — it grounds
+ * chat/boss date reasoning AND briefing delivery, so the two can never diverge.
+ * The legacy `briefing.timezone` key is read as a fallback for rows written
+ * before the unification. Precedence matches `resolveUserTimezone`:
  *
- * "Captured-at-signup tz" was on the table as an intermediate fallback
- * but the OTP flow doesn't surface the browser's `Intl.DateTimeFormat`
- * to the server — wiring that up is m12 territory (settings page).
- * Until then, the user can set `briefing.timezone` explicitly via the
- * memory mutator (Replicache) or we can read it from a future signup
- * step.
+ *   1. `timezone` (canonical — what the settings picker + onboarding now write).
+ *   2. `briefing.timezone` (legacy fallback).
+ *   3. The shared v1 default (UTC) — explicit so a user with no pref row still
+ *      gets daily emails at a predictable time.
+ *
+ * The browser's `Intl.DateTimeFormat().resolvedOptions().timeZone` is captured
+ * at onboarding and persisted to `timezone`, so a user who never opens settings
+ * no longer silently defaults to UTC.
  */
 
 export { DEFAULT_BRIEFING_DELIVERY_HOUR, DEFAULT_BRIEFING_EVENING_HOUR, DEFAULT_BRIEFING_TIMEZONE };
@@ -38,17 +38,25 @@ export interface BriefingPreferences {
 }
 
 export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
-  const [tzRow, hourRow, eveRow] = await Promise.all([
+  const [generalTzRow, briefingTzRow, hourRow, eveRow] = await Promise.all([
+    // #229: `timezone` is the canonical zone (also grounds chat/boss); the
+    // briefing picker now writes it. `briefing.timezone` stays a fallback for
+    // rows written before the unification — same precedence as
+    // `resolveUserTimezone`, so delivery time and date reasoning never diverge.
+    getPreference(userId, "timezone"),
     getPreference(userId, "briefing.timezone"),
     getPreference(userId, "briefing.delivery_hour"),
     getPreference(userId, "briefing.evening_hour"),
   ]);
 
-  const timezone = parseTimezone(tzRow?.value) ?? DEFAULT_BRIEFING_TIMEZONE;
+  const canonicalTz = parseTimezone(generalTzRow?.value);
+  const legacyTz = parseTimezone(briefingTzRow?.value);
+  const timezone = canonicalTz ?? legacyTz ?? DEFAULT_BRIEFING_TIMEZONE;
   const deliveryHour = parseDeliveryHour(hourRow?.value) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
   const eveningHour = parseDeliveryHour(eveRow?.value) ?? DEFAULT_BRIEFING_EVENING_HOUR;
   const hasUserOverride =
-    (tzRow !== null && parseTimezone(tzRow.value) !== null) ||
+    canonicalTz !== null ||
+    legacyTz !== null ||
     (hourRow !== null && parseDeliveryHour(hourRow.value) !== null) ||
     (eveRow !== null && parseDeliveryHour(eveRow.value) !== null);
 

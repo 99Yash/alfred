@@ -9,10 +9,17 @@ import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 
 const BRIEFING_PREF_KEYS = {
-  timezone: "briefing.timezone",
+  // #229: `timezone` is the ONE canonical zone — it grounds chat/boss date
+  // reasoning AND briefing delivery. The picker writes here; the legacy
+  // `briefing.timezone` key is read-only fallback for rows written before the
+  // unification (server resolvers honor the same precedence).
+  timezone: "timezone",
   morningHour: "briefing.delivery_hour",
   eveningHour: "briefing.evening_hour",
 } as const;
+
+/** Legacy zone key, still read for display if no canonical row exists yet. */
+const LEGACY_TIMEZONE_KEY = "briefing.timezone";
 
 export interface BriefingScheduleState {
   /** Effective IANA timezone (stored value, else the server default). */
@@ -74,7 +81,9 @@ export function useBriefingSchedule(): BriefingScheduleState {
     );
   }, [rep]);
 
-  const tzStored = parseTimezone(values[BRIEFING_PREF_KEYS.timezone]);
+  const tzStored =
+    parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
+    parseTimezone(values[LEGACY_TIMEZONE_KEY]);
   const morningStored = parseHour(values[BRIEFING_PREF_KEYS.morningHour]);
   const eveningStored = parseHour(values[BRIEFING_PREF_KEYS.eveningHour]);
 

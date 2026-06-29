@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
 import { toMessage } from "@alfred/contracts";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
  * Push-channel lifecycle for Gmail. The actual delta sync is in
@@ -49,7 +50,16 @@ export async function installGmailWatch(args: {
   credentialId: string;
   topicName: string;
   labelIds?: string[];
-}): Promise<GmailWatchState> {
+}): Promise<GmailWatchState | null> {
+  // #278: a non-prod instance must not register a watch against the shared real
+  // Gmail account — it would drive ingestion + relabel that fights prod. Returns
+  // null (not a fake state) so callers can report "skipped" honestly.
+  if (!gmailMailboxWritesEnabled()) {
+    console.warn(
+      `[gmail.watch] install skipped for ${args.credentialId}: mailbox writes disabled (non-prod)`,
+    );
+    return null;
+  }
   const accessToken = await getFreshAccessToken(args.credentialId);
   const watch = await startWatch({
     accessToken,
@@ -91,6 +101,14 @@ export async function installGmailWatch(args: {
  * disconnect-from-google.
  */
 export async function uninstallGmailWatch(credentialId: string): Promise<void> {
+  // #278: never stop a watch from non-prod — the only live watch belongs to
+  // prod, and stopping it here would kill prod ingestion.
+  if (!gmailMailboxWritesEnabled()) {
+    console.warn(
+      `[gmail.watch] uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
+    );
+    return;
+  }
   const accessToken = await getFreshAccessToken(credentialId);
   await stopGmailWatchWithAccessToken({ accessToken, credentialId });
   await db()
@@ -110,6 +128,12 @@ export async function stopGmailWatchWithAccessToken(args: {
   accessToken: string;
   credentialId?: string;
 }): Promise<void> {
+  // #278: don't stop the shared watch from non-prod (would kill prod ingestion).
+  if (!gmailMailboxWritesEnabled()) {
+    const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
+    console.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
+    return;
+  }
   try {
     await stopWatch({ accessToken: args.accessToken });
   } catch (err) {

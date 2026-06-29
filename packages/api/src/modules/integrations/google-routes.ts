@@ -288,6 +288,13 @@ export const googleIntegrationRoutes = new Elysia({
             throw err;
           }
           const state = await installGmailWatch({ credentialId: params.id, topicName: topic });
+          if (!state) {
+            // #278: non-prod mailbox-write gate is off — be explicit rather than
+            // returning a null watch the client would read as "installed".
+            throw new ServiceUnavailableError(
+              "Gmail mailbox writes are disabled in this environment (GMAIL_MAILBOX_WRITES_ENABLED)",
+            );
+          }
           return { credentialId: params.id, watch: state };
         },
         {
