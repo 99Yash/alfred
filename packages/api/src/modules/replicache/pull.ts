@@ -6,6 +6,9 @@ import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "
 import { SYNC_ENTITIES } from "./entities";
 import type { ReplicacheModel } from "./model";
 
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;
+
 export type PatchOp =
   | { op: "put"; key: string; value: Record<string, unknown> }
   | { op: "del"; key: string }
@@ -26,11 +29,21 @@ export interface PullResponse {
  * desugaring); this helper does the runtime narrow, returning `null`
  * for any non-conforming shape — treated downstream as cold-sync,
  * matching the prior `t.Nullable` semantics.
+ *
+ * `order` is also bounded to the current `replicache_client_group.cvr_version`
+ * Postgres integer range. Pull increments an accepted cookie order before
+ * storing it, so accepting `2147483647` (or an unsafe JSON number) would turn a
+ * malformed cookie into a DB range failure instead of a cold-sync fallback.
  */
 function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
   if (raw == null || typeof raw !== "object") return null;
   const obj = raw as { order?: unknown; clientGroupID?: unknown };
-  if (typeof obj.order !== "number" || !Number.isInteger(obj.order) || obj.order < 0) {
+  if (
+    typeof obj.order !== "number" ||
+    !Number.isSafeInteger(obj.order) ||
+    obj.order < 0 ||
+    obj.order > MAX_ACCEPTED_COOKIE_ORDER
+  ) {
     return null;
   }
   if (typeof obj.clientGroupID !== "string" || obj.clientGroupID.length === 0) {
@@ -130,9 +143,26 @@ export async function handlePull(
     };
 
     // Bump cvr_version only when something changed.
+    //
+    // The cookie `order` MUST never regress relative to what the client already
+    // holds. Replicache persists the last pull cookie in the client's IndexedDB
+    // (which survives a client-group fork) and treats `order` as an ordered
+    // cookie: if a pull returns an `order` below the persisted one, it rejects
+    // the patch and re-pulls forever while the server cold-syncs the full
+    // ~1.4 MB view on every iteration — sync never converges (#337). A fork
+    // mints a fresh clientGroupID whose per-group counter starts at 0, so a
+    // plain `prevVersion + 1` regresses below the stale cookie carried over
+    // from the old group.
+    //
+    // Seed the next order off `cookie.order` — the exact value the client sent
+    // and will compare against — so the new cookie always advances past it,
+    // even when the cookie came from a now-forked group. `cookie.order` is used
+    // regardless of `cookieMatchesGroup`: a group mismatch only forces the cold
+    // sync above, it must not reset the ordinal. Mirrors the canonical CVR
+    // pattern (replicache-cvr / dimension): `max(prevVersion, cookie.order) + 1`.
     const prevVersion = existingGroup?.cvrVersion ?? 0;
     const hasChanges = patch.length > 0 || Object.keys(lastMutationIDChanges).length > 0;
-    const nextVersion = hasChanges ? prevVersion + 1 : prevVersion;
+    const nextVersion = hasChanges ? Math.max(prevVersion, cookie?.order ?? 0) + 1 : prevVersion;
 
     if (nextVersion !== prevVersion) {
       await cvrStore.put(clientGroupID, nextVersion, nextSnapshot);
