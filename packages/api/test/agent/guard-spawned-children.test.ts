@@ -57,6 +57,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     turnCount: 1,
     started: true,
     foldedChildRunIds: [],
+    notedFailureToolCallIds: [],
     ...overrides,
   };
 }
