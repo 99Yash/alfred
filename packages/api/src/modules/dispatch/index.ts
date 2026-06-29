@@ -51,6 +51,8 @@ import {
   startToolSpan,
   type DispatchRejectionInput,
   type DispatchRejectionOutcome,
+  type ToolSpanCloser,
+  type ToolSpanInput,
 } from "@alfred/ai";
 import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
@@ -212,6 +214,8 @@ function parseStagingRow(row: StagingRow): StagingRow {
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
+let dispatchRejectionRecorder: (args: DispatchRejectionInput) => void = recordDispatchRejection;
+let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
 
 /** Zod-issue shape we read for the rejection signature (loose by design). */
 type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
@@ -237,8 +241,12 @@ function rejectionSignature(
   toolName: string,
   outcome: DispatchRejectionOutcome,
   issues?: readonly RejectionIssue[],
+  candidateToolName?: string,
 ): string {
-  const base = `${toolName}:${outcome}`;
+  const base =
+    candidateToolName === undefined
+      ? `${toolName}:${outcome}`
+      : `${toolName}:${candidateToolName}:${outcome}`;
   if (!issues || issues.length === 0) return base;
   const parts = issues
     .map((issue) => `${issue.code ?? "?"}@${(issue.path ?? []).map(pathPart).join(".")}`)
@@ -267,6 +275,20 @@ function redactTraceInput(tool: RegisteredTool, input: unknown): unknown | undef
   }
 }
 
+export function _setDispatchTraceSinksForTests(sinks: {
+  rejectionRecorder?: (args: DispatchRejectionInput) => void;
+  toolSpanStarter?: (args: ToolSpanInput) => ToolSpanCloser;
+}): () => void {
+  const previousRejectionRecorder = dispatchRejectionRecorder;
+  const previousToolSpanStarter = toolSpanStarter;
+  if (sinks.rejectionRecorder) dispatchRejectionRecorder = sinks.rejectionRecorder;
+  if (sinks.toolSpanStarter) toolSpanStarter = sinks.toolSpanStarter;
+  return () => {
+    dispatchRejectionRecorder = previousRejectionRecorder;
+    toolSpanStarter = previousToolSpanStarter;
+  };
+}
+
 export function buildDispatchRejectionTraceInput(args: {
   dispatch: DispatchArgs;
   outcome: DispatchRejectionOutcome;
@@ -276,7 +298,7 @@ export function buildDispatchRejectionTraceInput(args: {
   toolName?: string;
   /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
   candidateToolName?: string;
-  /** Actual payload rejected by this branch. Omitted unless it has a safe redaction path. */
+  /** Actual payload rejected by this branch. Callers must pass only payloads safe for trace I/O. */
   input?: unknown;
   /** Present only when `input` is already schema-valid for this tool. */
   tool?: RegisteredTool;
@@ -294,7 +316,7 @@ export function buildDispatchRejectionTraceInput(args: {
     stepId: args.dispatch.stepId,
     outcome: args.outcome,
     reason: args.reason,
-    signature: rejectionSignature(toolName, args.outcome, args.issues),
+    signature: rejectionSignature(toolName, args.outcome, args.issues, args.candidateToolName),
     detail: args.issues,
     input,
     startedAt: args.startedAt ?? new Date(),
@@ -317,7 +339,7 @@ function recordRejection(args: {
   input?: unknown;
   tool?: RegisteredTool;
 }): void {
-  recordDispatchRejection(buildDispatchRejectionTraceInput(args));
+  dispatchRejectionRecorder(buildDispatchRejectionTraceInput(args));
 }
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
@@ -437,11 +459,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // result the boss would have to poll. A terminal (or timed-out) child returns
   // its real outcome inline; a still-running child parks the step.
   if (toolName === "system.await_sub_agent") {
-    return await resolveAwaitSubAgent({
-      parentRunId: args.runId,
-      userId: args.userId,
-      childRunId: (input as { childRunId: string }).childRunId,
-    });
+    return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
   }
 
   if (isScratchFastPathTool(toolName)) {
@@ -970,7 +988,7 @@ async function executeToolWithSpan(
   input: unknown,
   ctx: ToolExecuteContext,
 ): Promise<unknown> {
-  const span = startToolSpan({
+  const span = toolSpanStarter({
     runId: ctx.runId,
     toolName: tool.name,
     toolCallId: ctx.toolCallId,
@@ -993,6 +1011,48 @@ async function executeToolWithSpan(
     // Mirrors the `execute_error` DB-write sanitization below.
     span.error(sanitizeErrorMessage(toMessage(err)));
     throw err;
+  }
+}
+
+async function resolveAwaitSubAgentWithSpan(
+  tool: RegisteredTool,
+  input: unknown,
+  ctx: ToolExecuteContext,
+): Promise<DispatchResult> {
+  const span = toolSpanStarter({
+    runId: ctx.runId,
+    toolName: tool.name,
+    toolCallId: ctx.toolCallId,
+    userId: ctx.userId,
+    caller: ctx.caller === "boss" ? "boss" : `sub:${ctx.caller.subId}`,
+    stepId: ctx.stepId,
+    input: tool.redactInput ? tool.redactInput(input) : input,
+    startedAt: new Date(),
+  });
+  try {
+    const result = await resolveAwaitSubAgent({
+      parentRunId: ctx.runId,
+      userId: ctx.userId,
+      childRunId: (input as { childRunId: string }).childRunId,
+    });
+    span.success(awaitSubAgentSpanOutput(result));
+    return result;
+  } catch (err) {
+    span.error(sanitizeErrorMessage(toMessage(err)));
+    throw err;
+  }
+}
+
+function awaitSubAgentSpanOutput(result: DispatchResult): unknown {
+  switch (result.kind) {
+    case "executed":
+      return result.toolResult;
+    case "parked":
+      return { status: "parked", wake: result.wake };
+    case "failed":
+      return { status: "failed", error: result.error };
+    default:
+      return { status: result.kind };
   }
 }
 

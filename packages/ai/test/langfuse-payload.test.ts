@@ -237,11 +237,11 @@ describe("buildDispatchRejectionSpanPayload", () => {
     });
     assert.deepEqual(payload.end, {
       level: "WARNING",
-      statusMessage: "Invalid input: expected array, received string",
+      statusMessage: "sheets.update_values:invalid_input:invalid_type@values",
     });
   });
 
-  test("attaches only caller-supplied safe input and detail when capture is on", () => {
+  test("attaches only caller-supplied safe input, detail, and reason when capture is on", () => {
     const payload = buildDispatchRejectionSpanPayload(
       {
         ...base,
@@ -252,6 +252,10 @@ describe("buildDispatchRejectionSpanPayload", () => {
 
     assert.deepEqual(payload.span.input, { url: "https://example.com/?token=[REDACTED]" });
     assert.deepEqual(payload.span.metadata.detail, [{ code: "invalid_type", path: ["values"] }]);
+    assert.deepEqual(payload.end, {
+      level: "WARNING",
+      statusMessage: "Invalid input: expected array, received string",
+    });
   });
 
   test("normalizes unknown tool observations and keeps only a sanitized candidate hint", () => {

@@ -343,7 +343,7 @@ export function buildDispatchRejectionSpanPayload(
     },
     end: {
       level: DISPATCH_OUTCOME_LEVEL[args.outcome],
-      statusMessage: summarizeBody(sanitizeErrorMessage(args.reason)),
+      statusMessage: captureIo ? summarizeBody(sanitizeErrorMessage(args.reason)) : args.signature,
     },
   };
 }
@@ -355,9 +355,10 @@ export function buildDispatchRejectionSpanPayload(
  * `metadata.rejectionSignature` + the span `level` distinguish and bucket them.
  *
  * Fire-and-forget and fully swallowed — like `startToolSpan`, tracing must never
- * break the dispatch path. The reason string is redacted + bounded here (the
- * funnel) so no raw error/PII reaches Langfuse even with I/O capture off; the
- * structured `detail` and `input` ride the `LANGFUSE_CAPTURE_IO` gate.
+ * break the dispatch path. The reason string can carry user content from
+ * custom validators, so it rides the `LANGFUSE_CAPTURE_IO` gate; with capture
+ * off, `statusMessage` is the structural, PII-free rejection signature. The
+ * structured `detail` and `input` use the same gate.
  */
 export function recordDispatchRejection(args: DispatchRejectionInput): void {
   const client = getClient();
