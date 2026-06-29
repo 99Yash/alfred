@@ -28,7 +28,7 @@ import {
   buildOrgAffiliationObservationInput,
   closeConnections,
   closeRedis,
-  insertObservation,
+  recordOrgAffiliationOnConnect,
   warmPool,
 } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
@@ -92,23 +92,24 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         accountEmail: cred.accountEmail,
         metadata: cred.metadata,
       },
-      { status: "connected", occurredAt: cred.createdAt ?? new Date() },
+      { status: "connected", occurredAt: cred.createdAt },
     );
     if (!built.ok) {
       skipped++;
       console.log(`    SKIP ${cred.accountEmail ?? cred.id} (${cred.status}) — ${built.reason}`);
       continue;
     }
-    const { domainClass, input } = built;
+    const { domainClass } = built;
     const groundsEmployer = domainClass === "corporate_domain";
     console.log(
       `    ${cred.accountEmail} (${cred.status}) → ${domainClass}` +
         `${groundsEmployer ? " [grounds employer]" : ""}`,
     );
     if (!COMMIT) continue;
-    const { deduped: wasDeduped } = await insertObservation(input);
-    if (wasDeduped) deduped++;
-    else emitted++;
+    const result = await recordOrgAffiliationOnConnect(cred.id);
+    if (result.status === "deduped") deduped++;
+    else if (result.status === "emitted") emitted++;
+    else skipped++;
   }
 
   if (!COMMIT) {

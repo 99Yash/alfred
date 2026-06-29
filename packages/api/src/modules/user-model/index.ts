@@ -20,11 +20,13 @@ export { insertObservation, type InsertObservationResult } from "./observations"
 export {
   buildOrgAffiliationObservationInput,
   recordOrgAffiliationOnConnect,
+  recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
   type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
   type CredentialForAffiliation,
   type OrgAffiliationStatus,
+  type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
 export {

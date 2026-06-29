@@ -23,7 +23,10 @@ import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
-import { recordOrgAffiliationOnConnect, recordOrgAffiliationOnDisconnect } from "../user-model";
+import {
+  recordOrgAffiliationOnCredentialUpsert,
+  recordOrgAffiliationOnDisconnect,
+} from "../user-model";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -354,6 +357,23 @@ export const googleIntegrationRoutes = new Elysia({
       }
 
       const tokens = await exchangeCode(query.code);
+      const [previousCredential] = await db()
+        .select({
+          userId: integrationCredentials.userId,
+          accountId: integrationCredentials.accountId,
+          accountEmail: integrationCredentials.accountLabel,
+          metadata: integrationCredentials.metadata,
+        })
+        .from(integrationCredentials)
+        .where(
+          and(
+            eq(integrationCredentials.userId, decoded.userId),
+            eq(integrationCredentials.provider, "google"),
+            eq(integrationCredentials.accountId, tokens.accountId),
+          ),
+        )
+        .limit(1);
+      const credentialUpsertedAt = new Date();
       const credential = await upsertCredential({
         userId: decoded.userId,
         provider: "google",
@@ -377,9 +397,16 @@ export const googleIntegrationRoutes = new Elysia({
       // §4a / #342): the connected mailbox's domain is a first-party, user-subject
       // grounding for `employer`, which the identity-facts projection folds. The
       // connect event time is the credential's `createdAt`, so a re-auth dedups.
+      // If the same Google `sub` moves email domains, the upsert helper emits a
+      // disconnect for the previous account/domain family and a new connect at
+      // this callback time, so currentness still comes from the log.
       // Best-effort — an observation write must never bounce the OAuth redirect.
       await bestEffort(`failed to record org affiliation for ${credential.id}`, () =>
-        recordOrgAffiliationOnConnect(credential.id),
+        recordOrgAffiliationOnCredentialUpsert({
+          credentialId: credential.id,
+          previousCredential: previousCredential ?? null,
+          changedAt: credentialUpsertedAt,
+        }),
       );
 
       // Initial-sync seed: pull the last few messages and triage them so a
