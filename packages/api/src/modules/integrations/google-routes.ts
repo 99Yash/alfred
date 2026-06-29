@@ -24,6 +24,7 @@ import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
+import { recordOrgAffiliationOnConnect, recordOrgAffiliationOnDisconnect } from "../user-model";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -143,7 +144,12 @@ export const googleIntegrationRoutes = new Elysia({
           // the watch teardown below operates on a raw credential id, so we
           // must confirm the caller owns it before touching anything.
           const owner = await db()
-            .select({ id: integrationCredentials.id })
+            .select({
+              id: integrationCredentials.id,
+              accountId: integrationCredentials.accountId,
+              accountEmail: integrationCredentials.accountLabel,
+              metadata: integrationCredentials.metadata,
+            })
             .from(integrationCredentials)
             .where(
               and(
@@ -152,14 +158,37 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.provider, "google"),
               ),
             );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
+          const ownerRow = owner[0];
+          if (!ownerRow) throw new NotFoundError("Credential not found");
           // Stop Google pushing to our Pub/Sub topic before the row (and its
           // access token) disappear. Best-effort: a watch that was never
           // installed or already expired must not block the disconnect. One
           // Google credential backs every google_* tile, so this removes
           // Alfred's whole Workspace grant for the account.
           await bestEffort("uninstall watch on disconnect", () => uninstallGmailWatch(params.id));
-          await deleteIntegrationCredential({ userId: user.id, provider: "google", id: params.id });
+          const deleted = await deleteIntegrationCredential({
+            userId: user.id,
+            provider: "google",
+            id: params.id,
+          });
+          // Append a `disconnected` affiliation observation in the same
+          // account/domain family (ADR-0080 §4a) so the projection derives
+          // currentness from the log, not ambient credential state. Only when a
+          // row was actually removed (a double-disconnect must not log a phantom),
+          // and using the fields captured BEFORE the delete. Best-effort.
+          if (deleted) {
+            await bestEffort(`failed to record org disconnect for ${params.id}`, () =>
+              recordOrgAffiliationOnDisconnect(
+                {
+                  userId: user.id,
+                  accountId: ownerRow.accountId,
+                  accountEmail: ownerRow.accountEmail,
+                  metadata: ownerRow.metadata,
+                },
+                new Date(),
+              ),
+            );
+          }
           return { id: params.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
@@ -336,6 +365,15 @@ export const googleIntegrationRoutes = new Elysia({
           ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
         },
       });
+
+      // Record the account's org affiliation onto the observation log (ADR-0080
+      // §4a / #342): the connected mailbox's domain is a first-party, user-subject
+      // grounding for `employer`, which the identity-facts projection folds. The
+      // connect event time is the credential's `createdAt`, so a re-auth dedups.
+      // Best-effort — an observation write must never bounce the OAuth redirect.
+      await bestEffort(`failed to record org affiliation for ${credential.id}`, () =>
+        recordOrgAffiliationOnConnect(credential.id),
+      );
 
       // Initial-sync seed: pull the last few messages and triage them so a
       // brand-new account has classified mail to look at immediately. The

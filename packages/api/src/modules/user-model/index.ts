@@ -18,6 +18,16 @@ export { requireEntityIdNamespace } from "./namespace";
 export { type DbExecutor } from "./executor";
 export { insertObservation, type InsertObservationResult } from "./observations";
 export {
+  buildOrgAffiliationObservationInput,
+  recordOrgAffiliationOnConnect,
+  recordOrgAffiliationOnDisconnect,
+  type BuildOrgAffiliationResult,
+  type BuildOrgAffiliationSkipReason,
+  type CredentialForAffiliation,
+  type OrgAffiliationStatus,
+  type RecordOrgAffiliationResult,
+} from "./affiliation";
+export {
   ensureEntityNode,
   recordEntityIdentity,
   EntityIdentityConflictError,
