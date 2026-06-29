@@ -12,8 +12,18 @@ export {
   _resetPriceCacheForTests,
 } from "./prices";
 export type { PriceLookup } from "./prices";
-export { flushLangfuse, shutdownLangfuse, startToolSpan } from "./langfuse";
-export type { ToolSpanInput, ToolSpanCloser } from "./langfuse";
+export {
+  flushLangfuse,
+  shutdownLangfuse,
+  startToolSpan,
+  recordDispatchRejection,
+} from "./langfuse";
+export type {
+  ToolSpanInput,
+  ToolSpanCloser,
+  DispatchRejectionInput,
+  DispatchRejectionOutcome,
+} from "./langfuse";
 export type {
   CallKind,
   CallRole,

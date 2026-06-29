@@ -257,6 +257,125 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
 }
 
 /**
+ * The dispatch branches that short-circuit *before* a tool ever executes
+ * (#345). `startToolSpan` only covers the execute path, so these — an
+ * undeclared/unregistered tool, a Zod/access rejection, a policy/expiry
+ * rejection, or a post-approval reparse failure — produced no span at all,
+ * leaving a whole class of "naive tool error" invisible in the trace tree
+ * (found only by manual chat-card audit). `recordDispatchRejection` makes
+ * every attempt a node.
+ */
+export type DispatchRejectionOutcome = "unknown_tool" | "invalid_input" | "rejected" | "failed";
+
+/**
+ * Trace severity per outcome. A schema/access/unknown miss or a failed
+ * reparse is an anomaly (WARNING/ERROR); a policy/expiry rejection is an
+ * expected user decision, not an error (DEFAULT), but still worth a node so
+ * the "bounce on the same wall" pattern is countable.
+ */
+const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARNING" | "ERROR"> = {
+  unknown_tool: "WARNING",
+  invalid_input: "WARNING",
+  rejected: "DEFAULT",
+  failed: "ERROR",
+};
+
+export interface DispatchRejectionInput {
+  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  runId: string;
+  /**
+   * Safe tool identity used for the observation name and grouping. For a raw
+   * undeclared model string, callers must pass a stable placeholder such as
+   * `<unknown>` and put any sanitized/bounded hint in `candidateToolName`.
+   */
+  toolName: string;
+  /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
+  candidateToolName?: string;
+  /** Model-supplied id for the call; deduplicates a call across re-attempts. */
+  toolCallId: string;
+  /** Dispatch branch that short-circuited before execution. */
+  outcome: DispatchRejectionOutcome;
+  /** Enriched, human-readable reason. Redacted + bounded before it reaches Langfuse. */
+  reason: string;
+  /**
+   * Stable, PII-free fingerprint of the rejection (e.g. tool + outcome + Zod
+   * issue codes/paths). Always recorded so identical repeats — the boss
+   * re-proposing the same broken call — group and count in the Traces view.
+   */
+  signature: string;
+  userId?: string;
+  /** `boss` or a named sub-agent — surfaced in span metadata. */
+  caller?: string;
+  /** Executor step that owns the dispatch — audit only. */
+  stepId?: string;
+  /** Structured detail (e.g. Zod issues). Only attached when I/O capture is on (PII). */
+  detail?: unknown;
+  /** The proposed input that was rejected. Only attached when I/O capture is on (PII). */
+  input?: unknown;
+  startedAt: Date;
+}
+
+/** Pure payload builder for rejection spans; kept exported so privacy gates are testable. */
+export function buildDispatchRejectionSpanPayload(
+  args: DispatchRejectionInput,
+  captureIo: boolean,
+) {
+  return {
+    span: {
+      traceId: args.runId,
+      name: `tool:${args.toolName}`,
+      startTime: args.startedAt,
+      input: captureIo ? args.input : undefined,
+      metadata: {
+        kind: "tool",
+        outcome: args.outcome,
+        rejectionSignature: args.signature,
+        toolName: args.toolName,
+        candidateToolName: args.candidateToolName,
+        toolCallId: args.toolCallId,
+        caller: args.caller,
+        userId: args.userId,
+        runId: args.runId,
+        stepId: args.stepId,
+        // Zod issues / structured detail can echo the proposed input values.
+        detail: captureIo ? args.detail : undefined,
+      },
+    },
+    end: {
+      level: DISPATCH_OUTCOME_LEVEL[args.outcome],
+      statusMessage: captureIo ? summarizeBody(sanitizeErrorMessage(args.reason)) : args.signature,
+    },
+  };
+}
+
+/**
+ * Emit a zero-duration span for a dispatch attempt that never reached execute
+ * (#345). Shares the `tool:<name>` naming with execution spans so attempts and
+ * executions of the same tool group together; `metadata.outcome` +
+ * `metadata.rejectionSignature` + the span `level` distinguish and bucket them.
+ *
+ * Fire-and-forget and fully swallowed — like `startToolSpan`, tracing must never
+ * break the dispatch path. The reason string can carry user content from
+ * custom validators, so it rides the `LANGFUSE_CAPTURE_IO` gate; with capture
+ * off, `statusMessage` is the structural, PII-free rejection signature. The
+ * structured `detail` and `input` use the same gate.
+ */
+export function recordDispatchRejection(args: DispatchRejectionInput): void {
+  const client = getClient();
+  if (!client) return;
+  const captureIo = shouldCaptureIo();
+  try {
+    // Defensive trace upsert (see startToolSpan) — keyed on id, never clobbers.
+    client.trace({ id: args.runId });
+    const payload = buildDispatchRejectionSpanPayload(args, captureIo);
+    const span = client.span(payload.span);
+    span.end(payload.end);
+  } catch (err) {
+    console.warn("[langfuse] dispatch rejection span failed:", toMessage(err));
+  }
+}
+
+/**
  * Best-effort flush so a CLI script (smoke tests, sync-prices) doesn't
  * exit before in-flight Langfuse events are sent. Server processes
  * call this on graceful shutdown.
