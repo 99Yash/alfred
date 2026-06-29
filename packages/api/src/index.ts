@@ -63,12 +63,14 @@ export {
   insertObservation,
   buildOrgAffiliationObservationInput,
   recordOrgAffiliationOnConnect,
+  recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
   type InsertObservationResult,
   type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
   type CredentialForAffiliation,
   type OrgAffiliationStatus,
+  type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./modules/user-model/index.js";
 export * from "./modules/memory/index.js";

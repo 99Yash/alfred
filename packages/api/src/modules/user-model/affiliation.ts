@@ -135,7 +135,8 @@ export function buildOrgAffiliationObservationInput(
     verifiedHostedDomain,
     domainClass,
     status: opts.status,
-    evidence: opts.status === "connected" ? "connected_google_account" : "disconnected_google_account",
+    evidence:
+      opts.status === "connected" ? "connected_google_account" : "disconnected_google_account",
   };
 
   // Family = the account×org lifecycle; connect/disconnect/reconnect rows share
@@ -174,6 +175,17 @@ export interface RecordOrgAffiliationResult {
   reason?: BuildOrgAffiliationSkipReason;
 }
 
+export interface RecordOrgAffiliationOnCredentialUpsertResult {
+  disconnectedPrevious?: RecordOrgAffiliationResult;
+  connectedCurrent: RecordOrgAffiliationResult;
+}
+
+interface LoadedCredentialForAffiliation extends CredentialForAffiliation {
+  createdAt: Date;
+}
+
+type ReadExecutor = DbExecutor | ReturnType<typeof db>;
+
 async function insertOrgAffiliationObservation(
   input: ObservationInsertInput,
   tx?: DbExecutor,
@@ -202,18 +214,10 @@ async function insertOrgAffiliationObservation(
   return tx ? run(tx) : db().transaction(run);
 }
 
-/**
- * Load a Google credential by id and append its connect-time
- * `user_org_affiliation` observation. The connect EVENT TIME is the credential's
- * `createdAt` (stable across re-auth), so a re-connect that merely refreshes the
- * token dedups rather than minting a duplicate. Returns a status so the caller
- * can log; never throws on a skip (no grounding ≠ failure).
- */
-export async function recordOrgAffiliationOnConnect(
+async function loadGoogleCredentialForAffiliation(
   credentialId: string,
-  tx?: DbExecutor,
-): Promise<RecordOrgAffiliationResult> {
-  const ex = tx ?? db();
+  ex: ReadExecutor,
+): Promise<LoadedCredentialForAffiliation | null> {
   const [cred] = await ex
     .select({
       userId: integrationCredentials.userId,
@@ -230,18 +234,92 @@ export async function recordOrgAffiliationOnConnect(
       ),
     )
     .limit(1);
-  if (!cred) return { status: "skipped", reason: "missing_account_id" };
+  return cred ?? null;
+}
 
-  const built = buildOrgAffiliationObservationInput(
-    { userId: cred.userId, accountId: cred.accountId, accountEmail: cred.accountEmail, metadata: cred.metadata },
-    // `createdAt` is NOT NULL in the schema; the fallback only guards a typing
-    // edge and still produces a deterministic-per-row time.
-    { status: "connected", occurredAt: cred.createdAt ?? new Date() },
-  );
+async function recordOrgAffiliationConnectEvent(
+  cred: CredentialForAffiliation,
+  occurredAt: Date,
+  tx?: DbExecutor,
+): Promise<RecordOrgAffiliationResult> {
+  const built = buildOrgAffiliationObservationInput(cred, { status: "connected", occurredAt });
   if (!built.ok) return { status: "skipped", reason: built.reason };
-
   const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
   return { status: deduped ? "deduped" : "emitted" };
+}
+
+/**
+ * Load a Google credential by id and append its connect-time
+ * `user_org_affiliation` observation. The connect EVENT TIME is the credential's
+ * `createdAt` (stable across re-auth), so a re-connect that merely refreshes the
+ * token dedups rather than minting a duplicate. Returns a status so the caller
+ * can log; never throws on a skip (no grounding ≠ failure).
+ */
+export async function recordOrgAffiliationOnConnect(
+  credentialId: string,
+  tx?: DbExecutor,
+): Promise<RecordOrgAffiliationResult> {
+  const ex = tx ?? db();
+  const cred = await loadGoogleCredentialForAffiliation(credentialId, ex);
+  if (!cred) return { status: "skipped", reason: "missing_account_id" };
+
+  return recordOrgAffiliationConnectEvent(cred, cred.createdAt, tx);
+}
+
+/**
+ * Record the affiliation lifecycle after a Google credential upsert. A normal
+ * re-auth keeps the same account/domain family and dedups against the stable
+ * credential `createdAt`. If Google reports the same `sub` under a different
+ * email domain, treat that as an org-affiliation transition: disconnect the
+ * previous family and connect the new family at this upsert event time.
+ */
+export async function recordOrgAffiliationOnCredentialUpsert(
+  args: {
+    credentialId: string;
+    previousCredential?: CredentialForAffiliation | null;
+    changedAt: Date;
+  },
+  tx?: DbExecutor,
+): Promise<RecordOrgAffiliationOnCredentialUpsertResult> {
+  const run = async (ex: DbExecutor): Promise<RecordOrgAffiliationOnCredentialUpsertResult> => {
+    const current = await loadGoogleCredentialForAffiliation(args.credentialId, ex);
+    if (!current) {
+      return { connectedCurrent: { status: "skipped", reason: "missing_account_id" } };
+    }
+
+    let connectOccurredAt = current.createdAt;
+    let disconnectedPrevious: RecordOrgAffiliationResult | undefined;
+    if (args.previousCredential) {
+      const previousBuilt = buildOrgAffiliationObservationInput(args.previousCredential, {
+        status: "disconnected",
+        occurredAt: args.changedAt,
+      });
+      const currentBuiltAtChange = buildOrgAffiliationObservationInput(current, {
+        status: "connected",
+        occurredAt: args.changedAt,
+      });
+      const familyChanged =
+        previousBuilt.ok &&
+        (!currentBuiltAtChange.ok ||
+          previousBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey);
+
+      if (familyChanged) {
+        disconnectedPrevious = await recordOrgAffiliationOnDisconnect(
+          args.previousCredential,
+          args.changedAt,
+          ex,
+        );
+        connectOccurredAt = args.changedAt;
+      }
+    }
+
+    return {
+      ...(disconnectedPrevious ? { disconnectedPrevious } : {}),
+      connectedCurrent: await recordOrgAffiliationConnectEvent(current, connectOccurredAt, ex),
+    };
+  };
+
+  return tx ? run(tx) : db().transaction(run);
 }
 
 /**
