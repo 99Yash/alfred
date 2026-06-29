@@ -4,14 +4,21 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  unit:
+  static:
+    name: static
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,8 +43,62 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
+  api-unit-tests:
+    name: api-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: API unit tests
         run: pnpm --filter @alfred/api test
 
+  ai-unit-tests:
+    name: ai-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: AI unit tests
         run: pnpm --filter @alfred/ai test
+
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - static
+      - api-unit-tests
+      - ai-unit-tests
+    if: always()
+    steps:
+      - name: Fail unless all required CI jobs passed
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          API_UNIT_TESTS_RESULT: ${{ needs.api-unit-tests.result }}
+          AI_UNIT_TESTS_RESULT: ${{ needs.ai-unit-tests.result }}
+        run: |
+          test "$STATIC_RESULT" = "success"
+          test "$API_UNIT_TESTS_RESULT" = "success"
+          test "$AI_UNIT_TESTS_RESULT" = "success"
