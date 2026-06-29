@@ -393,55 +393,61 @@ export const googleIntegrationRoutes = new Elysia({
       }
 
       const tokens = await exchangeCode(query.code);
-      const [previousCredential] = await db()
-        .select({
-          userId: integrationCredentials.userId,
-          accountId: integrationCredentials.accountId,
-          accountEmail: integrationCredentials.accountLabel,
-          metadata: integrationCredentials.metadata,
-        })
-        .from(integrationCredentials)
-        .where(
-          and(
-            eq(integrationCredentials.userId, decoded.userId),
-            eq(integrationCredentials.provider, "google"),
-            eq(integrationCredentials.accountId, tokens.accountId),
-          ),
-        )
-        .limit(1);
       const credentialUpsertedAt = new Date();
-      const credential = await upsertCredential({
-        userId: decoded.userId,
-        provider: "google",
-        accountId: tokens.accountId,
-        accountLabel: tokens.accountEmail,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token!,
-        expiresAt: tokens.expiresAt,
-        scopes: tokens.scopes,
-        // Persona auto-detect (ADR-0051 #3): Workspace `hd` claim → work,
-        // absent → personal. `upsertCredential` only fills it when NULL, so a
-        // user override survives this re-connect. Raw `hd` kept for audit.
-        persona: detectPersona(tokens.hostedDomain),
-        metadata: {
-          token_type: tokens.token_type,
-          ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
-        },
-      });
+      const credential = await transactionWithOrgAffiliationRetry(() =>
+        db().transaction(async (tx) => {
+          const [previousCredential] = await tx
+            .select({
+              userId: integrationCredentials.userId,
+              accountId: integrationCredentials.accountId,
+              accountEmail: integrationCredentials.accountLabel,
+              metadata: integrationCredentials.metadata,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, decoded.userId),
+                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.accountId, tokens.accountId),
+              ),
+            )
+            .limit(1);
 
-      // Record the account's org affiliation onto the observation log (ADR-0080
-      // §4a / #342): the connected mailbox's domain is a first-party, user-subject
-      // grounding for `employer`, which the identity-facts projection folds. The
-      // connect event time is the credential's `createdAt`, so a re-auth dedups.
-      // If the same Google `sub` moves email domains, the upsert helper emits a
-      // disconnect for the previous account/domain family and a new connect at
-      // this callback time, so currentness still comes from the log.
-      // Best-effort — an observation write must never bounce the OAuth redirect.
-      await bestEffort(`failed to record org affiliation for ${credential.id}`, () =>
-        recordOrgAffiliationOnCredentialUpsert({
-          credentialId: credential.id,
-          previousCredential: previousCredential ?? null,
-          changedAt: credentialUpsertedAt,
+          const credential = await upsertCredential(
+            {
+              userId: decoded.userId,
+              provider: "google",
+              accountId: tokens.accountId,
+              accountLabel: tokens.accountEmail,
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token!,
+              expiresAt: tokens.expiresAt,
+              scopes: tokens.scopes,
+              // Persona auto-detect (ADR-0051 #3): Workspace `hd` claim → work,
+              // absent → personal. `upsertCredential` only fills it when NULL, so a
+              // user override survives this re-connect. Raw `hd` kept for audit.
+              persona: detectPersona(tokens.hostedDomain),
+              metadata: {
+                token_type: tokens.token_type,
+                ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
+              },
+            },
+            tx,
+          );
+
+          // Record the account's org affiliation onto the observation log
+          // atomically with the credential upsert. If this append fails, the
+          // credential write rolls back too, so PR B cannot observe an active
+          // Google credential with missing identity grounding.
+          await recordOrgAffiliationOnCredentialUpsert(
+            {
+              credentialId: credential.id,
+              previousCredential: previousCredential ?? null,
+              changedAt: credentialUpsertedAt,
+            },
+            tx,
+          );
+          return credential;
         }),
       );
 
