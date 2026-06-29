@@ -87,10 +87,12 @@ describe("guardUnreportedToolFailures", () => {
 
     assert.ok(result, "guard should take over finalization");
     assert.equal(result.kind, "next");
-    assert.equal(result.nextStep, "chat-turn");
+    assert.equal(result.kind === "next" ? result.nextStep : undefined, "chat-turn");
 
     // Corrective [system] note appended, naming the failed tool.
-    const last = result.transcript.at(-1)!;
+    const transcript = result.kind === "next" ? result.transcript : undefined;
+    assert.ok(transcript, "guard should append a corrective note to the transcript");
+    const last = transcript.at(-1)!;
     assert.equal(last.role, "user");
     assert.match(String(last.content), /\[system\]/);
     assert.match(String(last.content), /sheets\.append_values/);
@@ -168,8 +170,11 @@ describe("guardUnreportedToolFailures", () => {
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(result);
     assert.equal(result.kind, "next");
-    assert.match(String(result.transcript.at(-1)!.content), /sheets\.batch_update/);
-    assert.ok(!String(result.transcript.at(-1)!.content).includes("append_values"));
+    const transcript = result.kind === "next" ? result.transcript : undefined;
+    assert.ok(transcript);
+    const note = String(transcript.at(-1)!.content);
+    assert.match(note, /sheets\.batch_update/);
+    assert.ok(!note.includes("append_values"));
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_2"]);
   });
 
