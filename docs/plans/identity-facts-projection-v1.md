@@ -18,9 +18,9 @@ This plan starts **after** that brake. ADR-0079 is still valuable, but only as a
 
 The **deterministic core** of slice 1a (invariant 3 — the unit-tested, no-DB, no-LLM pieces) is built and green:
 
-- `packages/contracts/src/identity-affiliation.ts` — the four-outcome **domain classifier** (`classifyEmailDomain`), the **grounding-tier ladder + authority ranking** (`GROUNDING_TIERS`, `groundingTierRank`, `isStrongerGrounding`), the per-key **grounding rule** (`canGroundIdentityKey` — corporate domain grounds `employer` only; `weak_mentions` never promotes), and the affiliation→tier map (`affiliationGroundingTier` — the "no grounding, no row" contract in code). The free-mail list is now the ONE canonical set; `cold-start/signals.ts` delegates to it (no second list). Full email-address classification is conservative: a custom-domain address needs provider hosted-domain verification (for Google, `hd`) before it becomes `corporate_domain`; otherwise it stays ambiguous.
-- `user_org_affiliation` observation kind added to the contracts vocabulary and registered for the account-level `google_account` source (`OBSERVATION_KINDS_BY_SOURCE`), with `subjectIdentity = { kind: "user" }` and a typed `{ orgDomain, domainClass, ... }` payload enforced by `observationInsertSchema`.
-- `packages/api/test/contracts/identity-affiliation.test.ts` — 27 passing unit tests pinning every branch (classifier outcomes, rank order, per-key grounding, the work-account-grounds / personal-account-null end-to-end, source×kind wiring, and malformed affiliation payload rejection).
+- `packages/contracts/src/identity-affiliation.ts` — the four-outcome **domain classifier** (`classifyEmailDomain`), the **grounding-tier ladder + authority ranking** (`GROUNDING_TIERS`, `groundingTierRank`, `isStrongerGrounding`), the per-key **grounding rule** (`canGroundIdentityKey` — corporate domain grounds `employer` only; `weak_mentions` never promotes), and the affiliation→tier map (`affiliationGroundingTier` — the "no grounding, no row" contract in code). The free-mail list is now the ONE canonical set; `cold-start/signals.ts` delegates to it (no second list). This slice moves the existing cold-start list unchanged so registry deduplication does not change cold-start behavior. Full email-address classification is conservative: a custom-domain address needs provider hosted-domain verification (for Google, `hd`) before it becomes `corporate_domain`; otherwise it stays ambiguous.
+- `user_org_affiliation` observation kind added to the contracts vocabulary and registered for the account-level `google_account` source (`OBSERVATION_KINDS_BY_SOURCE`), with `subjectIdentity = { kind: "user" }` and a typed `{ accountId, accountEmail, orgDomain, verifiedHostedDomain, domainClass, status, ... }` payload enforced by `observationInsertSchema`.
+- `packages/api/test/contracts/identity-affiliation.test.ts` — 29 passing unit tests pinning every branch (classifier outcomes, rank order, per-key grounding, the work-account-grounds / personal-account-null end-to-end, source×kind wiring, lifecycle payloads, and malformed affiliation payload rejection).
 
 Remaining slice-1a steps (all DB/runtime-bound — need a live Postgres + connected accounts to verify, so they are the next increment): the `identity_facts` **projection reducer** + materialization, the **connect-time emit** of `user_org_affiliation`, the **`/settings` + chat correction** emit as `user_profile_edit`/`user_correction` observations, the **backfill** script, the **`proposeFact` hard-block** for `employer`, and the **legacy-row retirement** at cutover (§6 steps 2, 4, 5, 6, 7, 8).
 
@@ -58,11 +58,11 @@ The observation log already has that primitive: `subjectIdentity`. Identity fact
 
 ### Three projections over one log
 
-| Layer | Examples | Contract | Consumer |
-| --- | --- | --- | --- |
-| Identity profile | `employer`, `job_title`, `team`, `manager`, `location`, `personal_site`, handles | governed, current-active-with-history, one active value per key | boss profile / settings |
-| Situational state | `job_search_active`, `interviewing_with`, `shipping_velocity_high`, `awaiting_callbacks` | time-bounded, decaying, multi-valued | briefing tone |
-| Narrative adaptation | briefing wording and framing | reads projections; invents no durable facts | user-facing briefings |
+| Layer                | Examples                                                                                 | Contract                                                        | Consumer                |
+| -------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------- |
+| Identity profile     | `employer`, `job_title`, `team`, `manager`, `location`, `personal_site`, handles         | governed, current-active-with-history, one active value per key | boss profile / settings |
+| Situational state    | `job_search_active`, `interviewing_with`, `shipping_velocity_high`, `awaiting_callbacks` | time-bounded, decaying, multi-valued                            | briefing tone           |
+| Narrative adaptation | briefing wording and framing                                                             | reads projections; invents no durable facts                     | user-facing briefings   |
 
 Hard boundary: situational companies never promote into identity. "Interviewing with Stripe" is not `employer=Stripe`.
 
@@ -73,30 +73,36 @@ Hard boundary: situational companies never promote into identity. "Interviewing 
 On account connect, emit a first-party observation:
 
 ```ts
-subjectIdentity = { kind: "user" }
-kind = "user_org_affiliation"
-source = "google_account" // not "user"; account-level provenance, not a Gmail message
+subjectIdentity = { kind: "user" };
+kind = "user_org_affiliation";
+source = "google_account"; // not "user"; account-level provenance, not a Gmail message
 payload = {
+  accountId: "google-sub-...",
+  accountEmail: "yash@oliv.ai",
   orgDomain: "oliv.ai",
+  verifiedHostedDomain: "oliv.ai",
   evidence: "connected_google_account",
-  domainClass: "corporate_domain"
-}
-validFrom = connectedAt
-validUntil = disconnectedAt
+  domainClass: "corporate_domain",
+  status: "connected",
+};
 ```
 
 Why source is not `user`: an explicit user correction such as "I left" or "that is a client mailbox" must outrank the connected-account signal.
 
 The domain is the grounding. The display label (`Oliv AI`) is derived and upgradeable by Directory; it is not the identity anchor.
 
+On disconnect, emit a new observation in the same account/domain family with
+`status: "disconnected"`. The projection derives currentness from observation
+history, not from ambient credential state, so replay stays pure.
+
 ### 4b. Domain classifier
 
-| Class | Examples | Employer signal |
-| --- | --- | --- |
-| `consumer_email` | gmail, outlook, yahoo, icloud, proton | none |
-| `corporate_domain` | oliv.ai, acme.com | strong org-affiliation; may auto-confirm `employer` when uncontradicted |
-| `ambiguous_domain` | school, alumni, agency, unverified personal custom, shared-hosting child domains, disposable | affiliation maybe; employer requires corroboration |
-| `service_or_role_account` | noreply, support, admin, list accounts/domains | never employer |
+| Class                     | Examples                                                                                     | Employer signal                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `consumer_email`          | gmail, outlook, yahoo, icloud, proton                                                        | none                                                                    |
+| `corporate_domain`        | oliv.ai, acme.com                                                                            | strong org-affiliation; may auto-confirm `employer` when uncontradicted |
+| `ambiguous_domain`        | school, alumni, agency, unverified personal custom, shared-hosting child domains, disposable | affiliation maybe; employer requires corroboration                      |
+| `service_or_role_account` | noreply, support, admin, list accounts/domains                                               | never employer                                                          |
 
 Use a maintained free-mail denylist plus source/account-label checks. For full email addresses, provider hosted-domain verification is the account-label check that separates a Workspace account from a personal custom-domain mailbox. This classifier is deterministic.
 
@@ -119,11 +125,9 @@ Projection-owned `user_facts` rows use `source.kind = "projection"` as a writer 
   "meta": {
     "projectionName": "identity_facts",
     "groundingTier": "corporate_affiliation",
-    "derivedFrom": [
-      { "observationId": "...", "familyKey": "...", "source": "...", "kind": "..." }
-    ],
-    "winner": true
-  }
+    "derivedFrom": [{ "observationId": "...", "familyKey": "...", "source": "...", "kind": "..." }],
+    "winner": true,
+  },
 }
 ```
 
