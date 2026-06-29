@@ -22,7 +22,22 @@ The **deterministic core** of slice 1a (invariant 3 — the unit-tested, no-DB, 
 - `user_org_affiliation` observation kind added to the contracts vocabulary and registered for the account-level `google_account` source (`OBSERVATION_KINDS_BY_SOURCE`), with `subjectIdentity = { kind: "user" }` and a typed `{ accountId, accountEmail, orgDomain, verifiedHostedDomain, domainClass, status, ... }` payload enforced by `observationInsertSchema`.
 - `packages/api/test/contracts/identity-affiliation.test.ts` — 29 passing unit tests pinning every branch (classifier outcomes, rank order, per-key grounding, the work-account-grounds / personal-account-null end-to-end, source×kind wiring, lifecycle payloads, and malformed affiliation payload rejection).
 
-Remaining slice-1a steps (all DB/runtime-bound — need a live Postgres + connected accounts to verify, so they are the next increment): the `identity_facts` **projection reducer** + materialization, the **connect-time emit** of `user_org_affiliation`, the **`/settings` + chat correction** emit as `user_profile_edit`/`user_correction` observations, the **backfill** script, the **`proposeFact` hard-block** for `employer`, and the **legacy-row retirement** at cutover (§6 steps 2, 4, 5, 6, 7, 8).
+**PR A (built 2026-06-29)** — the connect-time/disconnect **emit** of `user_org_affiliation` + the dry-by-default **backfill** (§6 steps 1-emit, 2). Additive, zero live-pipeline behavior change (no projection reads these yet):
+
+- `packages/api/src/modules/user-model/affiliation.ts` — `buildOrgAffiliationObservationInput` (pure: credential → observation input, via the deterministic core), `recordOrgAffiliationOnConnect` / `recordOrgAffiliationOnDisconnect`. Wired into `google-routes.ts` connect callback (best-effort, after `upsertCredential`) and the disconnect route (after a confirmed delete, fields captured pre-delete).
+- `apps/server/src/scripts/backfill-org-affiliation-committed.ts` — dry-by-default, `--commit` requires `--emails`, idempotent (evidence-hash dedup), tsdown entry. Verified live on dev: emit→dedup across two `--commit` runs; the row lands with `subject={kind:"user"}`, `occurredAt = credential.createdAt`.
+- `packages/api/test/user-model/affiliation.test.ts` — 14 pure tests; every built input is cross-checked against the real `observationInsertSchema` boundary.
+
+Remaining slice-1a steps (all DB/runtime-bound): the `identity_facts` **projection reducer** + materialization (PR B); and at cutover (PR C) the **`/settings` + chat correction** emit as `user_profile_edit`/`user_correction` observations, the **`proposeFact` hard-block** for `employer`, and the **legacy-row retirement** (§6 steps 5, 6, 7, 8, 4).
+
+### Design decisions (resolved 2026-06-29, building PR A)
+
+Four forks the design above left implicit, pinned while mapping the substrate:
+
+1. **`occurredAt`/`evidenceHash` is the idempotency *and* replay anchor.** A connect's `occurredAt` is the credential's `createdAt` (stable across re-auth, since `upsertCredential` keeps the row), and the evidence hash includes `occurredAtMs` + `status`. So a re-auth and a backfill re-run both dedup to a no-op, while a disconnect→reconnect (delete then fresh insert → new `createdAt`) appends a new family member and advances the head past the disconnect. A status-only hash would strand the head on the disconnect row after a reconnect — the trap this avoids.
+2. **`verifiedHostedDomain` is set only when `hd` equals the email's own domain.** A cross-domain `hd` can't vouch for the mailbox's org; the observation boundary requires `verifiedHostedDomain === orgDomain` when present, so disagreement → `null` (→ `ambiguous_domain`, no employer grounding).
+3. **Read-path authority (PR B):** the reducer materializes ONE active `confirmed` row per owned key and retires the rest, so the existing `bestIdentityFacts` read needs no change — authority is decided inside the reducer via `groundingTier`, the flat `source.kind="projection"` is only a writer tag.
+4. **The "no backdoor writer" requirement (PR C)** collides with the live Replicache mutator path (`/settings`/chat write `user_facts` directly via `factCreate`/`factEdit`). For projection-owned keys those mutators must emit a `user_profile_edit`/`user_correction` observation and re-fold instead of writing the row directly. This is the riskiest cutover piece and is isolated to PR C.
 
 ## 1. Problem
 
