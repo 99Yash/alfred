@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import { domainClassSchema } from "./identity-affiliation.js";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
  */
 export const OBSERVATION_SOURCES = [
   "gmail",
+  "google_account",
   "google_calendar",
   "google_directory",
   "github",
@@ -65,6 +67,7 @@ export const OBSERVATION_SOURCE_RANK: Readonly<Record<ObservationSource, number>
   // fold-conflict precedence are different axes: a Directory-sourced FACT must
   // not silently beat a `user` correction, so it sits at the first-party rank.
   gmail: 2,
+  google_account: 2,
   google_calendar: 2,
   google_directory: 2,
   github: 2,
@@ -122,13 +125,12 @@ export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
  * correction/confirmation can arrive from a `/settings` edit or from chat.
  */
 export const OBSERVATION_KINDS_BY_SOURCE = {
+  gmail: ["email_message"],
   // `user_org_affiliation`: the connected Google account asserts the user's org
-  // domain (ADR-0080 §4a). Registered on `gmail` because the Google OAuth account
-  // — whose address carries the domain — is the Gmail integration's account. As
-  // more integrations expose a user-account domain, they register the kind here
-  // too; the per-integration capability manifest (plan §8) is the planned single
-  // source for that binding, tracked as a follow-up.
-  gmail: ["email_message", "user_org_affiliation"],
+  // domain (ADR-0080 §4a). This is account-level provenance, not a Gmail message
+  // reducer event; keeping it on `google_account` prevents the future connect-time
+  // emitter from pretending a generic Google credential came from Gmail.
+  google_account: ["user_org_affiliation"],
   google_calendar: ["calendar_meeting"],
   google_directory: [],
   github: ["github_pull_request", "github_review", "github_push"],
@@ -553,6 +555,32 @@ export type ObservationParticipants = z.infer<typeof observationParticipantsSche
 export const observationPayloadSchema = jsonObjectSchema;
 export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
 
+const canonicalDomainSchema = identityValueSchema
+  .refine((v) => v === canonicalizeIdentityValue("domain", v), {
+    error: "domain must be canonical (lowercased, no surrounding whitespace)",
+  })
+  .refine((v) => identityValueMatchesKind("domain", v), {
+    error: "domain must be a valid hostname",
+  });
+
+export const userOrgAffiliationPayloadSchema = z
+  .object({
+    orgDomain: canonicalDomainSchema,
+    domainClass: domainClassSchema,
+    evidence: z.string().min(1).optional(),
+    accountEmail: z
+      .string()
+      .refine((v) => v === canonicalizeIdentityValue("email", v), {
+        error: "accountEmail must be canonical (lowercased, no surrounding whitespace)",
+      })
+      .refine((v) => identityValueMatchesKind("email", v), {
+        error: "accountEmail must be a valid email address",
+      })
+      .optional(),
+  })
+  .strict();
+export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
+
 // ───────────────────────────────────────────────────────────────────────────
 // Observation write boundary (HARD P1 GATE)
 // ───────────────────────────────────────────────────────────────────────────
@@ -630,6 +658,18 @@ export const observationInsertSchema = z
   .refine(({ source, kind }) => isObservationKindForSource(source, kind), {
     error: "observation kind is not valid for its source",
     path: ["kind"],
+  })
+  .superRefine(({ kind, payload }, ctx) => {
+    if (kind !== "user_org_affiliation") return;
+    const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payload", ...issue.path],
+        message: issue.message,
+      });
+    }
   });
 /** Caller-facing input (pre-parse): defaulted fields are optional. */
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;

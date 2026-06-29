@@ -34,19 +34,29 @@ import {
 describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () => {
   test("free-mail providers are consumer_email (no employer signal)", () => {
     for (const domain of ["gmail.com", "icloud.com", "proton.me", "outlook.com"]) {
-      assert.equal(
-        classifyEmailDomain({ email: `someone@${domain}` }),
-        "consumer_email",
-        domain,
-      );
+      assert.equal(classifyEmailDomain({ email: `someone@${domain}` }), "consumer_email", domain);
       assert.equal(classifyEmailDomain({ domain }), "consumer_email", domain);
     }
   });
 
   test("a real org domain is corporate_domain", () => {
-    assert.equal(classifyEmailDomain({ email: "yash@oliv.ai" }), "corporate_domain");
-    assert.equal(classifyEmailDomain({ email: "person@acme.com" }), "corporate_domain");
+    assert.equal(
+      classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
+      "corporate_domain",
+    );
+    assert.equal(
+      classifyEmailDomain({ email: "person@acme.com", verifiedHostedDomain: "acme.com" }),
+      "corporate_domain",
+    );
     assert.equal(classifyEmailDomain({ domain: "yourelasticdash.co" }), "corporate_domain");
+  });
+
+  test("a custom-domain email without provider hosted-domain verification is ambiguous", () => {
+    assert.equal(classifyEmailDomain({ email: "yash@personal.dev" }), "ambiguous_domain");
+    assert.equal(
+      classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "other.ai" }),
+      "ambiguous_domain",
+    );
   });
 
   test("role/service local parts are service_or_role_account regardless of domain", () => {
@@ -65,10 +75,7 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
   });
 
   test("a service/bounce host domain is service_or_role_account", () => {
-    assert.equal(
-      classifyEmailDomain({ email: "x@bounce.acme.com" }),
-      "service_or_role_account",
-    );
+    assert.equal(classifyEmailDomain({ email: "x@bounce.acme.com" }), "service_or_role_account");
     assert.equal(classifyEmailDomain({ domain: "mailer.sendgrid.net" }), "service_or_role_account");
   });
 
@@ -89,25 +96,45 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
   test("a real employer wins over the ambiguous-token substring trap", () => {
     // "alum" is an ambiguous token, but it must match as a domain hint, not a
     // bare substring of an unrelated org (`alumacorp.com`).
-    assert.equal(classifyEmailDomain({ email: "ceo@alumacorp.com" }), "ambiguous_domain");
+    assert.equal(
+      classifyEmailDomain({ email: "ceo@alumacorp.com", verifiedHostedDomain: "alumacorp.com" }),
+      "corporate_domain",
+    );
+  });
+
+  test("shared-hosting suffixes do not make the corporate apex ambiguous", () => {
+    assert.equal(
+      classifyEmailDomain({ email: "employee@github.com", verifiedHostedDomain: "github.com" }),
+      "corporate_domain",
+    );
+    assert.equal(
+      classifyEmailDomain({ email: "employee@substack.com", verifiedHostedDomain: "substack.com" }),
+      "corporate_domain",
+    );
+    assert.equal(classifyEmailDomain({ domain: "alice.github.io" }), "ambiguous_domain");
   });
 
   test("malformed / empty input returns null (no class, so no grounding)", () => {
     assert.equal(classifyEmailDomain({ email: "not-an-email" }), null);
     assert.equal(classifyEmailDomain({ email: "@no-local.com" }), null);
+    assert.equal(classifyEmailDomain({ domain: "bad..com" }), null);
+    assert.equal(classifyEmailDomain({ domain: "localhost" }), null);
     assert.equal(classifyEmailDomain({ domain: "" }), null);
     assert.equal(classifyEmailDomain({}), null);
   });
 
   test("classification is case-insensitive and trims", () => {
-    assert.equal(classifyEmailDomain({ email: "  Yash@OLIV.ai " }), "corporate_domain");
+    assert.equal(
+      classifyEmailDomain({ email: "  Yash@OLIV.ai ", verifiedHostedDomain: " OLIV.ai " }),
+      "corporate_domain",
+    );
     assert.equal(classifyEmailDomain({ domain: "GMAIL.COM" }), "consumer_email");
   });
 
   test("every outcome is a valid DomainClass enum member", () => {
     const seen = new Set<DomainClass | null>([
       classifyEmailDomain({ email: "a@gmail.com" }),
-      classifyEmailDomain({ email: "a@oliv.ai" }),
+      classifyEmailDomain({ email: "a@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
       classifyEmailDomain({ domain: "mit.edu" }),
       classifyEmailDomain({ email: "noreply@x.com" }),
     ]);
@@ -226,7 +253,7 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
 
   test("end-to-end: a corporate account grounds employer, a personal one does not", () => {
     // Work account → corporate_domain → corporate_affiliation → grounds employer.
-    const work = classifyEmailDomain({ email: "yash@oliv.ai" });
+    const work = classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" });
     assert.equal(work, "corporate_domain");
     const workTier = affiliationGroundingTier(work as DomainClass);
     assert.ok(workTier && canGroundIdentityKey(workTier, "employer"));
@@ -239,8 +266,9 @@ describe("affiliationGroundingTier — the 'no grounding, no row' contract (§4a
 });
 
 describe("user_org_affiliation observation kind wiring", () => {
-  test("is a legal kind for the gmail source, illegal for unrelated sources", () => {
-    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), true);
+  test("is a legal kind for the account-level Google source, illegal for unrelated sources", () => {
+    assert.equal(isObservationKindForSource("google_account", "user_org_affiliation"), true);
+    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
     assert.equal(isObservationKindForSource("github", "user_org_affiliation"), false);
     assert.equal(isObservationKindForSource("user", "user_org_affiliation"), false);
   });
@@ -248,16 +276,44 @@ describe("user_org_affiliation observation kind wiring", () => {
   test("observationInsertSchema accepts a user-subject affiliation observation", () => {
     const parsed = observationInsertSchema.safeParse({
       userId: "usr_1",
-      source: "gmail",
+      source: "google_account",
       kind: "user_org_affiliation",
       occurredAt: new Date("2026-06-29T00:00:00Z"),
-      familyKey: "gmail:affiliation:oliv.ai",
+      familyKey: "google:affiliation:oliv.ai",
       evidenceHash: "h1",
       subjectIdentity: { kind: "user" },
       payload: { orgDomain: "oliv.ai", domainClass: "corporate_domain" },
     });
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
     assert.deepEqual(parsed.data?.subjectIdentity, { kind: "user" });
+  });
+
+  test("observationInsertSchema rejects malformed affiliation payloads", () => {
+    const base = {
+      userId: "usr_1",
+      source: "google_account" as const,
+      kind: "user_org_affiliation" as const,
+      occurredAt: new Date("2026-06-29T00:00:00Z"),
+      familyKey: "google:affiliation:oliv.ai",
+      evidenceHash: "h1",
+      subjectIdentity: { kind: "user" as const },
+    };
+
+    assert.equal(observationInsertSchema.safeParse({ ...base, payload: {} }).success, false);
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { orgDomain: "oliv.ai", domainClass: "corporate_domian" },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { orgDomain: "bad..com", domainClass: "corporate_domain" },
+      }).success,
+      false,
+    );
   });
 
   test("a gmail row may not carry a github kind (source×kind pair still closed)", () => {

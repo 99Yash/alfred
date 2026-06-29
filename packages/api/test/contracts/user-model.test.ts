@@ -516,6 +516,16 @@ describe("user-model observation contracts", () => {
     assert.equal(isObservationKindForSource("google_directory", "calendar_meeting"), false);
   });
 
+  test("registers google_account for account-level identity affiliation", () => {
+    // Google OAuth credentials are stored as provider="google", while Gmail and
+    // Calendar are tool/reducer surfaces. Connected-account identity evidence
+    // should not masquerade as a Gmail message observation.
+    assert.equal(observationSourceSchema.parse("google_account"), "google_account");
+    assert.equal(OBSERVATION_SOURCE_RANK.google_account, OBSERVATION_SOURCE_RANK.gmail);
+    assert.equal(isObservationKindForSource("google_account", "user_org_affiliation"), true);
+    assert.equal(isObservationKindForSource("gmail", "user_org_affiliation"), false);
+  });
+
   test("observation subject is an identity OR the user themselves ({kind:'user'})", () => {
     // user/alfred_chat observations + self-facts (timezone/standing instructions)
     // are ABOUT the user, who has no IdentityRef — the union is the only way to
@@ -725,6 +735,7 @@ describe("user-model observation contracts", () => {
 
   test("closes the source→kind vocabulary so a kind can't ride the wrong source", () => {
     assert.equal(isObservationKindForSource("gmail", "email_message"), true);
+    assert.equal(isObservationKindForSource("google_account", "user_org_affiliation"), true);
     assert.equal(isObservationKindForSource("github", "github_push"), true);
     // The half-open bug: independently-valid source + kind that don't belong together.
     assert.equal(isObservationKindForSource("gmail", "github_push"), false);
@@ -735,6 +746,9 @@ describe("user-model observation contracts", () => {
     );
     assert.throws(() =>
       observationSourceKindSchema.parse({ source: "gmail", kind: "github_push" }),
+    );
+    assert.throws(() =>
+      observationSourceKindSchema.parse({ source: "gmail", kind: "user_org_affiliation" }),
     );
     // A source whose reducer isn't built yet accepts no kind.
     assert.throws(() =>
