@@ -122,6 +122,19 @@ function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function payloadsMatchForCurrentAffiliation(
+  a: UserOrgAffiliationPayload,
+  b: UserOrgAffiliationPayload,
+): boolean {
+  return (
+    a.accountId === b.accountId &&
+    a.accountEmail === b.accountEmail &&
+    a.orgDomain === b.orgDomain &&
+    a.verifiedHostedDomain === b.verifiedHostedDomain &&
+    a.domainClass === b.domainClass
+  );
+}
+
 /**
  * Build the `user_org_affiliation` observation for a credential — PURE given its
  * inputs (no DB), so both the live connect path and the backfill compose it and
@@ -305,10 +318,11 @@ export async function recordOrgAffiliationOnConnect(
 
 /**
  * Record the affiliation lifecycle after a Google credential upsert. A normal
- * re-auth keeps the same account/domain family and dedups against the stable
- * credential `createdAt`. If Google reports the same `sub` under a different
- * email domain, treat that as an org-affiliation transition: disconnect the
- * previous family and connect the new family at this upsert event time.
+ * re-auth with identical affiliation evidence dedups against the stable
+ * credential `createdAt`. If Google reports changed affiliation evidence, treat
+ * the upsert as a new lifecycle event at the callback time: disconnect the old
+ * family when the family changed, and connect the current evidence at the
+ * change time.
  */
 export async function recordOrgAffiliationOnCredentialUpsert(
   args: {
@@ -327,8 +341,8 @@ export async function recordOrgAffiliationOnCredentialUpsert(
     let connectOccurredAt = current.createdAt;
     let disconnectedPrevious: RecordOrgAffiliationResult | undefined;
     if (args.previousCredential) {
-      const previousBuilt = buildOrgAffiliationObservationInput(args.previousCredential, {
-        status: "disconnected",
+      const previousConnectBuilt = buildOrgAffiliationObservationInput(args.previousCredential, {
+        status: "connected",
         occurredAt: args.changedAt,
       });
       const currentBuiltAtChange = buildOrgAffiliationObservationInput(current, {
@@ -336,9 +350,17 @@ export async function recordOrgAffiliationOnCredentialUpsert(
         occurredAt: args.changedAt,
       });
       const familyChanged =
-        previousBuilt.ok &&
+        previousConnectBuilt.ok &&
         (!currentBuiltAtChange.ok ||
-          previousBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey);
+          previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey);
+      const affiliationEvidenceChanged =
+        currentBuiltAtChange.ok &&
+        (!previousConnectBuilt.ok ||
+          previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey ||
+          !payloadsMatchForCurrentAffiliation(
+            previousConnectBuilt.input.payload as UserOrgAffiliationPayload,
+            currentBuiltAtChange.input.payload as UserOrgAffiliationPayload,
+          ));
 
       if (familyChanged) {
         disconnectedPrevious = await recordOrgAffiliationOnDisconnect(
@@ -346,8 +368,8 @@ export async function recordOrgAffiliationOnCredentialUpsert(
           args.changedAt,
           ex,
         );
-        connectOccurredAt = args.changedAt;
       }
+      if (affiliationEvidenceChanged) connectOccurredAt = args.changedAt;
     }
 
     return {
