@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
+import { FREE_MAIL_DOMAINS, isFreeMail } from "@alfred/contracts";
 import { and, asc, eq } from "drizzle-orm";
 
 /**
@@ -32,33 +33,16 @@ export interface ColdStartSignals {
 }
 
 /**
- * Common consumer email domains. Matching here flips
- * `emailDomainIsConsumer = true` so the prompt knows not to ask Sonar
- * "what does gmail.com do as a company" — that line of inquiry returns
- * Google instead of the user.
- *
- * Not exhaustive; the cold-start prompt also defends against this case
- * directly. Kept short on purpose — research over a work domain is the
- * common path and a missed entry just costs one wasted research subtopic.
+ * Common consumer email domains — re-exported from the ONE canonical free-mail
+ * set (`@alfred/contracts` `FREE_MAIL_DOMAINS`, ADR-0080 §4b). Kept under the old
+ * name so existing imports keep working; the list itself now lives in contracts
+ * (the identity domain classifier's source of truth) so cold-start and the
+ * identity projection can never drift two parallel lists (#330 "no second
+ * registry", applied to domains). Matching here flips `emailDomainIsConsumer`,
+ * which tells the cold-start prompt not to research "what does gmail.com do as a
+ * company."
  */
-export const CONSUMER_EMAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "yahoo.com",
-  "yahoo.co.uk",
-  "outlook.com",
-  "hotmail.com",
-  "live.com",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "fastmail.com",
-  "duck.com",
-  "pm.me",
-]);
+export const CONSUMER_EMAIL_DOMAINS = FREE_MAIL_DOMAINS;
 
 function parseDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
@@ -70,12 +54,12 @@ function parseDomain(email: string): string | null {
  * Is `domain` a free/consumer mailbox (gmail.com, icloud.com, …) rather than
  * an organization domain? Used by passive team-graph capture (ADR-0059 P4a) to
  * avoid minting a bogus `organization` entity per personal mailbox — a consumer
- * domain is not the contact's employer. Shares the {@link CONSUMER_EMAIL_DOMAINS}
- * list with cold-start so the two stay in sync.
+ * domain is not the contact's employer. Delegates to the canonical
+ * {@link isFreeMail} classifier so it stays in lockstep with the identity
+ * projection's domain classification.
  */
 export function isConsumerEmailDomain(domain: string | null | undefined): boolean {
-  if (!domain) return false;
-  return CONSUMER_EMAIL_DOMAINS.has(domain.toLowerCase());
+  return isFreeMail(domain);
 }
 
 /**
