@@ -11,7 +11,10 @@ import { cn } from "~/lib/utils";
  * docs. Borrowed from dimension, whose icon buttons all carry shortcut tooltips.
  *
  * Wrap the surface once in a `Tooltip.Provider`; each `Tip` is a self-contained
- * Root/Trigger/Content.
+ * Root/Trigger/Content. A small pointer arrow (dimension's rounded-tip shape)
+ * ties the pill to its trigger; it inherits the pill fill so it reads as one
+ * piece. This is the single tooltip primitive for chat chrome — route every
+ * button through it rather than adding a parallel tooltip.
  */
 export function Tip({
   label,
@@ -33,9 +36,10 @@ export function Tip({
         <Tooltip.Content
           side={side}
           sideOffset={8}
+          collisionPadding={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-[200] inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
+            "app z-[200] inline-flex max-w-[16rem] items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
           )}
@@ -46,6 +50,12 @@ export function Tip({
               {k}
             </Kbd>
           ))}
+          <Tooltip.Arrow asChild>
+            {/* Rounded-tip triangle; radix rotates it to face the trigger. */}
+            <svg width="13" height="7" viewBox="0 0 17 9" className="fill-app-fg-4">
+              <path d="M16.9853 0.485289L9.20711 8.26347C8.81658 8.654 8.18342 8.654 7.79289 8.26347L0.0147266 0.485289H16.9853Z" />
+            </svg>
+          </Tooltip.Arrow>
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
