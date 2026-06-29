@@ -14,7 +14,6 @@ import {
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
-import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
@@ -166,29 +165,37 @@ export const googleIntegrationRoutes = new Elysia({
           // Google credential backs every google_* tile, so this removes
           // Alfred's whole Workspace grant for the account.
           await bestEffort("uninstall watch on disconnect", () => uninstallGmailWatch(params.id));
-          const deleted = await deleteIntegrationCredential({
-            userId: user.id,
-            provider: "google",
-            id: params.id,
-          });
-          // Append a `disconnected` affiliation observation in the same
-          // account/domain family (ADR-0080 §4a) so the projection derives
-          // currentness from the log, not ambient credential state. Only when a
-          // row was actually removed (a double-disconnect must not log a phantom),
-          // and using the fields captured BEFORE the delete. Best-effort.
-          if (deleted) {
-            await bestEffort(`failed to record org disconnect for ${params.id}`, () =>
-              recordOrgAffiliationOnDisconnect(
-                {
-                  userId: user.id,
-                  accountId: ownerRow.accountId,
-                  accountEmail: ownerRow.accountEmail,
-                  metadata: ownerRow.metadata,
-                },
-                new Date(),
-              ),
+          const disconnectedAt = new Date();
+          await db().transaction(async (tx) => {
+            const [deletedRow] = await tx
+              .delete(integrationCredentials)
+              .where(
+                and(
+                  eq(integrationCredentials.id, params.id),
+                  eq(integrationCredentials.userId, user.id),
+                  eq(integrationCredentials.provider, "google"),
+                ),
+              )
+              .returning({ id: integrationCredentials.id });
+            if (!deletedRow) return null;
+
+            // Append a `disconnected` affiliation observation in the same
+            // account/domain family (ADR-0080 §4a) so the projection derives
+            // currentness from the log, not ambient credential state. It commits
+            // atomically with the credential delete; otherwise a transient append
+            // failure would erase the only row a later repair could inspect.
+            await recordOrgAffiliationOnDisconnect(
+              {
+                userId: user.id,
+                accountId: ownerRow.accountId,
+                accountEmail: ownerRow.accountEmail,
+                metadata: ownerRow.metadata,
+              },
+              disconnectedAt,
+              tx,
             );
-          }
+            return deletedRow;
+          });
           return { id: params.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },

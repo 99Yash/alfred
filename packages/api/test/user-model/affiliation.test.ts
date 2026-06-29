@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { randomUUID } from "node:crypto";
+import { after, describe, test } from "node:test";
 import { observationInsertSchema } from "@alfred/contracts";
+import { closeConnections, db } from "@alfred/db";
+import {
+  integrationCredentials,
+  observationFamilyHeads,
+  observations,
+  user,
+} from "@alfred/db/schemas";
+import { databaseEnv } from "@alfred/env/database";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   buildOrgAffiliationObservationInput,
+  recordOrgAffiliationOnConnect,
+  recordOrgAffiliationOnDisconnect,
   type CredentialForAffiliation,
 } from "../../src/modules/user-model/affiliation";
 
@@ -15,6 +27,24 @@ import {
  */
 
 const T0 = new Date("2026-06-01T12:00:00.000Z");
+const ID_PREFIX = "test-affiliation-";
+const createdUserIds: string[] = [];
+
+function hasDatabaseUrl(): boolean {
+  try {
+    return Boolean(databaseEnv().DATABASE_URL);
+  } catch {
+    return false;
+  }
+}
+const SKIP_DB = hasDatabaseUrl() ? false : "DATABASE_URL not set - skipping DB-backed test";
+
+after(async () => {
+  if (createdUserIds.length > 0) {
+    await db().delete(user).where(inArray(user.id, createdUserIds));
+  }
+  await closeConnections();
+});
 
 function cred(over: Partial<CredentialForAffiliation>): CredentialForAffiliation {
   return {
@@ -24,6 +54,40 @@ function cred(over: Partial<CredentialForAffiliation>): CredentialForAffiliation
     metadata: { googleHostedDomain: "oliv.ai" },
     ...over,
   };
+}
+
+async function seedUser(): Promise<string> {
+  const userId = `${ID_PREFIX}${randomUUID()}`;
+  createdUserIds.push(userId);
+  await db()
+    .insert(user)
+    .values({ id: userId, name: "Affiliation Test", email: `${userId}@example.test` });
+  return userId;
+}
+
+async function seedGoogleCredential(args: {
+  userId: string;
+  accountId: string;
+  createdAt: Date;
+}): Promise<string> {
+  const [row] = await db()
+    .insert(integrationCredentials)
+    .values({
+      userId: args.userId,
+      provider: "google",
+      accountId: args.accountId,
+      accountLabel: "yash.k@oliv.ai",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiresAt: new Date("2026-06-30T00:00:00.000Z"),
+      scopes: [],
+      metadata: { googleHostedDomain: "oliv.ai" },
+      status: "active",
+      createdAt: args.createdAt,
+    })
+    .returning({ id: integrationCredentials.id });
+  assert.ok(row);
+  return row.id;
 }
 
 describe("buildOrgAffiliationObservationInput", () => {
@@ -168,5 +232,76 @@ describe("buildOrgAffiliationObservationInput", () => {
       assert.notEqual(c.input.evidenceHash, d.input.evidenceHash);
       assert.equal(c.input.familyKey, d.input.familyKey);
     });
+  });
+});
+
+describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => {
+  test("connect dedups, disconnect supersedes connect, and reconnect supersedes disconnect", async () => {
+    const userId = await seedUser();
+    const accountId = `google-sub-${randomUUID()}`;
+    const connectAt = new Date("2026-06-01T12:00:00.000Z");
+    const disconnectAt = new Date("2026-06-02T12:00:00.000Z");
+    const reconnectAt = new Date("2026-06-03T12:00:00.000Z");
+
+    const firstCredentialId = await seedGoogleCredential({ userId, accountId, createdAt: connectAt });
+    const connected = await recordOrgAffiliationOnConnect(firstCredentialId);
+    assert.equal(connected.status, "emitted");
+
+    const duplicateConnect = await recordOrgAffiliationOnConnect(firstCredentialId);
+    assert.equal(duplicateConnect.status, "deduped");
+
+    const disconnected = await recordOrgAffiliationOnDisconnect(
+      {
+        userId,
+        accountId,
+        accountEmail: "yash.k@oliv.ai",
+        metadata: { googleHostedDomain: "oliv.ai" },
+      },
+      disconnectAt,
+    );
+    assert.equal(disconnected.status, "emitted");
+
+    await db()
+      .delete(integrationCredentials)
+      .where(eq(integrationCredentials.id, firstCredentialId));
+
+    const secondCredentialId = await seedGoogleCredential({
+      userId,
+      accountId,
+      createdAt: reconnectAt,
+    });
+    const reconnected = await recordOrgAffiliationOnConnect(secondCredentialId);
+    assert.equal(reconnected.status, "emitted");
+
+    const familyKey = `org_affiliation:${accountId}:oliv.ai`;
+    const rows = await db()
+      .select({
+        id: observations.id,
+        occurredAt: observations.occurredAt,
+        supersedesObservationId: observations.supersedesObservationId,
+        payload: observations.payload,
+      })
+      .from(observations)
+      .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+      .orderBy(asc(observations.occurredAt));
+
+    assert.equal(rows.length, 3);
+    assert.equal((rows[0]?.payload as { status?: string } | undefined)?.status, "connected");
+    assert.equal(rows[0]?.supersedesObservationId, null);
+    assert.equal((rows[1]?.payload as { status?: string } | undefined)?.status, "disconnected");
+    assert.equal(rows[1]?.supersedesObservationId, rows[0]?.id);
+    assert.equal((rows[2]?.payload as { status?: string } | undefined)?.status, "connected");
+    assert.equal(rows[2]?.supersedesObservationId, rows[1]?.id);
+
+    const [head] = await db()
+      .select({ headObservationId: observationFamilyHeads.headObservationId })
+      .from(observationFamilyHeads)
+      .where(
+        and(
+          eq(observationFamilyHeads.userId, userId),
+          eq(observationFamilyHeads.familyKey, familyKey),
+        ),
+      );
+    assert.equal(head?.headObservationId, rows[2]?.id);
   });
 });
