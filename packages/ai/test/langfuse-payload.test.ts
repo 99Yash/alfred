@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  buildDispatchRejectionSpanPayload,
   buildGenerationEndPayload,
   buildGenerationPayload,
   buildTracePayload,
@@ -195,5 +196,86 @@ describe("buildGenerationEndPayload", () => {
       captureIo: false,
     });
     assert.equal(off.output, undefined);
+  });
+});
+
+describe("buildDispatchRejectionSpanPayload", () => {
+  const startedAt = new Date("2026-06-29T00:00:00.000Z");
+  const base = {
+    runId: "run_1",
+    toolName: "sheets.update_values",
+    toolCallId: "tc_1",
+    outcome: "invalid_input" as const,
+    reason: "Invalid input: expected array, received string",
+    signature: "sheets.update_values:invalid_input:invalid_type@values",
+    userId: "user_1",
+    caller: "boss",
+    stepId: "dispatch-tools",
+    detail: [{ code: "invalid_type", path: ["values"] }],
+    input: { values: "[[1]]" },
+    startedAt,
+  };
+
+  test("omits input and issue detail when capture is off", () => {
+    const payload = buildDispatchRejectionSpanPayload(base, false);
+
+    assert.equal(payload.span.traceId, "run_1");
+    assert.equal(payload.span.name, "tool:sheets.update_values");
+    assert.equal(payload.span.input, undefined);
+    assert.deepEqual(payload.span.metadata, {
+      kind: "tool",
+      outcome: "invalid_input",
+      rejectionSignature: "sheets.update_values:invalid_input:invalid_type@values",
+      toolName: "sheets.update_values",
+      candidateToolName: undefined,
+      toolCallId: "tc_1",
+      caller: "boss",
+      userId: "user_1",
+      runId: "run_1",
+      stepId: "dispatch-tools",
+      detail: undefined,
+    });
+    assert.deepEqual(payload.end, {
+      level: "WARNING",
+      statusMessage: "sheets.update_values:invalid_input:invalid_type@values",
+    });
+  });
+
+  test("attaches only caller-supplied safe input, detail, and reason when capture is on", () => {
+    const payload = buildDispatchRejectionSpanPayload(
+      {
+        ...base,
+        input: { url: "https://example.com/?token=[REDACTED]" },
+      },
+      true,
+    );
+
+    assert.deepEqual(payload.span.input, { url: "https://example.com/?token=[REDACTED]" });
+    assert.deepEqual(payload.span.metadata.detail, [{ code: "invalid_type", path: ["values"] }]);
+    assert.deepEqual(payload.end, {
+      level: "WARNING",
+      statusMessage: "Invalid input: expected array, received string",
+    });
+  });
+
+  test("normalizes unknown tool observations and keeps only a sanitized candidate hint", () => {
+    const payload = buildDispatchRejectionSpanPayload(
+      {
+        ...base,
+        toolName: "<unknown>",
+        candidateToolName: "list_events",
+        outcome: "unknown_tool",
+        reason: "Tool is not declared",
+        signature: "<unknown>:unknown_tool",
+        input: undefined,
+      },
+      true,
+    );
+
+    assert.equal(payload.span.name, "tool:<unknown>");
+    assert.equal(payload.span.metadata.toolName, "<unknown>");
+    assert.equal(payload.span.metadata.candidateToolName, "list_events");
+    assert.equal(payload.span.input, undefined);
+    assert.deepEqual(payload.end, { level: "WARNING", statusMessage: "Tool is not declared" });
   });
 });
