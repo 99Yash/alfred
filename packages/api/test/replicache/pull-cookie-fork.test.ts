@@ -4,15 +4,51 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { replicacheClientGroup, user } from "@alfred/db/schemas";
+import { databaseEnv } from "@alfred/env/database";
+import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
 import { handlePull } from "../../src/modules/replicache/pull";
 import { closeRedis } from "../../src/queue/connection";
 
-const SKIP =
-  process.env.DATABASE_URL && process.env.REDIS_URL
-    ? false
-    : "DATABASE_URL/REDIS_URL not set — skipping DB+Redis-backed test";
+const SERVER_ENV_FIXTURES: Record<string, string> = {
+  BETTER_AUTH_SECRET: "test better auth secret with length",
+  BETTER_AUTH_URL: "http://localhost:3001",
+  ALFRED_ALLOWED_EMAIL: "test@example.com",
+  RESEND_API_KEY: "test-resend",
+  RESEND_FROM_EMAIL: "Alfred <noreply@example.com>",
+  ANTHROPIC_API_KEY: "test-anthropic",
+  GOOGLE_GENERATIVE_AI_API_KEY: "test-google-ai",
+  GOOGLE_OAUTH_CLIENT_ID: "test-google-client",
+  GOOGLE_OAUTH_CLIENT_SECRET: "test-google-secret",
+  GOOGLE_OAUTH_REDIRECT_URI: "http://localhost:3001/api/auth/callback/google",
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_SLUG: "test-app",
+  GITHUB_APP_CLIENT_ID: "test-github-client",
+  GITHUB_APP_CLIENT_SECRET: "test-github-secret",
+  GITHUB_APP_PRIVATE_KEY: "test-private-key",
+  GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
+  GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
+};
+
+function seedServerEnvForReplicacheTests(): void {
+  for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
+    process.env[key] ??= value;
+  }
+}
+
+function hasDatabaseAndRedis(): boolean {
+  seedServerEnvForReplicacheTests();
+  try {
+    return Boolean(databaseEnv().DATABASE_URL && serverEnv().REDIS_URL);
+  } catch {
+    return false;
+  }
+}
+
+const SKIP = hasDatabaseAndRedis()
+  ? false
+  : "DATABASE_URL/REDIS_URL not set — skipping DB+Redis-backed test";
 
 const ID_PREFIX = "test-rpull-";
 const createdUserIds: string[] = [];
@@ -101,5 +137,27 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
     });
     assert.ok(!("forbidden" in second));
     assert.ok(second.cookie.order >= first.cookie.order);
+  });
+
+  test("an out-of-range cookie order falls back to a safe cold sync", async () => {
+    const userId = await seedUser();
+    const group = `${ID_PREFIX}oversized-${randomUUID()}`;
+
+    const result = await handlePull(userId, {
+      pullVersion: 1,
+      clientGroupID: group,
+      cookie: { order: Number.MAX_SAFE_INTEGER, clientGroupID: group },
+    });
+
+    assert.ok(!("forbidden" in result));
+    assert.equal(result.patch[0]?.op, "clear");
+    assert.equal(result.cookie.clientGroupID, group);
+    assert.equal(result.cookie.order, 1);
+
+    const [storedGroup] = await db()
+      .select({ cvrVersion: replicacheClientGroup.cvrVersion })
+      .from(replicacheClientGroup)
+      .where(eq(replicacheClientGroup.id, group));
+    assert.equal(storedGroup?.cvrVersion, result.cookie.order);
   });
 });
