@@ -1,6 +1,7 @@
 import { applyTriageLabel, findThreadSiblingsWithAlfredLabels } from "@alfred/integrations/google";
 import { isHttpError } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/contracts";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { findNewestLiveInboundGmailDocuments } from "./gmail-reconcile";
 import {
   getTriage,
@@ -43,7 +44,7 @@ export type ReconcileResult =
     }
   | {
       applied: false;
-      reason: "tag-not-found" | "document-not-found" | "target-unresolvable";
+      reason: "tag-not-found" | "document-not-found" | "target-unresolvable" | "writes-disabled";
       category?: TriageCategory;
     };
 
@@ -68,6 +69,8 @@ export interface ReconcileThreadLabelDeps {
   setAppliedLabelId: typeof setAppliedLabelId;
   setReconciledTarget: typeof setTriageReconciledTarget;
   withThreadLock: typeof withTriageThreadLock;
+  /** #278 gate: skip the Gmail label write entirely in non-prod / when disabled. */
+  mailboxWritesEnabled: typeof gmailMailboxWritesEnabled;
 }
 
 const DEFAULT_DEPS: ReconcileThreadLabelDeps = {
@@ -79,6 +82,7 @@ const DEFAULT_DEPS: ReconcileThreadLabelDeps = {
   setAppliedLabelId,
   setReconciledTarget: setTriageReconciledTarget,
   withThreadLock: withTriageThreadLock,
+  mailboxWritesEnabled: gmailMailboxWritesEnabled,
 };
 
 /**
@@ -94,6 +98,14 @@ export async function reconcileThreadLabel(
   deps: Partial<ReconcileThreadLabelDeps> = {},
 ): Promise<ReconcileResult> {
   const d: ReconcileThreadLabelDeps = { ...DEFAULT_DEPS, ...deps };
+  // #278: dev and prod share one real Gmail account. A non-prod instance must
+  // not mutate the mailbox (writing/stripping labels), or it fights prod over
+  // the shared thread state. The canonical `email_triage` row is already
+  // committed by the classify step — only the outbound Gmail write is skipped.
+  if (!d.mailboxWritesEnabled()) {
+    const row = await d.getTriage(args.userId, args.sourceThreadId);
+    return { applied: false, reason: "writes-disabled", category: row?.category };
+  }
   return d.withThreadLock(args.userId, args.sourceThreadId, async () => {
     const row = await d.getTriage(args.userId, args.sourceThreadId);
     if (!row) return { applied: false, reason: "tag-not-found" };

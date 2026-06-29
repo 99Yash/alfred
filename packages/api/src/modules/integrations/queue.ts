@@ -9,7 +9,7 @@ import {
   pollGmailRecent,
 } from "@alfred/integrations/google";
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
-import { serverEnv } from "@alfred/env/server";
+import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -414,6 +414,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // brand-new account. Without this, realtime (ADR-0037) never starts
       // and the account is stuck on the 5-min poll_sweep until the watch
       // happens to be installed some other way.
+      // #278: non-prod must not register a watch on the shared real mailbox.
+      if (!gmailMailboxWritesEnabled()) {
+        console.log(
+          "[ingestion:worker] gmail.watch_install: skipped reason=writes-disabled (non-prod)",
+        );
+        return { installed: false, reason: "writes-disabled" };
+      }
       const env = serverEnv();
       const topic = env.GOOGLE_PUBSUB_TOPIC;
       if (!topic) {
@@ -424,6 +431,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       }
       assertGmailPushOidcConfigured();
       const state = await installGmailWatch({ credentialId: data.credentialId, topicName: topic });
+      if (!state) return { installed: false, reason: "writes-disabled" };
       console.log(
         `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
           `expiresAt=${state.expiresAt}`,
@@ -433,6 +441,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     case "gmail.watch_renew": {
       // Renew anything expiring within 24h. ADR-0024 caps watch life at
       // ~7d, so a daily renewal cycle is well within margin.
+      // #278: non-prod must not touch the shared real mailbox's watch.
+      if (!gmailMailboxWritesEnabled()) {
+        console.log(
+          "[ingestion:worker] gmail.watch_renew: skipped reason=writes-disabled (non-prod)",
+        );
+        return { renewed: 0, skipped: 0 };
+      }
       const env = serverEnv();
       const topic = env.GOOGLE_PUBSUB_TOPIC;
       if (!topic) {
@@ -510,6 +525,12 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       if (result.applied) {
         console.log(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=true label=${result.appliedLabelId}`,
+        );
+      } else if (result.reason === "writes-disabled") {
+        // #278: expected in non-prod — the mailbox-write gate is off, so the DB
+        // row is canonical and Gmail is intentionally untouched. Info, not error.
+        console.log(
+          `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} skipped reason=writes-disabled`,
         );
       } else {
         // A non-applied relabel must NOT be silent — `applied_label_id` stays

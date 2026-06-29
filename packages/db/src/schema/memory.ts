@@ -107,7 +107,9 @@ export const userFacts = pgTable(
  * (c) often need a single source-of-truth for the agent runtime to read.
  *
  * Examples: `tone`, `response_length`, `gmail.include_drafts`,
- * `briefing.timezone`, `briefing.delivery_hour`.
+ * `timezone` (canonical IANA zone — grounds chat date reasoning AND briefing
+ * delivery; `briefing.timezone` is a legacy fallback, #229),
+ * `briefing.delivery_hour`.
  *
  * Background-agent toggles (Settings → Features) live under `feature.*`
  * boolean keys, read via `resolveFeatureFlags` in `@alfred/api`. UNSET means

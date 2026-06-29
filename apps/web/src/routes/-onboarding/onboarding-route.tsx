@@ -44,9 +44,15 @@ export function OnboardingRoute() {
   const finish = async () => {
     setFinishing(true);
     try {
+      // #229: capture the browser's IANA zone so chat date grounding + briefing
+      // delivery don't silently default to UTC. The server persists it to the
+      // canonical `timezone` pref only if unset (won't clobber a chosen zone).
+      const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       // Eden returns `{ data, error }`, a failed POST resolves, so inspect
       // `error` before navigating and invalidating the onboarding gate.
-      const { error } = await client.api.me.onboarding.complete.post();
+      const { error } = await client.api.me.onboarding.complete.post(
+        browserTimezone ? { timezone: browserTimezone } : {},
+      );
       if (error) {
         throw new Error(`onboarding complete failed (${error.status})`);
       }
