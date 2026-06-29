@@ -130,9 +130,26 @@ export async function handlePull(
     };
 
     // Bump cvr_version only when something changed.
+    //
+    // The cookie `order` MUST never regress relative to what the client already
+    // holds. Replicache persists the last pull cookie in the client's IndexedDB
+    // (which survives a client-group fork) and treats `order` as an ordered
+    // cookie: if a pull returns an `order` below the persisted one, it rejects
+    // the patch and re-pulls forever while the server cold-syncs the full
+    // ~1.4 MB view on every iteration — sync never converges (#337). A fork
+    // mints a fresh clientGroupID whose per-group counter starts at 0, so a
+    // plain `prevVersion + 1` regresses below the stale cookie carried over
+    // from the old group.
+    //
+    // Seed the next order off `cookie.order` — the exact value the client sent
+    // and will compare against — so the new cookie always advances past it,
+    // even when the cookie came from a now-forked group. `cookie.order` is used
+    // regardless of `cookieMatchesGroup`: a group mismatch only forces the cold
+    // sync above, it must not reset the ordinal. Mirrors the canonical CVR
+    // pattern (replicache-cvr / dimension): `max(prevVersion, cookie.order) + 1`.
     const prevVersion = existingGroup?.cvrVersion ?? 0;
     const hasChanges = patch.length > 0 || Object.keys(lastMutationIDChanges).length > 0;
-    const nextVersion = hasChanges ? prevVersion + 1 : prevVersion;
+    const nextVersion = hasChanges ? Math.max(prevVersion, cookie?.order ?? 0) + 1 : prevVersion;
 
     if (nextVersion !== prevVersion) {
       await cvrStore.put(clientGroupID, nextVersion, nextSnapshot);
