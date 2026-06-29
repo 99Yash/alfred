@@ -214,34 +214,37 @@ function promoteWindowSynonym(value: unknown): unknown {
 // `calendarListEventsObject` if you need the field map.
 export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
 
-export const calendarCreateEventInput = z
-  .object({
-    calendarId: z
-      .string()
-      .min(1)
-      .max(200)
-      .default("primary")
-      .describe(
-        "Calendar id to create the event in. Use primary unless the user specified another calendar.",
-      ),
-    summary: z.string().min(1).max(500),
-    description: z.string().max(10_000).optional(),
-    location: z.string().max(1_000).optional(),
-    start: z.string().datetime({ offset: true }),
-    end: z.string().datetime({ offset: true }),
-    timeZone: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
-    attendees: z.array(z.string().email()).max(50).optional(),
-  })
-  .strict()
-  .refine((value) => new Date(value.end) > new Date(value.start), {
-    message: "end must be after start",
-    path: ["end"],
-  });
+export const calendarCreateEventInput = coerceJsonArrayFields(
+  ["attendees"],
+  z
+    .object({
+      calendarId: z
+        .string()
+        .min(1)
+        .max(200)
+        .default("primary")
+        .describe(
+          "Calendar id to create the event in. Use primary unless the user specified another calendar.",
+        ),
+      summary: z.string().min(1).max(500),
+      description: z.string().max(10_000).optional(),
+      location: z.string().max(1_000).optional(),
+      start: z.string().datetime({ offset: true }),
+      end: z.string().datetime({ offset: true }),
+      timeZone: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
+      attendees: z.array(z.string().email()).max(50).optional(),
+    })
+    .strict()
+    .refine((value) => new Date(value.end) > new Date(value.start), {
+      message: "end must be after start",
+      path: ["end"],
+    }),
+);
 
 /* ── docs ─────────────────────────────────────────────────────────────── */
 
@@ -499,27 +502,30 @@ export const gmailSearchInput = withQueryAlias(
     .strict(),
 );
 
-export const gmailSendDraftInput = z
-  .object({
-    to: z.array(z.string().email()).min(1).max(25),
-    cc: z.array(z.string().email()).max(25).optional(),
-    bcc: z.array(z.string().email()).max(25).optional(),
-    subject: z
-      .string()
-      .min(1)
-      .max(1000)
-      .refine((s) => !/[\r\n]/.test(s), {
-        message: "subject must not contain line breaks",
-      }),
-    bodyText: z.string().min(1).max(50_000),
-    /**
-     * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
-     * surfaces this on the approval card so the user can confirm what
-     * thread Alfred is replying into.
-     */
-    threadId: z.string().optional(),
-  })
-  .strict();
+export const gmailSendDraftInput = coerceJsonArrayFields(
+  ["to", "cc", "bcc"],
+  z
+    .object({
+      to: z.array(z.string().email()).min(1).max(25),
+      cc: z.array(z.string().email()).max(25).optional(),
+      bcc: z.array(z.string().email()).max(25).optional(),
+      subject: z
+        .string()
+        .min(1)
+        .max(1000)
+        .refine((s) => !/[\r\n]/.test(s), {
+          message: "subject must not contain line breaks",
+        }),
+      bodyText: z.string().min(1).max(50_000),
+      /**
+       * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
+       * surfaces this on the approval card so the user can confirm what
+       * thread Alfred is replying into.
+       */
+      threadId: z.string().optional(),
+    })
+    .strict(),
+);
 
 export const gmailReadMessageInput = z
   .object({
@@ -655,17 +661,20 @@ export const slidesGetInput = z
   })
   .strict();
 
-export const slidesBatchUpdateInput = z
-  .object({
-    presentationId,
-    requests: z
-      .array(z.record(z.string(), z.unknown()))
-      .min(1)
-      .describe(
-        "Raw Slides API `Request` objects (createSlide, insertText, createShape, …) from https://developers.google.com/slides/api/reference/rest/v1/presentations/request.",
-      ),
-  })
-  .strict();
+export const slidesBatchUpdateInput = coerceJsonArrayFields(
+  ["requests"],
+  z
+    .object({
+      presentationId,
+      requests: z
+        .array(z.record(z.string(), z.unknown()))
+        .min(1)
+        .describe(
+          "Raw Slides API `Request` objects (createSlide, insertText, createShape, …) from https://developers.google.com/slides/api/reference/rest/v1/presentations/request.",
+        ),
+    })
+    .strict(),
+);
 
 export const slidesAddSlideInput = z
   .object({
@@ -880,46 +889,49 @@ export const promoteScratchInput = z
   })
   .strict();
 
-export const readUserContextInput = blankFieldToOmitted(
-  ["query"],
-  z
-    .object({
-      query: z
-        .string()
-        .trim()
-        .min(1)
-        .max(500)
-        .optional()
-        .describe(
-          "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
-        ),
-      include: z
-        .array(
-          z.enum([
-            "profile",
-            "integrations",
-            "facts",
-            "preferences",
-            "entities",
-            "relationships",
-            "recent_memory",
-          ]),
-        )
-        .max(7)
-        .optional()
-        .describe(
-          "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
-        ),
-      subjectEmail: z
-        .string()
-        .trim()
-        .toLowerCase()
-        .email()
-        .max(320)
-        .optional()
-        .describe("Optional person/contact email to focus on."),
-    })
-    .strict(),
+export const readUserContextInput = coerceJsonArrayFields(
+  ["include"],
+  blankFieldToOmitted(
+    ["query"],
+    z
+      .object({
+        query: z
+          .string()
+          .trim()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
+          ),
+        include: z
+          .array(
+            z.enum([
+              "profile",
+              "integrations",
+              "facts",
+              "preferences",
+              "entities",
+              "relationships",
+              "recent_memory",
+            ]),
+          )
+          .max(7)
+          .optional()
+          .describe(
+            "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
+          ),
+        subjectEmail: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .email()
+          .max(320)
+          .optional()
+          .describe("Optional person/contact email to focus on."),
+      })
+      .strict(),
+  ),
 );
 
 export const rememberInput = z
@@ -1097,30 +1109,33 @@ export const fetchUrlInput = z
   })
   .strict();
 
-export const suggestTodoInput = z
-  .object({
-    name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
-    description: z
-      .string()
-      .max(20_000)
-      .optional()
-      .describe("Optional longer context for the todo."),
-    assist: z
-      .string()
-      .max(20_000)
-      .optional()
-      .describe(
-        "Optional tip on how to approach it. State honestly if you can't act on it (no permission / integration not connected). This is not execution.",
-      ),
-    sources: z
-      .array(todoSourceSchema)
-      .max(64)
-      .optional()
-      .describe(
-        "Cross-source provenance: [{ provider, kind, id, url? }]. Include every channel this commitment spans so it dedups across surfaces.",
-      ),
-  })
-  .strict();
+export const suggestTodoInput = coerceJsonArrayFields(
+  ["sources"],
+  z
+    .object({
+      name: z.string().min(1).max(2_000).describe("Short imperative title for the commitment."),
+      description: z
+        .string()
+        .max(20_000)
+        .optional()
+        .describe("Optional longer context for the todo."),
+      assist: z
+        .string()
+        .max(20_000)
+        .optional()
+        .describe(
+          "Optional tip on how to approach it. State honestly if you can't act on it (no permission / integration not connected). This is not execution.",
+        ),
+      sources: z
+        .array(todoSourceSchema)
+        .max(64)
+        .optional()
+        .describe(
+          "Cross-source provenance: [{ provider, kind, id, url? }]. Include every channel this commitment spans so it dedups across surfaces.",
+        ),
+    })
+    .strict(),
+);
 
 /* ── artifacts (ADR-0075) ─────────────────────────────────────────────── */
 
@@ -1186,30 +1201,33 @@ export const appendArtifactPageInput = z
   })
   .strict();
 
-export const updateArtifactInput = z
-  .object({
-    artifactId: z.string().min(1).describe("The artifactId to revise."),
-    title: z.string().min(1).max(200).optional().describe("New title (rename only)."),
-    markdown: z
-      .string()
-      .max(500_000)
-      .optional()
-      .describe("Full replacement markdown for a `document` artifact."),
-    pages: z
-      .array(artifactPageSchema)
-      .max(100)
-      .optional()
-      .describe(
-        "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
-      ),
-  })
-  .strict()
-  .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
-    message: "provide at least one of title, markdown, or pages",
-  })
-  .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
-    message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
-  });
+export const updateArtifactInput = coerceJsonArrayFields(
+  ["pages"],
+  z
+    .object({
+      artifactId: z.string().min(1).describe("The artifactId to revise."),
+      title: z.string().min(1).max(200).optional().describe("New title (rename only)."),
+      markdown: z
+        .string()
+        .max(500_000)
+        .optional()
+        .describe("Full replacement markdown for a `document` artifact."),
+      pages: z
+        .array(artifactPageSchema)
+        .max(100)
+        .optional()
+        .describe(
+          "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
+        ),
+    })
+    .strict()
+    .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
+      message: "provide at least one of title, markdown, or pages",
+    })
+    .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
+      message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
+    }),
+);
 
 /**
  * Every tool whose input shape lives here, keyed by `ToolName`. The dispatcher
