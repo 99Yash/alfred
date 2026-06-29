@@ -96,6 +96,44 @@ function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], 
   }, schema);
 }
 
+/**
+ * Parse a JSON-stringified array in the named fields back into a real array
+ * before validation. LLMs — Haiku especially — serialize an array-of-arrays or
+ * array-of-objects argument as a JSON *string* (`values: "[[\"a\"],[\"b\"]]"`)
+ * instead of the structured array. The field's `z.array(...)` then hard-fails
+ * with `invalid_type: expected array, received string`; dispatch trace
+ * run_9ff8bcw13vba shows the boss bouncing `sheets.update_values`,
+ * `sheets.append_values`, and `sheets.batch_update` four times on this exact
+ * mistake, then giving up and falsely telling the user the sheet was populated.
+ * Mirrors `z.coerce.number()` (stringified ints) and `blankFieldToOmitted`:
+ * wrapped at the object level so `z.toJSONSchema(schema, { io: "input" })` still
+ * advertises a plain array — only the server gets more tolerant. A string that
+ * doesn't JSON-parse to an array is left untouched, so it still fails strict
+ * validation and surfaces the enriched dispatcher error.
+ */
+function coerceJsonArrayFields<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+  return z.preprocess((value) => {
+    if (!isRecord(value)) return value;
+    let next = value;
+    for (const field of fields) {
+      const raw = next[field];
+      if (typeof raw !== "string") continue;
+      const trimmed = raw.trim();
+      if (!trimmed.startsWith("[")) continue;
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          if (next === value) next = { ...value };
+          next[field] = parsed;
+        }
+      } catch {
+        // Not valid JSON — leave it for the array schema to reject normally.
+      }
+    }
+    return next;
+  }, schema);
+}
+
 /* ── calendar ─────────────────────────────────────────────────────────── */
 
 const CALENDAR_WINDOW_VALUES = ["today", "tomorrow", "next_7_days"] as const;
@@ -555,35 +593,44 @@ export const sheetsGetValuesInput = z
   })
   .strict();
 
-export const sheetsUpdateValuesInput = z
-  .object({
-    spreadsheetId,
-    range: a1Range,
-    values: cellGrid,
-    valueInputOption,
-  })
-  .strict();
+export const sheetsUpdateValuesInput = coerceJsonArrayFields(
+  ["values"],
+  z
+    .object({
+      spreadsheetId,
+      range: a1Range,
+      values: cellGrid,
+      valueInputOption,
+    })
+    .strict(),
+);
 
-export const sheetsAppendValuesInput = z
-  .object({
-    spreadsheetId,
-    range: a1Range,
-    values: cellGrid,
-    valueInputOption,
-  })
-  .strict();
+export const sheetsAppendValuesInput = coerceJsonArrayFields(
+  ["values"],
+  z
+    .object({
+      spreadsheetId,
+      range: a1Range,
+      values: cellGrid,
+      valueInputOption,
+    })
+    .strict(),
+);
 
-export const sheetsBatchUpdateInput = z
-  .object({
-    spreadsheetId,
-    requests: z
-      .array(z.record(z.string(), z.unknown()))
-      .min(1)
-      .describe(
-        "Raw Sheets API `Request` objects (addSheet, repeatCell, mergeCells, …) from https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request.",
-      ),
-  })
-  .strict();
+export const sheetsBatchUpdateInput = coerceJsonArrayFields(
+  ["requests"],
+  z
+    .object({
+      spreadsheetId,
+      requests: z
+        .array(z.record(z.string(), z.unknown()))
+        .min(1)
+        .describe(
+          "Raw Sheets API `Request` objects (addSheet, repeatCell, mergeCells, …) from https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request.",
+        ),
+    })
+    .strict(),
+);
 
 export const sheetsAddSheetInput = z
   .object({
