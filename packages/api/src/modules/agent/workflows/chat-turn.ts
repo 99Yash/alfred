@@ -195,7 +195,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user wants something written or built to read or present — a doc, brief, report, one-pager, slide deck, or PDF — author it as an artifact with system.create_artifact (then append_artifact_page per page for a deck/PDF). It renders in a side panel they can read, resize, and ask you to revise; don't bury a long deliverable in the chat reply. A live Google Sheet, Doc, or shareable link that already answers the request is also a finished deliverable — stop there. The one thing you cannot produce is a downloadable binary export (.pdf/.pptx/.xlsx); offer the artifact or the live link instead.",
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
     '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
-    '- Never tell the user an action happened when its tool call failed. A doc, sheet, event, message, or change counts as done only when the tool that performs it actually succeeds — a failed, rejected, or empty result is not a success, and you must not describe it as one. If a step didn\'t go through, say plainly what you couldn\'t do and the user-facing reason, then give the best next step. Honesty about a failure always outranks a tidy-sounding reply.',
+    "- Never tell the user an action happened when its tool call failed. A doc, sheet, event, message, or change counts as done only when the tool that performs it actually succeeds — a failed, rejected, or empty result is not a success, and you must not describe it as one. If a step didn't go through, say plainly what you couldn't do and the user-facing reason, then give the best next step. Honesty about a failure always outranks a tidy-sounding reply.",
     '- Never expose internal machinery to the user. Tool names, parameter names, validation or schema errors, retry counts, and phrases like "the tool rejected", "invalid input", "serialization quirk", or "I can\'t do it this way" are internal — they must never appear in your reply. Hiding the mechanism never means hiding the outcome: if something you tried genuinely fails, still report the failure, just in plain terms ("I couldn\'t pull the line counts for that PR just now") with the best alternative or next step. Describe the outcome, never the mechanism — and a failure is an outcome.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
     "- When your answer references a fetched item that carries a url, link it using the exact url from that tool result. Never construct a URL yourself from an id or number; if the result has no url, cite the bare reference instead.",
@@ -900,17 +900,76 @@ export async function guardSpawnedChildren(
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
 
+const SIDE_EFFECT_ACTION_TOKENS = new Set([
+  "add",
+  "append",
+  "approve",
+  "archive",
+  "assign",
+  "cancel",
+  "close",
+  "create",
+  "delete",
+  "deploy",
+  "dismiss",
+  "edit",
+  "forget",
+  "forward",
+  "insert",
+  "invite",
+  "label",
+  "merge",
+  "move",
+  "post",
+  "publish",
+  "reject",
+  "remember",
+  "remove",
+  "reopen",
+  "reply",
+  "resolve",
+  "reschedule",
+  "save",
+  "schedule",
+  "send",
+  "set",
+  "snooze",
+  "tag",
+  "unarchive",
+  "unassign",
+  "unlabel",
+  "untag",
+  "update",
+  "upload",
+  "write",
+]);
+
+function actionTokensForToolName(toolName: string): string[] {
+  const rawAction = toolName.includes(".")
+    ? toolName.slice(toolName.lastIndexOf(".") + 1)
+    : toolName;
+  const snakeish = rawAction.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+  return snakeish
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0);
+}
+
+function looksSideEffectingToolName(toolName: string): boolean {
+  return actionTokensForToolName(toolName).some((token) => SIDE_EFFECT_ACTION_TOKENS.has(token));
+}
+
 /**
  * A tool is "mutating" for the honesty guard if it's a known registered tool
  * whose risk tier is anything but `no_risk` — i.e. it writes, sends, or changes
- * something. An unknown tool (not in the registry) is treated as non-mutating:
- * we only force a regeneration for a failure we can positively classify as a
- * side-effecting one, so a read failure or an unclassifiable call never burns a
- * turn.
+ * something. Unknown tools are classified conservatively by action-shaped name
+ * tokens (`create`, `send`, `write`, ...), so invented write tools still force
+ * an honest regeneration while invented read/list/search tools do not.
  */
 function isMutatingToolName(toolName: string): boolean {
   const tier = getTool(toolName as ToolName)?.riskTier;
-  return tier !== undefined && tier !== "no_risk";
+  if (tier !== undefined) return tier !== "no_risk";
+  return looksSideEffectingToolName(toolName);
 }
 
 export interface GuardUnreportedToolFailuresDeps {
@@ -931,11 +990,11 @@ const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = 
  * boss prompt now forbids this, but a prompt is not a guarantee; this makes it
  * load-bearing at the finalize boundary, mirroring `guardSpawnedChildren`:
  *
- *  - Finds mutating tool calls that NET-failed this run — a `failed` call whose
- *    tool never also `succeeded` (a later success is recovery, e.g. update→append
- *    on the same sheet). Reads (`no_risk`) are excluded: a failed lookup doesn't
- *    tempt a false "done" the way a failed write does, and regenerating for it
- *    would waste a turn.
+ *  - Finds mutating tool calls that failed this run. Reads (`no_risk`) are
+ *    excluded: a failed lookup doesn't tempt a false "done" the way a failed
+ *    write does, and regenerating for it would waste a turn. A later successful
+ *    call is not proof of recovery unless the model can explain the recovery
+ *    from the transcript; same tool names can target different side effects.
  *  - For any not yet surfaced, injects a `[system]` note naming them and telling
  *    the boss not to claim they succeeded, then loops back to regenerate an honest
  *    answer (bounded by `TURN_CAP_MAX`).
@@ -945,7 +1004,7 @@ const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = 
  *    is a fresh toolCallId and is correctly surfaced again.)
  *
  * Returns a `StepResult` to take over finalization, or `null` to let the caller
- * finalize normally. A turn with no net-failed mutating calls pays nothing.
+ * finalize normally. A turn with no failed mutating calls pays nothing.
  *
  * `isMutating`/`publish` are injectable purely so the invariant can be unit-tested
  * (the registry is populated at boot) without a live tool registry or event bus.
@@ -954,20 +1013,14 @@ export async function guardUnreportedToolFailures(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
   transcript: AgentTranscriptMessage[],
-  deps: GuardUnreportedToolFailuresDeps = defaultGuardUnreportedToolFailuresDeps,
+  deps: Partial<GuardUnreportedToolFailuresDeps> = {},
 ): Promise<StepResult<ChatRunState> | null> {
-  // A later success under the same tool name means the boss recovered (e.g.
-  // update_values failed, then append_values succeeded) — that tool didn't
-  // net-fail, so don't force a correction for it.
-  const recovered = new Set(
-    state.toolCallsLog.filter((t) => t.status === "succeeded").map((t) => t.toolName),
-  );
+  const guardDeps = { ...defaultGuardUnreportedToolFailuresDeps, ...deps };
   const unreported = state.toolCallsLog.filter(
     (t) =>
       t.status === "failed" &&
-      !recovered.has(t.toolName) &&
       !state.notedFailureToolCallIds.includes(t.toolCallId) &&
-      deps.isMutating(t.toolName),
+      guardDeps.isMutating(t.toolName),
   );
   if (unreported.length === 0) return null;
 
@@ -988,7 +1041,7 @@ export async function guardUnreportedToolFailures(
     state.assistantText = "";
     state.segmentIndex += 1;
     state.deltaSeq += 1;
-    await deps.publish({
+    await guardDeps.publish({
       userId: ctx.userId,
       kind: "chat.delta",
       payload: {
@@ -1006,9 +1059,9 @@ export async function guardUnreportedToolFailures(
   const note: AgentTranscriptMessage = {
     role: "user",
     content:
-      `[system] These actions did not complete this turn — their tool calls failed and never succeeded: ${names}. ` +
-      "Do NOT tell the user any of them succeeded or that the resulting item is ready. " +
-      "Say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.",
+      `[system] These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
+      "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
+      "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.",
   } satisfies AgentTranscriptMessage;
 
   return { kind: "next", state, transcript: [...transcript, note], nextStep: "chat-turn" };
