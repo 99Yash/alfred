@@ -62,6 +62,7 @@ export * from "./modules/integrations/object-state/index.js";
 export {
   insertObservation,
   buildOrgAffiliationObservationInput,
+  isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,

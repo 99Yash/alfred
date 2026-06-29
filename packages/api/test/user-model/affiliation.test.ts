@@ -162,20 +162,22 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 
-  test("a hosted domain that disagrees with the email domain does not verify", () => {
-    // `hd` belongs to a different org than the mailbox — it can't vouch for THIS
-    // address, so verifiedHostedDomain drops to null and the class is ambiguous.
+  test("a hosted domain that differs from the email domain verifies the Workspace org", () => {
+    // Google's `hd` is the hosted-domain authority. The email claim can carry an
+    // alias/secondary domain, so the org lifecycle is keyed by `hd`.
     const res = buildOrgAffiliationObservationInput(
       cred({ accountEmail: "contractor@vendor.com", metadata: { googleHostedDomain: "oliv.ai" } }),
       { status: "connected", occurredAt: T0 },
     );
     assert.equal(res.ok, true);
     if (!res.ok) return;
-    assert.equal(res.domainClass, "ambiguous_domain");
+    assert.equal(res.domainClass, "corporate_domain");
     assert.equal(
       (res.input.payload as { verifiedHostedDomain: unknown }).verifiedHostedDomain,
-      null,
+      "oliv.ai",
     );
+    assert.equal((res.input.payload as { orgDomain: string }).orgDomain, "oliv.ai");
+    assert.equal(res.input.familyKey, "org_affiliation:108412341234123412341:oliv.ai");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 

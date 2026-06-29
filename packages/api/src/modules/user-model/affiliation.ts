@@ -24,9 +24,10 @@
  *     disconnect (the bug a status-only hash would cause — see `evidenceHash`).
  *   - PAYLOAD SELF-CONSISTENCY: `domainClass` is computed from the SAME
  *     `(accountEmail, verifiedHostedDomain)` the observation boundary re-checks,
- *     and `verifiedHostedDomain` is set only when it equals the email's domain
- *     (an `hd` that disagrees can't verify THIS mailbox's org), so the boundary's
- *     superRefine always passes.
+ *     and `verifiedHostedDomain` is the Google Workspace `hd` domain when present
+ *     (Google treats `hd`, not the email claim's domain, as the hosted-domain
+ *     authority), so alias/secondary-domain mailboxes still ground the verified
+ *     Workspace org.
  */
 
 import {
@@ -75,6 +76,41 @@ export type BuildOrgAffiliationSkipReason =
   | "invalid_account_email"
   | "unclassifiable_domain";
 
+const ORG_AFFILIATION_APPEND_MAX_ATTEMPTS = 3;
+const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
+  "observations_no_fork_idx",
+  "observations_single_root_idx",
+]);
+
+interface PgErrorLike {
+  code?: string;
+  constraint?: string;
+}
+
+export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const pg = err as PgErrorLike;
+  return (
+    pg.code === "23505" &&
+    Boolean(pg.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(pg.constraint))
+  );
+}
+
+async function retryOrgAffiliationAppend<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (
+        attempt >= ORG_AFFILIATION_APPEND_MAX_ATTEMPTS ||
+        !isOrgAffiliationObservationAppendConflict(err)
+      ) {
+        throw err;
+      }
+    }
+  }
+}
+
 /** Pull the verified Workspace hosted domain (`hd`) out of the credential metadata bag. */
 function hostedDomainFromMetadata(metadata: unknown): string | null {
   if (!isRecord(metadata)) return null;
@@ -113,17 +149,18 @@ export function buildOrgAffiliationObservationInput(
   // A canonical, format-valid email always has a single `@`; the domain after it
   // is a valid hostname (the email regex validates it), so it satisfies the
   // payload's canonical-domain schema without a second normalization pass.
-  const orgDomain = accountEmail.slice(accountEmail.indexOf("@") + 1);
+  const accountEmailDomain = accountEmail.slice(accountEmail.indexOf("@") + 1);
 
   const rawHostedDomain = hostedDomainFromMetadata(cred.metadata);
   const hostedDomain = rawHostedDomain
     ? canonicalizeIdentityValue("domain", rawHostedDomain)
     : null;
-  // Only treat `hd` as verification of THIS mailbox's org when it matches the
-  // email's own domain. An `hd` that disagrees (rare cross-domain Workspace
-  // setups) can't vouch for this address, and the observation boundary requires
-  // `verifiedHostedDomain === orgDomain` when present — so disagreement → null.
-  const verifiedHostedDomain = hostedDomain && hostedDomain === orgDomain ? hostedDomain : null;
+  const verifiedHostedDomain =
+    hostedDomain && identityValueMatchesKind("domain", hostedDomain) ? hostedDomain : null;
+  // Google documents `hd` as the hosted-domain authority. The email claim can be
+  // an alias/secondary domain, so the org lifecycle family is keyed by `hd` when
+  // present; the accountEmail still preserves the actual mailbox.
+  const orgDomain = verifiedHostedDomain ?? accountEmailDomain;
 
   const domainClass = classifyEmailDomain({ email: accountEmail, verifiedHostedDomain });
   if (!domainClass) return { ok: false, reason: "unclassifiable_domain" };
@@ -190,7 +227,7 @@ async function insertOrgAffiliationObservation(
   input: ObservationInsertInput,
   tx?: DbExecutor,
 ): Promise<Awaited<ReturnType<typeof insertObservation>>> {
-  const run = async (ex: DbExecutor) => {
+  const runOnce = async (ex: DbExecutor) => {
     const [head] = await ex
       .select({ headObservationId: observationFamilyHeads.headObservationId })
       .from(observationFamilyHeads)
@@ -211,7 +248,7 @@ async function insertOrgAffiliationObservation(
     );
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx ? runOnce(tx) : retryOrgAffiliationAppend(() => db().transaction(runOnce));
 }
 
 async function loadGoogleCredentialForAffiliation(
@@ -319,7 +356,7 @@ export async function recordOrgAffiliationOnCredentialUpsert(
     };
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx ? run(tx) : retryOrgAffiliationAppend(() => db().transaction(run));
 }
 
 /**

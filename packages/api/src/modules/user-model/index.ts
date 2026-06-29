@@ -19,6 +19,7 @@ export { type DbExecutor } from "./executor";
 export { insertObservation, type InsertObservationResult } from "./observations";
 export {
   buildOrgAffiliationObservationInput,
+  isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
