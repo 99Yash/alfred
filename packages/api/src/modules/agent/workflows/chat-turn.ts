@@ -49,7 +49,7 @@ import {
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { finalizeRunArtifacts } from "../../artifacts/write";
-import { listToolsForIntegration } from "../../tools/registry";
+import { getTool, listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
@@ -158,6 +158,12 @@ const chatRunStateSchema = z.object({
   // and stops it from injecting a false "finished without you awaiting it" note
   // for a child the boss did await.
   foldedChildRunIds: z.array(z.string()).default([]),
+  // #346 honesty guard: toolCallIds of net-failed mutating calls the finalize
+  // guard has already injected a "do not claim this succeeded" note for. Mirrors
+  // `foldedChildRunIds` — tracking what's been handled keeps the guard idempotent
+  // across resumes and stops it re-firing (and looping) on a failure it already
+  // surfaced to the model.
+  notedFailureToolCallIds: z.array(z.string()).default([]),
 });
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
@@ -189,7 +195,8 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- When the user wants something written or built to read or present — a doc, brief, report, one-pager, slide deck, or PDF — author it as an artifact with system.create_artifact (then append_artifact_page per page for a deck/PDF). It renders in a side panel they can read, resize, and ask you to revise; don't bury a long deliverable in the chat reply. A live Google Sheet, Doc, or shareable link that already answers the request is also a finished deliverable — stop there. The one thing you cannot produce is a downloadable binary export (.pdf/.pptx/.xlsx); offer the artifact or the live link instead.",
     '- Before a step where you call tools, write one short present-tense line saying what you\'re about to do ("Checking your calendar.", "Drafting the reply."). Keep it to a single sentence — it appears in the activity trail beside the tools, not in your final reply.',
     '- Don\'t over-narrate: one brief line per tool step is plenty. Never apologize for or explain internal retries ("my mistake, I need to connect first") or thank the user for their patience.',
-    '- Never expose internal machinery to the user. Tool names, parameter names, validation or schema errors, retry counts, and phrases like "the tool rejected", "invalid input", "serialization quirk", or "I can\'t do it this way" are internal — they must never appear in your reply. If something you tried genuinely fails, say only what it means for the user in plain terms ("I couldn\'t pull the line counts for that PR just now") and give them the best alternative or next step. Describe the outcome, never the mechanism.',
+    '- Never tell the user an action happened when its tool call failed. A doc, sheet, event, message, or change counts as done only when the tool that performs it actually succeeds — a failed, rejected, or empty result is not a success, and you must not describe it as one. If a step didn\'t go through, say plainly what you couldn\'t do and the user-facing reason, then give the best next step. Honesty about a failure always outranks a tidy-sounding reply.',
+    '- Never expose internal machinery to the user. Tool names, parameter names, validation or schema errors, retry counts, and phrases like "the tool rejected", "invalid input", "serialization quirk", or "I can\'t do it this way" are internal — they must never appear in your reply. Hiding the mechanism never means hiding the outcome: if something you tried genuinely fails, still report the failure, just in plain terms ("I couldn\'t pull the line counts for that PR just now") with the best alternative or next step. Describe the outcome, never the mechanism — and a failure is an outcome.',
     "- Put your actual answer in your final message, written once the tools have returned. Keep it clean — don't repeat the narration lines there.",
     "- When your answer references a fetched item that carries a url, link it using the exact url from that tool result. Never construct a URL yourself from an id or number; if the result has no url, cite the bare reference instead.",
   ].join("\n"),
@@ -893,6 +900,120 @@ export async function guardSpawnedChildren(
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
 
+/**
+ * A tool is "mutating" for the honesty guard if it's a known registered tool
+ * whose risk tier is anything but `no_risk` — i.e. it writes, sends, or changes
+ * something. An unknown tool (not in the registry) is treated as non-mutating:
+ * we only force a regeneration for a failure we can positively classify as a
+ * side-effecting one, so a read failure or an unclassifiable call never burns a
+ * turn.
+ */
+function isMutatingToolName(toolName: string): boolean {
+  const tier = getTool(toolName as ToolName)?.riskTier;
+  return tier !== undefined && tier !== "no_risk";
+}
+
+export interface GuardUnreportedToolFailuresDeps {
+  isMutating: (toolName: string) => boolean;
+  publish: typeof publishEvent;
+}
+
+const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = {
+  isMutating: isMutatingToolName,
+  publish: publishEvent,
+};
+
+/**
+ * #346 honesty guard. `finalizeAssistantMessage` only checks that the assistant
+ * produced *some* text — nothing structurally stops a weak model from streaming
+ * "I've created your spreadsheet" over a turn whose every write failed (trace
+ * `run_9ff8bcw13vba`: 4 failed Sheets writes, final text claimed success). The
+ * boss prompt now forbids this, but a prompt is not a guarantee; this makes it
+ * load-bearing at the finalize boundary, mirroring `guardSpawnedChildren`:
+ *
+ *  - Finds mutating tool calls that NET-failed this run — a `failed` call whose
+ *    tool never also `succeeded` (a later success is recovery, e.g. update→append
+ *    on the same sheet). Reads (`no_risk`) are excluded: a failed lookup doesn't
+ *    tempt a false "done" the way a failed write does, and regenerating for it
+ *    would waste a turn.
+ *  - For any not yet surfaced, injects a `[system]` note naming them and telling
+ *    the boss not to claim they succeeded, then loops back to regenerate an honest
+ *    answer (bounded by `TURN_CAP_MAX`).
+ *  - Records the handled toolCallIds in `notedFailureToolCallIds` so it fires at
+ *    most once per failure — the regenerated turn sees them as noted and finalizes,
+ *    so there is no loop. (A genuinely new mutating failure on the regenerated turn
+ *    is a fresh toolCallId and is correctly surfaced again.)
+ *
+ * Returns a `StepResult` to take over finalization, or `null` to let the caller
+ * finalize normally. A turn with no net-failed mutating calls pays nothing.
+ *
+ * `isMutating`/`publish` are injectable purely so the invariant can be unit-tested
+ * (the registry is populated at boot) without a live tool registry or event bus.
+ */
+export async function guardUnreportedToolFailures(
+  ctx: StepContext<ChatRunState>,
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+  deps: GuardUnreportedToolFailuresDeps = defaultGuardUnreportedToolFailuresDeps,
+): Promise<StepResult<ChatRunState> | null> {
+  // A later success under the same tool name means the boss recovered (e.g.
+  // update_values failed, then append_values succeeded) — that tool didn't
+  // net-fail, so don't force a correction for it.
+  const recovered = new Set(
+    state.toolCallsLog.filter((t) => t.status === "succeeded").map((t) => t.toolName),
+  );
+  const unreported = state.toolCallsLog.filter(
+    (t) =>
+      t.status === "failed" &&
+      !recovered.has(t.toolName) &&
+      !state.notedFailureToolCallIds.includes(t.toolCallId) &&
+      deps.isMutating(t.toolName),
+  );
+  if (unreported.length === 0) return null;
+
+  state.notedFailureToolCallIds = [
+    ...state.notedFailureToolCallIds,
+    ...unreported.map((t) => t.toolCallId),
+  ];
+
+  // Close the premature (possibly false-success) answer into a narration segment
+  // so the regenerated honest reply lands in a fresh segment instead of appending
+  // to the rejected text, and advance the client off it with a zero-length delta —
+  // identical to guardSpawnedChildren's segment transition (see its rationale).
+  if (state.assistantText.trim().length > 0) {
+    state.narration = [
+      ...state.narration,
+      { index: state.segmentIndex, text: state.assistantText },
+    ];
+    state.assistantText = "";
+    state.segmentIndex += 1;
+    state.deltaSeq += 1;
+    await deps.publish({
+      userId: ctx.userId,
+      kind: "chat.delta",
+      payload: {
+        runId: ctx.runId,
+        threadId: state.threadId,
+        messageId: state.messageId,
+        seq: state.deltaSeq,
+        text: "",
+        segmentIndex: state.segmentIndex,
+      },
+    });
+  }
+
+  const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
+  const note: AgentTranscriptMessage = {
+    role: "user",
+    content:
+      `[system] These actions did not complete this turn — their tool calls failed and never succeeded: ${names}. ` +
+      "Do NOT tell the user any of them succeeded or that the resulting item is ready. " +
+      "Say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.",
+  } satisfies AgentTranscriptMessage;
+
+  return { kind: "next", state, transcript: [...transcript, note], nextStep: "chat-turn" };
+}
+
 const chatTurnStep: Step<ChatRunState> = {
   id: "chat-turn",
   async run(ctx) {
@@ -1195,6 +1316,13 @@ const chatTurnStep: Step<ChatRunState> = {
       // on (or regenerates for) any still-running ones instead of finalizing.
       const guard = await guardSpawnedChildren(ctx, state, nextTranscript);
       if (guard) return guard;
+
+      // #346 honesty guard: never finalize a turn that claims success while a
+      // mutating tool call net-failed. Injects a corrective note and regenerates;
+      // fires at most once per failure, so it can't loop. Runs after the spawn
+      // guard (which may itself regenerate for an un-awaited child).
+      const honesty = await guardUnreportedToolFailures(ctx, state, nextTranscript);
+      if (honesty) return honesty;
 
       // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
@@ -1877,6 +2005,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       turnCount: 0,
       started: false,
       foldedChildRunIds: [],
+      notedFailureToolCallIds: [],
     };
   },
   async initialTranscript(input, context) {
