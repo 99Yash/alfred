@@ -111,7 +111,10 @@ function blankFieldToOmitted<S extends z.ZodTypeAny>(fields: readonly string[], 
  * doesn't JSON-parse to an array is left untouched, so it still fails strict
  * validation and surfaces the enriched dispatcher error.
  */
-function coerceJsonArrayFields<S extends z.ZodTypeAny>(fields: readonly string[], schema: S) {
+export function coerceJsonArrayFields<S extends z.ZodTypeAny>(
+  fields: readonly string[],
+  schema: S,
+) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
