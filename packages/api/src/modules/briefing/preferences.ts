@@ -37,6 +37,13 @@ export interface BriefingPreferences {
   hasUserOverride: boolean;
 }
 
+interface BriefingPreferenceValues {
+  timezone: unknown;
+  legacyTimezone: unknown;
+  deliveryHour: unknown;
+  eveningHour: unknown;
+}
+
 export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
   const [generalTzRow, briefingTzRow, hourRow, eveRow] = await Promise.all([
     // #229: `timezone` is the canonical zone (also grounds chat/boss); the
@@ -49,16 +56,27 @@ export async function resolveBriefingPreferences(userId: string): Promise<Briefi
     getPreference(userId, "briefing.evening_hour"),
   ]);
 
-  const canonicalTz = parseTimezone(generalTzRow?.value);
-  const legacyTz = parseTimezone(briefingTzRow?.value);
+  return resolveBriefingPreferenceValues({
+    timezone: generalTzRow?.value,
+    legacyTimezone: briefingTzRow?.value,
+    deliveryHour: hourRow?.value,
+    eveningHour: eveRow?.value,
+  });
+}
+
+export function resolveBriefingPreferenceValues(
+  values: BriefingPreferenceValues,
+): BriefingPreferences {
+  const canonicalTz = parseTimezone(values.timezone);
+  const legacyTz = parseTimezone(values.legacyTimezone);
   const timezone = canonicalTz ?? legacyTz ?? DEFAULT_BRIEFING_TIMEZONE;
-  const deliveryHour = parseDeliveryHour(hourRow?.value) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
-  const eveningHour = parseDeliveryHour(eveRow?.value) ?? DEFAULT_BRIEFING_EVENING_HOUR;
+  const deliveryHour = parseDeliveryHour(values.deliveryHour) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
+  const eveningHour = parseDeliveryHour(values.eveningHour) ?? DEFAULT_BRIEFING_EVENING_HOUR;
   const hasUserOverride =
     canonicalTz !== null ||
     legacyTz !== null ||
-    (hourRow !== null && parseDeliveryHour(hourRow.value) !== null) ||
-    (eveRow !== null && parseDeliveryHour(eveRow.value) !== null);
+    parseDeliveryHour(values.deliveryHour) !== null ||
+    parseDeliveryHour(values.eveningHour) !== null;
 
   return { timezone, deliveryHour, eveningHour, hasUserOverride };
 }
