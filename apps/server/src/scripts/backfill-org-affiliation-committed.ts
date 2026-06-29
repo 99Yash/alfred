@@ -51,6 +51,9 @@ function parseTargetEmails(): string[] {
 }
 
 const TARGET_EMAILS = parseTargetEmails();
+if (COMMIT && TARGET_EMAILS.length === 0) {
+  throw new Error("--emails must include at least one email when using --commit");
+}
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);

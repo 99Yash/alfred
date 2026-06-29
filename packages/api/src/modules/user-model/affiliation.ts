@@ -40,7 +40,7 @@ import {
   type UserOrgAffiliationPayload,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { insertObservation } from "./observations";
@@ -174,6 +174,34 @@ export interface RecordOrgAffiliationResult {
   reason?: BuildOrgAffiliationSkipReason;
 }
 
+async function insertOrgAffiliationObservation(
+  input: ObservationInsertInput,
+  tx?: DbExecutor,
+): Promise<Awaited<ReturnType<typeof insertObservation>>> {
+  const run = async (ex: DbExecutor) => {
+    const [head] = await ex
+      .select({ headObservationId: observationFamilyHeads.headObservationId })
+      .from(observationFamilyHeads)
+      .where(
+        and(
+          eq(observationFamilyHeads.userId, input.userId),
+          eq(observationFamilyHeads.familyKey, input.familyKey),
+        ),
+      )
+      .limit(1);
+
+    return insertObservation(
+      {
+        ...input,
+        ...(head ? { supersedesObservationId: head.headObservationId } : {}),
+      },
+      ex,
+    );
+  };
+
+  return tx ? run(tx) : db().transaction(run);
+}
+
 /**
  * Load a Google credential by id and append its connect-time
  * `user_org_affiliation` observation. The connect EVENT TIME is the credential's
@@ -212,7 +240,7 @@ export async function recordOrgAffiliationOnConnect(
   );
   if (!built.ok) return { status: "skipped", reason: built.reason };
 
-  const { deduped } = await insertObservation(built.input, tx);
+  const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
   return { status: deduped ? "deduped" : "emitted" };
 }
 
@@ -231,6 +259,6 @@ export async function recordOrgAffiliationOnDisconnect(
 ): Promise<RecordOrgAffiliationResult> {
   const built = buildOrgAffiliationObservationInput(cred, { status: "disconnected", occurredAt });
   if (!built.ok) return { status: "skipped", reason: built.reason };
-  const { deduped } = await insertObservation(built.input, tx);
+  const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
   return { status: deduped ? "deduped" : "emitted" };
 }
