@@ -37,6 +37,29 @@ import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
+const VERBOSE = process.argv.includes("--verbose");
+
+function maskEmail(email: string | null | undefined): string {
+  if (!email) return "(no email)";
+  if (VERBOSE) return email;
+  const at = email.indexOf("@");
+  if (at <= 0) return "***";
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const visibleLocal = local.length <= 2 ? `${local[0] ?? "*"}*` : `${local.slice(0, 2)}***`;
+  const [domainHead, ...domainRest] = domain.split(".");
+  const safeDomainHead = domainHead ?? "";
+  const visibleDomain =
+    domainRest.length > 0
+      ? `${safeDomainHead.slice(0, 1)}***.${domainRest.join(".")}`
+      : `${domain.slice(0, 1)}***`;
+  return `${visibleLocal}@${visibleDomain}`;
+}
+
+function maskId(id: string): string {
+  if (VERBOSE) return id;
+  return id.length <= 8 ? "***" : `${id.slice(0, 6)}...${id.slice(-4)}`;
+}
 
 function parseTargetEmails(): string[] {
   const flag = process.argv.find((arg) => arg.startsWith("--emails="));
@@ -56,7 +79,7 @@ if (COMMIT && TARGET_EMAILS.length === 0) {
 }
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
-  console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
+  console.log(`\n=== ${maskEmail(u.email)} (user=${maskId(u.userId)}) ===`);
 
   // Every Google credential — including `needs_reauth`: a stale token doesn't
   // un-make the affiliation (the grounding is the account's domain, not token
@@ -96,13 +119,16 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     );
     if (!built.ok) {
       skipped++;
-      console.log(`    SKIP ${cred.accountEmail ?? cred.id} (${cred.status}) — ${built.reason}`);
+      console.log(
+        `    SKIP ${cred.accountEmail ? maskEmail(cred.accountEmail) : maskId(cred.id)} ` +
+          `(${cred.status}) — ${built.reason}`,
+      );
       continue;
     }
     const { domainClass } = built;
     const groundsEmployer = domainClass === "corporate_domain";
     console.log(
-      `    ${cred.accountEmail} (${cred.status}) → ${domainClass}` +
+      `    ${maskEmail(cred.accountEmail)} (${cred.status}) → ${domainClass}` +
         `${groundsEmployer ? " [grounds employer]" : ""}`,
     );
     if (!COMMIT) continue;
@@ -126,7 +152,7 @@ async function main() {
   await warmPool();
   console.log(
     `# Backfill user_org_affiliation (#342) — mode=${COMMIT ? "COMMIT" : "DRY"} | ` +
-      `targets=${TARGET_EMAILS.join(", ")}`,
+      `targets=${TARGET_EMAILS.map(maskEmail).join(", ")}`,
   );
 
   const users = await db()
@@ -137,7 +163,7 @@ async function main() {
   const found = new Set(users.map((u) => u.email));
   const missing = TARGET_EMAILS.filter((e) => !found.has(e));
   if (missing.length > 0) {
-    const message = `no user row for target email(s): ${missing.join(", ")}`;
+    const message = `no user row for target email(s): ${missing.map(maskEmail).join(", ")}`;
     if (COMMIT) throw new Error(message);
     console.log(`! ${message} — skipping`);
   }

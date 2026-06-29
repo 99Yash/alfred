@@ -16,6 +16,9 @@ import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /** Refresh when fewer than this many seconds remain on the token. */
 const REFRESH_THRESHOLD_MS = 60_000;
+type DbExecutor =
+  | ReturnType<typeof db>
+  | Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 
 export interface UpsertCredentialsArgs {
   userId: string;
@@ -41,7 +44,10 @@ export interface UpsertCredentialsArgs {
  * Google account replaces the row in place rather than creating a
  * duplicate.
  */
-export async function upsertCredential(args: UpsertCredentialsArgs): Promise<{ id: string }> {
+export async function upsertCredential(
+  args: UpsertCredentialsArgs,
+  ex: DbExecutor = db(),
+): Promise<{ id: string }> {
   const updateSet: Record<string, unknown> = {
     accessToken: args.accessToken,
     // A re-connect issues a new refresh token; honour it.
@@ -60,7 +66,7 @@ export async function upsertCredential(args: UpsertCredentialsArgs): Promise<{ i
     updateSet.persona = sql`COALESCE(${integrationCredentials.persona}, ${args.persona ?? null})`;
   }
 
-  const result = await db()
+  const result = await ex
     .insert(integrationCredentials)
     .values({
       userId: args.userId,
