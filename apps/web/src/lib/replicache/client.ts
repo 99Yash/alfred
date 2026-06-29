@@ -12,6 +12,23 @@ import { clientMutators } from "@alfred/sync";
  */
 const SYNC_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * Replicache partitions its IndexedDB by `(name, schemaVersion)`. Bumping this
+ * constant makes every client treat its persisted store as a different DB —
+ * the old one is abandoned and the next load cold-syncs from scratch.
+ *
+ * This is the canonical self-healing reset (the pattern dimension uses):
+ *   - Bump it whenever a synced entity's *serialized shape* changes, so stale
+ *     shapes in old IndexedDB stores can't silently linger and diverge.
+ *   - Bump it as the recovery lever if a client ever wedges its local store
+ *     (e.g. the #337 client-group fork) — a redeploy heals every client with
+ *     no "clear your IndexedDB" handholding.
+ *
+ * Keep it a hand-bumped string (not derived) so the reset is an explicit,
+ * code-reviewed decision tied to a deploy.
+ */
+const REPLICACHE_SCHEMA_VERSION = "1";
+
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
@@ -57,6 +74,7 @@ export function createReplicache(
 
   const rep = new Replicache<ClientMutators>({
     name: `alfred-${userId}`,
+    schemaVersion: REPLICACHE_SCHEMA_VERSION,
     mutators: clientMutators,
 
     puller: async (req) => {
