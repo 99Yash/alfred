@@ -228,9 +228,12 @@ function isValidDomain(domain: string): boolean {
 /** Split a raw address into `{ localPart, domain }`, lowercased; null if not an address. */
 function splitEmail(email: string): { localPart: string; domain: string } | null {
   const trimmed = email.trim().toLowerCase();
-  const at = trimmed.lastIndexOf("@");
+  const at = trimmed.indexOf("@");
   if (at <= 0 || at === trimmed.length - 1) return null;
-  return { localPart: trimmed.slice(0, at), domain: normalizeDomain(trimmed.slice(at + 1)) };
+  if (at !== trimmed.lastIndexOf("@")) return null;
+  const localPart = trimmed.slice(0, at);
+  if (!/^[^\s@\x00-\x1f\x7f]+$/.test(localPart)) return null;
+  return { localPart, domain: normalizeDomain(trimmed.slice(at + 1)) };
 }
 
 function isFreeMailDomain(domain: string): boolean {
@@ -302,8 +305,8 @@ export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | n
   if (!isValidDomain(domain)) return null;
 
   if (parsed && isRoleServiceLocalPart(parsed.localPart)) return "service_or_role_account";
-  if (isServiceDomain(domain)) return "service_or_role_account";
   if (isFreeMailDomain(domain)) return "consumer_email";
+  if (isServiceDomain(domain)) return "service_or_role_account";
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
   if (parsed) {
     const verifiedHostedDomain = input.verifiedHostedDomain

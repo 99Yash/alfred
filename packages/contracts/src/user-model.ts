@@ -21,7 +21,7 @@
  */
 
 import { z } from "zod";
-import { domainClassSchema } from "./identity-affiliation.js";
+import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation.js";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -659,15 +659,39 @@ export const observationInsertSchema = z
     error: "observation kind is not valid for its source",
     path: ["kind"],
   })
-  .superRefine(({ kind, payload }, ctx) => {
+  .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
     if (kind !== "user_org_affiliation") return;
     const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
-    if (parsed.success) return;
-    for (const issue of parsed.error.issues) {
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", ...issue.path],
+          message: issue.message,
+        });
+      }
+      return;
+    }
+    if (subjectIdentity.kind !== "user") {
       ctx.addIssue({
         code: "custom",
-        path: ["payload", ...issue.path],
-        message: issue.message,
+        path: ["subjectIdentity"],
+        message: "user_org_affiliation observations must be about the user",
+      });
+    }
+    const expectedDomainClass = classifyEmailDomain(
+      parsed.data.accountEmail
+        ? {
+            email: parsed.data.accountEmail,
+            verifiedHostedDomain: parsed.data.orgDomain,
+          }
+        : { domain: parsed.data.orgDomain },
+    );
+    if (expectedDomainClass !== parsed.data.domainClass) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payload", "domainClass"],
+        message: "domainClass must match orgDomain/accountEmail classification",
       });
     }
   });

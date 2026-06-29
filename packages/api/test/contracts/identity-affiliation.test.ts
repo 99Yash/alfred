@@ -39,6 +39,13 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
     }
   });
 
+  test("every canonical free-mail domain classifies as consumer_email", () => {
+    for (const domain of FREE_MAIL_DOMAINS) {
+      assert.equal(classifyEmailDomain({ domain }), "consumer_email", domain);
+      assert.equal(classifyEmailDomain({ email: `person@${domain}` }), "consumer_email", domain);
+    }
+  });
+
   test("a real org domain is corporate_domain", () => {
     assert.equal(
       classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
@@ -117,6 +124,10 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
   test("malformed / empty input returns null (no class, so no grounding)", () => {
     assert.equal(classifyEmailDomain({ email: "not-an-email" }), null);
     assert.equal(classifyEmailDomain({ email: "@no-local.com" }), null);
+    assert.equal(
+      classifyEmailDomain({ email: "a@b@oliv.ai", verifiedHostedDomain: "oliv.ai" }),
+      null,
+    );
     assert.equal(classifyEmailDomain({ domain: "bad..com" }), null);
     assert.equal(classifyEmailDomain({ domain: "localhost" }), null);
     assert.equal(classifyEmailDomain({ domain: "" }), null);
@@ -311,6 +322,32 @@ describe("user_org_affiliation observation kind wiring", () => {
       observationInsertSchema.safeParse({
         ...base,
         payload: { orgDomain: "bad..com", domainClass: "corporate_domain" },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        subjectIdentity: { kind: "email", value: "third@example.com" },
+        payload: { orgDomain: "oliv.ai", domainClass: "corporate_domain" },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { orgDomain: "gmail.com", domainClass: "corporate_domain" },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: {
+          orgDomain: "oliv.ai",
+          accountEmail: "yash@gmail.com",
+          domainClass: "corporate_domain",
+        },
       }).success,
       false,
     );
