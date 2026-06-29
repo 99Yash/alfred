@@ -1,11 +1,10 @@
 import { db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
+import { user, userPreferences } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { NotFoundError } from "../../middleware/errors";
 import { isValidTimezone } from "../briefing/preferences";
-import { getPreference, setPreference } from "../memory/preferences";
 
 /**
  * Onboarding state routes.
@@ -38,25 +37,31 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
       .post(
         "/complete",
         async ({ user: u, body }) => {
-          const rows = await db()
-            .update(user)
-            .set({ onboardedAt: sql`coalesce(${user.onboardedAt}, now())` })
-            .where(eq(user.id, u.id))
-            .returning({ onboardedAt: user.onboardedAt });
-          const row = rows[0];
-          if (!row) throw new NotFoundError("User not found");
+          const row = await db().transaction(async (tx) => {
+            const rows = await tx
+              .update(user)
+              .set({ onboardedAt: sql`coalesce(${user.onboardedAt}, now())` })
+              .where(eq(user.id, u.id))
+              .returning({ onboardedAt: user.onboardedAt });
+            const updated = rows[0];
+            if (!updated) throw new NotFoundError("User not found");
 
-          // #229: infer the user's zone from the browser at onboarding so chat
-          // date grounding + briefing delivery don't silently default to UTC.
-          // Write the canonical `timezone` key ONLY if unset — never clobber a
-          // zone the user already chose (idempotent re-finish stays safe).
-          const tz = body?.timezone;
-          if (tz && isValidTimezone(tz)) {
-            const existing = await getPreference(u.id, "timezone");
-            if (existing === null) {
-              await setPreference({ userId: u.id, key: "timezone", value: tz });
+            // #229: infer the user's zone from the browser at onboarding so chat
+            // date grounding + briefing delivery don't silently default to UTC.
+            // Write the canonical `timezone` key ONLY if unset — never clobber a
+            // zone the user already chose (idempotent re-finish stays safe).
+            const tz = body?.timezone;
+            if (tz && isValidTimezone(tz)) {
+              await tx
+                .insert(userPreferences)
+                .values({ userId: u.id, key: "timezone", value: tz, source: { kind: "user" } })
+                .onConflictDoNothing({
+                  target: [userPreferences.userId, userPreferences.key],
+                });
             }
-          }
+
+            return updated;
+          });
 
           return {
             routeToOnboarding: false,

@@ -6,8 +6,8 @@ import { useBriefingSchedule } from "~/lib/replicache/use-briefing-schedule";
 /**
  * Briefing delivery schedule — timezone + morning/evening hour pickers.
  *
- * Writes the three `briefing.*` preference rows the hourly cron reads
- * (`briefing.timezone`, `briefing.delivery_hour`, `briefing.evening_hour`).
+ * Writes the canonical `timezone` preference plus the briefing-hour rows
+ * (`briefing.delivery_hour`, `briefing.evening_hour`).
  * Lives under the background-agent toggles since "when" only matters once a
  * briefing slot is switched on.
  */
