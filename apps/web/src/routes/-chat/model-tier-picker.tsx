@@ -15,31 +15,46 @@
  */
 import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronDown, Sparkles, Telescope } from "lucide-react";
-import { use, useId, type ComponentType } from "react";
-import { AppThemeContext } from "~/components/ui/v2/theme";
+import { Check, ChevronDown } from "lucide-react";
+import { use, useId } from "react";
+import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { Tip } from "./tip";
 
 export type ChatTier = ChatModelTier;
+
+// Per-tier, theme-tuned Alfred marks. Like dimension's agent-mode picker, each
+// tier carries its OWN glyph — Standard is the calm single-capsule mark, Pro
+// nests a second capsule inside and lifts the gradient — so the two read as
+// distinct at a glance, not just by their label. Each tier then has a light/dark
+// variant (vivid + dark rim on light surfaces, calmer + light rim on dark). See
+// public/images/logo/alfred-logo{,-pro}-{light,dark}.svg.
+const TIER_MARK: Record<ChatTier, Record<AppResolvedTheme, string>> = {
+  standard: {
+    light: "/images/logo/alfred-logo-light.svg",
+    dark: "/images/logo/alfred-logo-dark.svg",
+  },
+  deep: {
+    light: "/images/logo/alfred-logo-pro-light.svg",
+    dark: "/images/logo/alfred-logo-pro-dark.svg",
+  },
+};
 
 interface TierOption {
   value: ChatTier;
   label: string;
   description: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
 }
 
 const STANDARD_OPTION: TierOption = {
   value: "standard",
-  label: "Auto",
-  description: "Fast and capable for everyday questions",
-  icon: Sparkles,
+  label: "Alfred",
+  description: "Great for almost everything",
 };
 const DEEP_OPTION: TierOption = {
   value: "deep",
-  label: "Deep",
-  description: "Slower, deeper reasoning for complex tasks",
-  icon: Telescope,
+  label: "Alfred Pro",
+  description: "Flagship reasoning for complex tasks",
 };
 const TIER_OPTIONS: ReadonlyArray<TierOption> = [STANDARD_OPTION, DEEP_OPTION];
 
@@ -57,34 +72,42 @@ export function ModelTierPicker({
   // breaks — stamp the resolved theme on the content directly (React context
   // still flows through portals). Same pattern as `AppSelect`.
   const themeCtx = use(AppThemeContext);
+  const resolved: AppResolvedTheme = themeCtx?.resolved ?? "dark";
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
   const selected = value === "deep" ? DEEP_OPTION : STANDARD_OPTION;
-  const SelectedIcon = selected.icon;
 
   return (
     <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          aria-haspopup="listbox"
-          aria-controls={listboxId}
-          title="Choose how hard Alfred thinks"
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
-            "app-press text-app-fg-3 transition-colors outline-none",
-            "hover:bg-app-bg-a2 hover:text-app-fg-4",
-            "data-[state=open]:bg-app-bg-a2 data-[state=open]:text-app-fg-4",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-          )}
-        >
-          <SelectedIcon size={12} className="shrink-0" />
-          {selected.label}
-          <ChevronDown size={12} className="shrink-0 text-app-fg-2" />
-        </button>
-      </PopoverPrimitive.Trigger>
+      <Tip label="Choose how hard Alfred thinks">
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-haspopup="listbox"
+            aria-controls={listboxId}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
+              "app-press text-app-fg-3 outline-none",
+              "transition-[box-shadow,color,background-color]",
+              // Raised frosted pill — visible chrome at rest, mirrors dimension's mode pill.
+              "bg-gradient-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
+              "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
+              "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            )}
+          >
+            <img
+              src={TIER_MARK[selected.value][resolved]}
+              alt=""
+              className="size-[18px] shrink-0"
+            />
+            {selected.label}
+            <ChevronDown size={12} className="shrink-0 text-app-fg-2" />
+          </button>
+        </PopoverPrimitive.Trigger>
+      </Tip>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           id={listboxId}
@@ -96,12 +119,11 @@ export function ModelTierPicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl p-1.5",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
             "app-fade-in outline-none",
           )}
         >
           {TIER_OPTIONS.map((option) => {
-            const Icon = option.icon;
             const checked = option.value === value;
             return (
               <button
@@ -113,11 +135,16 @@ export function ModelTierPicker({
                 className={cn(
                   "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
                   "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  // Selected row holds a quiet tint so the active tier reads even
+                  // before the eye finds the check.
+                  checked && "bg-app-bg-a2",
                 )}
               >
-                <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-app-bg-2 text-app-fg-3">
-                  <Icon size={13} />
-                </span>
+                <img
+                  src={TIER_MARK[option.value][resolved]}
+                  alt=""
+                  className="mt-0.5 size-7 shrink-0"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-medium text-app-fg-4">
                     {option.label}

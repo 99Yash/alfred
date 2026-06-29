@@ -19,6 +19,7 @@
 import {
   getBossModel,
   getChatModel,
+  getChatProviderOptions,
   streamText,
   tool,
   type LanguageModel,
@@ -30,12 +31,22 @@ import { INTEGRATION_SLUGS } from "@alfred/contracts";
 
 // Routed through the real dispatch helpers so the tool-name shim + provider
 // options match prod. `getChatModel("standard")` = Haiku (the chat Auto tier),
-// `getBossModel()` = Sonnet — both withFallback-wrapped (transparent on success).
-const MODELS: Record<string, () => LanguageModel> = {
-  haiku: () => getChatModel("standard"),
-  sonnet: () => getBossModel(),
+// `getChatModel("deep")` = Opus + adaptive thinking (the Deep tier), and
+// `getBossModel()` = Sonnet (the background boss) — all withFallback-wrapped
+// (transparent on success). `thinking` carries the per-tier reasoning block so
+// the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
+// "5-7s thinking before tool calls" symptom this probe exists to isolate.
+type ChatProviderOptions = ReturnType<typeof getChatProviderOptions>;
+interface ProbeModel {
+  model: LanguageModel;
+  thinking?: ChatProviderOptions;
+}
+const MODELS: Record<string, () => ProbeModel> = {
+  haiku: () => ({ model: getChatModel("standard"), thinking: getChatProviderOptions("standard") }),
+  sonnet: () => ({ model: getBossModel() }),
+  opus: () => ({ model: getChatModel("deep"), thinking: getChatProviderOptions("deep") }),
 };
-const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet")
+const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet,opus")
   .split(",")
   .map((s) => s.trim())
   .filter((m) => MODELS[m]);
@@ -87,7 +98,11 @@ interface Sample {
 const isContent = (t: string) =>
   /delta|tool-call|tool-input|^text|^reasoning/.test(t) && !t.startsWith("start");
 
-async function once(model: LanguageModel, tools: ToolSet | undefined): Promise<Sample> {
+async function once(
+  model: LanguageModel,
+  tools: ToolSet | undefined,
+  thinking?: ChatProviderOptions,
+): Promise<Sample> {
   const t0 = performance.now();
   let ttft: number | null = null;
   let firstText: number | null = null;
@@ -101,8 +116,12 @@ async function once(model: LanguageModel, tools: ToolSet | undefined): Promise<S
     ...(tools ? { tools } : {}),
     maxOutputTokens: MAX_OUT,
     temperature: 0,
-    // Mirror prod's warm prompt cache: cache the (stable) system block.
-    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    // Mirror prod: the per-tier reasoning block (Deep = Opus adaptive thinking)
+    // plus the warm prompt cache on the stable system block.
+    providerOptions: {
+      ...thinking,
+      anthropic: { ...thinking?.anthropic, cacheControl: { type: "ephemeral" } },
+    },
   });
 
   for await (const part of res.fullStream) {
@@ -137,10 +156,11 @@ async function condition(
   label: string,
   model: LanguageModel,
   tools: ToolSet | undefined,
+  thinking?: ChatProviderOptions,
 ): Promise<void> {
-  await once(model, tools).catch(() => null); // warm the prompt cache; ignore result
+  await once(model, tools, thinking).catch(() => null); // warm the prompt cache; ignore result
   const samples: Sample[] = [];
-  for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools));
+  for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools, thinking));
 
   const med = (pick: (s: Sample) => number | null) =>
     median(samples.map(pick).filter((n): n is number => n != null));
@@ -177,14 +197,16 @@ async function main(): Promise<void> {
   for (const m of SELECTED) {
     const make = MODELS[m];
     if (!make) continue;
-    const model = make();
-    await condition(`${m} · no tools`, model, undefined);
-    await condition(`${m} · ${count} tools (prod-like)`, model, tools);
+    const { model, thinking } = make();
+    await condition(`${m} · no tools`, model, undefined, thinking);
+    await condition(`${m} · ${count} tools (prod-like)`, model, tools, thinking);
   }
   console.log(
     "\n# Read: if ttft ≈ total and tools inflate ttft → the 7s is the model ingesting the\n" +
       "# tool schemas before first token (lever = shrink the menu). If decode tok/s is low and\n" +
-      "# total ≫ ttft → it's generation, not first-token (lever = model / fewer output tokens).",
+      "# total ≫ ttft → it's generation, not first-token (lever = model / fewer output tokens).\n" +
+      "# For the opus (Deep) tier, first_tool ≫ ttft means reasoning tokens emitted BEFORE the\n" +
+      "# first tool call — the 'thinking before tools' symptom (lever = lower effort / fewer turns).",
   );
 }
 

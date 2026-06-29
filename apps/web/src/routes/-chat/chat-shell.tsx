@@ -1,9 +1,9 @@
 import {
-  type AttentionBand,
-  type TriageCategory,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   scoreAttentionForItems,
+  type AttentionBand,
+  type TriageCategory,
 } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -47,13 +47,12 @@ import { useResolvedIntegrations } from "~/hooks/use-integration-status";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "~/hooks/use-meetings";
 import { useRunBriefing } from "~/hooks/use-run-briefing";
-import { useRightRail, useSidebarState } from "~/lib/shell/app-shell";
 import { authClient } from "~/lib/auth/auth-client";
 import { stopChatRun, transcribeRecording } from "~/lib/chat/turn-controls";
+import { ACCEPT_ATTR, validateFile } from "~/lib/chat/upload-attachments";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
-import { ACCEPT_ATTR, validateFile } from "~/lib/chat/upload-attachments";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { PROVIDER_BACKEND } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
@@ -61,7 +60,14 @@ import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
-import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
+import { useRightRail, useSidebarState } from "~/lib/shell/app-shell";
+import {
+  getLocalStorageItem,
+  safeGet,
+  safeRemove,
+  safeSet,
+  setLocalStorageItem,
+} from "~/lib/storage/storage";
 import { toast } from "~/lib/toast";
 import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
@@ -80,12 +86,12 @@ import { MicWaveform, useMicRecording } from "./mic-recording";
 import { formatElapsed } from "./mic-recording-format";
 import { ModelTierPicker, type ChatTier } from "./model-tier-picker";
 import { Tip } from "./tip";
-import { useArtifactPanel } from "./use-artifact-panel";
 import {
   TiptapComposer,
   type SuggestionRenderState,
   type TiptapComposerHandle,
 } from "./tiptap-composer";
+import { useArtifactPanel } from "./use-artifact-panel";
 
 // Module-level empties so the `?? EMPTY` fallback in `useRailData` returns a
 // referentially stable value before react-query's first fetch resolves —
@@ -621,39 +627,39 @@ function ConnectToolsBar() {
         {ordered.all.map((p, i) => {
           const connected = p.status === "connected";
           return (
-            <span
-              key={p.id}
-              title={connected ? `${p.name} — connected` : p.name}
-              className={cn(
-                "relative grid size-[22px] shrink-0 place-items-center rounded-full",
-                "bg-app-bg-2 ring-2 ring-app-background",
-                i > 0 && "-ml-1.5",
-                "transition-transform duration-200 ease-out hover:z-20 hover:scale-110",
-                connected ? "z-10" : "",
-              )}
-            >
-              <span className="sr-only">{connected ? `${p.name}, connected` : p.name}</span>
-              <IntegrationGlyph
-                brand={p.brand}
-                size={14}
+            <Tip key={p.id} label={connected ? `${p.name} — connected` : p.name}>
+              <span
                 className={cn(
-                  "transition-opacity duration-200",
-                  connected ? "opacity-100" : "opacity-70 group-hover:opacity-100",
+                  "relative grid size-[22px] shrink-0 place-items-center rounded-full",
+                  "bg-app-bg-2 ring-2 ring-app-background",
+                  i > 0 && "-ml-1.5",
+                  "transition-transform duration-200 ease-out hover:z-20 hover:scale-110",
+                  connected ? "z-10" : "",
                 )}
-              />
-              {connected ? (
-                <span
-                  aria-hidden
+              >
+                <span className="sr-only">{connected ? `${p.name}, connected` : p.name}</span>
+                <IntegrationGlyph
+                  brand={p.brand}
+                  size={14}
                   className={cn(
-                    "absolute -right-0.5 -bottom-0.5 grid size-2.5 place-items-center",
-                    "rounded-full bg-emerald-400 text-black",
-                    "ring-2 ring-app-background",
+                    "transition-opacity duration-200",
+                    connected ? "opacity-100" : "opacity-70 group-hover:opacity-100",
                   )}
-                >
-                  <Check size={7} strokeWidth={3.5} />
-                </span>
-              ) : null}
-            </span>
+                />
+                {connected ? (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute -right-0.5 -bottom-0.5 grid size-2.5 place-items-center",
+                      "rounded-full bg-emerald-400 text-black",
+                      "ring-2 ring-app-background",
+                    )}
+                  >
+                    <Check size={7} strokeWidth={3.5} />
+                  </span>
+                ) : null}
+              </span>
+            </Tip>
           );
         })}
       </div>
@@ -1377,28 +1383,32 @@ function ComposerToolbar({
         {mic.recording ? (
           <>
             {/* Voice mode: X discards the take, ✓ sends it to transcription. */}
-            <ComposerIcon label="Discard recording" onClick={mic.cancel}>
-              <X size={14} />
-            </ComposerIcon>
-            <button
-              type="button"
-              onClick={onVoiceConfirm}
-              aria-label="Use recording"
-              className={cn(
-                "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                "app-press transition-[opacity,filter,transform]",
-                "hover:scale-[1.04] active:scale-[0.97]",
-                "text-(--app-accent-fg)",
-                "bg-(image:--app-cta-bg)",
-                "shadow-(--app-button-primary-shadow)",
-                "hover:brightness-[1.06]",
-                "hover:shadow-(--app-button-primary-shadow-hover)",
-                "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-                "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
-              )}
-            >
-              <Check size={16} strokeWidth={2.5} />
-            </button>
+            <Tip label="Discard recording">
+              <ComposerIcon label="Discard recording" onClick={mic.cancel}>
+                <X size={14} />
+              </ComposerIcon>
+            </Tip>
+            <Tip label="Use recording">
+              <button
+                type="button"
+                onClick={onVoiceConfirm}
+                aria-label="Use recording"
+                className={cn(
+                  "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
+                  "app-press transition-[opacity,filter,transform]",
+                  "hover:scale-[1.04] active:scale-[0.97]",
+                  "text-(--app-accent-fg)",
+                  "bg-(image:--app-cta-bg)",
+                  "shadow-(--app-button-primary-shadow)",
+                  "hover:brightness-[1.06]",
+                  "hover:shadow-(--app-button-primary-shadow-hover)",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+                  "focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
+                )}
+              >
+                <Check size={16} strokeWidth={2.5} />
+              </button>
+            </Tip>
           </>
         ) : (
           <>
@@ -1473,8 +1483,10 @@ function ComposerToolbar({
 }
 
 /**
- * "Auto" mode toggle. On → Alfred acts without pausing for approval (emerald,
- * Zap); off → it pauses for review before each action (Shield). Backed by the
+ * Autopilot/Review toggle. On (Autopilot) → Alfred acts without pausing for
+ * approval (emerald, Zap); off (Review) → it pauses before each action (Shield).
+ * Distinct from the model-tier picker's "Auto" — this governs autonomy, not the
+ * model. Backed by the
  * user's global `user_action_policies.defaultMode`, so it's not chat-only — it
  * governs every surface, and per-integration rules in Settings still override
  * it. Stays interactive while the composer is disabled by a pending approval so
@@ -1491,30 +1503,43 @@ function AutoApproveToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={on}
-      disabled={disabled}
-      onClick={onToggle}
-      title={
+    <Tip
+      label={
         on
-          ? "Auto mode on — Alfred acts without pausing for approval"
-          : "Auto mode off — Alfred pauses for your approval before acting"
+          ? "Autopilot on — Alfred acts without pausing for approval"
+          : "Review on — Alfred pauses for your approval before acting"
       }
-      className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium",
-        "app-press transition-colors outline-none",
-        "focus-visible:ring-2 focus-visible:ring-app-purple-2",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        on
-          ? "bg-app-green-1 text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
-          : "text-app-fg-3 enabled:hover:bg-app-bg-a2 enabled:hover:text-app-fg-4",
-      )}
     >
-      {on ? <Zap size={12} aria-hidden /> : <ShieldCheck size={12} aria-hidden />}
-      {on ? "Auto" : "Review"}
-    </button>
+      <button
+        type="button"
+        aria-pressed={on}
+        disabled={disabled}
+        onClick={onToggle}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium",
+          "app-press transition-[box-shadow,color,background] outline-none",
+          "focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          on
+            ? cn(
+                // Autopilot on — green radial glow pooling from the lower-left,
+                // over the tinted fill, hairline green ring. Mirrors dimension's
+                // lit neumorphic toggle.
+                "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]",
+                "[background:radial-gradient(130%_140%_at_18%_120%,color-mix(in_srgb,var(--app-green-3)_28%,transparent)_0%,transparent_68%),var(--app-green-1)]",
+              )
+            : cn(
+                // Review off — raised frosted pill, same chrome as the model pill.
+                "bg-linear-to-b from-app-bg-1 to-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
+                "enabled:hover:text-app-fg-4 enabled:hover:shadow-(--app-shadow-elevated-hover)",
+              ),
+        )}
+      >
+        {on ? <Zap size={12} aria-hidden /> : <ShieldCheck size={12} aria-hidden />}
+        {on ? "Autopilot" : "Review"}
+      </button>
+    </Tip>
   );
 }
 
@@ -1583,20 +1608,18 @@ function ComposerIcon({
 
 /* ----------- helpers ----------- */
 
-const TIER_STORAGE_KEY = "alfred:chat-tier";
-
 /**
  * Model-tier selection (Auto vs Deep) persisted to localStorage, so the choice
  * is sticky across reloads and thread switches. Single-user, so this is a plain
  * local preference — no synced user-row field yet (a multi-device follow-up).
+ * Backed by the typed `alfred.chat.tier` key in the storage registry, so the
+ * value is schema-validated on read/write and can't drift from the tier union.
  */
 function useModelTier(): [ChatTier, (tier: ChatTier) => void] {
-  const [tier, setTierState] = useState<ChatTier>(() =>
-    safeGet(TIER_STORAGE_KEY) === "deep" ? "deep" : "standard",
-  );
+  const [tier, setTierState] = useState<ChatTier>(() => getLocalStorageItem("alfred.chat.tier"));
   const setTier = useCallback((next: ChatTier) => {
     setTierState(next);
-    safeSet(TIER_STORAGE_KEY, next);
+    setLocalStorageItem("alfred.chat.tier", next);
   }, []);
   return [tier, setTier];
 }
