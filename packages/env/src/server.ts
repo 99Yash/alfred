@@ -13,6 +13,15 @@ const optionalSecret = () =>
     z.string().min(1).optional(),
   );
 
+const optionalBooleanString = () =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+  );
+
 // Long secrets (currently only `ENTITY_ID_NAMESPACE`). Blank/whitespace-only
 // coerces to `undefined` (optional, may be half-configured); a non-blank value
 // must have NO surrounding whitespace — a stray space in a quoted `.env` line
@@ -200,10 +209,7 @@ const serverEnvSchema = z.object({
    * the outbound Gmail mutations are gated. Resolve via
    * {@link gmailMailboxWritesEnabled}; never branch on this field directly.
    */
-  GMAIL_MAILBOX_WRITES_ENABLED: z
-    .enum(["true", "false"])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : v === "true")),
+  GMAIL_MAILBOX_WRITES_ENABLED: optionalBooleanString(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
