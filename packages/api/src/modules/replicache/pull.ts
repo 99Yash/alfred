@@ -6,6 +6,9 @@ import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "
 import { SYNC_ENTITIES } from "./entities";
 import type { ReplicacheModel } from "./model";
 
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;
+
 export type PatchOp =
   | { op: "put"; key: string; value: Record<string, unknown> }
   | { op: "del"; key: string }
@@ -26,11 +29,21 @@ export interface PullResponse {
  * desugaring); this helper does the runtime narrow, returning `null`
  * for any non-conforming shape — treated downstream as cold-sync,
  * matching the prior `t.Nullable` semantics.
+ *
+ * `order` is also bounded to the current `replicache_client_group.cvr_version`
+ * Postgres integer range. Pull increments an accepted cookie order before
+ * storing it, so accepting `2147483647` (or an unsafe JSON number) would turn a
+ * malformed cookie into a DB range failure instead of a cold-sync fallback.
  */
 function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
   if (raw == null || typeof raw !== "object") return null;
   const obj = raw as { order?: unknown; clientGroupID?: unknown };
-  if (typeof obj.order !== "number" || !Number.isInteger(obj.order) || obj.order < 0) {
+  if (
+    typeof obj.order !== "number" ||
+    !Number.isSafeInteger(obj.order) ||
+    obj.order < 0 ||
+    obj.order > MAX_ACCEPTED_COOKIE_ORDER
+  ) {
     return null;
   }
   if (typeof obj.clientGroupID !== "string" || obj.clientGroupID.length === 0) {
