@@ -290,12 +290,28 @@ export interface ClassifyDomainInput {
  *
  * A bare domain is treated as an org-domain candidate. A full email address gets
  * the stricter connected-account rule: a custom non-free address is corporate
- * only when the provider also verifies that hosted domain (e.g. Google `hd`).
+ * only when the provider also verifies a hosted domain (e.g. Google `hd`). When
+ * `hd` is present it is the verified org domain even if the email claim uses an
+ * alias/secondary domain; the email local part still gates role/service mailboxes.
  * Without that corroboration, personal custom domains stay ambiguous.
  */
 export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | null {
   const parsed = input.email ? splitEmail(input.email) : null;
-  const domain = parsed ? parsed.domain : input.domain ? normalizeDomain(input.domain) : null;
+  const normalizedVerifiedHostedDomain = input.verifiedHostedDomain
+    ? normalizeDomain(input.verifiedHostedDomain)
+    : null;
+  const verifiedHostedDomain =
+    normalizedVerifiedHostedDomain && isValidDomain(normalizedVerifiedHostedDomain)
+      ? normalizedVerifiedHostedDomain
+      : null;
+  const domain =
+    parsed && verifiedHostedDomain
+      ? verifiedHostedDomain
+      : parsed
+        ? parsed.domain
+        : input.domain
+          ? normalizeDomain(input.domain)
+          : null;
   if (!domain) return null;
   if (!isValidDomain(domain)) return null;
 
@@ -303,12 +319,7 @@ export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | n
   if (isFreeMailDomain(domain)) return "consumer_email";
   if (isServiceDomain(domain)) return "service_or_role_account";
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
-  if (parsed) {
-    const verifiedHostedDomain = input.verifiedHostedDomain
-      ? normalizeDomain(input.verifiedHostedDomain)
-      : null;
-    return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
-  }
+  if (parsed) return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
   return "corporate_domain";
 }
 

@@ -56,6 +56,24 @@ export {
 } from "./modules/integrations/index.js";
 export type { IngestionJobData } from "./modules/integrations/index.js";
 export * from "./modules/integrations/object-state/index.js";
+// User-model substrate (ADR-0067, #218) — the observation write boundary and the
+// identity-affiliation emitter the slice-1a backfill script composes. Exported
+// narrowly (not `export *`) so the substrate's internal surface stays internal.
+export {
+  insertObservation,
+  buildOrgAffiliationObservationInput,
+  isOrgAffiliationObservationAppendConflict,
+  recordOrgAffiliationOnConnect,
+  recordOrgAffiliationOnCredentialUpsert,
+  recordOrgAffiliationOnDisconnect,
+  type InsertObservationResult,
+  type BuildOrgAffiliationResult,
+  type BuildOrgAffiliationSkipReason,
+  type CredentialForAffiliation,
+  type OrgAffiliationStatus,
+  type RecordOrgAffiliationOnCredentialUpsertResult,
+  type RecordOrgAffiliationResult,
+} from "./modules/user-model/index.js";
 export * from "./modules/memory/index.js";
 export * from "./modules/drift-audit/index.js";
 export * from "./modules/triage/index.js";

@@ -9,12 +9,13 @@ import {
   getGmailWatchState,
   GOOGLE_FEATURE_SCOPES,
   type GoogleFeature,
+  getFreshAccessToken,
   installGmailWatch,
   scopesForFeatures,
+  stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
-import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
@@ -24,6 +25,11 @@ import { createRun, enqueueRun } from "../agent";
 import { isUniqueViolation } from "../agent/service";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
+import {
+  recordOrgAffiliationOnCredentialUpsert,
+  recordOrgAffiliationOnDisconnect,
+  isOrgAffiliationObservationAppendConflict,
+} from "../user-model";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -57,6 +63,23 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
     await fn();
   } catch (err) {
     console.warn(`[google.callback] ${label}:`, toMessage(err));
+  }
+}
+
+const ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS = 3;
+
+async function transactionWithOrgAffiliationRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (
+        attempt >= ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS ||
+        !isOrgAffiliationObservationAppendConflict(err)
+      ) {
+        throw err;
+      }
+    }
   }
 }
 
@@ -143,7 +166,12 @@ export const googleIntegrationRoutes = new Elysia({
           // the watch teardown below operates on a raw credential id, so we
           // must confirm the caller owns it before touching anything.
           const owner = await db()
-            .select({ id: integrationCredentials.id })
+            .select({
+              id: integrationCredentials.id,
+              accountId: integrationCredentials.accountId,
+              accountEmail: integrationCredentials.accountLabel,
+              metadata: integrationCredentials.metadata,
+            })
             .from(integrationCredentials)
             .where(
               and(
@@ -152,14 +180,61 @@ export const googleIntegrationRoutes = new Elysia({
                 eq(integrationCredentials.provider, "google"),
               ),
             );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
-          // Stop Google pushing to our Pub/Sub topic before the row (and its
-          // access token) disappear. Best-effort: a watch that was never
-          // installed or already expired must not block the disconnect. One
-          // Google credential backs every google_* tile, so this removes
-          // Alfred's whole Workspace grant for the account.
-          await bestEffort("uninstall watch on disconnect", () => uninstallGmailWatch(params.id));
-          await deleteIntegrationCredential({ userId: user.id, provider: "google", id: params.id });
+          const ownerRow = owner[0];
+          if (!ownerRow) throw new NotFoundError("Credential not found");
+          // Capture a usable token before the row disappears. The remote watch
+          // stop itself happens after the DB commit; otherwise an observation
+          // append failure could roll back the credential delete after we already
+          // removed the local watch metadata and stopped renewals.
+          let watchStopAccessToken: string | null = null;
+          await bestEffort("resolve watch token on disconnect", async () => {
+            watchStopAccessToken = await getFreshAccessToken(params.id);
+          });
+          const disconnectedAt = new Date();
+          await transactionWithOrgAffiliationRetry(() =>
+            db().transaction(async (tx) => {
+              const [deletedRow] = await tx
+                .delete(integrationCredentials)
+                .where(
+                  and(
+                    eq(integrationCredentials.id, params.id),
+                    eq(integrationCredentials.userId, user.id),
+                    eq(integrationCredentials.provider, "google"),
+                  ),
+                )
+                .returning({ id: integrationCredentials.id });
+              if (!deletedRow) return null;
+
+              // Append a `disconnected` affiliation observation in the same
+              // account/domain family (ADR-0080 §4a) so the projection derives
+              // currentness from the log, not ambient credential state. It commits
+              // atomically with the credential delete; otherwise a transient append
+              // failure would erase the only row a later repair could inspect.
+              await recordOrgAffiliationOnDisconnect(
+                {
+                  userId: user.id,
+                  accountId: ownerRow.accountId,
+                  accountEmail: ownerRow.accountEmail,
+                  metadata: ownerRow.metadata,
+                },
+                disconnectedAt,
+                tx,
+              );
+              return deletedRow;
+            }),
+          );
+          const tokenForWatchStop = watchStopAccessToken;
+          if (tokenForWatchStop) {
+            // Stop Google pushing to our Pub/Sub topic after the row delete has
+            // committed. Best-effort: a watch that was never installed or already
+            // expired must not block the disconnect.
+            await bestEffort("stop watch on disconnect", () =>
+              stopGmailWatchWithAccessToken({
+                accessToken: tokenForWatchStop,
+                credentialId: params.id,
+              }),
+            );
+          }
           return { id: params.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
@@ -318,24 +393,63 @@ export const googleIntegrationRoutes = new Elysia({
       }
 
       const tokens = await exchangeCode(query.code);
-      const credential = await upsertCredential({
-        userId: decoded.userId,
-        provider: "google",
-        accountId: tokens.accountId,
-        accountLabel: tokens.accountEmail,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token!,
-        expiresAt: tokens.expiresAt,
-        scopes: tokens.scopes,
-        // Persona auto-detect (ADR-0051 #3): Workspace `hd` claim → work,
-        // absent → personal. `upsertCredential` only fills it when NULL, so a
-        // user override survives this re-connect. Raw `hd` kept for audit.
-        persona: detectPersona(tokens.hostedDomain),
-        metadata: {
-          token_type: tokens.token_type,
-          ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
-        },
-      });
+      const credentialUpsertedAt = new Date();
+      const credential = await transactionWithOrgAffiliationRetry(() =>
+        db().transaction(async (tx) => {
+          const [previousCredential] = await tx
+            .select({
+              userId: integrationCredentials.userId,
+              accountId: integrationCredentials.accountId,
+              accountEmail: integrationCredentials.accountLabel,
+              metadata: integrationCredentials.metadata,
+            })
+            .from(integrationCredentials)
+            .where(
+              and(
+                eq(integrationCredentials.userId, decoded.userId),
+                eq(integrationCredentials.provider, "google"),
+                eq(integrationCredentials.accountId, tokens.accountId),
+              ),
+            )
+            .limit(1);
+
+          const credential = await upsertCredential(
+            {
+              userId: decoded.userId,
+              provider: "google",
+              accountId: tokens.accountId,
+              accountLabel: tokens.accountEmail,
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token!,
+              expiresAt: tokens.expiresAt,
+              scopes: tokens.scopes,
+              // Persona auto-detect (ADR-0051 #3): Workspace `hd` claim → work,
+              // absent → personal. `upsertCredential` only fills it when NULL, so a
+              // user override survives this re-connect. Raw `hd` kept for audit.
+              persona: detectPersona(tokens.hostedDomain),
+              metadata: {
+                token_type: tokens.token_type,
+                ...(tokens.hostedDomain ? { googleHostedDomain: tokens.hostedDomain } : {}),
+              },
+            },
+            tx,
+          );
+
+          // Record the account's org affiliation onto the observation log
+          // atomically with the credential upsert. If this append fails, the
+          // credential write rolls back too, so PR B cannot observe an active
+          // Google credential with missing identity grounding.
+          await recordOrgAffiliationOnCredentialUpsert(
+            {
+              credentialId: credential.id,
+              previousCredential: previousCredential ?? null,
+              changedAt: credentialUpsertedAt,
+            },
+            tx,
+          );
+          return credential;
+        }),
+      );
 
       // Initial-sync seed: pull the last few messages and triage them so a
       // brand-new account has classified mail to look at immediately. The
