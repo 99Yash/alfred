@@ -60,9 +60,12 @@ describe("classifyEmailDomain — the four employer-signal outcomes (§4b)", () 
 
   test("a custom-domain email without provider hosted-domain verification is ambiguous", () => {
     assert.equal(classifyEmailDomain({ email: "yash@personal.dev" }), "ambiguous_domain");
+  });
+
+  test("a verified hosted domain grounds the Workspace org even for alias domains", () => {
     assert.equal(
-      classifyEmailDomain({ email: "yash@oliv.ai", verifiedHostedDomain: "other.ai" }),
-      "ambiguous_domain",
+      classifyEmailDomain({ email: "yash@alias.example", verifiedHostedDomain: "oliv.ai" }),
+      "corporate_domain",
     );
   });
 
@@ -388,7 +391,7 @@ describe("user_org_affiliation observation kind wiring", () => {
         ...base,
         payload: {
           orgDomain: "oliv.ai",
-          accountEmail: "yash@gmail.com",
+          accountEmail: "support@alias.example",
           accountId: "google-sub-1",
           verifiedHostedDomain: "oliv.ai",
           domainClass: "corporate_domain",

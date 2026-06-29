@@ -9,8 +9,10 @@ import {
   getGmailWatchState,
   GOOGLE_FEATURE_SCOPES,
   type GoogleFeature,
+  getFreshAccessToken,
   installGmailWatch,
   scopesForFeatures,
+  stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
   upsertCredential,
 } from "@alfred/integrations/google";
@@ -26,6 +28,7 @@ import { getIngestionQueue } from "./queue";
 import {
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
+  isOrgAffiliationObservationAppendConflict,
 } from "../user-model";
 import {
   consumeOAuthNonce,
@@ -60,6 +63,23 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
     await fn();
   } catch (err) {
     console.warn(`[google.callback] ${label}:`, toMessage(err));
+  }
+}
+
+const ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS = 3;
+
+async function transactionWithOrgAffiliationRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (
+        attempt >= ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS ||
+        !isOrgAffiliationObservationAppendConflict(err)
+      ) {
+        throw err;
+      }
+    }
   }
 }
 
@@ -162,43 +182,59 @@ export const googleIntegrationRoutes = new Elysia({
             );
           const ownerRow = owner[0];
           if (!ownerRow) throw new NotFoundError("Credential not found");
-          // Stop Google pushing to our Pub/Sub topic before the row (and its
-          // access token) disappear. Best-effort: a watch that was never
-          // installed or already expired must not block the disconnect. One
-          // Google credential backs every google_* tile, so this removes
-          // Alfred's whole Workspace grant for the account.
-          await bestEffort("uninstall watch on disconnect", () => uninstallGmailWatch(params.id));
-          const disconnectedAt = new Date();
-          await db().transaction(async (tx) => {
-            const [deletedRow] = await tx
-              .delete(integrationCredentials)
-              .where(
-                and(
-                  eq(integrationCredentials.id, params.id),
-                  eq(integrationCredentials.userId, user.id),
-                  eq(integrationCredentials.provider, "google"),
-                ),
-              )
-              .returning({ id: integrationCredentials.id });
-            if (!deletedRow) return null;
-
-            // Append a `disconnected` affiliation observation in the same
-            // account/domain family (ADR-0080 §4a) so the projection derives
-            // currentness from the log, not ambient credential state. It commits
-            // atomically with the credential delete; otherwise a transient append
-            // failure would erase the only row a later repair could inspect.
-            await recordOrgAffiliationOnDisconnect(
-              {
-                userId: user.id,
-                accountId: ownerRow.accountId,
-                accountEmail: ownerRow.accountEmail,
-                metadata: ownerRow.metadata,
-              },
-              disconnectedAt,
-              tx,
-            );
-            return deletedRow;
+          // Capture a usable token before the row disappears. The remote watch
+          // stop itself happens after the DB commit; otherwise an observation
+          // append failure could roll back the credential delete after we already
+          // removed the local watch metadata and stopped renewals.
+          let watchStopAccessToken: string | null = null;
+          await bestEffort("resolve watch token on disconnect", async () => {
+            watchStopAccessToken = await getFreshAccessToken(params.id);
           });
+          const disconnectedAt = new Date();
+          await transactionWithOrgAffiliationRetry(() =>
+            db().transaction(async (tx) => {
+              const [deletedRow] = await tx
+                .delete(integrationCredentials)
+                .where(
+                  and(
+                    eq(integrationCredentials.id, params.id),
+                    eq(integrationCredentials.userId, user.id),
+                    eq(integrationCredentials.provider, "google"),
+                  ),
+                )
+                .returning({ id: integrationCredentials.id });
+              if (!deletedRow) return null;
+
+              // Append a `disconnected` affiliation observation in the same
+              // account/domain family (ADR-0080 §4a) so the projection derives
+              // currentness from the log, not ambient credential state. It commits
+              // atomically with the credential delete; otherwise a transient append
+              // failure would erase the only row a later repair could inspect.
+              await recordOrgAffiliationOnDisconnect(
+                {
+                  userId: user.id,
+                  accountId: ownerRow.accountId,
+                  accountEmail: ownerRow.accountEmail,
+                  metadata: ownerRow.metadata,
+                },
+                disconnectedAt,
+                tx,
+              );
+              return deletedRow;
+            }),
+          );
+          const tokenForWatchStop = watchStopAccessToken;
+          if (tokenForWatchStop) {
+            // Stop Google pushing to our Pub/Sub topic after the row delete has
+            // committed. Best-effort: a watch that was never installed or already
+            // expired must not block the disconnect.
+            await bestEffort("stop watch on disconnect", () =>
+              stopGmailWatchWithAccessToken({
+                accessToken: tokenForWatchStop,
+                credentialId: params.id,
+              }),
+            );
+          }
           return { id: params.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },

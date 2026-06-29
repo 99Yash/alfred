@@ -92,19 +92,32 @@ export async function installGmailWatch(args: {
  */
 export async function uninstallGmailWatch(credentialId: string): Promise<void> {
   const accessToken = await getFreshAccessToken(credentialId);
-  try {
-    await stopWatch({ accessToken });
-  } catch (err) {
-    // `users.stop` returns 204 even when no active channel exists, so
-    // a non-2xx here is unusual — surface but don't block state cleanup.
-    console.warn(`[gmail.watch] stopWatch failed for ${credentialId}:`, toMessage(err));
-  }
+  await stopGmailWatchWithAccessToken({ accessToken, credentialId });
   await db()
     .update(integrationCredentials)
     .set({
       metadata: sql`${integrationCredentials.metadata} - 'watch'`,
     })
     .where(eq(integrationCredentials.id, credentialId));
+}
+
+/**
+ * Stop Gmail's remote watch when the credential row is about to disappear.
+ * Unlike `uninstallGmailWatch`, this does not update local metadata, so callers
+ * can run it after the credential delete commits without reloading the row.
+ */
+export async function stopGmailWatchWithAccessToken(args: {
+  accessToken: string;
+  credentialId?: string;
+}): Promise<void> {
+  try {
+    await stopWatch({ accessToken: args.accessToken });
+  } catch (err) {
+    // `users.stop` returns 204 even when no active channel exists, so
+    // a non-2xx here is unusual — surface but don't block state cleanup.
+    const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
+    console.warn(`[gmail.watch] stopWatch failed${suffix}:`, toMessage(err));
+  }
 }
 
 export async function getGmailWatchState(credentialId: string): Promise<GmailWatchState | null> {
