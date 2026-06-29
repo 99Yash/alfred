@@ -121,18 +121,26 @@ export async function installGmailWatch(
  * row itself intact — disconnect-from-watch is not the same as
  * disconnect-from-google.
  */
-export async function uninstallGmailWatch(credentialId: string): Promise<void> {
-  const d = DEFAULT_DEPS;
+export async function uninstallGmailWatch(
+  credentialId: string,
+  deps: Partial<GmailWatchDeps> = {},
+): Promise<void> {
+  const d = { ...DEFAULT_DEPS, ...deps };
   // #278: never stop a watch from non-prod — the only live watch belongs to
-  // prod, and stopping it here would kill prod ingestion.
-  if (!d.mailboxWritesEnabled()) {
-    console.warn(
-      `[gmail.watch] uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
+  // prod, and stopping it here would kill prod ingestion. Still clear local
+  // metadata so a manual "uninstall watch" does not report a stale watch as
+  // active in this environment.
+  if (d.mailboxWritesEnabled()) {
+    const accessToken = await d.getFreshAccessToken(credentialId);
+    await stopGmailWatchWithAccessToken(
+      { accessToken, credentialId },
+      { mailboxWritesEnabled: d.mailboxWritesEnabled, stopWatch: d.stopWatch },
     );
-    return;
+  } else {
+    console.warn(
+      `[gmail.watch] remote uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
+    );
   }
-  const accessToken = await d.getFreshAccessToken(credentialId);
-  await stopGmailWatchWithAccessToken({ accessToken, credentialId });
   await d
     .db()
     .update(integrationCredentials)
