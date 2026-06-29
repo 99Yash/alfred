@@ -8,9 +8,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { serverMutators } from "../../src/modules/replicache/server-mutators";
 
-const SKIP = process.env.DATABASE_URL
-  ? false
-  : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
 
 const ID_PREFIX = "test-rfact-";
 const createdUserIds: string[] = [];
@@ -49,26 +47,28 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
     const userId = await seedUser();
     const oldId = `${ID_PREFIX}old-${randomUUID()}`;
     const proposedId = `${ID_PREFIX}new-${randomUUID()}`;
-    await db().insert(userFacts).values([
-      {
-        id: oldId,
-        userId,
-        key: "employer",
-        value: "Oliv AI",
-        confidence: 1,
-        status: "confirmed",
-        source: { kind: "user" },
-      },
-      {
-        id: proposedId,
-        userId,
-        key: "employer",
-        value: "NewCo",
-        confidence: 0.95,
-        status: "proposed",
-        source: { kind: "document", id: "doc_1" },
-      },
-    ]);
+    await db()
+      .insert(userFacts)
+      .values([
+        {
+          id: oldId,
+          userId,
+          key: "employer",
+          value: "Oliv AI",
+          confidence: 1,
+          status: "confirmed",
+          source: { kind: "user" },
+        },
+        {
+          id: proposedId,
+          userId,
+          key: "employer",
+          value: "NewCo",
+          confidence: 0.95,
+          status: "proposed",
+          source: { kind: "document", id: "doc_1" },
+        },
+      ]);
 
     await db().transaction((tx) =>
       serverMutators.factConfirm(tx, { factId: proposedId }, { userId }),
@@ -86,15 +86,17 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
     const userId = await seedUser();
     const oldId = `${ID_PREFIX}old-${randomUUID()}`;
     const newId = `${ID_PREFIX}new-${randomUUID()}`;
-    await db().insert(userFacts).values({
-      id: oldId,
-      userId,
-      key: "employer",
-      value: "Oliv AI",
-      confidence: 1,
-      status: "confirmed",
-      source: { kind: "user" },
-    });
+    await db()
+      .insert(userFacts)
+      .values({
+        id: oldId,
+        userId,
+        key: "employer",
+        value: "Oliv AI",
+        confidence: 1,
+        status: "confirmed",
+        source: { kind: "user" },
+      });
 
     await db().transaction((tx) =>
       serverMutators.factCreate(

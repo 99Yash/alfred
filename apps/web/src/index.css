@@ -2293,6 +2293,19 @@
     animation: app-fade-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
+  /* Tooltip reveal — fade + a touch of scale and rise. Borrowed from
+   * dimension's tooltip, whose pills zoom-in-95 + slide-in on open. */
+  @keyframes app-tooltip-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
   /* Hover-lift — 2px rise + shadow bump. The transform is on a
    * `transition-transform` so it interpolates smoothly. Use on cards
    * that benefit from a "comes towards you" hover affordance. */
@@ -2323,6 +2336,7 @@
   @media (prefers-reduced-motion: reduce) {
     .app-card-in,
     .app-fade-in,
+    .app-tooltip-in,
     .app-hover-lift,
     .app-stack {
       animation: none !important;

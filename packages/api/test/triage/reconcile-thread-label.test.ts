@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { HttpError } from "@alfred/contracts";
-import {
-  reconcileThreadLabel,
-  type ReconcileThreadLabelDeps,
-} from "../../src/modules/triage/tags";
+import { reconcileThreadLabel, type ReconcileThreadLabelDeps } from "../../src/modules/triage/tags";
 import type { TriageRow, TriageDocumentContext } from "../../src/modules/triage/store";
 
 // ---------------------------------------------------------------------------
@@ -74,7 +71,8 @@ function makeDeps(opts: {
   const rec: Recorder = { applyCalls: [], setAppliedLabelCalls: [], setReconciledCalls: [] };
   const deps: Partial<ReconcileThreadLabelDeps> = {
     // The reconcile callback ignores the tx arg, so a dummy satisfies the type.
-    withThreadLock: ((_u, _t, fn) => fn(undefined as never)) as ReconcileThreadLabelDeps["withThreadLock"],
+    withThreadLock: ((_u, _t, fn) =>
+      fn(undefined as never)) as ReconcileThreadLabelDeps["withThreadLock"],
     getTriage: async () => opts.row,
     loadTriageContext: async (documentId: string) => {
       const sourceId = opts.docs[documentId];
