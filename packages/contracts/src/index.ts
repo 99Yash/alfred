@@ -4,6 +4,7 @@ export * from "./runtime.js";
 export * from "./tools.js";
 export * from "./integration-objects.js";
 export * from "./user-model.js";
+export * from "./identity-affiliation.js";
 export * from "./tool-constants.js";
 export * from "./tool-schemas.js";
 export * from "./github-search.js";

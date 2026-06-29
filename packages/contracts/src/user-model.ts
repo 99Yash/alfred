@@ -96,6 +96,12 @@ export const OBSERVATION_KINDS = [
   "user_confirmation",
   "user_rejection",
   "user_profile_edit",
+  // identity affiliation — a connected account asserting the user's org domain
+  // (ADR-0080 §4a). Subject is always `{ kind: "user" }`; the SOURCE is the
+  // integration that owns the account (NOT `user`), so an explicit user
+  // correction outranks it. Emitted by integration connect/sweep, not a reducer
+  // over inbound content.
+  "user_org_affiliation",
   "enrichment_fact",
 ] as const;
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
@@ -116,7 +122,13 @@ export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
  * correction/confirmation can arrive from a `/settings` edit or from chat.
  */
 export const OBSERVATION_KINDS_BY_SOURCE = {
-  gmail: ["email_message"],
+  // `user_org_affiliation`: the connected Google account asserts the user's org
+  // domain (ADR-0080 §4a). Registered on `gmail` because the Google OAuth account
+  // — whose address carries the domain — is the Gmail integration's account. As
+  // more integrations expose a user-account domain, they register the kind here
+  // too; the per-integration capability manifest (plan §8) is the planned single
+  // source for that binding, tracked as a follow-up.
+  gmail: ["email_message", "user_org_affiliation"],
   google_calendar: ["calendar_meeting"],
   google_directory: [],
   github: ["github_pull_request", "github_review", "github_push"],
