@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { ToolName } from "@alfred/contracts";
 import { TOOL_INPUT_SCHEMAS } from "@alfred/contracts/tool-schemas";
 import { z } from "zod";
+import { spawnSubAgentInputSchema } from "../src/modules/agent/sub-agents";
 
 /**
  * Cross-integration guard for the JSON-stringified-array failure mode.
@@ -22,6 +24,13 @@ import { z } from "zod";
  * coverage assertion below, so the tolerance can't silently regress per
  * integration.
  */
+
+const MODEL_FACING_TOOL_INPUT_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
+  ...TOOL_INPUT_SCHEMAS,
+  // Server-only because the schema references sub-agent internals, but still
+  // boss-visible and model-facing in chat turns.
+  "system.spawn_sub_agent": spawnSubAgentInputSchema,
+};
 
 /**
  * One valid input per tool that has an array-typed field, plus the names of the
@@ -86,6 +95,14 @@ const FIXTURES: Record<string, { base: Record<string, unknown>; arrayFields: rea
       },
       arrayFields: ["include"],
     },
+    "system.spawn_sub_agent": {
+      base: {
+        subId: "research",
+        brief: "Find relevant activity across connected tools.",
+        allowedIntegrations: ["gmail", "calendar"],
+      },
+      arrayFields: ["allowedIntegrations"],
+    },
     "system.suggest_todo": {
       base: {
         name: "Reply to the vendor contract",
@@ -123,7 +140,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
   // fixture and (the next test proves) wrapped in coerceJsonArrayFields.
   test("every array-typed tool field is covered by a fixture", () => {
     const uncovered: string[] = [];
-    for (const [name, schema] of Object.entries(TOOL_INPUT_SCHEMAS)) {
+    for (const [name, schema] of Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS)) {
       for (const field of discoverArrayFields(schema as z.ZodType)) {
         if (!FIXTURES[name]?.arrayFields.includes(field)) {
           uncovered.push(`${name}.${field}`);
@@ -138,9 +155,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
   });
 
   for (const [name, { base, arrayFields }] of Object.entries(FIXTURES)) {
-    const schema = TOOL_INPUT_SCHEMAS[name as keyof typeof TOOL_INPUT_SCHEMAS] as
-      | z.ZodType
-      | undefined;
+    const schema = MODEL_FACING_TOOL_INPUT_SCHEMAS[name as ToolName] as z.ZodType | undefined;
 
     test(`${name}: base fixture parses and lists the right array fields`, () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);
