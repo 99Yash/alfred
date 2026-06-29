@@ -127,8 +127,7 @@ function discoverArrayFields(schema: z.ZodType): string[] {
   const props = json.properties ?? {};
   return Object.entries(props)
     .filter(([, v]) => {
-      const isArray = (t: unknown) =>
-        t === "array" || (Array.isArray(t) && t.includes("array"));
+      const isArray = (t: unknown) => t === "array" || (Array.isArray(t) && t.includes("array"));
       return isArray(v?.type) || (v?.anyOf ?? []).some((b) => isArray(b?.type));
     })
     .map(([k]) => k);
@@ -160,7 +159,10 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
     test(`${name}: base fixture parses and lists the right array fields`, () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);
       const parsed = schema.safeParse(base);
-      assert.ok(parsed.success, `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`);
+      assert.ok(
+        parsed.success,
+        `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`,
+      );
       // Fixture/schema drift guard: the fields the fixture claims are arrays
       // must be exactly the array fields the schema actually exposes.
       assert.deepEqual([...arrayFields].sort(), discoverArrayFields(schema).sort());

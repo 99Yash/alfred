@@ -245,10 +245,7 @@ async function reservePort(): Promise<number> {
   return port;
 }
 
-async function waitForChrome(
-  debugPort: number,
-  child: ChildProcess,
-): Promise<void> {
+async function waitForChrome(debugPort: number, child: ChildProcess): Promise<void> {
   for (let i = 0; i < 60; i++) {
     if (child.exitCode !== null) throw new Error(`Chrome exited early with ${child.exitCode}`);
     try {
