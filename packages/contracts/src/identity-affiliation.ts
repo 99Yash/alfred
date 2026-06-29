@@ -107,10 +107,11 @@ const DISPOSABLE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Shared-hosting / site-builder apex domains whose subdomains anyone can claim
- * (`alice.github.io`, `acme.wixsite.com`). An address ON one of these is
+ * Shared-hosting / site-builder suffixes whose child names anyone can claim
+ * (`alice.github.io`, `acme.wixsite.com`). A child domain under one of these is
  * `ambiguous_domain` — the registrable domain belongs to the host, not the
- * subject's employer. Matched as a SUFFIX (the host domain or any subdomain of it).
+ * subject's employer. Matched as a PROPER suffix only, so `github.com` itself can
+ * still be a corporate employer while `alice.github.io` cannot.
  */
 const SHARED_HOSTING_SUFFIXES: readonly string[] = [
   "github.io",
@@ -128,8 +129,6 @@ const SHARED_HOSTING_SUFFIXES: readonly string[] = [
   "herokuapp.com",
   "sites.google.com",
   "notion.site",
-  "substack.com",
-  "github.com",
 ];
 
 /**
@@ -211,9 +210,19 @@ const EDU_SLD_PATTERN = /\.(ac|edu)\.[a-z]{2,}$/;
 
 /** Tokens in a domain that hint at school / alumni / agency / personal — `ambiguous_domain`. */
 const AMBIGUOUS_DOMAIN_TOKENS: readonly string[] = ["alumni", "alum", "students", "student"];
+// Mirrors the hostname floor in user-model.ts without importing it at runtime:
+// identity-affiliation feeds user-model's observation schema, so it must not
+// create a value-level cycle back into that module.
+const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const DNS_TLD = `(?=[a-z0-9-]*[a-z])${DNS_LABEL}`;
+const HOSTNAME = new RegExp(`^(?=[^@]{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})*\\.${DNS_TLD}$`);
 
 function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function isValidDomain(domain: string): boolean {
+  return HOSTNAME.test(domain);
 }
 
 /** Split a raw address into `{ localPart, domain }`, lowercased; null if not an address. */
@@ -228,8 +237,8 @@ function isFreeMailDomain(domain: string): boolean {
   return FREE_MAIL_DOMAINS.has(domain);
 }
 
-function endsWithSuffix(domain: string, suffix: string): boolean {
-  return domain === suffix || domain.endsWith(`.${suffix}`);
+function hasParentSuffix(domain: string, suffix: string): boolean {
+  return domain.endsWith(`.${suffix}`);
 }
 
 function isRoleServiceLocalPart(localPart: string): boolean {
@@ -248,10 +257,11 @@ function isServiceDomain(domain: string): boolean {
 
 function isAmbiguousDomain(domain: string): boolean {
   if (DISPOSABLE_MAIL_DOMAINS.has(domain)) return true;
-  if (SHARED_HOSTING_SUFFIXES.some((s) => endsWithSuffix(domain, s))) return true;
+  if (SHARED_HOSTING_SUFFIXES.some((s) => hasParentSuffix(domain, s))) return true;
   if (EDU_TLDS.some((t) => domain.endsWith(t))) return true;
   if (EDU_SLD_PATTERN.test(domain)) return true;
-  if (AMBIGUOUS_DOMAIN_TOKENS.some((t) => domain.includes(t))) return true;
+  const labels = domain.split(".");
+  if (AMBIGUOUS_DOMAIN_TOKENS.some((t) => labels.includes(t))) return true;
   return false;
 }
 
@@ -260,6 +270,12 @@ export interface ClassifyDomainInput {
   readonly email?: string | null;
   /** A bare domain (used when no address is available — e.g. an org domain on its own). */
   readonly domain?: string | null;
+  /**
+   * Verified hosted/workspace domain for the account, when the provider exposes
+   * one (Google's `hd` claim). For a full email address, a custom domain without
+   * this corroboration is ambiguous rather than an auto-grounding employer.
+   */
+  readonly verifiedHostedDomain?: string | null;
 }
 
 /**
@@ -274,20 +290,27 @@ export interface ClassifyDomainInput {
  *   3. an academic / alumni / shared-hosting / disposable domain → `ambiguous_domain`;
  *   4. otherwise                                  → `corporate_domain`.
  *
- * The residual false-positive is a person's PERSONAL custom domain (`yash.dev`)
- * classifying as `corporate_domain`. ADR-0080 accepts this: a corporate domain
- * only *may auto-confirm* `employer` when uncontradicted, and a `source=user`
- * correction (higher tier) always overrides it.
+ * A bare domain is treated as an org-domain candidate. A full email address gets
+ * the stricter connected-account rule: a custom non-free address is corporate
+ * only when the provider also verifies that hosted domain (e.g. Google `hd`).
+ * Without that corroboration, personal custom domains stay ambiguous.
  */
 export function classifyEmailDomain(input: ClassifyDomainInput): DomainClass | null {
   const parsed = input.email ? splitEmail(input.email) : null;
   const domain = parsed ? parsed.domain : input.domain ? normalizeDomain(input.domain) : null;
   if (!domain) return null;
+  if (!isValidDomain(domain)) return null;
 
   if (parsed && isRoleServiceLocalPart(parsed.localPart)) return "service_or_role_account";
   if (isServiceDomain(domain)) return "service_or_role_account";
   if (isFreeMailDomain(domain)) return "consumer_email";
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
+  if (parsed) {
+    const verifiedHostedDomain = input.verifiedHostedDomain
+      ? normalizeDomain(input.verifiedHostedDomain)
+      : null;
+    return verifiedHostedDomain === domain ? "corporate_domain" : "ambiguous_domain";
+  }
   return "corporate_domain";
 }
 

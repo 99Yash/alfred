@@ -18,9 +18,9 @@ This plan starts **after** that brake. ADR-0079 is still valuable, but only as a
 
 The **deterministic core** of slice 1a (invariant 3 — the unit-tested, no-DB, no-LLM pieces) is built and green:
 
-- `packages/contracts/src/identity-affiliation.ts` — the four-outcome **domain classifier** (`classifyEmailDomain`), the **grounding-tier ladder + authority ranking** (`GROUNDING_TIERS`, `groundingTierRank`, `isStrongerGrounding`), the per-key **grounding rule** (`canGroundIdentityKey` — corporate domain grounds `employer` only; `weak_mentions` never promotes), and the affiliation→tier map (`affiliationGroundingTier` — the "no grounding, no row" contract in code). The free-mail list is now the ONE canonical set; `cold-start/signals.ts` delegates to it (no second list).
-- `user_org_affiliation` observation kind added to the contracts vocabulary and registered for the `gmail` source (`OBSERVATION_KINDS_BY_SOURCE`), with `subjectIdentity = { kind: "user" }` accepted by `observationInsertSchema`.
-- `packages/api/test/contracts/identity-affiliation.test.ts` — 24 passing unit tests pinning every branch (classifier outcomes, rank order, per-key grounding, the work-account-grounds / personal-account-null end-to-end, and the source×kind wiring).
+- `packages/contracts/src/identity-affiliation.ts` — the four-outcome **domain classifier** (`classifyEmailDomain`), the **grounding-tier ladder + authority ranking** (`GROUNDING_TIERS`, `groundingTierRank`, `isStrongerGrounding`), the per-key **grounding rule** (`canGroundIdentityKey` — corporate domain grounds `employer` only; `weak_mentions` never promotes), and the affiliation→tier map (`affiliationGroundingTier` — the "no grounding, no row" contract in code). The free-mail list is now the ONE canonical set; `cold-start/signals.ts` delegates to it (no second list). Full email-address classification is conservative: a custom-domain address needs provider hosted-domain verification (for Google, `hd`) before it becomes `corporate_domain`; otherwise it stays ambiguous.
+- `user_org_affiliation` observation kind added to the contracts vocabulary and registered for the account-level `google_account` source (`OBSERVATION_KINDS_BY_SOURCE`), with `subjectIdentity = { kind: "user" }` and a typed `{ orgDomain, domainClass, ... }` payload enforced by `observationInsertSchema`.
+- `packages/api/test/contracts/identity-affiliation.test.ts` — 27 passing unit tests pinning every branch (classifier outcomes, rank order, per-key grounding, the work-account-grounds / personal-account-null end-to-end, source×kind wiring, and malformed affiliation payload rejection).
 
 Remaining slice-1a steps (all DB/runtime-bound — need a live Postgres + connected accounts to verify, so they are the next increment): the `identity_facts` **projection reducer** + materialization, the **connect-time emit** of `user_org_affiliation`, the **`/settings` + chat correction** emit as `user_profile_edit`/`user_correction` observations, the **backfill** script, the **`proposeFact` hard-block** for `employer`, and the **legacy-row retirement** at cutover (§6 steps 2, 4, 5, 6, 7, 8).
 
@@ -75,7 +75,7 @@ On account connect, emit a first-party observation:
 ```ts
 subjectIdentity = { kind: "user" }
 kind = "user_org_affiliation"
-source = <integration> // not "user"
+source = "google_account" // not "user"; account-level provenance, not a Gmail message
 payload = {
   orgDomain: "oliv.ai",
   evidence: "connected_google_account",
@@ -95,10 +95,10 @@ The domain is the grounding. The display label (`Oliv AI`) is derived and upgrad
 | --- | --- | --- |
 | `consumer_email` | gmail, outlook, yahoo, icloud, proton | none |
 | `corporate_domain` | oliv.ai, acme.com | strong org-affiliation; may auto-confirm `employer` when uncontradicted |
-| `ambiguous_domain` | school, alumni, agency, personal custom, shared-hosting, disposable | affiliation maybe; employer requires corroboration |
+| `ambiguous_domain` | school, alumni, agency, unverified personal custom, shared-hosting child domains, disposable | affiliation maybe; employer requires corroboration |
 | `service_or_role_account` | noreply, support, admin, list accounts/domains | never employer |
 
-Use a maintained free-mail denylist plus source/account-label checks. This classifier is deterministic.
+Use a maintained free-mail denylist plus source/account-label checks. For full email addresses, provider hosted-domain verification is the account-label check that separates a Workspace account from a personal custom-domain mailbox. This classifier is deterministic.
 
 ### 4c. User corrections and profile edits
 
