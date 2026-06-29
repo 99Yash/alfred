@@ -45,11 +45,11 @@ export const domainClassSchema = z.enum(DOMAIN_CLASSES);
 export type DomainClass = (typeof DOMAIN_CLASSES)[number];
 
 /**
- * Free / consumer mailbox providers (the `consumer_email` set). A SUPERSET of the
- * cold-start `CONSUMER_EMAIL_DOMAINS` list — that file now delegates here so the
- * two never drift (the #330 "no second registry" rule applied to domains). A
- * consumer domain is never the subject's employer, so a `user_org_affiliation`
- * over one grounds nothing.
+ * Free / consumer mailbox providers (the `consumer_email` set). This is the old
+ * cold-start `CONSUMER_EMAIL_DOMAINS` list moved here, not expanded in the same
+ * slice, so deduping the registry does not change cold-start behavior. A consumer
+ * domain is never the subject's employer, so a `user_org_affiliation` over one
+ * grounds nothing. Extend this set in a behavior-changing PR with corpus examples.
  */
 export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   // Google
@@ -58,15 +58,10 @@ export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   // Microsoft
   "outlook.com",
   "hotmail.com",
-  "hotmail.co.uk",
   "live.com",
-  "msn.com",
   // Yahoo / AOL
   "yahoo.com",
   "yahoo.co.uk",
-  "yahoo.co.in",
-  "ymail.com",
-  "rocketmail.com",
   "aol.com",
   // Apple
   "icloud.com",
@@ -79,14 +74,6 @@ export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   // Other common consumer/free providers
   "fastmail.com",
   "duck.com",
-  "gmx.com",
-  "gmx.net",
-  "mail.com",
-  "zoho.com",
-  "yandex.com",
-  "yandex.ru",
-  "tutanota.com",
-  "hey.com",
 ]);
 
 /**
@@ -225,6 +212,14 @@ function isValidDomain(domain: string): boolean {
   return HOSTNAME.test(domain);
 }
 
+function isValidEmailLocalPart(localPart: string): boolean {
+  for (const ch of localPart) {
+    const code = ch.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f || ch === "@" || /\s/u.test(ch)) return false;
+  }
+  return true;
+}
+
 /** Split a raw address into `{ localPart, domain }`, lowercased; null if not an address. */
 function splitEmail(email: string): { localPart: string; domain: string } | null {
   const trimmed = email.trim().toLowerCase();
@@ -232,7 +227,7 @@ function splitEmail(email: string): { localPart: string; domain: string } | null
   if (at <= 0 || at === trimmed.length - 1) return null;
   if (at !== trimmed.lastIndexOf("@")) return null;
   const localPart = trimmed.slice(0, at);
-  if (!/^[^\s@\x00-\x1f\x7f]+$/.test(localPart)) return null;
+  if (!isValidEmailLocalPart(localPart)) return null;
   return { localPart, domain: normalizeDomain(trimmed.slice(at + 1)) };
 }
 

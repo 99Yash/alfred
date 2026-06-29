@@ -293,10 +293,38 @@ describe("user_org_affiliation observation kind wiring", () => {
       familyKey: "google:affiliation:oliv.ai",
       evidenceHash: "h1",
       subjectIdentity: { kind: "user" },
-      payload: { orgDomain: "oliv.ai", domainClass: "corporate_domain" },
+      payload: {
+        accountId: "google-sub-1",
+        accountEmail: "yash@oliv.ai",
+        orgDomain: "oliv.ai",
+        verifiedHostedDomain: "oliv.ai",
+        domainClass: "corporate_domain",
+        status: "connected",
+      },
     });
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
     assert.deepEqual(parsed.data?.subjectIdentity, { kind: "user" });
+  });
+
+  test("observationInsertSchema accepts a disconnection lifecycle observation", () => {
+    const parsed = observationInsertSchema.safeParse({
+      userId: "usr_1",
+      source: "google_account",
+      kind: "user_org_affiliation",
+      occurredAt: new Date("2026-07-01T00:00:00Z"),
+      familyKey: "google:affiliation:google-sub-1:oliv.ai",
+      evidenceHash: "h2",
+      subjectIdentity: { kind: "user" },
+      payload: {
+        accountId: "google-sub-1",
+        accountEmail: "yash@oliv.ai",
+        orgDomain: "oliv.ai",
+        verifiedHostedDomain: "oliv.ai",
+        domainClass: "corporate_domain",
+        status: "disconnected",
+      },
+    });
+    assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
   });
 
   test("observationInsertSchema rejects malformed affiliation payloads", () => {
@@ -309,19 +337,27 @@ describe("user_org_affiliation observation kind wiring", () => {
       evidenceHash: "h1",
       subjectIdentity: { kind: "user" as const },
     };
+    const validPayload = {
+      accountId: "google-sub-1",
+      accountEmail: "yash@oliv.ai",
+      orgDomain: "oliv.ai",
+      verifiedHostedDomain: "oliv.ai",
+      domainClass: "corporate_domain" as const,
+      status: "connected" as const,
+    };
 
     assert.equal(observationInsertSchema.safeParse({ ...base, payload: {} }).success, false);
     assert.equal(
       observationInsertSchema.safeParse({
         ...base,
-        payload: { orgDomain: "oliv.ai", domainClass: "corporate_domian" },
+        payload: { ...validPayload, domainClass: "corporate_domian" },
       }).success,
       false,
     );
     assert.equal(
       observationInsertSchema.safeParse({
         ...base,
-        payload: { orgDomain: "bad..com", domainClass: "corporate_domain" },
+        payload: { ...validPayload, orgDomain: "bad..com" },
       }).success,
       false,
     );
@@ -329,14 +365,21 @@ describe("user_org_affiliation observation kind wiring", () => {
       observationInsertSchema.safeParse({
         ...base,
         subjectIdentity: { kind: "email", value: "third@example.com" },
-        payload: { orgDomain: "oliv.ai", domainClass: "corporate_domain" },
+        payload: validPayload,
       }).success,
       false,
     );
     assert.equal(
       observationInsertSchema.safeParse({
         ...base,
-        payload: { orgDomain: "gmail.com", domainClass: "corporate_domain" },
+        payload: {
+          accountId: "google-sub-1",
+          accountEmail: "yash@gmail.com",
+          orgDomain: "gmail.com",
+          verifiedHostedDomain: null,
+          domainClass: "corporate_domain",
+          status: "connected",
+        },
       }).success,
       false,
     );
@@ -346,8 +389,58 @@ describe("user_org_affiliation observation kind wiring", () => {
         payload: {
           orgDomain: "oliv.ai",
           accountEmail: "yash@gmail.com",
+          accountId: "google-sub-1",
+          verifiedHostedDomain: "oliv.ai",
           domainClass: "corporate_domain",
+          status: "connected",
         },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: {
+          orgDomain: "oliv.ai",
+          verifiedHostedDomain: "oliv.ai",
+          domainClass: "corporate_domain",
+          status: "connected",
+        },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { ...validPayload, accountId: " google-sub-1 " },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { ...validPayload, status: "active" },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: {
+          accountId: "google-sub-1",
+          accountEmail: "yash@personal.dev",
+          orgDomain: "personal.dev",
+          verifiedHostedDomain: null,
+          domainClass: "corporate_domain",
+          status: "connected",
+        },
+      }).success,
+      false,
+    );
+    assert.equal(
+      observationInsertSchema.safeParse({
+        ...base,
+        payload: { ...validPayload, verifiedHostedDomain: "other.ai" },
       }).success,
       false,
     );

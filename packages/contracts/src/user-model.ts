@@ -565,9 +565,12 @@ const canonicalDomainSchema = identityValueSchema
 
 export const userOrgAffiliationPayloadSchema = z
   .object({
-    orgDomain: canonicalDomainSchema,
-    domainClass: domainClassSchema,
-    evidence: z.string().min(1).optional(),
+    accountId: z
+      .string()
+      .min(1)
+      .refine((v) => v === v.trim(), {
+        error: "accountId must not have leading or trailing whitespace",
+      }),
     accountEmail: z
       .string()
       .refine((v) => v === canonicalizeIdentityValue("email", v), {
@@ -575,8 +578,12 @@ export const userOrgAffiliationPayloadSchema = z
       })
       .refine((v) => identityValueMatchesKind("email", v), {
         error: "accountEmail must be a valid email address",
-      })
-      .optional(),
+      }),
+    orgDomain: canonicalDomainSchema,
+    verifiedHostedDomain: canonicalDomainSchema.nullable(),
+    domainClass: domainClassSchema,
+    status: z.enum(["connected", "disconnected"]),
+    evidence: z.string().min(1).optional(),
   })
   .strict();
 export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
@@ -679,19 +686,25 @@ export const observationInsertSchema = z
         message: "user_org_affiliation observations must be about the user",
       });
     }
-    const expectedDomainClass = classifyEmailDomain(
-      parsed.data.accountEmail
-        ? {
-            email: parsed.data.accountEmail,
-            verifiedHostedDomain: parsed.data.orgDomain,
-          }
-        : { domain: parsed.data.orgDomain },
-    );
+    const expectedDomainClass = classifyEmailDomain({
+      email: parsed.data.accountEmail,
+      verifiedHostedDomain: parsed.data.verifiedHostedDomain,
+    });
     if (expectedDomainClass !== parsed.data.domainClass) {
       ctx.addIssue({
         code: "custom",
         path: ["payload", "domainClass"],
-        message: "domainClass must match orgDomain/accountEmail classification",
+        message: "domainClass must match accountEmail/verifiedHostedDomain classification",
+      });
+    }
+    if (
+      parsed.data.verifiedHostedDomain != null &&
+      parsed.data.verifiedHostedDomain !== parsed.data.orgDomain
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["payload", "verifiedHostedDomain"],
+        message: "verifiedHostedDomain must match orgDomain when present",
       });
     }
   });
