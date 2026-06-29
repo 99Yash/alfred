@@ -71,7 +71,7 @@ interface SeedFact {
   confidence: number;
   /** Lower = older. Drives recency ordering within the same confidence. */
   ageMinutes: number;
-      source?: { kind: "document" | "user" | "cold_start" | "agent"; meta?: Record<string, unknown> };
+  source?: { kind: "document" | "user" | "cold_start" | "agent"; meta?: Record<string, unknown> };
 }
 
 async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {

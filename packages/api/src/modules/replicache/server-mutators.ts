@@ -238,7 +238,13 @@ export const serverMutators = {
     if (active.some((row) => valueSignature(row.value) === sig)) return;
 
     const now = new Date();
-    const conflicts = await supersedeConflictingConfirmedFacts(tx, ctx.userId, key, args.value, now);
+    const conflicts = await supersedeConflictingConfirmedFacts(
+      tx,
+      ctx.userId,
+      key,
+      args.value,
+      now,
+    );
 
     await tx
       .insert(userFacts)
