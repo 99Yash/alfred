@@ -1,4 +1,4 @@
-import { LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
+import { coerceJsonArrayFields, LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -12,13 +12,16 @@ import {
   SUB_AGENT_WORKFLOW_SLUG,
 } from "./sub-agent-metadata";
 
-export const spawnSubAgentInputSchema = z
-  .object({
-    subId: subAgentIdSchema,
-    brief: z.string().min(1).max(8_000),
-    allowedIntegrations: z.array(z.enum(LOADABLE_INTEGRATION_SLUGS)).default([]),
-  })
-  .strict();
+export const spawnSubAgentInputSchema = coerceJsonArrayFields(
+  ["allowedIntegrations"],
+  z
+    .object({
+      subId: subAgentIdSchema,
+      brief: z.string().min(1).max(8_000),
+      allowedIntegrations: z.array(z.enum(LOADABLE_INTEGRATION_SLUGS)).default([]),
+    })
+    .strict(),
+);
 
 export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInputSchema>;
 

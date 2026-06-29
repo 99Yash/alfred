@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
+import type { Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -112,6 +113,7 @@ async function startFixtureServer(): Promise<{
   close: () => Promise<void>;
 }> {
   const counts: Counts = { pixel: 0, background: 0 };
+  const sockets = new Set<Socket>();
   const server = http.createServer((req, res) => {
     const reqUrl = req.url ?? "/";
     if (reqUrl.startsWith("/pixel")) {
@@ -165,14 +167,34 @@ async function startFixtureServer(): Promise<{
     res.writeHead(404);
     res.end("not found");
   });
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${addressPort(server)}/page`,
     counts,
-    close: () =>
-      new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () => closeFixtureServer(server, sockets),
   };
+}
+
+async function closeFixtureServer(server: http.Server, sockets: Set<Socket>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const forceClose = setTimeout(() => {
+      server.closeAllConnections();
+      for (const socket of sockets) socket.destroy();
+    }, 500);
+    forceClose.unref();
+
+    server.close((err) => {
+      clearTimeout(forceClose);
+      if (err) reject(err);
+      else resolve();
+    });
+    server.closeIdleConnections();
+  });
 }
 
 async function startChrome(): Promise<{
@@ -182,31 +204,33 @@ async function startChrome(): Promise<{
   assert.ok(CHROME);
   const debugPort = await reservePort();
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "alfred-email-csp-"));
-  const child = spawn(CHROME, [
-    "--headless=new",
-    "--disable-gpu",
-    "--disable-background-networking",
-    "--disable-default-apps",
-    "--no-first-run",
-    "--no-sandbox",
-    `--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${userDataDir}`,
-    "about:blank",
-  ]);
+  const child = spawn(
+    CHROME,
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--no-first-run",
+      "--no-sandbox",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${userDataDir}`,
+      "about:blank",
+    ],
+    { stdio: "ignore" },
+  );
 
   try {
     await waitForChrome(debugPort, child);
   } catch (err) {
-    child.kill("SIGKILL");
-    await rm(userDataDir, { recursive: true, force: true });
+    await stopChrome(child, userDataDir);
     throw err;
   }
 
   return {
     debugPort,
     close: async () => {
-      child.kill("SIGKILL");
-      await rm(userDataDir, { recursive: true, force: true });
+      await stopChrome(child, userDataDir);
     },
   };
 }
@@ -223,7 +247,7 @@ async function reservePort(): Promise<number> {
 
 async function waitForChrome(
   debugPort: number,
-  child: ChildProcessWithoutNullStreams,
+  child: ChildProcess,
 ): Promise<void> {
   for (let i = 0; i < 60; i++) {
     if (child.exitCode !== null) throw new Error(`Chrome exited early with ${child.exitCode}`);
@@ -236,6 +260,31 @@ async function waitForChrome(
     await delay(100);
   }
   throw new Error("Timed out waiting for Chrome DevTools");
+}
+
+async function stopChrome(child: ChildProcess, userDataDir: string): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+  await waitForExit(child, 5_000);
+  await rm(userDataDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  });
+}
+
+async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
