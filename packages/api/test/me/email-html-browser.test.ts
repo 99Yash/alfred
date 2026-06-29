@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
+import type { Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -112,6 +113,7 @@ async function startFixtureServer(): Promise<{
   close: () => Promise<void>;
 }> {
   const counts: Counts = { pixel: 0, background: 0 };
+  const sockets = new Set<Socket>();
   const server = http.createServer((req, res) => {
     const reqUrl = req.url ?? "/";
     if (reqUrl.startsWith("/pixel")) {
@@ -165,14 +167,34 @@ async function startFixtureServer(): Promise<{
     res.writeHead(404);
     res.end("not found");
   });
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${addressPort(server)}/page`,
     counts,
-    close: () =>
-      new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () => closeFixtureServer(server, sockets),
   };
+}
+
+async function closeFixtureServer(server: http.Server, sockets: Set<Socket>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const forceClose = setTimeout(() => {
+      server.closeAllConnections();
+      for (const socket of sockets) socket.destroy();
+    }, 500);
+    forceClose.unref();
+
+    server.close((err) => {
+      clearTimeout(forceClose);
+      if (err) reject(err);
+      else resolve();
+    });
+    server.closeIdleConnections();
+  });
 }
 
 async function startChrome(): Promise<{
