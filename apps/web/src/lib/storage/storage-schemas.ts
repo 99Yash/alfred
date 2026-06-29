@@ -15,12 +15,20 @@
  * and never return `undefined`.
  */
 
+import { chatModelTierSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { weatherSnapshotSchema } from "~/lib/weather";
 
 export const LOCAL_STORAGE_SCHEMAS = {
   /** App theme preference (see `components/ui/v2/theme`). */
   "app-theme": z.enum(["system", "dark", "light"]).default("system"),
+  /**
+   * Chat model-tier preference (Auto vs Deep), sticky across reloads and thread
+   * switches. Single-user, so it's a local preference — no synced user-row field
+   * yet (a multi-device follow-up). Derives its shape from the contract's
+   * `chatModelTierSchema` so it can never drift from the server-side tier union.
+   */
+  "alfred.chat.tier": chatModelTierSchema.default("standard"),
   /**
    * Best-effort "is the visitor signed in" hint for first paint. A UX hint,
    * never a security boundary (see `lib/auth-hint`).
