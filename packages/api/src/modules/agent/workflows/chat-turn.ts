@@ -49,7 +49,7 @@ import {
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { finalizeRunArtifacts } from "../../artifacts/write";
-import { getTool, listToolsForIntegration } from "../../tools/registry";
+import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
@@ -921,12 +921,14 @@ const SIDE_EFFECT_ACTION_TOKENS = new Set([
   "merge",
   "move",
   "post",
+  "promote",
   "publish",
   "reject",
   "remember",
   "remove",
   "reopen",
   "reply",
+  "redeploy",
   "resolve",
   "reschedule",
   "save",
@@ -934,6 +936,8 @@ const SIDE_EFFECT_ACTION_TOKENS = new Set([
   "send",
   "set",
   "snooze",
+  "spawn",
+  "suggest",
   "tag",
   "unarchive",
   "unassign",
@@ -959,17 +963,46 @@ function looksSideEffectingToolName(toolName: string): boolean {
   return actionTokensForToolName(toolName).some((token) => SIDE_EFFECT_ACTION_TOKENS.has(token));
 }
 
-/**
- * A tool is "mutating" for the honesty guard if it's a known registered tool
- * whose risk tier is anything but `no_risk` — i.e. it writes, sends, or changes
- * something. Unknown tools are classified conservatively by action-shaped name
- * tokens (`create`, `send`, `write`, ...), so invented write tools still force
- * an honest regeneration while invented read/list/search tools do not.
- */
 function isMutatingToolName(toolName: string): boolean {
-  const tier = getTool(toolName as ToolName)?.riskTier;
-  if (tier !== undefined) return tier !== "no_risk";
+  // Approval risk is not mutability: several sensitive reads are `low`, while
+  // user-visible in-app writes (`system.create_artifact`, `system.suggest_todo`)
+  // are `no_risk` because they never need HIL. Classify by the action verb
+  // instead so the honesty guard tracks whether a user-visible action completed.
   return looksSideEffectingToolName(toolName);
+}
+
+const INCOMPLETE_ACTION_STATUSES = new Set([
+  "error",
+  "failed",
+  "failure",
+  "invalid",
+  "invalid_input",
+  "needs_clarification",
+  "no_thread",
+  "not_allowed",
+  "not_found",
+  "page_limit",
+  "rejected",
+  "rejected_by_user",
+  "unknown_tool",
+  "wrong_kind",
+]);
+
+function executedResultIsIncomplete(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.ok === false || value.success === false) return true;
+  return typeof value.status === "string" && INCOMPLETE_ACTION_STATUSES.has(value.status);
+}
+
+export function toolCallLogStatus(
+  toolName: string,
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
+): "succeeded" | "failed" {
+  if (result.kind !== "executed") return "failed";
+  if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
+    return "failed";
+  }
+  return "succeeded";
 }
 
 export interface GuardUnreportedToolFailuresDeps {
@@ -1517,7 +1550,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
           applyLoadIntegrationEffect(state, call.toolName, result);
 
-          const status = result.kind === "executed" ? "succeeded" : "failed";
+          const status = toolCallLogStatus(call.toolName, result);
           const resultPreview =
             result.kind === "executed"
               ? preview(result.toolResult)

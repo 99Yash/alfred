@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   guardUnreportedToolFailures,
+  toolCallLogStatus,
   type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -148,6 +149,37 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(result, null);
   });
 
+  test("does not fire for sensitive read tools that use non-no_risk tiers", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "docs.get_document", status: "failed", segmentIndex: 0 },
+      ],
+    });
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      publish: async () => {},
+    });
+    assert.equal(result, null);
+  });
+
+  test("fires for no-risk system tools that still create user-visible state", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        {
+          toolCallId: "tc_1",
+          toolName: "system.create_artifact",
+          status: "failed",
+          segmentIndex: 0,
+        },
+      ],
+    });
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      publish: async () => {},
+    });
+    assert.ok(result, "no-risk artifact writes still need the honesty guard");
+    assert.equal(result.kind, "next");
+    assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
+  });
+
   test("does not re-fire for an already-noted failure (idempotent / no loop)", async () => {
     const state = baseState({
       toolCallsLog: [
@@ -234,5 +266,38 @@ describe("guardUnreportedToolFailures", () => {
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
+  });
+
+  test("marks semantic failures from mutating tools as failed for the guard", () => {
+    assert.equal(
+      toolCallLogStatus("system.create_artifact", {
+        kind: "executed",
+        stagingId: null,
+        toolResult: { ok: false, status: "no_thread" },
+        editedByUser: false,
+      }),
+      "failed",
+    );
+    assert.equal(
+      toolCallLogStatus("system.update_artifact", {
+        kind: "executed",
+        stagingId: null,
+        toolResult: { ok: false, status: "not_found" },
+        editedByUser: false,
+      }),
+      "failed",
+    );
+  });
+
+  test("does not treat read-tool not_found payloads as failed actions", () => {
+    assert.equal(
+      toolCallLogStatus("gmail.read_message", {
+        kind: "executed",
+        stagingId: null,
+        toolResult: { status: "not_found", messageId: "msg_missing" },
+        editedByUser: false,
+      }),
+      "succeeded",
+    );
   });
 });
