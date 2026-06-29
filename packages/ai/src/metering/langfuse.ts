@@ -283,8 +283,14 @@ const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARN
 export interface DispatchRejectionInput {
   /** Run id — doubles as the Langfuse trace id this span hangs under. */
   runId: string;
-  /** Raw model-supplied tool name (may be undeclared — recorded verbatim). */
+  /**
+   * Safe tool identity used for the observation name and grouping. For a raw
+   * undeclared model string, callers must pass a stable placeholder such as
+   * `<unknown>` and put any sanitized/bounded hint in `candidateToolName`.
+   */
   toolName: string;
+  /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
+  candidateToolName?: string;
   /** Model-supplied id for the call; deduplicates a call across re-attempts. */
   toolCallId: string;
   /** Dispatch branch that short-circuited before execution. */
@@ -309,6 +315,39 @@ export interface DispatchRejectionInput {
   startedAt: Date;
 }
 
+/** Pure payload builder for rejection spans; kept exported so privacy gates are testable. */
+export function buildDispatchRejectionSpanPayload(
+  args: DispatchRejectionInput,
+  captureIo: boolean,
+) {
+  return {
+    span: {
+      traceId: args.runId,
+      name: `tool:${args.toolName}`,
+      startTime: args.startedAt,
+      input: captureIo ? args.input : undefined,
+      metadata: {
+        kind: "tool",
+        outcome: args.outcome,
+        rejectionSignature: args.signature,
+        toolName: args.toolName,
+        candidateToolName: args.candidateToolName,
+        toolCallId: args.toolCallId,
+        caller: args.caller,
+        userId: args.userId,
+        runId: args.runId,
+        stepId: args.stepId,
+        // Zod issues / structured detail can echo the proposed input values.
+        detail: captureIo ? args.detail : undefined,
+      },
+    },
+    end: {
+      level: DISPATCH_OUTCOME_LEVEL[args.outcome],
+      statusMessage: summarizeBody(sanitizeErrorMessage(args.reason)),
+    },
+  };
+}
+
 /**
  * Emit a zero-duration span for a dispatch attempt that never reached execute
  * (#345). Shares the `tool:<name>` naming with execution spans so attempts and
@@ -327,29 +366,9 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
   try {
     // Defensive trace upsert (see startToolSpan) — keyed on id, never clobbers.
     client.trace({ id: args.runId });
-    const span = client.span({
-      traceId: args.runId,
-      name: `tool:${args.toolName}`,
-      startTime: args.startedAt,
-      input: captureIo ? args.input : undefined,
-      metadata: {
-        kind: "tool",
-        outcome: args.outcome,
-        rejectionSignature: args.signature,
-        toolName: args.toolName,
-        toolCallId: args.toolCallId,
-        caller: args.caller,
-        userId: args.userId,
-        runId: args.runId,
-        stepId: args.stepId,
-        // Zod issues / structured detail can echo the proposed input values.
-        detail: captureIo ? args.detail : undefined,
-      },
-    });
-    span.end({
-      level: DISPATCH_OUTCOME_LEVEL[args.outcome],
-      statusMessage: summarizeBody(sanitizeErrorMessage(args.reason)),
-    });
+    const payload = buildDispatchRejectionSpanPayload(args, captureIo);
+    const span = client.span(payload.span);
+    span.end(payload.end);
   } catch (err) {
     console.warn("[langfuse] dispatch rejection span failed:", toMessage(err));
   }

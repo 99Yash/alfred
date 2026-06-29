@@ -43,9 +43,15 @@ import {
   isToolName,
   sanitizeErrorMessage,
   sanitizeToolResult,
+  summarizeBody,
   toMessage,
 } from "@alfred/contracts";
-import { recordDispatchRejection, startToolSpan, type DispatchRejectionOutcome } from "@alfred/ai";
+import {
+  recordDispatchRejection,
+  startToolSpan,
+  type DispatchRejectionInput,
+  type DispatchRejectionOutcome,
+} from "@alfred/ai";
 import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/schemas";
@@ -63,7 +69,7 @@ import {
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
-import { getTool, type ToolExecuteContext } from "../tools/registry";
+import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
 import { resolveUserTimezone } from "../user-timezone";
 
 export interface DispatchArgs {
@@ -204,8 +210,11 @@ function parseStagingRow(row: StagingRow): StagingRow {
   return { ...row, status: actionStagingStatusSchema.parse(row.status) };
 }
 
+const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
+const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
+
 /** Zod-issue shape we read for the rejection signature (loose by design). */
-type RejectionIssue = { code?: string; path?: PropertyKey[] };
+type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
 
 /**
  * Caller label for trace metadata: `boss` or `sub:<id>`. Mirrors the
@@ -232,9 +241,64 @@ function rejectionSignature(
   const base = `${toolName}:${outcome}`;
   if (!issues || issues.length === 0) return base;
   const parts = issues
-    .map((issue) => `${issue.code ?? "?"}@${(issue.path ?? []).join(".")}`)
+    .map((issue) => `${issue.code ?? "?"}@${(issue.path ?? []).map(pathPart).join(".")}`)
     .sort();
   return `${base}:${parts.join(",")}`;
+}
+
+function pathPart(part: PropertyKey): string {
+  if (typeof part === "symbol") return "symbol";
+  return String(part);
+}
+
+function safeUnknownToolCandidate(toolName: string): string | undefined {
+  const trimmed = toolName.trim();
+  if (trimmed.length === 0 || trimmed.length > 120 || !TOOLISH_NAME.test(trimmed)) return undefined;
+  return summarizeBody(sanitizeErrorMessage(trimmed), 120);
+}
+
+function redactTraceInput(tool: RegisteredTool, input: unknown): unknown | undefined {
+  if (!tool.redactInput) return input;
+  try {
+    return tool.redactInput(input);
+  } catch (err) {
+    console.warn("[dispatch] tool input redaction failed:", toMessage(err));
+    return undefined;
+  }
+}
+
+export function buildDispatchRejectionTraceInput(args: {
+  dispatch: DispatchArgs;
+  outcome: DispatchRejectionOutcome;
+  reason: string;
+  issues?: readonly RejectionIssue[];
+  /** Safe grouping identity. Raw undeclared names must use `<unknown>`. */
+  toolName?: string;
+  /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
+  candidateToolName?: string;
+  /** Actual payload rejected by this branch. Omitted unless it has a safe redaction path. */
+  input?: unknown;
+  /** Present only when `input` is already schema-valid for this tool. */
+  tool?: RegisteredTool;
+  startedAt?: Date;
+}): DispatchRejectionInput {
+  const toolName = args.toolName ?? args.dispatch.toolName;
+  const input = args.tool ? redactTraceInput(args.tool, args.input) : undefined;
+  return {
+    runId: args.dispatch.runId,
+    toolName,
+    candidateToolName: args.candidateToolName,
+    toolCallId: args.dispatch.toolCallId,
+    userId: args.dispatch.userId,
+    caller: callerLabel(args.dispatch.caller),
+    stepId: args.dispatch.stepId,
+    outcome: args.outcome,
+    reason: args.reason,
+    signature: rejectionSignature(toolName, args.outcome, args.issues),
+    detail: args.issues,
+    input,
+    startedAt: args.startedAt ?? new Date(),
+  };
 }
 
 /**
@@ -248,27 +312,24 @@ function recordRejection(args: {
   outcome: DispatchRejectionOutcome;
   reason: string;
   issues?: readonly RejectionIssue[];
+  toolName?: string;
+  candidateToolName?: string;
+  input?: unknown;
+  tool?: RegisteredTool;
 }): void {
-  recordDispatchRejection({
-    runId: args.dispatch.runId,
-    toolName: args.dispatch.toolName,
-    toolCallId: args.dispatch.toolCallId,
-    userId: args.dispatch.userId,
-    caller: callerLabel(args.dispatch.caller),
-    stepId: args.dispatch.stepId,
-    outcome: args.outcome,
-    reason: args.reason,
-    signature: rejectionSignature(args.dispatch.toolName, args.outcome, args.issues),
-    detail: args.issues,
-    input: args.dispatch.input,
-    startedAt: new Date(),
-  });
+  recordDispatchRejection(buildDispatchRejectionTraceInput(args));
 }
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
-    recordRejection({ dispatch: args, outcome: "unknown_tool", reason: message });
+    recordRejection({
+      dispatch: args,
+      toolName: UNKNOWN_TOOL_TRACE_NAME,
+      candidateToolName: safeUnknownToolCandidate(args.toolName),
+      outcome: "unknown_tool",
+      reason: "Tool is not declared",
+    });
     return {
       kind: "unknown_tool",
       result: {
@@ -283,7 +344,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const tool = getTool(toolName);
   if (!tool) {
     const message = `Tool '${toolName}' is not registered`;
-    recordRejection({ dispatch: args, outcome: "unknown_tool", reason: message });
+    recordRejection({ dispatch: args, outcome: "unknown_tool", reason: message, toolName });
     return {
       kind: "unknown_tool",
       result: {
@@ -306,6 +367,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       outcome: "invalid_input",
       reason: message,
       issues: parsed.error.issues,
+      toolName,
     });
     return {
       kind: "invalid_input",
@@ -333,7 +395,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   };
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
   if (scratchAccessError) {
-    recordRejection({ dispatch: args, outcome: "invalid_input", reason: scratchAccessError });
+    recordRejection({
+      dispatch: args,
+      outcome: "invalid_input",
+      reason: scratchAccessError,
+      toolName,
+      tool,
+      input,
+    });
     return {
       kind: "invalid_input",
       result: {
@@ -345,7 +414,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
   const systemAccessError = validateSystemToolAccess({ toolName, caller });
   if (systemAccessError) {
-    recordRejection({ dispatch: args, outcome: "invalid_input", reason: systemAccessError });
+    recordRejection({
+      dispatch: args,
+      outcome: "invalid_input",
+      reason: systemAccessError,
+      toolName,
+      tool,
+      input,
+    });
     return {
       kind: "invalid_input",
       result: {
@@ -401,7 +477,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     // Retry-suppression: the boss re-proposed byte-identical input the user
     // already rejected. This is exactly the "bounce on the same wall" pattern
     // #345 wants countable — the shared signature buckets every repeat.
-    recordRejection({ dispatch: args, outcome: "rejected", reason });
+    recordRejection({ dispatch: args, outcome: "rejected", reason, toolName, tool, input });
     return {
       kind: "rejected",
       stagingId: null,
@@ -582,6 +658,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
           outcome: "failed",
           reason: reparsed.error.message,
           issues: reparsed.error.issues,
+          toolName,
         });
         return {
           kind: "failed",
@@ -594,26 +671,40 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
     case "rejected": {
       const reason = row.rejectReason ?? "rejected by user";
-      recordRejection({ dispatch: args, outcome: "rejected", reason });
+      recordRejection({
+        dispatch: args,
+        outcome: "rejected",
+        reason,
+        toolName,
+        tool,
+        input: row.proposedInput,
+      });
       return {
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
           toolName,
-          proposedInput: input,
+          proposedInput: row.proposedInput,
           reason,
         }),
       };
     }
 
     case "expired":
-      recordRejection({ dispatch: args, outcome: "rejected", reason: "auto-expired" });
+      recordRejection({
+        dispatch: args,
+        outcome: "rejected",
+        reason: "auto-expired",
+        toolName,
+        tool,
+        input: row.proposedInput,
+      });
       return {
         kind: "rejected",
         stagingId: row.id,
         result: synthesizeRejection({
           toolName,
-          proposedInput: input,
+          proposedInput: row.proposedInput,
           reason: "auto-expired",
         }),
       };
@@ -645,7 +736,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       // the agent loop turns them into a tool result the boss can
       // reason about.
       const message = `dispatcher saw unexpected staging status '${row.status}'`;
-      recordRejection({ dispatch: args, outcome: "failed", reason: message });
+      recordRejection({
+        dispatch: args,
+        outcome: "failed",
+        reason: message,
+        toolName,
+        tool,
+        input: row.proposedInput,
+      });
       return {
         kind: "failed",
         stagingId: row.id,
