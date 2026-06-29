@@ -1504,10 +1504,11 @@ function AutoApproveToggle({
 }) {
   return (
     <Tip
-      label={
+      label={on ? "Autopilot on" : "Review on"}
+      description={
         on
-          ? "Autopilot on — Alfred acts without pausing for approval"
-          : "Review on — Alfred pauses for your approval before acting"
+          ? "Alfred acts without pausing for approval."
+          : "Alfred pauses for your approval before acting."
       }
     >
       <button

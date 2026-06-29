@@ -222,7 +222,11 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
     assert.equal(sanitized.state, "open");
     assert.equal(sanitized.query, "repo:99Yash/alfred");
     assert.equal(
-      buildGithubSearchQuery({ ...sanitized, state: sanitized.state ?? "all", perPage: 30 }, "UTC", NOW),
+      buildGithubSearchQuery(
+        { ...sanitized, state: sanitized.state ?? "all", perPage: 30 },
+        "UTC",
+        NOW,
+      ),
       "is:issue is:open repo:99Yash/alfred",
     );
   });
