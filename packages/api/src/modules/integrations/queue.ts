@@ -24,6 +24,11 @@ import {
 import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
+import {
+  appendObservationFamilyMember,
+  reduceGmailDocument,
+  type GmailDocumentForReduction,
+} from "../user-model";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -40,6 +45,7 @@ const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
 export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;
 const REPLY_REEVAL_QUERY_CHUNK_SIZE = 1000;
+const USER_MODEL_OBSERVATION_QUERY_CHUNK_SIZE = 1000;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
 type GmailInsertJobKind = "gmail.ingest_recent" | "gmail.poll_recent" | "gmail.poll_history";
@@ -307,6 +313,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
+            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+          },
+          async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
           },
         ]);
@@ -354,6 +363,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
+            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+          },
+          async () => {
             await embedRealtimeInserts(result.insertedDocumentIds);
           },
           async () => {
@@ -399,6 +411,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           },
           async () => {
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
+          },
+          async () => {
+            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
           },
           async () => {
             await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
@@ -859,6 +874,80 @@ function chunkArray<T>(values: readonly T[], size: number): T[][] {
     chunks.push(values.slice(i, i + size));
   }
   return chunks;
+}
+
+async function recordGmailObservationsForDocuments(
+  userId: string,
+  documentIds: readonly string[],
+): Promise<void> {
+  if (documentIds.length === 0) return;
+  try {
+    const docs: GmailDocumentForReduction[] = [];
+    for (const chunk of chunkArray(documentIds, USER_MODEL_OBSERVATION_QUERY_CHUNK_SIZE)) {
+      docs.push(
+        ...(await db()
+          .select({
+            id: documents.id,
+            userId: documents.userId,
+            sourceId: documents.sourceId,
+            sourceThreadId: documents.sourceThreadId,
+            accountId: documents.accountId,
+            title: documents.title,
+            authoredAt: documents.authoredAt,
+            raw: documents.raw,
+            metadata: documents.metadata,
+          })
+          .from(documents)
+          .where(
+            and(
+              eq(documents.userId, userId),
+              eq(documents.source, "gmail"),
+              inArray(documents.id, chunk),
+            ),
+          )),
+      );
+    }
+
+    let inserted = 0;
+    let deduped = 0;
+    let skipped = 0;
+    let warnings = 0;
+    let errors = 0;
+    for (const doc of docs) {
+      try {
+        const reduced = reduceGmailDocument(doc);
+        for (const issue of reduced.issues) {
+          if (issue.severity === "skip") skipped++;
+          else warnings++;
+          console.warn(
+            `[ingestion:worker] user-model gmail observation ${issue.severity} ` +
+              `doc=${doc.id} ${issue.code}: ${issue.message}`,
+          );
+        }
+        for (const observation of reduced.observations) {
+          const result = await appendObservationFamilyMember(observation);
+          if (result.status === "deduped") deduped++;
+          else inserted++;
+        }
+      } catch (err) {
+        errors++;
+        console.warn(
+          `[ingestion:worker] user-model gmail observation failed doc=${doc.id}:`,
+          toMessage(err),
+        );
+      }
+    }
+
+    console.log(
+      `[ingestion:worker] user-model gmail observations user=${userId} docs=${docs.length} ` +
+        `inserted=${inserted} deduped=${deduped} skipped=${skipped} warnings=${warnings} errors=${errors}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] user-model gmail observation capture failed user=${userId}:`,
+      toMessage(err),
+    );
+  }
 }
 
 /**

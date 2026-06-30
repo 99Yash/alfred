@@ -20,6 +20,7 @@ import {
   getSenderPrior,
   getThreadState,
   isKnownContact,
+  resolveSenderKind,
   resolveSenderRelationship,
   loadTriageContext,
   resolveTodoSuggestion,
@@ -107,7 +108,7 @@ async function main() {
     const meta = ctxData.document.metadata;
     const labelIds = toStringArray(meta.labelIds);
     const isHumanSender = senderContext.effectiveAuthor === "person";
-    const [senderPrior, thread, knownContact, senderRelationship] = await Promise.all([
+    const [senderPrior, thread, senderKind] = await Promise.all([
       senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
       getThreadState({
         userId: t.userId,
@@ -119,13 +120,17 @@ async function main() {
         messageCount: 0,
         recentMessages: [],
       })),
-      isHumanSender && scResult.senderAddress
+      resolveSenderKind(t.userId, scResult.senderAddress),
+    ]);
+    const usePersonTreatment = isHumanSender && senderKind == null;
+    const [knownContact, senderRelationship] = await Promise.all([
+      usePersonTreatment && scResult.senderAddress
         ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
         : Promise.resolve(false),
       resolveSenderRelationship({
         userId: t.userId,
         senderAddress: scResult.senderAddress,
-        isHumanSender,
+        isHumanSender: usePersonTreatment,
       }).catch(() => null),
     ]);
     const signalText = [
@@ -146,6 +151,7 @@ async function main() {
       thread,
       knownContact,
       senderRelationship,
+      senderKind,
       labelIds,
       signalText,
     });

@@ -1,4 +1,5 @@
 import type { AccountPersona } from "@alfred/contracts";
+import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
 
@@ -152,6 +153,11 @@ export interface Observations {
    * contact on record`. `null` for non-human senders (line omitted).
    */
   senderRelationship: string | null;
+  /**
+   * Active user-model projection says this sender address is a non-person.
+   * Null means no active/confident opinion, not "person".
+   */
+  senderKind: TriageSenderKindSignal | null;
   gmail: GmailSignals;
   content: ContentFlags;
 }
@@ -169,6 +175,8 @@ export interface AssembleObservationsArgs {
   knownContact: boolean;
   /** Pre-resolved `Sender relationship` descriptor (ADR-0059); `null` for non-human senders. */
   senderRelationship: string | null;
+  /** Active projection-backed non-person sender kind, if confidently known. */
+  senderKind: TriageSenderKindSignal | null;
   labelIds: readonly string[];
   /** Concatenated signal text (subject + body + headers), lowercased or not. */
   signalText: string;
@@ -189,6 +197,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     thread: args.thread,
     knownContact: args.knownContact,
     senderRelationship: args.senderRelationship,
+    senderKind: args.senderKind,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
   };

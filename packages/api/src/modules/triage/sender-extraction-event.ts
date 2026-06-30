@@ -33,6 +33,11 @@ export interface SenderExtractionEvent {
   knownContact: boolean;
   /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
   senderRelationship: string | null;
+  /** Active user-model projection kind that demoted person treatment, if any. */
+  senderKind: "group" | "service" | null;
+  senderKindConfidence: number | null;
+  senderKindEvidenceCodes: string[];
+  senderKindDemotedPersonTreatment: boolean;
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -89,6 +94,10 @@ export function senderExtractionEvent(args: {
     senderPriorCounts: obs.senderPrior.categoryCounts,
     knownContact: obs.knownContact,
     senderRelationship: obs.senderRelationship,
+    senderKind: obs.senderKind?.kind ?? null,
+    senderKindConfidence: obs.senderKind?.confidence ?? null,
+    senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
+    senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
