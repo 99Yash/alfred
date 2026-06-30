@@ -505,6 +505,13 @@
       "when": 1782569576027,
       "tag": "0071_moaning_wasp",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1782790240771,
+      "tag": "0072_ambiguous_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

@@ -713,14 +713,6 @@ export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
 /** Validated, defaults-applied observation ready to persist. */
 export type ObservationInsert = z.infer<typeof observationInsertSchema>;
 
-export const projectionProvenanceSchema = z
-  .object({
-    observationIds: z.array(z.string()).optional(),
-    familyKeys: z.array(z.string()).optional(),
-  })
-  .catchall(jsonValueSchema);
-export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
-
 /**
  * UNCONDITIONALLY immutable PERSON/ACCOUNT ids — a stable per-account handle with
  * a committed value contract, so sharing one is always a hard cross-source bridge
@@ -878,9 +870,13 @@ export interface StableEntityIdInput {
  * The kind taxonomy (D7), classified into the *versioned* `entity_profiles`
  * (a better classifier can change `kind` without re-minting the stable id).
  * Non-humans are retained as typed nodes — queryable, recomputable, no signal
- * lost — but `group` / `service` / `repository` / `project` are NEVER
- * person-significance-scored (this is the dist-list HARD gate that fixes the
- * live `'Anthropic' via Engineering`-as-#1-person bug).
+ * lost — but `group` / `service` / `repository` / `project` / `unknown` are
+ * NEVER person-significance-scored (this is the dist-list HARD gate that fixes
+ * the live `'Anthropic' via Engineering`-as-#1-person bug).
+ *
+ * `unknown` is the deterministic low-confidence bucket: keep the stable node
+ * and provenance, but withhold person scoring + edge promotion until a later
+ * projection version has stronger evidence.
  */
 export const ENTITY_NODE_KINDS = [
   "person",
@@ -889,6 +885,7 @@ export const ENTITY_NODE_KINDS = [
   "service",
   "repository",
   "project",
+  "unknown",
 ] as const;
 export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
 export type EntityNodeKind = (typeof ENTITY_NODE_KINDS)[number];
@@ -900,11 +897,48 @@ export const NON_PERSON_ENTITY_KINDS = [
   "service",
   "repository",
   "project",
+  "unknown",
 ] as const satisfies readonly EntityNodeKind[];
 
 export function isPersonScorable(kind: EntityNodeKind): boolean {
   return kind === "person";
 }
+
+export const ENTITY_KIND_RESEARCH_STATUS = [
+  "not_needed",
+  "not_started",
+  "pending",
+  "completed",
+  "failed",
+] as const;
+export const entityKindResearchStatusSchema = z.enum(ENTITY_KIND_RESEARCH_STATUS);
+export type EntityKindResearchStatus = (typeof ENTITY_KIND_RESEARCH_STATUS)[number];
+
+/**
+ * Versioned profile-kind classifier output, persisted inside projection
+ * provenance. This is deliberately model/source-agnostic: deterministic folds
+ * write evidence codes, while later enrichment can update `researchStatus`
+ * without inventing a second provenance shape.
+ */
+export const entityKindClassificationSchema = z
+  .object({
+    kind: entityNodeKindSchema,
+    confidence: z.number().min(0).max(1),
+    bestGuess: entityNodeKindSchema.exclude(["unknown"]).optional(),
+    evidenceCodes: z.array(z.string().min(1)),
+    researchStatus: entityKindResearchStatusSchema.default("not_needed"),
+  })
+  .strict();
+export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
+
+export const projectionProvenanceSchema = z
+  .object({
+    observationIds: z.array(z.string()).optional(),
+    familyKeys: z.array(z.string()).optional(),
+    classification: entityKindClassificationSchema.optional(),
+  })
+  .catchall(jsonValueSchema);
+export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
  * Typed, traversable edges in the versioned relation projection. `co_occurrence`

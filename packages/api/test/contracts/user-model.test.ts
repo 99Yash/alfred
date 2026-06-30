@@ -4,6 +4,8 @@ import {
   CANONICAL_FACT_KEYS,
   canonicalizeFactKey,
   canonicalizeIdentityValue,
+  entityKindClassificationSchema,
+  ENTITY_NODE_KINDS,
   FACT_KEY_ALIASES,
   identityRefSchema,
   identityValueMatchesKind,
@@ -11,10 +13,12 @@ import {
   identityAnchorRank,
   isHardPersonBridge,
   isImmutableAccountBridge,
+  isPersonScorable,
   isObservationKindForSource,
   MAX_IDENTITY_VALUE_BYTES,
   MAX_EVIDENCE_HASH_BYTES,
   MAX_FAMILY_KEY_BYTES,
+  NON_PERSON_ENTITY_KINDS,
   OBSERVATION_SOURCE_RANK,
   observationInsertSchema,
   observationParticipantsSchema,
@@ -244,6 +248,54 @@ describe("projectionRunStatusSchema", () => {
     assert.deepEqual(PROJECTION_RUN_STATUS, ["running", "completed", "failed"]);
     assert.equal(projectionRunStatusSchema.parse("running"), "running");
     assert.throws(() => projectionRunStatusSchema.parse("stalled"));
+  });
+});
+
+describe("entity kind classifier contracts", () => {
+  test("keeps unknown as a retained but non-person-scorable node kind", () => {
+    assert.ok(ENTITY_NODE_KINDS.includes("unknown"));
+    assert.ok(NON_PERSON_ENTITY_KINDS.includes("unknown"));
+    assert.equal(isPersonScorable("person"), true);
+    for (const kind of NON_PERSON_ENTITY_KINDS) {
+      assert.equal(isPersonScorable(kind), false);
+    }
+  });
+
+  test("types classifier provenance for versioned profiles", () => {
+    const parsed = entityKindClassificationSchema.parse({
+      kind: "unknown",
+      confidence: 0.4,
+      bestGuess: "person",
+      evidenceCodes: ["gmail.low_confidence_mailbox"],
+      researchStatus: "not_started",
+    });
+    assert.equal(parsed.kind, "unknown");
+    assert.equal(parsed.bestGuess, "person");
+    assert.equal(parsed.researchStatus, "not_started");
+
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "unknown",
+        confidence: 0.4,
+        bestGuess: "unknown",
+        evidenceCodes: ["bad.best_guess"],
+      }),
+    );
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "person",
+        confidence: 1.2,
+        evidenceCodes: ["bad.confidence"],
+      }),
+    );
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "person",
+        confidence: 0.9,
+        evidenceCodes: [],
+        extra: true,
+      }),
+    );
   });
 });
 
