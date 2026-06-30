@@ -532,18 +532,20 @@ export const emailTriageWorkflow: Workflow<State> = {
         // observation, so it must not re-bump the sender prior either.
         if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
           const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
+          const baseSenderKey = senderPriorWriteKeyFor({
+            senderContext,
+            senderAddress: senderContextResult.senderAddress,
+            isSent: docIsSent,
+            model,
+          });
           const senderKey =
-            !docIsSent &&
+            baseSenderKey ??
+            (!docIsSent &&
             model !== "fallback" &&
             observations?.senderKind &&
             senderContextResult.senderAddress
               ? senderContextResult.senderAddress.toLowerCase()
-              : senderPriorWriteKeyFor({
-                  senderContext,
-                  senderAddress: senderContextResult.senderAddress,
-                  isSent: docIsSent,
-                  model,
-                });
+              : null);
           if (senderKey) {
             try {
               await incrementSenderPrior({
@@ -780,11 +782,12 @@ async function gatherObservations(args: {
     senderKindEnabled && args.senderAddress
       ? await resolveSenderKind(args.userId, args.senderAddress)
       : null;
+  const baseSenderKey = senderKeyFor(args.senderContext, args.senderAddress);
   const senderKey =
-    senderKind && args.senderAddress
-      ? args.senderAddress.toLowerCase()
-      : senderKeyFor(args.senderContext, args.senderAddress);
-  const senderPrior = senderKey ? await getSenderPrior(args.userId, senderKey).catch(() => null) : null;
+    baseSenderKey ?? (senderKind && args.senderAddress ? args.senderAddress.toLowerCase() : null);
+  const senderPrior = senderKey
+    ? await getSenderPrior(args.userId, senderKey).catch(() => null)
+    : null;
   const usePersonTreatment = isHumanSender && senderKind == null;
   const [knownContact, senderRelationship] = await Promise.all([
     usePersonTreatment && args.senderAddress

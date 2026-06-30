@@ -28,6 +28,7 @@ import {
   requireEntityIdNamespace,
   startProjectionRun,
   warmPool,
+  writeProjectionCursor,
 } from "@alfred/api";
 import {
   USER_MODEL_PROJECTION_NAME,
@@ -255,6 +256,19 @@ async function runAttempt(args: {
           `committed projection diverged from dry validation for ${args.target.email}: ` +
             `dry=${args.expected.checksum}/${args.expected.profileCount}, ` +
             `commit=${projected.checksum}/${projected.profileCount}`,
+        );
+      }
+      if (args.sourceHighWatermark.gmail) {
+        await writeProjectionCursor(
+          {
+            userId: args.target.userId,
+            projectionName: USER_MODEL_PROJECTION_NAME,
+            projectionVersion: args.projectionVersion,
+            projectionRunId: started.run.id,
+            source: "gmail",
+            cursor: args.sourceHighWatermark.gmail,
+          },
+          tx,
         );
       }
       await completeProjectionRun(

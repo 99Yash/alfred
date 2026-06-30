@@ -1,5 +1,13 @@
 import { Queue, Worker, type Job } from "bullmq";
-import { mapConcurrent, runTaskGroup, toMessage } from "@alfred/contracts";
+import {
+  mapConcurrent,
+  runTaskGroup,
+  toMessage,
+  USER_MODEL_PROJECTION_NAME,
+  canonicalizeIdentityValue,
+  identityRefSchema,
+  type ProjectionSourceHighWatermark,
+} from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
   findExpiringGmailWatches,
@@ -11,8 +19,17 @@ import {
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
-import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  chatAttachments,
+  documents,
+  emailTriage,
+  entityProfiles,
+  integrationCredentials,
+  observationFamilyHeads,
+  observations,
+  user as userTable,
+} from "@alfred/db/schemas";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
@@ -25,8 +42,15 @@ import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 import {
+  activateProjectionVersion,
   appendObservationFamilyMember,
+  completeProjectionRun,
+  projectGmailKindProfiles,
   reduceGmailDocument,
+  requireEntityIdNamespace,
+  startProjectionRun,
+  userModelReader,
+  writeProjectionCursor,
   type GmailDocumentForReduction,
 } from "../user-model";
 
@@ -39,6 +63,8 @@ import {
  *  - gmail.watch_renew    (m7c) — replace watch channels nearing expiry
  *  - gmail.poll_sweep     (m7c) — repeatable: enqueue polls for stale cursors
  *  - gmail.embed_sweep    (m7c) — repeatable: retry embed for chunkless docs
+ *  - user_model.gmail_kind_refold — refresh active Gmail kind projection after
+ *                    live observation capture.
  */
 export const INGESTION_QUEUE_NAME = "ingestion-runs";
 const REALTIME_EMIT_CONCURRENCY = 10;
@@ -46,6 +72,7 @@ const REALTIME_EMBED_CONCURRENCY = 4;
 export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;
 const REPLY_REEVAL_QUERY_CHUNK_SIZE = 1000;
 const USER_MODEL_OBSERVATION_QUERY_CHUNK_SIZE = 1000;
+const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
 type GmailInsertJobKind = "gmail.ingest_recent" | "gmail.poll_recent" | "gmail.poll_history";
@@ -152,6 +179,15 @@ export type IngestionJobData =
   | { kind: "gmail.watch_renew" }
   | { kind: "gmail.poll_sweep" }
   | { kind: "gmail.embed_sweep" }
+  | {
+      /**
+       * Re-project the active Gmail kind-only user-model after live observation
+       * capture. No active projection means no-op: initial activation remains
+       * the committed script's job.
+       */
+      kind: "user_model.gmail_kind_refold";
+      userId: string;
+    }
   | {
       /**
        * Reconcile one thread's Gmail label to its current `email_triage`
@@ -529,6 +565,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.embed_sweep candidates=${ids.length} succeeded=${succeeded} failed=${failed}`,
       );
       return { candidates: ids.length, succeeded, failed };
+    }
+    case "user_model.gmail_kind_refold": {
+      return refoldActiveGmailKindProjection(data.userId);
     }
     case "triage.relabel": {
       // One label-writer for both the classifier and user overrides
@@ -942,12 +981,198 @@ async function recordGmailObservationsForDocuments(
       `[ingestion:worker] user-model gmail observations user=${userId} docs=${docs.length} ` +
         `inserted=${inserted} deduped=${deduped} skipped=${skipped} warnings=${warnings} errors=${errors}`,
     );
+    if (inserted > 0) {
+      await enqueueGmailKindRefold(userId);
+    }
   } catch (err) {
     console.warn(
       `[ingestion:worker] user-model gmail observation capture failed user=${userId}:`,
       toMessage(err),
     );
   }
+}
+
+async function enqueueGmailKindRefold(userId: string): Promise<void> {
+  await getIngestionQueue().add(
+    "user_model.gmail_kind_refold",
+    { kind: "user_model.gmail_kind_refold", userId },
+    {
+      deduplication: {
+        id: `user_model.gmail_kind_refold.${userId}`,
+        ttl: USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS,
+      },
+      attempts: 2,
+      backoff: { type: "exponential", delay: 60_000 },
+      removeOnComplete: { count: 20, age: 24 * 60 * 60 },
+      removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
+    },
+  );
+}
+
+async function refoldActiveGmailKindProjection(userId: string): Promise<{
+  skipped?: string;
+  projectionVersion?: number;
+  profileCount?: number;
+  checksum?: string;
+}> {
+  const active = await userModelReader(userId).getActivePointer();
+  if (!active) {
+    console.log(
+      `[ingestion:worker] user-model gmail refold skipped user=${userId} reason=no-active`,
+    );
+    return { skipped: "no-active-projection" };
+  }
+
+  const sourceHighWatermark = await gmailProjectionHighWatermark(userId);
+  if (!sourceHighWatermark.gmail) {
+    console.log(
+      `[ingestion:worker] user-model gmail refold skipped user=${userId} reason=no-gmail-observations`,
+    );
+    return { skipped: "no-gmail-observations" };
+  }
+  const gmailCursor = sourceHighWatermark.gmail;
+
+  requireEntityIdNamespace();
+  const projectionVersion = active.activeVersion + 1;
+  const excludeEmailValues = await gmailProjectionExcludedEmails(userId);
+  const completed = await db().transaction(async (tx) => {
+    const started = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion,
+        sourceHighWatermark,
+      },
+      tx,
+    );
+    if (started.reused) {
+      await tx
+        .delete(entityProfiles)
+        .where(
+          and(
+            eq(entityProfiles.userId, userId),
+            eq(entityProfiles.projectionRunId, started.run.id),
+          ),
+        );
+    }
+
+    const projected = await projectGmailKindProfiles(
+      {
+        userId,
+        projectionRunId: started.run.id,
+        projectionVersion,
+        gmailHighWatermark: gmailCursor,
+        excludeEmailValues,
+      },
+      tx,
+    );
+    await writeProjectionCursor(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion,
+        projectionRunId: started.run.id,
+        source: "gmail",
+        cursor: gmailCursor,
+      },
+      tx,
+    );
+    await completeProjectionRun(
+      {
+        runId: started.run.id,
+        userId,
+        checksum: projected.checksum,
+        completedAt: new Date(),
+        rowCounts: { entity_profiles: projected.profileCount },
+        sourceHighWatermark,
+      },
+      tx,
+    );
+    return { runId: started.run.id, ...projected };
+  });
+
+  await activateProjectionVersion({
+    userId,
+    projectionName: USER_MODEL_PROJECTION_NAME,
+    runId: completed.runId,
+  });
+  console.log(
+    `[ingestion:worker] user-model gmail refold activated user=${userId} ` +
+      `version=${projectionVersion} profiles=${completed.profileCount} checksum=${completed.checksum}`,
+  );
+  return {
+    projectionVersion,
+    profileCount: completed.profileCount,
+    checksum: completed.checksum,
+  };
+}
+
+async function gmailProjectionHighWatermark(
+  userId: string,
+): Promise<ProjectionSourceHighWatermark> {
+  const [row] = await db()
+    .select({
+      id: observations.id,
+      occurredAt: observations.occurredAt,
+    })
+    .from(observations)
+    .innerJoin(
+      observationFamilyHeads,
+      and(
+        eq(observationFamilyHeads.userId, observations.userId),
+        eq(observationFamilyHeads.familyKey, observations.familyKey),
+        eq(observationFamilyHeads.headObservationId, observations.id),
+      ),
+    )
+    .where(
+      and(
+        eq(observations.userId, userId),
+        eq(observations.source, "gmail"),
+        eq(observations.kind, "email_message"),
+      ),
+    )
+    .orderBy(desc(observations.occurredAt), desc(observations.id))
+    .limit(1);
+  if (!row) return {};
+  return { gmail: { lastObservationId: row.id, occurredAt: row.occurredAt.toISOString() } };
+}
+
+async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> {
+  const [userRow] = await db()
+    .select({ email: userTable.email })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  const credentials = await db()
+    .select({ accountLabel: integrationCredentials.accountLabel })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, userId),
+        eq(integrationCredentials.provider, "google"),
+        eq(integrationCredentials.status, "active"),
+      ),
+    );
+  return canonicalEmailList([
+    userRow?.email ?? null,
+    ...credentials.map((credential) => credential.accountLabel),
+  ]);
+}
+
+function canonicalEmailList(values: readonly (string | null)[]): string[] {
+  const out = new Set<string>();
+  for (const value of values) {
+    const email = canonicalEmail(value);
+    if (email) out.add(email);
+  }
+  return [...out].sort();
+}
+
+function canonicalEmail(value: string | null): string | null {
+  if (!value) return null;
+  const canonical = canonicalizeIdentityValue("email", value);
+  const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
+  return parsed.success ? parsed.data.value : null;
 }
 
 /**

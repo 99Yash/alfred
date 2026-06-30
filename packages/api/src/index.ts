@@ -69,6 +69,7 @@ export {
   reduceGmailDocument,
   requireEntityIdNamespace,
   startProjectionRun,
+  writeProjectionCursor,
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
