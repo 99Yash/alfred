@@ -135,6 +135,7 @@ function gmailObs(userId: string, familyKey: string, evidenceHash: string) {
         inReplyTo: null,
         references: [],
         listId: null,
+        listUnsubscribe: null,
         replyTo: null,
         deliveredTo: null,
         autoSubmitted: null,

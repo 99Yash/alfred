@@ -571,6 +571,7 @@ export const gmailEmailMessagePayloadSchema = z
         inReplyTo: z.string().min(1).nullable(),
         references: z.array(z.string().min(1)),
         listId: z.string().min(1).nullable(),
+        listUnsubscribe: z.string().min(1).nullable(),
         replyTo: z.string().min(1).nullable(),
         deliveredTo: z.string().min(1).nullable(),
         autoSubmitted: z.string().min(1).nullable(),

@@ -55,6 +55,22 @@ describe("classifyEntityKind", () => {
     assert.deepEqual(result.evidenceCodes, ["display:person_like"]);
   });
 
+  test("does not classify a bare human-looking service-domain mailbox as service", () => {
+    const result = classifyEntityKind({ identity: emailIdentity("jane.doe@google.com") });
+
+    assert.equal(result.kind, "person");
+    assert.deepEqual(result.evidenceCodes, ["email:local:person_like"]);
+  });
+
+  test("keeps domain-only service evidence below the triage demotion bar", () => {
+    const result = classifyEntityKind({ identity: emailIdentity("inbox@google.com") });
+
+    assert.equal(result.kind, "unknown");
+    assert.equal(result.bestGuess, "service");
+    assert.deepEqual(result.evidenceCodes, ["email:domain:service_weak"]);
+    assert.ok(result.confidence < 0.8);
+  });
+
   test("does not person-score weak group aliases without header evidence", () => {
     const result = classifyEntityKind({
       identity: emailIdentity("team@startup.example"),
@@ -64,6 +80,16 @@ describe("classifyEntityKind", () => {
     assert.equal(result.kind, "unknown");
     assert.equal(result.bestGuess, "group");
     assert.ok(result.confidence < 0.7);
+    assert.deepEqual(result.evidenceCodes, ["email:local:group_weak"]);
+  });
+
+  test("checks compound group aliases before person-like local parts", () => {
+    const result = classifyEntityKind({
+      identity: emailIdentity("engineering-team@startup.example"),
+    });
+
+    assert.equal(result.kind, "unknown");
+    assert.equal(result.bestGuess, "group");
     assert.deepEqual(result.evidenceCodes, ["email:local:group_weak"]);
   });
 
@@ -88,11 +114,16 @@ describe("classifyEntityKind", () => {
   test("extracts Gmail payload signals from observations", () => {
     const result = classifyEntityKind({
       identity: emailIdentity("engineering@oliv.ai"),
-      observations: [gmailObservation({ listId: "Engineering <engineering.oliv.ai>" })],
+      observations: [
+        gmailObservation({
+          listId: "Engineering <engineering.oliv.ai>",
+          listUnsubscribe: "<mailto:off@example.com>",
+        }),
+      ],
     });
 
     assert.equal(result.kind, "group");
-    assert.deepEqual(result.evidenceCodes, ["gmail:list_id"]);
+    assert.deepEqual(result.evidenceCodes, ["gmail:list_id", "gmail:list_unsubscribe"]);
   });
 });
 
@@ -110,6 +141,7 @@ function identity(kind: IdentityRef["kind"], value: string): IdentityRef {
 
 function gmailObservation(overrides: {
   readonly listId?: string | null;
+  readonly listUnsubscribe?: string | null;
   readonly precedence?: string | null;
   readonly autoSubmitted?: string | null;
 }): Observation {
@@ -128,6 +160,7 @@ function gmailObservation(overrides: {
       inReplyTo: null,
       references: [],
       listId: overrides.listId ?? null,
+      listUnsubscribe: overrides.listUnsubscribe ?? null,
       replyTo: null,
       deliveredTo: null,
       autoSubmitted: overrides.autoSubmitted ?? null,

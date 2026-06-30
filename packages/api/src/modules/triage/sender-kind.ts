@@ -4,10 +4,12 @@ import {
   type EntityKindClassification,
   type EntityNodeKind,
 } from "@alfred/contracts";
+import { getPreference } from "../memory/preferences";
 import type { ActiveEntityProfile } from "../user-model";
 import { userModelReader } from "../user-model";
 
 export const TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD = 0.8;
+export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_kind_projection";
 
 const TRIAGE_DEMOTING_ENTITY_KINDS = new Set<EntityNodeKind>(["group", "service"]);
 
@@ -18,6 +20,11 @@ export type TriageSenderKindSignal = {
   entityId: string;
   displayName: string;
 };
+
+export async function triageSenderKindProjectionEnabled(userId: string): Promise<boolean> {
+  const row = await getPreference(userId, TRIAGE_SENDER_KIND_FEATURE_KEY);
+  return row ? flagOn(row.value) : false;
+}
 
 /**
  * Active-projection sender kind read for triage. Returns a signal only when the
@@ -64,6 +71,10 @@ function canonicalSenderEmail(senderAddress: string | null): string | null {
   const value = senderAddress ? canonicalizeIdentityValue("email", senderAddress) : "";
   if (!value || !value.includes("@")) return null;
   return value;
+}
+
+function flagOn(value: unknown): boolean {
+  return value === true || value === "true" || value === 1;
 }
 
 function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageSenderKindSignal["kind"] {
