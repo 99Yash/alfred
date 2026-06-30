@@ -1,7 +1,7 @@
 import { ACCOUNT_PERSONAS, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
+import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
   detectPersona,
@@ -182,14 +182,18 @@ export const googleIntegrationRoutes = new Elysia({
             );
           const ownerRow = owner[0];
           if (!ownerRow) throw new NotFoundError("Credential not found");
-          // Capture a usable token before the row disappears. The remote watch
-          // stop itself happens after the DB commit; otherwise an observation
-          // append failure could roll back the credential delete after we already
-          // removed the local watch metadata and stopped renewals.
+          // Capture a usable token before the row disappears, but only when this
+          // environment is allowed to mutate the shared Gmail mailbox (#278).
+          // The remote watch stop itself happens after the DB commit; otherwise
+          // an observation append failure could roll back the credential delete
+          // after we already removed the local watch metadata and stopped
+          // renewals.
           let watchStopAccessToken: string | null = null;
-          await bestEffort("resolve watch token on disconnect", async () => {
-            watchStopAccessToken = await getFreshAccessToken(params.id);
-          });
+          if (gmailMailboxWritesEnabled()) {
+            await bestEffort("resolve watch token on disconnect", async () => {
+              watchStopAccessToken = await getFreshAccessToken(params.id);
+            });
+          }
           const disconnectedAt = new Date();
           await transactionWithOrgAffiliationRetry(() =>
             db().transaction(async (tx) => {
