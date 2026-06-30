@@ -555,6 +555,32 @@ export type ObservationParticipants = z.infer<typeof observationParticipantsSche
 export const observationPayloadSchema = jsonObjectSchema;
 export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
 
+export const gmailEmailMessagePayloadSchema = z
+  .object({
+    provider: z.literal("gmail"),
+    documentId: z.string().min(1),
+    messageId: z.string().min(1),
+    threadId: z.string().min(1).nullable(),
+    accountId: z.string().min(1).nullable(),
+    isSent: z.boolean(),
+    subject: z.string().nullable(),
+    subjectHash: z.string().min(1).nullable(),
+    headers: z
+      .object({
+        messageId: z.string().min(1).nullable(),
+        inReplyTo: z.string().min(1).nullable(),
+        references: z.array(z.string().min(1)),
+        listId: z.string().min(1).nullable(),
+        replyTo: z.string().min(1).nullable(),
+        deliveredTo: z.string().min(1).nullable(),
+        autoSubmitted: z.string().min(1).nullable(),
+        precedence: z.string().min(1).nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
+
 const canonicalDomainSchema = identityValueSchema
   .refine((v) => v === canonicalizeIdentityValue("domain", v), {
     error: "domain must be canonical (lowercased, no surrounding whitespace)",
@@ -667,6 +693,19 @@ export const observationInsertSchema = z
     path: ["kind"],
   })
   .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
+    if (kind === "email_message") {
+      const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+      return;
+    }
     if (kind !== "user_org_affiliation") return;
     const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
     if (!parsed.success) {
@@ -983,9 +1022,11 @@ export const PROMOTION_THRESHOLD = 2.0;
 /**
  * Promotion guardrails so one noisy thread / PR can't mint a collaborator edge:
  * a pair must clear the weight bar AND be backed by at least this many distinct
- * observations across at least this many distinct event families.
- * `MIN_FAMILIES` is the load-bearing one — without it, a single long email
- * thread or one chatty PR accidentally promotes.
+ * observations across at least this many distinct event families. Source folds
+ * may add stricter diversity keys when their event family grain is smaller than
+ * the real interaction context. For example, Gmail uses message-grain families
+ * for idempotent supersession, then separately requires thread diversity before
+ * promoting a collaborator edge.
  */
 export const PROMOTION_MIN_OBSERVATIONS = 3;
 export const PROMOTION_MIN_FAMILIES = 2;
