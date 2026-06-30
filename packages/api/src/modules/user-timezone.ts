@@ -15,10 +15,10 @@ export function firstValidTimezone(values: readonly unknown[]): string {
 }
 
 /**
- * Resolve the user's general operational timezone. The general `timezone` key is
- * canonical, but the product's visible timezone picker currently writes
- * `briefing.timezone`; treat it as a fallback so tools do not silently answer in
- * UTC for users who already configured their local briefing schedule.
+ * Resolve the user's general operational timezone. `timezone` is the canonical
+ * key — written by the settings picker and onboarding capture (#229). The legacy
+ * `briefing.timezone` key is read as a fallback so tools do not silently answer
+ * in UTC for users whose only stored zone predates the unification.
  */
 export async function resolveUserTimezone(userId: string): Promise<string> {
   const [general, briefing] = await Promise.all([

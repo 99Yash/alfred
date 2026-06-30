@@ -51,6 +51,7 @@ import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   ensureAlfredLabels,
   getThreadMessageLabels,
@@ -357,6 +358,12 @@ async function repairCaseB(args: {
 }
 
 async function main() {
+  if (COMMIT && !gmailMailboxWritesEnabled()) {
+    throw new Error(
+      "[repair-sent-mislabeled-triage] refuses to mutate Gmail while mailbox writes are disabled; set GMAIL_MAILBOX_WRITES_ENABLED=true for a committed repair",
+    );
+  }
+
   await warmPool();
   console.log(`# Sent-mislabel triage repair (#306) — mode=${COMMIT ? "COMMIT" : "DRY"}`);
 

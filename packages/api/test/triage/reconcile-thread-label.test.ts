@@ -70,6 +70,10 @@ function makeDeps(opts: {
 }): { deps: Partial<ReconcileThreadLabelDeps>; rec: Recorder } {
   const rec: Recorder = { applyCalls: [], setAppliedLabelCalls: [], setReconciledCalls: [] };
   const deps: Partial<ReconcileThreadLabelDeps> = {
+    // These tests exercise the label-write path, so force the #278 gate on —
+    // the real default is production-only and `NODE_ENV=test` would otherwise
+    // short-circuit every case to `writes-disabled`.
+    mailboxWritesEnabled: () => true,
     // The reconcile callback ignores the tx arg, so a dummy satisfies the type.
     withThreadLock: ((_u, _t, fn) =>
       fn(undefined as never)) as ReconcileThreadLabelDeps["withThreadLock"],
@@ -200,5 +204,30 @@ describe("reconcileThreadLabel — stale Gmail message id (#277)", () => {
       () => reconcileThreadLabel({ userId: USER, sourceThreadId: THREAD }, deps),
       /500/,
     );
+  });
+});
+
+describe("reconcileThreadLabel — non-prod mailbox-write gate (#278)", () => {
+  test("when mailbox writes are disabled it makes zero Gmail calls and reports writes-disabled", async () => {
+    const { deps, rec } = makeDeps({
+      row: triageRow({ documentId: "doc_live", category: "urgent" }),
+      docs: { doc_live: "msg_live" },
+      apply: () => ({ appliedLabelId: "label_urgent" }),
+      liveDoc: "doc_live",
+    });
+    // Flip the gate off — dev/test sharing the real mailbox with prod.
+    deps.mailboxWritesEnabled = () => false;
+
+    const result = await reconcileThreadLabel({ userId: USER, sourceThreadId: THREAD }, deps);
+
+    assert.equal(result.applied, false);
+    assert.ok(!result.applied);
+    assert.equal(result.reason, "writes-disabled");
+    // The category is still reported (for logging) from the canonical row...
+    assert.equal(result.category, "urgent");
+    // ...but NOTHING touched Gmail or persisted an applied label.
+    assert.deepEqual(rec.applyCalls, []);
+    assert.deepEqual(rec.setAppliedLabelCalls, []);
+    assert.deepEqual(rec.setReconciledCalls, []);
   });
 });
