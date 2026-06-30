@@ -16,7 +16,13 @@
  */
 export { requireEntityIdNamespace } from "./namespace";
 export { type DbExecutor } from "./executor";
-export { insertObservation, type InsertObservationResult } from "./observations";
+export {
+  appendObservationFamilyMember,
+  insertObservation,
+  isObservationAppendConflict,
+  type AppendObservationFamilyMemberResult,
+  type InsertObservationResult,
+} from "./observations";
 export {
   reduceGmailDocument,
   type GmailDocumentForReduction,

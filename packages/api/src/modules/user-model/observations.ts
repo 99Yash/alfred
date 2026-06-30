@@ -4,6 +4,12 @@ import { observationInsertSchema, type ObservationInsertInput } from "@alfred/co
 import { and, eq } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 
+const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
+const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
+  "observations_no_fork_idx",
+  "observations_single_root_idx",
+]);
+
 export interface InsertObservationResult {
   /** The persisted (or pre-existing, on dedup) observation row. */
   observation: Observation;
@@ -12,6 +18,35 @@ export interface InsertObservationResult {
    * no-op append (the dedup index collided). False when a new row was written.
    */
   deduped: boolean;
+}
+
+export interface AppendObservationFamilyMemberResult extends InsertObservationResult {
+  status: "inserted" | "deduped";
+}
+
+interface PgErrorLike {
+  code?: string;
+  constraint?: string;
+  message?: string;
+  cause?: unknown;
+}
+
+export function isObservationAppendConflict(err: unknown): boolean {
+  let cur: unknown = err;
+  let sawUniqueViolation = false;
+  let sawChainConstraint = false;
+  for (let i = 0; i < 5 && typeof cur === "object" && cur !== null; i++) {
+    const pg = cur as PgErrorLike;
+    const message = pg.message ?? "";
+    sawUniqueViolation ||= pg.code === "23505" || message.includes("23505");
+    sawChainConstraint ||= Boolean(
+      (pg.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(pg.constraint)) ||
+      [...OBSERVATION_CHAIN_CONSTRAINTS].some((constraint) => message.includes(constraint)),
+    );
+    if (sawUniqueViolation && sawChainConstraint) return true;
+    cur = pg.cause;
+  }
+  return false;
 }
 
 /**
@@ -116,4 +151,52 @@ export async function insertObservation(
   };
 
   return tx ? run(tx) : db().transaction(run);
+}
+
+/**
+ * Reducer-owned append helper for event-family supersession (ADR-0067 D4).
+ *
+ * `insertObservation` is the primitive: it validates and inserts the row it was
+ * handed. This helper owns the higher-level family protocol reducers need:
+ * read the current head, set `supersedesObservationId` to that head, and retry
+ * when another writer wins the same family race first.
+ */
+export async function appendObservationFamilyMember(
+  input: ObservationInsertInput,
+): Promise<AppendObservationFamilyMemberResult> {
+  const parsed = observationInsertSchema.parse(input);
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db().transaction(async (tx) => {
+        const [head] = await tx
+          .select({ headObservationId: observationFamilyHeads.headObservationId })
+          .from(observationFamilyHeads)
+          .where(
+            and(
+              eq(observationFamilyHeads.userId, parsed.userId),
+              eq(observationFamilyHeads.familyKey, parsed.familyKey),
+            ),
+          )
+          .limit(1);
+
+        const result = await insertObservation(
+          {
+            ...parsed,
+            supersedesObservationId: head?.headObservationId ?? null,
+          },
+          tx,
+        );
+
+        return {
+          ...result,
+          status: result.deduped ? ("deduped" as const) : ("inserted" as const),
+        };
+      });
+    } catch (err) {
+      if (attempt >= OBSERVATION_APPEND_MAX_ATTEMPTS || !isObservationAppendConflict(err)) {
+        throw err;
+      }
+    }
+  }
 }
