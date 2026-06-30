@@ -20,6 +20,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import {
   activateProjectionVersion,
+  appendObservationFamilyMember,
   completeProjectionRun,
   EntityIdentityConflictError,
   ensureEntityNode,
@@ -120,6 +121,26 @@ function gmailObs(userId: string, familyKey: string, evidenceHash: string) {
     familyKey,
     evidenceHash,
     subjectIdentity: { kind: "email" as const, value: "subject@example.com" },
+    payload: {
+      provider: "gmail" as const,
+      documentId: "doc_test",
+      messageId: "gmail_msg_test",
+      threadId: "gmail_thread_test",
+      accountId: "acct_test",
+      isSent: false,
+      subject: "Test subject",
+      subjectHash: "sha256:test",
+      headers: {
+        messageId: "<gmail_msg_test@example.com>",
+        inReplyTo: null,
+        references: [],
+        listId: null,
+        replyTo: null,
+        deliveredTo: null,
+        autoSubmitted: null,
+        precedence: null,
+      },
+    },
   };
 }
 
@@ -184,6 +205,76 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
         ),
       );
     assert.equal(head?.headObservationId, successor.observation.id);
+  });
+
+  test("appendObservationFamilyMember sets supersedes from the active family head", async () => {
+    const userId = await seedUser();
+    const familyKey = `gmail:${randomUUID()}`;
+
+    const root = await appendObservationFamilyMember(gmailObs(userId, familyKey, "hash-root"));
+    assert.equal(root.status, "inserted");
+    assert.equal(root.observation.supersedesObservationId, null);
+
+    const successor = await appendObservationFamilyMember(
+      gmailObs(userId, familyKey, "hash-successor"),
+    );
+    assert.equal(successor.status, "inserted");
+    assert.equal(successor.observation.supersedesObservationId, root.observation.id);
+
+    const again = await appendObservationFamilyMember(
+      gmailObs(userId, familyKey, "hash-successor"),
+    );
+    assert.equal(again.status, "deduped");
+    assert.equal(again.observation.id, successor.observation.id);
+
+    const [head] = await db()
+      .select()
+      .from(observationFamilyHeads)
+      .where(
+        and(
+          eq(observationFamilyHeads.userId, userId),
+          eq(observationFamilyHeads.familyKey, familyKey),
+        ),
+      );
+    assert.equal(head?.headObservationId, successor.observation.id);
+  });
+
+  test("appendObservationFamilyMember serializes concurrent appends for one family", async () => {
+    const userId = await seedUser();
+    const familyKey = `gmail:${randomUUID()}`;
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        appendObservationFamilyMember(gmailObs(userId, familyKey, `hash-concurrent-${index}`)),
+      ),
+    );
+    assert.deepEqual(
+      results.map((result) => result.status),
+      ["inserted", "inserted", "inserted", "inserted", "inserted"],
+    );
+
+    const rows = await db()
+      .select({
+        id: observations.id,
+        supersedesObservationId: observations.supersedesObservationId,
+      })
+      .from(observations)
+      .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)));
+    assert.equal(rows.length, 5);
+    assert.equal(
+      rows.filter((row) => row.supersedesObservationId === null).length,
+      1,
+      "a concurrently-created family must have exactly one root",
+    );
+
+    const predecessorIds = rows
+      .map((row) => row.supersedesObservationId)
+      .filter((id): id is string => id !== null);
+    assert.equal(
+      new Set(predecessorIds).size,
+      predecessorIds.length,
+      "no two rows should supersede the same predecessor",
+    );
   });
 
   test("insertObservation rejects a kind not valid for its source (parse gate)", async () => {

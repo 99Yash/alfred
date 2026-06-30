@@ -18,6 +18,10 @@ const LOOSE_CSP_META =
   `connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; ` +
   `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
 
+const CHROME_STARTUP_TIMEOUT_MS = process.env.CI ? 30_000 : 10_000;
+const CHROME_POLL_INTERVAL_MS = 100;
+const CHROME_STDERR_TAIL_LINES = 40;
+
 interface Counts {
   pixel: number;
   background: number;
@@ -204,24 +208,36 @@ async function startChrome(): Promise<{
   assert.ok(CHROME);
   const debugPort = await reservePort();
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "alfred-email-csp-"));
+  const stderrLines: string[] = [];
   const child = spawn(
     CHROME,
     [
       "--headless=new",
+      "--disable-dev-shm-usage",
       "--disable-gpu",
+      "--disable-software-rasterizer",
       "--disable-background-networking",
       "--disable-default-apps",
+      "--disable-extensions",
       "--no-first-run",
       "--no-sandbox",
+      "--remote-debugging-address=127.0.0.1",
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${userDataDir}`,
       "about:blank",
     ],
-    { stdio: "ignore" },
+    { stdio: ["ignore", "ignore", "pipe"] },
   );
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => {
+    stderrLines.push(...chunk.split(/\r?\n/).filter(Boolean));
+    if (stderrLines.length > CHROME_STDERR_TAIL_LINES) {
+      stderrLines.splice(0, stderrLines.length - CHROME_STDERR_TAIL_LINES);
+    }
+  });
 
   try {
-    await waitForChrome(debugPort, child);
+    await waitForChrome(debugPort, child, () => stderrLines.join("\n"));
   } catch (err) {
     await stopChrome(child, userDataDir);
     throw err;
@@ -245,18 +261,27 @@ async function reservePort(): Promise<number> {
   return port;
 }
 
-async function waitForChrome(debugPort: number, child: ChildProcess): Promise<void> {
-  for (let i = 0; i < 60; i++) {
-    if (child.exitCode !== null) throw new Error(`Chrome exited early with ${child.exitCode}`);
+async function waitForChrome(
+  debugPort: number,
+  child: ChildProcess,
+  stderrTail: () => string,
+): Promise<void> {
+  const deadline = Date.now() + CHROME_STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(
+        `Chrome exited early with ${child.exitCode}${formatChromeStderr(stderrTail())}`,
+      );
+    }
     try {
       const res = await fetch(`http://127.0.0.1:${debugPort}/json/version`);
       if (res.ok) return;
     } catch {
       /* keep polling */
     }
-    await delay(100);
+    await delay(CHROME_POLL_INTERVAL_MS);
   }
-  throw new Error("Timed out waiting for Chrome DevTools");
+  throw new Error(`Timed out waiting for Chrome DevTools${formatChromeStderr(stderrTail())}`);
 }
 
 async function stopChrome(child: ChildProcess, userDataDir: string): Promise<void> {
@@ -363,6 +388,10 @@ async function fetchJson(url: string): Promise<unknown> {
 function parseCdpMessage(data: unknown): CdpMessage {
   const text = typeof data === "string" ? data : Buffer.from(data as ArrayBuffer).toString("utf8");
   return JSON.parse(text) as CdpMessage;
+}
+
+function formatChromeStderr(stderr: string): string {
+  return stderr ? `\nChrome stderr:\n${stderr}` : "";
 }
 
 function addressPort(server: http.Server): number {

@@ -24,6 +24,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  pgView,
   real,
   text,
   timestamp,
@@ -868,6 +869,127 @@ export const activeProjectionVersions = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// active projection views — physically pin versioned reads to active_run_id
+// ---------------------------------------------------------------------------
+
+export const activeEntityProfiles = pgView("active_entity_profiles", {
+  id: text("id").notNull(),
+  userId: text("user_id").notNull(),
+  projectionName: text("projection_name").notNull(),
+  projectionVersion: integer("projection_version").notNull(),
+  projectionRunId: text("projection_run_id").notNull(),
+  entityId: text("entity_id").notNull(),
+  displayName: text("display_name").notNull(),
+  kind: text("kind").$type<EntityNodeKind>().notNull(),
+  significanceComponents: jsonb("significance_components").$type<SignificanceComponents>().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  provenance: jsonb("provenance").$type<ProjectionProvenance>().notNull(),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}).as(sql`
+  SELECT
+    ep.id,
+    ep.user_id,
+    ep.projection_name,
+    ep.projection_version,
+    ep.projection_run_id,
+    ep.entity_id,
+    ep.display_name,
+    ep.kind,
+    ep.significance_components,
+    ep.last_seen_at,
+    ep.provenance,
+    ep.computed_at,
+    ep.created_at,
+    ep.updated_at
+  FROM entity_profiles ep
+  INNER JOIN active_projection_versions apv
+    ON apv.user_id = ep.user_id
+   AND apv.projection_name = ep.projection_name
+   AND apv.active_version = ep.projection_version
+   AND apv.active_run_id = ep.projection_run_id
+`);
+
+export const activeEntityEdges = pgView("active_entity_edges", {
+  id: text("id").notNull(),
+  userId: text("user_id").notNull(),
+  projectionName: text("projection_name").notNull(),
+  projectionVersion: integer("projection_version").notNull(),
+  projectionRunId: text("projection_run_id").notNull(),
+  fromEntityId: text("from_entity_id").notNull(),
+  toEntityId: text("to_entity_id").notNull(),
+  relationType: text("relation_type").$type<EntityEdgeType>().notNull(),
+  weight: real("weight").notNull(),
+  confidence: real("confidence").notNull(),
+  provenance: jsonb("provenance").$type<ProjectionProvenance>().notNull(),
+  validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
+  validUntil: timestamp("valid_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}).as(sql`
+  SELECT
+    ee.id,
+    ee.user_id,
+    ee.projection_name,
+    ee.projection_version,
+    ee.projection_run_id,
+    ee.from_entity_id,
+    ee.to_entity_id,
+    ee.relation_type,
+    ee.weight,
+    ee.confidence,
+    ee.provenance,
+    ee.valid_from,
+    ee.valid_until,
+    ee.created_at,
+    ee.updated_at
+  FROM entity_edges ee
+  INNER JOIN active_projection_versions apv
+    ON apv.user_id = ee.user_id
+   AND apv.projection_name = ee.projection_name
+   AND apv.active_version = ee.projection_version
+   AND apv.active_run_id = ee.projection_run_id
+`);
+
+export const activeEntityCoOccurrence = pgView("active_entity_co_occurrence", {
+  id: text("id").notNull(),
+  userId: text("user_id").notNull(),
+  projectionName: text("projection_name").notNull(),
+  projectionVersion: integer("projection_version").notNull(),
+  projectionRunId: text("projection_run_id").notNull(),
+  aEntityId: text("a_entity_id").notNull(),
+  bEntityId: text("b_entity_id").notNull(),
+  weight: real("weight").notNull(),
+  count: integer("count").notNull(),
+  familyCount: integer("family_count").notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}).as(sql`
+  SELECT
+    eco.id,
+    eco.user_id,
+    eco.projection_name,
+    eco.projection_version,
+    eco.projection_run_id,
+    eco.a_entity_id,
+    eco.b_entity_id,
+    eco.weight,
+    eco.count,
+    eco.family_count,
+    eco.last_seen_at,
+    eco.created_at,
+    eco.updated_at
+  FROM entity_co_occurrence eco
+  INNER JOIN active_projection_versions apv
+    ON apv.user_id = eco.user_id
+   AND apv.projection_name = eco.projection_name
+   AND apv.active_version = eco.projection_version
+   AND apv.active_run_id = eco.projection_run_id
+`);
+
 /**
  * Replicache-visible projection sync state (D17). Stable logical key + a content
  * hash → synthetic `row_version`, so flipping the active projection version
@@ -924,6 +1046,9 @@ export type EntityIdentity = typeof entityIdentities.$inferSelect;
 export type EntityProfile = typeof entityProfiles.$inferSelect;
 export type EntityEdge = typeof entityEdges.$inferSelect;
 export type EntityCoOccurrence = typeof entityCoOccurrence.$inferSelect;
+export type ActiveEntityProfile = typeof activeEntityProfiles.$inferSelect;
+export type ActiveEntityEdge = typeof activeEntityEdges.$inferSelect;
+export type ActiveEntityCoOccurrence = typeof activeEntityCoOccurrence.$inferSelect;
 export type ProjectionRun = typeof projectionRuns.$inferSelect;
 export type ProjectionCursor = typeof projectionCursors.$inferSelect;
 export type ActiveProjectionVersion = typeof activeProjectionVersions.$inferSelect;

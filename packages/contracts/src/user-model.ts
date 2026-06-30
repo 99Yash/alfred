@@ -555,6 +555,32 @@ export type ObservationParticipants = z.infer<typeof observationParticipantsSche
 export const observationPayloadSchema = jsonObjectSchema;
 export type ObservationPayload = z.infer<typeof observationPayloadSchema>;
 
+export const gmailEmailMessagePayloadSchema = z
+  .object({
+    provider: z.literal("gmail"),
+    documentId: z.string().min(1),
+    messageId: z.string().min(1),
+    threadId: z.string().min(1).nullable(),
+    accountId: z.string().min(1).nullable(),
+    isSent: z.boolean(),
+    subject: z.string().nullable(),
+    subjectHash: z.string().min(1).nullable(),
+    headers: z
+      .object({
+        messageId: z.string().min(1).nullable(),
+        inReplyTo: z.string().min(1).nullable(),
+        references: z.array(z.string().min(1)),
+        listId: z.string().min(1).nullable(),
+        replyTo: z.string().min(1).nullable(),
+        deliveredTo: z.string().min(1).nullable(),
+        autoSubmitted: z.string().min(1).nullable(),
+        precedence: z.string().min(1).nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
+
 const canonicalDomainSchema = identityValueSchema
   .refine((v) => v === canonicalizeIdentityValue("domain", v), {
     error: "domain must be canonical (lowercased, no surrounding whitespace)",
@@ -667,6 +693,19 @@ export const observationInsertSchema = z
     path: ["kind"],
   })
   .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
+    if (kind === "email_message") {
+      const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+      return;
+    }
     if (kind !== "user_org_affiliation") return;
     const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
     if (!parsed.success) {
@@ -712,14 +751,6 @@ export const observationInsertSchema = z
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
 /** Validated, defaults-applied observation ready to persist. */
 export type ObservationInsert = z.infer<typeof observationInsertSchema>;
-
-export const projectionProvenanceSchema = z
-  .object({
-    observationIds: z.array(z.string()).optional(),
-    familyKeys: z.array(z.string()).optional(),
-  })
-  .catchall(jsonValueSchema);
-export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
  * UNCONDITIONALLY immutable PERSON/ACCOUNT ids — a stable per-account handle with
@@ -878,9 +909,13 @@ export interface StableEntityIdInput {
  * The kind taxonomy (D7), classified into the *versioned* `entity_profiles`
  * (a better classifier can change `kind` without re-minting the stable id).
  * Non-humans are retained as typed nodes — queryable, recomputable, no signal
- * lost — but `group` / `service` / `repository` / `project` are NEVER
- * person-significance-scored (this is the dist-list HARD gate that fixes the
- * live `'Anthropic' via Engineering`-as-#1-person bug).
+ * lost — but `group` / `service` / `repository` / `project` / `unknown` are
+ * NEVER person-significance-scored (this is the dist-list HARD gate that fixes
+ * the live `'Anthropic' via Engineering`-as-#1-person bug).
+ *
+ * `unknown` is the deterministic low-confidence bucket: keep the stable node
+ * and provenance, but withhold person scoring + edge promotion until a later
+ * projection version has stronger evidence.
  */
 export const ENTITY_NODE_KINDS = [
   "person",
@@ -889,6 +924,7 @@ export const ENTITY_NODE_KINDS = [
   "service",
   "repository",
   "project",
+  "unknown",
 ] as const;
 export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
 export type EntityNodeKind = (typeof ENTITY_NODE_KINDS)[number];
@@ -900,11 +936,48 @@ export const NON_PERSON_ENTITY_KINDS = [
   "service",
   "repository",
   "project",
+  "unknown",
 ] as const satisfies readonly EntityNodeKind[];
 
 export function isPersonScorable(kind: EntityNodeKind): boolean {
   return kind === "person";
 }
+
+export const ENTITY_KIND_RESEARCH_STATUS = [
+  "not_needed",
+  "not_started",
+  "pending",
+  "completed",
+  "failed",
+] as const;
+export const entityKindResearchStatusSchema = z.enum(ENTITY_KIND_RESEARCH_STATUS);
+export type EntityKindResearchStatus = (typeof ENTITY_KIND_RESEARCH_STATUS)[number];
+
+/**
+ * Versioned profile-kind classifier output, persisted inside projection
+ * provenance. This is deliberately model/source-agnostic: deterministic folds
+ * write evidence codes, while later enrichment can update `researchStatus`
+ * without inventing a second provenance shape.
+ */
+export const entityKindClassificationSchema = z
+  .object({
+    kind: entityNodeKindSchema,
+    confidence: z.number().min(0).max(1),
+    bestGuess: entityNodeKindSchema.exclude(["unknown"]).optional(),
+    evidenceCodes: z.array(z.string().min(1)),
+    researchStatus: entityKindResearchStatusSchema.default("not_needed"),
+  })
+  .strict();
+export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
+
+export const projectionProvenanceSchema = z
+  .object({
+    observationIds: z.array(z.string()).optional(),
+    familyKeys: z.array(z.string()).optional(),
+    classification: entityKindClassificationSchema.optional(),
+  })
+  .catchall(jsonValueSchema);
+export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**
  * Typed, traversable edges in the versioned relation projection. `co_occurrence`
@@ -949,9 +1022,11 @@ export const PROMOTION_THRESHOLD = 2.0;
 /**
  * Promotion guardrails so one noisy thread / PR can't mint a collaborator edge:
  * a pair must clear the weight bar AND be backed by at least this many distinct
- * observations across at least this many distinct event families.
- * `MIN_FAMILIES` is the load-bearing one — without it, a single long email
- * thread or one chatty PR accidentally promotes.
+ * observations across at least this many distinct event families. Source folds
+ * may add stricter diversity keys when their event family grain is smaller than
+ * the real interaction context. For example, Gmail uses message-grain families
+ * for idempotent supersession, then separately requires thread diversity before
+ * promoting a collaborator edge.
  */
 export const PROMOTION_MIN_OBSERVATIONS = 3;
 export const PROMOTION_MIN_FAMILIES = 2;
