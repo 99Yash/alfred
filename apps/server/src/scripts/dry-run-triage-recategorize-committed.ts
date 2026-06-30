@@ -28,6 +28,7 @@ import {
   getThreadState,
   isKnownContact,
   loadTriageContext,
+  resolveSenderKind,
   resolveSenderRelationship,
   senderKeyFor,
   warmPool,
@@ -99,7 +100,7 @@ async function processUser(u: TargetUser): Promise<void> {
     const labelIds = toStringArray(meta.labelIds);
     const isHumanSender = senderContext.effectiveAuthor === "person";
 
-    const [senderPrior, thread, knownContact, senderRelationship] = await Promise.all([
+    const [senderPrior, thread, senderKind] = await Promise.all([
       senderKey ? getSenderPrior(u.userId, senderKey).catch(() => null) : Promise.resolve(null),
       row.threadId
         ? getThreadState({
@@ -118,13 +119,17 @@ async function processUser(u: TargetUser): Promise<void> {
             messageCount: 0,
             recentMessages: [],
           }),
-      isHumanSender && scResult.senderAddress
+      resolveSenderKind(u.userId, scResult.senderAddress),
+    ]);
+    const usePersonTreatment = isHumanSender && senderKind == null;
+    const [knownContact, senderRelationship] = await Promise.all([
+      usePersonTreatment && scResult.senderAddress
         ? isKnownContact(u.userId, scResult.senderAddress).catch(() => false)
         : Promise.resolve(false),
       resolveSenderRelationship({
         userId: u.userId,
         senderAddress: scResult.senderAddress,
-        isHumanSender,
+        isHumanSender: usePersonTreatment,
       }).catch(() => null),
     ]);
 
@@ -147,6 +152,7 @@ async function processUser(u: TargetUser): Promise<void> {
       thread,
       knownContact,
       senderRelationship,
+      senderKind,
       labelIds,
       signalText,
     });

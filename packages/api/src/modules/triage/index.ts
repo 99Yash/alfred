@@ -75,6 +75,14 @@ export type { ThreadState, GetThreadStateArgs } from "./thread-state";
 export { isKnownContact } from "./contacts";
 export { resolveSenderRelationship } from "./sender-relationship";
 export {
+  resolveSenderKind,
+  senderKindSignalFromProfile,
+  triageSenderKindProjectionEnabled,
+  TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD,
+  TRIAGE_SENDER_KIND_FEATURE_KEY,
+} from "./sender-kind";
+export type { TriageSenderKindSignal } from "./sender-kind";
+export {
   getSenderPrior,
   incrementSenderPrior,
   senderPriorWriteKeyFor,

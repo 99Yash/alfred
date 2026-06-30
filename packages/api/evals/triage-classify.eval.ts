@@ -515,6 +515,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     knownContact: c.knownContact ?? false,
     senderRelationship: c.senderRelationship ?? null,
+    senderKind: null,
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
   });
