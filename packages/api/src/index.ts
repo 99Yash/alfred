@@ -60,13 +60,16 @@ export * from "./modules/integrations/object-state/index.js";
 // identity-affiliation emitter the slice-1a backfill script composes. Exported
 // narrowly (not `export *`) so the substrate's internal surface stays internal.
 export {
+  appendObservationFamilyMember,
   insertObservation,
+  isObservationAppendConflict,
   reduceGmailDocument,
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
+  type AppendObservationFamilyMemberResult,
   type GmailDocumentForReduction,
   type GmailReductionIssue,
   type GmailReductionResult,

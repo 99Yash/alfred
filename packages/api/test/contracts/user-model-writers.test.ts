@@ -20,6 +20,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import {
   activateProjectionVersion,
+  appendObservationFamilyMember,
   completeProjectionRun,
   EntityIdentityConflictError,
   ensureEntityNode,
@@ -193,6 +194,38 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       supersedesObservationId: root.observation.id,
     });
     assert.equal(successor.deduped, false);
+
+    const [head] = await db()
+      .select()
+      .from(observationFamilyHeads)
+      .where(
+        and(
+          eq(observationFamilyHeads.userId, userId),
+          eq(observationFamilyHeads.familyKey, familyKey),
+        ),
+      );
+    assert.equal(head?.headObservationId, successor.observation.id);
+  });
+
+  test("appendObservationFamilyMember sets supersedes from the active family head", async () => {
+    const userId = await seedUser();
+    const familyKey = `gmail:${randomUUID()}`;
+
+    const root = await appendObservationFamilyMember(gmailObs(userId, familyKey, "hash-root"));
+    assert.equal(root.status, "inserted");
+    assert.equal(root.observation.supersedesObservationId, null);
+
+    const successor = await appendObservationFamilyMember(
+      gmailObs(userId, familyKey, "hash-successor"),
+    );
+    assert.equal(successor.status, "inserted");
+    assert.equal(successor.observation.supersedesObservationId, root.observation.id);
+
+    const again = await appendObservationFamilyMember(
+      gmailObs(userId, familyKey, "hash-successor"),
+    );
+    assert.equal(again.status, "deduped");
+    assert.equal(again.observation.id, successor.observation.id);
 
     const [head] = await db()
       .select()
