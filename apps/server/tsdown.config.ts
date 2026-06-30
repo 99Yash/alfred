@@ -14,6 +14,7 @@ export default defineConfig({
     "./src/scripts/trigger-cold-start-committed.ts",
     "./src/scripts/backfill-team-graph-committed.ts",
     "./src/scripts/backfill-retire-self-mail-committed.ts",
+    "./src/scripts/backfill-gmail-sent-committed.ts",
     "./src/scripts/backfill-object-state-github-committed.ts",
     "./src/scripts/dry-run-triage-recategorize-committed.ts",
     "./src/scripts/dry-run-reply-reeval-reconcile.ts",
