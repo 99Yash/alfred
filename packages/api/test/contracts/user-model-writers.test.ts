@@ -120,6 +120,26 @@ function gmailObs(userId: string, familyKey: string, evidenceHash: string) {
     familyKey,
     evidenceHash,
     subjectIdentity: { kind: "email" as const, value: "subject@example.com" },
+    payload: {
+      provider: "gmail" as const,
+      documentId: "doc_test",
+      messageId: "gmail_msg_test",
+      threadId: "gmail_thread_test",
+      accountId: "acct_test",
+      isSent: false,
+      subject: "Test subject",
+      subjectHash: "sha256:test",
+      headers: {
+        messageId: "<gmail_msg_test@example.com>",
+        inReplyTo: null,
+        references: [],
+        listId: null,
+        replyTo: null,
+        deliveredTo: null,
+        autoSubmitted: null,
+        precedence: null,
+      },
+    },
   };
 }
 

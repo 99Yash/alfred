@@ -18,6 +18,12 @@ export { requireEntityIdNamespace } from "./namespace";
 export { type DbExecutor } from "./executor";
 export { insertObservation, type InsertObservationResult } from "./observations";
 export {
+  reduceGmailDocument,
+  type GmailDocumentForReduction,
+  type GmailReductionIssue,
+  type GmailReductionResult,
+} from "./gmail-reducer";
+export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
