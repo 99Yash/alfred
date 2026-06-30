@@ -44,6 +44,7 @@ import {
   TRIAGE_CATEGORIES,
   type TriageCategory,
 } from "@alfred/integrations/google";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "../builtins";
 
@@ -107,6 +108,12 @@ async function fetchMessageLabelIds(credentialId: string, messageId: string): Pr
 }
 
 async function main() {
+  if (!gmailMailboxWritesEnabled()) {
+    throw new Error(
+      "[smoke-triage] refuses to mutate Gmail while mailbox writes are disabled; set GMAIL_MAILBOX_WRITES_ENABLED=true to run this smoke against the real mailbox",
+    );
+  }
+
   await warmPool();
   registerBuiltinWorkflows();
 

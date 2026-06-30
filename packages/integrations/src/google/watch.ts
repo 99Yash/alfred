@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
 import { toMessage } from "@alfred/contracts";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
  * Push-channel lifecycle for Gmail. The actual delta sync is in
@@ -37,6 +38,22 @@ interface CredentialMetadataWithWatch {
   [key: string]: unknown;
 }
 
+interface GmailWatchDeps {
+  mailboxWritesEnabled: typeof gmailMailboxWritesEnabled;
+  getFreshAccessToken: typeof getFreshAccessToken;
+  startWatch: typeof startWatch;
+  stopWatch: typeof stopWatch;
+  db: typeof db;
+}
+
+const DEFAULT_DEPS: GmailWatchDeps = {
+  mailboxWritesEnabled: gmailMailboxWritesEnabled,
+  getFreshAccessToken,
+  startWatch,
+  stopWatch,
+  db,
+};
+
 /**
  * Install or renew a Gmail watch channel for a credential.
  *
@@ -45,13 +62,26 @@ interface CredentialMetadataWithWatch {
  * always re-run startWatch and overwrite the stored state — Gmail's
  * historyId from the latest call is the correct baseline.
  */
-export async function installGmailWatch(args: {
-  credentialId: string;
-  topicName: string;
-  labelIds?: string[];
-}): Promise<GmailWatchState> {
-  const accessToken = await getFreshAccessToken(args.credentialId);
-  const watch = await startWatch({
+export async function installGmailWatch(
+  args: {
+    credentialId: string;
+    topicName: string;
+    labelIds?: string[];
+  },
+  deps: Partial<GmailWatchDeps> = {},
+): Promise<GmailWatchState | null> {
+  const d = { ...DEFAULT_DEPS, ...deps };
+  // #278: a non-prod instance must not register a watch against the shared real
+  // Gmail account — it would drive ingestion + relabel that fights prod. Returns
+  // null (not a fake state) so callers can report "skipped" honestly.
+  if (!d.mailboxWritesEnabled()) {
+    console.warn(
+      `[gmail.watch] install skipped for ${args.credentialId}: mailbox writes disabled (non-prod)`,
+    );
+    return null;
+  }
+  const accessToken = await d.getFreshAccessToken(args.credentialId);
+  const watch = await d.startWatch({
     accessToken,
     topicName: args.topicName,
     labelIds: args.labelIds,
@@ -67,7 +97,8 @@ export async function installGmailWatch(args: {
   // Merge into existing metadata jsonb so we don't clobber `token_type`
   // and other unrelated keys. Drizzle's `||` operator on jsonb merges
   // shallowly which is exactly what we want here.
-  await db()
+  await d
+    .db()
     .update(integrationCredentials)
     .set({
       metadata: sql`${integrationCredentials.metadata} || ${JSON.stringify({ watch: state })}::jsonb`,
@@ -90,10 +121,28 @@ export async function installGmailWatch(args: {
  * row itself intact — disconnect-from-watch is not the same as
  * disconnect-from-google.
  */
-export async function uninstallGmailWatch(credentialId: string): Promise<void> {
-  const accessToken = await getFreshAccessToken(credentialId);
-  await stopGmailWatchWithAccessToken({ accessToken, credentialId });
-  await db()
+export async function uninstallGmailWatch(
+  credentialId: string,
+  deps: Partial<GmailWatchDeps> = {},
+): Promise<void> {
+  const d = { ...DEFAULT_DEPS, ...deps };
+  // #278: never stop a watch from non-prod — the only live watch belongs to
+  // prod, and stopping it here would kill prod ingestion. Still clear local
+  // metadata so a manual "uninstall watch" does not report a stale watch as
+  // active in this environment.
+  if (d.mailboxWritesEnabled()) {
+    const accessToken = await d.getFreshAccessToken(credentialId);
+    await stopGmailWatchWithAccessToken(
+      { accessToken, credentialId },
+      { mailboxWritesEnabled: d.mailboxWritesEnabled, stopWatch: d.stopWatch },
+    );
+  } else {
+    console.warn(
+      `[gmail.watch] remote uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
+    );
+  }
+  await d
+    .db()
     .update(integrationCredentials)
     .set({
       metadata: sql`${integrationCredentials.metadata} - 'watch'`,
@@ -106,12 +155,22 @@ export async function uninstallGmailWatch(credentialId: string): Promise<void> {
  * Unlike `uninstallGmailWatch`, this does not update local metadata, so callers
  * can run it after the credential delete commits without reloading the row.
  */
-export async function stopGmailWatchWithAccessToken(args: {
-  accessToken: string;
-  credentialId?: string;
-}): Promise<void> {
+export async function stopGmailWatchWithAccessToken(
+  args: {
+    accessToken: string;
+    credentialId?: string;
+  },
+  deps: Partial<Pick<GmailWatchDeps, "mailboxWritesEnabled" | "stopWatch">> = {},
+): Promise<void> {
+  const d = { ...DEFAULT_DEPS, ...deps };
+  // #278: don't stop the shared watch from non-prod (would kill prod ingestion).
+  if (!d.mailboxWritesEnabled()) {
+    const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
+    console.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
+    return;
+  }
   try {
-    await stopWatch({ accessToken: args.accessToken });
+    await d.stopWatch({ accessToken: args.accessToken });
   } catch (err) {
     // `users.stop` returns 204 even when no active channel exists, so
     // a non-2xx here is unusual — surface but don't block state cleanup.
