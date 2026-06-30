@@ -11,7 +11,7 @@
  *
  *   # preview personal mailbox:
  *   node dist/scripts/backfill-gmail-observations-committed.js --emails=yashgouravkar@gmail.com
- *   # commit every connected mailbox, oldest 5000 docs by authoredAt:
+ *   # commit every connected mailbox in deterministic batches of 5000 docs:
  *   node dist/scripts/backfill-gmail-observations-committed.js --all-connected --commit
  *   # force reprocess existing families after reducer changes:
  *   node dist/scripts/backfill-gmail-observations-committed.js --emails=yashgouravkar@gmail.com --force --commit
@@ -38,6 +38,7 @@ const COMMIT = process.argv.includes("--commit");
 const ALL_CONNECTED = process.argv.includes("--all-connected");
 const FORCE = process.argv.includes("--force");
 const DEFAULT_LIMIT = 5000;
+const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -106,29 +107,25 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
     .orderBy(asc(userTable.email));
 }
 
-async function hasObservationFamily(userId: string, familyKey: string): Promise<boolean> {
-  const [row] = await db()
-    .select({ id: observationFamilyHeads.id })
-    .from(observationFamilyHeads)
-    .where(
-      and(
-        eq(observationFamilyHeads.userId, userId),
-        eq(observationFamilyHeads.familyKey, familyKey),
-      ),
-    )
-    .limit(1);
-  return Boolean(row);
-}
-
 async function loadDocuments(args: {
   userId: string;
   since: Date | null;
   until: Date | null;
   limit: number;
+  includeExistingFamilies: boolean;
 }): Promise<GmailDocumentForReduction[]> {
   const conds: SQL[] = [eq(documents.userId, args.userId), eq(documents.source, "gmail")];
   if (args.since) conds.push(gte(documents.authoredAt, args.since));
   if (args.until) conds.push(lte(documents.authoredAt, args.until));
+  if (!args.includeExistingFamilies) {
+    const familyKey = sql<string>`concat('gmail:message:', coalesce(${documents.accountId}, ${UNKNOWN_ACCOUNT_FAMILY_KEY_PART}), ':', ${documents.sourceId})`;
+    conds.push(sql`not exists (
+      select 1
+      from ${observationFamilyHeads}
+      where ${observationFamilyHeads.userId} = ${documents.userId}
+        and ${observationFamilyHeads.familyKey} = ${familyKey}
+    )`);
+  }
 
   return db()
     .select({
@@ -148,23 +145,19 @@ async function loadDocuments(args: {
     .limit(args.limit);
 }
 
-async function processUser(args: {
-  target: TargetUser;
-  since: Date | null;
-  until: Date | null;
-  limit: number;
-}): Promise<void> {
-  const docs = await loadDocuments({
-    userId: args.target.userId,
-    since: args.since,
-    until: args.until,
-    limit: args.limit,
-  });
+interface BackfillStats {
+  reduced: number;
+  inserted: number;
+  deduped: number;
+  wouldWrite: number;
+  skippedExisting: number;
+  skippedReducer: number;
+  warnings: number;
+  errors: number;
+}
 
-  console.log(`\n=== ${args.target.email} (user=${args.target.userId}) ===`);
-  console.log(`  gmail documents: ${docs.length}`);
-
-  const stats = {
+function newStats(): BackfillStats {
+  return {
     reduced: 0,
     inserted: 0,
     deduped: 0,
@@ -174,6 +167,35 @@ async function processUser(args: {
     warnings: 0,
     errors: 0,
   };
+}
+
+function addStats(total: BackfillStats, next: BackfillStats): void {
+  total.reduced += next.reduced;
+  total.inserted += next.inserted;
+  total.deduped += next.deduped;
+  total.wouldWrite += next.wouldWrite;
+  total.skippedExisting += next.skippedExisting;
+  total.skippedReducer += next.skippedReducer;
+  total.warnings += next.warnings;
+  total.errors += next.errors;
+}
+
+async function processUser(args: {
+  target: TargetUser;
+  since: Date | null;
+  until: Date | null;
+  limit: number;
+}): Promise<BackfillStats> {
+  console.log(`\n=== ${args.target.email} (user=${args.target.userId}) ===`);
+  const stats = newStats();
+  const docs = await loadDocuments({
+    userId: args.target.userId,
+    since: args.since,
+    until: args.until,
+    limit: args.limit,
+    includeExistingFamilies: FORCE,
+  });
+  console.log(`  gmail documents selected: ${docs.length}`);
 
   for (const doc of docs) {
     try {
@@ -189,11 +211,6 @@ async function processUser(args: {
 
       stats.reduced += reduced.observations.length;
       for (const observation of reduced.observations) {
-        if (!FORCE && (await hasObservationFamily(observation.userId, observation.familyKey))) {
-          stats.skippedExisting++;
-          continue;
-        }
-
         if (!COMMIT) {
           stats.wouldWrite++;
           continue;
@@ -214,6 +231,7 @@ async function processUser(args: {
       `skipped_existing=${stats.skippedExisting} ` +
       `skipped_reducer=${stats.skippedReducer} warnings=${stats.warnings} errors=${stats.errors}`,
   );
+  return stats;
 }
 
 async function main() {
@@ -252,7 +270,15 @@ async function main() {
     return;
   }
 
-  for (const target of targets) await processUser({ target, since, until, limit });
+  const total = newStats();
+  for (const target of targets) {
+    const stats = await processUser({ target, since, until, limit });
+    addStats(total, stats);
+  }
+
+  if (total.errors > 0) {
+    throw new Error(`Gmail observation backfill finished with ${total.errors} error(s)`);
+  }
 
   console.log("\n# done");
 }
