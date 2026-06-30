@@ -80,6 +80,8 @@ interface Case {
   recentMessages?: ThreadMessageContext[];
   messageCount?: number;
   newestDirection?: "sent" | "received";
+  /** When the user last replied on the thread — drives rule 18 (own reply closes the loop). */
+  lastUserReplyAt?: Date | null;
   sender: SenderContext;
   authoredAt?: Date;
   expected: Expected;
@@ -271,6 +273,43 @@ const CASES: Case[] = [
       category: "done",
       todo: "mint",
       note: "Closure email (done) carrying a real trailing ask the user owns — category and todo disagree (16a-c all pass).",
+    },
+  },
+  {
+    // Rule 18 — the user's own reply closes the loop. The re-eval re-keys on the
+    // inbound ask (the document under triage), but thread state shows the user
+    // already replied (latest message is the user's send). The user owes nothing
+    // further → done, NOT awaiting_reply. This is the #360 / #282-follow-up case,
+    // mirrored from the live prod ShortLoop thread (2026-06-30).
+    label: "recruiter-ask-user-already-replied",
+    from: '"Sanjay (Shortloop)" <sanjay@shortloop.dev>',
+    subject: "Re: Founding Engineer Role @ ShortLoop",
+    body: "Hi Yash — would you be open to a quick chat this week about the founding engineer role at ShortLoop? Happy to work around your schedule.",
+    persona: "personal",
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "no prior contact on record",
+    messageCount: 2,
+    newestDirection: "sent",
+    lastUserReplyAt: new Date("2026-06-10T11:30:00Z"),
+    recentMessages: [
+      {
+        direction: "sent",
+        authoredAt: new Date("2026-06-10T11:30:00Z"),
+        snippet:
+          "Thanks for reaching out — yes, I'd be happy to chat. I'm free Thursday afternoon, does 3pm work?",
+      },
+      {
+        direction: "received",
+        authoredAt: new Date("2026-06-10T09:00:00Z"),
+        snippet:
+          "Would you be open to a quick chat this week about the founding engineer role at ShortLoop?",
+      },
+    ],
+    authoredAt: new Date("2026-06-10T09:00:00Z"),
+    expected: {
+      category: "done",
+      todo: "suppress",
+      note: "The user has ALREADY replied — the latest thread message is the user's send and thread state shows the reply. The user owes nothing further, so the thread is no longer awaiting_reply → done (rule 18; the user's side of the loop is closed, waiting on the recruiter is not a user action). No todo: already handled (16e) and a cold sender besides.",
     },
   },
   {
@@ -469,7 +508,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
       : null,
     persona: c.persona ?? "work",
     thread: {
-      lastUserReplyAt: null,
+      lastUserReplyAt: c.lastUserReplyAt ?? null,
       newestDirection: c.newestDirection ?? null,
       messageCount: c.messageCount ?? 0,
       recentMessages: c.recentMessages ?? [],
@@ -522,6 +561,9 @@ function renderJudgeContext(c: Case): string {
     lines.push(
       `Thread: ${c.messageCount ?? 0} prior message(s); newest is ${c.newestDirection ?? "unknown"}`,
     );
+    if (c.lastUserReplyAt) {
+      lines.push(`You last replied on ${c.lastUserReplyAt.toISOString().slice(0, 10)}`);
+    }
     for (const message of c.recentMessages ?? []) {
       const who = message.direction === "sent" ? "you sent" : "received";
       lines.push(`Recent thread message [${who}]: ${message.snippet}`);
