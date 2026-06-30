@@ -61,9 +61,15 @@ export * from "./modules/integrations/object-state/index.js";
 // narrowly (not `export *`) so the substrate's internal surface stays internal.
 export {
   appendObservationFamilyMember,
+  activateProjectionVersion,
+  completeProjectionRun,
   insertObservation,
   isObservationAppendConflict,
+  projectGmailKindProfiles,
   reduceGmailDocument,
+  requireEntityIdNamespace,
+  startProjectionRun,
+  writeProjectionCursor,
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
@@ -74,6 +80,7 @@ export {
   type GmailReductionIssue,
   type GmailReductionResult,
   type InsertObservationResult,
+  type ProjectGmailKindProfilesResult,
   type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
   type CredentialForAffiliation,

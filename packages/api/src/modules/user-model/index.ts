@@ -30,6 +30,16 @@ export {
   type GmailReductionResult,
 } from "./gmail-reducer";
 export {
+  classifyEntityKind,
+  type ClassifyEntityKindInput,
+  type GmailPayloadSignals,
+} from "./entity-kind-classifier";
+export {
+  projectGmailKindProfiles,
+  type ProjectGmailKindProfilesArgs,
+  type ProjectGmailKindProfilesResult,
+} from "./gmail-kind-fold";
+export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,

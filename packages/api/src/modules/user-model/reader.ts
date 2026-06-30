@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import {
   activeProjectionVersions,
+  entityIdentities,
   entityCoOccurrence,
   entityEdges,
   entityProfiles,
@@ -11,10 +12,12 @@ import {
 } from "@alfred/db/schemas";
 import {
   USER_MODEL_PROJECTION_NAME,
+  identityRefSchema,
   type EntityEdgeType,
   type EntityNodeKind,
+  type IdentityKind,
 } from "@alfred/contracts";
-import { and, asc, desc, eq, gte, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
 
 /**
  * This is a prompt-assembly / read-model surface (triage, briefing, todos). Every
@@ -153,6 +156,44 @@ export function userModelReader(
     return rows[0]?.entity_profiles ?? null;
   }
 
+  async function getProfileByIdentity(args: {
+    kind: IdentityKind;
+    value: string;
+  }): Promise<ActiveEntityProfile | null> {
+    const identity = identityRefSchema.parse(args);
+    const rows = await db()
+      .select({ profile: entityProfiles })
+      .from(entityIdentities)
+      .innerJoin(
+        entityProfiles,
+        and(
+          eq(entityProfiles.userId, entityIdentities.userId),
+          eq(entityProfiles.entityId, entityIdentities.entityId),
+        ),
+      )
+      .innerJoin(
+        activeProjectionVersions,
+        and(
+          eq(activeProjectionVersions.userId, userId),
+          eq(activeProjectionVersions.projectionName, projectionName),
+        ),
+      )
+      .where(
+        and(
+          eq(entityIdentities.userId, userId),
+          eq(entityIdentities.kind, identity.kind),
+          eq(entityIdentities.value, identity.value),
+          isNull(entityIdentities.validUntil),
+          eq(entityProfiles.userId, userId),
+          eq(entityProfiles.projectionName, projectionName),
+          eq(entityProfiles.projectionVersion, activeProjectionVersions.activeVersion),
+          eq(entityProfiles.projectionRunId, activeProjectionVersions.activeRunId),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.profile ?? null;
+  }
+
   async function listEdges(
     opts: { relationType?: EntityEdgeType; fromEntityId?: string; limit?: number } = {},
   ): Promise<ActiveEntityEdge[]> {
@@ -208,7 +249,14 @@ export function userModelReader(
     return rows.map((r) => r.entity_co_occurrence);
   }
 
-  return { getActivePointer, listProfiles, getProfile, listEdges, listCoOccurrence };
+  return {
+    getActivePointer,
+    listProfiles,
+    getProfile,
+    getProfileByIdentity,
+    listEdges,
+    listCoOccurrence,
+  };
 }
 
 export type UserModelReader = ReturnType<typeof userModelReader>;
