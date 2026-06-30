@@ -4,6 +4,7 @@ import {
   identityRefSchema,
   type EntityKindClassification,
   type IdentityRef,
+  type ProjectionCursorValue,
   type ProjectionProvenance,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -13,7 +14,7 @@ import {
   observations,
   type Observation,
 } from "@alfred/db/schemas";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, lte, or, sql, type SQL } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { ensureEntityNode, recordEntityIdentity } from "./entities";
@@ -24,6 +25,11 @@ export interface ProjectGmailKindProfilesArgs {
   readonly projectionVersion: number;
   readonly projectionName?: string;
   readonly computedAt?: Date;
+  /**
+   * Inclusive Gmail replay bound captured before the run starts. The completed
+   * run records this value, so the fold must consume exactly this prefix.
+   */
+  readonly gmailHighWatermark?: ProjectionCursorValue;
   /**
    * Account-holder email identities to exclude from the first consumer-facing
    * profile projection. PR G can fill this from connected account addresses.
@@ -59,6 +65,14 @@ export async function projectGmailKindProfiles(
   tx?: DbExecutor,
 ): Promise<ProjectGmailKindProfilesResult> {
   const run = async (ex: DbExecutor): Promise<ProjectGmailKindProfilesResult> => {
+    const conds: SQL[] = [
+      eq(observations.userId, args.userId),
+      eq(observations.source, "gmail"),
+      eq(observations.kind, "email_message"),
+    ];
+    const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
+    if (watermarkCond) conds.push(watermarkCond);
+
     const rows = await ex
       .select({ observation: observations })
       .from(observations)
@@ -70,13 +84,7 @@ export async function projectGmailKindProfiles(
           eq(observationFamilyHeads.headObservationId, observations.id),
         ),
       )
-      .where(
-        and(
-          eq(observations.userId, args.userId),
-          eq(observations.source, "gmail"),
-          eq(observations.kind, "email_message"),
-        ),
-      )
+      .where(and(...conds))
       .orderBy(asc(observations.occurredAt), asc(observations.id));
 
     const excludedEmails = new Set(args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? []);
@@ -225,6 +233,7 @@ function payloadSignalsFromObservation(observation: Observation): GmailPayloadSi
   const headers = payload.headers as Record<string, unknown>;
   return {
     listId: stringOrNull(headers.listId),
+    listUnsubscribe: stringOrNull(headers.listUnsubscribe),
     precedence: stringOrNull(headers.precedence),
     autoSubmitted: stringOrNull(headers.autoSubmitted),
   };
@@ -232,6 +241,29 @@ function payloadSignalsFromObservation(observation: Observation): GmailPayloadSi
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefined): SQL | null {
+  if (!watermark) return null;
+  if (watermark.occurredAt) {
+    const occurredAt = new Date(watermark.occurredAt);
+    if (Number.isNaN(occurredAt.getTime())) {
+      throw new Error(`[user-model.gmail-kind-fold] invalid Gmail high-watermark occurredAt`);
+    }
+    if (watermark.lastObservationId) {
+      const boundedByTimestampAndId = or(
+        sql`${observations.occurredAt} < ${occurredAt}`,
+        and(eq(observations.occurredAt, occurredAt), lte(observations.id, watermark.lastObservationId)),
+      );
+      if (!boundedByTimestampAndId) {
+        throw new Error(`[user-model.gmail-kind-fold] failed to build Gmail high-watermark bound`);
+      }
+      return boundedByTimestampAndId;
+    }
+    return lte(observations.occurredAt, occurredAt);
+  }
+  if (watermark.lastObservationId) return lte(observations.id, watermark.lastObservationId);
+  return null;
 }
 
 function isExcluded(identity: IdentityRef, excludedEmails: ReadonlySet<string>): boolean {

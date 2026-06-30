@@ -210,10 +210,10 @@ async function activeObservationCount(userId: string): Promise<number> {
 async function runAttempt(args: {
   readonly target: TargetUser;
   readonly projectionVersion: number;
+  readonly sourceHighWatermark: ProjectionSourceHighWatermark;
   readonly commit: boolean;
+  readonly expected?: Pick<AttemptResult, "checksum" | "profileCount">;
 }): Promise<AttemptResult> {
-  const sourceHighWatermark = await gmailHighWatermark(args.target.userId);
-
   const runBody = async (): Promise<AttemptResult> =>
     db().transaction(async (tx) => {
       const started = await startProjectionRun(
@@ -221,7 +221,7 @@ async function runAttempt(args: {
           userId: args.target.userId,
           projectionName: USER_MODEL_PROJECTION_NAME,
           projectionVersion: args.projectionVersion,
-          sourceHighWatermark,
+          sourceHighWatermark: args.sourceHighWatermark,
         },
         tx,
       );
@@ -241,10 +241,22 @@ async function runAttempt(args: {
           userId: args.target.userId,
           projectionRunId: started.run.id,
           projectionVersion: args.projectionVersion,
+          gmailHighWatermark: args.sourceHighWatermark.gmail,
           excludeEmailValues: args.target.excludeEmailValues,
         },
         tx,
       );
+      if (
+        args.expected &&
+        (projected.checksum !== args.expected.checksum ||
+          projected.profileCount !== args.expected.profileCount)
+      ) {
+        throw new Error(
+          `committed projection diverged from dry validation for ${args.target.email}: ` +
+            `dry=${args.expected.checksum}/${args.expected.profileCount}, ` +
+            `commit=${projected.checksum}/${projected.profileCount}`,
+        );
+      }
       await completeProjectionRun(
         {
           runId: started.run.id,
@@ -252,7 +264,7 @@ async function runAttempt(args: {
           checksum: projected.checksum,
           completedAt: new Date(),
           rowCounts: { entity_profiles: projected.profileCount },
-          sourceHighWatermark,
+          sourceHighWatermark: args.sourceHighWatermark,
         },
         tx,
       );
@@ -262,7 +274,7 @@ async function runAttempt(args: {
         reusedRun: started.reused,
         profileCount: projected.profileCount,
         checksum: projected.checksum,
-        sourceHighWatermark,
+        sourceHighWatermark: args.sourceHighWatermark,
       };
       if (!args.commit) throw new DryRunRollback(result);
       return result;
@@ -280,6 +292,7 @@ async function runAttempt(args: {
 async function validateDeterminism(args: {
   readonly target: TargetUser;
   readonly projectionVersion: number;
+  readonly sourceHighWatermark: ProjectionSourceHighWatermark;
 }): Promise<AttemptResult> {
   const first = await runAttempt({ ...args, commit: false });
   const second = await runAttempt({ ...args, commit: false });
@@ -309,12 +322,13 @@ function canonicalEmail(value: string | null): string | null {
 
 async function processTarget(target: TargetUser, projectionVersion: number): Promise<void> {
   const observationCount = await activeObservationCount(target.userId);
+  const sourceHighWatermark = await gmailHighWatermark(target.userId);
   console.log(`\n=== ${target.email} (user=${target.userId}) ===`);
   console.log(
     `  active gmail observations=${observationCount} excluded_self_emails=${target.excludeEmailValues.join(",") || "(none)"}`,
   );
 
-  const dry = await validateDeterminism({ target, projectionVersion });
+  const dry = await validateDeterminism({ target, projectionVersion, sourceHighWatermark });
   console.log(
     `  DRY validated — profiles=${dry.profileCount} checksum=${dry.checksum} ` +
       `high_watermark=${JSON.stringify(dry.sourceHighWatermark)}`,
@@ -322,14 +336,13 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
 
   if (!COMMIT) return;
 
-  const committed = await runAttempt({ target, projectionVersion, commit: true });
-  if (committed.checksum !== dry.checksum || committed.profileCount !== dry.profileCount) {
-    throw new Error(
-      `committed projection diverged from dry validation for ${target.email}: ` +
-        `dry=${dry.checksum}/${dry.profileCount}, ` +
-        `commit=${committed.checksum}/${committed.profileCount}`,
-    );
-  }
+  const committed = await runAttempt({
+    target,
+    projectionVersion,
+    sourceHighWatermark,
+    commit: true,
+    expected: dry,
+  });
   console.log(
     `  COMMITTED — run=${committed.runId} reused=${committed.reusedRun} ` +
       `profiles=${committed.profileCount} checksum=${committed.checksum}`,

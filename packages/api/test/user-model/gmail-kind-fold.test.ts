@@ -169,6 +169,7 @@ async function appendGmailObservation(args: {
       inReplyTo: null,
       references: [],
       listId: args.listId ?? null,
+      listUnsubscribe: null,
       replyTo: null,
       deliveredTo: null,
       autoSubmitted: null,

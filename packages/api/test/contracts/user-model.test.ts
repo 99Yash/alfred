@@ -1006,6 +1006,7 @@ function gmailPayload(args: { documentId: string; messageId: string }) {
       inReplyTo: null,
       references: [],
       listId: null,
+      listUnsubscribe: null,
       replyTo: null,
       deliveredTo: null,
       autoSubmitted: null,

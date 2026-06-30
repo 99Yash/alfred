@@ -147,6 +147,13 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("person", PERSON_CONFIDENCE, ["display:person_like"]);
   }
 
+  if (isGroupLocal(parsed.localPart)) {
+    return classification("unknown", WEAK_CONFIDENCE, ["email:local:group_weak"], "group");
+  }
+  if (displayNames.some(isLikelyGroupDisplayName)) {
+    return classification("unknown", WEAK_CONFIDENCE, ["display:group_weak"], "group");
+  }
+
   if (FIRST_LAST_LOCAL_RE.test(parsed.localPart) && !isServiceLocal(parsed.localPart)) {
     return classification("person", PERSON_CONFIDENCE, ["email:local:person_like"]);
   }
@@ -155,14 +162,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("service", STRONG_CONFIDENCE, ["email:local:service"]);
   }
   if (isServiceDomain(parsed.domain)) {
-    return classification("service", PERSON_CONFIDENCE, ["email:domain:service"]);
-  }
-
-  if (isGroupLocal(parsed.localPart)) {
-    return classification("unknown", WEAK_CONFIDENCE, ["email:local:group_weak"], "group");
-  }
-  if (displayNames.some(isLikelyGroupDisplayName)) {
-    return classification("unknown", WEAK_CONFIDENCE, ["display:group_weak"], "group");
+    return classification("unknown", WEAK_CONFIDENCE, ["email:domain:service_weak"], "service");
   }
 
   evidenceCodes.push("email:mailbox:individual");
@@ -177,6 +177,7 @@ function signalsFromObservations(observations: readonly Observation[]): GmailPay
     if (!payload.success) continue;
     signals.push({
       listId: payload.data.headers.listId,
+      listUnsubscribe: payload.data.headers.listUnsubscribe,
       precedence: payload.data.headers.precedence,
       autoSubmitted: payload.data.headers.autoSubmitted,
     });

@@ -25,6 +25,7 @@ import {
   senderKeyFor,
   senderPriorWriteKeyFor,
   suggestTodo,
+  triageSenderKindProjectionEnabled,
   triageWorkflowInputSchema,
   TRIAGE_WORKFLOW_SLUG,
   upsertTriage,
@@ -531,12 +532,18 @@ export const emailTriageWorkflow: Workflow<State> = {
         // observation, so it must not re-bump the sender prior either.
         if (!reusedExistingRow && written && ctx.state.reason !== "reply") {
           const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
-          const senderKey = senderPriorWriteKeyFor({
-            senderContext,
-            senderAddress: senderContextResult.senderAddress,
-            isSent: docIsSent,
-            model,
-          });
+          const senderKey =
+            !docIsSent &&
+            model !== "fallback" &&
+            observations?.senderKind &&
+            senderContextResult.senderAddress
+              ? senderContextResult.senderAddress.toLowerCase()
+              : senderPriorWriteKeyFor({
+                  senderContext,
+                  senderAddress: senderContextResult.senderAddress,
+                  isSent: docIsSent,
+                  model,
+                });
           if (senderKey) {
             try {
               await incrementSenderPrior({
@@ -755,11 +762,8 @@ async function gatherObservations(args: {
   // Read key uses the same derivation as the write key (humans → null) but no
   // sent/fallback guard: reads are harmless and the classify step only runs on
   // received mail anyway.
-  const senderKey = senderKeyFor(args.senderContext, args.senderAddress);
-
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
-  const [senderPrior, thread, senderKind] = await Promise.all([
-    senderKey ? getSenderPrior(args.userId, senderKey).catch(() => null) : Promise.resolve(null),
+  const [thread, senderKindEnabled] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -770,8 +774,17 @@ async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    resolveSenderKind(args.userId, args.senderAddress),
+    triageSenderKindProjectionEnabled(args.userId).catch(() => false),
   ]);
+  const senderKind =
+    senderKindEnabled && args.senderAddress
+      ? await resolveSenderKind(args.userId, args.senderAddress)
+      : null;
+  const senderKey =
+    senderKind && args.senderAddress
+      ? args.senderAddress.toLowerCase()
+      : senderKeyFor(args.senderContext, args.senderAddress);
+  const senderPrior = senderKey ? await getSenderPrior(args.userId, senderKey).catch(() => null) : null;
   const usePersonTreatment = isHumanSender && senderKind == null;
   const [knownContact, senderRelationship] = await Promise.all([
     usePersonTreatment && args.senderAddress
