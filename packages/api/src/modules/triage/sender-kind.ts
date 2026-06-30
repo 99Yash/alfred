@@ -23,7 +23,7 @@ export type TriageSenderKindSignal = {
 
 export async function triageSenderKindProjectionEnabled(userId: string): Promise<boolean> {
   const row = await getPreference(userId, TRIAGE_SENDER_KIND_FEATURE_KEY);
-  return row ? flagOn(row.value) : false;
+  return row ? flagOn(row.value) : true;
 }
 
 /**
@@ -74,7 +74,7 @@ function canonicalSenderEmail(senderAddress: string | null): string | null {
 }
 
 function flagOn(value: unknown): boolean {
-  return value === true || value === "true" || value === 1;
+  return !(value === false || value === "false" || value === 0);
 }
 
 function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageSenderKindSignal["kind"] {
@@ -83,11 +83,7 @@ function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageSenderK
 
 function classificationFromProfile(profile: ActiveEntityProfile): EntityKindClassification | null {
   const provenance = profile.provenance;
-  if (
-    typeof provenance !== "object" ||
-    provenance === null ||
-    !("classification" in provenance)
-  ) {
+  if (typeof provenance !== "object" || provenance === null || !("classification" in provenance)) {
     return null;
   }
   const parsed = entityKindClassificationSchema.safeParse(provenance.classification);
