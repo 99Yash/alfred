@@ -6,6 +6,7 @@ import {
   canonicalizeIdentityValue,
   entityKindClassificationSchema,
   ENTITY_NODE_KINDS,
+  gmailEmailMessagePayloadSchema,
   FACT_KEY_ALIASES,
   identityRefSchema,
   identityValueMatchesKind,
@@ -856,12 +857,13 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
     familyKey: "gmail:abc123",
     evidenceHash: "sha256:deadbeef",
     subjectIdentity: { kind: "email" as const, value: "person@example.com" },
+    payload: gmailPayload({ documentId: "doc_1", messageId: "msg_1" }),
   };
 
   test("accepts a minimal valid observation and applies column-matching defaults", () => {
     const parsed = observationInsertSchema.parse(minimal);
     assert.deepEqual(parsed.participants, { items: [], recipientCount: 0 });
-    assert.deepEqual(parsed.payload, {});
+    assert.equal(parsed.payload.provider, "gmail");
     assert.equal(parsed.schemaVersion, 1);
     assert.equal(parsed.reducerVersion, 1);
     assert.equal(parsed.objectIdentity, undefined);
@@ -962,4 +964,52 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
       observationInsertSchema.parse({ ...minimal, occured_at: new Date() } as never),
     );
   });
+
+  test("validates gmail email_message payloads by kind", () => {
+    const payload = gmailPayload({ documentId: "doc_1", messageId: "msg_1" });
+    assert.doesNotThrow(() => gmailEmailMessagePayloadSchema.parse(payload));
+    assert.doesNotThrow(() => observationInsertSchema.parse({ ...minimal, payload }));
+
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        payload: {
+          ...payload,
+          provider: "not-gmail",
+        },
+      }),
+    );
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        payload: {
+          ...payload,
+          headers: { ...payload.headers, references: "not-array" },
+        },
+      }),
+    );
+  });
 });
+
+function gmailPayload(args: { documentId: string; messageId: string }) {
+  return {
+    provider: "gmail",
+    documentId: args.documentId,
+    messageId: args.messageId,
+    threadId: "thread_1",
+    accountId: "acct_1",
+    isSent: false,
+    subject: "Subject",
+    subjectHash: "sha256:abc",
+    headers: {
+      messageId: "<message@example.com>",
+      inReplyTo: null,
+      references: [],
+      listId: null,
+      replyTo: null,
+      deliveredTo: null,
+      autoSubmitted: null,
+      precedence: null,
+    },
+  };
+}
