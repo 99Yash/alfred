@@ -33,6 +33,13 @@ export interface IngestRecentArgs {
   maxMessages?: number;
   /** Page size for `messages.list` calls. Gmail caps at 500. */
   pageSize?: number;
+  /**
+   * Whether this run should advance the Gmail history cursor / full-sync marker.
+   * Keep true for normal catch-up ingestion. Set false for filtered replay-style
+   * backfills, where advancing the cursor from a partial query would incorrectly
+   * claim the whole mailbox has been scanned.
+   */
+  updateCursor?: boolean;
 }
 
 export interface IngestRecentResult {
@@ -148,12 +155,14 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     }
   }
 
-  await upsertIngestionState({
-    credentialId: cred.credentialId,
-    userId: cred.userId,
-    historyId: highWaterHistoryId,
-    fullSync: true,
-  });
+  if (args.updateCursor !== false) {
+    await upsertIngestionState({
+      credentialId: cred.credentialId,
+      userId: cred.userId,
+      historyId: highWaterHistoryId,
+      fullSync: true,
+    });
+  }
 
   return {
     fetched: refs.length,
