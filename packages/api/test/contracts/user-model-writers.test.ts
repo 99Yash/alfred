@@ -239,6 +239,44 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     assert.equal(head?.headObservationId, successor.observation.id);
   });
 
+  test("appendObservationFamilyMember serializes concurrent appends for one family", async () => {
+    const userId = await seedUser();
+    const familyKey = `gmail:${randomUUID()}`;
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        appendObservationFamilyMember(gmailObs(userId, familyKey, `hash-concurrent-${index}`)),
+      ),
+    );
+    assert.deepEqual(
+      results.map((result) => result.status),
+      ["inserted", "inserted", "inserted", "inserted", "inserted"],
+    );
+
+    const rows = await db()
+      .select({
+        id: observations.id,
+        supersedesObservationId: observations.supersedesObservationId,
+      })
+      .from(observations)
+      .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)));
+    assert.equal(rows.length, 5);
+    assert.equal(
+      rows.filter((row) => row.supersedesObservationId === null).length,
+      1,
+      "a concurrently-created family must have exactly one root",
+    );
+
+    const predecessorIds = rows
+      .map((row) => row.supersedesObservationId)
+      .filter((id): id is string => id !== null);
+    assert.equal(
+      new Set(predecessorIds).size,
+      predecessorIds.length,
+      "no two rows should supersede the same predecessor",
+    );
+  });
+
   test("insertObservation rejects a kind not valid for its source (parse gate)", async () => {
     const userId = await seedUser();
     await assert.rejects(

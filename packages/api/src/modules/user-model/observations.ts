@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
@@ -47,6 +47,15 @@ export function isObservationAppendConflict(err: unknown): boolean {
     cur = pg.cause;
   }
   return false;
+}
+
+async function lockObservationFamily(
+  tx: DbExecutor,
+  userId: string,
+  familyKey: string,
+): Promise<void> {
+  const lockKey = `${userId}\u001f${familyKey}`;
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 }
 
 /**
@@ -169,6 +178,8 @@ export async function appendObservationFamilyMember(
   for (let attempt = 1; ; attempt++) {
     try {
       return await db().transaction(async (tx) => {
+        await lockObservationFamily(tx, parsed.userId, parsed.familyKey);
+
         const [head] = await tx
           .select({ headObservationId: observationFamilyHeads.headObservationId })
           .from(observationFamilyHeads)
