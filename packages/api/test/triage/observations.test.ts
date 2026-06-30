@@ -130,6 +130,13 @@ describe("assembleObservations", () => {
       thread,
       knownContact: false,
       senderRelationship: "weak · one-way inbound (you never replied)",
+      senderKind: {
+        kind: "group",
+        confidence: 0.99,
+        evidenceCodes: ["gmail:list_id"],
+        entityId: "ent_group",
+        displayName: "Engineering",
+      },
       labelIds: ["INBOX", "CATEGORY_UPDATES"],
       signalText: "Your invoice for $42.00 is ready. Unsubscribe",
     });
@@ -144,6 +151,13 @@ describe("assembleObservations", () => {
       thread,
       knownContact: false,
       senderRelationship: "weak · one-way inbound (you never replied)",
+      senderKind: {
+        kind: "group",
+        confidence: 0.99,
+        evidenceCodes: ["gmail:list_id"],
+        entityId: "ent_group",
+        displayName: "Engineering",
+      },
       gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
       content: {
         hasUnsubscribe: true,
@@ -164,6 +178,7 @@ describe("assembleObservations", () => {
       thread,
       knownContact: true,
       senderRelationship: null,
+      senderKind: null,
       labelIds: [],
       signalText: "hey, quick question",
     });
@@ -172,5 +187,6 @@ describe("assembleObservations", () => {
     assert.equal(obs.persona, null);
     assert.equal(obs.knownContact, true);
     assert.equal(obs.senderRelationship, null);
+    assert.equal(obs.senderKind, null);
   });
 });

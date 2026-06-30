@@ -17,6 +17,7 @@ import {
   publishEvent,
   reconcileThreadLabel,
   resolveFeatureFlags,
+  resolveSenderKind,
   resolveSenderRelationship,
   resolveTodoSuggestion,
   senderExtractionEvent,
@@ -757,7 +758,7 @@ async function gatherObservations(args: {
   const senderKey = senderKeyFor(args.senderContext, args.senderAddress);
 
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
-  const [senderPrior, thread, knownContact, senderRelationship] = await Promise.all([
+  const [senderPrior, thread, senderKind] = await Promise.all([
     senderKey ? getSenderPrior(args.userId, senderKey).catch(() => null) : Promise.resolve(null),
     getThreadState({
       userId: args.userId,
@@ -769,13 +770,17 @@ async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    isHumanSender && args.senderAddress
+    resolveSenderKind(args.userId, args.senderAddress),
+  ]);
+  const usePersonTreatment = isHumanSender && senderKind == null;
+  const [knownContact, senderRelationship] = await Promise.all([
+    usePersonTreatment && args.senderAddress
       ? isKnownContact(args.userId, args.senderAddress).catch(() => false)
       : Promise.resolve(false),
     resolveSenderRelationship({
       userId: args.userId,
       senderAddress: args.senderAddress,
-      isHumanSender,
+      isHumanSender: usePersonTreatment,
     }).catch(() => null),
   ]);
 
@@ -798,6 +803,7 @@ async function gatherObservations(args: {
     thread,
     knownContact,
     senderRelationship,
+    senderKind,
     labelIds,
     signalText,
   });
