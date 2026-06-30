@@ -61,11 +61,15 @@ export * from "./modules/integrations/object-state/index.js";
 // narrowly (not `export *`) so the substrate's internal surface stays internal.
 export {
   insertObservation,
+  reduceGmailDocument,
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
+  type GmailDocumentForReduction,
+  type GmailReductionIssue,
+  type GmailReductionResult,
   type InsertObservationResult,
   type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
