@@ -4,6 +4,9 @@ import {
   CANONICAL_FACT_KEYS,
   canonicalizeFactKey,
   canonicalizeIdentityValue,
+  entityKindClassificationSchema,
+  ENTITY_NODE_KINDS,
+  gmailEmailMessagePayloadSchema,
   FACT_KEY_ALIASES,
   identityRefSchema,
   identityValueMatchesKind,
@@ -11,10 +14,12 @@ import {
   identityAnchorRank,
   isHardPersonBridge,
   isImmutableAccountBridge,
+  isPersonScorable,
   isObservationKindForSource,
   MAX_IDENTITY_VALUE_BYTES,
   MAX_EVIDENCE_HASH_BYTES,
   MAX_FAMILY_KEY_BYTES,
+  NON_PERSON_ENTITY_KINDS,
   OBSERVATION_SOURCE_RANK,
   observationInsertSchema,
   observationParticipantsSchema,
@@ -244,6 +249,54 @@ describe("projectionRunStatusSchema", () => {
     assert.deepEqual(PROJECTION_RUN_STATUS, ["running", "completed", "failed"]);
     assert.equal(projectionRunStatusSchema.parse("running"), "running");
     assert.throws(() => projectionRunStatusSchema.parse("stalled"));
+  });
+});
+
+describe("entity kind classifier contracts", () => {
+  test("keeps unknown as a retained but non-person-scorable node kind", () => {
+    assert.ok(ENTITY_NODE_KINDS.includes("unknown"));
+    assert.ok(NON_PERSON_ENTITY_KINDS.includes("unknown"));
+    assert.equal(isPersonScorable("person"), true);
+    for (const kind of NON_PERSON_ENTITY_KINDS) {
+      assert.equal(isPersonScorable(kind), false);
+    }
+  });
+
+  test("types classifier provenance for versioned profiles", () => {
+    const parsed = entityKindClassificationSchema.parse({
+      kind: "unknown",
+      confidence: 0.4,
+      bestGuess: "person",
+      evidenceCodes: ["gmail.low_confidence_mailbox"],
+      researchStatus: "not_started",
+    });
+    assert.equal(parsed.kind, "unknown");
+    assert.equal(parsed.bestGuess, "person");
+    assert.equal(parsed.researchStatus, "not_started");
+
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "unknown",
+        confidence: 0.4,
+        bestGuess: "unknown",
+        evidenceCodes: ["bad.best_guess"],
+      }),
+    );
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "person",
+        confidence: 1.2,
+        evidenceCodes: ["bad.confidence"],
+      }),
+    );
+    assert.throws(() =>
+      entityKindClassificationSchema.parse({
+        kind: "person",
+        confidence: 0.9,
+        evidenceCodes: [],
+        extra: true,
+      }),
+    );
   });
 });
 
@@ -804,12 +857,13 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
     familyKey: "gmail:abc123",
     evidenceHash: "sha256:deadbeef",
     subjectIdentity: { kind: "email" as const, value: "person@example.com" },
+    payload: gmailPayload({ documentId: "doc_1", messageId: "msg_1" }),
   };
 
   test("accepts a minimal valid observation and applies column-matching defaults", () => {
     const parsed = observationInsertSchema.parse(minimal);
     assert.deepEqual(parsed.participants, { items: [], recipientCount: 0 });
-    assert.deepEqual(parsed.payload, {});
+    assert.equal(parsed.payload.provider, "gmail");
     assert.equal(parsed.schemaVersion, 1);
     assert.equal(parsed.reducerVersion, 1);
     assert.equal(parsed.objectIdentity, undefined);
@@ -910,4 +964,52 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
       observationInsertSchema.parse({ ...minimal, occured_at: new Date() } as never),
     );
   });
+
+  test("validates gmail email_message payloads by kind", () => {
+    const payload = gmailPayload({ documentId: "doc_1", messageId: "msg_1" });
+    assert.doesNotThrow(() => gmailEmailMessagePayloadSchema.parse(payload));
+    assert.doesNotThrow(() => observationInsertSchema.parse({ ...minimal, payload }));
+
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        payload: {
+          ...payload,
+          provider: "not-gmail",
+        },
+      }),
+    );
+    assert.throws(() =>
+      observationInsertSchema.parse({
+        ...minimal,
+        payload: {
+          ...payload,
+          headers: { ...payload.headers, references: "not-array" },
+        },
+      }),
+    );
+  });
 });
+
+function gmailPayload(args: { documentId: string; messageId: string }) {
+  return {
+    provider: "gmail",
+    documentId: args.documentId,
+    messageId: args.messageId,
+    threadId: "thread_1",
+    accountId: "acct_1",
+    isSent: false,
+    subject: "Subject",
+    subjectHash: "sha256:abc",
+    headers: {
+      messageId: "<message@example.com>",
+      inReplyTo: null,
+      references: [],
+      listId: null,
+      replyTo: null,
+      deliveredTo: null,
+      autoSubmitted: null,
+      precedence: null,
+    },
+  };
+}
