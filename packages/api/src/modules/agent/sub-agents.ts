@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { createRun } from "./service";
+import { createRun, isUniqueViolation } from "./service";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
 import {
@@ -197,17 +197,41 @@ export async function spawnSubAgent(
     },
   };
 
-  const created = await createRun({
-    userId: args.userId,
-    // Sub-agents always run the sub-agent-aware brief workflow — never the
-    // parent's own slug, which may be thread-coupled (chat-turn) and unable to
-    // initialize from a bare brief. For boss / authored parents this is the
-    // same workflow they already resolve to, so behavior is unchanged there.
-    workflowSlug: SUB_AGENT_WORKFLOW_SLUG,
-    brief: args.brief,
-    metadata,
-    trigger: { kind: "manual" },
-  });
+  let created: { runId: string };
+  try {
+    created = await createRun({
+      userId: args.userId,
+      // Sub-agents always run the sub-agent-aware brief workflow — never the
+      // parent's own slug, which may be thread-coupled (chat-turn) and unable to
+      // initialize from a bare brief. For boss / authored parents this is the
+      // same workflow they already resolve to, so behavior is unchanged there.
+      workflowSlug: SUB_AGENT_WORKFLOW_SLUG,
+      brief: args.brief,
+      metadata,
+      trigger: { kind: "manual" },
+    });
+  } catch (err) {
+    // The `findExistingSubAgentRun` guard above is a non-atomic check-then-
+    // create; a concurrent spawn for the same (parentRunId, parentToolCallId)
+    // — e.g. a false lease-reclaim double-executing `dispatch-tools` — can slip
+    // between the check and this insert. The sub-agent workflow's `dedupKey`
+    // puts a partial unique index behind that race (#375 F1), so the losing
+    // insert throws 23505 here. Fold it into the already-spawned path: re-read
+    // the winner's row and enqueue it, so exactly one child is ever spawned.
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await findExistingSubAgentRun(args);
+    if (!winner) throw err;
+    await enqueueRun(winner.id, {
+      jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
+    });
+    return {
+      ok: true,
+      status: "already_spawned",
+      parentRunId: args.parentRunId,
+      childRunId: winner.id,
+      subId: args.subId,
+    };
+  }
   await enqueueRun(created.runId, {
     jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
   });
