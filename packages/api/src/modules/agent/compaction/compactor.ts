@@ -52,6 +52,31 @@ export interface CompactTranscriptResult {
   raw: { text: string; inputTokens: number | undefined; outputTokens: number | undefined };
 }
 
+/**
+ * Reserved output budget for the compaction round-trip. Named so the
+ * model-selection fit check (`selectCompactorModel`) reserves the exact same
+ * headroom it later sends as `maxOutputTokens` — the two must not drift.
+ */
+const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
+
+/**
+ * Tokens that ride along in the compaction request on top of the `prior`
+ * slice, which `selectCompactorModel` must reserve before comparing to a model
+ * window (#371). Without this the fit check compares a bare `prior` estimate to
+ * the full window and ignores everything else in the same request, so a `prior`
+ * sized just under the window produces `prior + system + wrapper + output >
+ * window` → a deterministic provider 400 that the workflow retries 3× and then
+ * fails the run; the opposite boundary silently routes to the full-price
+ * fallback. Components:
+ *   - system prompt: `COMPACTOR_SYSTEM_PROMPT`, sent as `system`.
+ *   - wrapper prose: the fixed prefix `transcriptPayloadMessage` wraps around
+ *     the JSON payload (the JSON itself is already in the `prior` estimate).
+ *   - output: the reserved `maxOutputTokens` above.
+ * chars/4 mirrors `estimateTranscriptTokens`; the wrapper is a small constant.
+ */
+const COMPACTOR_REQUEST_OVERHEAD_TOKENS =
+  Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / 4) + 64 + COMPACTOR_MAX_OUTPUT_TOKENS;
+
 export async function compactTranscript(
   args: CompactTranscriptArgs,
 ): Promise<CompactTranscriptResult> {
@@ -62,7 +87,7 @@ export async function compactTranscript(
   const result = await meteredGenerateText(
     {
       model,
-      maxOutputTokens: 2000,
+      maxOutputTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
       temperature: 0,
       system: COMPACTOR_SYSTEM_PROMPT,
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
@@ -102,13 +127,30 @@ async function selectCompactorModel(
 ): Promise<typeof COMPACTOR_MODEL> {
   const priorTokens = estimateTranscriptTokens(prior);
   const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
-  if (priorTokens <= compactorWindow) return COMPACTOR_MODEL;
-
   const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
-  if (priorTokens <= fallbackWindow) return COMPACTOR_FALLBACK_MODEL;
+  return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
+}
 
+/**
+ * Pure fit decision, split out so the window-headroom math (#371) is unit
+ * testable without resolving live model windows. Reserves
+ * `COMPACTOR_REQUEST_OVERHEAD_TOKENS` on top of the `prior` estimate — the
+ * whole point of this function is "does the real request fit", so it must
+ * account for everything the request carries beyond `prior`.
+ */
+export function chooseCompactorModel(args: {
+  priorTokens: number;
+  compactorWindow: number;
+  fallbackWindow: number;
+}): typeof COMPACTOR_MODEL {
+  const requiredTokens = args.priorTokens + COMPACTOR_REQUEST_OVERHEAD_TOKENS;
+  if (requiredTokens <= args.compactorWindow) return COMPACTOR_MODEL;
+  if (requiredTokens <= args.fallbackWindow) return COMPACTOR_FALLBACK_MODEL;
   throw new Error("compactor_input_too_large");
 }
+
+/** Exported for the headroom regression test (#371). */
+export const compactorRequestOverheadTokens = COMPACTOR_REQUEST_OVERHEAD_TOKENS;
 
 function providerOptionsFor(model: typeof COMPACTOR_MODEL): Record<string, unknown> | undefined {
   if (model !== COMPACTOR_MODEL) return undefined;
