@@ -72,25 +72,29 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
   // drift entirely; log each miss with a count so an approaching reclaim is
   // visible in the logs instead of only showing up as a surprise double-spend.
   let missedHeartbeats = 0;
-  const heartbeat = setInterval(() => {
-    void heartbeatRun(runId)
-      .then(() => {
-        missedHeartbeats = 0;
-      })
-      .catch((err) => {
-        missedHeartbeats += 1;
-        console.warn(
-          `[agent:worker] heartbeat miss #${missedHeartbeats} for run ${runId} (~${missedHeartbeats * (HEARTBEAT_INTERVAL_MS / 1000)}s without checkpoint; reclaim after the step's stale window, default ${STALE_RUN_LEASE_MS / 1000}s — longer for model-turn steps):`,
-          toMessage(err),
-        );
-      });
-  }, HEARTBEAT_INTERVAL_MS);
-  if (typeof heartbeat === "object" && "unref" in heartbeat) {
-    heartbeat.unref();
-  }
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   try {
-    const outcome = await runOnce(runId);
+    const outcome = await runOnce(runId, {
+      onLeased: ({ attempt }) => {
+        heartbeat = setInterval(() => {
+          void heartbeatRun(runId, attempt)
+            .then(() => {
+              missedHeartbeats = 0;
+            })
+            .catch((err) => {
+              missedHeartbeats += 1;
+              console.warn(
+                `[agent:worker] heartbeat miss #${missedHeartbeats} for run ${runId} attempt ${attempt} (~${missedHeartbeats * (HEARTBEAT_INTERVAL_MS / 1000)}s without checkpoint; reclaim after the step's stale window, default ${STALE_RUN_LEASE_MS / 1000}s — longer for model-turn steps):`,
+                toMessage(err),
+              );
+            });
+        }, HEARTBEAT_INTERVAL_MS);
+        if (typeof heartbeat === "object" && "unref" in heartbeat) {
+          heartbeat.unref();
+        }
+      },
+    });
     // If the run advanced, immediately re-enqueue so the next step picks
     // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
@@ -124,7 +128,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       }
     }
   } finally {
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
   }
 }
 

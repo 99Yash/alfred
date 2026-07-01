@@ -6,7 +6,14 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { commitStepSuccess } from "../../src/modules/agent/executor";
+import { commitStepSuccess, runOnce } from "../../src/modules/agent/executor";
+import {
+  _resetRegistryForTests,
+  getWorkflow,
+  registerWorkflow,
+} from "../../src/modules/agent/registry";
+import { heartbeatRun } from "../../src/modules/agent/service";
+import type { StepResult, Workflow } from "../../src/modules/agent/types";
 
 /**
  * DB-backed tests for the commit attempt-guard. A stale-lease reclaim bumps
@@ -24,6 +31,30 @@ const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skippi
 const ID_PREFIX = "test-commit-guard-";
 const createdUserIds: string[] = [];
 const STEP = "chat-turn";
+const THROW_SLUG = "__test-commit-guard-throw";
+
+const supersededFailureWorkflow: Workflow<Record<string, never>> = {
+  slug: THROW_SLUG,
+  name: "commit failure guard test",
+  trigger: { kind: "manual" },
+  initialState: () => ({}),
+  initialStep: STEP,
+  steps: {
+    [STEP]: {
+      id: STEP,
+      run: async (ctx): Promise<StepResult<Record<string, never>>> => {
+        // Simulate a stale-lease reclaim winning while this worker is still in
+        // the step body. The subsequent throw must not let this stale worker
+        // terminal-fail the newer attempt.
+        await db()
+          .update(agentRuns)
+          .set({ attempt: ctx.attempt + 1 })
+          .where(eq(agentRuns.id, ctx.runId));
+        throw new Error("stale worker exploded");
+      },
+    },
+  },
+};
 
 async function seedRunningRun(attempt: number): Promise<{ userId: string; runId: string }> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
@@ -42,6 +73,28 @@ async function seedRunningRun(attempt: number): Promise<{ userId: string; runId:
     lastCheckpointAt: new Date(),
   });
   await db().insert(agentSteps).values({ runId, stepId: STEP, attempt, status: "running" });
+  return { userId, runId };
+}
+
+async function seedRunnableRun(
+  workflowSlug: string,
+  attempt: number,
+): Promise<{ userId: string; runId: string }> {
+  const userId = `${ID_PREFIX}${randomUUID()}`;
+  createdUserIds.push(userId);
+  await db()
+    .insert(user)
+    .values({ id: userId, name: "Test", email: `${userId}@example.test` });
+  const runId = `run_${randomUUID().slice(0, 12)}`;
+  await db().insert(agentRuns).values({
+    id: runId,
+    userId,
+    workflowSlug,
+    currentStep: STEP,
+    status: "runnable",
+    attempt,
+    lastCheckpointAt: new Date(),
+  });
   return { userId, runId };
 }
 
@@ -65,6 +118,7 @@ async function readRun(runId: string) {
       status: agentRuns.status,
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
+      lastCheckpointAt: agentRuns.lastCheckpointAt,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
@@ -90,11 +144,13 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
+    if (!getWorkflow(THROW_SLUG)) registerWorkflow(supersededFailureWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+    _resetRegistryForTests();
     await closeConnections();
   });
 
@@ -158,5 +214,47 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     const run = await readRun(runId);
     assert.equal(run?.status, "running", "the run is NOT marked completed by the stale worker");
     assert.equal(run?.attempt, 4);
+  });
+
+  test("superseded failure: a stale throw does not terminal-fail the newer attempt", async () => {
+    const { runId } = await seedRunnableRun(THROW_SLUG, 5);
+
+    const outcome = await runOnce(runId);
+
+    assert.equal(outcome.kind, "skipped", "the stale failure commit is a benign skip");
+    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, "superseded_by_reclaim");
+    const run = await readRun(runId);
+    assert.equal(run?.status, "running", "the stale worker did NOT mark the run failed");
+    assert.equal(run?.attempt, 6, "the newer attempt remains in charge");
+    assert.equal(
+      await readStepStatus(runId, 5),
+      "running",
+      "the stale failure step update rolled back",
+    );
+  });
+
+  test("heartbeat is scoped to the leased attempt", async () => {
+    const { runId } = await seedRunningRun(5);
+    const oldCheckpoint = new Date(Date.now() - 10 * 60_000);
+    await db()
+      .update(agentRuns)
+      .set({ attempt: 6, lastCheckpointAt: oldCheckpoint })
+      .where(eq(agentRuns.id, runId));
+
+    await heartbeatRun(runId, 5);
+    const afterStaleHeartbeat = await readRun(runId);
+    assert.ok(afterStaleHeartbeat?.lastCheckpointAt);
+    assert.ok(
+      afterStaleHeartbeat.lastCheckpointAt.getTime() < Date.now() - 60_000,
+      "a stale attempt heartbeat must not refresh the newer attempt",
+    );
+
+    await heartbeatRun(runId, 6);
+    const afterCurrentHeartbeat = await readRun(runId);
+    assert.ok(afterCurrentHeartbeat?.lastCheckpointAt);
+    assert.ok(
+      afterCurrentHeartbeat.lastCheckpointAt.getTime() > Date.now() - 60_000,
+      "the current attempt heartbeat still refreshes the run",
+    );
   });
 });

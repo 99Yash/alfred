@@ -19,6 +19,7 @@ import {
   STALE_RUN_LEASE_MS,
 } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
+import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
 
 /**
  * Tests for the per-step stale-lease window (ADR-0070 §1.4, Lever A). Lever A
@@ -90,10 +91,20 @@ describe("per-step stale-lease resolution (pure)", () => {
   });
 
   test("resolveStaleAfterMs falls back to the default for an unknown slug or step", () => {
-    // User-authored workflows aren't registered under their own slug — they must
-    // resolve to the default, never throw.
     assert.equal(resolveStaleAfterMs("no-such-workflow", "wide-step"), STALE_RUN_LEASE_MS);
     assert.equal(resolveStaleAfterMs(SLUG, "no-such-step"), STALE_RUN_LEASE_MS);
+  });
+
+  test("resolveStaleAfterMs applies shared user-authored step windows to authored slugs", () => {
+    // User-authored workflow rows keep their own DB slug on agent_runs, but
+    // execute the shared userAuthoredBriefWorkflow body. The stale-window
+    // resolver must therefore recognize boss-turn even when the slug is not in
+    // the in-memory registry; otherwise authored workflow boss turns fall back
+    // to the too-tight 60s default.
+    assert.equal(
+      resolveStaleAfterMs("my-authored-workflow", "boss-turn"),
+      userAuthoredBriefWorkflow.steps["boss-turn"]?.staleAfterMs,
+    );
   });
 
   test("minStaleAfterMs is the smallest declared window (the SQL sweep floor)", () => {

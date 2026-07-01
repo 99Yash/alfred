@@ -167,7 +167,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.deepEqual(state.notedFailureToolCallIds, []);
   });
 
-  test("ignores a lone non-execution failure (malformed call, no side effect)", async () => {
+  test("fires for a lone non-execution failure (malformed write, no successful retry)", async () => {
     const state = baseState({
       toolCallsLog: [
         {
@@ -181,7 +181,9 @@ describe("guardUnreportedToolFailures", () => {
     });
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
-    assert.equal(result, null);
+    assert.ok(result, "a malformed write with no later success can still produce false-success text");
+    assert.equal(result.kind, "next");
+    assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
   });
 
   test("still fires for a real execution failure (no nonExecution flag)", async () => {
@@ -253,7 +255,13 @@ describe("guardUnreportedToolFailures", () => {
   test("fires for an unknown write-shaped tool name", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "sheets.write_values", status: "failed", segmentIndex: 0 },
+        {
+          toolCallId: "tc_1",
+          toolName: "sheets.write_values",
+          status: "failed",
+          nonExecution: true,
+          segmentIndex: 0,
+        },
       ],
     });
     const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
