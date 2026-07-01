@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "agent_runs_sub_agent_dedup_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","dedup_key") WHERE "agent_runs"."workflow_slug" = '__user-authored-brief__' AND "agent_runs"."dedup_key" LIKE 'sub:%';

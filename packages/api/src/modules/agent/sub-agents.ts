@@ -215,9 +215,10 @@ export async function spawnSubAgent(
     // create; a concurrent spawn for the same (parentRunId, parentToolCallId)
     // — e.g. a false lease-reclaim double-executing `dispatch-tools` — can slip
     // between the check and this insert. The sub-agent workflow's `dedupKey`
-    // puts a partial unique index behind that race (#375 F1), so the losing
-    // insert throws 23505 here. Fold it into the already-spawned path: re-read
-    // the winner's row and enqueue it, so exactly one child is ever spawned.
+    // puts a sub-agent-only unique index behind that race (#375 F1), so the
+    // losing insert throws 23505 here. Fold it into the already-spawned path:
+    // re-read the winner's row and enqueue it, so exactly one child is ever
+    // spawned.
     if (!isUniqueViolation(err)) throw err;
     const winner = await findExistingSubAgentRun(args);
     if (!winner) throw err;

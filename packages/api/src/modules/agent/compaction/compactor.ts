@@ -127,6 +127,7 @@ async function selectCompactorModel(
 ): Promise<typeof COMPACTOR_MODEL> {
   const priorTokens = estimateTranscriptTokens(prior);
   const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
+  if (priorTokens + COMPACTOR_REQUEST_OVERHEAD_TOKENS <= compactorWindow) return COMPACTOR_MODEL;
   const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
   return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
 }

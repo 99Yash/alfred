@@ -507,9 +507,9 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   // lease-reclaim that double-executes the step, or a TOCTOU on the
   // check-then-create guard, would otherwise spawn two token-burning children
   // for one tool call. This key lands on the child's `dedup_key` so the second
-  // createRun collides on the partial unique index; `spawnSubAgent` catches
-  // that and folds into the already-spawned path. Regular authored briefs (no
-  // subAgent metadata) return null and are unaffected.
+  // createRun collides on the sub-agent-only unique index; `spawnSubAgent`
+  // catches that and folds into the already-spawned path. Regular authored
+  // briefs (no subAgent metadata) return null and are unaffected.
   dedupKey(input) {
     const sub = readSubAgentMetadata(input.metadata);
     return sub ? `sub:${sub.parentRunId}:${sub.parentToolCallId}` : null;
