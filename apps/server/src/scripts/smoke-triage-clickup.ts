@@ -113,6 +113,21 @@ const CASES: Case[] = [
     expectTodo: false,
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
+  {
+    // #351: a PURE status-change event (backlog → "10 web"), no assignment to the
+    // user. The imperative task TITLE + an action_needed-heavy service prior used
+    // to leak this to action_needed past rule 12e (self-reinforcing loop). The
+    // service-prior over-classification challenge (detectConflict Net B) re-asks
+    // with 12e spelled out and it should settle on fyi. Second pass expected —
+    // model id will carry +2pass.
+    name: "STATUS-CHANGE — 'set status to' with no assignment → fyi (rule 12e, #351)",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "Functionality to change default behaviour of deal driver messages",
+    body: "dvd set the status to 10 web\nView task or reply to add a comment",
+    expectCategory: ["fyi"],
+    expectTodo: false,
+    prior: { action_needed: 20, done: 6, fyi: 2 },
+  },
 ];
 
 async function main() {

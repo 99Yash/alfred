@@ -228,6 +228,113 @@ describe("detectConflict", () => {
   test("no conflict for an ordinary passive classification with no signals", () => {
     assert.equal(detectConflict(classification({ category: "fyi" }), observations(), false), null);
   });
+
+  test("over-classification A: a bulk sender's security-topic MENTION is still challenged when the floor is silent (the 'stop storing your api keys' newsletter miss)", () => {
+    const conflict = detectConflict(
+      classification({ category: "urgent" }),
+      observations({
+        senderPrior: {
+          key: "newsletter@devdigest.io",
+          categoryCounts: { newsletter: 8, marketing: 2 },
+          lastCategory: "newsletter",
+        },
+        // hasSecurityKeyword used to DISABLE this net — now it's gated on the
+        // floor instead, so an educational security mention still gets re-asked.
+        content: { ...observations().content, hasSecurityKeyword: true },
+      }),
+      false, // floor did NOT match — the subject has no exposure verb
+    );
+    assert.equal(conflict?.kind, "over_classification");
+  });
+
+  test("no over-classification A when the floor WILL force urgent (a real exposed secret from a bulk sender)", () => {
+    const conflict = detectConflict(
+      classification({ category: "urgent" }),
+      observations({
+        senderPrior: {
+          key: "newsletter@devdigest.io",
+          categoryCounts: { newsletter: 9, marketing: 1 },
+          lastCategory: "newsletter",
+        },
+        content: { ...observations().content, hasSecurityKeyword: true },
+      }),
+      true, // floor matched → don't challenge; the floor forces urgent regardless
+    );
+    assert.equal(conflict, null);
+  });
+
+  test("over-classification B: a service sender's action_needed spike is challenged against a self-reinforcing prior (#351)", () => {
+    const conflict = detectConflict(
+      classification({ category: "action_needed" }),
+      observations({
+        senderPrior: {
+          key: "service:tasks.clickup.com",
+          categoryCounts: { action_needed: 8, fyi: 3, done: 1 },
+          lastCategory: "action_needed",
+        },
+      }),
+      false,
+    );
+    assert.equal(conflict?.kind, "over_classification");
+  });
+
+  test("over-classification B also fires via senderKind=service (an unrecognized service address)", () => {
+    const conflict = detectConflict(
+      classification({ category: "action_needed" }),
+      observations({
+        senderPrior: {
+          key: "notifications@sometracker.com",
+          categoryCounts: { action_needed: 10, fyi: 2 },
+          lastCategory: "action_needed",
+        },
+        senderKind: {
+          kind: "service",
+          confidence: 0.9,
+          evidenceCodes: [],
+          entityId: "ent_tracker",
+          displayName: "SomeTracker",
+        },
+      }),
+      false,
+    );
+    assert.equal(conflict?.kind, "over_classification");
+  });
+
+  test("no over-classification B for a low-volume service prior (the loop is not yet established)", () => {
+    assert.equal(
+      detectConflict(
+        classification({ category: "action_needed" }),
+        observations({
+          senderPrior: {
+            key: "service:tasks.clickup.com",
+            categoryCounts: { action_needed: 3, fyi: 1 },
+            lastCategory: "action_needed",
+          },
+        }),
+        false,
+      ),
+      null,
+    );
+  });
+
+  test("no over-classification B for a non-service (person) sender, even with an action_needed-heavy prior", () => {
+    // A real person's direct ask must never be challenged by the service net —
+    // the ~genuine assignment notifications #351 flags as correct are preserved.
+    assert.equal(
+      detectConflict(
+        classification({ category: "action_needed" }),
+        observations({
+          senderPrior: {
+            key: "colleague@work.com",
+            categoryCounts: { action_needed: 9, fyi: 1 },
+            lastCategory: "action_needed",
+          },
+        }),
+        false,
+      ),
+      null,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

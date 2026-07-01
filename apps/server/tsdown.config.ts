@@ -14,6 +14,7 @@ export default defineConfig({
     "./src/scripts/trigger-cold-start-committed.ts",
     "./src/scripts/backfill-team-graph-committed.ts",
     "./src/scripts/backfill-retire-self-mail-committed.ts",
+    "./src/scripts/backfill-retire-self-mail-aliases-committed.ts",
     "./src/scripts/backfill-gmail-sent-committed.ts",
     "./src/scripts/backfill-gmail-observations-committed.ts",
     "./src/scripts/project-user-model-gmail-shadow-committed.ts",
