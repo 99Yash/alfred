@@ -512,6 +512,13 @@
       "when": 1782790240771,
       "tag": "0072_ambiguous_johnny_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1782888752524,
+      "tag": "0073_slim_corsair",
+      "breakpoints": true
     }
   ]
 }
