@@ -14,7 +14,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { enqueueRun } from "./queue";
-import { getWorkflow } from "./registry";
+import { getWorkflow, listWorkflows } from "./registry";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
 import {
   isTerminalStatus,
@@ -29,16 +29,29 @@ import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 
 interface PgErrorLike {
   code?: string;
+  cause?: unknown;
 }
 
 /**
  * `true` when the given error is a Postgres unique-violation (SQLSTATE
- * 23505). Used by `/api/agent/runs` and the OAuth-callback trigger to
- * detect a duplicate `agent_runs.dedup_key` and surface it as a 409 /
- * silent no-op respectively, instead of leaking the raw constraint name.
+ * 23505). Used by `/api/agent/runs`, the OAuth-callback trigger, and the
+ * chat-turn double-submit dedup to detect a duplicate `agent_runs.dedup_key`
+ * and recover (return the in-flight run / 409 / no-op) instead of leaking the
+ * raw constraint name.
+ *
+ * Drizzle wraps every driver error in a `DrizzleQueryError`, whose own `.code`
+ * is undefined — the node-postgres `DatabaseError` (which carries `code:
+ * "23505"`) sits on `.cause`. So we walk a short cause chain rather than only
+ * checking the top-level error; otherwise a wrapped violation reads as a
+ * generic failure and the recovery path never fires (the concurrent
+ * double-submit 500 this fixes).
  */
 export function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as PgErrorLike).code === "23505";
+  for (let cur: unknown = err, depth = 0; cur != null && depth < 5; depth++) {
+    if (typeof cur === "object" && (cur as PgErrorLike).code === "23505") return true;
+    cur = typeof cur === "object" ? (cur as PgErrorLike).cause : undefined;
+  }
+  return false;
 }
 
 /**
@@ -50,6 +63,42 @@ export function isUniqueViolation(err: unknown): boolean {
  * heartbeat interval so a single missed beat doesn't trigger reclaim.
  */
 export const STALE_RUN_LEASE_MS = 60_000;
+
+/**
+ * Resolve the effective stale-lease window for a run's current step (ADR-0070
+ * §1.4, Lever A). A per-step `staleAfterMs` (declared on the `Step`) wins;
+ * otherwise the default {@link STALE_RUN_LEASE_MS}. Synchronous and DB-free — it
+ * reads the in-memory workflow registry, so it's safe to call inside the
+ * `leaseRun` transaction (which holds `FOR UPDATE` on the run row).
+ *
+ * User-authored workflows keep their DB slug on `agent_runs` but execute the
+ * shared user-authored-brief workflow body. When the registry misses, fall back
+ * to that shared workflow's step definition before using the default.
+ */
+export function resolveStaleAfterMs(workflowSlug: string, stepId: string): number {
+  const step = getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
+  return step?.staleAfterMs ?? STALE_RUN_LEASE_MS;
+}
+
+/**
+ * The smallest stale window across all registered steps, floored at the
+ * default. The resume sweep selects `running` candidates at this floor in SQL,
+ * then refines each against its precise per-step window in JS. Selecting at the
+ * floor guarantees no genuinely-stale run is missed (any step's window is
+ * >= this floor by construction) while keeping healthy long turns from being
+ * re-enqueued every sweep only to be declined by `leaseRun`.
+ */
+export function minStaleAfterMs(): number {
+  let min = STALE_RUN_LEASE_MS;
+  for (const wf of listWorkflows()) {
+    for (const step of Object.values(wf.steps)) {
+      if (typeof step.staleAfterMs === "number" && step.staleAfterMs < min) {
+        min = step.staleAfterMs;
+      }
+    }
+  }
+  return min;
+}
 
 export interface CreateRunArgs extends WorkflowInput {
   userId: string;
@@ -472,36 +521,80 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
 
 /**
  * Find run rows that are claimable by the worker pool: pending or runnable,
- * plus running/heart-beat-stale ones whose owning worker died. The
- * `staleAfterMs` threshold is the worker's lease window — anything not
- * checkpoint-bumped within it is presumed dead.
+ * plus running rows whose owning worker's heartbeat has gone stale (presumed
+ * dead). The stale window is per-step (ADR-0070 §1.4, Lever A): the SQL selects
+ * running candidates at {@link minStaleAfterMs} (the smallest window, so nothing
+ * is missed), then each is refined against its precise per-step window via
+ * {@link resolveStaleAfterMs}. `leaseRun` re-checks the same window under the
+ * row lock, so an over-selected candidate that isn't actually stale is a benign
+ * no-op there — this refinement just avoids the wasted enqueue churn. The SQL
+ * page is consumed before that refinement, so this function paginates until it
+ * has `limit` accepted ids or no candidates remain; otherwise a page full of
+ * live long-window rows could hide genuinely-stale rows behind it.
  */
-export async function findResumableRunIds(opts: {
-  staleAfterMs: number;
-  limit?: number;
-}): Promise<string[]> {
+export async function findResumableRunIds(opts: { limit?: number }): Promise<string[]> {
   const limit = opts.limit ?? 100;
-  const result = await db().execute(sql`
-    SELECT id FROM agent_runs
-    WHERE status IN ('pending', 'runnable')
-       OR (status = 'running' AND (
-         last_checkpoint_at IS NULL
-         OR last_checkpoint_at < (now() - make_interval(secs => ${opts.staleAfterMs / 1000}))
-       ))
-    ORDER BY last_checkpoint_at NULLS FIRST, id
-    LIMIT ${limit}
-  `);
-  const rows = rowsFromExecute<{ id: string }>(result);
-  return rows.map((r) => r.id);
+  if (limit <= 0) return [];
+  const resumable: string[] = [];
+  let offset = 0;
+  while (resumable.length < limit) {
+    const result = await db().execute(sql`
+      SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
+             EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
+      FROM agent_runs
+      WHERE status IN ('pending', 'runnable')
+         OR (status = 'running' AND (
+           last_checkpoint_at IS NULL
+           OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
+         ))
+      ORDER BY last_checkpoint_at NULLS FIRST, id
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = rowsFromExecute<{
+      id: string;
+      workflowSlug: string;
+      currentStep: string;
+      status: string;
+      staleMs: number | string | null;
+    }>(result);
+    if (rows.length === 0) break;
+    offset += rows.length;
+    for (const row of rows) {
+      // pending/runnable are always claimable; only `running` rows are gated on
+      // the per-step stale window (the SQL floor over-selects them).
+      if (row.status !== "running") {
+        resumable.push(row.id);
+        if (resumable.length >= limit) break;
+        continue;
+      }
+      const staleMs =
+        row.staleMs == null
+          ? null
+          : typeof row.staleMs === "string"
+            ? Number(row.staleMs)
+            : row.staleMs;
+      if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
+        resumable.push(row.id);
+        if (resumable.length >= limit) break;
+      }
+    }
+  }
+  return resumable;
 }
 
 /**
  * Heartbeat on a leased run — bumps `last_checkpoint_at` so the resume
- * sweep doesn't yank the run out from under us during a long step.
+ * sweep doesn't yank the run out from under us during a long step. Returns
+ * false when the leased attempt no longer owns a running row.
  */
-export async function heartbeatRun(runId: string): Promise<void> {
-  await db()
+export async function heartbeatRun(runId: string, attempt?: number): Promise<boolean> {
+  const conds = [eq(agentRuns.id, runId), eq(agentRuns.status, "running")];
+  if (attempt !== undefined) conds.push(eq(agentRuns.attempt, attempt));
+  const touched = await db()
     .update(agentRuns)
     .set({ lastCheckpointAt: new Date() })
-    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")));
+    .where(and(...conds))
+    .returning({ id: agentRuns.id });
+  return touched.length > 0;
 }

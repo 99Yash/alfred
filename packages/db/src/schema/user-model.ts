@@ -882,7 +882,9 @@ export const activeEntityProfiles = pgView("active_entity_profiles", {
   entityId: text("entity_id").notNull(),
   displayName: text("display_name").notNull(),
   kind: text("kind").$type<EntityNodeKind>().notNull(),
-  significanceComponents: jsonb("significance_components").$type<SignificanceComponents>().notNull(),
+  significanceComponents: jsonb("significance_components")
+    .$type<SignificanceComponents>()
+    .notNull(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   provenance: jsonb("provenance").$type<ProjectionProvenance>().notNull(),
   computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),

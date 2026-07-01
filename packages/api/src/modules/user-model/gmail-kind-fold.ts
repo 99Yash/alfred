@@ -87,7 +87,9 @@ export async function projectGmailKindProfiles(
       .where(and(...conds))
       .orderBy(asc(observations.occurredAt), asc(observations.id));
 
-    const excludedEmails = new Set(args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? []);
+    const excludedEmails = new Set(
+      args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
+    );
     const identities = collectIdentities(
       rows.map((row) => row.observation),
       excludedEmails,
@@ -205,7 +207,8 @@ function ensureAccumulator(
   const key = identityKey(identity);
   const existing = byIdentity.get(key);
   if (existing) {
-    if (observation.occurredAt < existing.firstSeenAt) existing.firstSeenAt = observation.occurredAt;
+    if (observation.occurredAt < existing.firstSeenAt)
+      existing.firstSeenAt = observation.occurredAt;
     if (observation.occurredAt > existing.lastSeenAt) existing.lastSeenAt = observation.occurredAt;
     existing.observationIds.add(observation.id);
     existing.familyKeys.add(observation.familyKey);
@@ -253,7 +256,10 @@ function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefine
     if (watermark.lastObservationId) {
       const boundedByTimestampAndId = or(
         sql`${observations.occurredAt} < ${occurredAt}`,
-        and(eq(observations.occurredAt, occurredAt), lte(observations.id, watermark.lastObservationId)),
+        and(
+          eq(observations.occurredAt, occurredAt),
+          lte(observations.id, watermark.lastObservationId),
+        ),
       );
       if (!boundedByTimestampAndId) {
         throw new Error(`[user-model.gmail-kind-fold] failed to build Gmail high-watermark bound`);

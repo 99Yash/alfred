@@ -10,6 +10,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  boundToolResult,
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
@@ -25,6 +26,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { compactTranscript } from "../compaction";
 import { estimateTranscriptTokens } from "../compaction/tokens";
+import { appendModelResponseMessages } from "../transcript-dedup";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -145,6 +147,14 @@ function buildSubAgentSystemPrompt(
 
 const bossTurnStep: Step<BriefRunState> = {
   id: "boss-turn",
+  // A sub-agent boss turn is a non-streaming model call with no stream
+  // circuit-breaker capping it (unlike chat), and can run several minutes on the
+  // slow boss model. The default 60s stale window would let a brief heartbeat
+  // lapse reclaim a live turn → a duplicate full-price model call. Widen to 6min
+  // so only sustained heartbeat loss trips a reclaim; a genuinely dead worker
+  // still recovers here (just after 6min rather than 60s), an acceptable trade
+  // for a rare, expensive step.
+  staleAfterMs: 6 * 60_000,
   async run(ctx) {
     if (ctx.state.turnCount >= TURN_CAP_MAX) {
       throw new Error("turn_limit_exceeded");
@@ -187,7 +197,20 @@ const bossTurnStep: Step<BriefRunState> = {
       },
     });
 
-    const nextTranscript = appendModelMessages(transcript, result.raw.response.messages);
+    // Drop the SDK's synthesized tool-result dups (emitted when the model hands
+    // a tool a schema-invalid input) — the dispatch-tools step authors the real
+    // result, and keeping both makes Anthropic 400 ("each tool_use must have a
+    // single result") on the next turn, failing the whole sub-agent/boss run.
+    // stepCallIds is the set of calls this turn produced; empty otherwise, so a
+    // non-tool turn filters nothing.
+    const stepCallIds = new Set(
+      result.kind === "tool-calls" ? result.toolCalls.map((call) => call.toolCallId) : [],
+    );
+    const nextTranscript = appendModelResponseMessages(
+      transcript,
+      result.raw.response.messages as AgentTranscriptMessage[],
+      stepCallIds,
+    );
     state.inFlightTailStart = transcript.length;
     state.lastInputTokens = result.usage.inputTokens ?? 0;
 
@@ -572,7 +595,10 @@ function dispatchResultToToolOutput(
         type: "json",
         value: toJsonValue({
           status: "executed",
-          result: result.toolResult,
+          // Guardrail: clip only pathologically-long free-text fields before
+          // they hit the replayed transcript (see boundToolResult); normal
+          // single-object reads and navigational fields pass through untouched.
+          result: boundToolResult(result.toolResult).value,
           editedByUser: result.editedByUser,
           // ADR-0070: tell the model the result was scrubbed of non-text bytes.
           ...(result.sanitized
@@ -585,21 +611,17 @@ function dispatchResultToToolOutput(
         }),
       };
     case "failed":
-      return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
+      return {
+        type: "error-json",
+        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
+      };
     case "rejected":
-      return { type: "json", value: toJsonValue(result.result) };
+      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "invalid_input":
-      return { type: "json", value: toJsonValue(result.result) };
+      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "unknown_tool":
-      return { type: "json", value: toJsonValue(result.result) };
+      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
   }
-}
-
-function appendModelMessages(
-  transcript: AgentTranscriptMessage[],
-  messages: ModelMessage[],
-): AgentTranscriptMessage[] {
-  return [...transcript, ...(messages as AgentTranscriptMessage[])];
 }
 
 function uniqueIntegrations(values: readonly string[]): string[] {
