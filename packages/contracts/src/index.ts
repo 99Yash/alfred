@@ -1,3 +1,4 @@
+export * from "./bound.js";
 export * from "./guards.js";
 export * from "./json.js";
 export * from "./runtime.js";

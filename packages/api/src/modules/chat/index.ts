@@ -11,7 +11,7 @@ import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import { agentRuns, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
@@ -178,6 +178,7 @@ async function findExistingChatTurnRun(
         eq(agentRuns.userId, userId),
         eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
         eq(agentRuns.dedupKey, `chat:${userMessageId}`),
+        notInArray(agentRuns.status, ["failed", "cancelled"]),
       ),
     )
     .limit(1);
@@ -816,26 +817,40 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, user.id)));
 
             try {
-              const { runId } = await createRun(
-                {
-                  userId: user.id,
-                  workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
-                  trigger: { kind: "manual" },
-                  metadata: {
-                    threadId,
-                    assistantMessageId,
-                    userMessageId: body.userMessageId,
-                    tier: body.tier ?? "standard",
+              // Wrap `createRun` in a SAVEPOINT (nested tx). The chat-turn
+              // workflow is a singleton on userMessageId, so a *concurrent*
+              // double-submit races here: both requests pass the pre-tx
+              // existing-run check (neither run exists yet), then one wins the
+              // `agent_runs` dedup-key insert and the other hits a unique
+              // violation. A unique violation ABORTS the surrounding Postgres
+              // transaction — so recovering via `findExistingChatTurnRun(tx)` on
+              // that same aborted tx would fail with 25P02 and 500 the loser
+              // (data was fine — one run — but the client saw an error). The
+              // savepoint scopes the failed insert so only it rolls back; the
+              // outer tx stays usable for the recovery SELECT below.
+              const { runId } = await tx.transaction((sp) =>
+                createRun(
+                  {
+                    userId: user.id,
+                    workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
+                    trigger: { kind: "manual" },
+                    metadata: {
+                      threadId,
+                      assistantMessageId,
+                      userMessageId: body.userMessageId,
+                      tier: body.tier ?? "standard",
+                    },
                   },
-                },
-                tx,
+                  sp,
+                ),
               );
               return { runId, assistantMessageId };
             } catch (err) {
-              // The chat-turn workflow is a singleton on userMessageId — a
-              // double-submit / retry collides on the partial unique index. Treat
+              // Double-submit / retry collided on the partial unique index. Treat
               // that as success: a run for this exact turn is already in flight,
-              // so return it instead of spawning a duplicate reply.
+              // so return it instead of spawning a duplicate reply. The savepoint
+              // rolled back the failed insert, so the outer tx is still alive for
+              // this lookup.
               if (!isUniqueViolation(err)) throw err;
               const existingRun = await findExistingChatTurnRun(
                 tx,

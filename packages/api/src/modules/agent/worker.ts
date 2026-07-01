@@ -65,15 +65,44 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts = {}): Promise
 
 async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
   const { runId } = job.data;
-  const heartbeat = setInterval(() => {
-    void heartbeatRun(runId).catch(() => {});
-  }, HEARTBEAT_INTERVAL_MS);
-  if (typeof heartbeat === "object" && "unref" in heartbeat) {
-    heartbeat.unref();
-  }
+  // A heartbeat bumps `last_checkpoint_at` so the resume sweep doesn't reclaim a
+  // live run mid-step. A sustained gap (≥ STALE_RUN_LEASE_MS) lets a still-alive
+  // worker be reclaimed → a duplicate, full-price model call on the slowest
+  // turns. Swallowing the error silently (the old `.catch(() => {})`) hid that
+  // drift entirely; log each miss with a count so an approaching reclaim is
+  // visible in the logs instead of only showing up as a surprise double-spend.
+  let missedHeartbeats = 0;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   try {
-    const outcome = await runOnce(runId);
+    const outcome = await runOnce(runId, {
+      onLeased: ({ attempt }) => {
+        heartbeat = setInterval(() => {
+          void heartbeatRun(runId, attempt)
+            .then((refreshed) => {
+              if (!refreshed) {
+                console.warn(
+                  `[agent:worker] heartbeat no-op for run ${runId} attempt ${attempt}; lease was superseded or run is no longer running`,
+                );
+                if (heartbeat) clearInterval(heartbeat);
+                heartbeat = undefined;
+                return;
+              }
+              missedHeartbeats = 0;
+            })
+            .catch((err) => {
+              missedHeartbeats += 1;
+              console.warn(
+                `[agent:worker] heartbeat miss #${missedHeartbeats} for run ${runId} attempt ${attempt} (~${missedHeartbeats * (HEARTBEAT_INTERVAL_MS / 1000)}s without checkpoint; reclaim after the step's stale window, default ${STALE_RUN_LEASE_MS / 1000}s — longer for model-turn steps):`,
+                toMessage(err),
+              );
+            });
+        }, HEARTBEAT_INTERVAL_MS);
+        if (typeof heartbeat === "object" && "unref" in heartbeat) {
+          heartbeat.unref();
+        }
+      },
+    });
     // If the run advanced, immediately re-enqueue so the next step picks
     // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
@@ -107,13 +136,13 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       }
     }
   } finally {
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
   }
 }
 
 async function resumeSweep(): Promise<void> {
   try {
-    const ids = await findResumableRunIds({ staleAfterMs: STALE_RUN_LEASE_MS, limit: 50 });
+    const ids = await findResumableRunIds({ limit: 50 });
     for (const id of ids) {
       await enqueueRun(id);
     }

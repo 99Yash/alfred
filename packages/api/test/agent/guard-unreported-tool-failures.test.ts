@@ -138,6 +138,66 @@ describe("guardUnreportedToolFailures", () => {
     assert.match(note, /completed the user's goal another way/);
   });
 
+  test("ignores a self-corrected invalid_input failure when a later call succeeded", async () => {
+    // The #346 follow-up bug: a first `gmail.send_draft` failed schema
+    // validation (never executed), the model corrected it and the resend was
+    // approved + executed. The guard must NOT fire — otherwise it denies a send
+    // that actually went through.
+    const state = baseState({
+      assistantText: "Done. Email sent.",
+      toolCallsLog: [
+        {
+          toolCallId: "tc_1",
+          toolName: "gmail.send_draft",
+          status: "failed",
+          nonExecution: true,
+          segmentIndex: 0,
+        },
+        {
+          toolCallId: "tc_2",
+          toolName: "gmail.send_draft",
+          status: "succeeded",
+          segmentIndex: 1,
+        },
+      ],
+    });
+    const { deps } = recorder();
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+    assert.equal(result, null, "a never-executed, self-corrected call must not trip the guard");
+    assert.deepEqual(state.notedFailureToolCallIds, []);
+  });
+
+  test("fires for a lone non-execution failure (malformed write, no successful retry)", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        {
+          toolCallId: "tc_1",
+          toolName: "gmail.send_draft",
+          status: "failed",
+          nonExecution: true,
+          segmentIndex: 0,
+        },
+      ],
+    });
+    const { deps } = recorder();
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+    assert.ok(result, "a malformed write with no later success can still produce false-success text");
+    assert.equal(result.kind, "next");
+    assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
+  });
+
+  test("still fires for a real execution failure (no nonExecution flag)", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "gmail.send_draft", status: "failed", segmentIndex: 0 },
+      ],
+    });
+    const { deps } = recorder();
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+    assert.ok(result, "a genuine execution failure must still force honesty");
+    assert.equal(result.kind, "next");
+  });
+
   test("does not fire for a failed read (non-mutating) tool", async () => {
     const state = baseState({
       toolCallsLog: [
@@ -195,7 +255,13 @@ describe("guardUnreportedToolFailures", () => {
   test("fires for an unknown write-shaped tool name", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "sheets.write_values", status: "failed", segmentIndex: 0 },
+        {
+          toolCallId: "tc_1",
+          toolName: "sheets.write_values",
+          status: "failed",
+          nonExecution: true,
+          segmentIndex: 0,
+        },
       ],
     });
     const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];

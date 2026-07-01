@@ -107,7 +107,10 @@ export interface ClassifyEntityKindInput {
 }
 
 export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindClassification {
-  const signals = [...(input.payloadSignals ?? []), ...signalsFromObservations(input.observations ?? [])];
+  const signals = [
+    ...(input.payloadSignals ?? []),
+    ...signalsFromObservations(input.observations ?? []),
+  ];
   const evidenceCodes: string[] = [];
 
   const listEvidence = listEvidenceCodes(signals);

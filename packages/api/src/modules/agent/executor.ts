@@ -6,7 +6,7 @@ import { runStatusSchema } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
-import { resolveWorkflowForRun, STALE_RUN_LEASE_MS } from "./service";
+import { isUniqueViolation, resolveStaleAfterMs, resolveWorkflowForRun } from "./service";
 import {
   isTerminalStatus,
   type RunStatus,
@@ -30,6 +30,29 @@ import {
  * the 3rd consecutive reclaim of the same step.
  */
 const BACKSTOP_RECLAIM_LIMIT = 3;
+
+/**
+ * Thrown inside `commitStepSuccess`'s transaction when the guarded `agent_runs`
+ * UPDATE matches 0 rows — meaning the run's `attempt` no longer equals the one
+ * this step ran under, i.e. a stale-lease reclaim (executor lease, §`leaseRun`)
+ * bumped `attempt` and another worker is (or already finished) re-running this
+ * step. Throwing rolls back the whole commit (step row, staged actions, traces),
+ * so the superseded worker's wasted LLM result lands nowhere and only the
+ * reclaimer's commit advances the run. Caught at the `commitStepSuccess`
+ * boundary and reported as a benign `skipped` outcome (no re-enqueue).
+ *
+ * This closes the double-advance / transcript-divergence hazard a too-tight
+ * stale threshold (STALE_RUN_LEASE_MS) opens against long model turns. It does
+ * NOT un-bill the duplicate model call — both workers already called the model
+ * before either reached commit; reducing false reclaims (the threshold) is the
+ * lever for that.
+ */
+class RunSupersededError extends Error {
+  constructor(runId: string, stepId: string, attempt: number) {
+    super(`run ${runId} step ${stepId} attempt ${attempt} superseded by reclaim before commit`);
+    this.name = "RunSupersededError";
+  }
+}
 
 export type RunOutcome =
   | { kind: "advanced"; runId: string; nextStep: string }
@@ -63,6 +86,15 @@ interface RunRow {
   metadata: unknown;
 }
 
+export interface RunOnceOptions {
+  /**
+   * Called after a run is leased and its per-attempt step row is inserted, right
+   * before the step body starts. The worker uses this to heartbeat the specific
+   * leased attempt; a superseded worker must not refresh a newer attempt.
+   */
+  onLeased?: (lease: { runId: string; stepId: string; attempt: number }) => void;
+}
+
 /**
  * Execute exactly one step of a run, atomically commit its result, and
  * report what happened. Idempotent across crashes: re-running the same
@@ -72,7 +104,7 @@ interface RunRow {
  * Concurrency is enforced by the `SELECT ... FOR UPDATE SKIP LOCKED` lease
  * — two workers racing the same run will only see one commit go through.
  */
-export async function runOnce(runId: string): Promise<RunOutcome> {
+export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise<RunOutcome> {
   // 1) Lease the run. If another worker holds it, or it's terminal, skip.
   const leased = await leaseRun(runId);
   if (leased.kind === "none") {
@@ -120,6 +152,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   if (!inserted) {
     return { kind: "skipped", runId: run.id, reason: "step_already_committed" };
   }
+  opts.onLeased?.({ runId: run.id, stepId, attempt });
 
   await publishEvent({
     userId: run.userId,
@@ -167,8 +200,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
     result = await step.run(ctx);
   } catch (err) {
     const error = errorMessage(err);
-    await commitStepFailure(run, stepId, attempt, error);
-    return { kind: "failed", runId: run.id, error };
+    return await commitStepFailure(run, stepId, attempt, error);
   }
 
   // 5) Commit success in one tx: step row, run row, staged actions, decision
@@ -207,7 +239,11 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     let isStaleRunning = false;
     if (status === "running") {
       const staleMs = typeof row.staleMs === "string" ? Number(row.staleMs) : row.staleMs;
-      if (staleMs == null || staleMs >= STALE_RUN_LEASE_MS) {
+      // Per-step stale window (ADR-0070 §1.4, Lever A): a long model-call step
+      // (a boss turn) declares a wider window so a heartbeat blip can't reclaim
+      // a live, expensive turn. Unset steps use the default STALE_RUN_LEASE_MS.
+      const staleAfterMs = resolveStaleAfterMs(row.workflowSlug, row.currentStep);
+      if (staleMs == null || staleMs >= staleAfterMs) {
         isStaleRunning = true;
       } else {
         return { kind: "none" }; // another worker has it, heartbeat is fresh
@@ -392,7 +428,12 @@ async function tryInsertStepRow(
   }
 }
 
-async function commitStepSuccess(
+/**
+ * Exported for the attempt-guard test harness (see
+ * `test/agent/commit-attempt-guard.test.ts`). `runOnce` is the only production
+ * caller.
+ */
+export async function commitStepSuccess(
   run: RunRow,
   stepId: string,
   attempt: number,
@@ -425,6 +466,42 @@ async function commitStepSuccess(
       ? (sanitizeToolResult(result.wake).value as WakeCondition)
       : undefined;
 
+  try {
+    return await commitStepSuccessTx(
+      run,
+      stepId,
+      attempt,
+      result,
+      staged,
+      traces,
+      cleanState,
+      cleanTranscript,
+      cleanOutput,
+      cleanWake,
+    );
+  } catch (err) {
+    // The run was reclaimed (attempt bumped) while this step ran; the guarded
+    // commit matched 0 rows and rolled back. Report benign skip — do NOT
+    // re-enqueue (the reclaimer owns the run now). Never resurrects the run.
+    if (err instanceof RunSupersededError) {
+      return { kind: "skipped", runId: run.id, reason: "superseded_by_reclaim" };
+    }
+    throw err;
+  }
+}
+
+async function commitStepSuccessTx(
+  run: RunRow,
+  stepId: string,
+  attempt: number,
+  result: StepResult<unknown>,
+  staged: StagedAction[],
+  traces: DecisionTraceRecord[],
+  cleanState: unknown,
+  cleanTranscript: AgentTranscriptMessage[] | undefined,
+  cleanOutput: object | null,
+  cleanWake: WakeCondition | undefined,
+): Promise<RunOutcome> {
   return await db().transaction(async (tx) => {
     const now = new Date();
 
@@ -484,7 +561,7 @@ async function commitStepSuccess(
     }
 
     if (result.kind === "next") {
-      await tx
+      const committed = await tx
         .update(agentRuns)
         .set({
           state: cleanState as object,
@@ -506,7 +583,13 @@ async function commitStepSuccess(
           updatedAt: now,
           ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
         })
-        .where(eq(agentRuns.id, run.id));
+        // Attempt-guard: only commit if the run is still at the attempt this
+        // step ran under. A stale-lease reclaim bumps `attempt`, so a 0-row
+        // match means we were superseded — abort (rollback) instead of
+        // double-advancing the run with a duplicate transcript.
+        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+        .returning({ id: agentRuns.id });
+      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 
       await publishEvent({
         tx,
@@ -518,7 +601,7 @@ async function commitStepSuccess(
     }
 
     if (result.kind === "done") {
-      await tx
+      const committed = await tx
         .update(agentRuns)
         .set({
           state: cleanState as object,
@@ -529,7 +612,12 @@ async function commitStepSuccess(
           updatedAt: now,
           ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
         })
-        .where(eq(agentRuns.id, run.id));
+        // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
+        // superseded us — abort so we don't mark a run completed under a stale
+        // attempt while the reclaimer is mid-step.
+        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+        .returning({ id: agentRuns.id });
+      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 
       await publishEvent({
         tx,
@@ -542,7 +630,7 @@ async function commitStepSuccess(
 
     // interrupt
     const wake = cleanWake!;
-    await tx
+    const committed = await tx
       .update(agentRuns)
       .set({
         state: cleanState as object,
@@ -553,7 +641,12 @@ async function commitStepSuccess(
         updatedAt: now,
         ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
       })
-      .where(eq(agentRuns.id, run.id));
+      // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
+      // superseded us — abort so we don't park the run (and fire an approval /
+      // signal wake) under a stale attempt the reclaimer no longer owns.
+      .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+      .returning({ id: agentRuns.id });
+    if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 
     if (wake.kind === "hil") {
       await publishEvent({
@@ -592,46 +685,58 @@ async function commitStepFailure(
   stepId: string,
   attempt: number,
   error: string,
-): Promise<void> {
+): Promise<RunOutcome> {
   // ADR-0070 §1.3: the throw-poison class. A tool/step that throws a NUL-byte
   // message would re-throw on the jsonb error write here, escaping the catch
   // and leaving the run `running` → the reclaim loop. Strip before persisting.
   const safeError = sanitizeErrorMessage(error);
-  await db().transaction(async (tx) => {
-    const now = new Date();
-    await tx
-      .update(agentSteps)
-      .set({
-        status: "failed",
-        error: { message: safeError },
-        endedAt: now,
-      })
-      .where(
-        and(
-          eq(agentSteps.runId, run.id),
-          eq(agentSteps.stepId, stepId),
-          eq(agentSteps.attempt, attempt),
-        ),
-      );
+  try {
+    await db().transaction(async (tx) => {
+      const now = new Date();
+      await tx
+        .update(agentSteps)
+        .set({
+          status: "failed",
+          error: { message: safeError },
+          endedAt: now,
+        })
+        .where(
+          and(
+            eq(agentSteps.runId, run.id),
+            eq(agentSteps.stepId, stepId),
+            eq(agentSteps.attempt, attempt),
+          ),
+        );
 
-    await tx
-      .update(agentRuns)
-      .set({
-        status: "failed",
-        error: { message: safeError, step: stepId, attempt },
-        endedAt: now,
-        lastCheckpointAt: now,
-        updatedAt: now,
-      })
-      .where(eq(agentRuns.id, run.id));
+      const committed = await tx
+        .update(agentRuns)
+        .set({
+          status: "failed",
+          error: { message: safeError, step: stepId, attempt },
+          endedAt: now,
+          lastCheckpointAt: now,
+          updatedAt: now,
+        })
+        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+        .returning({ id: agentRuns.id });
+      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 
-    await publishEvent({
-      tx,
-      userId: run.userId,
-      kind: "agent.run",
-      payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+      await publishEvent({
+        tx,
+        userId: run.userId,
+        kind: "agent.run",
+        payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+      });
     });
-  });
+  } catch (err) {
+    // Same race as success commits: a reclaim bumped attempt while this worker
+    // was running. Roll back the step failure and leave the reclaimer in charge.
+    if (err instanceof RunSupersededError) {
+      return { kind: "skipped", runId: run.id, reason: "superseded_by_reclaim" };
+    }
+    throw err;
+  }
+  return { kind: "failed", runId: run.id, error: safeError };
 }
 
 /**
@@ -687,12 +792,4 @@ function errorMessage(err: unknown): string {
   } catch {
     return "unknown error";
   }
-}
-
-interface PgErrorLike {
-  code?: string;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as PgErrorLike).code === "23505";
 }

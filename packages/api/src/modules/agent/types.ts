@@ -94,6 +94,22 @@ export interface StepContext<S> {
 export interface Step<S> {
   /** Logical step id within the workflow (must be stable across deploys). */
   id: string;
+  /**
+   * Optional per-step stale-lease window, in ms (ADR-0070 §1.4, Lever A). A
+   * `running` row whose heartbeat has been silent longer than this is presumed
+   * dead and reclaimed (executor `leaseRun` + the resume sweep). Defaults to
+   * `STALE_RUN_LEASE_MS` (60s) when unset.
+   *
+   * Raise it for a step whose body is a single long model call (a multi-minute
+   * boss turn). The default window is tight enough that a brief heartbeat lapse
+   * can reclaim a *live* turn, and because the LLM idempotency key includes
+   * `attempt` (bumped on reclaim), the reclaimer re-calls the model — a
+   * duplicate, full-price call on the slowest turns. Heartbeats (every 10s) keep
+   * a healthy step fresh regardless, so a wider window only bites on *sustained*
+   * heartbeat loss; the tradeoff is that a genuinely dead worker on such a step
+   * recovers after this longer window instead of 60s.
+   */
+  staleAfterMs?: number;
   run(ctx: StepContext<S>): Promise<StepResult<S>>;
 }
 

@@ -120,7 +120,10 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
     });
     assert.equal(engineering?.kind, "group");
     assert.equal(engineering.displayName, "Engineering");
-    assert.equal(engineering.provenance.classification?.evidenceCodes.includes("gmail:list_id"), true);
+    assert.equal(
+      engineering.provenance.classification?.evidenceCodes.includes("gmail:list_id"),
+      true,
+    );
 
     const alice = await reader.getProfileByIdentity({ kind: "email", value: "alice@example.com" });
     assert.equal(alice?.kind, "person");
