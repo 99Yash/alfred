@@ -500,6 +500,20 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     [COMPACT_TRANSCRIPT_STEP_ID]: compactTranscriptStep,
   },
   stateSchema: briefRunStateSchema,
+  // Sub-agent spawns are singleton on (parentRunId, parentToolCallId) (#375 F1).
+  // `spawnSubAgent`'s createRun+enqueue are eager side effects in the
+  // `dispatch-tools` step body — NOT `stageAction`'d — so the attempt-guard
+  // fence (which only gates the step commit) does not protect them. A false
+  // lease-reclaim that double-executes the step, or a TOCTOU on the
+  // check-then-create guard, would otherwise spawn two token-burning children
+  // for one tool call. This key lands on the child's `dedup_key` so the second
+  // createRun collides on the sub-agent-only unique index; `spawnSubAgent`
+  // catches that and folds into the already-spawned path. Regular authored
+  // briefs (no subAgent metadata) return null and are unaffected.
+  dedupKey(input) {
+    const sub = readSubAgentMetadata(input.metadata);
+    return sub ? `sub:${sub.parentRunId}:${sub.parentToolCallId}` : null;
+  },
 };
 
 function resolveSdkTools(activeIntegrations: readonly string[], isSubAgent: boolean): ToolSet {
