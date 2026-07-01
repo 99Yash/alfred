@@ -12,6 +12,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import {
+  boundToolResult,
   chatModelTierSchema,
   HttpError,
   isIntegrationSlug,
@@ -48,6 +49,7 @@ import {
 } from "../sub-agents";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
+import { isSynthesizedToolDup } from "../transcript-dedup";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
@@ -108,6 +110,11 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
+  // A `failed` entry that never executed a side effect — a schema-invalid call
+  // the model self-corrects (`invalid_input`) or an invented tool name
+  // (`unknown_tool`). The honesty guard excludes these so a self-corrected
+  // first attempt can't make it claim a later, successful call failed.
+  nonExecution: z.boolean().optional(),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
 
@@ -605,29 +612,6 @@ function toolResultMessage(
   };
 }
 
-/**
- * Is `message` an SDK-synthesized tool-result dup we should drop from history?
- *
- * The SDK only emits a `role: "tool"` message when the model hands a tool
- * schema-invalid input (our tools are execute-less, so the dispatcher otherwise
- * owns every result). Such a synthesized message carries `tool-result` parts
- * for the very calls the model just made — all in `stepCallIds`. We return true
- * only when every part targets one of those ids, so a hypothetical
- * provider/SDK-executed result for some other call id is preserved rather than
- * silently discarded.
- */
-function isSynthesizedToolDup(
-  message: AgentTranscriptMessage,
-  stepCallIds: ReadonlySet<string>,
-): boolean {
-  if (message.role !== "tool") return false;
-  if (!Array.isArray(message.content) || message.content.length === 0) return false;
-  return message.content.every((part) => {
-    const id = isRecord(part) ? part.toolCallId : undefined;
-    return typeof id === "string" && stepCallIds.has(id);
-  });
-}
-
 function dispatchResultToToolOutput(
   result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
@@ -637,7 +621,10 @@ function dispatchResultToToolOutput(
         type: "json",
         value: toJsonValue({
           status: "executed",
-          result: result.toolResult,
+          // Guardrail: clip only pathologically-long free-text fields before
+          // they hit the replayed transcript (see boundToolResult); normal
+          // single-object reads and navigational fields pass through untouched.
+          result: boundToolResult(result.toolResult).value,
           // ADR-0070: surface to the model that this result had non-text bytes
           // stripped before storage, so it doesn't treat a silently-mutated
           // (binary-ish) payload as pristine.
@@ -653,7 +640,7 @@ function dispatchResultToToolOutput(
     case "failed":
       return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
     default:
-      return { type: "json", value: toJsonValue(result.result) };
+      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
   }
 }
 
@@ -1005,6 +992,24 @@ export function toolCallLogStatus(
   return "succeeded";
 }
 
+/**
+ * A dispatch failure that never executed a side effect: a schema-invalid call
+ * (`invalid_input`) the dispatcher rejected at the boundary before any
+ * execution, or an invented tool name (`unknown_tool`). The model self-corrects
+ * these on the next step, and the prompt already says not to narrate internal
+ * retries — so they are NOT "an action attempt that didn't complete" and the
+ * #346 honesty guard must skip them. Counting them made a self-corrected first
+ * attempt (e.g. `gmail.send_draft` with `to` as a string) force a misleading
+ * regenerate that claimed the *later, approved, executed* send had failed.
+ * `failed` (a real execution fault, possibly partial) and `rejected` (the user
+ * declined) DID reach/affect the side-effect path, so they still trip the guard.
+ */
+export function isNonExecutionFailure(
+  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
+): boolean {
+  return result.kind === "invalid_input" || result.kind === "unknown_tool";
+}
+
 export interface GuardUnreportedToolFailuresDeps {
   isMutating: (toolName: string) => boolean;
   publish: typeof publishEvent;
@@ -1052,6 +1057,11 @@ export async function guardUnreportedToolFailures(
   const unreported = state.toolCallsLog.filter(
     (t) =>
       t.status === "failed" &&
+      // A schema-invalid / unknown-tool call never executed a side effect — the
+      // model self-corrects it and the prompt says not to narrate internal
+      // retries. Treating it as a failed action made the guard force a
+      // misleading regenerate that denied a later, successful call (#346 follow-up).
+      !t.nonExecution &&
       !state.notedFailureToolCallIds.includes(t.toolCallId) &&
       guardDeps.isMutating(t.toolName),
   );
@@ -1102,6 +1112,13 @@ export async function guardUnreportedToolFailures(
 
 const chatTurnStep: Step<ChatRunState> = {
   id: "chat-turn",
+  // The streaming boss turn is bounded by the stream circuit-breaker
+  // (DEFAULT_TURN_STREAM_TIMEOUT — 3min total) but the default 60s stale window
+  // is far tighter than that cap, so a slow-but-healthy generation could be
+  // reclaimed mid-turn → a duplicate full-price model call. Set the window above
+  // the stream cap so the stream guard (not the lease) is what ends a genuinely
+  // wedged turn.
+  staleAfterMs: 4 * 60_000,
   async run(ctx) {
     const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
     try {
@@ -1562,12 +1579,18 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // event so a scrubbed result is flagged the same way live and on
           // reload (otherwise the durable card looks pristine).
           const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
+          // Flag a never-executed schema/tool-name rejection so the honesty
+          // guard can tell a self-corrected malformed call apart from a real
+          // failed side effect (see isNonExecutionFailure).
+          const nonExecution =
+            status === "failed" && isNonExecutionFailure(result) ? true : undefined;
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
             resultPreview,
             ...(sanitized ? { sanitized } : {}),
+            ...(nonExecution ? { nonExecution } : {}),
             segmentIndex: call.segmentIndex,
           });
 
