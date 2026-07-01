@@ -31,14 +31,14 @@ describe("classifyEntityKind", () => {
 
     assert.equal(result.kind, "group");
     assert.equal(result.confidence, 0.99);
-    assert.deepEqual(result.evidenceCodes, [
-      "gmail:list_unsubscribe",
-      "gmail:precedence:bulk",
-    ]);
+    assert.deepEqual(result.evidenceCodes, ["gmail:list_unsubscribe", "gmail:precedence:bulk"]);
   });
 
   test("classifies no-reply and notification senders as services", () => {
-    assert.equal(classifyEntityKind({ identity: emailIdentity("noreply@github.com") }).kind, "service");
+    assert.equal(
+      classifyEntityKind({ identity: emailIdentity("noreply@github.com") }).kind,
+      "service",
+    );
     assert.equal(
       classifyEntityKind({ identity: emailIdentity("notifications@tasks.clickup.com") }).kind,
       "service",
@@ -106,7 +106,8 @@ describe("classifyEntityKind", () => {
   test("classifies non-email hard identities by their identity kind", () => {
     assert.equal(classifyEntityKind({ identity: domainIdentity("oliv.ai") }).kind, "organization");
     assert.equal(
-      classifyEntityKind({ identity: identity("github_repository_full_name", "99yash/alfred") }).kind,
+      classifyEntityKind({ identity: identity("github_repository_full_name", "99yash/alfred") })
+        .kind,
       "repository",
     );
   });
