@@ -241,7 +241,8 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       .set({ attempt: 6, lastCheckpointAt: oldCheckpoint })
       .where(eq(agentRuns.id, runId));
 
-    await heartbeatRun(runId, 5);
+    const staleHeartbeat = await heartbeatRun(runId, 5);
+    assert.equal(staleHeartbeat, false, "stale attempt heartbeat reports that it touched no row");
     const afterStaleHeartbeat = await readRun(runId);
     assert.ok(afterStaleHeartbeat?.lastCheckpointAt);
     assert.ok(
@@ -249,7 +250,8 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       "a stale attempt heartbeat must not refresh the newer attempt",
     );
 
-    await heartbeatRun(runId, 6);
+    const currentHeartbeat = await heartbeatRun(runId, 6);
+    assert.equal(currentHeartbeat, true, "current attempt heartbeat reports a refreshed row");
     const afterCurrentHeartbeat = await readRun(runId);
     assert.ok(afterCurrentHeartbeat?.lastCheckpointAt);
     assert.ok(

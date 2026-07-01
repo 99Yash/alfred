@@ -79,7 +79,15 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       onLeased: ({ attempt }) => {
         heartbeat = setInterval(() => {
           void heartbeatRun(runId, attempt)
-            .then(() => {
+            .then((refreshed) => {
+              if (!refreshed) {
+                console.warn(
+                  `[agent:worker] heartbeat no-op for run ${runId} attempt ${attempt}; lease was superseded or run is no longer running`,
+                );
+                if (heartbeat) clearInterval(heartbeat);
+                heartbeat = undefined;
+                return;
+              }
               missedHeartbeats = 0;
             })
             .catch((err) => {

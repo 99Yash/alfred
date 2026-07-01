@@ -49,6 +49,7 @@ const ID_PREFIX = "test-stale-window-";
 // unset → default 60s.
 const WIDE_MS = 5 * 60_000;
 const NARROW_MS = 30_000;
+const GIANT_MS = 60 * 60_000;
 
 const noopStep = (id: string, staleAfterMs?: number): Workflow<unknown>["steps"][string] => ({
   id,
@@ -68,6 +69,7 @@ const windowWorkflow: Workflow<unknown> = {
     "wide-step": noopStep("wide-step", WIDE_MS),
     "quick-step": noopStep("quick-step"),
     "fast-step": noopStep("fast-step", NARROW_MS),
+    "giant-step": noopStep("giant-step", GIANT_MS),
   },
 };
 
@@ -168,6 +170,19 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     }
     _resetRegistryForTests();
     await closeConnections();
+  });
+
+  test("findResumableRunIds paginates past rows filtered by per-step refinement", async () => {
+    // Regression: applying LIMIT before the JS per-step refinement meant a
+    // live long-window row could consume the whole SQL page, get filtered out,
+    // and hide a genuinely reclaimable row behind it until a later sweep.
+    const filtered = await seedRunningRun("giant-step", ago(90_000)); // fresh under 60min
+    const claimable = await seedRunningRun("quick-step", ago(80_000)); // stale under default
+
+    const resumable = await findResumableRunIds({ limit: 1 });
+
+    assert.deepEqual(resumable, [claimable]);
+    assert.equal(resumable.includes(filtered), false, "fresh long-window row is still refined out");
   });
 
   test("leaseRun does NOT reclaim a wide-window step within its window", async () => {
