@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
   actionStagings,
@@ -13,6 +14,7 @@ import {
 } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
@@ -382,6 +384,17 @@ export interface CancelTxResult {
  */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   const result = await db().transaction((tx) => cancelRunInTx(tx, args));
+  if (result.outcome === "cancelled") {
+    try {
+      await snapshotScratchToPostgres(args.runId);
+    } catch (err) {
+      console.warn(
+        "[agent] scratchpad snapshot failed for cancelled run",
+        args.runId,
+        toMessage(err),
+      );
+    }
+  }
   // Resume a boss that was parked joining this (now-cancelled) child — the
   // wake was committed in-tx; enqueue happens after commit so the executor
   // sees the runnable row (ADR-0073).

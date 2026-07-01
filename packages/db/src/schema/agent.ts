@@ -110,6 +110,15 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_dedup_key_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
+    // Sub-agent spawns are idempotent per parent tool call, including after a
+    // child terminal-fails. The general dedup index deliberately excludes
+    // failed/cancelled rows so chat turns stay retryable; this narrower index
+    // keeps duplicate `system.spawn_sub_agent` side effects from creating a
+    // second child for the same parent call once the first child has already
+    // left the active-index predicate.
+    uniqueIndex("agent_runs_sub_agent_dedup_idx")
+      .on(t.userId, t.workflowSlug, t.dedupKey)
+      .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
     // Bounds the `emitEvent` non-terminal duplicate check (ADR-0047), which
     // runs per inbound event (e.g. every triaged email). The partial WHERE
     // must stay byte-identical to `hasNonTerminalEventRun`'s status predicate
