@@ -611,7 +611,10 @@ function dispatchResultToToolOutput(
         }),
       };
     case "failed":
-      return { type: "error-json", value: toJsonValue({ status: "failed", error: result.error }) };
+      return {
+        type: "error-json",
+        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
+      };
     case "rejected":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "invalid_input":

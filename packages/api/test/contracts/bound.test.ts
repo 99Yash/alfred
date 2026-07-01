@@ -52,6 +52,16 @@ test("boundToolResult walks arrays and nested objects", () => {
   assert.equal(r.clipped, 2900);
 });
 
+test("boundToolResult clips nested failed tool error envelopes", () => {
+  const input = { status: "failed", error: { message: "e".repeat(3000) } };
+  const r = boundToolResult(input, 200);
+  const out = r.value as typeof input;
+  assert.equal(out.status, "failed");
+  assert.ok(out.error.message.startsWith("e".repeat(200)));
+  assert.ok(out.error.message.includes("[truncated 2800 chars"));
+  assert.equal(r.clipped, 2800);
+});
+
 test("boundToolResult returns arrays/objects by reference when nothing clipped", () => {
   const arr = ["a", "b", { c: "d" }];
   const r = boundToolResult(arr);

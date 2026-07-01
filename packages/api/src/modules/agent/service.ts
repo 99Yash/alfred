@@ -76,8 +76,7 @@ export const STALE_RUN_LEASE_MS = 60_000;
  * to that shared workflow's step definition before using the default.
  */
 export function resolveStaleAfterMs(workflowSlug: string, stepId: string): number {
-  const step =
-    getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
+  const step = getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
   return step?.staleAfterMs ?? STALE_RUN_LEASE_MS;
 }
 
@@ -528,45 +527,57 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
  * is missed), then each is refined against its precise per-step window via
  * {@link resolveStaleAfterMs}. `leaseRun` re-checks the same window under the
  * row lock, so an over-selected candidate that isn't actually stale is a benign
- * no-op there — this refinement just avoids the wasted enqueue churn.
+ * no-op there — this refinement just avoids the wasted enqueue churn. The SQL
+ * page is consumed before that refinement, so this function paginates until it
+ * has `limit` accepted ids or no candidates remain; otherwise a page full of
+ * live long-window rows could hide genuinely-stale rows behind it.
  */
 export async function findResumableRunIds(opts: { limit?: number }): Promise<string[]> {
   const limit = opts.limit ?? 100;
-  const result = await db().execute(sql`
-    SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
-           EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
-    FROM agent_runs
-    WHERE status IN ('pending', 'runnable')
-       OR (status = 'running' AND (
-         last_checkpoint_at IS NULL
-         OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
-       ))
-    ORDER BY last_checkpoint_at NULLS FIRST, id
-    LIMIT ${limit}
-  `);
-  const rows = rowsFromExecute<{
-    id: string;
-    workflowSlug: string;
-    currentStep: string;
-    status: string;
-    staleMs: number | string | null;
-  }>(result);
+  if (limit <= 0) return [];
   const resumable: string[] = [];
-  for (const row of rows) {
-    // pending/runnable are always claimable; only `running` rows are gated on
-    // the per-step stale window (the SQL floor over-selects them).
-    if (row.status !== "running") {
-      resumable.push(row.id);
-      continue;
-    }
-    const staleMs =
-      row.staleMs == null
-        ? null
-        : typeof row.staleMs === "string"
-          ? Number(row.staleMs)
-          : row.staleMs;
-    if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
-      resumable.push(row.id);
+  let offset = 0;
+  while (resumable.length < limit) {
+    const result = await db().execute(sql`
+      SELECT id, workflow_slug AS "workflowSlug", current_step AS "currentStep", status,
+             EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
+      FROM agent_runs
+      WHERE status IN ('pending', 'runnable')
+         OR (status = 'running' AND (
+           last_checkpoint_at IS NULL
+           OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
+         ))
+      ORDER BY last_checkpoint_at NULLS FIRST, id
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = rowsFromExecute<{
+      id: string;
+      workflowSlug: string;
+      currentStep: string;
+      status: string;
+      staleMs: number | string | null;
+    }>(result);
+    if (rows.length === 0) break;
+    offset += rows.length;
+    for (const row of rows) {
+      // pending/runnable are always claimable; only `running` rows are gated on
+      // the per-step stale window (the SQL floor over-selects them).
+      if (row.status !== "running") {
+        resumable.push(row.id);
+        if (resumable.length >= limit) break;
+        continue;
+      }
+      const staleMs =
+        row.staleMs == null
+          ? null
+          : typeof row.staleMs === "string"
+            ? Number(row.staleMs)
+            : row.staleMs;
+      if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
+        resumable.push(row.id);
+        if (resumable.length >= limit) break;
+      }
     }
   }
   return resumable;
@@ -574,13 +585,16 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
 
 /**
  * Heartbeat on a leased run — bumps `last_checkpoint_at` so the resume
- * sweep doesn't yank the run out from under us during a long step.
+ * sweep doesn't yank the run out from under us during a long step. Returns
+ * false when the leased attempt no longer owns a running row.
  */
-export async function heartbeatRun(runId: string, attempt?: number): Promise<void> {
+export async function heartbeatRun(runId: string, attempt?: number): Promise<boolean> {
   const conds = [eq(agentRuns.id, runId), eq(agentRuns.status, "running")];
   if (attempt !== undefined) conds.push(eq(agentRuns.attempt, attempt));
-  await db()
+  const touched = await db()
     .update(agentRuns)
     .set({ lastCheckpointAt: new Date() })
-    .where(and(...conds));
+    .where(and(...conds))
+    .returning({ id: agentRuns.id });
+  return touched.length > 0;
 }
