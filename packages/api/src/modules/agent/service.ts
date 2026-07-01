@@ -71,13 +71,13 @@ export const STALE_RUN_LEASE_MS = 60_000;
  * reads the in-memory workflow registry, so it's safe to call inside the
  * `leaseRun` transaction (which holds `FOR UPDATE` on the run row).
  *
- * User-authored workflows aren't registered under their own slug (they reuse
- * the sub-agent step bodies, resolved via the DB), so `getWorkflow` misses and
- * they fall back to the default. That's intended: the registered built-ins
- * (chat, sub-agent) own the long model turns that need the wider window.
+ * User-authored workflows keep their DB slug on `agent_runs` but execute the
+ * shared user-authored-brief workflow body. When the registry misses, fall back
+ * to that shared workflow's step definition before using the default.
  */
 export function resolveStaleAfterMs(workflowSlug: string, stepId: string): number {
-  const step = getWorkflow(workflowSlug)?.steps[stepId];
+  const step =
+    getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
   return step?.staleAfterMs ?? STALE_RUN_LEASE_MS;
 }
 
@@ -576,9 +576,11 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
  * Heartbeat on a leased run — bumps `last_checkpoint_at` so the resume
  * sweep doesn't yank the run out from under us during a long step.
  */
-export async function heartbeatRun(runId: string): Promise<void> {
+export async function heartbeatRun(runId: string, attempt?: number): Promise<void> {
+  const conds = [eq(agentRuns.id, runId), eq(agentRuns.status, "running")];
+  if (attempt !== undefined) conds.push(eq(agentRuns.attempt, attempt));
   await db()
     .update(agentRuns)
     .set({ lastCheckpointAt: new Date() })
-    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")));
+    .where(and(...conds));
 }

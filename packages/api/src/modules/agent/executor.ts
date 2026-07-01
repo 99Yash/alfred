@@ -86,6 +86,15 @@ interface RunRow {
   metadata: unknown;
 }
 
+export interface RunOnceOptions {
+  /**
+   * Called after a run is leased and its per-attempt step row is inserted, right
+   * before the step body starts. The worker uses this to heartbeat the specific
+   * leased attempt; a superseded worker must not refresh a newer attempt.
+   */
+  onLeased?: (lease: { runId: string; stepId: string; attempt: number }) => void;
+}
+
 /**
  * Execute exactly one step of a run, atomically commit its result, and
  * report what happened. Idempotent across crashes: re-running the same
@@ -95,7 +104,7 @@ interface RunRow {
  * Concurrency is enforced by the `SELECT ... FOR UPDATE SKIP LOCKED` lease
  * — two workers racing the same run will only see one commit go through.
  */
-export async function runOnce(runId: string): Promise<RunOutcome> {
+export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise<RunOutcome> {
   // 1) Lease the run. If another worker holds it, or it's terminal, skip.
   const leased = await leaseRun(runId);
   if (leased.kind === "none") {
@@ -143,6 +152,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
   if (!inserted) {
     return { kind: "skipped", runId: run.id, reason: "step_already_committed" };
   }
+  opts.onLeased?.({ runId: run.id, stepId, attempt });
 
   await publishEvent({
     userId: run.userId,
@@ -190,8 +200,7 @@ export async function runOnce(runId: string): Promise<RunOutcome> {
     result = await step.run(ctx);
   } catch (err) {
     const error = errorMessage(err);
-    await commitStepFailure(run, stepId, attempt, error);
-    return { kind: "failed", runId: run.id, error };
+    return await commitStepFailure(run, stepId, attempt, error);
   }
 
   // 5) Commit success in one tx: step row, run row, staged actions, decision
@@ -676,46 +685,58 @@ async function commitStepFailure(
   stepId: string,
   attempt: number,
   error: string,
-): Promise<void> {
+): Promise<RunOutcome> {
   // ADR-0070 §1.3: the throw-poison class. A tool/step that throws a NUL-byte
   // message would re-throw on the jsonb error write here, escaping the catch
   // and leaving the run `running` → the reclaim loop. Strip before persisting.
   const safeError = sanitizeErrorMessage(error);
-  await db().transaction(async (tx) => {
-    const now = new Date();
-    await tx
-      .update(agentSteps)
-      .set({
-        status: "failed",
-        error: { message: safeError },
-        endedAt: now,
-      })
-      .where(
-        and(
-          eq(agentSteps.runId, run.id),
-          eq(agentSteps.stepId, stepId),
-          eq(agentSteps.attempt, attempt),
-        ),
-      );
+  try {
+    await db().transaction(async (tx) => {
+      const now = new Date();
+      await tx
+        .update(agentSteps)
+        .set({
+          status: "failed",
+          error: { message: safeError },
+          endedAt: now,
+        })
+        .where(
+          and(
+            eq(agentSteps.runId, run.id),
+            eq(agentSteps.stepId, stepId),
+            eq(agentSteps.attempt, attempt),
+          ),
+        );
 
-    await tx
-      .update(agentRuns)
-      .set({
-        status: "failed",
-        error: { message: safeError, step: stepId, attempt },
-        endedAt: now,
-        lastCheckpointAt: now,
-        updatedAt: now,
-      })
-      .where(eq(agentRuns.id, run.id));
+      const committed = await tx
+        .update(agentRuns)
+        .set({
+          status: "failed",
+          error: { message: safeError, step: stepId, attempt },
+          endedAt: now,
+          lastCheckpointAt: now,
+          updatedAt: now,
+        })
+        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+        .returning({ id: agentRuns.id });
+      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 
-    await publishEvent({
-      tx,
-      userId: run.userId,
-      kind: "agent.run",
-      payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+      await publishEvent({
+        tx,
+        userId: run.userId,
+        kind: "agent.run",
+        payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+      });
     });
-  });
+  } catch (err) {
+    // Same race as success commits: a reclaim bumped attempt while this worker
+    // was running. Roll back the step failure and leave the reclaimer in charge.
+    if (err instanceof RunSupersededError) {
+      return { kind: "skipped", runId: run.id, reason: "superseded_by_reclaim" };
+    }
+    throw err;
+  }
+  return { kind: "failed", runId: run.id, error: safeError };
 }
 
 /**
@@ -772,4 +793,3 @@ function errorMessage(err: unknown): string {
     return "unknown error";
   }
 }
-

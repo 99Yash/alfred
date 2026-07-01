@@ -1020,6 +1020,17 @@ const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = 
   publish: publishEvent,
 };
 
+function nonExecutionRecoveredByLaterSuccess(
+  log: ChatRunState["toolCallsLog"],
+  index: number,
+): boolean {
+  const entry = log[index];
+  if (!entry?.nonExecution) return false;
+  return log
+    .slice(index + 1)
+    .some((later) => later.toolName === entry.toolName && later.status === "succeeded");
+}
+
 /**
  * #346 honesty guard. `finalizeAssistantMessage` only checks that the assistant
  * produced *some* text — nothing structurally stops a weak model from streaming
@@ -1055,13 +1066,13 @@ export async function guardUnreportedToolFailures(
 ): Promise<StepResult<ChatRunState> | null> {
   const guardDeps = { ...defaultGuardUnreportedToolFailuresDeps, ...deps };
   const unreported = state.toolCallsLog.filter(
-    (t) =>
+    (t, index) =>
       t.status === "failed" &&
       // A schema-invalid / unknown-tool call never executed a side effect — the
-      // model self-corrects it and the prompt says not to narrate internal
-      // retries. Treating it as a failed action made the guard force a
-      // misleading regenerate that denied a later, successful call (#346 follow-up).
-      !t.nonExecution &&
+      // model may self-correct it, and the prompt says not to narrate internal
+      // retries. Skip only when the log shows that correction actually happened;
+      // a lone malformed write call can still lead to a false "done" answer.
+      !nonExecutionRecoveredByLaterSuccess(state.toolCallsLog, index) &&
       !state.notedFailureToolCallIds.includes(t.toolCallId) &&
       guardDeps.isMutating(t.toolName),
   );
