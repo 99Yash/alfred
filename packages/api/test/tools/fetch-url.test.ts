@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { describe, test } from "node:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import {
@@ -773,6 +774,32 @@ describe("safeRequest (manual redirect re-validation)", () => {
     assert.deepEqual(out.redirectChain, ["https://a.example/"]);
     assert.equal(out.contentType, "text/plain");
     assert.equal(out.charset, "utf-8");
+  });
+
+  test("redirect cleanup swallows asynchronous body abort errors", async () => {
+    const emitter = new EventEmitter();
+    const redirectBody = Object.assign(emitter, {
+      destroy() {
+        queueMicrotask(() => emitter.emit("error", new Error("Request aborted")));
+      },
+      async *[Symbol.asyncIterator]() {
+        yield new TextEncoder().encode("redirect body");
+      },
+    }) as AsyncIterable<Uint8Array> & EventEmitter & { destroy: () => void };
+
+    const requester: HttpRequester = async (url) => {
+      if (url === "https://a.example/")
+        return res({
+          statusCode: 302,
+          headers: { location: "https://b.example/" },
+          body: redirectBody,
+        });
+      return res({ statusCode: 200, headers: { "content-type": "text/plain" } });
+    };
+
+    const out = await safeRequest("https://a.example/", signal, requester);
+    assert.equal(out.finalUrl, "https://b.example/");
+    await new Promise((resolve) => setImmediate(resolve));
   });
 
   test("gives up after too many redirects rather than auto-following forever", async () => {

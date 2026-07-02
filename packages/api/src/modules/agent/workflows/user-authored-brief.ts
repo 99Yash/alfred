@@ -128,6 +128,7 @@ export function buildSubAgentSystemPromptBase(subId: string): string {
       "How you investigate:",
       "- Start from what the brief already gives you — names, ids, links, and any context handed down — and treat every assumption it carries (a role, a label, a category, a cause) as a claim to verify, not a fact. If what you find contradicts it, correct it.",
       "- Work the problem from several distinct angles before you conclude. One angle coming back thin or empty is a signal to try a different angle or a different source — never a reason to stop. What another angle means depends on the subject: different search terms, a connected service you haven't queried yet, the primary source behind a notification, an entity's own page, a related person, PR, thread, or document.",
+      "- Keep every angle relevant to the brief. Depth is not tool spam: don't call GitHub for a person background brief, don't search the public web for a private PR you can read directly, and don't use an unrelated source just to make the investigation look broader.",
       "- When a result points at something richer — a link, a profile, a PR, a doc, a task, a thread — go into it (read the page, open the record) instead of stopping at the snippet or the summary.",
       "- Corroborate: a claim you can confirm from two independent sources is worth more than one you can't.",
       "- Do not spawn other agents. Use only tools that exist — never invent a tool name — and reach for the tool that directly advances the investigation.",

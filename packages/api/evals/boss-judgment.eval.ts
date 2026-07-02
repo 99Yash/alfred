@@ -54,12 +54,19 @@ const GITHUB_GET_PR_TOOL = "github.get_pull_request";
 
 const TIERS: ChatModelTier[] = ["standard", "deep"];
 
-// Tools that discover leads (a search/list) vs. tools that drill into one named
-// record (read the page/message/PR behind a lead). A thorough investigation
-// does both — it doesn't stop at the search snippet. Integration-agnostic so the
-// depth check works for web, Gmail, GitHub, or any future source.
-const SEARCH_TOOLS = new Set<string>([WEB_SEARCH_TOOL, GMAIL_SEARCH_TOOL, GITHUB_SEARCH_TOOL]);
-const DRILL_TOOLS = new Set<string>([FETCH_URL_TOOL, GMAIL_READ_MESSAGE_TOOL, GITHUB_GET_PR_TOOL]);
+// Case-specific source tools. A thorough investigation discovers leads and then
+// drills into one named record from the same source class; unrelated tool spam
+// must not satisfy the depth check.
+const WEB_INVESTIGATION_TOOLS = new Set<string>([
+  READ_CONTEXT_TOOL,
+  WEB_SEARCH_TOOL,
+  FETCH_URL_TOOL,
+]);
+const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
+  READ_CONTEXT_TOOL,
+  GITHUB_SEARCH_TOOL,
+  GITHUB_GET_PR_TOOL,
+]);
 
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
@@ -67,9 +74,14 @@ const CONNECTED_SUMMARY = [
   "- calendar.list_events, calendar.create_event — the user's calendar",
   "- system.read_user_context — Alfred's stored memory about the user",
   "- system.web_search — live public web search",
+  "- system.fetch_url — read a known URL's page as text",
+  "- system.spawn_sub_agent, system.await_sub_agent — delegate and await a focused multi-step investigation",
 ].join("\n");
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+
+const WEB_SEARCH_DESCRIPTION =
+  "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services. Returns a synthesized answer plus result URLs/citations; use system.fetch_url on a promising result when you need to verify or read the page behind the search result.";
 
 interface ToolCall {
   name: string;
@@ -147,14 +159,24 @@ function bossDepthVerdict(calls: ToolCall[]): { ok: boolean; detail: string } {
  * the web, a PR on GitHub, a task in Gmail. This is what makes depth a
  * *capability*, not a web-only behavior.
  */
-function investigationDepthVerdict(calls: ToolCall[]): { ok: boolean; detail: string } {
-  const distinct = new Set(calls.map((c) => `${c.name}:${JSON.stringify(c.input)}`));
-  const angles = calls.filter((c) => SEARCH_TOOLS.has(c.name)).length;
-  const drilled = calls.some((c) => DRILL_TOOLS.has(c.name));
-  const ok = distinct.size >= 2 && drilled;
+function investigationDepthVerdict(
+  calls: ToolCall[],
+  kind: "web" | "github",
+): { ok: boolean; detail: string } {
+  const allowed = kind === "web" ? WEB_INVESTIGATION_TOOLS : GITHUB_INVESTIGATION_TOOLS;
+  const relevant = calls.filter((c) => allowed.has(c.name) && c.name !== READ_CONTEXT_TOOL);
+  const offDomain = calls.filter((c) => !allowed.has(c.name));
+  const distinct = new Set(relevant.map((c) => `${c.name}:${JSON.stringify(c.input)}`));
+  const searched = relevant.some(
+    (c) => c.name === (kind === "web" ? WEB_SEARCH_TOOL : GITHUB_SEARCH_TOOL),
+  );
+  const drilled = relevant.some(
+    (c) => c.name === (kind === "web" ? FETCH_URL_TOOL : GITHUB_GET_PR_TOOL),
+  );
+  const ok = offDomain.length === 0 && distinct.size >= 2 && searched && drilled;
   return {
     ok,
-    detail: `distinct actions=${distinct.size}, search angles=${angles}, drilled a record=${drilled}, tools=[${calls.map((c) => c.name).join(", ")}]`,
+    detail: `kind=${kind}, distinct relevant actions=${distinct.size}, searched=${searched}, drilled a record=${drilled}, off-domain=[${offDomain.map((c) => c.name).join(", ")}], tools=[${calls.map((c) => c.name).join(", ")}]`,
   };
 }
 
@@ -191,8 +213,7 @@ function toolSurface(): Record<string, Tool> {
       inputSchema: readUserContextInput,
     }),
     [WEB_SEARCH_TOOL]: tool({
-      description:
-        "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services.",
+      description: WEB_SEARCH_DESCRIPTION,
       inputSchema: webSearchInput,
     }),
     [SPAWN_SUB_AGENT_TOOL]: tool({
@@ -357,16 +378,14 @@ async function runThinPersonResearchReplay(
           threadId: "clickup_thread",
           from: "ClickUp <notifications@clickup.com>",
           subject: "Sakshi Jindal mentioned you in a task",
-          text:
-            "Sakshi Jindal commented on a ClickUp task. The email only contains a notification preview; open ClickUp for the task thread and project details.",
+          text: "Sakshi Jindal commented on a ClickUp task. The email only contains a notification preview; open ClickUp for the task thread and project details.",
           url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_1",
         }),
       }),
       [WEB_SEARCH_TOOL]: tool({
-        description:
-          "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services.",
+        description: WEB_SEARCH_DESCRIPTION,
         inputSchema: webSearchInput,
-        // Post-A return shape: `{ ok, query, answer, citations, searchQueries }`.
+        // Post-A return shape: `{ ok, query, answer, citations, results, searchQueries }`.
         // Here the public web genuinely has nothing on point (a private-work
         // colleague), so the honest depth move is to name the hidden richer
         // source (ClickUp), not to keep hammering the web.
@@ -376,6 +395,7 @@ async function runThinPersonResearchReplay(
           answer:
             "No public profile or background surfaced for this person in a work context; the search returned nothing on point.",
           citations: [],
+          results: [],
           searchQueries: [query],
         }),
       }),
@@ -527,8 +547,7 @@ async function runPersonResearchDepth(
         execute: async () => ({ profile: null, entities: [], facts: [], recentMemory: [] }),
       }),
       [WEB_SEARCH_TOOL]: tool({
-        description:
-          "Search the live public web for current facts, public background on people or companies, and information outside Alfred's memory or connected services.",
+        description: WEB_SEARCH_DESCRIPTION,
         inputSchema: webSearchInput,
         execute: async ({ query }) => ({
           ok: true,
@@ -536,6 +555,12 @@ async function runPersonResearchDepth(
           answer:
             "A LinkedIn profile and a conference bio for a Priya Nair appear, but the match to your query isn't confirmed from this single search [1].",
           citations: [
+            {
+              url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/priya-linkedin",
+              title: "linkedin.com",
+            },
+          ],
+          results: [
             {
               url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/priya-linkedin",
               title: "linkedin.com",
@@ -654,17 +679,20 @@ const githubGetPrInputMock = z.object({
 
 interface SubAgentCase {
   label: string;
+  kind: "web" | "github";
   brief: string;
 }
 
 const SUB_AGENT_CASES: SubAgentCase[] = [
   {
     label: "web/person",
+    kind: "web",
     brief:
       "Investigate the public professional background of Priya Nair, who works at a startup called Foobar — her role, location, and anything notable — and report what you find.",
   },
   {
     label: "github/pr",
+    kind: "github",
     brief:
       "Investigate pull request #482 in the acme/web repository: what it changes, how big it is, and whether it looks ready to merge. Report what you find.",
   },
@@ -679,8 +707,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
     stopWhen: stepCountIs(6),
     tools: {
       [WEB_SEARCH_TOOL]: tool({
-        description:
-          "Search the live public web for current facts and public background on people or companies.",
+        description: WEB_SEARCH_DESCRIPTION,
         inputSchema: webSearchInput,
         execute: async ({ query }) => ({
           ok: true,
@@ -688,6 +715,12 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
           answer:
             "A LinkedIn profile and a company team page for a Priya Nair appear, but the details aren't confirmed from this single search [1].",
           citations: [
+            {
+              url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/priya-linkedin",
+              title: "linkedin.com",
+            },
+          ],
+          results: [
             {
               url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/priya-linkedin",
               title: "linkedin.com",
@@ -766,8 +799,8 @@ evalite<SubAgentCase, TaskOutput, null>("Sub-agent — investigation depth (gene
   scorers: [
     {
       name: "Works >=2 distinct angles and drills a specific record",
-      scorer: ({ output }) => {
-        const v = investigationDepthVerdict(output.calls);
+      scorer: ({ output, input }) => {
+        const v = investigationDepthVerdict(output.calls, input.kind);
         return { score: v.ok ? 1 : 0, metadata: v.detail };
       },
     },
