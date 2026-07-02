@@ -44,9 +44,27 @@ export interface WebSearchSource {
   title?: string;
 }
 
+export interface WebSearchHit {
+  /** The URL the caller can open with `system.fetch_url`. */
+  url: string;
+  /** Grounding's publisher/page label, when available. */
+  title?: string;
+  /**
+   * Raw snippets are not exposed by Gemini grounding in the metadata we receive.
+   * Keep this optional so future providers can fill it without inventing text.
+   */
+  snippet?: string;
+}
+
 export interface WebSearchResult {
   answer: string;
   citations: WebSearchSource[];
+  /**
+   * Grounding sources as an explicit result list for agents that need to decide
+   * what to drill with `fetch_url`. Today this is title+URL only; snippets are
+   * optional because Gemini grounding does not expose SERP snippets here.
+   */
+  results: WebSearchHit[];
   /**
    * The Google Search queries the grounded model actually ran server-side
    * (`groundingMetadata.webSearchQueries`), when it reports them. Surfaced so a
@@ -153,12 +171,18 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
     },
   );
 
+  const citations = extractCitations(
+    result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
+    result.providerMetadata,
+  );
+
   return {
     answer: result.text.trim(),
-    citations: extractCitations(
-      result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
-      result.providerMetadata,
-    ),
+    citations,
+    results: citations.map((source) => ({
+      url: source.url,
+      ...(source.title ? { title: source.title } : {}),
+    })),
     searchQueries: extractSearchQueries(result.providerMetadata),
   };
 }

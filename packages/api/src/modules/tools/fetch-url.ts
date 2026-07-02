@@ -760,17 +760,22 @@ async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
   const disposable = body as {
     destroy?: (err?: Error) => void;
     dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
+    once?: (event: "error", listener: (err: Error) => void) => unknown;
   };
-  if (typeof disposable.destroy === "function") {
-    disposable.destroy();
-    return;
-  }
   if (typeof disposable.dump === "function") {
     try {
       await disposable.dump({ limit: 131_072 });
+      return;
     } catch {
       // Best-effort cleanup; the original return reason is more useful.
     }
+  }
+  if (typeof disposable.destroy === "function") {
+    // Undici's BodyReadable can emit an asynchronous AbortError after destroy().
+    // This is only cleanup; swallow that event so following a redirect cannot
+    // crash the process while trying to free the previous hop's socket.
+    disposable.once?.("error", () => {});
+    disposable.destroy();
   }
 }
 
