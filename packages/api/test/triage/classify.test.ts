@@ -300,6 +300,22 @@ describe("detectConflict", () => {
     assert.equal(conflict?.kind, "over_classification");
   });
 
+  test("over-classification B fires for a production-shaped service sender key via SenderContext", () => {
+    const conflict = detectConflict(
+      classification({ category: "action_needed" }),
+      observations({
+        senderPrior: {
+          key: "notifications@tasks.clickup.com",
+          categoryCounts: { action_needed: 10, fyi: 2 },
+          lastCategory: "action_needed",
+        },
+      }),
+      false,
+      { effectiveAuthor: "service" },
+    );
+    assert.equal(conflict?.kind, "over_classification");
+  });
+
   test("no over-classification B for a low-volume service prior (the loop is not yet established)", () => {
     assert.equal(
       detectConflict(
@@ -331,6 +347,7 @@ describe("detectConflict", () => {
           },
         }),
         false,
+        { effectiveAuthor: "person" },
       ),
       null,
     );
