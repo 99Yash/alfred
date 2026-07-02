@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import type { BriefingGather } from "@alfred/contracts";
 
 import {
+  collectSurfacedKeys,
   collectSurfacedLoopKeys,
   collectSurfacedThreadIds,
 } from "../../src/modules/briefing/read";
@@ -35,7 +36,7 @@ function emailItem(documentId: string, threadId: string) {
 }
 
 function emailItemWithSubject(documentId: string, threadId: string, subject: string) {
-  return { documentId, threadId, subject, sender: "Someone", snippet: "snippet" };
+  return { documentId, threadId, subject, sender: "ClickUp", snippet: "snippet" };
 }
 
 describe("collectSurfacedThreadIds", () => {
@@ -101,7 +102,7 @@ describe("collectSurfacedLoopKeys", () => {
       "sanity: the thread ids are genuinely different",
     );
     const loopKeys = collectSurfacedLoopKeys([evening, morning]);
-    assert.deepEqual([...loopKeys], [deriveLoopKey(subject)]);
+    assert.deepEqual([...loopKeys], [deriveLoopKey(subject, { sender: "ClickUp" })]);
   });
 
   test("lines up with the current-window derivation", () => {
@@ -122,5 +123,57 @@ describe("collectSurfacedLoopKeys", () => {
   test("tolerates null gathers and empty categories", () => {
     assert.equal(collectSurfacedLoopKeys([null, gatherWith({})]).size, 0);
     assert.equal(collectSurfacedLoopKeys([]).size, 0);
+  });
+});
+
+describe("collectSurfacedKeys", () => {
+  test("uses only document ids the delivered prose actually surfaced", () => {
+    const surfacedSubject = "Netsmart: Save view issues";
+    const omittedSubject = "Conservice: Fix imports not triggering deal driver messages";
+    const gather = gatherWith({
+      urgent: [
+        emailItemWithSubject("d-surfaced", "thr_surfaced", surfacedSubject),
+        emailItemWithSubject("d-omitted", "thr_omitted", omittedSubject),
+      ],
+    });
+
+    const keys = collectSurfacedKeys([
+      {
+        gather,
+        fullBriefing: {
+          headline: "Netsmart needs a look",
+          sections: [],
+          surfacedDocumentIds: ["d-surfaced"],
+        },
+      },
+    ]);
+
+    assert.deepEqual([...keys.threadIds], ["thr_surfaced"]);
+    assert.deepEqual([...keys.loopKeys], [deriveLoopKey(surfacedSubject, { sender: "ClickUp" })]);
+  });
+
+  test("does not treat gathered-only items as already surfaced", () => {
+    const gather = gatherWith({
+      urgent: [emailItemWithSubject("d1", "thr_1", "Netsmart: Save view issues")],
+    });
+
+    const missingAuditField = collectSurfacedKeys([
+      { gather, fullBriefing: { headline: "Something else", sections: [] } },
+    ]);
+    const uncited = collectSurfacedKeys([
+      {
+        gather,
+        fullBriefing: {
+          headline: "Something else",
+          sections: [],
+          surfacedDocumentIds: ["other-doc"],
+        },
+      },
+    ]);
+
+    assert.equal(missingAuditField.threadIds.size, 0);
+    assert.equal(missingAuditField.loopKeys.size, 0);
+    assert.equal(uncited.threadIds.size, 0);
+    assert.equal(uncited.loopKeys.size, 0);
   });
 });
