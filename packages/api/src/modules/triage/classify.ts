@@ -183,6 +183,20 @@ const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsle
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 const STRONG_BULK_MIN_TOTAL = 5;
 const STRONG_BULK_MIN_SHARE = 0.8;
+/**
+ * Thresholds for the SERVICE-PRIOR `action_needed` over-classification challenge
+ * (#351 partial mitigation). A collaboration/task-tracker service whose prior
+ * has skewed heavily `action_needed` feeds that histogram back as a "repeat the
+ * category" justification — a self-reinforcing loop past rule 12e (status
+ * changes / watch-activity keep landing `action_needed` because past mail did).
+ * When the loop is this pronounced we spell out 12e and re-ask ONCE; the model
+ * KEEPS `action_needed` if the body genuinely assigns the item — NOT a forced
+ * downgrade. The durable fix is sender-prior decay in the user-model epic (#218);
+ * this only challenges the spike. Higher volume floor than the bulk net: a
+ * service prior must be well-established before its skew is evidence of a loop.
+ */
+const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
+const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
 const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
 const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
 const MAX_RATIONALE_LEN = 500;
@@ -211,11 +225,11 @@ const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
 const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
 - urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is fyi (rule 15).
-- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Self-initiated sign-in/magic links, one-time login codes, and email-verification the user just requested are NOT here — they are fyi per rule 15.)
+- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Self-initiated sign-in/magic links, one-time login codes, email-verification, and confirmations of a security change the user just made are NOT here — they are fyi per rule 15. OAuth apps, recovery emails, or login methods being added/changed are surfaced here unless they include clear same-flow confirmation language.)
 - follow_up: a soft check-in or nudge on a prior thread — "any update on...?", "circling back", "just following up." The sender already knows the user is aware; they're probing for status.
 - awaiting_reply: someone is asking the user a direct first question, and the only action is to write back. Pick this when no prior thread exists or the message is a fresh ask. A bulk social-network invitation or connection request is NOT a direct question the user must answer — it is passive social activity (rule 8a → fyi). Once the user has sent a reply that answers the ask, the thread is NO LONGER awaiting_reply — the user owes nothing (rule 18).
 - meeting: a meeting the user is expected to attend, prepare for, schedule, reschedule, or answer availability for. Direct calendar invites, agenda/prep emails for the user's meeting, room/availability negotiations, and "your meeting starts soon" pings.
-- fyi: passive awareness items. Self-initiated sign-in/magic links, one-time login codes, and email-verification the user just requested (rule 15), resolved-incident status posts, product release notes without action, social activity digests, social-network connection/invitation requests ("X wants to connect", "I want to connect") and network-growth / profile-activity nudges ("people you may know", "you appeared in N searches", "N people viewed your profile") (rule 8a), "we updated our terms" notices, GitHub notifications that don't require review, legal/investor/shareholder notices with no user action.
+- fyi: passive awareness items. Self-initiated sign-in/magic links, one-time and step-up/sudo login codes, email-verification, and expected confirmations of a security change the user just made (passkey created, two-factor authentication enabled, security verification completed) (rule 15), resolved-incident status posts, a third-party vendor's own status/incident post for a service the user only consumes (rule 12f), product release notes without action, social activity digests, social-network connection/invitation requests ("X wants to connect", "I want to connect") and network-growth / profile-activity nudges ("people you may know", "you appeared in N searches", "N people viewed your profile") (rule 8a), "we updated our terms" notices, GitHub notifications that don't require review, legal/investor/shareholder notices with no user action.
 - done: explicit closure or completion notice — the user's underlying request/loop is RESOLVED. Order shipped, payment received, deploy succeeded, ticket resolved, "your request has been processed." A task/ticket being CREATED, FILED, OPENED, logged, or "added to the backlog" is the START of work, NOT a closure — never \`done\`, even when an automation reports "Done" about having created it ("Brain: Done. Created [task] in the backlog" = the bot finished FILING the task, the user's request is now OPEN, not resolved). Route task creation by ownership (rule 12e), never to \`done\`. Also \`done\` when the user has sent the latest reply and owes nothing further on the thread — the user's side of the loop is closed, and waiting on the counterparty's response is not a user action (rule 18).
 - payment: invoices, receipts that need attention, payment failures, billing notices, refunds, statements.
 - newsletter: subscription content the user opted into — weekly digests, Substack posts, professional newsletters, automated content publication.
@@ -252,13 +266,14 @@ Rules:
     12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
     12d. Unknown service envelopes classify from body content alone.
     12e. Activity-feed notifications from collaboration tools — task/issue trackers (ClickUp, Linear, Asana, Jira, Trello, Monday, Notion, GitHub Issues), doc/design comment threads (Google Docs/Drive, Figma, Confluence), and support/CRM/chat notifications (Zendesk, Intercom, Slack/Discord mention forwards) — share one trap: the SUBJECT is the work ITEM'S name (frequently an imperative task title like "Fix X" or "Debug Y"), NOT an instruction to the user. Classify from the BODY event and OWNERSHIP, never the subject. Use the "You (the user being triaged)" block to decide ownership. Use 'action_needed'/'awaiting_reply' ONLY when the body shows the item is ASSIGNED to the user, the user is @-mentioned with a concrete ask, or a reply is owed BY the user. A third-party comment, a status change, or activity on an item the user merely watches / is CC'd on → 'fyi'; an explicit closure ("resolved", "moved to Done", "nothing to do here") → 'done'. A task/ticket being CREATED, FILED, OPENED, or added to a list/backlog — INCLUDING an AI/bot replying "Done. Created [task] …" — is the OPENING of work, never 'done': route it by ownership exactly like any other item (assigned to / @-mentioned the user with a concrete ask → action_needed; a direct unanswered question → awaiting_reply; pure activity on someone else's item → fyi). Use the recent-thread-messages context to find the ownership: a trailing "task created" line whose thread shows the user was asked to fix/handle the item stays action_needed. Inside a product team's task comment, "the user"/"the customer" means an END USER of the product, NOT the email recipient — never read it as an obligation on the recipient.
+    12f. Ownership of the failing system — a third-party vendor's own SERVICE-STATUS / incident notification about THE VENDOR'S systems (status-page posts, "Incident: elevated error rates", "degraded performance", "we've suspended access to X", "scheduled maintenance") for a service the user merely CONSUMES is informational: the user cannot act on the outage, they wait it out → 'fyi' while ongoing, 'done' on an explicit "resolved" post — NEVER 'urgent'/'action_needed'. The vendor's "production issue" is not the USER'S production; do not conflate them. The ONLY exception is a body that imposes a concrete action on the user with a consequence (migrate off a deprecated API by a date, rotate a key the vendor exposed) → then judge that action normally. This is DISTINCT from an alert on the user's OWN / their org's infrastructure (their Sentry project, their CloudWatch alarm, their app's build) — that is judged on real impact per 12c. The discriminator is WHOSE system is failing, not the word "incident".
 13. Confidence:
     - 0.9+: unambiguous (newsletter from a clearly subscribed sender, payment receipt with amount, secret-scanning alert from GitHub).
     - 0.7-0.9: clear category but with some overlap.
     - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
     - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
 14. Rationale: 1-2 sentences grounded in concrete cues: cite subject/body phrasing and any decisive observation you used (sender relationship, recent-thread message, sender prior, or content flag). Do not merely restate the rule. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
-15. Self-initiated authentication mail — sign-in / magic links, one-time login codes (OTP), and email-address verification the user just requested — is fyi, not action_needed and not urgent. The user initiated it and is already mid-flow; it expires harmlessly, carries no consequence-of-delay, and by the time it surfaces the action is moot — nothing to track, nothing to remember. Reserve urgent for UNSOLICITED security alerts: an unrecognized sign-in, a "was this you?" challenge, or a password/2FA change the user did not make.
+15. Self-initiated authentication and security-confirmation mail is the EXPECTED ECHO of an action the user just took → fyi, not action_needed and not urgent. This covers sign-in / magic links, one-time login codes AND step-up / sudo / re-authentication codes ("Sudo email verification code", "your verification code is 123456"), email-address verification the user just requested, and post-hoc confirmations of a security change the user just made ("passkey created", "two-factor authentication enabled", "security verification completed"). The user is mid-flow or has just completed the flow; codes expire harmlessly and confirmations are moot by the time they surface — nothing to track, nothing to remember (rule 16c). DO NOT extend this demotion to ambiguous persistent access grants such as "OAuth application added", recovery email updated, or login method added when the body lacks same-flow confirmation language: the email alone cannot prove the user initiated them, and these changes affect future account access. Keep those surfaced at 'action_needed' (not 'urgent' absent an explicit same-day compromise signal). Reserve urgent for the unsolicited inverse: an unrecognized sign-in, a "was this you?" challenge, account compromised, password/2FA changed without the user, or any body that says to secure the account immediately.
 16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
     16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. A social-network connection request (LinkedIn/X/etc. — "wants to connect", "I want to connect", "would like to join your network") is the canonical optional nicety: the sender's want, not your obligation, and any urgency it phrases is THEIRS → \`no_obligation\` — regardless of the requester's stated title or seniority. A cold "Founder & CEO wants to connect" is still the sender's want, not the user's obligation; whether a connection or any other cold ask is worth a todo is decided by 16b's person-waiting test (the Sender relationship observation), NOT by the title in the email. Distribution-list/service mail (Sender kind \`group\` or \`service\`) is rarely individually actionable unless the body names, assigns, or directly @-mentions the user; do not mint a todo from a generic blast, shared-inbox update, or service activity feed. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
@@ -275,6 +290,7 @@ Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
 - "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
 - "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (self-initiated auth, expires harmlessly, action is moot by the time it surfaces — rule 15, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
+- "[GitHub] Sudo email verification code" the user just triggered → fyi (rule 15: a self-initiated step-up code, moot by the time it surfaces), no todo (rule 16c). "Passkey created" / "Two-factor authentication enabled" / "security verification completed" → fyi when phrased as the expected echo of the user's just-completed setup. Contrast "A third-party OAuth application was added to your account" → action_needed (ambiguous persistent access grant, keep surfaced but not urgent), and "Sign-in from a NEW device — was this you?" → urgent (unsolicited).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
 - "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
@@ -292,7 +308,8 @@ Examples (subject → category):
 - "Conservice : Fix deal views resetting after saving" from ClickUp/Linear, body is a third-party comment "Nothing to be done here — product gap for the user" → done (rule 12e: closure on someone else's investigation; the subject is the task NAME, not your action, and "the user" is the product's end user).
 - "Fix login redirect loop" from a task tracker, body "Akshay assigned this to you · due Jun 14" → action_needed (rule 12e: the body shows the item is owned by the user).
 - ClickUp/Linear bot, body "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list", recent-thread-messages show "dvd assigned you a comment: there is still a bug … please make sure this is fixed" → action_needed, NOT done (rules 5/12e/17: filing a backlog task OPENS work, and the thread shows a live bug assigned to the user — the bot's "Done" is the filing, not the fix). With NO such earlier ask in the thread, the same line is fyi (a task was filed; awareness only) — never done.
-- "Errors spiking in production" from Sentry → urgent/action_needed depending on immediacy and the user's project context.
+- "Errors spiking in production" from Sentry (the USER'S own project) → urgent/action_needed depending on immediacy and the user's project context.
+- "Claude Incident — elevated error rate on Opus 4.8" / "We've suspended access to X" from a vendor's status page → fyi (rule 12f: the VENDOR'S own outage, the user only consumes the service; 'done' once the same thread posts "resolved") — NEVER urgent, however alarming "production issue / elevated error rate" sounds. The discriminator vs the Sentry line above is WHOSE system is failing.
 - "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
 - "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
 - "See you next week." from Apple / Inside Apple with WWDC or product-event content → marketing (public brand event, not the user's meeting).
@@ -456,6 +473,23 @@ function priorBulkProfile(categoryCounts: Record<string, number>): {
 }
 
 /**
+ * Sum a sender prior histogram and the share that falls in `action_needed`.
+ * Used by the service-prior over-classification challenge (#351). PURE.
+ */
+function priorActionShare(categoryCounts: Record<string, number>): {
+  total: number;
+  actionShare: number;
+} {
+  let total = 0;
+  let action = 0;
+  for (const [cat, n] of Object.entries(categoryCounts)) {
+    total += n;
+    if (cat === "action_needed") action += n;
+  }
+  return { total, actionShare: total > 0 ? action / total : 0 };
+}
+
+/**
  * Detect a hard deterministic conflict between the model's output and a strong
  * expectation (ADR-0051 §4b, Phase 3 seed — two tightly-gated nets). Returns the
  * conflict to spell into a single second cheap pass, or null. PURE.
@@ -468,6 +502,7 @@ export function detectConflict(
   classification: TriageClassification,
   observations: Observations,
   floorMatches: boolean,
+  senderContext?: Pick<SenderContext, "effectiveAuthor">,
 ): TriageConflict | null {
   // Under-classification: a security signal is present but the model chose a
   // passive category, and the floor won't already fix it. The dangerous miss.
@@ -482,18 +517,59 @@ export function detectConflict(
     };
   }
 
-  // Over-classification: the model spiked to an important category for a sender
-  // whose prior is overwhelmingly bulk, with nothing supporting the severity.
+  // Over-classification A: the model spiked to an important category for a sender
+  // whose prior is overwhelmingly bulk, with nothing objective supporting the
+  // severity. Gated on `!floorMatches` (NOT `!hasSecurityKeyword`): the override
+  // floor already force-tags a genuine exposed-secret body urgent regardless, so
+  // a bulk sender's mail that merely MENTIONS a security topic ("stop storing
+  // your API keys in your repo", a vendor's status post) — no exposure verb, so
+  // the floor stays silent — is exactly the false-urgent this net should re-ask,
+  // not skip. Keying off `hasSecurityKeyword` instead let ANY bulk-sender
+  // security mention sail through to urgent unchallenged (the educational-
+  // newsletter miss; #263-adjacent).
   if (
     IMPORTANT_CATEGORIES.has(classification.category) &&
-    !observations.content.hasSecurityKeyword &&
+    !floorMatches &&
     !observations.gmail.important
   ) {
     const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
     if (total >= STRONG_BULK_MIN_TOTAL && bulkShare >= STRONG_BULK_MIN_SHARE) {
       return {
         kind: "over_classification",
-        message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no security signal is present. Promotional-urgency language ("act now", "last chance") is not a real deadline — confirm this is genuinely actionable.`,
+        message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no exposed-secret signal fired. Promotional-urgency language ("act now", "last chance"), an educational or security-topic MENTION, or a third-party vendor's own status/incident post is not a real deadline or YOUR incident — confirm this is genuinely actionable BY the user (rules 12f, 16b).`,
+      };
+    }
+  }
+
+  // Over-classification B (#351 partial mitigation): the model tagged a SERVICE
+  // sender's mail `action_needed`, and that sender's prior is a well-established,
+  // action_needed-heavy histogram — the self-reinforcing loop past rule 12e
+  // (status changes / watch-activity keep landing `action_needed` because past
+  // mail did, and that histogram is fed back as justification). Re-ask ONCE with
+  // 12e spelled out; the model KEEPS it if the body truly assigns the item — not
+  // a forced downgrade, so the ~genuine assignment/@-mention notifications the
+  // issue flags as correct are preserved. Gated to service/bot senders so a real
+  // person's direct ask is never challenged here. (Net A misses these: an
+  // action_needed-heavy prior is not "bulk", so its bulkShare stays low.)
+  if (
+    classification.category === "action_needed" &&
+    !floorMatches &&
+    !observations.gmail.important
+  ) {
+    const priorKey = observations.senderPrior.key;
+    const isService =
+      senderContext?.effectiveAuthor === "service" ||
+      observations.senderKind?.kind === "service" ||
+      (priorKey?.startsWith("service:") ?? false);
+    const { total, actionShare } = priorActionShare(observations.senderPrior.categoryCounts);
+    if (
+      isService &&
+      total >= SERVICE_ACTION_LOOP_MIN_TOTAL &&
+      actionShare >= SERVICE_ACTION_LOOP_MIN_SHARE
+    ) {
+      return {
+        kind: "over_classification",
+        message: `You classified this as "action_needed", but this is an automated collaboration/task-tracker service and its prior is ${Math.round(actionShare * 100)}% action_needed across ${total} messages — a self-reinforcing histogram, not evidence. Re-read the BODY per rule 12e: action_needed requires the item to be ASSIGNED to the user, the user @-mentioned with a concrete ask, or a reply owed BY the user. A third-party comment, a status change ("set status to X", "moved to Done", "re-opened QA"), or activity on an item the user merely watches is 'fyi'. If the body genuinely assigns it to the user, KEEP action_needed and name the line that shows it.`,
       };
     }
   }
@@ -755,7 +831,7 @@ export async function classifyEmail(
     pass: "first",
   });
 
-  const conflict = detectConflict(firstPass, args.observations, floorMatches);
+  const conflict = detectConflict(firstPass, args.observations, floorMatches, args.senderContext);
   let working = firstPass;
   let secondPass: TriageClassification | null = null;
   let secondPassFailure: { message: string } | null = null;

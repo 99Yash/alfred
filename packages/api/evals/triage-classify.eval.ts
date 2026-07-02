@@ -420,6 +420,107 @@ const CASES: Case[] = [
       note: "Moderate, two-way, same-org colleague with a concrete blocking ask — a real person waiting (16b passes).",
     },
   },
+  // --- #263: vendor service-status incident vs the user's OWN infra alert ---
+  {
+    label: "vendor-status-incident-fyi",
+    from: "Anthropic Status <no-reply@status.anthropic.com>",
+    subject: "Claude Incident — elevated error rate on Opus 4.8",
+    body: "We are investigating elevated error rates affecting the Claude API and Console. Some requests may fail or be delayed. We will post updates here as we have them.",
+    persona: "work",
+    senderKey: "no-reply@status.anthropic.com",
+    senderPrior: { fyi: 2, done: 1 },
+    lastCategory: "fyi",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "The VENDOR'S own outage — the user only consumes Claude, cannot act on the outage (rule 12f). fyi while ongoing (would be done on 'resolved'); NEVER urgent, however alarming 'elevated error rate' reads. The 06-24 doc_b608m5vh4cni miss.",
+    },
+  },
+  {
+    label: "own-sentry-production-outage-urgent",
+    from: "Sentry <noreply@sentry.io>",
+    subject: "[acme-api] Error rate spiking in production",
+    body: "Your project acme-api is throwing 500s in production. Error rate is 40% over the last 10 minutes and climbing. Issue: TypeError in checkout handler, first seen 12 minutes ago.",
+    persona: "work",
+    senderKey: "service:sentry",
+    sender: {
+      fromKind: "service",
+      effectiveAuthor: "bot",
+      botSlug: "sentry",
+      bodyActor: { kind: "bot", name: "Sentry" },
+    },
+    expected: {
+      category: "urgent",
+      todo: "mint",
+      note: "The USER'S OWN project failing in production, same-day actionable (rule 12c) — stays urgent. The ownership counter-case to the vendor-status rule: don't sweep the user's own infra into fyi.",
+    },
+  },
+  // --- #264: self-initiated codes/security confirmations vs unsolicited security alerts ---
+  {
+    label: "self-initiated-sudo-code-fyi",
+    from: "GitHub <noreply@github.com>",
+    subject: "[GitHub] Sudo email verification code",
+    body: "Here is your sudo verification code: 284613. Enter it to confirm your identity and continue. This code expires in 15 minutes. If you did not request it, you can ignore this email.",
+    senderKey: "noreply@github.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Self-initiated step-up / sudo code the user just triggered (rule 15) — mid-flow, expires harmlessly. fyi, nothing to remember (16c). The doc_tcfumx9884kk-class miss.",
+    },
+  },
+  {
+    label: "self-initiated-passkey-created-fyi",
+    from: "GitHub <noreply@github.com>",
+    subject: "Passkey created",
+    body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
+    senderKey: "noreply@github.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Expected echo of a user-initiated security setup action (rule 15) — already completed by the time it surfaces. fyi, no todo.",
+    },
+  },
+  {
+    label: "self-initiated-2fa-enabled-fyi",
+    from: "GitHub <noreply@github.com>",
+    subject: "Two-factor authentication enabled",
+    body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
+    senderKey: "noreply@github.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Security-setup confirmation class from #264 — expected echo, not a new task. fyi, no todo.",
+    },
+  },
+  {
+    label: "unsolicited-new-device-signin-urgent",
+    from: "Google <no-reply@accounts.google.com>",
+    subject: "Suspicious sign-in from a new device — was this you?",
+    body: "We detected a suspicious sign-in to your account from a new device in a location you don't usually sign in from. If this wasn't you, secure your account immediately.",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "urgent",
+      todo: "mint",
+      note: "The UNSOLICITED inverse of rule 15 — a sign-in the user did NOT initiate. Stays urgent. The counter-case that keeps the self-initiated demotion from over-reaching.",
+    },
+  },
+  {
+    label: "oauth-app-added-boundary-action-needed",
+    from: "GitHub <noreply@github.com>",
+    subject: "A third-party OAuth application was added to your account",
+    body: "The OAuth application 'DeployBot' was authorized to access your account with repo and read:org scopes. If you did not authorize this, revoke its access.",
+    senderKey: "noreply@github.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "action_needed",
+      todo: "suppress",
+      note: "Rule 15 BOUNDARY: not a code — could be unsolicited compromise and the email can't tell. Keep surfaced at action_needed (not urgent absent a same-day breach, not fyi). No todo: verifying is a mechanical check, not a memorable obligation.",
+    },
+  },
 ];
 
 interface TaskOutput {
