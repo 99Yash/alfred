@@ -91,7 +91,9 @@ async function processUser(
       and(
         eq(documents.userId, u.userId),
         eq(documents.source, "gmail"),
-        or(...addrList.map((a) => sql`lower(${documents.metadata}->>'from') like ${"%" + a + "%"}`)),
+        or(
+          ...addrList.map((a) => sql`lower(${documents.metadata}->>'from') like ${"%" + a + "%"}`),
+        ),
       ),
     );
   const isSelf = (from: string | null): boolean => {
@@ -156,21 +158,28 @@ async function processUser(
     return;
   }
 
-  const triageDeleted = pureThreadIds.length
-    ? await db()
-        .delete(emailTriage)
-        .where(
-          and(eq(emailTriage.userId, u.userId), inArray(emailTriage.sourceThreadId, pureThreadIds)),
-        )
-        .returning({ threadId: emailTriage.sourceThreadId })
-    : [];
+  const { triageDeleted, docsDeleted } = await db().transaction(async (tx) => {
+    const triageDeleted = pureThreadIds.length
+      ? await tx
+          .delete(emailTriage)
+          .where(
+            and(
+              eq(emailTriage.userId, u.userId),
+              inArray(emailTriage.sourceThreadId, pureThreadIds),
+            ),
+          )
+          .returning({ threadId: emailTriage.sourceThreadId })
+      : [];
 
-  const docsDeleted = docIds.length
-    ? await db()
-        .delete(documents)
-        .where(and(eq(documents.userId, u.userId), inArray(documents.id, docIds)))
-        .returning({ id: documents.id })
-    : [];
+    const docsDeleted = docIds.length
+      ? await tx
+          .delete(documents)
+          .where(and(eq(documents.userId, u.userId), inArray(documents.id, docIds)))
+          .returning({ id: documents.id })
+      : [];
+
+    return { triageDeleted, docsDeleted };
+  });
 
   console.log(
     `  PERSISTED — deleted ${docsDeleted.length} documents + ${triageDeleted.length} triage rows`,

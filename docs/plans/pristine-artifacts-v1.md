@@ -120,10 +120,13 @@ parallel fan-out. Reuses the existing `pages` kind — **no new `deck` kind**.
 
 **Client-verified floor** (new, v1):
 - The render iframe becomes **scriptable** — `sandbox="allow-scripts"` (deliberately *not*
-  `allow-same-origin`, so it stays origin-isolated from the host). Model HTML has any
-  `<script>` **stripped**; only our measurement harness is injected. It measures
+  `allow-same-origin`, so it stays origin-isolated from the host). Model HTML is sanitized
+  down to inert markup before the harness is injected: strip `<script>`, event-handler
+  attributes, `javascript:` URLs, active SVG/scriptable surfaces, external network loads, and
+  any model-authored `postMessage` path. The injected harness is the **only** script and its
+  reports carry a per-render nonce so the host ignores spoofed fit messages. It measures
   `scrollHeight/Width` against the logical 1280×720 (or 816×1056) box and `postMessage`s
-  `{pageIndex, overflowPx, offendingSelector}` back to the host.
+  `{pageIndex, overflowPx, offendingSelector, nonce}` back to the host.
 - On overflow, the client reports it to the server, which enqueues an **invisible bounded
   repair pass** (a background run, *not* a visible chat turn) that calls `update_artifact` on
   just the offending page with a narrow "over by Npx, tighten this element" brief, reusing

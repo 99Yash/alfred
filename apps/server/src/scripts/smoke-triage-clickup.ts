@@ -12,7 +12,7 @@ import { extractSenderContext } from "@alfred/api/modules/triage/sender-context"
 import type { Observations } from "@alfred/api/modules/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "service:tasks.clickup.com", categoryCounts: {}, lastCategory: null },
+  senderPrior: { key: "notifications@tasks.clickup.com", categoryCounts: {}, lastCategory: null },
   persona: "work",
   thread: {
     lastUserReplyAt: null,
@@ -154,7 +154,7 @@ async function main() {
       senderContext,
       observations: baseObs({
         senderPrior: {
-          key: "service:tasks.clickup.com",
+          key: "notifications@tasks.clickup.com",
           categoryCounts: c.prior ?? {},
           lastCategory: "action_needed",
         },

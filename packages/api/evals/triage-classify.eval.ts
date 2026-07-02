@@ -456,7 +456,7 @@ const CASES: Case[] = [
       note: "The USER'S OWN project failing in production, same-day actionable (rule 12c) — stays urgent. The ownership counter-case to the vendor-status rule: don't sweep the user's own infra into fyi.",
     },
   },
-  // --- #264: self-initiated codes/confirmations vs the unsolicited inverse ---
+  // --- #264: self-initiated codes vs persistent account-security changes ---
   {
     label: "self-initiated-sudo-code-fyi",
     from: "GitHub <noreply@github.com>",
@@ -471,16 +471,16 @@ const CASES: Case[] = [
     },
   },
   {
-    label: "self-initiated-passkey-created-fyi",
+    label: "persistent-passkey-created-action-needed",
     from: "GitHub <noreply@github.com>",
     subject: "Passkey created",
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "fyi",
+      category: "action_needed",
       todo: "suppress",
-      note: "Confirmation echo of a security change the user just made (rule 15) — moot by the time it surfaces. fyi. Same class as '2FA enabled' / 'security verification completed'.",
+      note: "Persistent account-security changes are ambiguous without action-state: the email cannot prove the user initiated the passkey creation. Keep surfaced at action_needed, but no todo because checking security settings is immediate/mechanical.",
     },
   },
   {
@@ -505,7 +505,7 @@ const CASES: Case[] = [
     expected: {
       category: "action_needed",
       todo: "suppress",
-      note: "Rule 15 BOUNDARY: not a code/confirmation — could be unsolicited compromise and the email can't tell. Keep surfaced at action_needed (not urgent absent a same-day breach, not fyi). No todo: verifying is a mechanical check, not a memorable obligation.",
+      note: "Rule 15 BOUNDARY: not a code — could be unsolicited compromise and the email can't tell. Keep surfaced at action_needed (not urgent absent a same-day breach, not fyi). No todo: verifying is a mechanical check, not a memorable obligation.",
     },
   },
 ];
