@@ -58,6 +58,21 @@ describe("extractContentFlags", () => {
     assert.equal(extractContentFlags("CVE-2026-1234 disclosed").hasSecurityKeyword, true);
   });
 
+  test("detects persistent account-access changes as security signals", () => {
+    const cases = [
+      "A new passkey was just added to your account.",
+      "Two-factor authentication has been enabled.",
+      "Two-step verification was turned on.",
+      "A new security key was added.",
+      "Authenticator app configured.",
+      "Your recovery email was updated.",
+      "A third-party OAuth application was added to your account.",
+    ];
+    for (const text of cases) {
+      assert.equal(extractContentFlags(text).hasSecurityKeyword, true, text);
+    }
+  });
+
   test("detects an embedded calendar invite", () => {
     assert.equal(extractContentFlags("BEGIN:VCALENDAR\nBEGIN:VEVENT").hasCalendarInvite, true);
   });
