@@ -101,7 +101,7 @@ const UNSUBSCRIBE_RE = /\bunsubscribe\b|\bmanage (your )?preferences\b|list-unsu
 const CURRENCY_RE =
   /(?:[$€£₹]\s?\d|\b(?:usd|eur|gbp|inr)\b\s?\d|\d[\d.,]{0,20}\s?(?:[$€£₹]|\b(?:usd|eur|gbp|inr)\b))/i;
 const SECURITY_RE =
-  /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
+  /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password|passkey|security key|authenticator app|two[- ]factor|two[- ]step|2fa|mfa|2[- ]step|recovery (?:email|phone)|login method|oauth application)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
 const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
 // `proxy` and `registrar` are qualified to their financial sense: bare
 // `\bproxy\b`/`\bregistrar\b` false-positive on routine engineering prose
