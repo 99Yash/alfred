@@ -3,7 +3,11 @@ import { describe, test } from "node:test";
 
 import type { BriefingGather } from "@alfred/contracts";
 
-import { collectSurfacedThreadIds } from "../../src/modules/briefing/read";
+import {
+  collectSurfacedLoopKeys,
+  collectSurfacedThreadIds,
+} from "../../src/modules/briefing/read";
+import { deriveLoopKey } from "../../src/modules/briefing/loop-key";
 
 /**
  * Minimal gather carrying only the fields `collectSurfacedThreadIds` reads.
@@ -28,6 +32,10 @@ function emailItem(documentId: string, threadId: string) {
     sender: "Someone",
     snippet: "snippet",
   };
+}
+
+function emailItemWithSubject(documentId: string, threadId: string, subject: string) {
+  return { documentId, threadId, subject, sender: "Someone", snippet: "snippet" };
 }
 
 describe("collectSurfacedThreadIds", () => {
@@ -68,5 +76,51 @@ describe("collectSurfacedThreadIds", () => {
   test("returns an empty set when nothing was surfaced", () => {
     assert.equal(collectSurfacedThreadIds([]).size, 0);
     assert.equal(collectSurfacedThreadIds([gatherWith({})]).size, 0);
+  });
+});
+
+describe("collectSurfacedLoopKeys", () => {
+  test("collapses a re-notified ClickUp task across two slots (#283 regression)", () => {
+    // The motivating case: an urgent ClickUp task surfaced in the evening
+    // re-notifies on a NEW thread (a comment) before morning. The thread ids
+    // differ, so a thread-keyed dedup misses it — but the task-title subject is
+    // identical, so the loop key collapses the two.
+    const subject = "Netsmart: Save view issues";
+    const evening = gatherWith({
+      urgent: [emailItemWithSubject("d-eve", "thr_evening", subject)],
+    });
+    const morning = gatherWith({
+      // Later notification: different thread, same underlying task.
+      urgent: [emailItemWithSubject("d-morn", "thr_morning", `Re: ${subject}`)],
+    });
+
+    // Both slots contribute the SAME loop key though their thread ids differ.
+    assert.notEqual(
+      [...collectSurfacedThreadIds([evening, morning])].length,
+      1,
+      "sanity: the thread ids are genuinely different",
+    );
+    const loopKeys = collectSurfacedLoopKeys([evening, morning]);
+    assert.deepEqual([...loopKeys], [deriveLoopKey(subject)]);
+  });
+
+  test("lines up with the current-window derivation", () => {
+    // The persisted-item key and the live-document key must be byte-identical,
+    // since previouslySurfaced compares one against the other.
+    const subject = "Re: [OlivAIRepo/baserow-middleware] Harden detection (PR #786)";
+    const gather = gatherWith({ action_needed: [emailItemWithSubject("d1", "thr", subject)] });
+    const [surfaced] = [...collectSurfacedLoopKeys([gather])];
+    assert.equal(surfaced, deriveLoopKey(subject));
+    assert.equal(surfaced, "gh:olivairepo/baserow-middleware#786");
+  });
+
+  test("skips items whose subject carries no usable key", () => {
+    const gather = gatherWith({ urgent: [emailItemWithSubject("d1", "thr", "(no subject)")] });
+    assert.equal(collectSurfacedLoopKeys([gather]).size, 0);
+  });
+
+  test("tolerates null gathers and empty categories", () => {
+    assert.equal(collectSurfacedLoopKeys([null, gatherWith({})]).size, 0);
+    assert.equal(collectSurfacedLoopKeys([]).size, 0);
   });
 });
