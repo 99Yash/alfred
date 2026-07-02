@@ -456,7 +456,7 @@ const CASES: Case[] = [
       note: "The USER'S OWN project failing in production, same-day actionable (rule 12c) — stays urgent. The ownership counter-case to the vendor-status rule: don't sweep the user's own infra into fyi.",
     },
   },
-  // --- #264: self-initiated codes vs persistent account-security changes ---
+  // --- #264: self-initiated codes/security confirmations vs unsolicited security alerts ---
   {
     label: "self-initiated-sudo-code-fyi",
     from: "GitHub <noreply@github.com>",
@@ -471,16 +471,29 @@ const CASES: Case[] = [
     },
   },
   {
-    label: "persistent-passkey-created-action-needed",
+    label: "self-initiated-passkey-created-fyi",
     from: "GitHub <noreply@github.com>",
     subject: "Passkey created",
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
     senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
-      category: "action_needed",
+      category: "fyi",
       todo: "suppress",
-      note: "Persistent account-security changes are ambiguous without action-state: the email cannot prove the user initiated the passkey creation. Keep surfaced at action_needed, but no todo because checking security settings is immediate/mechanical.",
+      note: "Expected echo of a user-initiated security setup action (rule 15) — already completed by the time it surfaces. fyi, no todo.",
+    },
+  },
+  {
+    label: "self-initiated-2fa-enabled-fyi",
+    from: "GitHub <noreply@github.com>",
+    subject: "Two-factor authentication enabled",
+    body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
+    senderKey: "noreply@github.com",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      note: "Security-setup confirmation class from #264 — expected echo, not a new task. fyi, no todo.",
     },
   },
   {
