@@ -13,14 +13,14 @@ import { clampEffort, getChatProviderOptions } from "../src/provider";
 /**
  * The per-model capability map (ADR-0078) replaced the hardcoded tier→capability
  * branch in `getChatProviderOptions`. These offline invariants lock the two things
- * a future tier remap must never break: the wire-identical reasoning block today,
- * and the clamp that keeps the dispatch from emitting an effort a model 400s on.
+ * a future tier remap must never break: the tier-selected reasoning block, and
+ * the clamp that keeps the dispatch from emitting an effort a model 400s on.
  */
 describe("provider capability dispatch", () => {
-  test("getChatProviderOptions is wire-identical to the pre-#313 hardcoding", () => {
-    // standard → Haiku 4.5 (effortValues:[]): empty anthropic block (ADR-0077).
+  test("getChatProviderOptions follows the chat tier capability map", () => {
+    // standard → Sonnet 4.6: adaptive thinking + clamped medium effort (ADR-0077 amendment).
     assert.deepEqual(getChatProviderOptions("standard"), {
-      anthropic: {},
+      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
       google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
     });
     // deep → Opus 4.8: adaptive thinking + clamped effort.
