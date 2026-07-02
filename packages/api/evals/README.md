@@ -17,6 +17,9 @@ Env (loaded from `apps/server/.env`):
 
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). Deterministic only.
+- `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
+  asks and public/current questions must reach web/sub-agent breadth, while
+  calendar requests must not over-search.
 - `github-grounding.eval.ts` — chat agent answers time-relative GitHub PR
   questions with structured `*WithinDays` fields instead of invented or
   colliding free-form GitHub search qualifiers.
