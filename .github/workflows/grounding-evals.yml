@@ -103,13 +103,21 @@ jobs:
         # and runner errors are reported as warnings and the later suites still
         # run, preserving the "visibility, not gate" contract.
         run: |
-          mkdir -p .eval-results
+          results_dir="${GITHUB_WORKSPACE}/.eval-results"
+          mkdir -p "$results_dir"
           echo "## Grounding evals" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           run_suite() {
             suite="$1"
-            output=".eval-results/${suite}.json"
+            # evalite resolves --outputPath against ITS cwd — under
+            # `pnpm --filter @alfred/api exec` that is packages/api, not the
+            # repo root this step runs in. An absolute path keeps the write and
+            # the read pointed at the same file. A relative path silently wrote
+            # the report under packages/api/ while the reader looked at the
+            # root — ENOENT, which reddened this non-gating job on every
+            # scheduled run since the workflow was added.
+            output="${results_dir}/${suite}.json"
             set +e
             pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
             status="$?"
@@ -121,6 +129,15 @@ jobs:
               return 0
             fi
 
+            if [ ! -f "$output" ]; then
+              echo "::warning title=${suite} report missing::evalite exited 0 but wrote no report at ${output}"
+              echo "- \`${suite}\`: ran but produced no report; see log." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            # A malformed/partial report must not redden this visibility-only
+            # job either — the summariser is guarded the same way evalite is.
+            set +e
             node - "$suite" "$output" <<'NODE' >> "$GITHUB_STEP_SUMMARY"
           const [suite, path] = process.argv.slice(2);
           const fs = require("node:fs");
@@ -133,6 +150,13 @@ jobs:
               : `${Math.round((suites.reduce((sum, s) => sum + (s.averageScore ?? 0), 0) / suites.length) * 100)}%`;
           console.log(`- \`${suite}\`: ${score} across ${evalCount} evals`);
           NODE
+            summary_status="$?"
+            set -e
+            if [ "$summary_status" -ne 0 ]; then
+              echo "::warning title=${suite} summary failed::could not summarise ${output} (exit ${summary_status})"
+              echo "- \`${suite}\`: report unreadable; see log." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            return 0
           }
 
           run_suite date-grounding
