@@ -8,6 +8,7 @@ import type {
   AttentionBand,
   BriefingGather,
   BriefingSlot,
+  FullBriefing,
   SignificanceBand,
   TriageCategory,
 } from "@alfred/contracts";
@@ -242,7 +243,7 @@ export async function listEmailsSinceWatermark(
     // A recent briefing may have surfaced this same loop under a *different*
     // Gmail thread (a collaboration tool re-notifying about the same task/PR on
     // a fresh thread — #283), so match on either the thread id or the loop key.
-    const loopKey = deriveLoopKey(r.subject);
+    const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
     return {
@@ -312,12 +313,13 @@ export interface SurfacedKeys {
 }
 
 /**
- * The thread ids **and** loop keys surfaced in a recent terminal briefing — the
- * sets the next slot should treat as continuations, not fresh items. Sourced
- * from the persisted `gather.email.categories[*][]` of `sent`/`suppressed`
- * briefings created within the lookback window. This is the deterministic
- * backbone of the `previouslySurfaced` flag on {@link EmailListItem}; it
- * replaces relying on the agent to fuzzy-match prose across `list_prior_briefings`.
+ * The thread ids **and** loop keys actually surfaced in a recent terminal
+ * briefing — the sets the next slot should treat as continuations, not fresh
+ * items. Sourced from the delivered briefing's persisted
+ * `fullBriefing.surfacedDocumentIds`, then resolved back through
+ * `gather.email.categories[*][]`. This is the deterministic backbone of the
+ * `previouslySurfaced` flag on {@link EmailListItem}; it replaces relying on
+ * the agent to fuzzy-match prose across `list_prior_briefings`.
  */
 export async function listRecentlySurfacedKeys(args: {
   userId: string;
@@ -329,7 +331,7 @@ export async function listRecentlySurfacedKeys(args: {
   const since = new Date(args.before.getTime() - lookbackMs);
 
   const rows = await db()
-    .select({ gather: briefings.gather })
+    .select({ gather: briefings.gather, fullBriefing: briefings.fullBriefing })
     .from(briefings)
     .where(
       and(
@@ -341,11 +343,7 @@ export async function listRecentlySurfacedKeys(args: {
     .orderBy(desc(briefings.createdAt))
     .limit(SURFACED_LOOKBACK_LIMIT);
 
-  const gathers = rows.map((row) => row.gather);
-  return {
-    threadIds: collectSurfacedThreadIds(gathers),
-    loopKeys: collectSurfacedLoopKeys(gathers),
-  };
+  return collectSurfacedKeys(rows);
 }
 
 /**
@@ -369,10 +367,9 @@ export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>):
 }
 
 /**
- * Pure extraction of every loop/entity key across a set of gather payloads,
- * derived from each item's persisted `subject` (#283). Same tolerance for null
- * gathers and absent categories as {@link collectSurfacedThreadIds}; items
- * whose subject carries no usable key are simply skipped.
+ * Pure extraction of every loop/entity key across a set of gather payloads.
+ * Legacy helper kept for narrow unit coverage; the production continuation
+ * signal uses {@link collectSurfacedKeys}, which filters to actual cited docs.
  */
 export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): Set<string> {
   const keys = new Set<string>();
@@ -381,12 +378,46 @@ export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): 
     if (!categories) continue;
     for (const items of Object.values(categories)) {
       for (const item of items ?? []) {
-        const key = deriveLoopKey(item.subject);
+        const key = deriveLoopKey(item.subject, { sender: item.sender });
         if (key) keys.add(key);
       }
     }
   }
   return keys;
+}
+
+export interface SurfacedBriefingPayload {
+  gather: BriefingGather | null;
+  fullBriefing: FullBriefing | null;
+}
+
+/**
+ * Extract continuation signals only for email documents the delivered prose
+ * actually cited. Gather can hold many priority candidates the model chose to
+ * omit; those must not become "already told you" suppressors for the next slot.
+ */
+export function collectSurfacedKeys(rows: ReadonlyArray<SurfacedBriefingPayload>): SurfacedKeys {
+  const threadIds = new Set<string>();
+  const loopKeys = new Set<string>();
+
+  for (const row of rows) {
+    const surfacedDocumentIds = new Set(row.fullBriefing?.surfacedDocumentIds ?? []);
+    if (surfacedDocumentIds.size === 0) continue;
+
+    const categories = row.gather?.email.categories;
+    if (!categories) continue;
+
+    for (const items of Object.values(categories)) {
+      for (const item of items ?? []) {
+        if (!surfacedDocumentIds.has(item.documentId)) continue;
+        if (item.threadId) threadIds.add(item.threadId);
+        const key = deriveLoopKey(item.subject, { sender: item.sender });
+        if (key) loopKeys.add(key);
+      }
+    }
+  }
+
+  return { threadIds, loopKeys };
 }
 
 export async function readEmailDocument(args: {

@@ -308,6 +308,13 @@ export interface ComposerFullBriefing {
 export interface FullBriefing extends ComposerFullBriefing {
   /** Deterministic display panels generated after compose; never model-authored. */
   sourcePanels?: BriefingSourcePanel[];
+  /**
+   * Email document ids the delivered prose actually referenced. This is audit /
+   * continuity state, not display content: the next briefing uses it to decide
+   * what the user was truly told about, instead of treating every gathered item
+   * as surfaced.
+   */
+  surfacedDocumentIds?: string[];
 }
 
 /**
@@ -395,6 +402,7 @@ export const briefingSourcePanelSchema = z.object({
 
 export const fullBriefingSchema = briefingComposerSchema.shape.fullBriefing.extend({
   sourcePanels: z.array(briefingSourcePanelSchema).max(8).optional(),
+  surfacedDocumentIds: z.array(z.string().min(1)).max(100).optional(),
 }) satisfies z.ZodType<FullBriefing>;
 
 // ─── Contributor contract ─────────────────────────────────────────────────

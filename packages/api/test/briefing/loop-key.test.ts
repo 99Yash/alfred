@@ -51,11 +51,12 @@ describe("deriveLoopKey", () => {
 
     test("extracts a leading issue key", () => {
       assert.equal(deriveLoopKey("ENG-900: investigate latency"), "issue:eng-900");
+      assert.equal(deriveLoopKey("Re: ENG-900: investigate latency"), "issue:eng-900");
     });
 
     test("does not treat a mid-sentence token as an issue key", () => {
       // A hyphenated word mid-subject must not masquerade as an issue key.
-      assert.equal(deriveLoopKey("Notes on the A-1 form review"), "subj:notes on the a-1 form review");
+      assert.equal(deriveLoopKey("Notes on the A-1 form review"), null);
     });
   });
 
@@ -64,26 +65,58 @@ describe("deriveLoopKey", () => {
       // Verified prod repeat: this exact ClickUp task title arrived on 3 separate
       // notification emails within an hour. Each is its own Gmail thread, but the
       // loop is one.
-      const first = deriveLoopKey("Netsmart: Opening Isabelle's account doesn't open favorite view");
-      const second = deriveLoopKey("Netsmart: Opening Isabelle's account doesn't open favorite view");
-      assert.equal(first, "subj:netsmart: opening isabelle's account doesn't open favorite view");
+      const first = deriveLoopKey(
+        "Netsmart: Opening Isabelle's account doesn't open favorite view",
+        {
+          sender: "ClickUp <notifications@tasks.clickup.com>",
+        },
+      );
+      const second = deriveLoopKey(
+        "Netsmart: Opening Isabelle's account doesn't open favorite view",
+        { sender: "ClickUp" },
+      );
+      assert.equal(
+        first,
+        "subj:clickup:netsmart: opening isabelle's account doesn't open favorite view",
+      );
       assert.equal(first, second);
     });
 
     test("collapses across a Re: prefix and whitespace/case noise", () => {
-      const morning = deriveLoopKey("Netsmart: Save view issues");
-      const evening = deriveLoopKey("Re:   netsmart: SAVE view issues  ");
+      const morning = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+      const evening = deriveLoopKey("Re:   netsmart: SAVE view issues  ", {
+        sender: "ClickUp <notifications@tasks.clickup.com>",
+      });
       assert.equal(morning, evening);
     });
 
     test("keeps genuinely different tasks separate", () => {
-      const a = deriveLoopKey("Netsmart: Save view issues");
-      const b = deriveLoopKey("Conservice: Fix imports not triggering deal driver messages");
+      const a = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+      const b = deriveLoopKey("Conservice: Fix imports not triggering deal driver messages", {
+        sender: "ClickUp",
+      });
       assert.notEqual(a, b);
     });
 
     test("strips stacked reply/forward prefixes", () => {
-      assert.equal(deriveLoopKey("Fwd: Re: Fwd: Buying committee fixes"), "subj:buying committee fixes");
+      assert.equal(
+        deriveLoopKey("Fwd: Re: Fwd: Buying committee fixes", { sender: "ClickUp" }),
+        "subj:clickup:buying committee fixes",
+      );
+    });
+
+    test("does not subject-key unknown or generic notification subjects", () => {
+      assert.equal(deriveLoopKey("Netsmart: Save view issues"), null);
+      assert.equal(deriveLoopKey("Engineering", { sender: "ClickUp" }), null);
+      assert.equal(deriveLoopKey("Action required", { sender: "ClickUp" }), null);
+    });
+
+    test("scopes subject fallback by tracker sender", () => {
+      const clickup = deriveLoopKey("Netsmart: Save view issues", { sender: "ClickUp" });
+      const linear = deriveLoopKey("Netsmart: Save view issues", {
+        sender: "Linear <notifications@linear.app>",
+      });
+      assert.notEqual(clickup, linear);
     });
   });
 
