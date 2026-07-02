@@ -19,6 +19,7 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
+import { deriveLoopKey } from "./loop-key";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -59,12 +60,15 @@ export interface EmailListItem {
   ingestedAt: Date;
   threadId: string | null;
   /**
-   * True when this thread already went out in a recent terminal briefing
-   * (within {@link SURFACED_LOOKBACK_MS}). The continuation signal: the agent
-   * should close the loop on it ("still no reply") or drop it, never
-   * re-introduce it as fresh — that morning/evening duplication is what erodes
-   * trust. Computed deterministically from prior briefings' persisted `gather`,
-   * not from LLM prose-matching.
+   * True when this email's underlying *loop* already went out in a recent
+   * terminal briefing (within {@link SURFACED_LOOKBACK_MS}). "Loop" is broader
+   * than the Gmail thread: a match on either the thread id **or** a stable
+   * loop/entity key ({@link deriveLoopKey}) counts, so a collaboration tool
+   * re-notifying about the same task/PR on a *new* thread is still recognized
+   * as a continuation (#283). The agent should close the loop on it ("still no
+   * reply") or drop it, never re-introduce it as fresh — that morning/evening
+   * duplication is what erodes trust. Computed deterministically from prior
+   * briefings' persisted `gather`, not from LLM prose-matching.
    */
   previouslySurfaced: boolean;
   /**
@@ -136,10 +140,10 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const [surfacedThreadIds, suppressionInstructions] = await Promise.all([
+  const [surfaced, suppressionInstructions] = await Promise.all([
     // Anchor the lookback on the run's frozen "until" instant so the signal is
     // deterministic with the rest of the window, not wall-clock at map time.
-    listRecentlySurfacedThreadIds({ userId: args.userId, before: args.untilIngestedAt }),
+    listRecentlySurfacedKeys({ userId: args.userId, before: args.untilIngestedAt }),
     // Standing instructions that exclude a sender from briefing priority. The
     // briefing AGENT composes from THIS list, so the suppression must be applied
     // here too — `gather` filters its own deterministic payload, but the prose
@@ -235,6 +239,12 @@ export async function listEmailsSinceWatermark(
 
   return rows.map((r, i) => {
     const meta = metas[i] ?? {};
+    // A recent briefing may have surfaced this same loop under a *different*
+    // Gmail thread (a collaboration tool re-notifying about the same task/PR on
+    // a fresh thread — #283), so match on either the thread id or the loop key.
+    const loopKey = deriveLoopKey(r.subject);
+    const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
+    const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
     return {
       documentId: r.documentId,
       subject: r.subject,
@@ -245,7 +255,7 @@ export async function listEmailsSinceWatermark(
       authoredAt: r.authoredAt,
       ingestedAt: r.ingestedAt,
       threadId: r.sourceThreadId,
-      previouslySurfaced: r.sourceThreadId ? surfacedThreadIds.has(r.sourceThreadId) : false,
+      previouslySurfaced: surfacedByThread || surfacedByLoop,
       attentionBand: toTriageCategory(r.triageCategory)
         ? (attention[i]?.band ?? "normal")
         : "normal",
@@ -288,20 +298,33 @@ async function loadSignificanceBands(
   return out;
 }
 
+/** Both continuation signals a recent briefing left behind for the next slot. */
+export interface SurfacedKeys {
+  /** Gmail thread ids surfaced in a recent terminal briefing. */
+  threadIds: Set<string>;
+  /**
+   * Stable loop/entity keys ({@link deriveLoopKey}) of those items — the signal
+   * that recognizes a re-notification of the same task/PR on a *new* thread
+   * (#283). Derived from each item's persisted `subject`, so it lines up with
+   * the current-window derivation in {@link listEmailsSinceWatermark}.
+   */
+  loopKeys: Set<string>;
+}
+
 /**
- * Thread ids surfaced in a recent terminal briefing — the set the next slot
- * should treat as continuations, not fresh items. Sourced from the persisted
- * `gather.email.categories[*][].threadId` of `sent`/`suppressed` briefings
- * created within the lookback window. This is the deterministic backbone of the
- * `previouslySurfaced` flag on {@link EmailListItem}; it replaces relying on the
- * agent to fuzzy-match prose across `list_prior_briefings`.
+ * The thread ids **and** loop keys surfaced in a recent terminal briefing — the
+ * sets the next slot should treat as continuations, not fresh items. Sourced
+ * from the persisted `gather.email.categories[*][]` of `sent`/`suppressed`
+ * briefings created within the lookback window. This is the deterministic
+ * backbone of the `previouslySurfaced` flag on {@link EmailListItem}; it
+ * replaces relying on the agent to fuzzy-match prose across `list_prior_briefings`.
  */
-export async function listRecentlySurfacedThreadIds(args: {
+export async function listRecentlySurfacedKeys(args: {
   userId: string;
   /** Upper bound the lookback window subtracts from — pass the run's frozen "until". */
   before: Date;
   lookbackMs?: number;
-}): Promise<Set<string>> {
+}): Promise<SurfacedKeys> {
   const lookbackMs = args.lookbackMs ?? SURFACED_LOOKBACK_MS;
   const since = new Date(args.before.getTime() - lookbackMs);
 
@@ -318,12 +341,16 @@ export async function listRecentlySurfacedThreadIds(args: {
     .orderBy(desc(briefings.createdAt))
     .limit(SURFACED_LOOKBACK_LIMIT);
 
-  return collectSurfacedThreadIds(rows.map((row) => row.gather));
+  const gathers = rows.map((row) => row.gather);
+  return {
+    threadIds: collectSurfacedThreadIds(gathers),
+    loopKeys: collectSurfacedLoopKeys(gathers),
+  };
 }
 
 /**
  * Pure extraction of every thread id referenced across a set of gather
- * payloads. Split out from {@link listRecentlySurfacedThreadIds} so the dedup
+ * payloads. Split out from {@link listRecentlySurfacedKeys} so the dedup
  * core is unit-testable without a database. Null gathers (suppressed rows that
  * never gathered) and per-category absences are tolerated.
  */
@@ -339,6 +366,27 @@ export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>):
     }
   }
   return ids;
+}
+
+/**
+ * Pure extraction of every loop/entity key across a set of gather payloads,
+ * derived from each item's persisted `subject` (#283). Same tolerance for null
+ * gathers and absent categories as {@link collectSurfacedThreadIds}; items
+ * whose subject carries no usable key are simply skipped.
+ */
+export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): Set<string> {
+  const keys = new Set<string>();
+  for (const gather of gathers) {
+    const categories = gather?.email.categories;
+    if (!categories) continue;
+    for (const items of Object.values(categories)) {
+      for (const item of items ?? []) {
+        const key = deriveLoopKey(item.subject);
+        if (key) keys.add(key);
+      }
+    }
+  }
+  return keys;
 }
 
 export async function readEmailDocument(args: {
