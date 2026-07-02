@@ -95,7 +95,6 @@ function runFirstCall(input: string) {
     model: getChatModel("standard"),
     system: SYSTEM,
     prompt: input,
-    temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: standardProviderOptions(),
     // Real tool surface, execute-less so the run halts on the first tool call
@@ -218,7 +217,6 @@ async function runResolutionScenario(
     model: getChatModel("standard"),
     system: SYSTEM,
     prompt: input,
-    temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: standardProviderOptions(),
     stopWhen: stepCountIs(4),

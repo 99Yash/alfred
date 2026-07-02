@@ -2,6 +2,7 @@ import path from "node:path";
 import { getChatModel, getChatProviderOptions } from "@alfred/ai";
 import {
   calendarListEventsInput,
+  gmailReadMessageInput,
   gmailSearchInput,
   readUserContextInput,
   webSearchInput,
@@ -38,6 +39,7 @@ const WEB_SEARCH_TOOL = "system.web_search";
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
 const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
 const GMAIL_SEARCH_TOOL = "gmail.search";
+const GMAIL_READ_MESSAGE_TOOL = "gmail.read_message";
 const CALENDAR_TOOL = "calendar.list_events";
 
 const CONNECTED_SUMMARY = [
@@ -58,20 +60,10 @@ interface TaskOutput {
 
 interface SourceCase {
   input: string;
-  expected: "new_source" | "web" | "calendar";
+  expected: "web" | "calendar";
 }
 
 const SOURCE_CASES: SourceCase[] = [
-  {
-    input:
-      'Earlier in this thread, you answered "Sakshi Jindal appears in your calendar invites and email, but I only have thin internal context." The user now says: "find more about her".',
-    expected: "new_source",
-  },
-  {
-    input:
-      'Earlier in this thread, you searched Alfred memory and Gmail and found only a couple of calendar-invite emails about Sakshi Jindal. The user now says: "can we know something more about her?"',
-    expected: "new_source",
-  },
   {
     input: "who is Lina Khan?",
     expected: "web",
@@ -117,6 +109,10 @@ function toolSurface(): Record<string, Tool> {
         "Search Gmail messages. Each hit carries sender, subject, snippet, timestamp, ids, and a url.",
       inputSchema: gmailSearchInput,
     }),
+    [GMAIL_READ_MESSAGE_TOOL]: tool({
+      description: "Read one Gmail message body by message id or document id.",
+      inputSchema: gmailReadMessageInput,
+    }),
     [CALENDAR_TOOL]: tool({
       description:
         "List Google Calendar events. Use this for calendar availability and event count questions.",
@@ -156,17 +152,9 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
     {
       name: "Reaches the expected source class",
       scorer: ({ output, expected }) => {
-        const reachedNewSource =
-          output.toolNames.includes(WEB_SEARCH_TOOL) ||
-          output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
         const reachedWeb = output.toolNames.includes(WEB_SEARCH_TOOL);
         const reachedCalendar = output.toolNames.includes(CALENDAR_TOOL);
-        const ok =
-          expected === "new_source"
-            ? reachedNewSource
-            : expected === "web"
-              ? reachedWeb
-              : reachedCalendar;
+        const ok = expected === "web" ? reachedWeb : reachedCalendar;
         return {
           score: ok ? 1 : 0,
           metadata: ok
@@ -204,15 +192,22 @@ const clickUpSearchResultSchema = z.object({
   ),
 });
 
-async function runClickUpAwareness(): Promise<TaskOutput> {
+async function runThinPersonResearchReplay(userMessage: string): Promise<TaskOutput> {
   const result = await generateText({
     model: getChatModel("standard"),
     system: SYSTEM,
-    prompt:
-      "Find more about Sakshi Jindal from what I have. If there is not much, tell me what would unlock more.",
+    messages: [
+      { role: "user", content: "what do i know about sakshi" },
+      {
+        role: "assistant",
+        content:
+          "Sakshi Jindal appears in a couple of your calendar-invite emails, but I only have thin internal context on her.",
+      },
+      { role: "user", content: userMessage },
+    ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: providerOptions(),
-    stopWhen: stepCountIs(3),
+    stopWhen: stepCountIs(5),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored context about the user's people and projects.",
@@ -248,7 +243,21 @@ async function runClickUpAwareness(): Promise<TaskOutput> {
                 url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_2",
               },
             ],
+            nextPageToken: null,
           }),
+      }),
+      [GMAIL_READ_MESSAGE_TOOL]: tool({
+        description: "Read one Gmail message body by message id or document id.",
+        inputSchema: gmailReadMessageInput,
+        execute: async () => ({
+          messageId: "clickup_sakshi_1",
+          threadId: "clickup_thread",
+          from: "ClickUp <notifications@clickup.com>",
+          subject: "Sakshi Jindal mentioned you in a task",
+          text:
+            "Sakshi Jindal commented on a ClickUp task. The email only contains a notification preview; open ClickUp for the task thread and project details.",
+          url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_1",
+        }),
       }),
       [WEB_SEARCH_TOOL]: tool({
         description:
@@ -259,18 +268,39 @@ async function runClickUpAwareness(): Promise<TaskOutput> {
           summary: "No confident public result found for Sakshi Jindal in this work context.",
         }),
       }),
+      [SPAWN_SUB_AGENT_TOOL]: tool({
+        description:
+          "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
+        inputSchema: spawnSubAgentInputSchema,
+        execute: async () => ({
+          childRunId: "child_eval_sakshi",
+          status: "running",
+        }),
+      }),
+      [AWAIT_SUB_AGENT_TOOL]: tool({
+        description: "Wait for a spawned sub-agent to finish and read its real result.",
+        inputSchema: awaitSubAgentInputSchema,
+        execute: async () => ({
+          status: "completed",
+          output:
+            "Memory and Gmail are thin; ClickUp likely has the task details, and no confident public result was found.",
+        }),
+      }),
     },
   });
   const toolNames = result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName));
   return { toolNames, first: toolNames[0] ?? null, text: result.text };
 }
 
-evalite<null, TaskOutput, null>("Boss judgment — names richer hidden source", {
-  data: () => [{ input: null, expected: null }],
-  task: async () => {
+evalite<string, TaskOutput, null>("Boss judgment — thin person research replay", {
+  data: () => [
+    { input: "find more about her", expected: null },
+    { input: "can we know something more about her?", expected: null },
+  ],
+  task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
     try {
-      return await runClickUpAwareness();
+      return await runThinPersonResearchReplay(input);
     } catch (err) {
       return {
         toolNames: [],
@@ -281,6 +311,20 @@ evalite<null, TaskOutput, null>("Boss judgment — names richer hidden source", 
   },
   scorers: [
     {
+      name: "Reaches a new public/research source after thin internal results",
+      scorer: ({ output }) => {
+        const ok =
+          output.toolNames.includes(WEB_SEARCH_TOOL) ||
+          output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+        return {
+          score: ok ? 1 : 0,
+          metadata: ok
+            ? `tool path: ${output.toolNames.join(" -> ")}`
+            : `stayed internal only: tools=[${output.toolNames.join(", ")}]; text=${output.text.slice(0, 260)}`,
+        };
+      },
+    },
+    {
       name: "Names ClickUp as the richer unavailable source",
       scorer: ({ output }) => {
         const text = output.text.toLowerCase();
@@ -290,6 +334,27 @@ evalite<null, TaskOutput, null>("Boss judgment — names richer hidden source", 
           metadata: ok
             ? output.text.slice(0, 240)
             : `did not name the hidden source clearly; tools=[${output.toolNames.join(", ")}]; text=${output.text.slice(0, 240)}`,
+        };
+      },
+    },
+    {
+      name: "Does not offer web search as an untried next step",
+      scorer: ({ output }) => {
+        const searchedOrDelegated =
+          output.toolNames.includes(WEB_SEARCH_TOOL) ||
+          output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+        const text = output.text.toLowerCase();
+        const puntsToFutureWeb =
+          text.includes("i can look") ||
+          text.includes("i can search") ||
+          text.includes("if you know") ||
+          text.includes("if you share");
+        const ok = searchedOrDelegated || !puntsToFutureWeb;
+        return {
+          score: ok ? 1 : 0,
+          metadata: ok
+            ? "did not defer an available public lookup"
+            : `offered lookup instead of doing it: tools=[${output.toolNames.join(", ")}]; text=${output.text.slice(0, 260)}`,
         };
       },
     },
