@@ -85,7 +85,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   const tools = {
     list_emails_since: tool({
       description:
-        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this thread already went out in a recent briefing — treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. attentionBand is a precomputed demand ranking: a 'muted' item is recurring machine noise or low-signal that should NOT be surfaced as demanding (e.g. the same alarm fired ten times). Trust it instead of re-judging urgency yourself. Call read_email if you need the body for a specific message.",
+        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this item's loop — the thread OR the underlying task/PR it re-notifies about — already went out in a recent briefing; treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. attentionBand is a precomputed demand ranking: a 'muted' item is recurring machine noise or low-signal that should NOT be surfaced as demanding (e.g. the same alarm fired ten times). Trust it instead of re-judging urgency yourself. Call read_email if you need the body for a specific message.",
       inputSchema: z.object({
         limit: z
           .number()

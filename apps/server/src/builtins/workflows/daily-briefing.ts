@@ -191,7 +191,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
                   subject: fullBriefing.headline,
                   bodyText: breakingSummary,
                   bodyMarkdown: breakingSummary,
-                  citedDocumentIds: [],
+                  citedDocumentIds: fullBriefing.surfacedDocumentIds ?? [],
                   modelId: begun.row.model ?? "unknown",
                 },
               },
@@ -318,7 +318,11 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             // Prose body → breaking_summary; headline ← subject; no structured
             // sections (the model emits one markdown body, not buckets).
             breakingSummary: result.briefing.bodyMarkdown,
-            fullBriefing: { headline: result.briefing.subject, sections: [] },
+            fullBriefing: {
+              headline: result.briefing.subject,
+              sections: [],
+              surfacedDocumentIds: uniqueStrings(result.briefing.citedDocumentIds),
+            },
             model: result.modelId,
             composeFallback: false,
             // Freeze the window end this prose covers, so a crash-then-resume
@@ -474,6 +478,18 @@ function gatherCounts(gather: BriefingGather): {
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
   };
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
