@@ -373,17 +373,17 @@ export const systemTools: readonly RegisteredTool[] = [
     // Cost is bucketed under api_call_log.kind = 'web_search', not the gate.
     riskTier: "no_risk",
     description:
-      "Search the live web and get back a short, cited answer. Use this for current events, facts you're unsure of, or anything outside your training data — do not guess from memory when a lookup would settle it. Returns a synthesized answer plus source URLs, not raw search results.",
+      "Search the live web and get back what the search found: a synthesized answer, source results/citations behind it (open a result URL with fetch_url to read the page in full), and the queries actually run. Use this for current events, facts you're unsure of, or public background on a person or company — don't guess from memory when a lookup would settle it. It surfaces candidate matches even when uncertain rather than stopping at 'no confident match', so treat a thin result as a cue to search a different angle or drill a source, not a dead end.",
     inputSchema: webSearchInput,
     execute: async (input, ctx) => {
-      const { answer, citations } = await runWebSearch({
+      const { answer, citations, results, searchQueries } = await runWebSearch({
         query: input.query,
         userId: ctx.userId,
         runId: ctx.runId,
         stepId: ctx.stepId,
         idempotencyKey: ctx.toolCallId,
       });
-      return { ok: true, query: input.query, answer, citations };
+      return { ok: true, query: input.query, answer, citations, results, searchQueries };
     },
   }),
   liveTool({

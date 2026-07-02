@@ -44,23 +44,61 @@ export interface WebSearchSource {
   title?: string;
 }
 
+export interface WebSearchHit {
+  /** The URL the caller can open with `system.fetch_url`. */
+  url: string;
+  /** Grounding's publisher/page label, when available. */
+  title?: string;
+  /**
+   * Raw snippets are not exposed by Gemini grounding in the metadata we receive.
+   * Keep this optional so future providers can fill it without inventing text.
+   */
+  snippet?: string;
+}
+
 export interface WebSearchResult {
   answer: string;
   citations: WebSearchSource[];
+  /**
+   * Grounding sources as an explicit result list for agents that need to decide
+   * what to drill with `fetch_url`. Today this is title+URL only; snippets are
+   * optional because Gemini grounding does not expose SERP snippets here.
+   */
+  results: WebSearchHit[];
+  /**
+   * The Google Search queries the grounded model actually ran server-side
+   * (`groundingMetadata.webSearchQueries`), when it reports them. Surfaced so a
+   * caller can see how its question was interpreted and vary the angle on a
+   * follow-up instead of repeating the same search. Best-effort — empty when
+   * grounding didn't report it.
+   */
+  searchQueries: string[];
 }
 
 function buildPrompt(query: string): string {
   return [
-    "You are a live web search assistant for a personal AI agent. Answer the query below using current web sources.",
+    "You are a live web search assistant for a personal AI agent that will act on what you return. Search the web and report what you actually find for the query below — your job is to surface findings, not to gate them behind a confidence bar.",
     "",
     "Guidelines:",
-    "- Be concise and factual. Lead with the answer; no preamble or meta-commentary.",
-    "- Use inline numeric citation markers ([1], [2], …) tied to the sources you actually used.",
-    "- Prefer primary/official sources over aggregators.",
-    "- If you can't find a confident answer, say so plainly rather than padding with guesses.",
+    "- Report what the results show. If the search surfaces plausible candidate matches, name them and say what each source indicates (role, employer, location, dates, handles), even when you're not fully certain — flag the uncertainty instead of withholding the finding.",
+    '- Do not answer "no confident match" when the search returned relevant results. Reserve "nothing found" for when the search genuinely turns up nothing on point; a weak or partial hit is still a result — surface it.',
+    "- When a name or entity is ambiguous, list the distinct candidates and what tells them apart rather than silently picking one or dropping them all.",
+    "- Attribute claims to the sources you used with inline numeric markers ([1], [2], …). Prefer primary/official sources, but include useful profiles and company team/about pages when they're the best available.",
+    "- Be factual and concise. Lead with the substance; no preamble or meta-commentary.",
     "",
     `Query: ${query}`,
   ].join("\n");
+}
+
+/**
+ * Pull the actual Google Search queries out of the grounding metadata
+ * (`providerMetadata.google.groundingMetadata.webSearchQueries`). Best-effort,
+ * same as {@link extractCitations} — tolerate missing/wrong-shape data.
+ */
+function extractSearchQueries(providerMetadata: unknown): string[] {
+  const queries = getPath(providerMetadata, "google", "groundingMetadata", "webSearchQueries");
+  if (!Array.isArray(queries)) return [];
+  return queries.filter((q): q is string => isNonEmptyString(q));
 }
 
 /**
@@ -114,9 +152,11 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
       // grounded answer lands directly in `result.text`.
       tools: googleSearchGroundingTools(),
       prompt: buildPrompt(args.query),
-      // ~1.5k keeps a cited paragraph or two comfortably while holding a
-      // single interactive lookup cheap.
-      maxOutputTokens: 1_500,
+      // ~2.5k gives room to list a few candidate matches with what each source
+      // says (the old 1.5k pushed the model to collapse to a one-line verdict —
+      // the "no confident match" punt this tool used to return), while still
+      // holding a single interactive lookup cheap.
+      maxOutputTokens: 2_500,
       temperature: 0,
       abortSignal: args.abortSignal,
     },
@@ -131,11 +171,18 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
     },
   );
 
+  const citations = extractCitations(
+    result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
+    result.providerMetadata,
+  );
+
   return {
     answer: result.text.trim(),
-    citations: extractCitations(
-      result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
-      result.providerMetadata,
-    ),
+    citations,
+    results: citations.map((source) => ({
+      url: source.url,
+      ...(source.title ? { title: source.title } : {}),
+    })),
+    searchQueries: extractSearchQueries(result.providerMetadata),
   };
 }
