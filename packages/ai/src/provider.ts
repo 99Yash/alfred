@@ -266,16 +266,12 @@ export function googleSearchGroundingTools(): ToolSet {
  * `getChatProviderOptions` both read it, so the model and its reasoning block can
  * never drift (the #313 seam: a remap here flows into the dispatch automatically).
  *
- *   - `standard` (the Auto tier) → Claude Haiku 4.5 — the everyday conversational
- *     driver. Adopted 2026-06-28 over Sonnet 4.6 after a browser-replay
- *     adjudication: at ~3× lower cost Haiku held tool-use + judgment quality, keeps
- *     the #223 prompt cache (same provider → same tokenizer, no re-warm), and routes
- *     through the same Anthropic tool-name shim. Its one gap — under-acting on implicit agentic lookups
- *     (asking instead of searching) — was closed by the search-before-ask prompt
- *     hardening (#312) and is pinned by the sender-suppression eval. Haiku's
- *     `effortValues: []` means the requested effort is ignored — it gets the empty
- *     reasoning block (per ADR-0077), so the `effort` field below is moot until a
- *     remap points `standard` at an effort-bearing model.
+ *   - `standard` (the Auto tier) → Claude Sonnet 4.6 — the everyday boss. ADR-0077
+ *     originally downgraded this to Haiku 4.5 for cost, but the 2026-07-02 Sakshi
+ *     production trace proved the prompt-patch strategy did not generalize: repeated
+ *     "find more" turns, including a Deep/Opus turn, never reached the web. Auto is
+ *     back on the same reasoning-capable model as sub-agents, with `effort: "medium"`
+ *     as the latency-friendly default for the charter's model-judged source ladder.
  *   - `deep` → Claude Opus 4.8 — reserved for hard, multi-step turns (and the model
  *     the boss-worker harness runs on when chat fans out). Asks for `effort: "high"`
  *     for deliberate reasoning.
@@ -285,7 +281,7 @@ export function googleSearchGroundingTools(): ToolSet {
  * provider blip.
  */
 const CHAT_TIERS = {
-  standard: { primary: "claude-haiku-4-5-20251001", fallback: "gemini-2.5-pro", effort: "high" },
+  standard: { primary: "claude-sonnet-4-6", fallback: "gemini-2.5-pro", effort: "medium" },
   deep: { primary: "claude-opus-4-8", fallback: "gemini-2.5-pro", effort: "high" },
 } as const satisfies Record<
   ChatModelTier,
@@ -305,11 +301,10 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  *
  * Each block is built by `PROVIDER_DISPATCH[provider].reasoningOptions`, reading
  * the resolved model's `effortValues`. The deleted tier-branch (ADR-0077's #313
- * seam) is now structural: `standard` resolves to Haiku, whose `effortValues: []`
- * yields the empty anthropic block; `deep` resolves to Opus, which yields the
- * adaptive block at clamped `effort`. Wire-identical to the old hardcoding today,
- * but a future remap (e.g. `standard → sonnet-4-6`) produces the correct block
- * automatically instead of a 400.
+ * seam) is now structural: `standard` resolves to Sonnet 4.6 with adaptive medium
+ * effort; `deep` resolves to Opus with adaptive high effort. A future tier remap
+ * flows through the same table and capability map instead of reintroducing a
+ * provider-options branch.
  */
 export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
   const { primary, fallback, effort } = CHAT_TIERS[tier];
