@@ -119,8 +119,26 @@ describe("gmailTodoSources", () => {
     });
     assert.deepEqual(sources, [
       { provider: "gmail", kind: "thread", id: "thread_1" },
-      { provider: "gmail", kind: "loop", id: "gh:olivairepo/baserow-middleware#786" },
+      { provider: "github", kind: "pull_request", id: "olivairepo/baserow-middleware#786" },
     ]);
+  });
+
+  test("does not hard-dedup a GitHub-shaped subject without GitHub sender evidence", () => {
+    const sources = gmailTodoSources({
+      threadId: "thread_1",
+      subject: "Re: [owner/repo] Planning doc review (PR #12)",
+      sender: "Priya <priya@client.com>",
+    });
+    assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
+  });
+
+  test("does not hard-dedup an issue-key subject without Linear/Jira sender evidence", () => {
+    const sources = gmailTodoSources({
+      threadId: "thread_1",
+      subject: "ENG-123: interview loop feedback",
+      sender: "Priya <priya@client.com>",
+    });
+    assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
   });
 
   test("adds a tracker-scoped loop ref for a ClickUp task notification", () => {
@@ -130,9 +148,9 @@ describe("gmailTodoSources", () => {
       sender: "ClickUp <notifications@tasks.clickup.com>",
     });
     assert.deepEqual(sources.at(-1), {
-      provider: "gmail",
-      kind: "loop",
-      id: "subj:clickup:netsmart: save view issues",
+      provider: "clickup",
+      kind: "subject",
+      id: "netsmart: save view issues",
     });
   });
 
@@ -188,15 +206,17 @@ describe("boundTodoSources", () => {
     assert.deepEqual(bounded, [loopRef, slackRef, thread(4), thread(5)]);
   });
 
-  test("never evicts identity-bearing refs even when they alone exceed the cap", () => {
+  test("keeps a sync-valid cap even when identity refs alone exceed it", () => {
     const many = Array.from({ length: 6 }, (_, i) => ({
       provider: "slack",
       kind: "message",
       id: `m${i}`,
     })) satisfies TodoSource[];
     const bounded = boundTodoSources([...many, thread(1)], 4);
-    // Non-thread refs are never dropped; the evictable thread goes.
-    assert.deepEqual(bounded, many);
+    // The public tool schema rejects this shape, but the lower-level write
+    // helper still returns a sync-valid array by keeping the newest identity refs.
+    assert.deepEqual(bounded, many.slice(2));
+    assert.equal(bounded.length, 4);
   });
 
   test("a recurring loop stays bounded across many re-notifications", () => {
@@ -211,6 +231,10 @@ describe("boundTodoSources", () => {
     }
     assert.ok(acc.length <= TODO_SOURCES_MAX, `bounded at ${acc.length}`);
     // The stable loop ref is retained, so future re-notifications still merge.
-    assert.ok(acc.some((s) => s.kind === "loop" && s.id === "gh:owner/repo#7"));
+    assert.ok(
+      acc.some(
+        (s) => s.provider === "github" && s.kind === "pull_request" && s.id === "owner/repo#7",
+      ),
+    );
   });
 });
