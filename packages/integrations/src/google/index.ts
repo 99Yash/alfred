@@ -75,14 +75,19 @@ export type {
   AlfredLabelMap,
   ApplyTriageLabelArgs,
   ApplyTriageLabelResult,
+  LabelSelfAuthoredMailArgs,
+  LabelSelfMailDeps,
   TriageCategory,
 } from "./labels";
 export {
+  ALFRED_SELF_LABEL_NAME,
   applyTriageLabel,
   categoryFromLabelName,
   ensureAlfredLabels,
+  ensureAlfredSelfLabel,
   findThreadSiblingsWithAlfredLabels,
   labelNameFor,
+  labelSelfAuthoredMail,
   TRIAGE_CATEGORIES,
 } from "./labels";
 export type {
