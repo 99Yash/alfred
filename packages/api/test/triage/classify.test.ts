@@ -211,7 +211,7 @@ describe("applySenderKindDemotionFloor", () => {
         todoDecision: { outcome: "proposed" },
       }),
       serviceKind,
-      "dvd set the status to: 10 web\nchanged status\n07 merged\n10 web",
+      { signalText: "dvd set the status to: 10 web\nchanged status\n07 merged\n10 web" },
     );
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
@@ -224,7 +224,10 @@ describe("applySenderKindDemotionFloor", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
       serviceKind,
-      "Sakshi Jindal assigned task to you\nConservice: Show all CRM fields as options",
+      {
+        signalText:
+          "Sakshi Jindal assigned task to you\nConservice: Show all CRM fields as options",
+      },
     );
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
@@ -234,7 +237,10 @@ describe("applySenderKindDemotionFloor", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
       serviceKind,
-      "Sanyam commented\npls merge this - https://github.com/OlivAIRepo/autosched-mirror/pull/654",
+      {
+        signalText:
+          "Sanyam commented\npls merge this - https://github.com/OlivAIRepo/autosched-mirror/pull/654",
+      },
     );
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
@@ -244,10 +250,67 @@ describe("applySenderKindDemotionFloor", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
       serviceKind,
-      "fetch-latest-report resolved to a stale report because mixed date formats sorted badly",
+      {
+        signalText:
+          "fetch-latest-report resolved to a stale report because mixed date formats sorted badly",
+      },
     );
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("demotes GitHub PR notifications where Cc structurally says the user is the author", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        sender: "Copilot <notifications@github.com>",
+        subject: "Re: [99Yash/alfred] show settings (PR #122)",
+        cc: "Yash Gourav Kar <yashgouravkar@gmail.com>, Author <author@noreply.github.com>",
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("demotes GitHub CI notifications from the structural Cc reason alias", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        sender: "Yash Gourav Kar <notifications@github.com>",
+        subject: "[99Yash/alfred] PR run failed: triage-eval - feat(chat) (b560b46)",
+        cc: "Ci activity <ci_activity@noreply.github.com>",
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("does not demote GitHub security or direct no-reason notifications through the PR/CI gate", () => {
+    const security = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        sender: "GitHub <notifications@github.com>",
+        subject: "[GitHub] Security alert",
+        cc: "Security alert <security_alert@noreply.github.com>",
+      },
+    );
+    assert.equal(security.demoted, false);
+    assert.equal(security.classification.category, "action_needed");
+
+    const invite = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        sender: "Ronit Panda <noreply@github.com>",
+        subject: "rtpa25 invited you to rtpa25/-dimension-ai-web",
+        cc: null,
+      },
+    );
+    assert.equal(invite.demoted, false);
+    assert.equal(invite.classification.category, "action_needed");
   });
 
   test("leaves urgent untouched (out of this narrow floor's scope)", () => {
@@ -638,6 +701,45 @@ describe("classifyEmail", () => {
             evidenceCodes: ["email:local:service_strong"],
             entityId: "ent_clickup",
             displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes a GitHub author PR notification from metadata", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "action_needed",
+        confidence: 0.86,
+        todoSuggestion: { name: "Address PR review comments" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_github_pr_author",
+          title: "Re: [99Yash/alfred] show settings (PR #122)",
+          content: "A reviewer commented on this pull request.",
+          authoredAt: null,
+          metadata: {
+            from: "Copilot <notifications@github.com>",
+            cc: "Yash Gourav Kar <yashgouravkar@gmail.com>, Author <author@noreply.github.com>",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.9,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_github",
+            displayName: "GitHub Notifications",
           },
         }),
         runPass: model.runPass,
