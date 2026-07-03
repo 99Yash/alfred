@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   applyOverrideFloor,
+  applySenderKindDemotionFloor,
   classifyEmail,
   detectConflict,
   resolveTodoSuggestion,
@@ -139,6 +140,89 @@ describe("applyOverrideFloor", () => {
     );
     assert.equal(r.forced, false);
     assert.equal(r.classification.category, "fyi");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySenderKindDemotionFloor
+// ---------------------------------------------------------------------------
+
+describe("applySenderKindDemotionFloor", () => {
+  const groupKind = {
+    kind: "group" as const,
+    confidence: 0.99,
+    evidenceCodes: ["gmail:list_id"],
+    entityId: "ent_1",
+    displayName: "Some List",
+  };
+  const serviceKind = {
+    ...groupKind,
+    kind: "service" as const,
+    confidence: 0.92,
+    evidenceCodes: ["email:local:service_strong"],
+  };
+  const serviceRoleKind = {
+    ...serviceKind,
+    evidenceCodes: ["email:local:service"],
+    displayName: "Support",
+  };
+
+  test("demotes awaiting_reply → fyi for a confident group sender (never buries)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "awaiting_reply",
+        confidence: 0.9,
+        todoSuggestion: { name: "Reply to LinkedIn request" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      groupKind,
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(r.classification.todoSuggestion, null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.match(r.classification.rationale, /sender-kind floor/i);
+  });
+
+  test("demotes awaiting_reply → fyi for a confident no-reply service sender too", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "awaiting_reply" }),
+      serviceKind,
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("leaves support/billing-style service role mailboxes untouched", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "awaiting_reply" }),
+      serviceRoleKind,
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "awaiting_reply");
+  });
+
+  test("leaves action_needed untouched — a group/service CAN assign a real action (ADR-0066)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("leaves urgent untouched (out of this narrow floor's scope)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind);
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("no-op when senderKind is null (silent graph = no demotion)", () => {
+    const c = classification({ category: "awaiting_reply" });
+    const r = applySenderKindDemotionFloor(c, null);
+    assert.equal(r.demoted, false);
+    assert.deepEqual(r.classification, c);
   });
 });
 
@@ -451,6 +535,75 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floorForced, false);
     assert.equal(result.classification.category, "newsletter");
     assert.equal(result.model, "injected");
+  });
+
+  test("sender-kind floor demotes awaiting_reply → fyi end-to-end and tags +kindfloor", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "awaiting_reply",
+        confidence: 0.9,
+        todoSuggestion: { name: "Reply to LinkedIn request" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        observations: observations({
+          senderKind: {
+            kind: "group",
+            confidence: 0.99,
+            evidenceCodes: ["gmail:list_id"],
+            entityId: "ent_1",
+            displayName: "LinkedIn",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.firstPass.category, "awaiting_reply");
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("secret override wins before sender-kind demotion and preserves a security todo", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "awaiting_reply",
+        confidence: 0.7,
+        todoSuggestion: { name: "Rotate the leaked key" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_secret_from_group",
+          title: "Security alert",
+          content: "GitHub detected a private key in your repository.",
+          authoredAt: null,
+          metadata: {},
+        },
+        observations: observations({
+          senderKind: {
+            kind: "group",
+            confidence: 0.99,
+            evidenceCodes: ["gmail:list_id"],
+            entityId: "ent_1",
+            displayName: "GitHub",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "urgent");
+    assert.equal(result.audit.floorForced, true);
+    assert.equal(result.audit.senderKindDemoted, false);
+    assert.equal(result.model, "injected+floor");
+    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+      name: "Rotate the leaked key",
+    });
   });
 
   test("todoSuggestion rides the final classification through the floor", async () => {
