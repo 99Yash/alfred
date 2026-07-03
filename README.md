@@ -4,6 +4,7 @@ A personal AI assistant — single user, multi-device. Connects to Google Worksp
 
 Slack and Linear still exist in design docs and catalog UI, but they do not have live backend integrations yet.
 
+Start with the [`docs map`](./docs/README.md) when changing code or docs.
 Architecture decisions are documented exhaustively in [`decisions.md`](./decisions.md).
 
 ## Stack
@@ -93,6 +94,11 @@ corepack pnpm db:generate     # generate Drizzle migration from schema diff
 corepack pnpm db:migrate      # apply pending migrations
 corepack pnpm db:studio       # open Drizzle Studio
 ```
+
+## Docs
+
+Use [`docs/README.md`](./docs/README.md) as the index. It maps current reference
+docs, active plans, code owners, and ops scripts.
 
 ## Implementation milestones
 
