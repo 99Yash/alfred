@@ -539,7 +539,7 @@ Goal: prove the whole pair works end-to-end as features.
 
 ### 7a. `smoke-triage-v2.ts`
 
-`apps/server/src/scripts/smoke-triage-v2.ts`. Fixtures (mock or real) covering the four canonical paths from Phase 3 acceptance, run against the dev user's Gmail:
+`apps/server/src/scripts/smokes/smoke-triage-v2.ts`. Fixtures (mock or real) covering the four canonical paths from Phase 3 acceptance, run against the dev user's Gmail:
 
 - Bot review comment → `fyi`, no `deepen`.
 - Severity-suspect bot alert → escalation, refined category in `{urgent, action_needed}`.
@@ -550,7 +550,7 @@ Capture the `triage.sender_extraction` log lines and assert their shape.
 
 ### 7b. `smoke-briefing-v2.ts`
 
-`apps/server/src/scripts/smoke-briefing-v2.ts`. Triggers a real morning briefing for the dev user with all five contributors wired (post Phase 5 scope re-consent). Asserts:
+`apps/server/src/scripts/smokes/smoke-briefing-v2.ts`. Triggers a real morning briefing for the dev user with all five contributors wired (post Phase 5 scope re-consent). Asserts:
 
 - `briefings` row with `status='sent'`, non-empty `breaking_summary` and `full_briefing.sections`.
 - At least one resolved entity reference in each surface.

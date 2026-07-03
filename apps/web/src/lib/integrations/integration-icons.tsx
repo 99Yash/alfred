@@ -88,7 +88,7 @@ const BRAND_ICONS: Record<IntegrationBrand, BrandIconMeta> = {
 
 /**
  * Per-brand accent color for ambient surfaces — the radial glow behind a
- * provider's detail-page hero (see `HeroPreview`). A brand is keyed here by its
+ * provider's detail-page hero (see `HeroPanel`). A brand is keyed here by its
  * primary brand *hue*, not by how its mark renders: Railway's glyph is
  * monochrome on chrome (see `BRAND_ICONS`) yet keeps its magenta glow. Brands
  * absent here (github, notion, vercel) are the ones whose brand color is

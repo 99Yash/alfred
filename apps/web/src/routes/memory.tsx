@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewMemoryPage } from "./-preview-memory/preview-memory-page";
+import { MemoryPage } from "./-memory/memory-page";
 
 /**
  * App-grammar port of /memory.
@@ -13,5 +13,5 @@ import { PreviewMemoryPage } from "./-preview-memory/preview-memory-page";
  */
 export const Route = createFileRoute("/memory")({
   head: () => pageMeta({ title: "Memory", path: "/memory" }),
-  component: PreviewMemoryPage,
+  component: MemoryPage,
 });

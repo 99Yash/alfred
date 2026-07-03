@@ -141,7 +141,7 @@ async function tryAccountIdentity(token: string): Promise<RailwayAccount | null>
  * id we can get (it becomes the credential's `accountId`, the upsert key), so we
  * ask the token to introspect its own workspace first: `apiToken { workspaces }`
  * returns the workspace a workspace-scoped token is bound to (verified against
- * the live API 2026-06-24 — see apps/server/src/scripts/probe-railway-token.ts).
+ * the live API 2026-06-24 — see apps/server/src/scripts/probes/probe-railway-token.ts).
  * Introspection is still best-effort and can never reject the token. The
  * fallbacks are `projects` (a real team workspace exposes `team { id name }`
  * there) and finally a synthetic id for a team-less workspace.

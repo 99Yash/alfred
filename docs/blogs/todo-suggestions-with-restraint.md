@@ -100,5 +100,5 @@ The best todo suggestion is not loud. It is specific. It names the real verb. It
 
 - Core docs: `CONTEXT.md` Todos section, `decisions.md` ADR-0050 amendments, `docs/plans/triage-v3-plan.md`.
 - Implementation paths: `packages/api/src/modules/triage/classify.ts`, `apps/server/src/builtins/workflows/email-triage.ts`, `packages/api/src/modules/todos/suggest.ts`, `packages/contracts/src/tool-schemas.ts`.
-- Validation scripts: `apps/server/src/scripts/dry-run-triage-backfill.ts`, `apps/server/src/scripts/dry-run-attribution-fixtures.ts`.
+- Validation scripts: `apps/server/src/scripts/dry-runs/dry-run-triage-backfill.ts`, `apps/server/src/scripts/dry-runs/dry-run-attribution-fixtures.ts`.
 - Dev DB aggregate checked 2026-06-09: 22 agent-authored todos total: 7 suggested, 1 open, 2 done, 12 dismissed.
