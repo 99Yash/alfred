@@ -1,5 +1,7 @@
 import path from "node:path";
-import { getBossModel } from "@alfred/ai";
+import { google } from "@ai-sdk/google";
+import { getBossModel, type LanguageModel } from "@alfred/ai";
+import { withToolNameShim } from "@alfred/ai/tool-name-shim";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/api";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, stepCountIs, tool } from "ai";
@@ -24,8 +26,10 @@ import { buildSystemPrompt } from "../src/builtins/agents/briefing/prompt";
 //      the person (the fix must not over-correct and gag legitimate "waiting on
 //      you" items).
 //
-// Runs the real boss model (getBossModel) through the real briefing tool loop
-// with fixture-backed tools, so it exercises the actual prompt + composer.
+// Runs both the production boss getter and a forced Gemini fallback-model
+// variant through the real prompt + fixture-backed briefing tool loop. #265 was
+// observed on the fallback model, while Sonnet can pass without the prompt fix,
+// so the forced-Gemini lane is load-bearing.
 //
 // Run locally with apps/server/.env populated (GOOGLE_GENERATIVE_AI_API_KEY):
 //   pnpm --filter server eval
@@ -49,9 +53,15 @@ const ASSERTED_PROGRESS_PATTERNS: RegExp[] = [
   /\bno\s+word\s+(?:back|yet)\b/i,
   /(?:haven'?t|hasn'?t|have\s+not|has\s+not)\s+(?:yet\s+)?(?:started|begun|responded|replied|gotten|made\s+progress)/i,
   /\bstill\s+(?:waiting|haven'?t|hasn'?t|open\s+with\s+no)\b/i,
+  /\b(?:still\s+)?waiting\s+on\s+you\b/i,
+  /\bblocked\s+on\s+you\b/i,
+  /\bstalled\b/i,
+  /\bneeds\s+your\s+(?:reply|response|update)\b/i,
+  /\bno\s+update\s+from\s+you\b/i,
   /\byou\s+still\s+owe\b/i,
   /\bawaiting\s+(?:your\s+)?repl/i,
   /\bhasn'?t\s+heard\s+back\b/i,
+  /\bhave(?:n'?t| not)\s+heard\s+back\b/i,
 ];
 
 function findAssertedProgress(text: string): string[] {
@@ -86,6 +96,13 @@ interface Scenario {
   priorBriefings: PriorBriefingSummary[];
   emails: EmailListItem[];
   dayShape: DayShape;
+}
+
+type ModelLane = "boss" | "forced-gemini";
+
+interface ScenarioRun {
+  scenario: Scenario;
+  modelLane: ModelLane;
 }
 
 function priorMorning(subject: string, bodyText: string): PriorBriefingSummary {
@@ -208,14 +225,28 @@ const EMPTY_OUTPUT: ComposeOutput = {
   note: "no dump_briefing",
 };
 
-async function runBriefingScenario(scenario: Scenario): Promise<ComposeOutput> {
+function modelForLane(lane: ModelLane): LanguageModel {
+  switch (lane) {
+    case "boss":
+      return getBossModel();
+    case "forced-gemini":
+      return withToolNameShim(google("gemini-2.5-pro"));
+    default: {
+      const _exhaustive: never = lane;
+      return _exhaustive;
+    }
+  }
+}
+
+async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
+  const { scenario, modelLane } = input;
   let dumped: { subject: string; bodyText: string; bodyMarkdown: string } | null = null;
 
   const system = buildSystemPrompt({ slot: "morning", recipientFirstName: "Yash" });
 
   try {
     await generateText({
-      model: getBossModel(),
+      model: modelForLane(modelLane),
       system,
       messages: [
         {
@@ -292,7 +323,10 @@ async function runBriefingScenario(scenario: Scenario): Promise<ComposeOutput> {
       },
     });
   } catch (err) {
-    return { ...EMPTY_OUTPUT, note: `ERROR: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ...EMPTY_OUTPUT,
+      note: `[${modelLane}] ERROR: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   if (!dumped) return EMPTY_OUTPUT;
@@ -309,10 +343,16 @@ async function runBriefingScenario(scenario: Scenario): Promise<ComposeOutput> {
 
 // ─── Block A: no fabricated progress on machine-notification threads ─────────
 
-evalite<Scenario, ComposeOutput, null>(
+evalite<ScenarioRun, ComposeOutput, null>(
   "Briefing does not assert progress on machine-notification threads (#265)",
   {
-    data: () => MACHINE_CASES.map((s) => ({ input: s, expected: null })),
+    data: () =>
+      MACHINE_CASES.flatMap((scenario) =>
+        (["boss", "forced-gemini"] as const).map((modelLane) => ({
+          input: { scenario, modelLane },
+          expected: null,
+        })),
+      ),
     task: (input) => runBriefingScenario(input),
     scorers: [
       {
@@ -321,15 +361,18 @@ evalite<Scenario, ComposeOutput, null>(
           if (!output.ok) {
             // Can't verify a briefing that never composed — score 0 rather than
             // let an errored/empty run pass the negative check for free.
-            return { score: 0, metadata: `[${input.label}] compose failed: ${output.note}` };
+            return {
+              score: 0,
+              metadata: `[${input.modelLane}/${input.scenario.label}] compose failed: ${output.note}`,
+            };
           }
           const hits = findAssertedProgress(output.combined);
           return {
             score: hits.length === 0 ? 1 : 0,
             metadata:
               hits.length === 0
-                ? `[${input.label}] clean — reminder, not assertion. subject="${output.subject}"`
-                : `[${input.label}] fabricated state ${JSON.stringify(hits)} in: ${output.combined.slice(0, 300)}`,
+                ? `[${input.modelLane}/${input.scenario.label}] clean — reminder, not assertion. subject="${output.subject}"`
+                : `[${input.modelLane}/${input.scenario.label}] fabricated state ${JSON.stringify(hits)} in: ${output.combined.slice(0, 300)}`,
           };
         },
       },
@@ -339,10 +382,10 @@ evalite<Scenario, ComposeOutput, null>(
 
 // ─── Block B: person-to-person reply-owed is still surfaced (no over-correction)
 
-evalite<Scenario, ComposeOutput, null>(
+evalite<ScenarioRun, ComposeOutput, null>(
   "Briefing still surfaces a genuine person-to-person reply-owed thread (#265 guard)",
   {
-    data: () => [{ input: PERSON_CASE, expected: null }],
+    data: () => [{ input: { scenario: PERSON_CASE, modelLane: "boss" as const }, expected: null }],
     task: (input) => runBriefingScenario(input),
     scorers: [
       {
