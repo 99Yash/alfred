@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
+import { SkillsRoute } from "./-skills/skills-route";
 
 /**
  * App-grammar port of /skills.
@@ -9,10 +9,10 @@ import { PreviewSkillsRoute } from "./-preview-skills/preview-skills-route";
  * to create a draft. This preview uses fixture skills + a no-op CTA so
  * the visual language can be reviewed without auth or sync state.
  *
- * The list body lives in components/preview/skills so each component
+ * The list body lives in components/skills so each component
  * file stays single-purpose (see `skills-page.tsx`, `skill-row.tsx`).
  */
 export const Route = createFileRoute("/skills")({
   head: () => pageMeta({ title: "Skills", path: "/skills" }),
-  component: PreviewSkillsRoute,
+  component: SkillsRoute,
 });

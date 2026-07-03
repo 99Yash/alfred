@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewWorkflowDetailPage } from "./-preview-workflows-detail/preview-workflow-detail-page";
+import { WorkflowDetailPage } from "./-workflows-detail/workflow-detail-page";
 
 /**
  * App-grammar port of `/workflows/$workflow`.
@@ -20,5 +20,5 @@ export const Route = createFileRoute("/workflows/$workflow")({
       title: `${params.workflow} · Workflows`,
       path: `/workflows/${encodeURIComponent(params.workflow)}`,
     }),
-  component: PreviewWorkflowDetailPage,
+  component: WorkflowDetailPage,
 });

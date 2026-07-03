@@ -10,7 +10,7 @@ ADR-0079's capture brake is already code, not future work:
 - `@alfred/contracts` has the canonical fact ontology, key aliases, and `canonicalizeFactKey`.
 - `packages/api/src/modules/memory/fact-policy.ts` has the document tiering, value validation, conservative authorship gate, and single-valued key set.
 - `proposeFact` canonicalizes keys for all sources, blocks unsafe document writes, and holds autonomous single-valued conflicts as `proposed`.
-- The purge script `apps/server/src/scripts/backfill-purge-document-facts-committed.ts` uses the same gate.
+- The purge script `apps/server/src/scripts/backfills/backfill-purge-document-facts-committed.ts` uses the same gate.
 
 This plan starts **after** that brake. ADR-0079 is still valuable, but only as a deny-brake for legacy/direct-write paths while identity keys move to projection ownership.
 
@@ -25,7 +25,7 @@ The **deterministic core** of slice 1a (invariant 3 — the unit-tested, no-DB, 
 **PR A (built 2026-06-29)** — the connect-time/disconnect **emit** of `user_org_affiliation` + the dry-by-default **backfill** (§6 steps 1-emit, 2). Additive, zero live-pipeline behavior change (no projection reads these yet):
 
 - `packages/api/src/modules/user-model/affiliation.ts` — `buildOrgAffiliationObservationInput` (pure: credential → observation input, via the deterministic core), `recordOrgAffiliationOnConnect` / `recordOrgAffiliationOnDisconnect`. Wired into `google-routes.ts` connect callback (best-effort, after `upsertCredential`) and the disconnect route (after a confirmed delete, fields captured pre-delete).
-- `apps/server/src/scripts/backfill-org-affiliation-committed.ts` — dry-by-default, `--commit` requires `--emails`, idempotent (evidence-hash dedup), tsdown entry. Verified live on dev: emit→dedup across two `--commit` runs; the row lands with `subject={kind:"user"}`, `occurredAt = credential.createdAt`.
+- `apps/server/src/scripts/backfills/backfill-org-affiliation-committed.ts` — dry-by-default, `--commit` requires `--emails`, idempotent (evidence-hash dedup), tsdown entry. Verified live on dev: emit→dedup across two `--commit` runs; the row lands with `subject={kind:"user"}`, `occurredAt = credential.createdAt`.
 - `packages/api/test/user-model/affiliation.test.ts` — 14 pure tests; every built input is cross-checked against the real `observationInsertSchema` boundary.
 
 Remaining slice-1a steps (all DB/runtime-bound): the `identity_facts` **projection reducer** + materialization (PR B); and at cutover (PR C) the **`/settings` + chat correction** emit as `user_profile_edit`/`user_correction` observations, the **`proposeFact` hard-block** for `employer`, and the **legacy-row retirement** (§6 steps 5, 6, 7, 8, 4).

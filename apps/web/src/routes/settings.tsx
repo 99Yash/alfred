@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
+import { SettingsPage } from "./-settings/settings-page";
 
 /**
  * App-grammar port of /settings.
@@ -19,5 +19,5 @@ import { PreviewSettingsPage } from "./-preview-settings/preview-settings-page";
  */
 export const Route = createFileRoute("/settings")({
   head: () => pageMeta({ title: "Settings", path: "/settings" }),
-  component: PreviewSettingsPage,
+  component: SettingsPage,
 });

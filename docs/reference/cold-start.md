@@ -33,4 +33,4 @@ Each `web_search` lands its own `api_call_log` row tagged `kind='web_search'` (i
 
 ## Smoke
 
-`pnpm --filter server tsx --env-file=.env src/scripts/smoke-cold-start.ts` (cancels any prior cold-start run for the first user, then forces a fresh one; verifies the seed → aspects → synthesis → extract → persist pipeline lands a `memory_chunks` row plus zero-or-more `user_facts` proposals tagged `source.kind='cold_start'`). Requires `GOOGLE_GENERATIVE_AI_API_KEY` (required env, so a configured dev tree already has it).
+`pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-cold-start.ts` (cancels any prior cold-start run for the first user, then forces a fresh one; verifies the seed → aspects → synthesis → extract → persist pipeline lands a `memory_chunks` row plus zero-or-more `user_facts` proposals tagged `source.kind='cold_start'`). Requires `GOOGLE_GENERATIVE_AI_API_KEY` (required env, so a configured dev tree already has it).
