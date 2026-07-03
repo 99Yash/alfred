@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { deriveLoopEntityRef } from "./loop-key.js";
+
 // ─── Status ────────────────────────────────────────────────────────────────
 
 /**
@@ -94,4 +96,89 @@ export function mergeTodoSources(existing: TodoSource[], incoming: TodoSource[])
     merged.push(ref);
   }
   return merged;
+}
+
+/** Upper bound the `todos.sources` column + sync read schema enforce. */
+export const TODO_SOURCES_MAX = 64;
+
+/** A gmail `thread` ref — the per-notification transport id, the evictable kind. */
+function isGmailThreadRef(source: TodoSource): boolean {
+  return source.provider === "gmail" && source.kind === "thread";
+}
+
+/**
+ * Bound a source set so a high-frequency recurring loop can't grow one todo's
+ * `sources` past {@link TODO_SOURCES_MAX} and silently break sync (#355). When a
+ * recurring signal (a GitHub PR, Linear issue, or tracker task) re-notifies on a
+ * NEW Gmail thread each time, {@link suggestTodo} merges every re-notification
+ * onto one todo via its stable `loop` ref — but each merge also appends that
+ * email's fresh gmail `thread` ref, so an active loop accretes thread refs
+ * without bound and eventually trips the `max(64)` on the sync read schema,
+ * after which the todo stops syncing to the client.
+ *
+ * Identity-bearing refs — everything that is NOT a gmail `thread` — win over
+ * transport refs. Gmail `thread` refs are evicted oldest-first (merge appends
+ * newest last), so the reverse auto-dismiss linkage (`resolveTodosForGmailSender`,
+ * which matches recent threads / the loop's single sender) still resolves. If a
+ * caller ever supplies more identity refs than the schema cap allows, this still
+ * returns a valid capped array by keeping the newest identity refs; the public
+ * tool schema already rejects that shape, but the write helper stays defensive.
+ */
+export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX): TodoSource[] {
+  if (sources.length <= max) return sources;
+  if (max <= 0) return [];
+
+  const nonThreadCount = sources.filter((s) => !isGmailThreadRef(s)).length;
+  if (nonThreadCount >= max) {
+    const survivingIdentityIndexes = newestIndexes(sources, (s) => !isGmailThreadRef(s), max);
+    return sources.filter((s, i) => !isGmailThreadRef(s) && survivingIdentityIndexes.has(i));
+  }
+
+  // Room left for thread refs after every identity-bearing ref is kept.
+  const room = max - nonThreadCount;
+  // Newest thread refs win: collect their keys from the tail, then filter the
+  // original in place so surviving refs keep their relative order.
+  const survivingThreadIndexes = newestIndexes(sources, isGmailThreadRef, room);
+  return sources.filter((s, i) => !isGmailThreadRef(s) || survivingThreadIndexes.has(i));
+}
+
+function newestIndexes(
+  sources: readonly TodoSource[],
+  predicate: (source: TodoSource) => boolean,
+  count: number,
+): Set<number> {
+  const indexes = new Set<number>();
+  for (let i = sources.length - 1; i >= 0 && indexes.size < count; i--) {
+    if (predicate(sources[i]!)) indexes.add(i);
+  }
+  return indexes;
+}
+
+/**
+ * Provenance sources for a todo minted from a triaged Gmail thread (#355).
+ *
+ * Always carries the transport `thread` ref — same-thread re-triage dedup, and
+ * the reverse linkage `resolveTodosForGmailSender` reads to auto-dismiss a todo
+ * when the user acts on its email. When the subject/sender yield a stable
+ * real-world ref ({@link deriveLoopEntityRef} — a GitHub PR, Linear issue, or
+ * tracker task that re-notifies on a NEW thread each time), it ALSO carries a
+ * structured real-world ref so those re-notifications collapse onto one rail
+ * todo via the {@link suggestTodo} overlap/merge guard instead of re-minting per
+ * email. Unlike briefing's soft continuation hint, this hard persisted key
+ * requires sender evidence for structured tracker shapes: a human email whose
+ * subject happens to contain `[owner/repo] ... (PR #1)` should not merge rail
+ * items.
+ */
+export function gmailTodoSources(input: {
+  threadId: string;
+  subject: string | null | undefined;
+  sender: string | null | undefined;
+}): TodoSource[] {
+  const sources: TodoSource[] = [{ provider: "gmail", kind: "thread", id: input.threadId }];
+  const loopRef = deriveLoopEntityRef(input.subject, {
+    sender: input.sender,
+    requireTrackerSender: true,
+  });
+  if (loopRef) sources.push({ provider: loopRef.provider, kind: loopRef.kind, id: loopRef.id });
+  return sources;
 }

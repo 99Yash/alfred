@@ -14,6 +14,12 @@ import { getIngestionQueue, type IngestionJobData } from "./queue";
  *   - gmail.embed_sweep  every 10 minutes — re-embeds documents whose
  *                        embed step failed during ingest (the doc row
  *                        landed but no chunks were produced).
+ *   - user_model.gmail_kind_refold_sweep  daily — fans out a Gmail
+ *                        kind-projection refold to every user with an
+ *                        ACTIVE projection (#218 PR J). Backstop for
+ *                        missed live-capture refolds / out-of-band
+ *                        backfills; each per-user refold passes the
+ *                        frozen-logic gate before it activates.
  *
  * Idempotent: `upsertJobScheduler` keys by id, so calling this on every
  * server boot doesn't duplicate schedules. The schedulers survive
@@ -63,6 +69,21 @@ export async function scheduleRepeatableIngestionJobs(): Promise<void> {
         backoff: { type: "exponential", delay: 30_000 },
         removeOnComplete: { count: 20, age: 24 * 60 * 60 },
         removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
+      },
+    },
+  );
+
+  await queue.upsertJobScheduler(
+    "user_model.gmail_kind_refold_sweep",
+    { every: 24 * 60 * 60 * 1000 },
+    {
+      name: "user_model.gmail_kind_refold_sweep",
+      data: { kind: "user_model.gmail_kind_refold_sweep" } satisfies IngestionJobData,
+      opts: {
+        attempts: 2,
+        backoff: { type: "exponential", delay: 60_000 },
+        removeOnComplete: { count: 7, age: 30 * 24 * 60 * 60 },
+        removeOnFail: { count: 30, age: 30 * 24 * 60 * 60 },
       },
     },
   );

@@ -4,9 +4,6 @@ import {
   runTaskGroup,
   toMessage,
   USER_MODEL_PROJECTION_NAME,
-  canonicalizeIdentityValue,
-  identityRefSchema,
-  type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
@@ -20,16 +17,12 @@ import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import {
+  activeProjectionVersions,
   chatAttachments,
   documents,
   emailTriage,
-  entityProfiles,
-  integrationCredentials,
-  observationFamilyHeads,
-  observations,
-  user as userTable,
 } from "@alfred/db/schemas";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { createRedisConnection } from "../../queue/connection";
 import { emitEvent } from "../workflows/events";
@@ -42,15 +35,9 @@ import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 import {
-  activateProjectionVersion,
   appendObservationFamilyMember,
-  completeProjectionRun,
-  projectGmailKindProfiles,
   reduceGmailDocument,
-  requireEntityIdNamespace,
-  startProjectionRun,
-  userModelReader,
-  writeProjectionCursor,
+  refoldActiveGmailKindProjection,
   type GmailDocumentForReduction,
 } from "../user-model";
 
@@ -187,6 +174,16 @@ export type IngestionJobData =
        */
       kind: "user_model.gmail_kind_refold";
       userId: string;
+    }
+  | {
+      /**
+       * Scheduled backstop (#218 PR J): fan out `user_model.gmail_kind_refold`
+       * to every user with an ACTIVE user-model projection, keeping the Gmail
+       * kind projection fresh when live-capture refolds were missed or a
+       * backfill added observations out-of-band. Per-user refolds still pass the
+       * frozen-logic gate before activating; the fan-out itself never activates.
+       */
+      kind: "user_model.gmail_kind_refold_sweep";
     }
   | {
       /**
@@ -568,6 +565,16 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     }
     case "user_model.gmail_kind_refold": {
       return refoldActiveGmailKindProjection(data.userId);
+    }
+    case "user_model.gmail_kind_refold_sweep": {
+      const userIds = await usersWithActiveUserModelProjection();
+      for (const uid of userIds) {
+        await enqueueGmailKindRefold(uid);
+      }
+      console.log(
+        `[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`,
+      );
+      return { enqueued: userIds.length };
     }
     case "triage.relabel": {
       // One label-writer for both the classifier and user overrides
@@ -1009,170 +1016,13 @@ async function enqueueGmailKindRefold(userId: string): Promise<void> {
   );
 }
 
-async function refoldActiveGmailKindProjection(userId: string): Promise<{
-  skipped?: string;
-  projectionVersion?: number;
-  profileCount?: number;
-  checksum?: string;
-}> {
-  const active = await userModelReader(userId).getActivePointer();
-  if (!active) {
-    console.log(
-      `[ingestion:worker] user-model gmail refold skipped user=${userId} reason=no-active`,
-    );
-    return { skipped: "no-active-projection" };
-  }
-
-  const sourceHighWatermark = await gmailProjectionHighWatermark(userId);
-  if (!sourceHighWatermark.gmail) {
-    console.log(
-      `[ingestion:worker] user-model gmail refold skipped user=${userId} reason=no-gmail-observations`,
-    );
-    return { skipped: "no-gmail-observations" };
-  }
-  const gmailCursor = sourceHighWatermark.gmail;
-
-  requireEntityIdNamespace();
-  const projectionVersion = active.activeVersion + 1;
-  const excludeEmailValues = await gmailProjectionExcludedEmails(userId);
-  const completed = await db().transaction(async (tx) => {
-    const started = await startProjectionRun(
-      {
-        userId,
-        projectionName: USER_MODEL_PROJECTION_NAME,
-        projectionVersion,
-        sourceHighWatermark,
-      },
-      tx,
-    );
-    if (started.reused) {
-      await tx
-        .delete(entityProfiles)
-        .where(
-          and(
-            eq(entityProfiles.userId, userId),
-            eq(entityProfiles.projectionRunId, started.run.id),
-          ),
-        );
-    }
-
-    const projected = await projectGmailKindProfiles(
-      {
-        userId,
-        projectionRunId: started.run.id,
-        projectionVersion,
-        gmailHighWatermark: gmailCursor,
-        excludeEmailValues,
-      },
-      tx,
-    );
-    await writeProjectionCursor(
-      {
-        userId,
-        projectionName: USER_MODEL_PROJECTION_NAME,
-        projectionVersion,
-        projectionRunId: started.run.id,
-        source: "gmail",
-        cursor: gmailCursor,
-      },
-      tx,
-    );
-    await completeProjectionRun(
-      {
-        runId: started.run.id,
-        userId,
-        checksum: projected.checksum,
-        completedAt: new Date(),
-        rowCounts: { entity_profiles: projected.profileCount },
-        sourceHighWatermark,
-      },
-      tx,
-    );
-    return { runId: started.run.id, ...projected };
-  });
-
-  await activateProjectionVersion({
-    userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    runId: completed.runId,
-  });
-  console.log(
-    `[ingestion:worker] user-model gmail refold activated user=${userId} ` +
-      `version=${projectionVersion} profiles=${completed.profileCount} checksum=${completed.checksum}`,
-  );
-  return {
-    projectionVersion,
-    profileCount: completed.profileCount,
-    checksum: completed.checksum,
-  };
-}
-
-async function gmailProjectionHighWatermark(
-  userId: string,
-): Promise<ProjectionSourceHighWatermark> {
-  const [row] = await db()
-    .select({
-      id: observations.id,
-      occurredAt: observations.occurredAt,
-    })
-    .from(observations)
-    .innerJoin(
-      observationFamilyHeads,
-      and(
-        eq(observationFamilyHeads.userId, observations.userId),
-        eq(observationFamilyHeads.familyKey, observations.familyKey),
-        eq(observationFamilyHeads.headObservationId, observations.id),
-      ),
-    )
-    .where(
-      and(
-        eq(observations.userId, userId),
-        eq(observations.source, "gmail"),
-        eq(observations.kind, "email_message"),
-      ),
-    )
-    .orderBy(desc(observations.occurredAt), desc(observations.id))
-    .limit(1);
-  if (!row) return {};
-  return { gmail: { lastObservationId: row.id, occurredAt: row.occurredAt.toISOString() } };
-}
-
-async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> {
-  const [userRow] = await db()
-    .select({ email: userTable.email })
-    .from(userTable)
-    .where(eq(userTable.id, userId))
-    .limit(1);
-  const credentials = await db()
-    .select({ accountLabel: integrationCredentials.accountLabel })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, "google"),
-        eq(integrationCredentials.status, "active"),
-      ),
-    );
-  return canonicalEmailList([
-    userRow?.email ?? null,
-    ...credentials.map((credential) => credential.accountLabel),
-  ]);
-}
-
-function canonicalEmailList(values: readonly (string | null)[]): string[] {
-  const out = new Set<string>();
-  for (const value of values) {
-    const email = canonicalEmail(value);
-    if (email) out.add(email);
-  }
-  return [...out].sort();
-}
-
-function canonicalEmail(value: string | null): string | null {
-  if (!value) return null;
-  const canonical = canonicalizeIdentityValue("email", value);
-  const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
-  return parsed.success ? parsed.data.value : null;
+/** User ids with an ACTIVE user-model projection — the scheduled refold sweep's fan-out set. */
+async function usersWithActiveUserModelProjection(): Promise<string[]> {
+  const rows = await db()
+    .select({ userId: activeProjectionVersions.userId })
+    .from(activeProjectionVersions)
+    .where(eq(activeProjectionVersions.projectionName, USER_MODEL_PROJECTION_NAME));
+  return rows.map((row) => row.userId);
 }
 
 /**

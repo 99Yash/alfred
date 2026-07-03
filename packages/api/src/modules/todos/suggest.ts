@@ -1,4 +1,9 @@
-import { mergeTodoSources, todoSourceKey, type TodoSource } from "@alfred/contracts";
+import {
+  boundTodoSources,
+  mergeTodoSources,
+  todoSourceKey,
+  type TodoSource,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { todos } from "@alfred/db/schemas";
 import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
@@ -63,7 +68,9 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
  * always wins over a resolved one (merge beats suppress).
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
-  const sources = input.sources ?? [];
+  // Bound the incoming set so neither a fresh insert nor a merge can push the
+  // row past the schema max the sync read path enforces (#355).
+  const sources = boundTodoSources(input.sources ?? []);
 
   const result = await db().transaction(async (tx) => {
     // Dedup against live todos that carry at least one source. Single-user
@@ -107,9 +114,19 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       const liveMatch = live[0];
       if (liveMatch) {
         const existing = liveMatch.sources ?? [];
-        const merged = mergeTodoSources(existing, sources);
-        const addedSources = merged.length - existing.length;
-        if (addedSources > 0) {
+        const existingKeys = new Set(existing.map(todoSourceKey));
+        // Bound after merge: a high-frequency recurring loop merges onto this
+        // row via its `loop` ref, so the set would otherwise grow a fresh gmail
+        // `thread` ref per re-notification and eventually break sync (#355).
+        const merged = boundTodoSources(mergeTodoSources(existing, sources));
+        const addedSources = merged.filter((ref) => !existingKeys.has(todoSourceKey(ref))).length;
+        // Persist on ANY content change, not just growth: bounding can evict an
+        // old thread while adding the newest one (length unchanged), and that
+        // newest ref is what the reverse auto-dismiss linkage needs.
+        const changed =
+          merged.length !== existing.length ||
+          merged.some((ref) => !existingKeys.has(todoSourceKey(ref)));
+        if (changed) {
           await tx
             .update(todos)
             .set({ sources: merged, rowVersion: sql`${todos.rowVersion} + 1` })

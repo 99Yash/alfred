@@ -62,26 +62,34 @@ describe("isSelfAuthored — self-ingestion drop (#211/#266)", () => {
     assert.equal(isSelfAuthored(self), true);
   });
 
-  test("drops the self address in the display-name envelope form (the briefing/HIL sender)", {
-    skip: SKIP,
-  }, () => {
-    assert.equal(isSelfAuthored(`Alfred <${self}>`), true);
-    // A different display name over the SAME address is still self.
-    assert.equal(isSelfAuthored(`Alfred Briefing <${self}>`), true);
-  });
+  test(
+    "drops the self address in the display-name envelope form (the briefing/HIL sender)",
+    {
+      skip: SKIP,
+    },
+    () => {
+      assert.equal(isSelfAuthored(`Alfred <${self}>`), true);
+      // A different display name over the SAME address is still self.
+      assert.equal(isSelfAuthored(`Alfred Briefing <${self}>`), true);
+    },
+  );
 
   test("does NOT drop a different sender", { skip: SKIP }, () => {
     assert.equal(isSelfAuthored("someone@example.com"), false);
     assert.equal(isSelfAuthored("A Person <a.person@work.com>"), false);
   });
 
-  test("does NOT drop a spoof: the 'Alfred' display name over a DIFFERENT address", {
-    skip: SKIP,
-  }, () => {
-    assert.equal(isSelfAuthored("Alfred <attacker@evil.com>"), false);
-    // The self address embedded only in display text must not match either.
-    assert.notEqual(parseEmailAddress(self), "attacker@evil.com");
-  });
+  test(
+    "does NOT drop a spoof: the 'Alfred' display name over a DIFFERENT address",
+    {
+      skip: SKIP,
+    },
+    () => {
+      assert.equal(isSelfAuthored("Alfred <attacker@evil.com>"), false);
+      // The self address embedded only in display text must not match either.
+      assert.notEqual(parseEmailAddress(self), "attacker@evil.com");
+    },
+  );
 
   test("does NOT drop a null/absent From", () => {
     assert.equal(isSelfAuthored(null), false);

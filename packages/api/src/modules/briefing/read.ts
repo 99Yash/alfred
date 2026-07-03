@@ -1,4 +1,5 @@
 import {
+  deriveLoopKey,
   isTriageCategory,
   parseEmailAddress,
   scoreAttentionForItems,
@@ -20,7 +21,6 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
-import { deriveLoopKey } from "./loop-key";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.

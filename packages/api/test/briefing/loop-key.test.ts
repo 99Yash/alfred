@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { deriveLoopKey } from "../../src/modules/briefing/loop-key";
+import { deriveLoopKey } from "@alfred/contracts";
 
 /**
  * Subjects here are the real shapes pulled from prod (Gmail `documents.title`):
