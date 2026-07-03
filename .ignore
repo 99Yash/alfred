@@ -1,0 +1,20 @@
+# Local-only noise. Git already ignores most of this; this file helps search
+# tools/editors show the source tree first.
+archive/
+tmp/
+temp/
+.tmp/
+.tmp-screens/
+.vercel-shots/
+.artifacts/
+.handoff/
+.lessons/
+.teach/
+teaching/
+.pnpm-store/
+.turbo/
+node_modules/
+dist/
+build/
+coverage/
+references/
