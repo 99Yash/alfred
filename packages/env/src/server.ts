@@ -80,6 +80,17 @@ const serverEnvSchema = z.object({
    */
   ENTITY_ID_NAMESPACE: optionalLongSecret(),
   SENTRY_DSN: z.string().optional(),
+  /**
+   * Opt-in Sentry capture when `NODE_ENV !== "production"`. Off by default:
+   * with a DSN in a local `.env`, every mid-edit crash and hot-reload
+   * artifact ships to Sentry as `environment: development` and drowns the
+   * handful of real prod signals. Set `SENTRY_ENABLE_DEV=true` to capture
+   * from a dev box on purpose (prod always captures when a DSN is set).
+   */
+  SENTRY_ENABLE_DEV: z
+    .string()
+    .optional()
+    .transform((s) => s === "true"),
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().url().optional(),

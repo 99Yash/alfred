@@ -1,6 +1,13 @@
 # User-model P1 Gmail shadow
 
-**Status:** Designed 2026-06-30. PRs A-D built 2026-06-30; PRs E-G not built.
+**Status:** PRs A-J built (classifier, kind fold, projection script, live
+observation capture, triage consumer override, and the scheduled re-fold sweep +
+frozen-logic gate). **First activation still pending** (manual) — see the
+[activation runbook](../reference/user-model-gmail-projection-activation.md).
+PR J's daily sweep only re-folds users who ALREADY have an active projection and
+auto-activates only when the classifier logic is frozen (recompute at the active
+watermark matches the active checksum); on drift it blocks for manual
+re-validation. It never performs the first activation.
 **Epic:** #218 evolving user-model spine.
 **Parent:** ADR-0067 / [multi-source-user-model-v1.md](./multi-source-user-model-v1.md).
 
@@ -8,7 +15,10 @@ P1 is the first real replay over the ADR-0067 substrate. It is **not** a
 reducer-only slice. It is a full Gmail shadow build: fill Gmail history,
 reduce `documents` into `observations`, fold observations into the stable entity
 layer plus versioned projections, validate determinism and known bad cases, then
-optionally activate the projection. Consumers do not cut over in this slice.
+optionally activate the projection. Consumers are wired but inert until
+activation: absent active projection data is a no-op, and activation is the
+manual cutover that lets the triage sender-kind override read the projected
+profiles.
 
 ## Locked decisions
 
@@ -211,7 +221,10 @@ That helper owns:
 
 Do not make each provider reinvent the CAS loop.
 
-### PR E: deterministic profile classifier
+### PR E: deterministic profile classifier ✅ BUILT
+
+`packages/api/src/modules/user-model/entity-kind-classifier.ts`.
+
 
 Add a deterministic classifier used only by the fold:
 
@@ -245,7 +258,12 @@ P1 policy:
 into a new projection version changes `entity_profiles.kind`; stable IDs do not
 change.
 
-### PR F: Gmail fold
+### PR F: Gmail fold ✅ BUILT (kind-only subset)
+
+`packages/api/src/modules/user-model/gmail-kind-fold.ts`. This slice writes the
+`entity_profiles.kind` + classifier provenance subset only; significance, edges,
+co-occurrence, and reciprocity remain deferred as designed below.
+
 
 Add a projection runner, likely under
 `packages/api/src/modules/user-model/fold/`.
@@ -299,7 +317,14 @@ Fold rules:
 observation ids/family keys, and research status. It should not include raw
 email body content.
 
-### PR G: projection run script and validation
+### PR G: projection run script and validation ✅ BUILT
+
+`apps/server/src/scripts/project-user-model-gmail-shadow-committed.ts`. Local
+gate validation lives in
+`packages/api/test/user-model/gmail-kind-projection-gates.test.ts`; prod
+activation is documented in the
+[activation runbook](../reference/user-model-gmail-projection-activation.md).
+
 
 Add `apps/server/src/scripts/project-user-model-gmail-shadow-committed.ts`.
 

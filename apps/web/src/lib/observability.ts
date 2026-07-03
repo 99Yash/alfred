@@ -2,8 +2,12 @@ import * as Sentry from "@sentry/react";
 import posthog from "posthog-js";
 
 export function initObservability() {
+  // Only capture in production by default. A DSN in local dev would otherwise
+  // ship Vite HMR churn and mid-edit crashes to Sentry as `environment:
+  // development`. Set `VITE_SENTRY_ENABLE_DEV=true` to opt a dev box in.
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
-  if (sentryDsn) {
+  const sentryEnabled = import.meta.env.PROD || import.meta.env.VITE_SENTRY_ENABLE_DEV === "true";
+  if (sentryDsn && sentryEnabled) {
     Sentry.init({
       dsn: sentryDsn,
       environment: import.meta.env.MODE,
