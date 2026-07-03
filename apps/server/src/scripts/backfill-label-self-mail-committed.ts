@@ -30,8 +30,7 @@
  * `node dist/scripts/backfill-label-self-mail-committed.js`.
  *
  * SAFETY: dry by default — lists the candidate count per credential and writes
- * NOTHING (it does still ENSURE the label exists, since that's needed to build
- * the `-label:` query and is itself idempotent). `--commit` applies the label.
+ * NOTHING. `--commit` ensures the label and applies it.
  *
  *   # preview personal mailbox (writes no labels):
  *   node dist/scripts/backfill-label-self-mail-committed.js --emails=yashgouravkar@gmail.com
@@ -44,10 +43,12 @@ import { closeConnections, closeRedis, warmPool } from "@alfred/api";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   ALFRED_SELF_LABEL_NAME,
   batchModifyMessages,
   ensureAlfredSelfLabel,
+  GMAIL_MODIFY_SCOPE,
   getFreshAccessToken,
   listMessages,
   selfSenderEmail,
@@ -115,9 +116,9 @@ interface TargetCredential {
   accountLabel: string | null;
 }
 
-/** A Google credential is Gmail-capable iff it was granted a gmail.* scope. */
-function hasGmailScope(scopes: string[]): boolean {
-  return scopes.some((s) => s.includes("gmail"));
+/** Label creation + batchModify require a Gmail mutation grant. */
+function hasGmailModifyScope(scopes: string[]): boolean {
+  return scopes.includes(GMAIL_MODIFY_SCOPE);
 }
 
 async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
@@ -145,8 +146,8 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
       continue;
     }
     const scopes = (r.scopes as string[] | null) ?? [];
-    if (!hasGmailScope(scopes)) {
-      console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail scope`);
+    if (!hasGmailModifyScope(scopes)) {
+      console.log(`! skipping credential=${r.credentialId} (${r.email}) — no gmail.modify scope`);
       continue;
     }
     targets.push({
@@ -196,10 +197,6 @@ async function processCredential(
     `\n=== ${t.email}${t.accountLabel ? ` (${t.accountLabel})` : ""} (credential=${t.credentialId}) ===`,
   );
   const accessToken = await getFreshAccessToken(t.credentialId);
-  // Ensure the label exists even in DRY mode — the `-label:` query clause needs
-  // it, and creating a label is itself idempotent and non-destructive.
-  const labelId = await ensureAlfredSelfLabel(t.credentialId, { accessToken });
-
   const query = buildQuery(selfAddrs);
   const ids = await listCandidateIds(accessToken, query, maxMessages);
   console.log(`  ${ids.length} unlabelled self-mail message(s) match (cap ${maxMessages})`);
@@ -208,11 +205,12 @@ async function processCredential(
 
   if (!COMMIT) {
     console.log(
-      `  DRY — would add label "${ALFRED_SELF_LABEL_NAME}" (${labelId}) to ${ids.length} message(s)`,
+      `  DRY — would ensure label "${ALFRED_SELF_LABEL_NAME}" and add it to ${ids.length} message(s)`,
     );
     return 0;
   }
 
+  const labelId = await ensureAlfredSelfLabel(t.credentialId, { accessToken });
   let labelled = 0;
   for (const batch of chunk(ids, GMAIL_BATCH_MODIFY_CAP)) {
     await batchModifyMessages({ accessToken, messageIds: batch, addLabelIds: [labelId] });
@@ -223,6 +221,12 @@ async function processCredential(
 }
 
 async function main() {
+  if (COMMIT && !gmailMailboxWritesEnabled()) {
+    throw new Error(
+      "[backfill-label-self-mail] refuses to mutate Gmail while mailbox writes are disabled; set GMAIL_MAILBOX_WRITES_ENABLED=true for a committed backfill",
+    );
+  }
+
   const emails = parseListFlag("emails", "");
   if (!ALL_CONNECTED && emails.length === 0) {
     throw new Error("specify --emails=a@x.com,b@y.com or --all-connected");
