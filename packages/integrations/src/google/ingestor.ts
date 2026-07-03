@@ -15,6 +15,7 @@ import {
   type GmailHistoryEntry,
   type GmailMessage,
 } from "./gmail";
+import { labelSelfAuthoredMail } from "./labels";
 
 /**
  * One-shot ingestion of recent Gmail messages for a credential.
@@ -119,7 +120,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   for (const ref of refs) {
     try {
       const message = await getMessage({ accessToken, id: ref.id, format: "full" });
-      const result = await persistMessage(cred.userId, cred.accountId, message);
+      const result = await persistMessage(cred, message, accessToken);
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
@@ -253,14 +254,33 @@ export function isSelfAuthored(from: string | null): boolean {
 }
 
 async function persistMessage(
-  userId: string,
-  accountId: string,
+  cred: CredentialContext,
   message: GmailMessage,
+  accessToken: string,
 ): Promise<PersistMessageResult> {
+  const { userId, accountId } = cred;
   const extracted = extractMessageContent(message);
   // Drop Alfred's own outbound mail before it becomes a document — see
   // `isSelfAuthored` (issue #211). Nothing downstream should ever see it.
   if (isSelfAuthored(extracted.from)) {
+    // But don't let it vanish: tag it with the dedicated Alfred label so the
+    // briefing + approval stream is findable in Gmail (issue #285). Best-effort
+    // — a labelling failure must never block the drop, which is the actual
+    // self-loop guardrail. The message stays out of `documents`, triage, and
+    // the sender-prior cache regardless.
+    try {
+      await labelSelfAuthoredMail({
+        credentialId: cred.credentialId,
+        messageId: message.id,
+        accessToken,
+        currentLabelIds: message.labelIds ?? undefined,
+      });
+    } catch (err) {
+      console.warn(
+        `[gmail.ingestor] failed to label self-authored message=${message.id}:`,
+        toMessage(err),
+      );
+    }
     return { outcome: "ignored" };
   }
   const content = buildContent(extracted);
@@ -587,7 +607,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   for (const id of messageIds) {
     try {
       const message = await getMessage({ accessToken, id, format: "full" });
-      const result = await persistMessage(cred.userId, cred.accountId, message);
+      const result = await persistMessage(cred, message, accessToken);
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
@@ -753,7 +773,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
       const message = await getMessage({ accessToken, id: ref.id, format: "full" });
-      const result = await persistMessage(cred.userId, cred.accountId, message);
+      const result = await persistMessage(cred, message, accessToken);
       if (result.outcome === "inserted") {
         inserted++;
         insertedDocumentIds.push(result.documentId);
