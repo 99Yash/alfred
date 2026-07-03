@@ -1,4 +1,4 @@
-import { TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
+import { isHttpError, TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
@@ -119,6 +119,11 @@ interface CredentialMetadataShape {
   alfredLabels?: {
     byCategory?: Partial<Record<TriageCategory, string>>;
     allIds?: string[];
+    cachedAt?: string;
+  };
+  alfredSelfLabel?: {
+    id?: string;
+    name?: string;
     cachedAt?: string;
   };
   [key: string]: unknown;
@@ -291,4 +296,156 @@ export async function applyTriageLabel(
 /** Map Gmail label name back to a TriageCategory, or undefined if unrelated. */
 export function categoryFromLabelName(name: string): TriageCategory | undefined {
   return NAME_TO_CATEGORY[name];
+}
+
+// ---------------------------------------------------------------------------
+// Self-mail label (issue #285)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dedicated Gmail label for Alfred's OWN outbound mail — the daily briefing and
+ * HIL-approval requests. These ship through Resend (`notify.ts`), re-enter the
+ * connected inbox as ordinary *inbound* mail, and are dropped from triage before
+ * they become a `documents` row (`isSelfAuthored`, #211/#266) so they never
+ * clutter the demanding lanes or feed the next briefing. Dropping them left them
+ * unorganised, though — this label gathers that stream into one place the user
+ * can find (#285) WITHOUT reopening the self-loop: the label is applied on the
+ * same drop path, the message is still never triaged, embedded, or cached as a
+ * sender prior.
+ *
+ * A flat, un-prefixed name keeps it distinct from the numbered triage priority
+ * labels (`1: urgent` … `10: marketing`) and out of that ordered run in the
+ * sidebar. Deliberately NOT part of `AlfredLabelMap.allIds` — that set is the
+ * triage category labels the relabel path strips/swaps between, and self-mail is
+ * never triaged, so the two must not intersect.
+ */
+export const ALFRED_SELF_LABEL_NAME = "Alfred";
+
+/**
+ * Ensure the dedicated self-mail label exists and return its id, cached on
+ * `integrationCredentials.metadata.alfredSelfLabel`. Mirrors `ensureAlfredLabels`:
+ * cache-first, race-safe create (recover the id on a 409), and re-creatable if the
+ * user deleted it out of band (call with `force` to rebuild a stale cache).
+ */
+export async function ensureAlfredSelfLabel(
+  credentialId: string,
+  opts: { force?: boolean; accessToken?: string } = {},
+): Promise<string> {
+  if (!opts.force) {
+    const cached = await loadCachedSelfLabel(credentialId);
+    if (cached) return cached;
+  }
+
+  const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
+  let id = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+  if (!id) {
+    try {
+      const created = await createLabel({ accessToken, name: ALFRED_SELF_LABEL_NAME });
+      id = created.id;
+    } catch (err) {
+      const recovered = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+      if (recovered) {
+        id = recovered;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  await persistCachedSelfLabel(credentialId, id);
+  return id;
+}
+
+async function loadCachedSelfLabel(credentialId: string): Promise<string | null> {
+  const rows = await db()
+    .select({ metadata: integrationCredentials.metadata })
+    .from(integrationCredentials)
+    .where(eq(integrationCredentials.id, credentialId));
+  const meta = (rows[0]?.metadata as CredentialMetadataShape | null) ?? {};
+  return meta.alfredSelfLabel?.id ?? null;
+}
+
+async function persistCachedSelfLabel(credentialId: string, id: string): Promise<void> {
+  // jsonb_set the single key so we don't clobber `alfredLabels` / watch state
+  // stored in the same metadata blob.
+  const value = JSON.stringify({
+    id,
+    name: ALFRED_SELF_LABEL_NAME,
+    cachedAt: new Date().toISOString(),
+  });
+  await db()
+    .update(integrationCredentials)
+    .set({
+      metadata: sql`jsonb_set(coalesce(${integrationCredentials.metadata}, '{}'::jsonb), '{alfredSelfLabel}', ${value}::jsonb, true)`,
+    })
+    .where(eq(integrationCredentials.id, credentialId));
+}
+
+/**
+ * Injectable Gmail collaborators for `labelSelfAuthoredMail`. Defaults hit the
+ * real API; tests supply fakes (same DI seam as `reconcileThreadLabel`) so the
+ * skip / retry logic is exercised without a live mailbox.
+ */
+export interface LabelSelfMailDeps {
+  ensureLabel: (args: {
+    credentialId: string;
+    accessToken: string;
+    force?: boolean;
+  }) => Promise<string>;
+  addLabel: (args: { accessToken: string; messageId: string; labelId: string }) => Promise<void>;
+}
+
+const defaultLabelSelfMailDeps: LabelSelfMailDeps = {
+  ensureLabel: ({ credentialId, accessToken, force }) =>
+    ensureAlfredSelfLabel(credentialId, { accessToken, force }),
+  addLabel: async ({ accessToken, messageId, labelId }) => {
+    await modifyMessageLabels({ accessToken, messageId, addLabelIds: [labelId] });
+  },
+};
+
+export interface LabelSelfAuthoredMailArgs {
+  credentialId: string;
+  /** Gmail message id of the self-authored message (labels apply per-message). */
+  messageId: string;
+  accessToken: string;
+  /**
+   * The message's current Gmail `labelIds`. When the self-label is already
+   * present we skip the modify round-trip — the realtime poll re-lists self-mail
+   * on every 5-min window (it never becomes a `documents` row, so the known-id
+   * pre-filter can't drop it), and this guard keeps that churn off Gmail.
+   */
+  currentLabelIds?: readonly string[];
+}
+
+/**
+ * Apply the dedicated Alfred self-mail label to one self-authored message (#285).
+ *
+ * Idempotent and self-healing: skips the write when the label is already on the
+ * message, and if the cached label id is stale (the user deleted the label → the
+ * modify 404s) it rebuilds the label with `force` and retries once. Returns
+ * whether a write actually landed plus the resolved label id.
+ */
+export async function labelSelfAuthoredMail(
+  args: LabelSelfAuthoredMailArgs,
+  deps: LabelSelfMailDeps = defaultLabelSelfMailDeps,
+): Promise<{ labeled: boolean; labelId: string }> {
+  const { credentialId, messageId, accessToken } = args;
+  let labelId = await deps.ensureLabel({ credentialId, accessToken });
+
+  if (args.currentLabelIds?.includes(labelId)) {
+    return { labeled: false, labelId };
+  }
+
+  try {
+    await deps.addLabel({ accessToken, messageId, labelId });
+  } catch (err) {
+    // The cached id may be stale (label deleted out of band). Rebuild from the
+    // live label list and retry once; a second failure bubbles to the caller,
+    // which treats self-mail labelling as best-effort.
+    if (!isHttpError(err) || err.status !== 404) throw err;
+    labelId = await deps.ensureLabel({ credentialId, accessToken, force: true });
+    await deps.addLabel({ accessToken, messageId, labelId });
+  }
+
+  return { labeled: true, labelId };
 }
