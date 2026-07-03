@@ -203,10 +203,48 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "awaiting_reply");
   });
 
-  test("leaves action_needed untouched — a group/service CAN assign a real action (ADR-0066)", () => {
+  test("demotes action_needed → fyi for a passive collaboration state transition", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "action_needed",
+        todoSuggestion: { name: "Move the task forward" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      serviceKind,
+      "dvd set the status to: 10 web\nchanged status\n07 merged\n10 web",
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(r.classification.todoSuggestion, null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+  });
+
+  test("leaves assigned action_needed untouched — a group/service CAN assign a real action (ADR-0066)", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
       serviceKind,
+      "Sakshi Jindal assigned task to you\nConservice: Show all CRM fields as options",
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("leaves direct-ask action_needed untouched in collaboration comments", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      "Sanyam commented\npls merge this - https://github.com/OlivAIRepo/autosched-mirror/pull/654",
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("does not treat bare resolved prose as a state transition", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      "fetch-latest-report resolved to a stale report because mixed date formats sorted badly",
     );
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "action_needed");
@@ -563,6 +601,50 @@ describe("classifyEmail", () => {
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.senderKindDemoted, true);
     assert.equal(result.audit.firstPass.category, "awaiting_reply");
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes a ClickUp-shaped status change end-to-end", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "action_needed",
+        confidence: 0.88,
+        todoSuggestion: { name: "Review upload workflow status" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_status",
+          title: "Upload meeting workflow bugs",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n\n" +
+            "dvd set the status to: 10 web\n" +
+            "Upload meeting workflow bugs\n" +
+            "dvd changed status\n" +
+            "07 merged\n" +
+            "10 web\n" +
+            "View task or reply to add a comment",
+          authoredAt: null,
+          metadata: {},
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.92,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_clickup",
+            displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, true);
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });

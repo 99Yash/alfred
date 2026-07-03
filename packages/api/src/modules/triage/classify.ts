@@ -634,14 +634,19 @@ export function applyOverrideFloor(
 export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
+  signalText = "",
 ): { classification: TriageClassification; demoted: boolean } {
   if (
     !senderKind ||
-    classification.category !== "awaiting_reply" ||
-    !senderKindCanDemoteAwaitingReply(senderKind)
+    !senderKindCanDemoteDemand(senderKind) ||
+    !senderKindFloorShouldDemoteCategory(classification.category, signalText)
   ) {
     return { classification, demoted: false };
   }
+  const note =
+    classification.category === "awaiting_reply"
+      ? `${senderKind.kind} sender is not awaiting a reply`
+      : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -649,22 +654,46 @@ export function applySenderKindDemotionFloor(
       todoSuggestion: null,
       todoDecision: {
         outcome: "no_obligation",
-        note: `sender_kind_floor: ${senderKind.kind} sender is not awaiting a reply`,
+        note: `sender_kind_floor: ${note}`,
       },
       rationale: truncateRationale(
         `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
           `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
-          `user's reply — demoted awaiting_reply → fyi (demote, never bury).`,
+          `user's action — demoted ${classification.category} → fyi (demote, never bury).`,
       ),
     },
     demoted: true,
   };
 }
 
-function senderKindCanDemoteAwaitingReply(senderKind: NonNullable<Observations["senderKind"]>) {
+function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
   if (senderKind.kind === "group") return true;
   return senderKind.evidenceCodes.some(
     (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
+  );
+}
+
+function senderKindFloorShouldDemoteCategory(
+  category: TriageClassification["category"],
+  signalText: string,
+): boolean {
+  if (category === "awaiting_reply") return true;
+  if (category !== "action_needed") return false;
+  return isPassiveCollaborationStateTransition(signalText);
+}
+
+const COLLAB_STATE_TRANSITION_RE =
+  /\b(?:changed status|set the status to|moved (?:task )?(?:to|from)|marked (?:as )?(?:done|complete|completed|resolved|closed)|status changed|re-?opened|closed task)\b/i;
+const COLLAB_DIRECT_OWNERSHIP_RE =
+  /\b(?:assigned (?:task )?to you|assigned you\b|you were assigned|mentioned you|can you|could you|please|pls\s+merge|review and merge|pick this up)\b/i;
+const COLLAB_INTRINSIC_STAKE_RE =
+  /\b(?:payment failed|card declined|invoice due|past due|access (?:will be )?(?:disabled|suspended|lost)|security|compromis|exposed|leaked|secret|token|api[ -]?key|private key|production outage|prod outage|blocked deploy|critical)\b/i;
+
+function isPassiveCollaborationStateTransition(signalText: string): boolean {
+  return (
+    COLLAB_STATE_TRANSITION_RE.test(signalText) &&
+    !COLLAB_DIRECT_OWNERSHIP_RE.test(signalText) &&
+    !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
   );
 }
 
@@ -927,6 +956,7 @@ export async function classifyEmail(
   const kindFloor = applySenderKindDemotionFloor(
     floorResult.classification,
     args.observations.senderKind,
+    signalText,
   );
   const classification = kindFloor.classification;
 
