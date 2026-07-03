@@ -1,10 +1,13 @@
 # User-model P1 Gmail shadow
 
-**Status:** PRs A-I built and on `main` (classifier, kind fold, projection
-script, live observation capture, triage consumer override). **First activation
-still pending** (manual) — see the
+**Status:** PRs A-J built (classifier, kind fold, projection script, live
+observation capture, triage consumer override, and the scheduled re-fold sweep +
+frozen-logic gate). **First activation still pending** (manual) — see the
 [activation runbook](../reference/user-model-gmail-projection-activation.md).
-PR J (scheduled re-fold) not built.
+PR J's daily sweep only re-folds users who ALREADY have an active projection and
+auto-activates only when the classifier logic is frozen (recompute at the active
+watermark matches the active checksum); on drift it blocks for manual
+re-validation. It never performs the first activation.
 **Epic:** #218 evolving user-model spine.
 **Parent:** ADR-0067 / [multi-source-user-model-v1.md](./multi-source-user-model-v1.md).
 

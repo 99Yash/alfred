@@ -178,14 +178,25 @@ Completed runs are immutable (their checksum is what cutover trusts). To
 re-project after a classifier change, **bump `--projection-version`** and repeat
 from Step 2; never re-run a completed version.
 
-## Re-fold policy (PR J — scheduled re-fold, not yet built)
+## Re-fold policy (PR J — scheduled re-fold, built)
 
-- **First activation is manual** (this runbook).
-- A scheduled re-fold (PR J) may **auto-activate** a new run only when the
-  classifier logic is frozen and the determinism check passes; on checksum
-  divergence it must **fail the run instead of activating**. A classifier-logic
-  change requires a manual re-validation pass (Steps 1–5) — auto-activation is
-  for frozen-logic refreshes over new observations only.
+- **First activation is manual** (this runbook). The scheduled sweep only ever
+  re-folds users who ALREADY have an active projection; it never performs the
+  first activation (no active pointer → no-op).
+- Once a user is activated, a daily sweep
+  (`user_model.gmail_kind_refold_sweep`) and the live-capture path both route
+  through `refoldActiveGmailKindProjection`, which **auto-activates a fresh
+  version only when the classifier logic is frozen**: it recomputes the fold at
+  the active run's own watermark and requires the result to match the active
+  run's stored checksum. If it diverges (a classifier-logic change, or
+  non-determinism), the refold is **BLOCKED** — the active pointer is left
+  untouched and a `logic-drift` line is logged. A classifier-logic change then
+  requires a manual re-validation + re-activation (Steps 1–5, bumping
+  `--projection-version`).
+- Known safe-fail: connecting/disconnecting a Google account changes the fold's
+  self-exclusion set, which can also trip the drift gate even with frozen logic.
+  That fails closed (blocks auto-activation until a manual re-activation) — the
+  safe direction.
 
 ## Reference
 
@@ -196,4 +207,8 @@ from Step 2; never re-run a completed version.
 - Fold: `packages/api/src/modules/user-model/gmail-kind-fold.ts`.
 - Lifecycle writers (start/complete/activate + guards): `packages/api/src/modules/user-model/projection.ts`.
 - Consumer: `packages/api/src/modules/triage/sender-kind.ts`.
-- Local gate test: `packages/api/test/user-model/gmail-kind-projection-gates.test.ts`.
+- Scheduled re-fold + frozen-logic gate (PR J): `packages/api/src/modules/user-model/refold.ts`
+  (sweep registered in `packages/api/src/modules/integrations/repeatable.ts`).
+- Local gate tests: `packages/api/test/user-model/gmail-kind-projection-gates.test.ts`
+  (activation gates) and `packages/api/test/user-model/gmail-kind-refold.test.ts`
+  (re-fold frozen-logic gate).
