@@ -3,7 +3,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node ./scripts/sentry-release.mjs",
     "check-types": "tsc -b",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "start": "node --env-file=.env --import ./dist/instrument.js dist/index.js",
@@ -34,6 +34,7 @@
     "@ai-sdk/anthropic": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@alfred/config": "workspace:*",
+    "@sentry/cli": "^3.6.0",
     "@types/node": "catalog:",
     "@types/react": "^19.0.0",
     "ai": "catalog:",

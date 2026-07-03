@@ -30,6 +30,9 @@ export default defineConfig({
   format: "esm",
   outDir: "./dist",
   clean: true,
+  // Emit source maps so `sentry-cli` can unminify prod stack traces. The build
+  // script injects debug IDs into these and uploads them (scripts/sentry-release.mjs).
+  sourcemap: true,
   noExternal: [/@alfred\/.*/],
   // jsdom (pulled in by isomorphic-dompurify, which @alfred/api uses for
   // sanitizing Gmail HTML bodies) is CommonJS. Bundling it into the
