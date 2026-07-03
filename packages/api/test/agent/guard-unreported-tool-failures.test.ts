@@ -181,7 +181,10 @@ describe("guardUnreportedToolFailures", () => {
     });
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
-    assert.ok(result, "a malformed write with no later success can still produce false-success text");
+    assert.ok(
+      result,
+      "a malformed write with no later success can still produce false-success text",
+    );
     assert.equal(result.kind, "next");
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
   });

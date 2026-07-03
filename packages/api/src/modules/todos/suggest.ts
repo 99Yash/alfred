@@ -1,4 +1,9 @@
-import { boundTodoSources, mergeTodoSources, todoSourceKey, type TodoSource } from "@alfred/contracts";
+import {
+  boundTodoSources,
+  mergeTodoSources,
+  todoSourceKey,
+  type TodoSource,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { todos } from "@alfred/db/schemas";
 import { and, eq, gte, inArray, or, sql } from "drizzle-orm";

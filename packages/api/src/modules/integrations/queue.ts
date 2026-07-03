@@ -1,5 +1,10 @@
 import { Queue, Worker, type Job } from "bullmq";
-import { mapConcurrent, runTaskGroup, toMessage, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
+import {
+  mapConcurrent,
+  runTaskGroup,
+  toMessage,
+  USER_MODEL_PROJECTION_NAME,
+} from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
   findExpiringGmailWatches,
@@ -566,7 +571,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       for (const uid of userIds) {
         await enqueueGmailKindRefold(uid);
       }
-      console.log(`[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`);
+      console.log(
+        `[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`,
+      );
       return { enqueued: userIds.length };
     }
     case "triage.relabel": {
